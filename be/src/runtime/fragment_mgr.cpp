@@ -627,7 +627,8 @@ std::string FragmentMgr::dump_pipeline_tasks(TUniqueId& query_id) {
 
 Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
                                        QuerySource query_source, const FinishCallback& cb,
-                                       const TPipelineFragmentParamsList& parent) {
+                                       const TPipelineFragmentParamsList& parent,
+                                       std::shared_ptr<bool> is_prepare_success) {
     VLOG_ROW << "exec_plan_fragment " << print_fragment_params_summary(params);
 
     std::shared_ptr<QueryContext> query_ctx;
@@ -695,6 +696,9 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
     query_ctx->set_pipeline_context(params.fragment_id, context);
 
     RETURN_IF_ERROR(context->submit());
+    if (is_prepare_success != nullptr) {
+        *is_prepare_success = true;
+    }
     return Status::OK();
 }
 

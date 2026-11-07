@@ -732,7 +732,8 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     }
 
     public Optional<Runnable> beginTableMetadataRefresh() {
-        return metaCache == null ? Optional.empty() : Optional.of(metaCache.beginMetadataRefresh());
+        extCatalog.beginTableLookupRefresh();
+        return Optional.of(extCatalog::endTableLookupRefresh);
     }
 
     /** A missing result is authorized only against the retained DB, names and object generations. */
@@ -746,6 +747,12 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         // Observation must not initialize a retired catalog before a pinned local schema read.
         TableMetadataLoadEpoch retainedEpoch = metadataLoadEpoch.get();
         if (!extCatalog.isMetadataLoadEpochCurrent(retainedEpoch.catalogEpoch)) {
+            return Optional.empty();
+        }
+        // A retired pinned read must not wait for replacement catalog initialization merely
+        // to discover it cannot repair lookup state. Only eligible reads need this monitor.
+        OptionalLong refreshGeneration = extCatalog.observeTableLookupRefreshGeneration();
+        if (!refreshGeneration.isPresent()) {
             return Optional.empty();
         }
         long epoch = retainedEpoch.value;
@@ -764,7 +771,8 @@ public abstract class ExternalDatabase<T extends ExternalTable>
             extCatalog.executeIfDatabaseCurrent(this, () -> {
                 synchronized (extCatalog) {
                     synchronized (this) {
-                        if (!initialized || metaCache != cache || !isTableMetadataLoadEpochCurrent(epoch)
+                        if (extCatalog.getTableLookupRefreshGeneration() != refreshGeneration.getAsLong()
+                                || !initialized || metaCache != cache || !isTableMetadataLoadEpochCurrent(epoch)
                                 || Env.getCurrentEnv().getCatalogMgr().getCatalog(extCatalog.getId()) != extCatalog) {
                             return false;
                         }

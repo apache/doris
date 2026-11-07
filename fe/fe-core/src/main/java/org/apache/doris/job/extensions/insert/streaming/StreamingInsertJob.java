@@ -77,6 +77,7 @@ import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.system.Backend;
+import org.apache.doris.tablefunction.CdcStreamTableValuedFunction;
 import org.apache.doris.tablefunction.S3TableValuedFunction;
 import org.apache.doris.thrift.TCell;
 import org.apache.doris.thrift.TRow;
@@ -85,6 +86,7 @@ import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TxnStateChangeCallback;
 
 import com.google.common.base.Preconditions;
+import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import com.google.gson.annotations.SerializedName;
 import lombok.Getter;
@@ -113,6 +115,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, Map<Object, Object>> implements
         TxnStateChangeCallback, GsonPostProcessable {
     public static final String JOB_FILE_CATALOG = "streaming_job";
+    private static final Gson ERROR_MSG_GSON = GsonUtils.GSON.newBuilder().disableHtmlEscaping().create();
     private long dbId;
     // Streaming job statistics, all persisted in txn attachment
     // when checkpoint image replay need Serialized
@@ -264,6 +267,8 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         try {
             init();
             checkRequiredSourceProperties();
+            StreamingJobUtils.checkCdcDriverPrivilege(ConnectContext.get(),
+                    sourceProperties.get(DataSourceConfigKeys.DRIVER_URL));
             DataSourceConfigValidator.validateSourceBeforeTableCreation(
                     dataSourceType, sourceProperties);
             List<String> createTbls = createTableIfNotExists();
@@ -421,9 +426,13 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     private void initInsertJob() {
         try {
             init();
+            ConnectContext ctx = ConnectContext.get();
             UnboundTVFRelation currentTvf = getCurrentTvf();
             this.tvfType = currentTvf.getFunctionName();
             this.originTvfProps = currentTvf.getProperties().getMap();
+            if (CdcStreamTableValuedFunction.NAME.equalsIgnoreCase(tvfType)) {
+                StreamingJobUtils.checkCdcDriverPrivilege(ctx, originTvfProps.get(DataSourceConfigKeys.DRIVER_URL));
+            }
             this.offsetProvider = createOffsetProvider(sourceProperties);
             this.offsetProvider.ensureInitialized(getJobId(), originTvfProps);
             // cdc_stream TVF has TABLE; S3 TVF doesn't, so syncTables stays null there.
@@ -481,9 +490,18 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     public void initLogicalPlan(boolean regen) {
         if (regen || baseCommand == null) {
             this.baseCommand = null;
-            makeConnectContext();
-            LogicalPlan logicalPlan = new NereidsParser().parseSingle(getExecuteSql());
-            this.baseCommand = (InsertIntoTableCommand) logicalPlan;
+            ConnectContext previousContext = ConnectContext.get();
+            try {
+                makeConnectContext();
+                LogicalPlan logicalPlan = new NereidsParser().parseSingle(getExecuteSql());
+                this.baseCommand = (InsertIntoTableCommand) logicalPlan;
+            } finally {
+                // Subsequent privilege checks must retain the caller's identity and session roles.
+                ConnectContext.remove();
+                if (previousContext != null) {
+                    previousContext.setThreadLocalInfo();
+                }
+            }
         }
     }
 
@@ -1257,7 +1275,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         // returning the plain FailMsg.msg string — they use a different error taxonomy
         // (FailMsg/CancelType) that is out of scope for this PR.
         trow.addToColumnValue(new TCell().setStringVal(failureReason == null
-                ? "" : GsonUtils.GSON.toJson(failureReason)));
+                ? "" : ERROR_MSG_GSON.toJson(failureReason)));
         trow.addToColumnValue(new TCell().setStringVal(jobRuntimeMsg == null
                 ? "" : jobRuntimeMsg));
         trow.addToColumnValue(new TCell().setStringVal(getLag()));

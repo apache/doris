@@ -33,6 +33,7 @@ import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -41,8 +42,274 @@ import java.util.concurrent.atomic.AtomicReference;
 
 class ExternalLookupRefreshTest {
     @Test
+    void uninitializedPinnedReadDoesNotWaitForCatalogInitialization() throws Exception {
+        verifyIneligiblePinnedReadDoesNotWait(0);
+    }
+
+    @Test
+    void uncachedPinnedReadDoesNotWaitForCatalogInitialization() throws Exception {
+        verifyIneligiblePinnedReadDoesNotWait(1);
+    }
+
+    @Test
+    void retiredEpochPinnedReadDoesNotWaitForCatalogInitialization() throws Exception {
+        verifyIneligiblePinnedReadDoesNotWait(2);
+    }
+
+    @Test
+    void sessionBypassPinnedReadDoesNotWaitForCatalogInitialization() throws Exception {
+        verifyIneligiblePinnedReadDoesNotWait(3);
+    }
+
+    private void verifyIneligiblePinnedReadDoesNotWait(int state) throws Exception {
+        ExternalCatalog catalog = lookupRefreshCatalog();
+        ExternalDatabase<?> database = lookupDatabase(catalog);
+        if (state == 0) {
+            Deencapsulation.setField(database, "initialized", false);
+        } else if (state == 1) {
+            Deencapsulation.setField(database, "metaCache", null);
+        } else if (state == 2) {
+            Mockito.when(catalog.isMetadataLoadEpochCurrent(Mockito.anyLong())).thenReturn(false);
+        } else {
+            Mockito.when(catalog.shouldBypassTableNameCache(Mockito.any())).thenReturn(true);
+        }
+        ExternalTable table = new ExternalTable();
+        table.setDb(database);
+        java.util.concurrent.CountDownLatch initializing = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.CountDownLatch finishInitialization = new java.util.concurrent.CountDownLatch(1);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        java.util.concurrent.Future<?> initializer = executor.submit(() -> {
+            synchronized (catalog) {
+                initializing.countDown();
+                Assertions.assertTrue(finishInitialization.await(10, java.util.concurrent.TimeUnit.SECONDS));
+            }
+            return null;
+        });
+        try {
+            Assertions.assertTrue(initializing.await(10, java.util.concurrent.TimeUnit.SECONDS));
+            // Pinned schema projection needs neither the replacement runtime nor a cleanup
+            // observation on this retired DB. It must finish while initialization is still blocked.
+            java.util.concurrent.Future<String> read = executor.submit(
+                    () -> table.withMissingTableRepair(() -> "pinned schema"));
+            Assertions.assertEquals("pinned schema", read.get(2, java.util.concurrent.TimeUnit.SECONDS));
+        } finally {
+            finishInitialization.countDown();
+            try {
+                initializer.get(10, java.util.concurrent.TimeUnit.SECONDS);
+            } finally {
+                executor.shutdownNow();
+            }
+        }
+        Mockito.verify(catalog, Mockito.never()).observeTableLookupRefreshGeneration();
+    }
+
+    @Test
+    void missingReadStartedDuringRefreshCannotRetireReplacementAfterRefreshFinishes() {
+        ExternalCatalog catalog = lookupRefreshCatalog();
+        Runnable finished = lookupDatabase(catalog).beginTableMetadataRefresh().get();
+        ExternalDatabase<?> replacement = lookupDatabase(catalog);
+        ExternalTable table = new ExternalTable();
+        table.name = "t";
+        table.setDb(replacement);
+        table.setRemoteName("t");
+        @SuppressWarnings("unchecked")
+        MetaCache<ExternalTable> cache = Deencapsulation.getField(replacement, "metaCache");
+        AtomicInteger repairs = new AtomicInteger();
+        Mockito.doReturn(Optional.of((Runnable) repairs::incrementAndGet)).when(cache).observeLookup(
+                Mockito.eq("t"), Mockito.eq("t"), Mockito.same(table), Mockito.eq(false), Mockito.any());
+        Mockito.doAnswer(call -> ((java.util.function.BooleanSupplier) call.getArgument(1)).getAsBoolean())
+                .when(catalog).executeIfDatabaseCurrent(Mockito.same(replacement), Mockito.any());
+        Env env = Mockito.mock(Env.class);
+        CatalogMgr manager = Mockito.mock(CatalogMgr.class);
+        Mockito.when(env.getCatalogMgr()).thenReturn(manager);
+        Mockito.doReturn(catalog).when(manager).getCatalog(0L);
+        RuntimeException missing = new org.apache.iceberg.exceptions.NoSuchTableException("old query missed t");
+        try (MockedStatic<Env> mocked = Mockito.mockStatic(Env.class)) {
+            mocked.when(Env::getCurrentEnv).thenReturn(env);
+            Assertions.assertSame(missing, Assertions.assertThrows(RuntimeException.class,
+                    () -> table.withMissingTableRepair(() -> {
+                        // The remote response arrives after the refresh has finished. This query
+                        // began on an object admitted while the old database was being refreshed.
+                        finished.run();
+                        throw missing;
+                    })));
+            Assertions.assertEquals(0, repairs.get());
+            Assertions.assertSame(missing, Assertions.assertThrows(RuntimeException.class,
+                    () -> table.withMissingTableRepair(() -> {
+                        throw missing;
+                    })));
+            Assertions.assertEquals(1, repairs.get());
+        }
+    }
+
+    @Test
+    void refreshCommandsEventsAndReplayFenceColdDatabaseResolution() throws Exception {
+        for (int route = 0; route < 6; route++) {
+            ExternalCatalog catalog = lookupRefreshCatalog();
+            CatalogMgr manager = Mockito.mock(CatalogMgr.class);
+            Mockito.doReturn(catalog).when(manager).getCatalog("catalog");
+            Mockito.doReturn(catalog).when(manager).getCatalog(0L);
+            Env env = Mockito.mock(Env.class);
+            Mockito.when(env.getCatalogMgr()).thenReturn(manager);
+            ExternalMetaCacheMgr caches = Mockito.mock(ExternalMetaCacheMgr.class);
+            Mockito.when(env.getExtMetaCacheMgr()).thenReturn(caches);
+            org.mockito.stubbing.Answer<Object> duringResolution = call -> {
+                Assertions.assertFalse(Thread.holdsLock(catalog));
+                Assertions.assertFalse(catalog.observeTableLookupRefreshGeneration().isPresent());
+                // Neither normal cache eviction nor the cold-cache path can reset the root fence.
+                Assertions.assertFalse(lookupDatabase(catalog).observeTableLookup(new ExternalTable()).isPresent());
+                throw new IllegalStateException("database resolution failed");
+            };
+            Mockito.doAnswer(duringResolution).when(catalog).getDbNullable("db");
+            Mockito.doAnswer(duringResolution).when(catalog).getDbOrDdlException("db");
+            Mockito.doAnswer(duringResolution).when(catalog).getDbForReplay("db");
+            RefreshManager refresh = new RefreshManager();
+            final int selected = route;
+            org.junit.jupiter.api.function.Executable run = () -> {
+                switch (selected) {
+                    case 0:
+                        refresh.handleRefreshDb("catalog", "db");
+                        break;
+                    case 1:
+                        refresh.handleRefreshTable("catalog", "db", "t", false);
+                        break;
+                    case 2:
+                        refresh.refreshExternalTableFromEvent("catalog", "db", "t", 1L);
+                        break;
+                    case 3:
+                        refresh.refreshPartitions("catalog", "db", "t", java.util.Collections.emptyList(), 1L, true);
+                        break;
+                    case 4:
+                        refresh.replayRefreshDb(ExternalObjectLog.createForRefreshDb(catalog.getId(), "db"));
+                        break;
+                    default:
+                        refresh.replayRefreshTable(ExternalObjectLog.createForRefreshTable(
+                                catalog.getId(), "db", "t", 1L, true));
+                        break;
+                }
+            };
+            try (MockedStatic<Env> mocked = Mockito.mockStatic(Env.class)) {
+                mocked.when(Env::getCurrentEnv).thenReturn(env);
+                if (route < 4) {
+                    Assertions.assertThrows(IllegalStateException.class, run);
+                } else {
+                    Assertions.assertDoesNotThrow(run);
+                }
+                Assertions.assertTrue(catalog.observeTableLookupRefreshGeneration().isPresent());
+                Assertions.assertEquals(2, catalog.getTableLookupRefreshGeneration());
+            }
+        }
+    }
+
+    @Test
+    void catalogRefreshProtectsReplacementDatabaseAndOverlappingIntervals() {
+        ExternalCatalog catalog = lookupRefreshCatalog();
+        ExternalDatabase<?> oldDatabase = lookupDatabase(catalog);
+        Runnable finishFirst = oldDatabase.beginTableMetadataRefresh().get();
+        // Normal object-cache eviction admits a replacement with a new MetaCache. It must still
+        // inherit the catalog's active refresh interval instead of authorizing a delayed absence.
+        ExternalDatabase<?> replacement = lookupDatabase(catalog);
+        ExternalTable table = Mockito.mock(ExternalTable.class);
+        Assertions.assertFalse(replacement.observeTableLookup(table).isPresent());
+        Runnable finishSecond = replacement.beginTableMetadataRefresh().get();
+        finishFirst.run();
+        Assertions.assertFalse(catalog.observeTableLookupRefreshGeneration().isPresent());
+        Assertions.assertFalse(replacement.observeTableLookup(table).isPresent());
+        finishSecond.run();
+        Assertions.assertTrue(catalog.observeTableLookupRefreshGeneration().isPresent());
+        Assertions.assertEquals(4, catalog.getTableLookupRefreshGeneration());
+    }
+
+    @Test
+    void oldMissingResultCannotCleanRecreatedTableAfterRefresh() {
+        ExternalCatalog catalog = lookupRefreshCatalog();
+        ExternalDatabase<?> database = lookupDatabase(catalog);
+        ExternalTable table = Mockito.mock(ExternalTable.class);
+        Mockito.when(table.getName()).thenReturn("t");
+        Mockito.when(table.getRemoteName()).thenReturn("t");
+        @SuppressWarnings("unchecked")
+        MetaCache<ExternalTable> cache = Deencapsulation.getField(database, "metaCache");
+        AtomicInteger repairs = new AtomicInteger();
+        Mockito.doReturn(Optional.of((Runnable) repairs::incrementAndGet)).when(cache).observeLookup(
+                Mockito.eq("t"), Mockito.eq("t"), Mockito.same(table), Mockito.eq(false), Mockito.any());
+        Mockito.doAnswer(call -> ((java.util.function.BooleanSupplier) call.getArgument(1)).getAsBoolean())
+                .when(catalog).executeIfDatabaseCurrent(Mockito.same(database), Mockito.any());
+        Env env = Mockito.mock(Env.class);
+        CatalogMgr manager = Mockito.mock(CatalogMgr.class);
+        Mockito.when(env.getCatalogMgr()).thenReturn(manager);
+        Mockito.doReturn(catalog).when(manager).getCatalog(0L);
+        try (MockedStatic<Env> mocked = Mockito.mockStatic(Env.class)) {
+            mocked.when(Env::getCurrentEnv).thenReturn(env);
+            Runnable oldMissing = database.observeTableLookup(table).get();
+            catalog.beginTableLookupRefresh();
+            Assertions.assertFalse(database.observeTableLookup(table).isPresent());
+            catalog.endTableLookupRefresh();
+            oldMissing.run();
+            Assertions.assertEquals(0, repairs.get());
+            // A new observation remains eligible, so refresh does not permanently disable repair.
+            database.observeTableLookup(table).get().run();
+            Assertions.assertEquals(1, repairs.get());
+        }
+    }
+
+    @Test
+    void catalogRefreshAndTruncateReplayReleaseGuardOnFailure() {
+        ExternalCatalog catalog = lookupRefreshCatalog();
+        ExternalMetaCacheMgr caches = Mockito.mock(ExternalMetaCacheMgr.class);
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getExtMetaCacheMgr()).thenReturn(caches);
+        Mockito.doCallRealMethod().when(catalog).onRefreshCache(Mockito.anyBoolean());
+        Mockito.doAnswer(call -> {
+            Assertions.assertFalse(Thread.holdsLock(catalog));
+            Assertions.assertFalse(catalog.observeTableLookupRefreshGeneration().isPresent());
+            Assertions.assertFalse(lookupDatabase(catalog).observeTableLookup(new ExternalTable()).isPresent());
+            throw new IllegalStateException("invalidation failed");
+        }).when(caches).invalidateCatalog(0L);
+        try (MockedStatic<Env> mocked = Mockito.mockStatic(Env.class)) {
+            mocked.when(Env::getCurrentEnv).thenReturn(env);
+            Assertions.assertThrows(IllegalStateException.class, () -> catalog.onRefreshCache(true));
+            Assertions.assertTrue(catalog.observeTableLookupRefreshGeneration().isPresent());
+            catalog.onRefreshCache(false);
+            Assertions.assertTrue(catalog.observeTableLookupRefreshGeneration().isPresent());
+        }
+        org.apache.doris.datasource.operations.ExternalMetadataOps ops =
+                Mockito.mock(org.apache.doris.datasource.operations.ExternalMetadataOps.class);
+        Deencapsulation.setField(catalog, "metadataOps", ops);
+        Mockito.doCallRealMethod().when(catalog).replayTruncateTable(Mockito.any());
+        Mockito.doAnswer(call -> {
+            Assertions.assertFalse(catalog.observeTableLookupRefreshGeneration().isPresent());
+            throw new IllegalStateException("truncate invalidation failed");
+        }).when(ops).afterTruncateTable(Mockito.anyString(), Mockito.anyString(), Mockito.anyLong());
+        org.apache.doris.persist.TruncateTableInfo info = Mockito.mock(
+                org.apache.doris.persist.TruncateTableInfo.class);
+        Mockito.when(info.getDb()).thenReturn("db");
+        Mockito.when(info.getTable()).thenReturn("t");
+        Assertions.assertThrows(IllegalStateException.class, () -> catalog.replayTruncateTable(info));
+        Assertions.assertTrue(catalog.observeTableLookupRefreshGeneration().isPresent());
+    }
+
+    private ExternalCatalog lookupRefreshCatalog() {
+        ExternalCatalog catalog = Mockito.mock(ExternalCatalog.class);
+        Mockito.doCallRealMethod().when(catalog).beginTableLookupRefresh();
+        Mockito.doCallRealMethod().when(catalog).endTableLookupRefresh();
+        Mockito.when(catalog.observeTableLookupRefreshGeneration()).thenCallRealMethod();
+        Mockito.when(catalog.getTableLookupRefreshGeneration()).thenCallRealMethod();
+        Mockito.when(catalog.isMetadataLoadEpochCurrent(Mockito.anyLong())).thenReturn(true);
+        return catalog;
+    }
+
+    private ExternalDatabase<?> lookupDatabase(ExternalCatalog catalog) {
+        ExternalDatabase<?> database = new org.apache.doris.datasource.test.TestExternalDatabase(
+                catalog, 1L, "db", "db");
+        Deencapsulation.setField(database, "metaCache", Mockito.mock(MetaCache.class));
+        Deencapsulation.setField(database, "initialized", true);
+        return database;
+    }
+
+    @Test
     void sessionBypassDoesNotObserveSharedLookup() {
         ExternalCatalog catalog = Mockito.mock(ExternalCatalog.class);
+        Mockito.when(catalog.observeTableLookupRefreshGeneration()).thenReturn(OptionalLong.of(0));
         Mockito.when(catalog.shouldBypassTableNameCache(Mockito.any())).thenReturn(true);
         ExternalDatabase<?> database = Mockito.mock(ExternalDatabase.class, Mockito.CALLS_REAL_METHODS);
         MetaCache<?> cache = Mockito.mock(MetaCache.class);
@@ -108,6 +375,7 @@ class ExternalLookupRefreshTest {
         Deencapsulation.setField(database, "metaCache", cache);
         Deencapsulation.setField(database, "initialized", true);
         Mockito.when(catalog.isMetadataLoadEpochCurrent(Mockito.anyLong())).thenReturn(true);
+        Mockito.when(catalog.observeTableLookupRefreshGeneration()).thenReturn(OptionalLong.of(0));
         Mockito.doReturn(Optional.of((Runnable) () -> { })).when(cache).observeLookup(
                 Mockito.eq("t"), Mockito.eq("t"), Mockito.same(table), Mockito.eq(false), Mockito.any());
         Mockito.doAnswer(call -> {

@@ -28,6 +28,7 @@
 #include <parquet/type_fwd.h>
 #include <parquet/types.h>
 
+#include <algorithm>
 #include <ctime>
 #include <exception>
 #include <ostream>
@@ -50,6 +51,7 @@ namespace doris {
 #include "common/compile_check_begin.h"
 
 namespace {
+constexpr int64_t HADOOP_LZ4_DEFAULT_BUFFER_SIZE = 256 * 1024;
 
 arrow::MemoryPool* get_arrow_memory_pool() {
     auto* pool = ExecEnv::GetInstance()->arrow_memory_pool();
@@ -152,7 +154,6 @@ void ParquetBuildHelper::build_compression_type(
         break;
     }
     case TParquetCompressionType::LZ4_HADOOP: {
-        constexpr int64_t HADOOP_LZ4_DEFAULT_BUFFER_SIZE = 256 * 1024;
         // Hadoop-framed LZ4 -> Parquet thrift codec "LZ4" (deprecated). This matches what
         // Spark/Iceberg writes for `write.parquet.compression-codec=lz4`. Arrow 17 emits one
         // Hadoop LZ4 block per Parquet page/dictionary page, while Hadoop JVM readers default to
@@ -224,6 +225,20 @@ Status VParquetWriter::_parse_properties() {
         ::parquet::WriterProperties::Builder builder;
         ParquetBuildHelper::build_compression_type(builder, _parquet_options.compression_type);
         ParquetBuildHelper::build_version(builder, _parquet_options.parquet_version);
+        const auto& query_options = _state->query_options();
+        // Preserve the current enabled default explicitly, including when older FEs omit the field.
+        if (query_options.enable_parquet_write_page_index) {
+            builder.enable_write_page_index();
+        } else {
+            builder.disable_write_page_index();
+        }
+        int64_t page_size = query_options.parquet_write_data_page_size;
+        DORIS_CHECK_GT(page_size, 0);
+        // A 1 MiB session target must still respect the 128 KiB Hadoop-framed LZ4 limit.
+        if (_parquet_options.compression_type == TParquetCompressionType::LZ4_HADOOP) {
+            page_size = std::min(page_size, HADOOP_LZ4_DEFAULT_BUFFER_SIZE / 2);
+        }
+        builder.data_pagesize(page_size);
         if (_parquet_options.parquet_disable_dictionary) {
             builder.disable_dictionary();
         } else {

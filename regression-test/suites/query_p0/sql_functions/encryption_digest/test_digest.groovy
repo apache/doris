@@ -43,10 +43,10 @@ suite("test_digest") {
     """
     test {
         sql """ select sha2(k0, k1) from test_digest; """
-        exception "must be a literal"
+        exception "must be a constant"
     }
     test {
         sql """ select sha2('str', k1) from test_digest; """
-        exception "must be a literal"
+        exception "must be a constant"
     }
 }

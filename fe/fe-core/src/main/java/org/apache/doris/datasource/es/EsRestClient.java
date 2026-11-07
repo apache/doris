@@ -120,7 +120,8 @@ public class EsRestClient {
      * Get mapping for indexName.
      */
     public String getMapping(String indexName) throws DorisEsException {
-        String path = indexName + "/_mapping";
+        // Index-level defaults affect whether indexed/docvalue values preserve _source semantics.
+        String path = indexName + "?filter_path=*.mappings,*.settings.index.mapping.*";
         String indexMapping = execute(path);
         if (indexMapping == null) {
             throw new DorisEsException("index[" + indexName + "] not found");

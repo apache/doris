@@ -68,6 +68,10 @@ public class FloatLiteral extends FractionalLiteral {
             return this;
         }
         if (targetType.isDoubleType()) {
+            if (Float.isNaN(value)) {
+                // widening on BE keeps the sign of a NaN, which signbit() can observe
+                return new DoubleLiteral(Math.copySign(Double.NaN, Float.floatToRawIntBits(value) < 0 ? -1.0 : 1.0));
+            }
             return new DoubleLiteral(Double.parseDouble(String.valueOf(value)));
         } else if (targetType.isStringType()) {
             return new StringLiteral(castToString());

@@ -33,6 +33,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.ExternalScanTaskCacheKey;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergWriteSchemaContext;
+import org.apache.doris.datasource.mvcc.EmptyMvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccTable;
 import org.apache.doris.datasource.mvcc.MvccTableInfo;
@@ -60,6 +61,7 @@ import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.TableId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.qe.ConnectContext;
@@ -93,6 +95,7 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -109,6 +112,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.function.ToLongFunction;
+import java.util.stream.Collectors;
 import javax.annotation.concurrent.GuardedBy;
 
 /**
@@ -297,6 +301,8 @@ public class StatementContext implements Closeable {
     private final Map<MvccTableInfo, MvccSnapshot> tableMetadataSnapshots = Maps.newHashMap();
     // Record external tables that can be preloaded before internal table locks are acquired.
     private final Map<Long, ExternalTablePreloadInfo> externalTablePreloadInfos = new LinkedHashMap<>();
+    private final Map<ExternalTable, Map<Optional<MvccSnapshot>, Pair<List<Column>, SelectedPartitions>>>
+            externalPartitionViews = new IdentityHashMap<>();
     private ExternalMetadataPreloadResult externalMetadataPreloadResult;
 
     // Present while analyzing an Iceberg INSERT, UPDATE, or MERGE so DEFAULT(column)
@@ -605,6 +611,43 @@ public class StatementContext implements Closeable {
         } else {
             preloadInfo.markLatestRelation();
         }
+    }
+
+    /**
+     * Capture partition column types before materializing a complete view and validate them afterwards.
+     * A metastore schema change during loading must not relabel old partition keys with the new types.
+     */
+    public SelectedPartitions preloadExternalPartitionView(ExternalTable table, Optional<MvccSnapshot> snapshot) {
+        List<Column> partitionColumns = ImmutableList.copyOf(table.getPartitionColumns(snapshot).stream()
+                .map(Column::new).collect(Collectors.toList()));
+        SelectedPartitions partitions = table.preloadPartitionView(snapshot);
+        com.google.common.base.Preconditions.checkState(
+                partitionColumns.equals(table.getPartitionColumns(snapshot)),
+                "External partition schema changed while preloading: %s", table.getName());
+        externalPartitionViews.computeIfAbsent(table, ignored -> Maps.newHashMap())
+                .put(partitionViewSnapshot(snapshot), Pair.of(partitionColumns, Objects.requireNonNull(partitions)));
+        return partitions;
+    }
+
+    /**
+     * Reuse a complete partition view captured before locking or during MV dependency collection.
+     * Historical aliases must match their snapshot; an EmptyMvccSnapshot carries no version selector.
+     * Reject a changed partition schema rather than pruning old partition keys with new column types.
+     */
+    public Optional<SelectedPartitions> getExternalPartitionView(
+            ExternalTable table, Optional<MvccSnapshot> snapshot) {
+        return Optional.ofNullable(externalPartitionViews.get(table))
+                .map(views -> views.get(partitionViewSnapshot(snapshot)))
+                .map(view -> {
+                    com.google.common.base.Preconditions.checkState(
+                            view.first.equals(table.getPartitionColumns(snapshot)),
+                            "External partition schema changed after preloading: %s", table.getName());
+                    return view.second;
+                });
+    }
+
+    private Optional<MvccSnapshot> partitionViewSnapshot(Optional<MvccSnapshot> snapshot) {
+        return snapshot.filter(value -> !(value instanceof EmptyMvccSnapshot));
     }
 
     public void setOriginStatement(OriginStatement originStatement) {
@@ -1110,6 +1153,7 @@ public class StatementContext implements Closeable {
             releaseStatementResources();
         } finally {
             releasePlannerResources();
+            externalPartitionViews.clear();
         }
     }
 
@@ -1208,6 +1252,7 @@ public class StatementContext implements Closeable {
      * to one EXECUTE only; carrying it forward would make a later commit permanently invisible.
      */
     public void resetMvccSnapshots() {
+        externalPartitionViews.clear();
         injectedSnapshots.clear();
         snapshots.clear();
         latestSnapshots.clear();

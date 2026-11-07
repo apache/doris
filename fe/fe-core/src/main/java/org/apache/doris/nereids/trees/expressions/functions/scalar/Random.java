@@ -81,8 +81,8 @@ public class Random extends UniqueFunction
         // align with original planner behavior, refer to:
         // org/apache/doris/analysis/Expr.getBuiltinFunction()
         for (Expression child : getArguments()) {
-            if (!child.isLiteral()) {
-                throw new AnalysisException("The param of rand function must be literal ");
+            if (!child.isConstant()) {
+                throw new AnalysisException("The param of rand function must be constant ");
             }
         }
     }

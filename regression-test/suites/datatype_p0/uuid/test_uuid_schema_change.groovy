@@ -17,6 +17,11 @@
 
 // Checklist: B05 F17.
 suite("test_uuid_schema_change", "p0") {
+    // TODO: There is a bug that schema-change replay does not invalidate follower SQL caches,
+    // which will cause this test case not stable.
+    // disable sql cache for now to make this test stable,
+    // should remove the following line when the bug is fixed.
+    sql "SET enable_sql_cache = false"
     // Adding a UUID column validates schema-change serialization and default backfill.
     sql "DROP TABLE IF EXISTS uuid_schema_change"
     sql """

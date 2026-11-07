@@ -2430,4 +2430,27 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
                 ImmutableList.of());
     }
 
+    @Test
+    public void testMapContainsArgumentsKeepPayload() throws Exception {
+        for (String expression : ImmutableList.of(
+                "map_contains_key(map_col, c_struct.f1)",
+                "map_contains_value(map_col, c_struct.f1)",
+                "map_contains_entry(map_col, c_struct.f1, c_struct.f3)")) {
+            assertAllAccessPathsContain("select " + expression
+                            + " from str_tbl where c_struct.f1 is null",
+                    ImmutableList.of(path("c_struct", "f1")), ImmutableList.of());
+        }
+    }
+
+    @Test
+    public void testMapContainsNullCheckUsesMapNullPath() throws Exception {
+        for (String expression : ImmutableList.of(
+                "map_contains_key(map_col, 'key')",
+                "map_contains_value(map_col, 'value')",
+                "map_contains_entry(map_col, 'key', 'value')")) {
+            assertAllAccessPathsContain("select " + expression + " is null from str_tbl",
+                    ImmutableList.of(metaPath("map_col", "NULL")), ImmutableList.of());
+        }
+    }
+
 }

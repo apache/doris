@@ -56,6 +56,18 @@ class DoubleLiteralTest {
         f1 = new DoubleLiteral(Double.POSITIVE_INFINITY);
         Assertions.assertTrue(((BooleanLiteral) f1.uncheckedCastTo(BooleanType.INSTANCE)).getValue());
 
+        // nonzero doubles that round to zero when narrowed to float must still be TRUE
+        f1 = new DoubleLiteral(Double.MIN_VALUE);
+        Assertions.assertTrue(((BooleanLiteral) f1.uncheckedCastTo(BooleanType.INSTANCE)).getValue());
+        f1 = new DoubleLiteral(-Double.MIN_VALUE);
+        Assertions.assertTrue(((BooleanLiteral) f1.uncheckedCastTo(BooleanType.INSTANCE)).getValue());
+        f1 = new DoubleLiteral(1e-300);
+        Assertions.assertTrue(((BooleanLiteral) f1.uncheckedCastTo(BooleanType.INSTANCE)).getValue());
+        f1 = new DoubleLiteral(1e-46);
+        Assertions.assertTrue(((BooleanLiteral) f1.uncheckedCastTo(BooleanType.INSTANCE)).getValue());
+        f1 = new DoubleLiteral(5e-324);
+        Assertions.assertTrue(((BooleanLiteral) f1.uncheckedCastTo(BooleanType.INSTANCE)).getValue());
+
         // To integral
         f1 = new DoubleLiteral(12.999);
         Expression expression = f1.uncheckedCastTo(TinyIntType.INSTANCE);
@@ -147,6 +159,16 @@ class DoubleLiteralTest {
         expression = f1.uncheckedCastTo(FloatType.INSTANCE);
         Assertions.assertInstanceOf(FloatLiteral.class, expression);
         Assertions.assertEquals(Float.NEGATIVE_INFINITY, ((FloatLiteral) expression).getValue());
+
+        // narrowing rounds the double once like BE: the midpoint 1 + 2^-24 ties to 1.0, while its
+        // shortest decimal string 1.0000000596046448 lies above the midpoint and would round up
+        f1 = new DoubleLiteral(1 + Math.scalb(1.0, -24));
+        expression = f1.uncheckedCastTo(FloatType.INSTANCE);
+        Assertions.assertEquals(0x3f800000, Float.floatToRawIntBits(((FloatLiteral) expression).getValue()));
+
+        f1 = new DoubleLiteral(Math.copySign(Double.NaN, -1.0));
+        expression = f1.uncheckedCastTo(FloatType.INSTANCE);
+        Assertions.assertEquals(0xffc00000, Float.floatToRawIntBits(((FloatLiteral) expression).getValue()));
 
         // To decimal
         f1 = new DoubleLiteral(234.999);

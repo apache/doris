@@ -112,6 +112,10 @@ final class IcebergCoverageTestFixture implements AutoCloseable {
         }
 
         void beginWrite(WriteContext context) {
+            beginWrite(context, "static");
+        }
+
+        void beginWrite(WriteContext context, String partitionOverwriteMode) {
             operation = context.operation;
             try {
                 if (context.insert.isStaticPartitionOverwrite()) {
@@ -137,7 +141,7 @@ final class IcebergCoverageTestFixture implements AutoCloseable {
                                         .setTableLocation(COMMIT_LOCATION));
                         break;
                     default:
-                        transaction.beginInsert(dorisTable, table, Optional.of(context.insert));
+                        transaction.beginInsert(dorisTable, table, Optional.of(context.insert), partitionOverwriteMode);
                         sink = new TDataSink(TDataSinkType.ICEBERG_TABLE_SINK).setIcebergTableSink(
                                 new TIcebergTableSink().setOriginalOutputPath(COMMIT_LOCATION));
                 }

@@ -3667,8 +3667,8 @@ public class Config extends ConfigBase {
             + "is the active tablet priority scheduling strategy enabled?  (Default: Enabled)"})
     public static boolean enable_cloud_active_tablet_priority_scheduling = false;
 
-    @ConfField(masterOnly = true, description = {"是否启用活跃tablet滑动窗口访问统计功能，默认打开",
-            "Whether to enable active tablet sliding window access statistics feature, default true"})
+    @ConfField(mutable = true, masterOnly = true, description = {"是否启用活跃tablet滑动窗口访问统计功能，默认关闭",
+            "Whether to enable active tablet sliding window access statistics feature, default false"})
     public static boolean enable_active_tablet_sliding_window_access_stats = false;
 
     @ConfField(mutable = true, masterOnly = true, description = {"活跃tablet滑动窗口访问统计的时间窗口大小（秒），默认3600秒（1小时）",
@@ -3678,11 +3678,16 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true, masterOnly = true, description = {
             "活跃 tablet 优先调度开启时：partition 级调度将优先处理 TopN 的活跃 partition，"
-                    + "再处理其余活跃 partition、非活跃 partition，最后处理 internal db。默认 10000，<=0 表示不做 TopN 分段。",
+                    + "再处理其余活跃 partition、非活跃 partition，最后处理 internal db。默认 10000，<=0 表示不做 TopN 分段。"
+                    + "每个 BE 每个维度最多上报 report_active_tablet_max_num 个 tablet，热点集中在单个 BE 时，"
+                    + "该 BE 配置需不小于此值才能填满预算；调大前请关注 BE bvar report.active_tablet_truncated。",
             "When active tablet priority scheduling is enabled: partition-level scheduling processes TopN active "
                     + "partitions first, then other active partitions,"
                     + "then inactive partitions, and internal db at last. "
-                    + "Default 10000. <=0 disables TopN segmentation."})
+                    + "Default 10000. <=0 disables TopN segmentation. "
+                    + "A BE reports at most report_active_tablet_max_num tablets per dimension, so a BE holding "
+                    + "a concentrated hot set cannot fill this budget on its own unless that be config is >= this "
+                    + "value; watch the BE bvar report.active_tablet_truncated before raising this one."})
     public static int cloud_active_partition_scheduling_topn = 10000;
 
     @ConfField(mutable = true, masterOnly = false)

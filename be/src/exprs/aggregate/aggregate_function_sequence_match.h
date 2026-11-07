@@ -68,7 +68,7 @@ struct ComparePairFirst final {
 
 static constexpr size_t MAX_EVENTS = 32;
 
-/// Max number of iterations to match the pattern against a sequence, exception thrown when exceeded
+/// Max number of iterations to match the pattern against a sequence; exceeding it is an error.
 constexpr auto sequence_match_max_iterations = 1000000l;
 
 template <PrimitiveType T, typename Derived>
@@ -218,18 +218,10 @@ private:
         const char* end = pos + pattern.size();
         const size_t event_count = arg_count - 2;
 
-        // Pattern is checked in fe, so pattern should be valid here, we check it and if pattern is invalid, we return.
-        auto fail_parse = [&]() {
-            actions.clear();
-            dfa_states.clear();
-            conditions_in_pattern.reset();
-            pattern_has_time = false;
-        };
-
+        // FE checks a literal pattern, but a constant pattern only BE can evaluate is checked here.
         auto throw_exception = [&](const std::string& msg) {
-            LOG(WARNING) << msg + " '" + std::string(pos, end) + "' at position " +
-                                    std::to_string(pos - begin);
-            fail_parse();
+            throw Exception(ErrorCode::INVALID_ARGUMENT, "{} '{}' at position {} of pattern '{}'",
+                            msg, std::string(pos, end), pos - begin, pattern);
         };
 
         auto match = [&pos, end](const char* str) mutable {
@@ -480,10 +472,11 @@ public:
             }
 
             if (++i > sequence_match_max_iterations) {
-                LOG(WARNING)
-                        << "Pattern application proves too difficult, exceeding max iterations (" +
-                                   std::to_string(sequence_match_max_iterations) + ")";
-                return false;
+                // The only matching event may follow the budget (e.g. a million earlier events).
+                // Exhausting the search is not proof that the pattern does not match.
+                throw Exception(ErrorCode::INVALID_ARGUMENT,
+                                "sequence pattern evaluation exceeded max iterations ({})",
+                                sequence_match_max_iterations);
             }
         }
 
@@ -538,10 +531,11 @@ public:
                 }
 
                 if (limit_iterations && ++events_processed > sequence_match_max_iterations) {
-                    LOG(WARNING) << "Pattern application proves too difficult, exceeding max "
-                                    "iterations are " +
-                                            std::to_string(sequence_match_max_iterations);
-                    return false;
+                    // A deterministic event may still occur after the inspected prefix.
+                    // Report the exhausted budget instead of treating it as a missing event.
+                    throw Exception(ErrorCode::INVALID_ARGUMENT,
+                                    "sequence pattern evaluation exceeded max iterations ({})",
+                                    sequence_match_max_iterations);
                 }
             }
 
@@ -665,7 +659,35 @@ public:
         this->data(place).init(pattern, this->data(place).get_arg_count());
     }
 
+    // the pattern is a constant checked in FE: either a literal or a value only BE can evaluate.
+    // A literal NULL pattern is rejected by FE; reject a BE-evaluated NULL here too, and validate
+    // the pattern syntax eagerly. Both checks are normally done lazily in add(), but the nullable
+    // wrapper above can skip every row (and so skip add() entirely) when any argument, including
+    // a non-constant one such as the timestamp, is NULL for every row.
+    void check_nullable_input_columns(const IColumn** columns) const {
+        AggregateFunctionSequenceMatchData<T, Derived> validator;
+        validate_nullable_pattern(columns, validator);
+    }
+
+    void check_nullable_input_columns(const IColumn** columns, AggregateDataPtr place) const {
+        // The row-at-a-time nullable path reuses the state's parsed pattern, just like add().
+        validate_nullable_pattern(columns, this->data(place));
+    }
+
 private:
+    void validate_nullable_pattern(const IColumn** columns,
+                                   AggregateFunctionSequenceMatchData<T, Derived>& state) const {
+        if (columns[0]->empty()) {
+            return;
+        }
+        if (columns[0]->is_null_at(0)) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "the pattern argument of {} must not be null", this->get_name());
+        }
+        std::string pattern = columns[0]->get_data_at(0).to_string();
+        state.init(pattern, arg_count);
+    }
+
     size_t arg_count;
 };
 

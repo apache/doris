@@ -89,7 +89,7 @@ public abstract class FractionalLiteral extends NumericLiteral {
         } else if (targetType.isBooleanType()) {
             Object value = getValue();
             if (value instanceof Float || value instanceof Double) {
-                if (((Number) value).floatValue() == 0) {
+                if (((Number) value).doubleValue() == 0) {
                     return BooleanLiteral.FALSE;
                 } else {
                     return BooleanLiteral.TRUE;

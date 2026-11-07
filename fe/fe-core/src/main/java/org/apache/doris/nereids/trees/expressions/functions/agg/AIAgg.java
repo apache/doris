@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.VarcharType;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
@@ -74,33 +75,53 @@ public class AIAgg extends NullableAggregateFunction
 
     @Override
     public void checkLegalityAfterRewrite() {
-        if (!child(arity() - 1).isLiteral()) {
+        // The rewrite has folded a constant task and resource name, unless constant folding is skipped
+        // (debug_skip_fold_constant). The value FE can evaluate is validated like the literal, and BE reads the
+        // value it evaluates from the first row.
+        if (!ExpressionUtils.foldConstantArgument(child(arity() - 1)).isLiteral()) {
             throw new AnalysisException("AI_AGG must accept literal for the task.");
         }
 
         if (arity() == 3) {
             //The resource must be literal
-            if (!child(0).isLiteral() || !child(2).isLiteral()) {
+            Expression resourceName = ExpressionUtils.foldConstantArgument(child(0));
+            if (!resourceName.isLiteral()) {
                 throw new AnalysisException("AI_AGG must accept literal for the resource name.");
             }
-
-            //Check if the resource is valid
-            String resourceName = getArgument(0).toString().replaceAll("^['\"]|['\"]$", "");
-            Resource resource = Env.getCurrentEnv().getResourceMgr().getResource(resourceName);
-            if (!(resource instanceof AIResource)) {
-                throw new AnalysisException("AI resource '" + resourceName + "' does not exist");
-            }
-            if (!((AIResource) resource).hasCompleteGeneralProperties()) {
-                throw new AnalysisException("AI resource '" + resourceName
-                        + "' does not contain complete general AI properties");
-            }
-            Resource.registerUsedAIResourceName(resourceName);
+            checkResource(resourceName);
         }
     }
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
-        checkLegalityAfterRewrite();
+        // An aggregate function is not removed by constant folding, so a constant task or resource name only has
+        // to be a literal in checkLegalityAfterRewrite, once the rewrite has folded it. A literal resource name
+        // is already validated here.
+        if (!child(arity() - 1).isConstant()) {
+            throw new AnalysisException("AI_AGG must accept literal for the task.");
+        }
+        if (arity() == 3) {
+            if (!child(0).isConstant()) {
+                throw new AnalysisException("AI_AGG must accept literal for the resource name.");
+            }
+            if (child(0).isLiteral()) {
+                checkResource(child(0));
+            }
+        }
+    }
+
+    private void checkResource(Expression resourceNameArgument) {
+        //Check if the resource is valid
+        String resourceName = resourceNameArgument.toString().replaceAll("^['\"]|['\"]$", "");
+        Resource resource = Env.getCurrentEnv().getResourceMgr().getResource(resourceName);
+        if (!(resource instanceof AIResource)) {
+            throw new AnalysisException("AI resource '" + resourceName + "' does not exist");
+        }
+        if (!((AIResource) resource).hasCompleteGeneralProperties()) {
+            throw new AnalysisException("AI resource '" + resourceName
+                    + "' does not contain complete general AI properties");
+        }
+        Resource.registerUsedAIResourceName(resourceName);
     }
 
     @Override

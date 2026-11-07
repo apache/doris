@@ -71,6 +71,7 @@ private:
     std::string _type;
     // push down filter
     std::string _query;
+    std::string _date_format_context;
     // Elasticsearch shards to fetch document
     std::string _shards;
     // whether use ssl client

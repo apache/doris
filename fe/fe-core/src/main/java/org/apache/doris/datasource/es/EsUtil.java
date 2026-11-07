@@ -26,9 +26,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.util.JsonUtil;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
@@ -39,9 +37,6 @@ import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-import java.util.Spliterator;
-import java.util.Spliterators;
-import java.util.stream.StreamSupport;
 
 /**
  * Util for ES, some static method.
@@ -98,90 +93,16 @@ public class EsUtil {
 
     @VisibleForTesting
     public static ObjectNode getMapping(String indexMapping) {
-        ObjectNode jsonNodes = JsonUtil.parseObject(indexMapping);
-        // If the indexName use alias takes the first mapping
-        return (ObjectNode) jsonNodes.iterator().next().get("mappings");
+        return EsMappingUtils.getMapping(indexMapping);
     }
 
     @VisibleForTesting
     public static ObjectNode getRootSchema(ObjectNode mappings, String mappingType, List<String> arrayFields) {
-        // Type is null in the following three cases
-        // 1. Equal 6.8.x and after
-        // 2. Multi-catalog auto infer
-        // 3. Equal 6.8.x and before user not passed
-        if (mappingType == null) {
-            // remove dynamic templates, for ES 7.x and 8.x
-            checkNonPropertiesFields(mappings, arrayFields);
-            String firstType = mappings.fieldNames().next();
-            //The first parameter may not be properties, so we need to first determine whether it is 7.x or above.
-            if (StreamSupport.stream(Spliterators
-                            .spliteratorUnknownSize(mappings.fieldNames(), Spliterator.ORDERED), false)
-                    .anyMatch(s -> s.contains("properties"))) {
-                // Equal 7.x and after
-                return mappings;
-            } else {
-                ObjectNode firstData = (ObjectNode) mappings.get(firstType);
-                // check for ES 6.x and before
-                checkNonPropertiesFields(firstData, arrayFields);
-                return firstData;
-            }
-        } else {
-            if (mappings.has(mappingType)) {
-                ObjectNode jsonData = (ObjectNode) mappings.get(mappingType);
-                // check for ES 6.x and before
-                checkNonPropertiesFields(jsonData, arrayFields);
-                return jsonData;
-            }
-            // Compatible type error
-            return getRootSchema(mappings, null, arrayFields);
-        }
+        return EsMappingUtils.getRootSchema(mappings, mappingType, arrayFields);
     }
 
-    /**
-     * Check non properties fields
-     *
-     * @param mappings
-     */
-    private static void checkNonPropertiesFields(ObjectNode mappings, List<String> arrayFields) {
-        // remove `_meta` field and parse array_fields
-        JsonNode metaNode = mappings.remove("_meta");
-        if (metaNode != null) {
-            JsonNode dorisMeta = metaNode.get("doris");
-            if (dorisMeta != null) {
-                JsonNode arrayNode = dorisMeta.get("array_fields");
-                if (arrayNode != null) {
-                    for (JsonNode jsonNode : arrayNode) {
-                        arrayFields.add(jsonNode.asText());
-                    }
-                }
-            }
-        }
-        // remove `dynamic_templates` field
-        mappings.remove("dynamic_templates");
-        // remove `dynamic` field
-        mappings.remove("dynamic");
-        // remove `_default` field, we do not parse `_default_` mapping, only explicit mapping.
-        // `_default` _mapping type is deprecated in 7.0 and removed in 8.0
-        // https://www.elastic.co/guide/en/elasticsearch/reference/7.17/removal-of-types.html
-        mappings.remove("_default_");
-        // check explicit mapping
-        if (mappings.isEmpty()) {
-            throw new DorisEsException("Do not support index without explicit mapping.");
-        }
-    }
-
-    /**
-     * Get mapping properties transform to ObjectNode.
-     **/
     public static ObjectNode getMappingProps(String sourceIndex, String indexMapping, String mappingType) {
-        ObjectNode mappings = getMapping(indexMapping);
-        ObjectNode rootSchema = getRootSchema(mappings, mappingType, new ArrayList<>());
-        ObjectNode properties = (ObjectNode) rootSchema.get("properties");
-        if (properties == null) {
-            throw new DorisEsException(
-                    "index[" + sourceIndex + "] type[" + mappingType + "] mapping not found for the ES Cluster");
-        }
-        return properties;
+        return EsMappingUtils.getMappingProps(sourceIndex, indexMapping, mappingType);
     }
 
     /**
@@ -191,7 +112,8 @@ public class EsUtil {
     public static List<Column> genColumnsFromEs(EsRestClient client, String indexName, String mappingType,
             boolean mappingEsId, Map<String, String> column2typeMap) {
         String mapping = client.getMapping(indexName);
-        ObjectNode mappings = getMapping(mapping);
+        // Inference and scans must select the same legacy type across alias backings.
+        ObjectNode mappings = EsMappingUtils.getMapping(mapping, mappingType);
         // Get array_fields while removing _meta property.
         List<String> arrayFields = new ArrayList<>();
         ObjectNode rootSchema = getRootSchema(mappings, mappingType, arrayFields);

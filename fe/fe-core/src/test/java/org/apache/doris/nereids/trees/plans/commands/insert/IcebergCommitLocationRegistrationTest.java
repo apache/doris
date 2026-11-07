@@ -48,6 +48,7 @@ class IcebergCommitLocationRegistrationTest {
     @Test
     void testInsertRegistersTheBoundSinkBeforeExecution() throws Exception {
         try (Fixture fixture = new Fixture()) {
+            fixture.context.getSessionVariable().setIcebergPartitionOverwriteMode("dynamic");
             IcebergInsertExecutor executor = new IcebergInsertExecutor(fixture.context, fixture.table,
                     fixture.nativeTable, "label", Mockito.mock(NereidsPlanner.class), Optional.empty(), false, -1L);
             executor.txnId = 101L;
@@ -56,7 +57,8 @@ class IcebergCommitLocationRegistrationTest {
 
             executor.beforeExec();
 
-            Mockito.verify(fixture.transaction).beginInsert(fixture.table, fixture.nativeTable, Optional.empty());
+            Mockito.verify(fixture.transaction).beginInsert(
+                    fixture.table, fixture.nativeTable, Optional.empty(), "dynamic");
             Mockito.verify(fixture.transaction).addCommitLocations(sink.toThrift());
             Assertions.assertEquals("file:///tmp/custom/data/",
                     sink.toThrift().getIcebergTableSink().getOriginalOutputPath());
@@ -77,7 +79,7 @@ class IcebergCommitLocationRegistrationTest {
             executor.beforeExec();
 
             Mockito.verify(fixture.transaction).beginInsert(
-                    fixture.table, fixture.nativeTable, Optional.of(context));
+                    fixture.table, fixture.nativeTable, Optional.of(context), "static");
             Mockito.verify(fixture.transaction, Mockito.never()).addCommitLocations(Mockito.any());
         }
     }

@@ -195,8 +195,11 @@ Status WalReader::get_block(Block* file_block, size_t* rows, bool* eof) {
         return Status::Corruption("WAL block has {} columns but header declares {}",
                                   source_block.columns(), _column_ids.size());
     }
+    // Empty projections still contribute every WAL row. Capture the count before materialization
+    // moves source columns into the output block and can leave the source with no owned columns.
+    const size_t source_rows = source_block.rows();
     RETURN_IF_ERROR(_materialize_requested_columns(&source_block, file_block));
-    *rows = file_block->rows();
+    *rows = source_rows;
     _record_scan_rows(cast_set<int64_t>(*rows));
     RETURN_IF_ERROR(
             apply_materialized_reader_filters(_request.get(), _io_ctx.get(), file_block, rows));

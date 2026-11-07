@@ -22,6 +22,7 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.shape.LeafExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
@@ -30,6 +31,7 @@ import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.SmallIntType;
 import org.apache.doris.nereids.types.TinyIntType;
+import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -80,12 +82,27 @@ public class Ntile extends WindowFunction implements LeafExpression, AlwaysNotNu
             throw new AnalysisException(
                 "The bucket of NTILE must be a constant value: " + this.toSql());
         }
-        if (buckets instanceof Literal) {
-            if (((Literal) buckets).getDouble() <= 0) {
-                throw new AnalysisException(
-                    "The bucket parameter of NTILE must be a constant positive integer: " + this.toSql());
-            }
-        } else {
+        // The bucket may be a constant expression such as `1 + 1`, which is folded to a literal only by the
+        // rewrite phase after this check runs. Reject early a bucket that FE already evaluates to a non-positive
+        // or NULL value. A bucket FE can not evaluate, e.g. `3 % 2`, may still be folded by BE when
+        // enable_fold_constant_by_be is set, so it is left to checkLegalityAfterRewrite.
+        Expression evaluated = ExpressionUtils.foldConstantArgument(buckets);
+        if (evaluated instanceof Literal) {
+            checkPositiveBucket(evaluated);
+        }
+    }
+
+    @Override
+    public void checkLegalityAfterRewrite() {
+        // The backend reads the bucket from the argument column and registers ntile only for a non-nullable
+        // integer argument, so the bucket must have been folded to a literal before the plan is translated.
+        // That does not happen when constant folding is skipped, e.g. with debug_skip_fold_constant=true, or
+        // when the configured folding can not evaluate the bucket.
+        checkPositiveBucket(getArgument(0));
+    }
+
+    private void checkPositiveBucket(Expression bucket) {
+        if (!(bucket instanceof IntegerLikeLiteral) || ((IntegerLikeLiteral) bucket).getLongValue() <= 0) {
             throw new AnalysisException(
                 "The bucket parameter of NTILE must be a constant positive integer: " + this.toSql());
         }

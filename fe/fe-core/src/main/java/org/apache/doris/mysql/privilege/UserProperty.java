@@ -223,8 +223,9 @@ public class UserProperty {
                     throw new DdlException(PROP_MAX_USER_CONNECTIONS + " is not number");
                 }
 
-                if (newMaxConn <= 0 || newMaxConn > 10000) {
-                    throw new DdlException(PROP_MAX_USER_CONNECTIONS + " is not valid, must between 1 and 10000");
+                // No need to set a hard-coded upper bound for the per-user max connections.
+                if (newMaxConn <= 0) {
+                    throw new DdlException(PROP_MAX_USER_CONNECTIONS + " is not valid, must be greater than 0");
                 }
             } else if (keyArr[0].equalsIgnoreCase(DEFAULT_CLOUD_CLUSTER)) {
                 newDefaultCloudCluster = checkCloudDefaultCluster(keyArr, value, DEFAULT_CLOUD_CLUSTER, isReplay);

@@ -27,6 +27,7 @@ import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.iceberg.helper.IcebergWriterHelper;
 import org.apache.doris.nereids.trees.plans.commands.insert.IcebergInsertCommandContext;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertCommandContext;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TFileContent;
 import org.apache.doris.thrift.TIcebergCommitData;
@@ -98,6 +99,7 @@ public class IcebergTransaction implements Transaction {
     private Optional<Expression> conflictDetectionFilter = Optional.empty();
 
     private IcebergInsertCommandContext insertCtx;
+    private boolean wholeTableOverwrite;
     private Optional<IcebergWriteSchemaContext> writeSchemaContext = Optional.empty();
     private String branchName;
     private Long baseSnapshotId;
@@ -185,7 +187,15 @@ public class IcebergTransaction implements Transaction {
     /** Begin an insert against the metadata generation retained during sink binding. */
     public void beginInsert(ExternalTable dorisTable, Table targetTable,
             Optional<InsertCommandContext> ctx) throws UserException {
+        beginInsert(dorisTable, targetTable, ctx, SessionVariable.ICEBERG_PARTITION_OVERWRITE_MODE_STATIC);
+    }
+
+    /** Capture the session's overwrite scope before executing the write. */
+    public void beginInsert(ExternalTable dorisTable, Table targetTable,
+            Optional<InsertCommandContext> ctx, String partitionOverwriteMode) throws UserException {
         this.insertCtx = ctx.map(c -> (IcebergInsertCommandContext) c).orElse(null);
+        this.wholeTableOverwrite = SessionVariable.ICEBERG_PARTITION_OVERWRITE_MODE_STATIC
+                .equalsIgnoreCase(partitionOverwriteMode);
         this.writeSchemaContext = insertCtx == null
                 ? Optional.empty() : insertCtx.getWriteSchemaContext();
         try {
@@ -196,7 +206,7 @@ public class IcebergTransaction implements Transaction {
                 this.table = createTransactionTable(dorisTable, targetTable);
                 this.branchName = null;
                 this.isRewriteMode = false;
-                this.baseSnapshotId = null;
+                this.baseSnapshotId = getSnapshotIdIfPresent(table);
                 this.hasStagedUpdates = false;
                 // check branch
                 if (insertCtx != null && insertCtx.getBranchName().isPresent()) {
@@ -209,6 +219,7 @@ public class IcebergTransaction implements Transaction {
                                 branchName
                                         + " is a tag, not a branch. Tags cannot be targets for producing snapshots");
                     }
+                    this.baseSnapshotId = branchRef.snapshotId();
                 }
                 if (writeSchemaContext.isPresent()) {
                     writeSchemaContext.get().validateCurrentSchema(
@@ -706,6 +717,8 @@ public class IcebergTransaction implements Transaction {
             // Check if this is a static partition overwrite
             if (insertCtx != null && insertCtx.isStaticPartitionOverwrite()) {
                 commitStaticPartitionOverwrite(pendingResults);
+            } else if (wholeTableOverwrite) {
+                commitWholeTableOverwrite(pendingResults);
             } else {
                 commitReplaceTxn(pendingResults);
             }
@@ -1175,6 +1188,28 @@ public class IcebergTransaction implements Transaction {
             }
         }
         return referencedDataFiles;
+    }
+
+    /** A row filter clears every partition spec, even when the write produces no files. */
+    private void commitWholeTableOverwrite(List<WriteResult> pendingResults) {
+        OverwriteFiles overwriteFiles = transaction.newOverwrite();
+        if (branchName != null) {
+            overwriteFiles = overwriteFiles.toBranch(branchName);
+        }
+        overwriteFiles = overwriteFiles.scanManifestsWith(ops.getThreadPoolWithPreAuth())
+                .overwriteByRowFilter(Expressions.alwaysTrue())
+                .conflictDetectionFilter(Expressions.alwaysTrue());
+        if (baseSnapshotId != null) {
+            overwriteFiles = overwriteFiles.validateFromSnapshot(baseSnapshotId);
+        }
+        overwriteFiles = overwriteFiles.validateNoConflictingData().validateNoConflictingDeletes();
+        for (WriteResult result : pendingResults) {
+            Preconditions.checkState(result.referencedDataFiles().length == 0,
+                    "Should have no referenced data files for a whole-table overwrite.");
+            Arrays.stream(result.dataFiles()).forEach(overwriteFiles::addFile);
+        }
+        overwriteFiles.commit();
+        hasStagedUpdates = true;
     }
 
     private void commitReplaceTxn(List<WriteResult> pendingResults) {

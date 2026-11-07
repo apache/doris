@@ -37,10 +37,10 @@ namespace doris {
 
 // hits.hits._id used for obtain ES document `_id`
 const std::string SOURCE_SCROLL_SEARCH_FILTER_PATH =
-        "filter_path=_scroll_id,hits.hits._source,hits.total,hits.hits._id";
+        "filter_path=_scroll_id,hits.hits._source,hits.hits._index,hits.total,hits.hits._id";
 // hits.hits._score used for processing field not exists in one batch
 const std::string DOCVALUE_SCROLL_SEARCH_FILTER_PATH =
-        "filter_path=_scroll_id,hits.total,hits.hits._score,hits.hits.fields";
+        "filter_path=_scroll_id,hits.total,hits.hits._index,hits.hits._score,hits.hits.fields";
 
 const std::string REQUEST_PREFERENCE_PREFIX = "&preference=_shards:";
 const std::string REQUEST_SEARCH_SCROLL_PATH = "/_search/scroll";
@@ -72,6 +72,10 @@ ESScanReader::ESScanReader(const std::string& target,
         std::istringstream(props.at(KEY_HTTP_SSL_ENABLED)) >> std::boolalpha >> _use_ssl_client;
     }
 
+    // The same numeric string can mean a compact calendar date or an epoch on different backings.
+    if (const auto formats = props.find("date_format_context"); formats != props.end()) {
+        _date_format_context = formats->second;
+    }
     std::string batch_size_str = props.at(KEY_BATCH_SIZE);
     _batch_size = atoi(batch_size_str.c_str());
     std::string filter_path =
@@ -216,6 +220,7 @@ Status ESScanReader::get_next(bool* scan_eos, std::unique_ptr<ScrollParser>& scr
     }
 
     scroll_parser.reset(new ScrollParser(_doc_value_mode));
+    RETURN_IF_ERROR(scroll_parser->set_date_format_context(_date_format_context));
     VLOG_CRITICAL << "get_next request ES, returned response: " << response;
     Status status = scroll_parser->parse(response, _exactly_once);
     if (!status.ok()) {

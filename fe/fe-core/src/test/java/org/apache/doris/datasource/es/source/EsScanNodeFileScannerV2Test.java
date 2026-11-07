@@ -22,19 +22,29 @@ import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.IntLiteral;
+import org.apache.doris.analysis.IsNullPredicate;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.EsResource;
 import org.apache.doris.catalog.EsTable;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.datasource.FederationBackendPolicy;
+import org.apache.doris.datasource.es.DorisEsException;
+import org.apache.doris.datasource.es.EsFieldContext;
+import org.apache.doris.datasource.es.EsMappingUtils;
+import org.apache.doris.datasource.es.EsShardPartitions;
+import org.apache.doris.datasource.es.EsShardRouting;
+import org.apache.doris.datasource.es.EsTablePartitions;
 import org.apache.doris.datasource.es.QueryBuilders;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TEsScanRange;
 import org.apache.doris.thrift.TFileScanRange;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -48,6 +58,7 @@ import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedConstruction;
 import org.mockito.Mockito;
 
 import java.lang.reflect.Field;
@@ -153,6 +164,145 @@ class EsScanNodeFileScannerV2Test {
         Assertions.assertEquals("a.keyword", params.getEsDocvalueContext().get("a"));
         Assertions.assertEquals(ImmutableMap.of("a", "a.keyword"), params.getEsFieldsContext());
         Assertions.assertEquals("{\"match_all\":{}}", params.getEsProperties().get(EsResource.QUERY_DSL));
+    }
+
+    @Test
+    void sourceStringsAndNativeResidualsAreHandledBeforePushdown() throws Exception {
+        for (boolean v2 : Arrays.asList(false, true)) {
+            TestScanNode node = createNode(v2);
+            EsTable table = (EsTable) node.getTupleDesc().getTable();
+            Column name = new Column("name", Type.STRING);
+            Mockito.doReturn(name).when(table).getColumn("name");
+            Expr local = new BinaryPredicate(BinaryPredicate.Operator.EQ,
+                    new SlotRef(null, "name"), new StringLiteral("one"));
+            Expr nativeQuery = new FunctionCallExpr("esquery", new ArrayList<>(Arrays.asList(
+                    new SlotRef(null, "id"), new StringLiteral("{\"term\":{\"id\":1}}"))));
+            node.getConjuncts().add(new CompoundPredicate(CompoundPredicate.Operator.AND, local, nativeQuery));
+            Method build = EsScanNode.class.getDeclaredMethod("buildQuery");
+            build.setAccessible(true);
+            build.invoke(node);
+            Assertions.assertEquals(Collections.singletonList(local), node.getConjuncts());
+            Assertions.assertTrue(node.getNodeExplainString("", org.apache.doris.thrift.TExplainLevel.NORMAL)
+                    .contains("\"id\":1"));
+            TestScanNode rejected = createNode(v2);
+            EsTable other = (EsTable) rejected.getTupleDesc().getTable();
+            Mockito.doReturn(name).when(other).getColumn("name");
+            rejected.getConjuncts().add(new CompoundPredicate(CompoundPredicate.Operator.OR, local, nativeQuery));
+            java.lang.reflect.InvocationTargetException error = Assertions.assertThrows(
+                    java.lang.reflect.InvocationTargetException.class, () -> build.invoke(rejected));
+            Assertions.assertInstanceOf(DorisEsException.class, error.getCause());
+            Assertions.assertTrue(error.getCause().getMessage().contains("Cannot evaluate esquery locally"));
+        }
+    }
+
+    @Test
+    void mappedDateFormatsReachBothScanProtocols() throws Exception {
+        String mapping = "{\"test\":{\"mappings\":{\"properties\":{\"id\":"
+                + "{\"type\":\"date\",\"format\":\"basic_date||epoch_millis\"}}}}}";
+        for (boolean v2 : Arrays.asList(false, true)) {
+            TestScanNode node = createNode(v2);
+            EsTable table = (EsTable) node.getTupleDesc().getTable();
+            Mockito.doReturn(EsMappingUtils.resolveFieldContext(Collections.singletonList("id"),
+                    "test", mapping, null)).when(table).fieldContext();
+            java.util.Map<String, String> properties = v2
+                    ? node.getScanRangeLocations(0).get(0).getScanRange().getExtScanRange()
+                            .getFileScanRange().getParams().getEsProperties()
+                    : node.serialize().getEsScanNode().getProperties();
+            Assertions.assertEquals("{\"test\":{\"id\":\"basic_date||epoch_millis\"}}",
+                    properties.get("date_format_context"));
+        }
+    }
+
+    @Test
+    void sourceJsonbNullPredicatesStayLocalWithBothScanners() throws Exception {
+        for (boolean v2 : Arrays.asList(false, true)) {
+            for (boolean notNull : Arrays.asList(false, true)) {
+                TestScanNode node = createNode(v2);
+                EsTable table = (EsTable) node.getTupleDesc().getTable();
+                Mockito.doReturn(new Column("obj", Type.JSONB)).when(table).getColumn("obj");
+                Expr predicate = new IsNullPredicate(new SlotRef(null, "obj"), notNull);
+                node.getConjuncts().add(predicate);
+                Method build = EsScanNode.class.getDeclaredMethod("buildQuery");
+                build.setAccessible(true);
+                build.invoke(node);
+                Assertions.assertEquals(Collections.singletonList(predicate), node.getConjuncts());
+                Assertions.assertTrue(node.getNodeExplainString("", org.apache.doris.thrift.TExplainLevel.NORMAL)
+                        .contains("REMOTE_PREDICATES: {\"match_all\":{}}"));
+            }
+        }
+    }
+
+    @Test
+    void finalReadModeControlsPredicateSafetyAndFullSourceRequest() throws Exception {
+        for (boolean docvalues : Arrays.asList(false, true)) {
+            TestScanNode node = createNode(true);
+            EsTable table = (EsTable) node.getTupleDesc().getTable();
+            Mockito.doReturn(docvalues).when(table).isEnableDocValueScan();
+            Mockito.doReturn(ImmutableMap.of("id", "id")).when(table).docValueContext();
+            EsFieldContext fields = new EsFieldContext();
+            fields.getSourceModeUnsafeFields().add("id");
+            fields.requireFullSourceRead();
+            Mockito.doReturn(fields).when(table).fieldContext();
+            Expr predicate = new BinaryPredicate(BinaryPredicate.Operator.EQ,
+                    new SlotRef(null, "id"), new IntLiteral(1));
+            node.getConjuncts().add(predicate);
+            Method build = EsScanNode.class.getDeclaredMethod("buildQuery");
+            build.setAccessible(true);
+            build.invoke(node);
+            Assertions.assertEquals(docvalues ? Collections.emptyList() : Collections.singletonList(predicate),
+                    node.getConjuncts());
+            java.util.Map<String, String> properties = node.getScanRangeLocations(0).get(0).getScanRange()
+                    .getExtScanRange().getFileScanRange().getParams().getEsProperties();
+            Assertions.assertEquals(!docvalues, properties.containsKey("read_full_source"));
+            Assertions.assertEquals(docvalues ? "1" : null, properties.get(EsResource.DOC_VALUES_MODE));
+        }
+    }
+
+    @Test
+    void aliasesKeepTheirOriginalNameAndOneCoordinatingScroll() throws Exception {
+        for (boolean alias : Arrays.asList(false, true)) {
+            for (boolean parallel : Arrays.asList(false, true)) {
+                TestScanNode node = createNode(false);
+                ConnectContext.get().getSessionVariable().setEnableEsParallelScroll(parallel);
+                EsTable table = (EsTable) node.getTupleDesc().getTable();
+                Mockito.doReturn(alias ? "filtered_alias" : "es_index").when(table).getIndexName();
+                EsShardRouting first = new EsShardRouting("es_index", 3, true, "node");
+                first.setHttpAddress(new TNetworkAddress("127.0.0.1", 9200));
+                EsShardRouting second = new EsShardRouting("es_index", 5, true, "node");
+                second.setHttpAddress(first.getHttpAddress());
+                EsShardPartitions index = Mockito.mock(EsShardPartitions.class);
+                Mockito.when(index.getIndexName()).thenReturn(alias ? "filtered_alias" : "es_index");
+                Mockito.when(index.getShardRoutings()).thenReturn(ImmutableMap.of(
+                        3, Collections.singletonList(first), 5, Collections.singletonList(second)));
+                EsTablePartitions partitions = new EsTablePartitions();
+                partitions.addIndexState(table.getIndexName(), index);
+                Field field = EsScanNode.class.getDeclaredField("esTablePartitions");
+                field.setAccessible(true);
+                field.set(node, partitions);
+                Backend backend = Mockito.mock(Backend.class);
+                Mockito.when(backend.getHost()).thenReturn("127.0.0.1");
+                try (MockedConstruction<FederationBackendPolicy> policies = Mockito.mockConstruction(
+                        FederationBackendPolicy.class, (policy, context) -> {
+                            Mockito.when(policy.numBackends()).thenReturn(1);
+                            Mockito.when(policy.getNextBe()).thenReturn(backend);
+                        })) {
+                    Method method = EsScanNode.class.getDeclaredMethod("getShardLocations");
+                    method.setAccessible(true);
+                    @SuppressWarnings("unchecked")
+                    List<TScanRangeLocations> ranges = (List<TScanRangeLocations>) method.invoke(node);
+                    Assertions.assertEquals(alias || !parallel ? 1 : 2, ranges.size());
+                    for (TScanRangeLocations range : ranges) {
+                        TEsScanRange es = range.getScanRange().getEsScanRange();
+                        Assertions.assertEquals(table.getIndexName(), es.getIndex());
+                        if (alias || !parallel) {
+                            Assertions.assertEquals(-1, es.getShardId());
+                        } else {
+                            Assertions.assertTrue(es.getShardId() == 3 || es.getShardId() == 5);
+                        }
+                    }
+                }
+            }
+        }
     }
 
     private org.apache.doris.thrift.TFileScanRangeParams projectionParams(

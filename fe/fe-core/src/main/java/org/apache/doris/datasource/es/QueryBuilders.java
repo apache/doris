@@ -57,6 +57,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Objects;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 
@@ -100,12 +101,46 @@ public final class QueryBuilders {
                 return null;
             }
             case NOT: {
-                QueryBuilder child = toEsDsl(compoundPredicate.getChild(0), notPushDownList, fieldsContext,
-                        builderOptions, column2typeMap);
-                if (child != null) {
-                    return QueryBuilders.boolQuery().mustNot(child);
+                Expr operand = compoundPredicate.getChild(0);
+                Expr normalized = null;
+                // Equality can be inverted, but NOT(a < 2) is not a >= 2 for an ES array [1, 2].
+                if (operand instanceof CompoundPredicate) {
+                    CompoundPredicate child = (CompoundPredicate) operand;
+                    if (child.getOp() == CompoundPredicate.Operator.NOT) {
+                        normalized = child.getChild(0);
+                    } else {
+                        normalized = new CompoundPredicate(child.getOp() == CompoundPredicate.Operator.AND
+                                ? CompoundPredicate.Operator.OR : CompoundPredicate.Operator.AND,
+                                new CompoundPredicate(CompoundPredicate.Operator.NOT, child.getChild(0), null),
+                                new CompoundPredicate(CompoundPredicate.Operator.NOT, child.getChild(1), null));
+                    }
+                } else if (operand instanceof BinaryPredicate) {
+                    BinaryPredicate predicate = (BinaryPredicate) operand;
+                    if (predicate.getOp() == BinaryPredicate.Operator.EQ
+                            || predicate.getOp() == BinaryPredicate.Operator.NE) {
+                        normalized = predicate.negate();
+                    }
+                } else if (operand instanceof IsNullPredicate) {
+                    normalized = operand.negate();
                 }
-                return null;
+                if (normalized != null) {
+                    return toEsDsl(normalized, notPushDownList, fieldsContext, builderOptions, column2typeMap);
+                }
+                QueryBuilder child = toEsDsl(operand, notPushDownList, fieldsContext,
+                        builderOptions, column2typeMap);
+                if (child == null) {
+                    return null;
+                }
+                BoolQueryBuilder negated = QueryBuilders.boolQuery().mustNot(child);
+                if (operand instanceof BinaryPredicate && operand.getOpcode() != TExprOpcode.EQ_FOR_NULL) {
+                    String column = getColumnFromExpr(operand.getChild(0));
+                    if (column == null) {
+                        column = getColumnFromExpr(operand.getChild(1));
+                    }
+                    // The complement must still exclude missing scalar values (SQL UNKNOWN).
+                    negated.must(QueryBuilders.existsQuery(fieldsContext.getOrDefault(column, column)));
+                }
+                return negated;
             }
             default:
                 return null;
@@ -157,16 +192,9 @@ public final class QueryBuilders {
             case EQ_FOR_NULL:
                 return QueryBuilders.termQuery(column, value);
             case NE:
-                // col != '' means col.length() > 0 in SQL syntax.
-                // The `NULL` value should not present in results.
-                // It equals
-                // '{"bool":{"must":{"bool":{"must_not":{"term":{"col":""}},"must":{"exists":{"field":"col"}}}}}}'
-                // in Elasticsearch
-                if (value instanceof String && StringUtils.isEmpty((String) value)) {
-                    return QueryBuilders.boolQuery().mustNot(QueryBuilders.termQuery(column, value))
+                // SQL inequality excludes NULL for every literal, including non-empty values.
+                return QueryBuilders.boolQuery().mustNot(QueryBuilders.termQuery(column, value))
                         .must(QueryBuilders.existsQuery(column));
-                }
-                return QueryBuilders.boolQuery().mustNot(QueryBuilders.termQuery(column, value));
             case GE:
                 return QueryBuilders.rangeQuery(column).gte(value);
             case GT:
@@ -268,6 +296,40 @@ public final class QueryBuilders {
         return null;
     }
 
+    public static QueryBuilder toEsDsl(Expr expr, List<Expr> residuals, Map<String, String> fieldsContext,
+            BuilderOptions options, Map<String, String> column2typeMap, Set<String> unsafeFields) {
+        // Indexed values can differ from _source; a local residual cannot recover remote false negatives.
+        if (referencesUnsafeSourceField(expr, unsafeFields)) {
+            residuals.add(expr);
+            return null;
+        }
+        return toEsDsl(expr, residuals, fieldsContext, options, column2typeMap);
+    }
+
+    private static boolean isEsQuery(Expr expr) {
+        return expr instanceof FunctionCallExpr
+                && "esquery".equalsIgnoreCase(((FunctionCallExpr) expr).getFnName().getFunction());
+    }
+
+    private static boolean referencesUnsafeSourceField(Expr expr, Set<String> unsafeFields) {
+        if (isEsQuery(expr)) {
+            return false;
+        }
+        if (expr instanceof SlotRef) {
+            return unsafeFields.contains(((SlotRef) expr).getColumnName());
+        }
+        return expr.getChildren().stream().anyMatch(child -> referencesUnsafeSourceField(child, unsafeFields));
+    }
+
+    public static void requireLocalEvaluation(Expr expr) {
+        // Native ES DSL has no BE evaluator and cannot survive in an indivisible residual OR/NOT.
+        if (isEsQuery(expr)) {
+            throw new DorisEsException("Cannot evaluate esquery locally: its containing Boolean expression "
+                    + "cannot be fully pushed down to Elasticsearch");
+        }
+        expr.getChildren().forEach(QueryBuilders::requireLocalEvaluation);
+    }
+
     /**
      * Doris expr to es dsl.
      **/
@@ -291,7 +353,7 @@ public final class QueryBuilders {
         String column = getColumnFromExpr(leftExpr);
 
         if (StringUtils.isEmpty(column)) {
-            Expr rightExpr = expr.getChild(1);
+            Expr rightExpr = expr.getChildren().size() > 1 ? expr.getChild(1) : null;
             column = getColumnFromExpr(rightExpr);
             opCode = flipOpCode(opCode);
             isFlip = true;
@@ -354,6 +416,7 @@ public final class QueryBuilders {
                 return null;
             }
         }
+        notPushDownList.add(expr);
         return null;
     }
 

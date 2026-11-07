@@ -126,7 +126,9 @@ public:
 
 // UT
 #ifdef BE_TEST
-    TabletMeta(TabletSchemaSPtr tablet_schema) : _schema(tablet_schema) {}
+    TabletMeta(TabletSchemaSPtr tablet_schema, int64_t tablet_id = 0) : _schema(tablet_schema) {
+        _tablet_id = tablet_id;
+    }
 #endif
 
     // Function create_from_file is used to be compatible with previous tablet_meta.

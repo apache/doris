@@ -91,6 +91,8 @@ import org.apache.doris.system.Backend;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Throwables;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.commons.collections4.CollectionUtils;
@@ -275,6 +277,9 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
         ctx.getStatementContext().setIsInsert(true);
         while (++retryTimes < Math.max(ctx.getSessionVariable().dmlPlanRetryTimes, 3)) {
             prepareMvccSnapshotsForPlanAttempt(ctx.getStatementContext(), retryTimes);
+            ctx.getStatementContext().getInsertTargetTables().remove(qualifiedTargetTableName);
+            ctx.getStatementContext().getTables().remove(qualifiedTargetTableName);
+            ctx.getStatementContext().getOneLevelTables().remove(qualifiedTargetTableName);
             TableIf targetTableIf = getTargetTableIf(ctx, qualifiedTargetTableName);
             DatabaseIf<?> targetDatabase = getTargetDatabase(targetTableIf);
             // check auth
@@ -291,6 +296,10 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
             try {
                 // use originLogicalQuery to build logicalQuery again.
                 buildResult = initPlanOnce(ctx, stmtExecutor, targetTableIf);
+            } catch (InsertTargetSchemaChangedException exception) {
+                LOG.warn("insert plan failed {} times. query id is {}. {}",
+                        retryTimes, DebugUtil.printId(ctx.queryId()), exception.getMessage());
+                continue;
             } catch (Throwable e) {
                 Throwables.throwIfInstanceOf(e, RuntimeException.class);
                 throw new IllegalStateException(e.getMessage(), e);
@@ -371,8 +380,13 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
 
     private BuildInsertExecutorResult initPlanOnce(ConnectContext ctx,
             StmtExecutor stmtExecutor, TableIf targetTableIf) throws Throwable {
+        List<Column> normalizedTargetSchema;
+        Map<Long, Integer> normalizedTargetSchemaVersions;
         targetTableIf.readLock();
         try {
+            normalizedTargetSchema = targetTableIf.getFullSchema().stream()
+                    .map(Column::new).collect(ImmutableList.toImmutableList());
+            normalizedTargetSchemaVersions = getTargetSchemaVersions(targetTableIf);
             LogicalPlan planForAnalysis = InsertUtils.pinIcebergWriteSchema(
                     originLogicalQuery, targetTableIf, branchName, ctx.getStatementContext());
             Optional<CascadesContext> analyzeContext = Optional.of(
@@ -393,11 +407,26 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
             OlapGroupCommitInsertExecutor.analyzeGroupCommit(
                     ctx, targetTableIf, this.logicalQuery.get(), this.insertCtx);
 
-            LogicalPlanAdapter logicalPlanAdapter
-                    = new LogicalPlanAdapter(logicalQuery.get(), ctx.getStatementContext());
-            return planInsertExecutor(ctx, stmtExecutor, logicalPlanAdapter, targetTableIf);
         } finally {
             targetTableIf.readUnlock();
+        }
+        LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(logicalQuery.get(), ctx.getStatementContext());
+        return planInsertExecutor(ctx, stmtExecutor, logicalPlanAdapter, targetTableIf,
+                normalizedTargetSchema, normalizedTargetSchemaVersions);
+    }
+
+    private static Map<Long, Integer> getTargetSchemaVersions(TableIf targetTableIf) {
+        if (targetTableIf instanceof OlapTable) {
+            return ((OlapTable) targetTableIf).getIndexIdToMeta().entrySet().stream()
+                    .collect(ImmutableMap.toImmutableMap(Map.Entry::getKey,
+                            entry -> entry.getValue().getSchemaVersion()));
+        }
+        return ImmutableMap.of();
+    }
+
+    private static class InsertTargetSchemaChangedException extends AnalysisException {
+        private InsertTargetSchemaChangedException(String tableName) {
+            super("INSERT target changed before binding: " + tableName);
         }
     }
 
@@ -611,8 +640,10 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
 
     private BuildInsertExecutorResult planInsertExecutor(
             ConnectContext ctx, StmtExecutor stmtExecutor,
-            LogicalPlanAdapter logicalPlanAdapter, TableIf targetTableIf) throws Throwable {
+            LogicalPlanAdapter logicalPlanAdapter, TableIf targetTableIf,
+            List<Column> normalizedTargetSchema, Map<Long, Integer> normalizedTargetSchemaVersions) throws Throwable {
         LogicalPlan logicalPlan = logicalPlanAdapter.getLogicalPlan();
+        List<String> targetQualifier = InsertUtils.getTargetTableQualified(originLogicalQuery, ctx);
 
         boolean supportFastInsertIntoValues = InsertUtils.supportFastInsertIntoValues(logicalPlan, targetTableIf, ctx);
         // the key logical when use new coordinator:
@@ -628,6 +659,20 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
         AtomicReference<ExecutorFactory> executorFactoryRef = new AtomicReference<>();
         FastInsertIntoValuesPlanner planner = new FastInsertIntoValuesPlanner(
                 ctx.getStatementContext(), supportFastInsertIntoValues) {
+            @Override
+            protected void analyze(boolean showPlanProcess) {
+                if (targetTableIf.needReadLockWhenPlan()) {
+                    TableIf lockedTarget = ctx.getStatementContext().getInsertTargetTables().get(targetQualifier);
+                    TableIf currentTarget = getTargetTableIf(ctx, targetQualifier);
+                    if (lockedTarget != targetTableIf || currentTarget.getId() != targetTableIf.getId()
+                            || !normalizedTargetSchemaVersions.equals(getTargetSchemaVersions(targetTableIf))
+                            || !normalizedTargetSchema.equals(targetTableIf.getFullSchema())) {
+                        throw new InsertTargetSchemaChangedException(targetQualifier.get(targetQualifier.size() - 1));
+                    }
+                }
+                super.analyze(showPlanProcess);
+            }
+
             @Override
             protected void doDistribute(boolean canUseNereidsDistributePlanner, ExplainLevel explainLevel) {
                 // when enter this method, the step 1 already executed

@@ -20,8 +20,6 @@ package org.apache.doris.datasource.es;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.EsTable;
 
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -39,30 +37,7 @@ public class SearchContext {
 
     private static final Logger LOG = LogManager.getLogger(SearchContext.class);
 
-    // fetch string field value from not analyzed fields : userId => userId.keyword
-    // this is activated when `enable_keyword_sniff = true`
-    private Map<String, String> fetchFieldsContext = Maps.newHashMap();
-    // used to indicate which fields can get from ES docavalue
-    // because elasticsearch can have "fields" feature, field can have
-    // two or more types, the first type maybe have not docvalue but other
-    // can have, such as (text field not have docvalue, but keyword can have):
-    // "properties": {
-    //      "city": {
-    //        "type": "text",
-    //        "fields": {
-    //          "raw": {
-    //            "type":  "keyword"
-    //          }
-    //        }
-    //      }
-    //    }
-    // then the docvalue context provided the mapping between the select field and real request field :
-    // {"city": "city.raw"}
-    // use select city from table, if enable the docvalue, we will fetch the `city` field value from `city.raw`
-    // fetch field value from doc_values, this is activated when `enable_docvalue_scan= true`
-    private Map<String, String> docValueFieldsContext = Maps.newHashMap();
-
-    private List<String> needCompatDateFields = Lists.newArrayList();
+    private EsFieldContext fieldContext = new EsFieldContext();
 
     // sourceIndex is the name of index when creating ES external table
     private final String sourceIndex;
@@ -121,15 +96,23 @@ public class SearchContext {
     }
 
     public Map<String, String> fetchFieldsContext() {
-        return fetchFieldsContext;
+        return fieldContext.getFetchFieldsContext();
     }
 
     public Map<String, String> docValueFieldsContext() {
-        return docValueFieldsContext;
+        return fieldContext.getDocValueFieldsContext();
     }
 
     public List<String> needCompatDateFields() {
-        return needCompatDateFields;
+        return fieldContext.getNeedCompatDateFields();
+    }
+
+    public EsFieldContext fieldContext() {
+        return fieldContext;
+    }
+
+    public void setFieldContext(EsFieldContext fieldContext) {
+        this.fieldContext = fieldContext;
     }
 
     public void version(EsMajorVersion version) {

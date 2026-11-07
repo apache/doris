@@ -17,8 +17,11 @@
 
 package org.apache.doris.datasource.es.source;
 
+import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.SlotDescriptor;
+import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.EsResource;
 import org.apache.doris.catalog.EsTable;
@@ -30,6 +33,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.ExternalScanNode;
 import org.apache.doris.datasource.FederationBackendPolicy;
 import org.apache.doris.datasource.es.EsExternalTable;
+import org.apache.doris.datasource.es.EsFieldContext;
 import org.apache.doris.datasource.es.EsShardPartitions;
 import org.apache.doris.datasource.es.EsShardRouting;
 import org.apache.doris.datasource.es.EsTablePartitions;
@@ -37,6 +41,7 @@ import org.apache.doris.datasource.es.QueryBuilders;
 import org.apache.doris.datasource.es.QueryBuilders.BoolQueryBuilder;
 import org.apache.doris.datasource.es.QueryBuilders.BuilderOptions;
 import org.apache.doris.datasource.es.QueryBuilders.QueryBuilder;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.planner.PartitionPruner;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.RangePartitionPrunerV2;
@@ -73,6 +78,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -90,6 +96,7 @@ public class EsScanNode extends ExternalScanNode {
     private final boolean useFileScannerV2;
     private QueryBuilder queryBuilder;
     private boolean isFinalized = false;
+    private Integer docValuesMode;
 
     /**
      * For multicatalog es.
@@ -187,9 +194,16 @@ public class EsScanNode extends ExternalScanNode {
         TEsScanNode esScanNode = new TEsScanNode(desc.getId().asInt());
         if (table.isEnableDocValueScan()) {
             esScanNode.setDocvalueContext(table.docValueContext());
-            properties.put(EsResource.DOC_VALUES_MODE, String.valueOf(useDocValueScan(desc, table.docValueContext())));
+            properties.put(EsResource.DOC_VALUES_MODE, String.valueOf(docValuesMode == null
+                    ? useDocValueScan(desc, table.docValueContext()) : docValuesMode));
+        }
+        if ((docValuesMode == null ? 0 : docValuesMode) == 0 && table.fieldContext().requiresFullSourceRead()) {
+            properties.put("read_full_source", "true");
         }
         properties.put(EsResource.QUERY_DSL, queryBuilder.toJson());
+        if (!table.fieldContext().getDateFormatContext().isEmpty()) {
+            properties.put("date_format_context", GsonUtils.GSON.toJson(table.fieldContext().getDateFormatContext()));
+        }
         if (table.isEnableKeywordSniff() && table.fieldsContext().size() > 0) {
             esScanNode.setFieldsContext(table.fieldsContext());
         }
@@ -286,13 +300,16 @@ public class EsScanNode extends ExternalScanNode {
                     String.join(",", unPartitionedIndices), String.join(",", partitionedIndices));
         }
         List<TScanRangeLocations> result = Lists.newArrayList();
-        boolean enableESParallelScroll = isEnableESParallelScroll();
+        // Physical shard requests bypass alias filters/routing. Keep the original alias in one scroll.
+        boolean aliasScan = selectedIndex.stream().flatMap(index -> index.getShardRoutings().values().stream())
+                .flatMap(Collection::stream).anyMatch(shard -> !table.getIndexName().equals(shard.getIndexName()));
+        boolean enableESParallelScroll = isEnableESParallelScroll() && !aliasScan;
         for (EsShardPartitions indexState : selectedIndex) {
             // When disabling parallel scroll, only use the first shard routing.
             // Because we only need plan a single scan range.
             List<List<EsShardRouting>> shardRoutings = enableESParallelScroll
                     ? new ArrayList<>(indexState.getShardRoutings().values()) :
-                    Collections.singletonList(indexState.getShardRoutings().get(0));
+                    Collections.singletonList(indexState.getShardRoutings().values().iterator().next());
 
             for (List<EsShardRouting> shardRouting : shardRoutings) {
                 // get backends
@@ -326,7 +343,8 @@ public class EsScanNode extends ExternalScanNode {
                 // such as `log-20240501-1`/`log-20240501-2`.
                 // When we plan a single query, we should use the index alias instead of the real indices names.
                 esScanRange.setIndex(
-                        enableESParallelScroll ? shardRouting.get(0).getIndexName() : indexState.getIndexName());
+                        enableESParallelScroll ? shardRouting.get(0).getIndexName()
+                                : aliasScan ? table.getIndexName() : indexState.getIndexName());
                 if (table.getType() != null) {
                     esScanRange.setType(table.getMappingType());
                 }
@@ -338,6 +356,9 @@ public class EsScanNode extends ExternalScanNode {
                 locations.setScanRange(scanRange);
                 // result
                 result.add(locations);
+                if (aliasScan) {
+                    return result;
+                }
             }
 
         }
@@ -418,6 +439,21 @@ public class EsScanNode extends ExternalScanNode {
     }
 
     private void buildQuery() throws UserException {
+        // Decide scan-wide materialization before considering any remote predicate.
+        docValuesMode = table.isEnableDocValueScan() ? useDocValueScan(desc, table.docValueContext()) : 0;
+        EsFieldContext fields = table.fieldContext();
+        Set<String> unsafeFields = new HashSet<>(fields.getSourceValueUnsafeFields());
+        if (!table.isEnableKeywordSniff()) {
+            unsafeFields.addAll(fields.getFetchFieldsContext().keySet());
+        }
+        if (docValuesMode == 0) {
+            unsafeFields.addAll(fields.getSourceModeUnsafeFields());
+            conjuncts.forEach(expr -> collectSourceUnsafeFields(expr, unsafeFields));
+        }
+        List<Expr> flattened = new ArrayList<>();
+        conjuncts.forEach(expr -> splitConjuncts(expr, flattened));
+        conjuncts.clear();
+        conjuncts.addAll(flattened);
         if (conjuncts.isEmpty()) {
             queryBuilder = QueryBuilders.matchAllQuery();
         } else {
@@ -437,10 +473,11 @@ public class EsScanNode extends ExternalScanNode {
                 QueryBuilder queryBuilder = QueryBuilders.toEsDsl(expr, notPushDownList, fieldsContext,
                         BuilderOptions.builder().likePushDown(table.isLikePushDown())
                                 .needCompatDateFields(table.needCompatDateFields()).build(),
-                        table.getColumn2typeMap());
+                        table.getColumn2typeMap(), unsafeFields);
                 // A compound predicate is indivisible here: retaining only its unsupported child
                 // would let OR/NOT lose local filtering or push an unsafe partial negation.
                 if (queryBuilder == null || notPushDownList.size() != residualCount) {
+                    QueryBuilders.requireLocalEvaluation(expr);
                     notPushDownList.add(expr);
                     continue;
                 }
@@ -454,6 +491,34 @@ public class EsScanNode extends ExternalScanNode {
             }
             conjuncts.removeIf(expr -> !notPushDownList.contains(expr));
         }
+    }
+
+    private static void splitConjuncts(Expr expr, List<Expr> conjuncts) {
+        if (expr instanceof CompoundPredicate
+                && ((CompoundPredicate) expr).getOp() == CompoundPredicate.Operator.AND) {
+            expr.getChildren().forEach(child -> splitConjuncts(child, conjuncts));
+        } else {
+            conjuncts.add(expr);
+        }
+    }
+
+    private void collectSourceUnsafeFields(Expr expr, Set<String> fields) {
+        if (expr instanceof FunctionCallExpr
+                && "esquery".equalsIgnoreCase(((FunctionCallExpr) expr).getFnName().getFunction())) {
+            return;
+        }
+        if (expr instanceof SlotRef) {
+            String name = ((SlotRef) expr).getColumnName();
+            if (!"_id".equals(name) && table.getColumn(name) != null
+                    && (table.getColumn(name).getType().isStringType()
+                            || table.getColumn(name).getType().isArrayType()
+                            || table.getColumn(name).getType().isJsonbType())) {
+                // Source containers such as {} are nonnull even when ES indexes no leaf value.
+                // A source string can also be the whole JSON array instead of one indexed element.
+                fields.add(name);
+            }
+        }
+        expr.getChildren().forEach(child -> collectSourceUnsafeFields(child, fields));
     }
 
 }

@@ -29,6 +29,7 @@ import org.apache.doris.thrift.TIcebergMergeSink;
 import org.apache.doris.thrift.TIcebergTableSink;
 
 import org.apache.iceberg.AppendFiles;
+import org.apache.iceberg.OverwriteFiles;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.ReplacePartitions;
 import org.apache.iceberg.RewriteFiles;
@@ -53,7 +54,7 @@ class IcebergCommitLocationTest {
     private static final String NORMALIZED_LOCATION = "s3://container/custom/data";
 
     enum WriteKind {
-        INSERT, OVERWRITE, DELETE, MERGE, REWRITE
+        INSERT, OVERWRITE, DYNAMIC_OVERWRITE, DELETE, MERGE, REWRITE
     }
 
     @ParameterizedTest
@@ -197,6 +198,9 @@ class IcebergCommitLocationTest {
             ReplacePartitions overwrite = Mockito.mock(ReplacePartitions.class, Mockito.RETURNS_SELF);
             Mockito.when(overwrite.scanManifestsWith(Mockito.any())).thenReturn(overwrite);
             Mockito.when(nativeTxn.newReplacePartitions()).thenReturn(overwrite);
+            OverwriteFiles wholeTableOverwrite = Mockito.mock(OverwriteFiles.class, Mockito.RETURNS_SELF);
+            Mockito.when(wholeTableOverwrite.scanManifestsWith(Mockito.any())).thenReturn(wholeTableOverwrite);
+            Mockito.when(nativeTxn.newOverwrite()).thenReturn(wholeTableOverwrite);
             Mockito.when(nativeTxn.newRowDelta()).thenReturn(Mockito.mock(RowDelta.class, Mockito.RETURNS_SELF));
             RewriteFiles rewrite = Mockito.mock(RewriteFiles.class, Mockito.RETURNS_SELF);
             Mockito.when(rewrite.scanManifestsWith(Mockito.any())).thenReturn(rewrite);
@@ -223,8 +227,9 @@ class IcebergCommitLocationTest {
                     break;
                 default:
                     IcebergInsertCommandContext context = new IcebergInsertCommandContext();
-                    context.setOverwrite(kind == WriteKind.OVERWRITE);
-                    txn.beginInsert(dorisTable, table, Optional.of(context));
+                    context.setOverwrite(kind == WriteKind.OVERWRITE || kind == WriteKind.DYNAMIC_OVERWRITE);
+                    txn.beginInsert(dorisTable, table, Optional.of(context),
+                            kind == WriteKind.DYNAMIC_OVERWRITE ? "dynamic" : "static");
                     break;
             }
             Mockito.clearInvocations(nativeTxn);

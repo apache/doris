@@ -26,6 +26,7 @@ import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.properties.SelectHintSetVar;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Placeholder;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
@@ -36,15 +37,18 @@ import org.apache.doris.nereids.trees.plans.commands.insert.InsertOverwriteTable
 import org.apache.doris.nereids.trees.plans.commands.insert.OlapGroupCommitInsertExecutor;
 import org.apache.doris.nereids.trees.plans.commands.merge.MergeIntoCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSelectHint;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSqlCache;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.planner.GroupCommitPlanner;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.PointQueryExecutor;
 import org.apache.doris.qe.PreparedStatementContext;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.ShortCircuitQueryContext;
 import org.apache.doris.qe.StmtExecutor;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -75,6 +79,18 @@ public class ExecuteCommand extends Command {
 
     public String getStmtName() {
         return stmtName;
+    }
+
+    @VisibleForTesting
+    static boolean hasShortCircuitRoutingHint(LogicalPlan plan) {
+        // Direct execution skips preprocessing (and therefore SET_VAR). Re-plan statements with
+        // routing hints rather than comparing a cached effective value with the bare session.
+        return plan.anyMatch(node -> node instanceof LogicalSelectHint
+                && ((LogicalSelectHint<?>) node).getHints().stream()
+                    .filter(hint -> hint instanceof SelectHintSetVar)
+                    .anyMatch(hint -> ((SelectHintSetVar) hint).getParameters().keySet().stream().anyMatch(key ->
+                            key.equalsIgnoreCase(SessionVariable.ENABLE_SHORT_CIRCUIT_QUERY)
+                            || key.equalsIgnoreCase(SessionVariable.ENABLE_PRUNE_NESTED_COLUMN))));
     }
 
     @Override
@@ -152,6 +168,7 @@ public class ExecuteCommand extends Command {
         executor.setParsedStmt(planAdapter);
         boolean hasShortCircuitContext = preparedStmtCtx.shortCircuitQueryContext.isPresent();
         boolean shortCircuitContextReusable = hasShortCircuitContext
+                && !hasShortCircuitRoutingHint(logicalPlan)
                 && preparedStmtCtx.shortCircuitQueryContext.get().isReusable(ctx);
         // Reuse the cached short-circuit plan only when table metadata is unchanged and the statement
         // has no nondeterministic functions. Otherwise fall back to the normal execution path below.
@@ -187,6 +204,7 @@ public class ExecuteCommand extends Command {
         // Drop the previously cached short-circuit context: either it was reusable and returned
         // early above, has just been refreshed here, or is stale and we are about to re-plan.
         preparedStmtCtx.shortCircuitQueryContext = Optional.empty();
+        statementContext.setShortCircuitQuery(false);
         executor.execute();
         StatementContext executedStatementContext = executor.getContext().getStatementContext();
         ShortCircuitQueryContext shortCircuitQueryContext =

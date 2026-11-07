@@ -97,6 +97,8 @@ public class EsExternalTable extends ExternalTable {
         esTable.setUserName(esCatalog.getUsername());
         esTable.setPasswd(esCatalog.getPassword());
         esTable.setEnableDocValueScan(esCatalog.enableDocValueScan());
+        // This adapter bypasses the legacy EsTable constructor that parses the field limit.
+        esTable.setMaxDocValueFields(esCatalog.getMaxDocValueFields());
         esTable.setEnableKeywordSniff(esCatalog.enableKeywordSniff());
         esTable.setNodesDiscovery(esCatalog.enableNodesDiscovery());
         esTable.setHttpSslEnabled(esCatalog.enableSsl());

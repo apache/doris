@@ -18,6 +18,8 @@
 
 package org.apache.hadoop.hive.metastore;
 
+import org.apache.doris.datasource.hive.HmsRawPartitionFilterPage;
+import org.apache.doris.datasource.hive.HmsRawPartitionFilterPageSource;
 import org.apache.doris.datasource.hive.HiveVersionUtil;
 import org.apache.doris.datasource.hive.HiveVersionUtil.HiveVersion;
 import org.apache.doris.datasource.property.metastore.HMSBaseProperties;
@@ -294,7 +296,7 @@ import javax.security.auth.login.LoginException;
  */
 @InterfaceAudience.Public
 @InterfaceStability.Evolving
-public class HiveMetaStoreClient implements IMetaStoreClient, AutoCloseable {
+public class HiveMetaStoreClient implements IMetaStoreClient, HmsRawPartitionFilterPageSource, AutoCloseable {
   /**
    * Capabilities of the current client. If this client talks to a MetaStore server in a manner
    * implying the usage of some expanded features that require client-side support that this client
@@ -1686,9 +1688,28 @@ public class HiveMetaStoreClient implements IMetaStoreClient, AutoCloseable {
   @Override
   public List<Partition> listPartitionsByFilter(String catName, String db_name, String tbl_name,
                                                 String filter, int max_parts) throws TException {
-    List<Partition> parts =client.get_partitions_by_filter(prependCatalogToDbName(
-        catName, db_name, conf), tbl_name, filter, shrinkMaxtoShort(max_parts));
-    return deepCopyPartitions(filterHook.filterPartitions(parts));
+    return listPartitionsByFilterRawPage(catName, db_name, tbl_name, filter, max_parts).getPartitions();
+  }
+
+  public HmsRawPartitionFilterPage listPartitionsByFilterRawPage(String catName, String db_name,
+                                                String tbl_name, String filter, int max_parts) throws TException {
+    String databaseName = databaseNameForPartitionFilter(hiveVersion, catName, db_name, conf);
+    List<Partition> parts = client.get_partitions_by_filter(
+        databaseName, tbl_name, filter, shrinkMaxtoShort(max_parts));
+    int rawCount = parts.size();
+    return new HmsRawPartitionFilterPage(deepCopyPartitions(filterHook.filterPartitions(parts)), rawCount);
+  }
+
+  @Override
+  public HmsRawPartitionFilterPage listPartitionsByFilterRawPage(String db_name, String tbl_name,
+                                                String filter, int max_parts) throws TException {
+    return listPartitionsByFilterRawPage(getDefaultCatalog(conf), db_name, tbl_name, filter, max_parts);
+  }
+
+  static String databaseNameForPartitionFilter(HiveVersion version, String catalogName, String databaseName,
+                                                Configuration configuration) throws MetaException {
+    return version == HiveVersion.V1_0 || version == HiveVersion.V2_0 || version == HiveVersion.V2_3
+        ? databaseName : prependCatalogToDbName(catalogName, databaseName, configuration);
   }
 
   @Override

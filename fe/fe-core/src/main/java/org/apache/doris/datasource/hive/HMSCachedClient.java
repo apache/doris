@@ -53,6 +53,14 @@ public interface HMSCachedClient {
 
     List<Partition> listPartitions(String dbName, String tblName);
 
+    /**
+     * Lists partitions matching the HMS filter grammar. Callers use this to avoid enumerating every
+     * partition before applying a selective equality or IN predicate.
+     */
+    default List<Partition> listPartitionsByFilter(String dbName, String tblName, String filter) {
+        throw new UnsupportedOperationException("listPartitionsByFilter is not supported");
+    }
+
     List<String> listPartitionNames(String dbName, String tblName, long maxListPartitionNum);
 
     Partition getPartition(String dbName, String tblName, List<String> partitionValues);

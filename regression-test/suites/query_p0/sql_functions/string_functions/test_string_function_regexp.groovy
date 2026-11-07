@@ -120,6 +120,13 @@ suite("test_string_function_regexp") {
     qt_sql_regexp_extract_all_3 'SELECT REGEXP_EXTRACT_ALL(\'foo123bar456baz\', \'(\\\\d{3})(?=bar|baz)\');'
     qt_sql_regexp_extract_all_4 'SELECT REGEXP_EXTRACT_ALL(\'ID:AA-1,ID:BB-2,ID:CC-3\', \'(?<=ID:)([A-Z]{2}-\\\\d)\');'
     qt_sql_regexp_extract_all_5 'SELECT REGEXP_EXTRACT_ALL(\'EdgeCase1EdgeCase2EdgeCase3\', \'(?<=Edge)(Case\\\\d)(?=Edge|$)\');'
+    // zero-width Boost matches must be extracted once per position
+    qt_sql_regexp_extract_all_zero_width_1 "SELECT REGEXP_EXTRACT_ALL('ba', '(?=(a))');"
+    qt_sql_regexp_extract_all_zero_width_2 "SELECT REGEXP_EXTRACT_ALL('aba', '(?=(a))');"
+    qt_sql_regexp_extract_all_zero_width_3 "SELECT REGEXP_EXTRACT_ALL('aaa', '(?=(a))');"
+    qt_sql_regexp_extract_all_zero_width_4 "SELECT REGEXP_EXTRACT_ALL('aa', '(?<=(a))');"
+    qt_sql_regexp_extract_all_zero_width_5 "SELECT REGEXP_EXTRACT_ALL('xa', '((?<=x)|a)');"
+    qt_sql_regexp_extract_all_zero_width_6 "SELECT REGEXP_EXTRACT_ALL('xxa?b', '(?<=a)|^(b)');"
     sql "set enable_extended_regex = false;"
 
     qt_sql_regexp_extract_all_6 "SELECT REGEXP_EXTRACT_ALL(concat('foo', char(10), 'bar'), '(foo.bar)');"

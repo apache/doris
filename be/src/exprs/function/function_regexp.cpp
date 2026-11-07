@@ -169,21 +169,16 @@ struct RegexpExtractEngine {
                 pos += offset + matches[0].size();
             }
         } else if (is_boost()) {
-            const char* search_start = data;
-            const char* search_end = data + size;
-            boost::match_results<const char*> matches;
-
-            while (boost::regex_search(search_start, search_end, matches, *boost_regex)) {
+            // Iterate over the whole input instead of re-running regex_search on a
+            // shrinking range: the iterator keeps the preceding text visible to
+            // lookbehind/`^`/`\b` and steps past zero-width matches (e.g. lookahead)
+            // without matching the same position twice.
+            boost::cregex_iterator it(data, data + size, *boost_regex);
+            boost::cregex_iterator end;
+            for (; it != end; ++it) {
+                const auto& matches = *it;
                 if (matches.size() > 1 && matches[1].matched) {
                     results.emplace_back(matches[1].str());
-                }
-                if (matches[0].length() == 0) {
-                    if (search_start == search_end) {
-                        break;
-                    }
-                    search_start += 1;
-                } else {
-                    search_start = matches[0].second;
                 }
             }
         }
@@ -345,29 +340,23 @@ public:
             if (context->is_col_constant(1)) {
                 DCHECK(!context->get_function_state(scope));
                 const auto pattern_col = context->get_constant_col(1)->column_ptr;
-                const auto& pattern = pattern_col->get_data_at(0);
-                if (pattern.size == 0) {
-                    return Status::OK();
-                }
-
-                std::string error_str;
-                std::unique_ptr<re2::RE2> scoped_re;
                 StringRef options_value;
                 if constexpr (std::is_same_v<FourParamTypes, ParamTypes>) {
                     DCHECK_EQ(context->get_num_args(), 4);
-                    DCHECK(context->is_col_constant(3));
+                    // The options are a constant, but a constant expression such as an arithmetic
+                    // one is not evaluated in open. Then the regex is compiled in execute.
+                    if (!context->is_col_constant(3)) {
+                        return Status::OK();
+                    }
                     const auto options_col = context->get_constant_col(3)->column_ptr;
+                    // A NULL options argument makes the result NULL before regexp compilation.
+                    if (options_col->is_null_at(0)) {
+                        return Status::OK();
+                    }
                     options_value = options_col->get_data_at(0);
                 }
-
-                bool st = StringFunctions::compile_regex(pattern, &error_str, StringRef(),
-                                                         options_value, scoped_re);
-                if (!st) {
-                    context->set_error(error_str.c_str());
-                    return Status::InvalidArgument(error_str);
-                }
-                std::shared_ptr<re2::RE2> re(scoped_re.release());
-                context->set_function_state(scope, re);
+                return compile_constant_pattern(context, pattern_col->get_data_at(0),
+                                                options_value);
             }
         }
         return Status::OK();
@@ -396,21 +385,51 @@ public:
         default_preprocess_parameter_columns(argument_columns, col_const, {1, 2}, block, arguments);
 
         StringRef options_value;
+        if (argument_size == 4) {
+            options_value = block.get_by_position(arguments[3]).column->get_data_at(0);
+        }
         if (col_const[1] && col_const[2]) {
+            if constexpr (std::is_same_v<FourParamTypes, ParamTypes>) {
+                // Cache only a query-level constant pattern, not a broadcast join column.
+                if (context->is_col_constant(1) && !context->is_col_constant(3) &&
+                    input_rows_count > 0 &&
+                    context->get_function_state(FunctionContext::THREAD_LOCAL) == nullptr) {
+                    RETURN_IF_ERROR(compile_constant_pattern(
+                            context, argument_columns[1]->get_data_at(0), options_value));
+                }
+            }
             Impl::execute_impl_const_args(context, argument_columns, options_value,
                                           input_rows_count, result_data, result_offset,
                                           result_null_map->get_data());
         } else {
-            // the options have check in FE, so is always const, and get idx of 0
-            if (argument_size == 4) {
-                options_value = block.get_by_position(arguments[3]).column->get_data_at(0);
-            }
             Impl::execute_impl(context, argument_columns, options_value, input_rows_count,
                                result_data, result_offset, result_null_map->get_data());
         }
 
         block.get_by_position(result).column =
                 ColumnNullable::create(std::move(result_data_column), std::move(result_null_map));
+        return Status::OK();
+    }
+
+private:
+    // Compiles a constant pattern into the THREAD_LOCAL state. An empty pattern is not compiled
+    // here, and each row compiles it instead.
+    static Status compile_constant_pattern(FunctionContext* context, const StringRef& pattern,
+                                           const StringRef& options_value) {
+        if (pattern.size == 0) {
+            return Status::OK();
+        }
+
+        std::string error_str;
+        std::unique_ptr<re2::RE2> scoped_re;
+        bool st = StringFunctions::compile_regex(pattern, &error_str, StringRef(), options_value,
+                                                 scoped_re);
+        if (!st) {
+            context->set_error(error_str.c_str());
+            return Status::InvalidArgument(error_str);
+        }
+        std::shared_ptr<re2::RE2> re(scoped_re.release());
+        context->set_function_state(FunctionContext::THREAD_LOCAL, re);
         return Status::OK();
     }
 };

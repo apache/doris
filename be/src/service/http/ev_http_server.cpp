@@ -56,6 +56,7 @@ static void on_chunked(struct evhttp_request* ev_req, void* param) {
 
 static void on_free(struct evhttp_request* ev_req, void* arg) {
     HttpRequest* request = (HttpRequest*)arg;
+    request->wait_finish_send_reply();
     delete request;
 }
 

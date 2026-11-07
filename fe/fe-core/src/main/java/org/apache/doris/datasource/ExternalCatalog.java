@@ -169,6 +169,10 @@ public abstract class ExternalCatalog
     @SerializedName(value = "initialized")
     protected boolean initialized = false;
     private AtomicLong metadataLoadEpoch = new AtomicLong();
+    // Catalog-owned so refresh protection survives normal database/table object eviction.
+    private transient volatile long tableLookupRefreshGeneration;
+    private transient int activeTableLookupRefreshes;
+
     @SerializedName(value = "lastUpdateTime")
     protected long lastUpdateTime;
     // <db name, table name> to tableAutoAnalyzePolicy
@@ -455,6 +459,25 @@ public abstract class ExternalCatalog
         }
     }
 
+    public synchronized void beginTableLookupRefresh() {
+        activeTableLookupRefreshes++;
+        tableLookupRefreshGeneration++;
+    }
+
+    public synchronized void endTableLookupRefresh() {
+        activeTableLookupRefreshes--;
+        tableLookupRefreshGeneration++;
+    }
+
+    synchronized OptionalLong observeTableLookupRefreshGeneration() {
+        return activeTableLookupRefreshes == 0
+                ? OptionalLong.of(tableLookupRefreshGeneration) : OptionalLong.empty();
+    }
+
+    long getTableLookupRefreshGeneration() {
+        return tableLookupRefreshGeneration;
+    }
+
     protected long acquireMetadataLoadEpoch() {
         synchronized (this) {
             makeSureInitialized();
@@ -708,32 +731,37 @@ public abstract class ExternalCatalog
      *                     and reloaded during the refresh process.
      */
     public void resetToUninitialized(boolean invalidCache) {
-        MetaCache<ExternalDatabase<? extends ExternalTable>> cacheToInvalidate = null;
-        Runnable objectInvalidation = null;
+        beginTableLookupRefresh();
         try {
-            synchronized (this) {
-                metadataLoadEpoch.incrementAndGet();
-                this.objectCreated = false;
-                this.initialized = false;
-                synchronized (this.confLock) {
-                    this.cachedConf = null;
+            MetaCache<ExternalDatabase<? extends ExternalTable>> cacheToInvalidate = null;
+            Runnable objectInvalidation = null;
+            try {
+                synchronized (this) {
+                    metadataLoadEpoch.incrementAndGet();
+                    this.objectCreated = false;
+                    this.initialized = false;
+                    synchronized (this.confLock) {
+                        this.cachedConf = null;
+                    }
+                    this.lowerCaseToDatabaseName.clear();
+                    cacheToInvalidate = metaCache;
+                    if (cacheToInvalidate != null) {
+                        cacheToInvalidate.invalidateNames();
+                        objectInvalidation = cacheToInvalidate.retireObjects();
+                    }
+                    onClose();
                 }
-                this.lowerCaseToDatabaseName.clear();
-                cacheToInvalidate = metaCache;
-                if (cacheToInvalidate != null) {
-                    cacheToInvalidate.invalidateNames();
-                    objectInvalidation = cacheToInvalidate.retireObjects();
+            } finally {
+                if (objectInvalidation != null) {
+                    objectInvalidation.run();
                 }
-                onClose();
+            }
+            setLastUpdateTime(System.currentTimeMillis());
+            if (invalidCache) {
+                Env.getCurrentEnv().getExtMetaCacheMgr().invalidateCatalog(id);
             }
         } finally {
-            if (objectInvalidation != null) {
-                objectInvalidation.run();
-            }
-        }
-        setLastUpdateTime(System.currentTimeMillis());
-        if (invalidCache) {
-            Env.getCurrentEnv().getExtMetaCacheMgr().invalidateCatalog(id);
+            endTableLookupRefresh();
         }
     }
 
@@ -743,13 +771,18 @@ public abstract class ExternalCatalog
      * @param invalidCache
      */
     public void onRefreshCache(boolean invalidCache) {
-        setLastUpdateTime(System.currentTimeMillis());
+        beginTableLookupRefresh();
         try {
-            refreshMetaCacheOnly(invalidCache);
-        } finally {
-            if (invalidCache) {
-                Env.getCurrentEnv().getExtMetaCacheMgr().invalidateCatalog(id);
+            setLastUpdateTime(System.currentTimeMillis());
+            try {
+                refreshMetaCacheOnly(invalidCache);
+            } finally {
+                if (invalidCache) {
+                    Env.getCurrentEnv().getExtMetaCacheMgr().invalidateCatalog(id);
+                }
             }
+        } finally {
+            endTableLookupRefresh();
         }
     }
 
@@ -1139,6 +1172,8 @@ public abstract class ExternalCatalog
     public void gsonPostProcess() throws IOException {
         objectCreated = false;
         metadataLoadEpoch = new AtomicLong();
+        tableLookupRefreshGeneration = 0;
+        activeTableLookupRefreshes = 0;
         invalidateEngineCacheOnDatabaseRemoval = ThreadLocal.withInitial(() -> true);
         invalidatingAllMetaCache = ThreadLocal.withInitial(() -> false);
         // TODO: This code is to compatible with older version of metadata.
@@ -1677,8 +1712,13 @@ public abstract class ExternalCatalog
     }
 
     public void replayTruncateTable(TruncateTableInfo info) {
-        if (metadataOps != null) {
-            metadataOps.afterTruncateTable(info.getDb(), info.getTable(), info.getUpdateTime());
+        beginTableLookupRefresh();
+        try {
+            if (metadataOps != null) {
+                metadataOps.afterTruncateTable(info.getDb(), info.getTable(), info.getUpdateTime());
+            }
+        } finally {
+            endTableLookupRefresh();
         }
     }
 

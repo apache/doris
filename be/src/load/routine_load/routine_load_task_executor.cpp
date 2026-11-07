@@ -381,7 +381,7 @@ void RoutineLoadTaskExecutor::exec_task(std::shared_ptr<StreamLoadContext> ctx,
         if (UNLIKELY(!_status_.ok() && !_status_.is<PUBLISH_TIMEOUT>())) { \
             err_handler(ctx, _status_, err_msg);                           \
             cb(ctx);                                                       \
-            _status_ = ctx->future.get();                                  \
+            _status_ = ctx->load_status_future.get();                      \
             if (!_status_.ok()) {                                          \
                 LOG(ERROR) << "failed to get future, " << ctx->brief();    \
             }                                                              \
@@ -468,7 +468,7 @@ void RoutineLoadTaskExecutor::exec_task(std::shared_ptr<StreamLoadContext> ctx,
     }
 
     // wait for all consumers finished
-    HANDLE_ERROR(ctx->future.get(), "consume failed");
+    HANDLE_ERROR(ctx->load_status_future.get(), "consume failed");
 
     ctx->load_cost_millis = UnixMillis() - ctx->start_millis;
 
@@ -549,12 +549,12 @@ Status RoutineLoadTaskExecutor::_execute_plan_for_test(std::shared_ptr<StreamLoa
             Status st = pipe->read_at(0, result, &read_bytes);
             if (!st.ok()) {
                 LOG(WARNING) << "read failed";
-                ctx->promise.set_value(st);
+                ctx->load_status_promise.set_value(st);
                 break;
             }
 
             if (read_bytes == 0) {
-                ctx->promise.set_value(Status::OK());
+                ctx->load_status_promise.set_value(Status::OK());
                 break;
             }
 
