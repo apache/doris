@@ -33,6 +33,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunctio
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.CreateMTMVCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.BaseViewInfo;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.PlanUtils;
@@ -109,7 +110,7 @@ public class LogicalPlanBuilderForSyncMv extends LogicalPlanBuilder {
             for (Expression expr : outputs) {
                 aggStateFunctionFinder.find(expr, indexInSqlToString);
             }
-            querySql = Optional.of(rewriteSql(originSql, indexInSqlToString));
+            querySql = Optional.of(BaseViewInfo.rewriteSql(indexInSqlToString, originSql));
         } else {
             querySql = Optional.of(originSql);
         }
@@ -192,19 +193,5 @@ public class LogicalPlanBuilderForSyncMv extends LogicalPlanBuilder {
             }
             return unboundFunction;
         }
-    }
-
-    private static String rewriteSql(String querySql,
-            Map<Pair<Integer, Integer>, String> indexStringSqlMap) {
-        StringBuilder builder = new StringBuilder();
-        int beg = 0;
-        for (Map.Entry<Pair<Integer, Integer>, String> entry : indexStringSqlMap.entrySet()) {
-            Pair<Integer, Integer> index = entry.getKey();
-            builder.append(querySql, beg, index.first);
-            builder.append(entry.getValue());
-            beg = index.second + 1;
-        }
-        builder.append(querySql, beg, querySql.length());
-        return builder.toString();
     }
 }
