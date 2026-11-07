@@ -101,8 +101,8 @@ suite("test_match_keyword_score", "p0") {
         // only in the first insert: the other segment has no index for it and adds nothing.
         // Every path must be a subcolumn with its own index. CI fuzzes the subcolumn limit, and a
         // limit below the three paths moves the rest to the sparse column, which has no index and
-        // scores 0; 0 is no limit.
-        sql "set default_variant_max_subcolumns_count = 0"
+        // scores 0.
+        sql "set default_variant_max_subcolumns_count = 2048"
         sql "set default_variant_enable_typed_paths_to_sparse = false"
         sql "set default_variant_enable_doc_mode = false"
         sql "DROP TABLE IF EXISTS test_match_keyword_score_variant"

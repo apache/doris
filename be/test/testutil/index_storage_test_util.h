@@ -76,6 +76,8 @@ struct VariantColumnSpec {
     bool nullable = false;
     bool is_bf_column = false;
     int32_t max_subcolumns_count = 8;
+    bool enable_typed_paths_to_sparse = false;
+    VariantSerializeTypePB serialize_type = VariantSerializeTypePB::VARIANT_SERIALIZE_V1;
     int32_t max_sparse_column_statistics_size = 10000;
     int32_t sparse_hash_shard_count = 0;
     bool enable_doc_mode = false;

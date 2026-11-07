@@ -153,6 +153,8 @@ void init_variant_column(ColumnPB* column_pb, const VariantColumnSpec& spec) {
     column_pb->set_is_nullable(spec.nullable);
     column_pb->set_is_bf_column(spec.is_bf_column);
     column_pb->set_variant_max_subcolumns_count(spec.max_subcolumns_count);
+    column_pb->set_variant_enable_typed_paths_to_sparse(spec.enable_typed_paths_to_sparse);
+    column_pb->set_variant_serialize_type(spec.serialize_type);
     column_pb->set_variant_max_sparse_column_statistics_size(
             spec.max_sparse_column_statistics_size);
     column_pb->set_variant_sparse_hash_shard_count(spec.sparse_hash_shard_count);

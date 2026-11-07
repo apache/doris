@@ -24,6 +24,7 @@ import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.persist.gson.GsonPostProcessable;
+import org.apache.doris.thrift.TVariantSerializeType;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -1205,6 +1206,10 @@ public class Column implements GsonPostProcessable {
 
     public boolean getVariantEnableNestedGroup() {
         return type.isVariantType() ? ((ScalarType) type).getVariantEnableNestedGroup() : false;
+    }
+
+    public TVariantSerializeType getVariantSerializeType() {
+        return type.isVariantType() ? ((ScalarType) type).getVariantSerializeType() : TVariantSerializeType.V1;
     }
 
     public void setFieldPatternType(PatternType type) {

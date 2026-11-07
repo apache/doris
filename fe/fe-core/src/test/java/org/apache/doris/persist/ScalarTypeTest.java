@@ -21,6 +21,7 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.VariantType;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.thrift.TVariantSerializeType;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -37,5 +38,7 @@ public class ScalarTypeTest {
         Assertions.assertEquals(scalarType.getVariantMaxSubcolumnsCount(), 0);
         Assertions.assertEquals(scalarType.getVariantEnableTypedPathsToSparse(), false);
         Assertions.assertEquals(scalarType.getVariantMaxSparseColumnStatisticsSize(), 0);
+        // the old ScalarType metadata predates the serialize type and keeps its layout
+        Assertions.assertEquals(TVariantSerializeType.V1, scalarType2.getVariantSerializeType());
     }
 }

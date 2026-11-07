@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <gen_cpp/olap_file.pb.h>
+
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -114,7 +116,8 @@ struct VariantPathSelection {
 // authoritative non-null-count/depth/path rule before the materialization budget is applied.
 VariantPathSelection select_variant_paths(std::span<const VariantPathSelectionCandidate> candidates,
                                           size_t max_dynamic_materialized_paths,
-                                          bool typed_paths_to_sparse);
+                                          bool typed_paths_to_sparse,
+                                          VariantSerializeTypePB serialize_type);
 
 // Least common type for a variant path. Used to merge types inferred by independent value chunks.
 DataTypePtr variant_path_least_common_type(const DataTypePtr& left, const DataTypePtr& right);
