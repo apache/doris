@@ -214,9 +214,13 @@ public class GrantResourcePrivilegeCommand extends Command implements ForwardWit
 
         switch (resourcePattern.getResourceType()) {
             case GENERAL:
-            case STORAGE_VAULT:
                 return Env.getCurrentEnv().getAccessManager()
                     .checkResourcePriv(ctx, resourcePattern.getResourceName(), privPredicate);
+            case STORAGE_VAULT:
+                // A vault privilege is held in the storage-vault table (the one the vault's users are
+                // checked against), not in the general resource table this used to consult.
+                return Env.getCurrentEnv().getAccessManager()
+                    .checkStorageVaultPriv(ctx, resourcePattern.getResourceName(), privPredicate);
             case CLUSTER:
             case STAGE:
                 return Env.getCurrentEnv().getAccessManager()

@@ -121,8 +121,18 @@ suite("test_system_user","p0,auth") {
     def tokens = context.config.jdbcUrl.split('/')
     def url = tokens[0] + "//" + tokens[2] + "/" + "information_schema" + "?"
     connect(grantUser, "${pwd}", url) {
-        sql """SET PASSWORD FOR 'root'@'8.8.20.39' = PASSWORD('Pwd_c3')"""
-        sql """ALTER USER 'root'@'8.8.20.39' IDENTIFIED BY 'Pwd_d4'"""
+        // an ordinary account's credentials (root@'<host>' included) need admin_priv: grant_priv
+        // manages its privileges and its lock, never what it authenticates with
+        test {
+            sql """SET PASSWORD FOR 'root'@'8.8.20.39' = PASSWORD('Pwd_c3')"""
+            exception "denied"
+        }
+        test {
+            sql """ALTER USER 'root'@'8.8.20.39' IDENTIFIED BY 'Pwd_d4'"""
+            exception "denied"
+        }
+        sql """ALTER USER 'root'@'8.8.20.39' ACCOUNT_LOCK"""
+        sql """ALTER USER 'root'@'8.8.20.39' ACCOUNT_UNLOCK"""
         test {
             sql """SET PASSWORD FOR 'root'@'%' = PASSWORD('Pwd_e5')"""
             exception "Can not set password for root user"
