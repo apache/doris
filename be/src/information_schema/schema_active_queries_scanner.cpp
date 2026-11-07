@@ -54,6 +54,9 @@ Status SchemaActiveQueriesScanner::start(RuntimeState* state) {
 }
 
 Status SchemaActiveQueriesScanner::_get_active_queries_block_from_fe() {
+    if (_param->common_param->current_user_ident == nullptr) {
+        return Status::InternalError("Current user identity is not set");
+    }
     TNetworkAddress master_addr = ExecEnv::GetInstance()->cluster_info()->master_fe_addr;
 
     TSchemaTableRequestParams schema_table_params;
@@ -64,6 +67,7 @@ Status SchemaActiveQueriesScanner::_get_active_queries_block_from_fe() {
     schema_table_params.replay_to_other_fe = true;
     schema_table_params.__isset.replay_to_other_fe = true;
     schema_table_params.__set_time_zone(_timezone);
+    schema_table_params.__set_current_user_ident(*_param->common_param->current_user_ident);
 
     TFetchSchemaTableDataRequest request;
     request.__set_schema_table_name(TSchemaTableName::ACTIVE_QUERIES);
