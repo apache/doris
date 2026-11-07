@@ -20,13 +20,21 @@ package org.apache.doris.nereids.rules.rewrite;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
 /**
- * EliminateLimitUnderApply.
+ * EliminateLimitUnderApply removes a LIMIT below a correlated Apply only when the LIMIT
+ * cannot affect the result.
+ *
+ * <p>Preconditions: the Apply must be a correlated EXISTS test, the LIMIT must be positive,
+ * and its OFFSET must be zero. EXISTS only asks whether the subquery returns any row, so a
+ * positive limit without offset preserves its answer. LIMIT 0 makes the subquery empty and a
+ * positive OFFSET can skip every matching row, so both change EXISTS semantics. IN/NOT IN
+ * consume the rows themselves, so their LIMIT also has to be preserved.</p>
  */
 public class EliminateLimitUnderApply extends OneRewriteRuleFactory {
     @Override
@@ -34,6 +42,10 @@ public class EliminateLimitUnderApply extends OneRewriteRuleFactory {
         return logicalApply(any(), logicalLimit()).then(apply -> {
             if (!apply.isCorrelated()) {
                 // must keep the limit if it's an uncorrelated because the return number of rows is affected by limit
+                return null;
+            }
+            LogicalLimit<?> limit = apply.right();
+            if (!apply.isExist() || limit.getLimit() == 0 || limit.getOffset() > 0) {
                 return null;
             }
             List<Plan> children = new ImmutableList.Builder<Plan>()
