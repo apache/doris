@@ -93,8 +93,8 @@ public class GrantRoleCommand extends Command implements ForwardWithSync {
      * Granting a role hands its holder every privilege the role carries, so it is held to the rule a
      * direct GRANT already enforces: the grantor needs grant_priv and, unless it has admin_priv, each
      * privilege the role carries on the same object (otherwise any account with grant_priv alone could
-     * take any existing role for itself); node_priv is never obtained through a role by an account that
-     * lacks it, admin_priv or not, as a direct grant of node_priv is refused to such an account. The rule
+     * take any existing role for itself); a role carrying node_priv is granted only by an account that itself
+     * holds node_priv, admin_priv or not, as for a direct grant of node_priv. The rule
      * reads the role as it is at the grant, exactly as a direct grant hands out fixed privileges: a
      * privilege granted TO the role later reaches every holder, so whoever grants to a role answers for
      * its membership (SHOW GRANTS lists it). A role that does not exist is reported by the grant itself.

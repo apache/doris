@@ -51,6 +51,9 @@ public class GrantRoleScopeTest extends TestWithFeService {
                 + " PROPERTIES (\"min_memory_percent\"=\"10\", \"max_memory_percent\"=\"30%\")");
         run("CREATE ROLE gs_wg_role");
         run("GRANT USAGE_PRIV ON WORKLOAD GROUP 'gs_wg' TO ROLE 'gs_wg_role'");
+        // and one carrying a storage-vault privilege (a grant on a vault needs no vault to exist)
+        run("CREATE ROLE gs_vault_role");
+        run("GRANT USAGE_PRIV ON STORAGE VAULT 'gs_vault' TO ROLE 'gs_vault_role'");
     }
 
     private void run(String sql) throws Exception {
@@ -118,6 +121,20 @@ public class GrantRoleScopeTest extends TestWithFeService {
     }
 
     @Test
+    public void testARoleCarryingAStorageVaultPrivilegeIsCheckedOnThatVault() throws Exception {
+        ConnectContext grantor = as("gs_grantor");
+        // the role path and the direct path both ask the storage-vault table, not the general resource table
+        Assertions.assertTrue(refusal(grantor, "GRANT 'gs_vault_role' TO 'gs_target'@'%'").contains("Usage_priv"));
+        Assertions.assertTrue(refusal(grantor, "GRANT USAGE_PRIV ON STORAGE VAULT 'gs_vault' TO 'gs_target'@'%'")
+                .contains("Usage_priv"));
+        run("GRANT USAGE_PRIV ON STORAGE VAULT 'gs_vault' TO 'gs_grantor'@'%'");
+        runAs(grantor, "GRANT 'gs_vault_role' TO 'gs_target'@'%'");
+        runAs(grantor, "GRANT USAGE_PRIV ON STORAGE VAULT 'gs_vault' TO 'gs_target'@'%'");
+        Assertions.assertTrue(Env.getCurrentEnv().getAuth().getRolesByUser(ident("gs_target"), false)
+                .contains("gs_vault_role"));
+    }
+
+    @Test
     public void testAnotherAccountsCredentialsNeedAdminPriv() throws Exception {
         ConnectContext grantor = as("gs_grantor");
         Assertions.assertTrue(refusal(grantor, "ALTER USER 'gs_target'@'%' IDENTIFIED BY 'x'").contains("ADMIN"));
@@ -126,17 +143,19 @@ public class GrantRoleScopeTest extends TestWithFeService {
         Assertions.assertTrue(refusal(grantor,
                 "ALTER USER 'gs_target'@'%' IDENTIFIED WITH AUTHENTICATION INTEGRATION gs_integration")
                 .contains("ADMIN"));
-        Assertions.assertTrue(refusal(grantor, "ALTER USER 'gs_target'@'%' REQUIRE SAN 'gs-san'").contains("ADMIN"));
+        Assertions.assertTrue(refusal(grantor, "ALTER USER 'gs_target'@'%' REQUIRE SAN 'DNS:gs-san'")
+                .contains("ADMIN"));
         // one's own credentials, and the other administrative operations, stay under grant_priv
         runAs(grantor, "SET PASSWORD = PASSWORD('q1')");
         runAs(grantor, "ALTER USER 'gs_grantor'@'%' IDENTIFIED BY 'q2'");
+        runAs(grantor, "ALTER USER 'gs_grantor'@'%' REQUIRE NONE");
         runAs(grantor, "ALTER USER 'gs_target'@'%' ACCOUNT_LOCK");
         runAs(grantor, "ALTER USER 'gs_target'@'%' ACCOUNT_UNLOCK");
         // admin_priv may change another account's credentials
         ConnectContext admin = as("gs_admin");
         runAs(admin, "ALTER USER 'gs_target'@'%' IDENTIFIED BY 'x1'");
         runAs(admin, "SET PASSWORD FOR 'gs_target'@'%' = PASSWORD('x2')");
-        runAs(admin, "ALTER USER 'gs_target'@'%' REQUIRE SAN 'gs-san'");
+        runAs(admin, "ALTER USER 'gs_target'@'%' REQUIRE SAN 'DNS:gs-san'");
         runAs(admin, "ALTER USER 'gs_target'@'%' REQUIRE NONE");
     }
 }
