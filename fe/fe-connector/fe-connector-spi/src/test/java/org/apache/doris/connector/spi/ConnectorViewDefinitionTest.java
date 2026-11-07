@@ -33,6 +33,36 @@ import java.util.List;
  */
 public class ConnectorViewDefinitionTest {
 
+    @Test
+    public void absentAndEmptyNamespacesHaveDifferentMeanings() {
+        ConnectorViewDefinition legacy = new ConnectorViewDefinition("SELECT 1", "spark", Collections.emptyList());
+        ConnectorViewDefinition empty = new ConnectorViewDefinition(
+                "SELECT 1", "spark", Collections.emptyList(), null, Collections.emptyList());
+        Assertions.assertFalse(legacy.getDefaultCatalog().isPresent());
+        Assertions.assertFalse(legacy.getDefaultNamespace().isPresent());
+        Assertions.assertTrue(empty.getDefaultNamespace().isPresent());
+        Assertions.assertTrue(empty.getDefaultNamespace().get().isEmpty());
+        Assertions.assertNotEquals(legacy, empty);
+    }
+
+    @Test
+    public void savedNamespaceIsImmutableAndPartOfValueEquality() {
+        List<String> namespace = new ArrayList<>(Arrays.asList("source"));
+        ConnectorViewDefinition definition = new ConnectorViewDefinition(
+                "SELECT x FROM t", "spark", Collections.emptyList(), "catalog", namespace);
+        namespace.add("later");
+        Assertions.assertEquals("catalog", definition.getDefaultCatalog().get());
+        Assertions.assertEquals(Collections.singletonList("source"), definition.getDefaultNamespace().get());
+        Assertions.assertThrows(UnsupportedOperationException.class,
+                () -> definition.getDefaultNamespace().get().add("later"));
+        ConnectorViewDefinition same = new ConnectorViewDefinition(
+                "SELECT x FROM t", "spark", Collections.emptyList(), "catalog", Collections.singletonList("source"));
+        Assertions.assertEquals(definition, same);
+        Assertions.assertEquals(definition.hashCode(), same.hashCode());
+        Assertions.assertNotEquals(definition, new ConnectorViewDefinition(
+                "SELECT x FROM t", "spark", Collections.emptyList(), "other", Collections.singletonList("source")));
+    }
+
     private static ConnectorColumn col(String name) {
         return new ConnectorColumn(name, ConnectorType.of("INT"), "", true, null, true);
     }

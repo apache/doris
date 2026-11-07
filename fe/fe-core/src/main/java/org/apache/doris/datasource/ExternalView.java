@@ -27,6 +27,8 @@ import org.apache.doris.statistics.analysis.BaseAnalysisTask;
 import org.apache.doris.statistics.model.ColumnStatistic;
 import org.apache.doris.thrift.TTableDescriptor;
 
+import com.google.common.collect.ImmutableList;
+
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
@@ -34,12 +36,22 @@ import java.util.Optional;
 import java.util.Set;
 
 public class ExternalView implements ViewIf {
-    private String viewText;
-    private ExternalTable externalTable;
+    private final String viewText;
+    private final ExternalTable externalTable;
+    private final Optional<List<Column>> schema;
 
     public ExternalView(ExternalTable externalTable, String viewText) {
+        this(externalTable, viewText, Optional.empty());
+    }
+
+    public ExternalView(ExternalTable externalTable, String viewText, List<Column> schema) {
+        this(externalTable, viewText, Optional.of(ImmutableList.copyOf(schema)));
+    }
+
+    private ExternalView(ExternalTable externalTable, String viewText, Optional<List<Column>> schema) {
         this.viewText = viewText;
         this.externalTable = externalTable;
+        this.schema = schema;
     }
 
     @Override
@@ -68,17 +80,17 @@ public class ExternalView implements ViewIf {
 
     @Override
     public List<Column> getFullSchema() {
-        return externalTable.getFullSchema();
+        return schema.orElseGet(externalTable::getFullSchema);
     }
 
     @Override
     public List<Column> getBaseSchema() {
-        return externalTable.getBaseSchema();
+        return schema.orElseGet(externalTable::getBaseSchema);
     }
 
     @Override
     public List<Column> getBaseSchema(boolean full) {
-        return externalTable.getBaseSchema();
+        return getBaseSchema();
     }
 
     @Override
@@ -88,6 +100,10 @@ public class ExternalView implements ViewIf {
 
     @Override
     public Column getColumn(String name) {
+        if (schema.isPresent()) {
+            return schema.get().stream().filter(column -> name.equalsIgnoreCase(column.getName()))
+                    .findFirst().orElse(null);
+        }
         return externalTable.getColumn(name);
     }
 

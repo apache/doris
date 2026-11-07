@@ -1010,6 +1010,13 @@ public class ConnectContext {
         currentDbId = namespace.getCurrentDbId();
     }
 
+    /** Enter a saved view namespace; relation binding resolves the catalog and database only when needed. */
+    public void setViewDefaultNamespace(String catalogName, String db) {
+        defaultCatalog = catalogName;
+        currentDb = db;
+        currentDbId = -1L;
+    }
+
     public void setDatabase(String db) {
         Optional<DatabaseIf> dbInstance = getCurrentCatalog().getDb(db);
         long dbId = dbInstance.map(DatabaseIf::getId).orElse(-1L);

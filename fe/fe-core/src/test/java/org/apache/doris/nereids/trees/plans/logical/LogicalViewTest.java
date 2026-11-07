@@ -50,6 +50,7 @@ public class LogicalViewTest {
     private static Slot slot(String name) {
         Slot slot = Mockito.mock(Slot.class);
         Mockito.when(slot.getName()).thenReturn(name);
+        Mockito.when(slot.withName(Mockito.anyString())).thenReturn(slot);
         Mockito.when(slot.withQualifier(Mockito.anyList())).thenReturn(slot);
         Mockito.when(slot.withOneLevelTableAndColumnAndQualifier(
                 Mockito.any(), Mockito.any(), Mockito.anyList())).thenReturn(slot);

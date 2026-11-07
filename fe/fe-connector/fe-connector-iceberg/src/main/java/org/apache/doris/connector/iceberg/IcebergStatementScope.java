@@ -60,6 +60,7 @@ final class IcebergStatementScope {
      * ("iceberg") so it stays distinct across a heterogeneous gateway; see {@link ConnectorStatementScopes}.
      */
     static final String TABLE_NAMESPACE = "iceberg.table";
+    static final String VIEW_NAMESPACE = "iceberg.view-definition";
 
     /** Separate namespace for mutable tables used by write planning and transaction creation. */
     static final String WRITABLE_TABLE_NAMESPACE = "iceberg.writable-table";

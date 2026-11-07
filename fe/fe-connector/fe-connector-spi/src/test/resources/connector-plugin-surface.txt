@@ -156,6 +156,14 @@ org.apache.doris.connector.spi.ConnectorTaskScheduler#tryExecute(java.lang.Runna
 org.apache.doris.connector.spi.ConnectorTaskScheduler#tryExecuteContinuation(java.lang.Runnable,java.util.function.Consumer,java.lang.Runnable):boolean
 org.apache.doris.connector.spi.ConnectorTaskScheduler$Stage#enum:METADATA
 org.apache.doris.connector.spi.ConnectorTaskScheduler$Stage#enum:SPLIT
+org.apache.doris.connector.spi.ConnectorViewDefinition#equals(java.lang.Object):boolean
+org.apache.doris.connector.spi.ConnectorViewDefinition#getColumns():java.util.List
+org.apache.doris.connector.spi.ConnectorViewDefinition#getDefaultCatalog():java.util.Optional
+org.apache.doris.connector.spi.ConnectorViewDefinition#getDefaultNamespace():java.util.Optional
+org.apache.doris.connector.spi.ConnectorViewDefinition#getDialect():java.lang.String
+org.apache.doris.connector.spi.ConnectorViewDefinition#getSql():java.lang.String
+org.apache.doris.connector.spi.ConnectorViewDefinition#hashCode():int
+org.apache.doris.connector.spi.ConnectorViewDefinition#toString():java.lang.String
 org.apache.doris.connector.spi.DiagnosticException#getDiagnosticMessage():java.lang.String
 org.apache.doris.connector.spi.DiagnosticException#getDiagnosticStackTrace(java.lang.Throwable):java.lang.String
 org.apache.doris.connector.spi.handle.ConnectorColumnHandle#equals(java.lang.Object):boolean

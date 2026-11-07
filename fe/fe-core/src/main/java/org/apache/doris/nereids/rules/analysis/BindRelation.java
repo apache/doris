@@ -45,6 +45,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.connector.spi.ConnectorViewDefinition;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.ExternalView;
 import org.apache.doris.datasource.doris.RemoteDorisExternalTable;
@@ -901,12 +902,21 @@ public class BindRelation extends OneAnalysisRuleFactory {
                                 "view not supported with snapshot time/version travel");
                         }
                         isView = true;
-                        String pluginCatalog = pluginViewTable.getCatalog().getName();
-                        String pluginDb = pluginViewTable.getDatabase().getFullName();
-                        String ddlSql = pluginViewTable.getViewText();
-                        Plan pluginViewPlan = parseAndAnalyzeExternalView(pluginViewTable,
-                                pluginCatalog, pluginDb, ddlSql, cascadesContext);
-                        return new LogicalSubQueryAlias<>(qualifiedTableName, pluginViewPlan);
+                        ConnectorViewDefinition definition = pluginViewTable.getViewDefinition();
+                        String pluginCatalog = definition.getDefaultCatalog()
+                                .orElse(pluginViewTable.getCatalog().getName());
+                        String pluginDb = definition.getDefaultNamespace().map(levels -> String.join(".", levels))
+                                .orElse(pluginViewTable.getDatabase().getFullName());
+                        ExternalView externalView = new ExternalView(pluginViewTable, definition.getSql(),
+                                pluginViewTable.getViewSchema(definition));
+                        Plan pluginViewPlan = parseAndAnalyzeExternalView(externalView,
+                                pluginCatalog, pluginDb, cascadesContext);
+                        List<NamedExpression> viewOutputs = new ArrayList<>();
+                        for (Slot output : pluginViewPlan.getOutput()) {
+                            viewOutputs.add(new Alias(output, output.getName()));
+                        }
+                        return new LogicalSubQueryAlias<>(qualifiedTableName,
+                                new LogicalProject<>(viewOutputs, pluginViewPlan));
                     }
                     return new LogicalFileScan(unboundRelation.getRelationId(), (ExternalTable) table,
                             qualifierWithoutTableName, ImmutableList.of(),
@@ -1025,18 +1035,16 @@ public class BindRelation extends OneAnalysisRuleFactory {
     }
 
     private Plan parseAndAnalyzeExternalView(
-            ExternalTable table, String externalCatalog, String externalDb,
-            String ddlSql, CascadesContext cascadesContext) {
+            ExternalView view, String externalCatalog, String externalDb, CascadesContext cascadesContext) {
         ConnectContext ctx = cascadesContext.getConnectContext();
         NameSpaceContext previousNamespace = ctx.getNameSpaceContext();
-        String convertedSql = SqlDialectHelper.convertSqlByDialect(ddlSql, ctx.getSessionVariable());
+        String convertedSql = SqlDialectHelper.convertSqlByDialect(view.getViewText(), ctx.getSessionVariable());
         // change catalog and db to external catalog and db,
         // so that we can parse and analyze the view sql in external context.
         try {
-            ctx.changeDefaultCatalog(externalCatalog);
-            ctx.setDatabase(externalDb);
-            return new LogicalView<>(new ExternalView(table, ddlSql),
-                    parseAndAnalyzeView(table, convertedSql, cascadesContext));
+            ctx.setViewDefaultNamespace(externalCatalog, externalDb);
+            return new LogicalView<>(view,
+                    parseAndAnalyzeView(view.getExternalTable(), convertedSql, cascadesContext));
         } finally {
             // Also restore failed namespace entry without masking analysis errors with metadata IO.
             ctx.restoreNameSpaceContext(previousNamespace);

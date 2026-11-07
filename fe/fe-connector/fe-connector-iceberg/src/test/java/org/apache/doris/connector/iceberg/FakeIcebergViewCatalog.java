@@ -87,7 +87,7 @@ class FakeIcebergViewCatalog extends FakeIcebergCatalog implements ViewCatalog {
 
     /**
      * A minimal {@link View} returning a single configurable {@code currentVersion} (which may be null) and an
-     * optional {@code schema}; every other accessor fails loud. The {@code View.sqlFor(dialect)} default method
+     * optional {@code schema}; unused operations fail loud. The {@code View.sqlFor(dialect)} default method
      * resolves the SQL from {@code currentVersion().representations()}, so the version's representations +
      * summary drive the sql/dialect extraction, while {@code schema} drives the column extraction (both done in
      * {@code IcebergConnectorMetadata.getViewDefinition}). A null {@code schema} still fails loud on
@@ -144,7 +144,7 @@ class FakeIcebergViewCatalog extends FakeIcebergCatalog implements ViewCatalog {
 
         @Override
         public Map<Integer, Schema> schemas() {
-            throw new UnsupportedOperationException();
+            return Collections.singletonMap(schema().schemaId(), schema());
         }
 
         @Override
