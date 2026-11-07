@@ -836,6 +836,10 @@ public final class JdbcQueryBuilder {
             return "NULL";
         }
         Object val = lit.getValue();
+        if (val instanceof List) {
+            // An ARRAY literal has no spelling the remote dialects share, and its elements' text is not SQL.
+            return null;
+        }
         if ("UUID".equalsIgnoreCase(lit.getType().getTypeName())
                 && (dbType == JdbcDbType.TRINO || dbType == JdbcDbType.PRESTO)) {
             // These engines do not implicitly coerce VARCHAR literals when comparing UUID columns.

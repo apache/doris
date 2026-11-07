@@ -112,7 +112,7 @@
  *     {@link org.apache.doris.connector.spi.ConnectorPushdownOps#supportsCastPredicatePushdown} is false.</li>
  * </ul>
  *
- * <p><b>Literal value domain.</b> {@link ConnectorLiteral#getValue()} is one of exactly eight Java shapes.
+ * <p><b>Literal value domain.</b> {@link ConnectorLiteral#getValue()} is one of exactly nine Java shapes.
  * Note that {@code Integer} is never produced and that {@code LARGEINT} arrives as a decimal
  * {@code String}:</p>
  * <table border="1">
@@ -126,7 +126,9 @@
  * <tr><td>CHAR / VARCHAR / STRING</td><td>{@code String}</td></tr>
  * <tr><td>DATE / DATEV2</td><td>{@code LocalDate}</td></tr>
  * <tr><td>DATETIME / DATETIMEV2</td><td>{@code LocalDateTime}</td></tr>
- * <tr><td>anything else, incl. LARGEINT, IPV4/IPV6, JSON</td>
+ * <tr><td>ARRAY</td><td>an unmodifiable {@code List} of the element values, each in the shape this table gives
+ *     its element type: {@code null} for a NULL element, a nested {@code List} for a nested array</td></tr>
+ * <tr><td>anything else, incl. LARGEINT, IPV4/IPV6, JSON, MAP, STRUCT</td>
  *     <td>{@code String} from {@code Expr.getStringValue()}</td></tr>
  * </table>
  *
