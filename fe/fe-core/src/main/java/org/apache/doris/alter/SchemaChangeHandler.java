@@ -3396,9 +3396,7 @@ public class SchemaChangeHandler extends AlterHandler {
             if (column != null) {
                 indexDef.checkColumn(column, olapTable.getKeysType(),
                         olapTable.getEnableUniqueKeyMergeOnWrite(),
-                        Config.isCloudMode() && indexDef.isVariantValuesIndex()
-                                ? olapTable.getPartitionInvertedIndexFileStorageFormat()
-                                : olapTable.getInvertedIndexFileStorageFormat());
+                        olapTable.getInvertedIndexFileStorageFormat());
                 if (!InvertedIndexUtil.getInvertedIndexFieldPattern(indexDef.getProperties()).isEmpty()) {
                     throw new DdlException("Can not create index with field pattern");
                 }

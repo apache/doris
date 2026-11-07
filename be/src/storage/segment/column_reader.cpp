@@ -990,6 +990,11 @@ Status ColumnReader::_load_index(const std::shared_ptr<IndexFileReader>& index_f
         return Status::OK();
     }
 
+    // Only SNII segments store values indexes.
+    if (index_meta->is_variant_values_index()) {
+        return Status::OK();
+    }
+
     if (is_string_type(type)) {
         if (should_analyzer) {
             try {

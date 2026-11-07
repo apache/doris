@@ -17,7 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.InvertedIndexUtil;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.Config;
@@ -1083,12 +1082,6 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                 throw new DdlException("table's index not equal with partition's index. table's index=" + tableIndex
                         + ", partition's index=" + partitionIndex);
             }
-
-            // A light ADD of a values index keeps materialized-index IDs unchanged. Check the
-            // dropped partition's saved format before changing its name or consuming its recycle entry.
-            TInvertedIndexFileStorageFormat recoveredFormat = recoverPartitionInfo.getInvertedIndexFileStorageFormat();
-            InvertedIndexUtil.checkIndexStorageFormat(table.getIndexes(), recoveredFormat != null
-                    ? recoveredFormat : table.getInvertedIndexFileStorageFormat());
 
             // check if partition name exists
             Preconditions.checkState(recoverPartition.getName().equalsIgnoreCase(partitionName));

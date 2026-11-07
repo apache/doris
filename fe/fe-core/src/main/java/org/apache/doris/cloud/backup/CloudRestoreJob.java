@@ -58,7 +58,6 @@ import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.task.DownloadTask;
-import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.base.Preconditions;
@@ -395,7 +394,6 @@ public class CloudRestoreJob extends RestoreJob {
     @Override
     public void createReplicas(Database db, OlapTable localTbl, Partition restorePart,
                                Map<Long, TabletRef> tabletBases) {
-        TInvertedIndexFileStorageFormat restoreFormat = getRestorePartitionStorageFormat(localTbl, restorePart);
         List<String> rowStoreColumns = localTbl.getTableProperty().getCopiedRowStoreColumns();
         List<Cloud.CreateTabletsRequest.Builder> requestBuilders = tabletRequests.computeIfAbsent(
                 Pair.of(localTbl, restorePart), r -> Lists.newArrayList());
@@ -442,7 +440,7 @@ public class CloudRestoreJob extends RestoreJob {
                                     localTbl.getTimeSeriesCompactionEmptyRowsetsThreshold(),
                                     localTbl.getTimeSeriesCompactionLevelThreshold(), localTbl.disableAutoCompaction(),
                                     localTbl.getRowStoreColumnsUniqueIds(rowStoreColumns),
-                                    restoreFormat,
+                                    localTbl.getInvertedIndexFileStorageFormat(),
                                     localTbl.rowStorePageSize(),
                                     localTbl.variantEnableFlattenNested(), clusterKeyUids,
                                     localTbl.storagePageSize(), localTbl.getTDEAlgorithmPB(),
