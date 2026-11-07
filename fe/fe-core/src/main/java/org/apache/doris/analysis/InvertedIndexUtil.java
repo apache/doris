@@ -105,15 +105,6 @@ public class InvertedIndexUtil {
             InvertedIndexProperties.INVERTED_INDEX_PARSER_FIELD_PATTERN_KEY;
     public static final String VARIANT_INDEX_SCOPE_KEY = InvertedIndexProperties.VARIANT_INDEX_SCOPE_KEY;
 
-    public static void checkIndexStorageFormat(List<Index> indexes,
-            TInvertedIndexFileStorageFormat physicalFormat) throws DdlException {
-        if (physicalFormat != TInvertedIndexFileStorageFormat.SNII
-                && indexes.stream().anyMatch(Index::isVariantValuesIndex)) {
-            throw new DdlException("VARIANT values index requires SNII storage format, but partition uses "
-                    + physicalFormat);
-        }
-    }
-
     public static String getInvertedIndexFieldPattern(Map<String, String> properties) {
         return InvertedIndexProperties.getInvertedIndexFieldPattern(properties);
     }

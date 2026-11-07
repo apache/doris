@@ -31,6 +31,7 @@
 #include "core/column/variant_v2/column_variant_v2.h"
 #include "exec/common/variant_util.h"
 #include "exprs/function/parse/variant_jsonb_parse.h"
+#include "storage/index/index_file_writer.h"
 #include "storage/rowset/rowset_writer_context.h"
 #include "storage/segment/variant/binary_column_reader.h"
 #include "storage/segment/variant/v2/variant_assembler.h"
@@ -115,6 +116,10 @@ Status VariantV2ColumnWriter::init() {
             *_opts.rowset_ctx->tablet_schema, _tablet_column->unique_id());
     // The segment writer selected root values indexes and excluded indexes being merged natively.
     for (const TabletIndex* index : _opts.inverted_indexes) {
+        // RESTOREd or RECOVERed legacy partitions can carry values-index metadata without SNII.
+        if (_opts.index_file_writer->get_storage_format() != InvertedIndexStorageFormatPB::SNII) {
+            continue;
+        }
         auto writer = std::make_unique<VariantValuesIndexWriter>(_opts.index_file_writer, index,
                                                                  _opts.is_direct_load);
         RETURN_IF_ERROR(writer->init());
