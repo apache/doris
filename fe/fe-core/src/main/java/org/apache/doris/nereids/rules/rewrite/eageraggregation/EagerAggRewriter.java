@@ -35,6 +35,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunctio
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nvl;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
@@ -261,6 +262,12 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
             return adjustPushSideForNullToNonNull(join, context, toLeft, toRight);
         }
         if (toLeft && toRight) {
+            // Decimal SUM compensation can lose scale with ordinary multiplication, while preserving
+            // its type can reject intermediate products that would cancel in the final SUM.
+            if (context.getAggFunctions().stream()
+                    .anyMatch(func -> func instanceof Sum && func.getDataType().isDecimalV3Type())) {
+                return Pair.of(false, false);
+            }
             return join.getJoinType().isInnerOrCrossJoin()
                     ? Pair.of(true, true)
                     : Pair.of(false, false);
