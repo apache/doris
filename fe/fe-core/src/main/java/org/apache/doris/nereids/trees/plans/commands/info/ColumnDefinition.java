@@ -29,6 +29,7 @@ import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.literal.TimeStampNsLiteral;
+import org.apache.doris.nereids.types.AggStateType;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BitmapType;
@@ -389,9 +390,13 @@ public class ColumnDefinition {
         }
     }
 
-    /**
-     * validate column definition and analyze
-     */
+    /** Bind newly declared aggregate state signatures before validating or persisting the column. */
+    public void analyzeType() {
+        if (type instanceof AggStateType) {
+            type = ((AggStateType) type).resolveDeclaration();
+        }
+    }
+
     public void validate(boolean isOlap, Set<String> keysSet, Set<String> clusterKeySet, boolean isEnableMergeOnWrite,
             KeysType keysType) {
         validate(isOlap, keysSet, clusterKeySet, isEnableMergeOnWrite, keysType, false);
@@ -432,6 +437,7 @@ public class ColumnDefinition {
             throw new AnalysisException(
                     "Cannot use `VARIANT` type column named with a `.` character: " + name);
         }
+        analyzeType();
         type.validateDataType();
         type = updateCharacterTypeLength(type);
         if (!isSystemGeneratedTable && isOlap && keysType != KeysType.AGG_KEYS && isAggregateTableOnlyType()

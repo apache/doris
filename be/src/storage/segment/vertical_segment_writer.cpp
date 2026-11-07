@@ -138,6 +138,9 @@ void VerticalSegmentWriter::_init_column_meta(ColumnMetaPB* meta, uint32_t colum
     meta->set_result_is_nullable(column.get_result_is_nullable());
     meta->set_function_name(column.get_aggregation_name());
     meta->set_be_exec_version(column.get_be_exec_version());
+    if (column.get_agg_state_result_type()) {
+        column.get_agg_state_result_type()->to_protobuf(meta->mutable_agg_state_result_type());
+    }
 }
 
 Status VerticalSegmentWriter::_create_column_writer(size_t pos, uint32_t cid,

@@ -479,6 +479,7 @@ public class CreateTableInfo {
 
         //check datatype: datev1, decimalv2
         for (ColumnDefinition columnDef : columns) {
+            columnDef.analyzeType();
             String columnNameUpperCase = columnDef.getName().toUpperCase();
             if (columnNameUpperCase.startsWith("__DORIS_")) {
                 throw new AnalysisException(

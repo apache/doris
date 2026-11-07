@@ -950,9 +950,14 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         List<Expr> arguments = combinator.children().stream()
                 .map(arg -> new SlotRef(arg.getDataType().toCatalogDataType(), arg.nullable()))
                 .collect(ImmutableList.toImmutableList());
-        return convertToMergeCombinator(combinator.getName(),
+        FunctionCallExpr result = convertToMergeCombinator(combinator.getName(),
                 new FunctionCallExpr(visitAggregateFunction(combinator.getNestedFunction(), context).getFn(),
                         new FunctionParams(false, arguments), combinator.nullable()));
+        // Stored states retain their producer's result type even after session settings change.
+        Type returnType = combinator.getDataType().toCatalogDataType();
+        result.getFn().setReturnType(returnType);
+        result.setType(returnType);
+        return result;
     }
 
     private FunctionCallExpr convertToMergeCombinator(String name, FunctionCallExpr fnCall) {

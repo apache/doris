@@ -69,6 +69,7 @@ import com.google.common.collect.Sets;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
 /**
@@ -420,9 +421,17 @@ public class CheckCast implements ExpressionPatternRuleFactory {
             AggStateType targetAggState = (AggStateType) targetType;
             if (originalAggState.isLooseTypeCoercionAllowed()
                     && originalAggState.getFunctionName().equalsIgnoreCase(targetAggState.getFunctionName())
-                    && originalAggState.getSubTypes().size() == targetAggState.getSubTypes().size()) {
+                    && originalAggState.getSubTypes().size() == targetAggState.getSubTypes().size()
+                    && (Objects.equals(originalAggState.getResultType(), targetAggState.getResultType())
+                        || !originalAggState.getSubTypes().equals(targetAggState.getSubTypes()))) {
+                // ConvertAggStateCast may cast the raw arguments of a state producer and rebuild its
+                // signature. The final strict check still rejects casts of already serialized states.
                 return true;
             }
+        }
+        // Decimal128 and Decimal256 states have different accumulator layouts, even with identical inputs.
+        if (requiresExactAggStateMatch(originalType, targetType)) {
+            return false;
         }
         // New check strict and un-strict cast logic, the check logic is not completed yet.
         // So for now, if the new check logic return false,
@@ -488,7 +497,9 @@ public class CheckCast implements ExpressionPatternRuleFactory {
     public static boolean requiresExactAggStateMatch(DataType originalType, DataType targetType) {
         return originalType instanceof AggStateType
                 && targetType instanceof AggStateType
-                && !((AggStateType) originalType).isLooseTypeCoercionAllowed()
+                && (!((AggStateType) originalType).isLooseTypeCoercionAllowed()
+                    || !Objects.equals(((AggStateType) originalType).getResultType(),
+                            ((AggStateType) targetType).getResultType()))
                 && !originalType.equals(targetType);
     }
 

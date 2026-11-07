@@ -72,7 +72,8 @@ public class FinalizeCombinator extends ScalarFunction
 
     @Override
     public List<FunctionSignature> getSignatures() {
-        return ImmutableList.of(FunctionSignature.ret(nested.getDataType()).args(getArgument(0).getDataType()));
+        AggStateType stateType = (AggStateType) getArgument(0).getDataType();
+        return ImmutableList.of(FunctionSignature.ret(stateType.getResultType()).args(stateType));
     }
 
     @Override

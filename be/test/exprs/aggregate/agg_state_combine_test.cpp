@@ -22,6 +22,7 @@
 #include "core/column/column_fixed_length_object.h"
 #include "core/column/column_nullable.h"
 #include "core/data_type/data_type_agg_state.h"
+#include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "exprs/aggregate/aggregate_function_state_combine.h"
@@ -35,7 +36,8 @@ class AggregateStateCombineTest : public testing::Test {
 protected:
     static DataTypePtr create_avg_state_type(const DataTypePtr& argument_type) {
         return std::make_shared<DataTypeAggState>(DataTypes {argument_type}, true, "avg",
-                                                  BeExecVersionManager::get_newest_version());
+                                                  BeExecVersionManager::get_newest_version(),
+                                                  std::make_shared<DataTypeFloat64>());
     }
 
     static ColumnPtr combine(AggregateFunctionPtr combine_function, const DataTypePtr& state_type,
@@ -160,8 +162,9 @@ TEST_F(AggregateStateCombineTest, AvgNullableInput) {
 
 TEST_F(AggregateStateCombineTest, CountNullableInputPreservesGroupedStates) {
     auto argument_type = make_nullable(std::make_shared<DataTypeInt64>());
-    auto state_type = std::make_shared<DataTypeAggState>(
-            DataTypes {argument_type}, false, "count", BeExecVersionManager::get_newest_version());
+    auto state_type = std::make_shared<DataTypeAggState>(DataTypes {argument_type}, false, "count",
+                                                         BeExecVersionManager::get_newest_version(),
+                                                         std::make_shared<DataTypeInt64>());
     auto nested_function = state_type->get_nested_function();
     auto combine_function =
             AggregateStateCombine::create(nested_function, DataTypes {argument_type}, state_type);
@@ -219,9 +222,10 @@ TEST_F(AggregateStateCombineTest, LargeGroupedArrayState) {
     constexpr size_t row_count = group_count * rows_per_group;
 
     auto argument_type = std::make_shared<DataTypeInt64>();
-    auto state_type =
-            std::make_shared<DataTypeAggState>(DataTypes {argument_type}, false, "array_agg",
-                                               BeExecVersionManager::get_newest_version());
+    auto state_type = std::make_shared<DataTypeAggState>(
+            DataTypes {argument_type}, false, "array_agg",
+            BeExecVersionManager::get_newest_version(),
+            std::make_shared<DataTypeArray>(make_nullable(argument_type)));
     auto nested_function = state_type->get_nested_function();
     auto combine_function =
             AggregateStateCombine::create(nested_function, DataTypes {argument_type}, state_type);

@@ -513,6 +513,10 @@ void TabletColumn::init_from_pb(const ColumnPB& column) {
     if (_type == FieldType::OLAP_FIELD_TYPE_AGG_STATE) {
         _result_is_nullable = column.result_is_nullable();
         _be_exec_version = column.be_exec_version();
+        if (column.has_agg_state_result_type()) {
+            _agg_state_result_type = DataTypeFactory::instance().create_data_type(
+                    column.agg_state_result_type(), false);
+        }
     }
 
     if (column.has_visible()) {
@@ -623,6 +627,9 @@ void TabletColumn::to_schema_pb(ColumnPB* column) const {
     }
     column->set_result_is_nullable(_result_is_nullable);
     column->set_be_exec_version(_be_exec_version);
+    if (_agg_state_result_type) {
+        _agg_state_result_type->to_protobuf(column->mutable_agg_state_result_type());
+    }
     column->set_visible(_visible);
 
     if (_type == FieldType::OLAP_FIELD_TYPE_ARRAY) {
@@ -1774,6 +1781,13 @@ bool operator==(const TabletColumn& a, const TabletColumn& b) {
     if (a._unique_id != b._unique_id) return false;
     if (a._col_name != b._col_name) return false;
     if (a._type != b._type) return false;
+    if (static_cast<bool>(a._agg_state_result_type) !=
+        static_cast<bool>(b._agg_state_result_type)) {
+        return false;
+    }
+    if (a._agg_state_result_type && !a._agg_state_result_type->equals(*b._agg_state_result_type)) {
+        return false;
+    }
     if (a._is_key != b._is_key) return false;
     if (a._aggregation != b._aggregation) return false;
     if (a._is_nullable != b._is_nullable) return false;

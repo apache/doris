@@ -60,8 +60,9 @@ void check_state_union_and_merge_round_trip(const DataTypePtr& key_type,
     const auto be_exec_version = BeExecVersionManager::get_newest_version();
     const DataTypes argument_types {make_nullable(key_type),
                                     make_nullable(std::make_shared<DataTypeInt32>())};
-    auto state_type = std::make_shared<DataTypeAggState>(argument_types, false, "map_agg_v2",
-                                                         be_exec_version);
+    auto state_type = std::make_shared<DataTypeAggState>(
+            argument_types, false, "map_agg_v2", be_exec_version,
+            std::make_shared<DataTypeMap>(argument_types[0], argument_types[1]));
     auto nested_function = state_type->get_nested_function();
     ASSERT_NE(nested_function, nullptr);
 
@@ -342,10 +343,12 @@ TEST(AggregateFunctionMapAggV2Test, PersistedStateCompatibleAcrossFrameVersion) 
     constexpr auto legacy_version = SUPPORT_MAP_AGG_V2_EXACT_FRAME_VERSION - 1;
     const DataTypes argument_types {make_nullable(std::make_shared<DataTypeInt32>()),
                                     make_nullable(std::make_shared<DataTypeInt32>())};
-    auto legacy_state_type =
-            std::make_shared<DataTypeAggState>(argument_types, false, "map_agg_v2", legacy_version);
+    auto legacy_state_type = std::make_shared<DataTypeAggState>(
+            argument_types, false, "map_agg_v2", legacy_version,
+            std::make_shared<DataTypeMap>(argument_types[0], argument_types[1]));
     auto current_state_type = std::make_shared<DataTypeAggState>(
-            argument_types, false, "map_agg_v2", SUPPORT_MAP_AGG_V2_EXACT_FRAME_VERSION);
+            argument_types, false, "map_agg_v2", SUPPORT_MAP_AGG_V2_EXACT_FRAME_VERSION,
+            std::make_shared<DataTypeMap>(argument_types[0], argument_types[1]));
 
     EXPECT_TRUE(legacy_state_type->get_serialized_type()->equals(
             *current_state_type->get_serialized_type()));
@@ -406,8 +409,8 @@ TEST(AggregateFunctionMapAggV2Test, RestrictedAggregatesUseTheirOwnCompatibility
     auto direct =
             factory.get("stddev_samp", DataTypes {double_type}, double_type, false, legacy_version);
     ASSERT_NE(direct, nullptr);
-    auto stored_state = std::make_shared<DataTypeAggState>(DataTypes {double_type}, false,
-                                                           "stddev_samp", legacy_version);
+    auto stored_state = std::make_shared<DataTypeAggState>(
+            DataTypes {double_type}, false, "stddev_samp", legacy_version, double_type);
     EXPECT_NO_THROW(
             stored_state->check_function_compatibility(SUPPORT_MAP_AGG_V2_EXACT_FRAME_VERSION));
 }
