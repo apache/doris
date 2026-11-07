@@ -41,6 +41,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.ResumeMTMVInfo;
 import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
+import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -628,23 +629,15 @@ public class MTMVRelationManager implements MTMVHookService {
         MTMV mtmv = (MTMV) mvTable;
         // Analyse in a context owned by this check, never the session that issued the alter: the check
         // must not disturb the running statement, and it has to work on threads that have no session.
-        // Setting a thread local is how a context is made current, so restore the previous one.
         MTMVAnalyzeQueryInfo analyzedQueryInfo;
-        ConnectContext previousCtx = ConnectContext.get();
-        try {
-            analyzedQueryInfo = MTMVPlanUtil.ensureMTMVQueryUsable(mtmv,
-                    MTMVPlanUtil.createMTMVContext(mtmv, MTMVPlanUtil.DISABLE_RULES_WHEN_RUN_MTMV_TASK));
+        try (AutoCloseConnectContext scope = new AutoCloseConnectContext(
+                MTMVPlanUtil.createMTMVContext(mtmv, MTMVPlanUtil.DISABLE_RULES_WHEN_RUN_MTMV_TASK))) {
+            analyzedQueryInfo = MTMVPlanUtil.ensureMTMVQueryUsable(mtmv, scope.connectContext);
         } catch (Exception e) {
             LOG.info("Invalidate MV, the MV query is no longer usable. baseTable={}, mtmv={}, reason={}",
                     baseTableInfo, mtmv.getName(), e.getMessage());
             mtmv.invalidateWholeMv("The MV query is no longer analyzable: " + baseTableInfo).await();
             return true;
-        } finally {
-            if (previousCtx != null) {
-                previousCtx.setThreadLocalInfo();
-            } else {
-                ConnectContext.remove();
-            }
         }
         // A query that still analyses has not necessarily kept its meaning: a name can move. The column a
         // query reaches a name by is the nearest one to it in the query's scopes, so a column the change

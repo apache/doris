@@ -40,9 +40,11 @@ public class StreamLoadPlannerTest {
     @Test
     public void testExprIdGenerator() {
         IdGenerator<ExprId> exprIdGenerator1 = StatementScopeIdGenerator.getExprIdGenerator();
-        CascadesContext context = CascadesContext.initTempContext();
-        IdGenerator<ExprId> exprIdGenerator2 = context.getStatementContext().getExprIdGenerator();
-        // we get different IdGenerator instance
-        Assertions.assertTrue(exprIdGenerator1 != exprIdGenerator2);
+        CascadesContext.withTempContext(context -> {
+            IdGenerator<ExprId> exprIdGenerator2 = context.getStatementContext().getExprIdGenerator();
+            // we get different IdGenerator instance
+            Assertions.assertTrue(exprIdGenerator1 != exprIdGenerator2);
+            return null;
+        });
     }
 }

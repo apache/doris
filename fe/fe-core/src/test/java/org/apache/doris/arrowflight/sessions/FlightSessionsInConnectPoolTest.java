@@ -90,6 +90,25 @@ public class FlightSessionsInConnectPoolTest {
     }
 
     @Test
+    public void testAdmissionFailureBeforeCommandBodyClosesSession() {
+        ConnectScheduler scheduler = new ConnectScheduler(10);
+        FlightSessionsInConnectPool sessions = Mockito.spy(new FlightSessionsInConnectPool(scheduler));
+        Mockito.doReturn("admission-token").when(sessions).newToken();
+        ConnectContext ctx = ConnectContext.forFlight("admission-token");
+        ctx.getFlightSqlChannel().addOKResult("query", "SELECT 1");
+        RuntimeException failure = new IllegalStateException("timeout lookup failed during admission");
+        Mockito.when(env.getAuth().getQueryTimeout(Mockito.anyString())).thenReturn(60).thenThrow(failure);
+        try (MockedStatic<ConnectContext> factory = Mockito.mockStatic(ConnectContext.class, Mockito.CALLS_REAL_METHODS)) {
+            factory.when(() -> ConnectContext.forFlight("admission-token")).thenReturn(ctx);
+            Assertions.assertSame(failure, Assertions.assertThrows(IllegalStateException.class,
+                    () -> sessions.openSession(ALICE_AUTH)));
+        }
+        Assertions.assertTrue(ctx.isClosingOrClosed());
+        Assertions.assertEquals(0, ctx.getFlightSqlChannel().getAllocatedMemory());
+        Assertions.assertEquals(0, scheduler.getConnectionNum());
+    }
+
+    @Test
     public void testOpeningASessionIssuesTheTokenItIsRegisteredUnder() {
         ConnectScheduler scheduler = new ConnectScheduler(10, 5);
         FlightSessionsInConnectPool sessions = new FlightSessionsInConnectPool(scheduler);

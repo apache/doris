@@ -82,6 +82,7 @@ import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.plans.commands.CreateMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.UpdateMvByPartitionCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo.RefreshMode;
+import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.QeProcessorImpl;
@@ -374,11 +375,9 @@ public class MTMVTask extends AbstractTask {
         }
         mtmvSchemaChangeVersion = mtmv.getSchemaChangeVersion();
         ConnectContext ctx = MTMVPlanUtil.createMTMVContext(mtmv, MTMVPlanUtil.DISABLE_RULES_WHEN_RUN_MTMV_TASK);
-        // The planning done on this context (base table resolution, partition calculation) must see
-        // the same compute group the refresh will execute in, otherwise the workload group would be
-        // looked up in a different namespace.
-        applyComputeGroup(ctx);
-        try {
+        try (AutoCloseConnectContext scope = bindExecutionContext(ctx)) {
+            // Resolve base tables and partitions in the refresh's compute group.
+            applyComputeGroup(ctx);
             if (LOG.isDebugEnabled()) {
                 String taskSessionContext = ctx.getSessionVariable().toJson().toJSONString();
                 if (LOG.isDebugEnabled()) {
@@ -469,8 +468,6 @@ public class MTMVTask extends AbstractTask {
                 // if status is not `RUNNING`,maybe the task was canceled, therefore, it is a normal situation
                 LOG.info("task [{}] interruption running, because status is [{}]", getTaskId(), getStatus());
             }
-        } finally {
-            closeExecutionContext(ctx);
         }
     }
 
@@ -1008,7 +1005,7 @@ public class MTMVTask extends AbstractTask {
             ivmResult = executeWithRetry(() -> {
                 ConnectContext ivmConnectContext = MTMVPlanUtil.createMTMVContext(mtmv,
                         MTMVPlanUtil.DISABLE_RULES_WHEN_RUN_MTMV_TASK);
-                try {
+                try (AutoCloseConnectContext scope = bindExecutionContext(ivmConnectContext)) {
                     setupComputeGroup(ivmConnectContext);
                     IvmIncrRefreshContext ivmIncrRefreshContext = new IvmIncrRefreshContext(mtmv,
                             ivmConnectContext,
@@ -1017,8 +1014,6 @@ public class MTMVTask extends AbstractTask {
                             this::registerExecutor);
                     mtmv.validateIvmRefreshStart(mtmvSchemaChangeVersion);
                     return ivmIncrRefreshManager.doRefresh(ivmIncrRefreshContext);
-                } finally {
-                    closeExecutionContext(ivmConnectContext);
                 }
             }, "IVM refresh");
         } catch (Exception e) {
@@ -1685,36 +1680,34 @@ public class MTMVTask extends AbstractTask {
         // Create the MTMV context before parsing the MV definition SQL so SET_VAR hints
         // resolve against the internal session (with MTMV disabled rules, etc.).
         ConnectContext mtmvCtx = MTMVPlanUtil.createMTMVContext(mtmv, MTMVPlanUtil.DISABLE_RULES_WHEN_RUN_MTMV_TASK);
-        StatementContext statementContext = new StatementContext(
-                mtmvCtx, new OriginStatement(mtmv.getQuerySql(), 0));
-        // Install the StatementContext on the ConnectContext before parsing
-        // the MV definition SQL.  UpdateMvByPartitionCommand.from() calls
-        // NereidsParser.parseSingle() which, for SQL containing SET_VAR hints,
-        // accesses ConnectContext.get().getStatementContext() inside
-        // LogicalPlanBuilder.withHints().  Without this assignment the
-        // StatementContext is null and a NullPointerException is thrown.
-        mtmvCtx.setStatementContext(statementContext);
-        statementContext.setConnectContext(mtmvCtx);
-        statementContext.setExcludedTriggerTables(mtmv.getExcludedTriggerTables());
-        statementContext.setIvmRewriteContext(rewriteContext);
-        for (Entry<MvccTableInfo, MvccSnapshot> entry : snapshots.entrySet()) {
-            statementContext.setSnapshot(entry.getKey(), entry.getValue());
-        }
-        // if SELF_MANAGE mv, only have default partition,  will not have partitionItem, so we give empty set
-        UpdateMvByPartitionCommand command = UpdateMvByPartitionCommand
-                .from(mtmv, mtmv.getMvPartitionInfo().getPartitionType() != MTMVPartitionType.SELF_MANAGE
-                        ? refreshPartitionNames : Sets.newHashSet(), tableWithPartKey, statementContext);
-        setupComputeGroup(mtmvCtx);
         AtomicReference<IvmPlanSignature> signatureRef = new AtomicReference<>();
-        try {
-            MTMVPlanUtil.executeCommand(mtmvCtx, command, statementContext,
-                    getRefreshAuditStmt(refreshMode, refreshPartitionNames),
-                    createRefreshConsumer(signatureRef));
-        } finally {
+        try (AutoCloseConnectContext scope = bindExecutionContext(mtmvCtx)) {
+            StatementContext statementContext = new StatementContext(
+                    mtmvCtx, new OriginStatement(mtmv.getQuerySql(), 0));
+            // Install the StatementContext on the ConnectContext before parsing
+            // the MV definition SQL.  UpdateMvByPartitionCommand.from() calls
+            // NereidsParser.parseSingle() which, for SQL containing SET_VAR hints,
+            // accesses ConnectContext.get().getStatementContext() inside
+            // LogicalPlanBuilder.withHints().  Without this assignment the
+            // StatementContext is null and a NullPointerException is thrown.
+            mtmvCtx.setStatementContext(statementContext);
+            statementContext.setConnectContext(mtmvCtx);
+            statementContext.setExcludedTriggerTables(mtmv.getExcludedTriggerTables());
+            statementContext.setIvmRewriteContext(rewriteContext);
+            for (Entry<MvccTableInfo, MvccSnapshot> entry : snapshots.entrySet()) {
+                statementContext.setSnapshot(entry.getKey(), entry.getValue());
+            }
+            // if SELF_MANAGE mv, only have default partition,  will not have partitionItem, so we give empty set
+            UpdateMvByPartitionCommand command = UpdateMvByPartitionCommand
+                    .from(mtmv, mtmv.getMvPartitionInfo().getPartitionType() != MTMVPartitionType.SELF_MANAGE
+                            ? refreshPartitionNames : Sets.newHashSet(), tableWithPartKey, statementContext);
+            setupComputeGroup(mtmvCtx);
             try {
-                recordQueryId(DebugUtil.printId(mtmvCtx.queryId()));
+                MTMVPlanUtil.executeCommand(mtmvCtx, command, statementContext,
+                        getRefreshAuditStmt(refreshMode, refreshPartitionNames),
+                        createRefreshConsumer(signatureRef));
             } finally {
-                closeExecutionContext(mtmvCtx);
+                recordQueryId(DebugUtil.printId(mtmvCtx.queryId()));
             }
         }
         if (getStatus() == TaskStatus.CANCELED) {
@@ -1752,17 +1745,19 @@ public class MTMVTask extends AbstractTask {
         };
     }
 
-    private static void closeExecutionContext(ConnectContext executionContext) {
-        try {
-            if (executionContext.queryId() != null) {
-                QeProcessorImpl.INSTANCE.unregisterQuery(executionContext.queryId());
+    private static AutoCloseConnectContext bindExecutionContext(ConnectContext executionContext) {
+        return new AutoCloseConnectContext(executionContext) {
+            @Override
+            public void close() {
+                try {
+                    if (executionContext.queryId() != null) {
+                        QeProcessorImpl.INSTANCE.unregisterQuery(executionContext.queryId());
+                    }
+                } finally {
+                    super.close();
+                }
             }
-        } finally {
-            StatementContext statementContext = executionContext.getStatementContext();
-            if (statementContext != null) {
-                statementContext.close();
-            }
-        }
+        };
     }
 
     /**

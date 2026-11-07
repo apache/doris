@@ -40,6 +40,7 @@ import org.apache.doris.nereids.hint.UseMvHint;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.rules.analysis.SessionVarGuardRewriter;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectContextUtil;
 
@@ -286,28 +287,31 @@ public class InitMaterializationContextHook implements PlannerHook {
                             LOG.warn(String.format("can't parse %s ", createMvSql));
                             continue;
                         }
-                        ConnectContext basicMvContext = MTMVPlanUtil.createBasicMvContext(
-                                cascadesContext.getConnectContext(),
-                                MTMVPlanUtil.DISABLE_RULES_WHEN_GENERATE_MTMV_CACHE, meta.getSessionVariables());
-                        basicMvContext.setDatabase(meta.getDbName());
+                        try (AutoCloseConnectContext scope = new AutoCloseConnectContext(
+                                MTMVPlanUtil.createBasicMvContext(cascadesContext.getConnectContext(),
+                                        MTMVPlanUtil.DISABLE_RULES_WHEN_GENERATE_MTMV_CACHE,
+                                        meta.getSessionVariables()))) {
+                            ConnectContext basicMvContext = scope.connectContext;
+                            basicMvContext.setDatabase(meta.getDbName());
 
-                        boolean sessionVarMatch = SessionVarGuardRewriter.checkSessionVariablesMatchForSyncMv(
-                                ConnectContextUtil.getAffectQueryResultInPlanVariables(
-                                        cascadesContext.getConnectContext()), meta.getSessionVariables());
-                        MTMVCache mtmvCache = MTMVCache.from(querySql.get(),
-                                basicMvContext, true,
-                                false, cascadesContext.getConnectContext(), !sessionVarMatch);
-                        if (!cascadesContext.getStatementContext().isNeedPreMvRewrite()) {
-                            contexts.add(new SyncMaterializationContext(
-                                    mtmvCache.getAllRulesRewrittenPlanAndStructInfo().key(),
-                                    mtmvCache.getOriginalFinalPlan(), olapTable, meta.getIndexId(), indexName,
-                                    cascadesContext, mtmvCache.getStatistics()));
-                        } else {
-                            for (Pair<Plan, StructInfo> planAndStructInfo
-                                    : mtmvCache.getPartRulesRewrittenPlanAndStructInfos()) {
-                                contexts.add(new SyncMaterializationContext(planAndStructInfo.key(),
-                                        planAndStructInfo.key(), olapTable, meta.getIndexId(), indexName,
+                            boolean sessionVarMatch = SessionVarGuardRewriter.checkSessionVariablesMatchForSyncMv(
+                                    ConnectContextUtil.getAffectQueryResultInPlanVariables(
+                                            cascadesContext.getConnectContext()), meta.getSessionVariables());
+                            MTMVCache mtmvCache = MTMVCache.from(querySql.get(),
+                                    basicMvContext, true,
+                                    false, !sessionVarMatch);
+                            if (!cascadesContext.getStatementContext().isNeedPreMvRewrite()) {
+                                contexts.add(new SyncMaterializationContext(
+                                        mtmvCache.getAllRulesRewrittenPlanAndStructInfo().key(),
+                                        mtmvCache.getOriginalFinalPlan(), olapTable, meta.getIndexId(), indexName,
                                         cascadesContext, mtmvCache.getStatistics()));
+                            } else {
+                                for (Pair<Plan, StructInfo> planAndStructInfo
+                                        : mtmvCache.getPartRulesRewrittenPlanAndStructInfos()) {
+                                    contexts.add(new SyncMaterializationContext(planAndStructInfo.key(),
+                                            planAndStructInfo.key(), olapTable, meta.getIndexId(), indexName,
+                                            cascadesContext, mtmvCache.getStatistics()));
+                                }
                             }
                         }
                     } else {

@@ -110,27 +110,21 @@ public class MTMVCache {
 
     /**
      * @param defSql the def sql of materialization
-     * @param createCacheContext should create new createCacheContext use MTMVPlanUtil createMTMVContext
-     *         or createBasicMvContext
+     * @param createCacheContext borrowed context created with MTMVPlanUtil; its caller owns cleanup
      * @param needCost the plan from def sql should calc cost or not
      * @param needLock should lock when create mtmv cache
-     * @param currentContext current context, after create cache,should setThreadLocalInfo
      * @param addSessionVarGuard whether to add SessionVarGuardExpr to expressions
      */
     public static MTMVCache from(String defSql,
             ConnectContext createCacheContext,
             boolean needCost, boolean needLock,
-            ConnectContext currentContext,
             boolean addSessionVarGuard) throws AnalysisException {
         StatementContext mvSqlStatementContext = new StatementContext(createCacheContext,
                 new OriginStatement(defSql, 0));
         if (!needLock) {
             mvSqlStatementContext.setNeedLockTables(false);
         }
-        if (mvSqlStatementContext.getConnectContext().getStatementContext() == null) {
-            mvSqlStatementContext.getConnectContext().setStatementContext(mvSqlStatementContext);
-        }
-        createCacheContext.getStatementContext().setForceRecordTmpPlan(true);
+        createCacheContext.setStatementContext(mvSqlStatementContext);
         mvSqlStatementContext.setForceRecordTmpPlan(true);
         boolean originalRewriteFlag = createCacheContext.getSessionVariable().enableMaterializedViewRewrite;
         createCacheContext.getSessionVariable().enableMaterializedViewRewrite = false;
@@ -184,14 +178,8 @@ public class MTMVCache {
                     ? cascadesContext.getMemo().getRoot().getStatistics() : null, tmpPlanUsedForRewrite,
                     outputPredicates);
         } finally {
-            createCacheContext.getStatementContext().setForceRecordTmpPlan(false);
             mvSqlStatementContext.setForceRecordTmpPlan(false);
             createCacheContext.getSessionVariable().enableMaterializedViewRewrite = originalRewriteFlag;
-            if (currentContext != null) {
-                currentContext.setThreadLocalInfo();
-            } else {
-                ConnectContext.remove();
-            }
         }
     }
 

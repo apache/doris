@@ -223,7 +223,12 @@ public class GroupCommitPlanner {
                 reuse = true;
             } else {
                 // call nereids planner to check to sql
-                command.initPlan(ctx, new StmtExecutor(new ConnectContext(), ""), false);
+                ConnectContext planningContext = new ConnectContext();
+                try {
+                    command.initPlan(ctx, new StmtExecutor(planningContext, ""), false);
+                } finally {
+                    planningContext.requestClose(ConnectContext.CloseMode.AFTER_RESPONSE);
+                }
                 List<String> targetColumnNames = command.getTargetColumns();
                 groupCommitPlanner = EnvFactory.getInstance()
                         .createGroupCommitPlanner((Database) table.getDatabase(), table,

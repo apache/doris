@@ -340,6 +340,7 @@ public class StreamingInsertTaskAuditTest {
             mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
 
             ConnectContext ctx = InsertTask.makeConnectContext(UserIdentity.ROOT, "test_db");
+            ctx.setThreadLocalInfo();
             ctx.getState().setOk();
             InsertIntoTableCommand command = Mockito.mock(InsertIntoTableCommand.class);
             if (expectAudit) {

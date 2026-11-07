@@ -25,6 +25,7 @@ import org.apache.doris.job.extensions.insert.InsertTask;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
 import org.apache.doris.job.task.AbstractTask;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.thrift.TUniqueId;
@@ -59,10 +60,9 @@ public class TaskProcessorTest {
         });
         connectContext.setThreadLocalInfo();
         try {
-            Deencapsulation.invoke(taskProcessor, "closeTaskContext");
-            Assertions.fail("closeTaskContext should propagate the close failure");
-        } catch (RuntimeException e) {
-            Assertions.assertEquals("injected close failure", e.getMessage());
+            TaskProcessor.closeTaskContext();
+            Assertions.assertTrue(connectContext.isClosingOrClosed());
+            Assertions.assertNull(connectContext.getStatementContext());
         } finally {
             Assertions.assertNull(ConnectContext.get());
             taskProcessor.shutdown();
@@ -81,7 +81,7 @@ public class TaskProcessorTest {
         QeProcessorImpl.INSTANCE.registerQueryFinishCallback(
                 DebugUtil.printId(queryId), callbackCount::incrementAndGet);
         try {
-            Deencapsulation.invoke(taskProcessor, "closeTaskContext");
+            TaskProcessor.closeTaskContext();
             Assertions.assertEquals(1, callbackCount.get());
             Assertions.assertNull(ConnectContext.get());
         } finally {
@@ -97,42 +97,34 @@ public class TaskProcessorTest {
         AtomicInteger callbackCount = new AtomicInteger();
         AtomicInteger closeCount = new AtomicInteger();
         ConnectContext taskContext = new ConnectContext();
-        taskContext.setThreadLocalInfo();
-        StatementContext taskStatementContext = new StatementContext();
-        taskContext.setStatementContext(taskStatementContext);
-        taskStatementContext.getOrCreateConnectorStatementScope().computeIfAbsent(
-                "closeable", () -> (AutoCloseable) closeCount::incrementAndGet);
-        try {
+        try (AutoCloseConnectContext taskScope = new AutoCloseConnectContext(taskContext)) {
             for (int i = 0; i < 2; i++) {
                 ConnectContext executionContext = new ConnectContext();
-                executionContext.setThreadLocalInfo();
-                StatementContext statementContext = new StatementContext();
+                StatementContext statementContext = new StatementContext(executionContext, null);
                 executionContext.setStatementContext(statementContext);
                 TUniqueId queryId = new TUniqueId(2L, i + 1L);
                 executionContext.setQueryId(queryId);
                 statementContext.getOrCreateConnectorStatementScope().computeIfAbsent(
                         "closeable", () -> (AutoCloseable) closeCount::incrementAndGet);
-                QeProcessorImpl.INSTANCE.registerQueryFinishCallback(
-                        DebugUtil.printId(queryId), callbackCount::incrementAndGet);
+                QeProcessorImpl.INSTANCE.registerQueryFinishCallback(DebugUtil.printId(queryId), () -> {
+                    Assertions.assertFalse(executionContext.isClosingOrClosed());
+                    Assertions.assertSame(executionContext, ConnectContext.get());
+                    callbackCount.incrementAndGet();
+                });
 
-                Deencapsulation.invoke(task, "closeExecutionContext", executionContext);
-
-                Assertions.assertSame(executionContext, ConnectContext.get());
+                try (AutoCloseConnectContext scope = Deencapsulation.invoke(
+                        task, "bindExecutionContext", executionContext)) {
+                    Assertions.assertSame(executionContext, ConnectContext.get());
+                }
+                Assertions.assertTrue(executionContext.isClosingOrClosed());
+                Assertions.assertNull(executionContext.getStatementContext());
+                Assertions.assertSame(taskContext, ConnectContext.get());
+                Assertions.assertFalse(taskContext.isClosingOrClosed());
             }
             Assertions.assertEquals(2, callbackCount.get());
             Assertions.assertEquals(2, closeCount.get());
-
-            ConnectContext lastExecutionContext = ConnectContext.get();
-            Deencapsulation.invoke(task, "closeExecutionContext", taskContext);
-            Assertions.assertSame(lastExecutionContext, ConnectContext.get());
-            Assertions.assertEquals(3, closeCount.get());
-
-            Deencapsulation.invoke(task, "closeExecutionContext", new ConnectContext());
-            Assertions.assertSame(lastExecutionContext, ConnectContext.get());
-        } finally {
-            taskStatementContext.close();
-            ConnectContext.remove();
         }
+        Assertions.assertTrue(taskContext.isClosingOrClosed());
     }
 
     private void assertReleaseStatementScope(boolean insertTask) throws Exception {

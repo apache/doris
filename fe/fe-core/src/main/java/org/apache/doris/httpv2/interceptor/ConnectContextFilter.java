@@ -27,28 +27,53 @@ import jakarta.servlet.ServletResponse;
 
 import java.io.IOException;
 
-/** Owns the context bound by an HTTP dispatch, including authentication and error responses. */
+/** Owns each HTTP dispatch's context, including initialization and authentication failures. */
 public class ConnectContextFilter implements Filter {
+    private static final String CONTEXT_ATTRIBUTE = ConnectContextFilter.class.getName() + ".context";
+
+    /**
+     * Transfers a new context to this dispatch before initializing or binding it. Authentication may
+     * inspect the context explicitly before making it current. Reauthentication releases only the
+     * previous context owned by this dispatch, never a borrowed thread-local context.
+     */
+    public static ConnectContext createRequestContext(ServletRequest request) {
+        ConnectContext previous = (ConnectContext) request.getAttribute(CONTEXT_ATTRIBUTE);
+        if (previous != null) {
+            previous.cleanup();
+        }
+        ConnectContext context = new ConnectContext();
+        request.setAttribute(CONTEXT_ATTRIBUTE, context);
+        return context;
+    }
+
     @Override
     public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain)
             throws IOException, ServletException {
         ConnectContext previous = ConnectContext.get();
+        Object previousRequestContext = request.getAttribute(CONTEXT_ATTRIBUTE);
         try {
             // Nested dispatches borrow neither the outer request's identity nor its resources.
             ConnectContext.remove();
+            request.removeAttribute(CONTEXT_ATTRIBUTE);
             chain.doFilter(request, response);
         } finally {
-            closeRequestContext(previous);
+            closeRequestContext(request, previous, previousRequestContext);
         }
     }
 
-    private static void closeRequestContext(ConnectContext previous) {
-        ConnectContext current = ConnectContext.get();
+    private static void closeRequestContext(ServletRequest request, ConnectContext previous,
+            Object previousRequestContext) {
+        ConnectContext current = (ConnectContext) request.getAttribute(CONTEXT_ATTRIBUTE);
         try {
-            if (current != null && current != previous) {
+            if (current != null) {
                 current.cleanup();
             }
         } finally {
+            if (previousRequestContext == null) {
+                request.removeAttribute(CONTEXT_ATTRIBUTE);
+            } else {
+                request.setAttribute(CONTEXT_ATTRIBUTE, previousRequestContext);
+            }
             if (previous == null) {
                 ConnectContext.remove();
             } else {

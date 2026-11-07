@@ -69,8 +69,8 @@ public class FlightSessionsInConnectPool implements FlightSessionsManager {
         final String token = newToken();
         ConnectContext connectContext = FlightSessionsManager.buildConnectContext(token,
                 authResult.getUserIdentity(), authResult.getRemoteIp(), connectScheduler);
-        return FlightProtocolAdapter.of(connectContext).callCommand(connectContext, () -> {
-            try {
+        try {
+            return FlightProtocolAdapter.of(connectContext).callCommand(connectContext, () -> {
                 connectScheduler.submit(connectContext);
                 ConnectPoolMgr pool = connectScheduler.getConnectPoolMgr();
                 int res = connectContext.registerClientSession(pool);
@@ -85,11 +85,12 @@ public class FlightSessionsInConnectPool implements FlightSessionsManager {
                         connectContext.getConnectionId(), connectContext.getQualifiedUser(),
                         connectContext.getRemoteHostPortString(), TokenMasker.tokenId(token));
                 return token;
-            } catch (Throwable failure) {
-                connectContext.cleanup();
-                throw failure;
-            }
-        });
+            });
+        } catch (Throwable failure) {
+            // Admission itself reads user properties before entering the command body.
+            connectContext.cleanup();
+            throw failure;
+        }
     }
 
     @Override

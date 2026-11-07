@@ -67,6 +67,7 @@ import org.apache.doris.transaction.TransactionState.TxnSourceType;
 import org.apache.doris.transaction.TransactionStatus;
 
 import com.google.common.base.Joiner;
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
@@ -279,12 +280,8 @@ public class BrokerLoadJob extends BulkLoadJob {
     // make public for UT
     public void setComputeGroup() {
         ComputeGroup computeGroup = null;
-        ConnectContext context = ConnectContext.get();
+        ConnectContext context = Preconditions.checkNotNull(ConnectContext.get(), "load context is not bound");
         try {
-            if (context == null) {
-                context = new ConnectContext();
-                context.setThreadLocalInfo();
-            }
             if (context.getEnv() == null) {
                 context.setEnv(Env.getCurrentEnv());
             }

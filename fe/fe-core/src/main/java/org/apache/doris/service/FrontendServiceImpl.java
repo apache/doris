@@ -124,6 +124,7 @@ import org.apache.doris.nereids.trees.plans.distribute.worker.job.AssignedJob;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.planner.GroupCommitPlanner;
 import org.apache.doris.planner.OlapTableSink;
+import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectProcessor;
 import org.apache.doris.qe.Coordinator;
@@ -1201,17 +1202,19 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             return shortcut;
         }
         logForwardRequest(params);
-        ConnectContext context = createForwardContext(params, requester);
-        // createForwardContext() always builds a MySQL proxy context: the master replays the
-        // forwarded statement over a ProxyMysqlChannel and hands the packets back to the
-        // origin FE, whatever protocol the client is speaking there.
-        ConnectProcessor processor = new MysqlConnectProcessor(context);
-        Runnable clearCallback = registerProxyQuery(params, context);
-        try {
-            return executeForward(params, context, processor);
-        } finally {
-            ConnectContext.remove();
-            clearCallback.run();
+        try (AutoCloseConnectContext scope = new AutoCloseConnectContext(
+                ConnectContext.forMysqlProxy(params.getSessionId()))) {
+            ConnectContext context = scope.connectContext;
+            initializeForwardContext(context, params, requester);
+            // The master replays every forwarded statement over a ProxyMysqlChannel and hands
+            // packets back to the origin FE, whatever protocol the client is speaking there.
+            ConnectProcessor processor = new MysqlConnectProcessor(context);
+            Runnable clearCallback = registerProxyQuery(params, context);
+            try {
+                return executeForward(params, context, processor);
+            } finally {
+                clearCallback.run();
+            }
         }
     }
 
@@ -1304,8 +1307,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
     }
 
-    private ConnectContext createForwardContext(TMasterOpRequest params, Frontend requester) {
-        ConnectContext context = ConnectContext.forMysqlProxy(params.getSessionId());
+    private void initializeForwardContext(ConnectContext context, TMasterOpRequest params, Frontend requester) {
         // Set current connected FE to the client address, so that we can know where
         // this request come from.
         context.setCurrentConnectedFEIp(params.getClientNodeHost());
@@ -1314,7 +1316,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (Config.isCloudMode() && !Strings.isNullOrEmpty(params.getCloudCluster())) {
             context.setCloudCluster(params.getCloudCluster());
         }
-        return context;
     }
 
     private Runnable registerProxyQuery(TMasterOpRequest params, ConnectContext context) {
@@ -4107,12 +4108,14 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
 
             if (syncJournal) {
-                ConnectContext ctx = new ConnectContext();
-                ctx.setDatabase(request.getDb());
-                ctx.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp(request.getUser(), "%"));
-                ctx.setEnv(Env.getCurrentEnv());
-                MasterOpExecutor executor = new MasterOpExecutor(ctx);
-                executor.syncJournal();
+                try (AutoCloseConnectContext scope = new AutoCloseConnectContext(new ConnectContext())) {
+                    ConnectContext ctx = scope.connectContext;
+                    ctx.setDatabase(request.getDb());
+                    ctx.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp(request.getUser(), "%"));
+                    ctx.setEnv(Env.getCurrentEnv());
+                    MasterOpExecutor executor = new MasterOpExecutor(ctx);
+                    executor.syncJournal();
+                }
             }
 
             result = getBinlogImpl(request, clientAddr);
@@ -4433,11 +4436,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         restoreCommand.setJobInfo(backupJobInfo);
         restoreCommand.setIsBeingSynced();
         LOG.debug("restore snapshot info, restoreCommand: {}", restoreCommand);
-        try {
-            ConnectContext ctx = new ConnectContext();
+        try (AutoCloseConnectContext scope = new AutoCloseConnectContext(new ConnectContext())) {
+            ConnectContext ctx = scope.connectContext;
             String fullUserName = request.getUser();
             ctx.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp(fullUserName, "%"));
-            ctx.setThreadLocalInfo();
             restoreCommand.validate(ctx);
             Env.getCurrentEnv().getBackupHandler().process(restoreCommand);
         } catch (UserException e) {
@@ -4448,8 +4450,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             LOG.warn("catch unknown result. command: {}", restoreCommand, e);
             status.setStatusCode(TStatusCode.INTERNAL_ERROR);
             status.addToErrorMsgs(Strings.nullToEmpty(e.getMessage()) + ", command: " + restoreCommand);
-        } finally {
-            ConnectContext.remove();
         }
 
         return result;
@@ -5883,12 +5883,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         // Create a ConnectContext with skipAuth=true for system table access
         // This is necessary because LoadJob.checkAuth() requires a ConnectContext
         // and system table queries from backend don't have user context
-        ConnectContext ctx = new ConnectContext();
-        ctx.setEnv(Env.getCurrentEnv());
-        ctx.setSkipAuth(true);
-        ctx.setThreadLocalInfo();
-
-        try {
+        try (AutoCloseConnectContext scope = new AutoCloseConnectContext(new ConnectContext())) {
+            ConnectContext ctx = scope.connectContext;
+            ctx.setEnv(Env.getCurrentEnv());
+            ctx.setSkipAuth(true);
             LoadManager loadManager = Env.getCurrentEnv().getLoadManager();
             List<TLoadJob> jobInfos = Lists.newArrayList();
             List<String> dbNames = Env.getCurrentInternalCatalog().getDbNames();
@@ -5944,8 +5942,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             result.setLoadJobs(jobInfos);
 
             return result;
-        } finally {
-            ConnectContext.remove();
         }
     }
 

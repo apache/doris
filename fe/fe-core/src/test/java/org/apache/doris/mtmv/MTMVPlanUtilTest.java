@@ -48,6 +48,7 @@ import org.apache.doris.nereids.types.NullType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
+import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
@@ -377,8 +378,7 @@ public class MTMVPlanUtilTest extends SqlTestBase {
         Database db = Env.getCurrentEnv().getInternalCatalog().getDbOrAnalysisException("test");
         MTMV mtmv = (MTMV) db.getTableOrAnalysisException("mv1");
         Assertions.assertDoesNotThrow(
-                () -> MTMVPlanUtil.ensureMTMVQueryUsable(mtmv,
-                        MTMVPlanUtil.createMTMVContext(mtmv, MTMVPlanUtil.DISABLE_RULES_WHEN_GENERATE_MTMV_CACHE)));
+                () -> ensureQueryUsable(mtmv));
     }
 
     @Test
@@ -473,9 +473,10 @@ public class MTMVPlanUtilTest extends SqlTestBase {
         Assertions.assertNull(
                 mtmv.getTableProperty().getProperties().get(PropertyAnalyzer.ENABLE_UNIQUE_KEY_SKIP_BITMAP_COLUMN));
 
-        MTMVPlanUtil.analyzeQueryWithSql(mtmv,
-                MTMVPlanUtil.createMTMVContext(mtmv, MTMVPlanUtil.DISABLE_RULES_WHEN_GENERATE_MTMV_CACHE),
-                Optional.of(IvmRewriteContext.normalize(mtmv)));
+        try (AutoCloseConnectContext scope = new AutoCloseConnectContext(
+                MTMVPlanUtil.createMTMVContext(mtmv, MTMVPlanUtil.DISABLE_RULES_WHEN_GENERATE_MTMV_CACHE))) {
+            MTMVPlanUtil.analyzeQueryWithSql(mtmv, scope.connectContext, Optional.of(IvmRewriteContext.normalize(mtmv)));
+        }
 
         Assertions.assertNull(
                 mtmv.getTableProperty().getProperties().get(PropertyAnalyzer.ENABLE_UNIQUE_KEY_SKIP_BITMAP_COLUMN));
@@ -497,17 +498,21 @@ public class MTMVPlanUtilTest extends SqlTestBase {
         MTMV autoMtmv = (MTMV) db.getTableOrAnalysisException("mv_auto_refresh");
         MTMV incrementalMtmv = (MTMV) db.getTableOrAnalysisException("mv_incremental_refresh");
 
-        ConnectContext autoCtx = MTMVPlanUtil.createMTMVContext(autoMtmv,
-                MTMVPlanUtil.DISABLE_RULES_WHEN_GENERATE_MTMV_CACHE);
-        Assertions.assertDoesNotThrow(() -> MTMVPlanUtil.ensureMTMVQueryUsable(autoMtmv, autoCtx));
-        Assertions.assertEquals(IvmRewriteContext.Mode.NORMALIZE,
-                autoCtx.getStatementContext().getIvmRewriteContext().orElseThrow().getMode());
+        try (AutoCloseConnectContext scope = new AutoCloseConnectContext(
+                MTMVPlanUtil.createMTMVContext(autoMtmv, MTMVPlanUtil.DISABLE_RULES_WHEN_GENERATE_MTMV_CACHE))) {
+            ConnectContext autoCtx = scope.connectContext;
+            Assertions.assertDoesNotThrow(() -> MTMVPlanUtil.ensureMTMVQueryUsable(autoMtmv, autoCtx));
+            Assertions.assertEquals(IvmRewriteContext.Mode.NORMALIZE,
+                    autoCtx.getStatementContext().getIvmRewriteContext().orElseThrow().getMode());
+        }
 
-        ConnectContext incrementalCtx = MTMVPlanUtil.createMTMVContext(incrementalMtmv,
-                MTMVPlanUtil.DISABLE_RULES_WHEN_GENERATE_MTMV_CACHE);
-        Assertions.assertDoesNotThrow(() -> MTMVPlanUtil.ensureMTMVQueryUsable(incrementalMtmv, incrementalCtx));
-        Assertions.assertEquals(IvmRewriteContext.Mode.NORMALIZE,
-                incrementalCtx.getStatementContext().getIvmRewriteContext().orElseThrow().getMode());
+        try (AutoCloseConnectContext scope = new AutoCloseConnectContext(
+                MTMVPlanUtil.createMTMVContext(incrementalMtmv, MTMVPlanUtil.DISABLE_RULES_WHEN_GENERATE_MTMV_CACHE))) {
+            ConnectContext incrementalCtx = scope.connectContext;
+            Assertions.assertDoesNotThrow(() -> MTMVPlanUtil.ensureMTMVQueryUsable(incrementalMtmv, incrementalCtx));
+            Assertions.assertEquals(IvmRewriteContext.Mode.NORMALIZE,
+                    incrementalCtx.getStatementContext().getIvmRewriteContext().orElseThrow().getMode());
+        }
     }
 
     @Test
@@ -572,10 +577,15 @@ public class MTMVPlanUtilTest extends SqlTestBase {
         Assertions.assertTrue(changelogHiddenColumns(plainMv).isEmpty());
 
         for (MTMV mtmv : Lists.newArrayList(ivmMv, dupMv, detailMv, plainMv)) {
-            ConnectContext ctx = MTMVPlanUtil.createMTMVContext(mtmv,
-                    MTMVPlanUtil.DISABLE_RULES_WHEN_GENERATE_MTMV_CACHE);
-            Assertions.assertDoesNotThrow(() -> MTMVPlanUtil.ensureMTMVQueryUsable(mtmv, ctx),
+            Assertions.assertDoesNotThrow(() -> ensureQueryUsable(mtmv),
                     "analyzed schema must match the physical schema of " + mtmv.getName());
+        }
+    }
+
+    private MTMVAnalyzeQueryInfo ensureQueryUsable(MTMV mtmv) throws Exception {
+        try (AutoCloseConnectContext scope = new AutoCloseConnectContext(
+                MTMVPlanUtil.createMTMVContext(mtmv, MTMVPlanUtil.DISABLE_RULES_WHEN_GENERATE_MTMV_CACHE))) {
+            return MTMVPlanUtil.ensureMTMVQueryUsable(mtmv, scope.connectContext);
         }
     }
 
@@ -626,8 +636,7 @@ public class MTMVPlanUtilTest extends SqlTestBase {
         MTMV mtmv = (MTMV) db.getTableOrAnalysisException("analyze_faild_mv1");
         JobException exception = Assertions.assertThrows(
                 org.apache.doris.job.exception.JobException.class, () -> {
-                    MTMVPlanUtil.ensureMTMVQueryUsable(mtmv,
-                            MTMVPlanUtil.createMTMVContext(mtmv, MTMVPlanUtil.DISABLE_RULES_WHEN_GENERATE_MTMV_CACHE));
+                    ensureQueryUsable(mtmv);
                 });
         Assertions.assertTrue(exception.getMessage().contains("suitable"));
     }
@@ -671,8 +680,7 @@ public class MTMVPlanUtilTest extends SqlTestBase {
         MTMV mtmv = (MTMV) db.getTableOrAnalysisException("t_partition1_mv1");
         JobException exception = Assertions.assertThrows(
                 org.apache.doris.job.exception.JobException.class, () -> {
-                    MTMVPlanUtil.ensureMTMVQueryUsable(mtmv,
-                            MTMVPlanUtil.createMTMVContext(mtmv, MTMVPlanUtil.DISABLE_RULES_WHEN_GENERATE_MTMV_CACHE));
+                    ensureQueryUsable(mtmv);
                 });
         Assertions.assertTrue(exception.getMessage().contains("changed"));
     }

@@ -161,14 +161,18 @@ public class ExternalCatalogNamespaceFailureTest extends TestWithFeService {
     }
 
     @Test
-    public void testHealthyMvContextCopiesNamespaceAndBecomesCurrent() {
+    public void testHealthyMvContextCopiesNamespaceWithoutChangingCurrentContext() {
         NameSpaceContext saved = connectContext.getNameSpaceContext();
         ConnectContext mv = MTMVPlanUtil.createBasicMvContext(connectContext, List.of(), Map.of());
-        Assertions.assertNotSame(connectContext, mv);
-        Assertions.assertSame(mv, ConnectContext.get());
-        Assertions.assertEquals(saved.getDefaultCatalog(), mv.getDefaultCatalog());
-        Assertions.assertEquals(saved.getCurrentDb(), mv.getDatabase());
-        Assertions.assertEquals(saved.getCurrentDbId(), mv.getCurrentDbId());
+        try {
+            Assertions.assertNotSame(connectContext, mv);
+            Assertions.assertSame(connectContext, ConnectContext.get());
+            Assertions.assertEquals(saved.getDefaultCatalog(), mv.getDefaultCatalog());
+            Assertions.assertEquals(saved.getCurrentDb(), mv.getDatabase());
+            Assertions.assertEquals(saved.getCurrentDbId(), mv.getCurrentDbId());
+        } finally {
+            mv.requestClose(ConnectContext.CloseMode.AFTER_RESPONSE);
+        }
     }
 
     @ParameterizedTest

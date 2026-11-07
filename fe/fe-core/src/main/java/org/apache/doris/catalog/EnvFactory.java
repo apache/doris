@@ -160,27 +160,36 @@ public class EnvFactory {
             queryId = new TUniqueId(taskId.getMostSignificantBits(), taskId.getLeastSignificantBits());
         }
         ConnectContext connectContext = ConnectContext.get();
-        if (connectContext == null) {
+        boolean ownsContext = connectContext == null;
+        if (ownsContext) {
+            // Keep this fallback unbound: the load coordinator captures the caller's thread-local context.
             connectContext = new ConnectContext();
         }
-        if (connectContext.getLoadId() == null) {
-            connectContext.setLoadId(queryId);
-        }
-        if (connectContext.getEnv() == null) {
-            connectContext.setEnv(Env.getCurrentEnv());
-        }
-        StatementContext statementContext = connectContext.getStatementContext();
-        if (statementContext == null) {
-            statementContext = new StatementContext(connectContext, new OriginStatement("", 0));
-        }
-        DistributePlanner distributePlanner = new DistributePlanner(
-                statementContext, fragments, false, true, true);
-        FragmentIdMapping<DistributedPlan> distributedPlans = distributePlanner.plan();
+        try {
+            if (connectContext.getLoadId() == null) {
+                connectContext.setLoadId(queryId);
+            }
+            if (connectContext.getEnv() == null) {
+                connectContext.setEnv(Env.getCurrentEnv());
+            }
+            StatementContext statementContext = connectContext.getStatementContext();
+            if (statementContext == null) {
+                statementContext = new StatementContext(connectContext, new OriginStatement("", 0));
+                connectContext.setStatementContext(statementContext);
+            }
+            DistributePlanner distributePlanner = new DistributePlanner(
+                    statementContext, fragments, false, true, true);
+            FragmentIdMapping<DistributedPlan> distributedPlans = distributePlanner.plan();
 
-        return new Coordinator(
-                jobId, queryId, descTable, fragments, distributedPlans.valueList(),
-                scanNodes, timezone, loadZeroTolerance, enableProfile
-        );
+            return new Coordinator(
+                    jobId, queryId, descTable, fragments, distributedPlans.valueList(),
+                    scanNodes, timezone, loadZeroTolerance, enableProfile
+            );
+        } finally {
+            if (ownsContext) {
+                connectContext.requestClose(ConnectContext.CloseMode.AFTER_RESPONSE);
+            }
+        }
     }
 
     public GroupCommitPlanner createGroupCommitPlanner(Database db, OlapTable table, List<String> targetColumnNames,

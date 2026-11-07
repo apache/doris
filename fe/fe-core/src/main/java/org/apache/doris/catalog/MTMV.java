@@ -63,6 +63,7 @@ import org.apache.doris.nereids.rules.analysis.SessionVarGuardRewriter;
 import org.apache.doris.persist.AlterMTMV;
 import org.apache.doris.persist.EditLog.EditLogItem;
 import org.apache.doris.persist.OperationType;
+import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
@@ -1656,9 +1657,11 @@ public class MTMV extends OlapTable {
 
     protected MTMVCache createRewriteCache(ConnectContext currentContext, boolean needLock,
             boolean addSessionVarGuard) {
-        return MTMVCache.from(this.getQuerySql(),
-                MTMVPlanUtil.createMTMVContext(this, MTMVPlanUtil.DISABLE_RULES_WHEN_GENERATE_MTMV_CACHE),
-                true, needLock, currentContext, addSessionVarGuard);
+        try (AutoCloseConnectContext scope = new AutoCloseConnectContext(
+                MTMVPlanUtil.createMTMVContext(this, MTMVPlanUtil.DISABLE_RULES_WHEN_GENERATE_MTMV_CACHE))) {
+            return MTMVCache.from(this.getQuerySql(), scope.connectContext,
+                    true, needLock, addSessionVarGuard);
+        }
     }
 
     /**

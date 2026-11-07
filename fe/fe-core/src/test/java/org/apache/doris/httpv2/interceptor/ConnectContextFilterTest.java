@@ -21,10 +21,16 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.httpv2.HttpAuthManager;
+import org.apache.doris.httpv2.HttpAuthManager.SessionValue;
 import org.apache.doris.httpv2.config.WebConfigurer;
+import org.apache.doris.httpv2.controller.BaseController;
 import org.apache.doris.httpv2.controller.BaseController.ActionAuthorizationInfo;
+import org.apache.doris.httpv2.exception.UnauthorizedException;
 import org.apache.doris.httpv2.rest.LoadAction;
 import org.apache.doris.httpv2.rest.RestBaseController;
+import org.apache.doris.mysql.privilege.AccessControllerManager;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.qe.ConnectContext;
 
@@ -33,6 +39,7 @@ import jakarta.servlet.Filter;
 import jakarta.servlet.FilterRegistration;
 import jakarta.servlet.ServletContext;
 import jakarta.servlet.ServletException;
+import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.junit.jupiter.api.AfterEach;
@@ -48,12 +55,15 @@ import org.springframework.core.Ordered;
 
 import java.util.Collections;
 import java.util.EnumSet;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 
 class ConnectContextFilterTest {
     private final ConnectContextFilter filter = new ConnectContextFilter();
     private final HttpServletRequest request = Mockito.mock(HttpServletRequest.class);
     private final HttpServletResponse response = Mockito.mock(HttpServletResponse.class);
+    private final Map<String, Object> attributes = new HashMap<>();
     private boolean savedRunningUnitTest;
     private MockedStatic<Env> envMock;
 
@@ -68,6 +78,16 @@ class ConnectContextFilterTest {
         envMock = Mockito.mockStatic(Env.class);
         envMock.when(Env::getCurrentEnv).thenReturn(env);
         ConnectContext.remove();
+        Mockito.when(request.getAttribute(Mockito.anyString()))
+                .thenAnswer(call -> attributes.get(call.getArgument(0)));
+        Mockito.doAnswer(call -> {
+            attributes.put(call.getArgument(0), call.getArgument(1));
+            return null;
+        }).when(request).setAttribute(Mockito.anyString(), Mockito.any());
+        Mockito.doAnswer(call -> {
+            attributes.remove(call.getArgument(0));
+            return null;
+        }).when(request).removeAttribute(Mockito.anyString());
     }
 
     @AfterEach
@@ -115,18 +135,19 @@ class ConnectContextFilterTest {
     void closesFailedRequestAndRestoresBorrowedCaller() {
         ConnectContext caller = new ConnectContext();
         caller.setThreadLocalInfo();
-        ConnectContext current = new ConnectContext();
+        AtomicReference<ConnectContext> current = new AtomicReference<>();
         StatementContext statement = Mockito.mock(StatementContext.class);
-        current.setStatementContext(statement);
         ServletException failure = new ServletException("request failed");
         try {
             Assertions.assertSame(failure, Assertions.assertThrows(ServletException.class,
                     () -> filter.doFilter(request, response, (req, res) -> {
                         Assertions.assertNull(ConnectContext.get());
-                        current.setThreadLocalInfo();
+                        current.set(ConnectContextFilter.createRequestContext(req));
+                        current.get().setStatementContext(statement);
+                        current.get().setThreadLocalInfo();
                         throw failure;
                     })));
-            Assertions.assertTrue(current.isClosingOrClosed());
+            Assertions.assertTrue(current.get().isClosingOrClosed());
             Mockito.verify(statement).close();
             Assertions.assertSame(caller, ConnectContext.get());
             Assertions.assertFalse(caller.isClosingOrClosed());
@@ -139,22 +160,23 @@ class ConnectContextFilterTest {
     void statementCloseFailureStillClosesContextAndPreservesRequestFailure() {
         ConnectContext caller = new ConnectContext();
         caller.setThreadLocalInfo();
-        ConnectContext current = new ConnectContext();
+        AtomicReference<ConnectContext> current = new AtomicReference<>();
         StatementContext statement = Mockito.mock(StatementContext.class);
         IllegalStateException cleanupFailure = new IllegalStateException("statement close failed");
         Mockito.doThrow(cleanupFailure).when(statement).close();
-        current.setStatementContext(statement);
         ServletException requestFailure = new ServletException("request failed");
         try {
             Assertions.assertSame(requestFailure, Assertions.assertThrows(ServletException.class,
                     () -> filter.doFilter(request, response, (req, res) -> {
-                        current.setThreadLocalInfo();
+                        current.set(ConnectContextFilter.createRequestContext(req));
+                        current.get().setStatementContext(statement);
+                        current.get().setThreadLocalInfo();
                         throw requestFailure;
                     })));
             Mockito.verify(statement).close();
             Assertions.assertEquals(0, requestFailure.getSuppressed().length);
-            Assertions.assertTrue(current.isClosingOrClosed());
-            Assertions.assertNull(current.getStatementContext());
+            Assertions.assertTrue(current.get().isClosingOrClosed());
+            Assertions.assertNull(current.get().getStatementContext());
             Assertions.assertSame(caller, ConnectContext.get());
         } finally {
             caller.cleanup();
@@ -163,19 +185,21 @@ class ConnectContextFilterTest {
 
     @Test
     void nestedDispatchClosesOnlyItsOwnContext() throws Exception {
-        ConnectContext outer = new ConnectContext();
-        ConnectContext inner = new ConnectContext();
+        AtomicReference<ConnectContext> outer = new AtomicReference<>();
+        AtomicReference<ConnectContext> inner = new AtomicReference<>();
         filter.doFilter(request, response, (req, res) -> {
-            outer.setThreadLocalInfo();
+            outer.set(ConnectContextFilter.createRequestContext(req));
+            outer.get().setThreadLocalInfo();
             filter.doFilter(request, response, (nestedRequest, nestedResponse) -> {
                 Assertions.assertNull(ConnectContext.get());
-                inner.setThreadLocalInfo();
+                inner.set(ConnectContextFilter.createRequestContext(nestedRequest));
+                inner.get().setThreadLocalInfo();
             });
-            Assertions.assertTrue(inner.isClosingOrClosed());
-            Assertions.assertSame(outer, ConnectContext.get());
-            Assertions.assertFalse(outer.isClosingOrClosed());
+            Assertions.assertTrue(inner.get().isClosingOrClosed());
+            Assertions.assertSame(outer.get(), ConnectContext.get());
+            Assertions.assertFalse(outer.get().isClosingOrClosed());
         });
-        Assertions.assertTrue(outer.isClosingOrClosed());
+        Assertions.assertTrue(outer.get().isClosingOrClosed());
         Assertions.assertNull(ConnectContext.get());
     }
 
@@ -212,7 +236,7 @@ class ConnectContextFilterTest {
             @Override
             public ActionAuthorizationInfo executeCheckPassword(HttpServletRequest request,
                     HttpServletResponse response) {
-                ConnectContext current = new ConnectContext();
+                ConnectContext current = ConnectContextFilter.createRequestContext(request);
                 current.setCurrentUserIdentity(UserIdentity.ROOT);
                 current.setThreadLocalInfo();
                 return new ActionAuthorizationInfo();
@@ -237,6 +261,133 @@ class ConnectContextFilterTest {
         });
         Assertions.assertTrue(current.get().isClosingOrClosed());
         Assertions.assertNull(ConnectContext.get());
+    }
+
+    @Test
+    void replacingRequestContextClosesOnlyTheOwnedContext() throws Exception {
+        ConnectContext caller = new ConnectContext();
+        caller.setThreadLocalInfo();
+        AtomicReference<ConnectContext> replacement = new AtomicReference<>();
+        StatementContext statement = Mockito.mock(StatementContext.class);
+        try {
+            filter.doFilter(request, response, (req, res) -> {
+                ConnectContext original = ConnectContextFilter.createRequestContext(req);
+                original.setStatementContext(statement);
+                original.setThreadLocalInfo();
+                // An unrelated helper may temporarily bind a borrowed context.
+                caller.setThreadLocalInfo();
+                replacement.set(ConnectContextFilter.createRequestContext(req));
+                Assertions.assertTrue(original.isClosingOrClosed());
+                Mockito.verify(statement).close();
+                Assertions.assertSame(caller, ConnectContext.get());
+                Assertions.assertFalse(caller.isClosingOrClosed());
+                replacement.get().setThreadLocalInfo();
+            });
+            Assertions.assertTrue(replacement.get().isClosingOrClosed());
+            Assertions.assertFalse(caller.isClosingOrClosed());
+            Assertions.assertSame(caller, ConnectContext.get());
+        } finally {
+            caller.cleanup();
+        }
+    }
+
+    @Test
+    void rejectedAuthorizationClosesUnboundContextAndRestoresCaller() {
+        AtomicReference<ConnectContext> rejected = new AtomicReference<>();
+        StatementContext statement = Mockito.mock(StatementContext.class);
+        UnauthorizedException failure = new UnauthorizedException("denied");
+        RestBaseController controller = new RestBaseController() {
+            @Override
+            public ActionAuthorizationInfo getAuthorizationInfo(HttpServletRequest request) {
+                return new ActionAuthorizationInfo();
+            }
+
+            @Override
+            protected UserIdentity checkPassword(ActionAuthorizationInfo authInfo, HttpServletRequest request) {
+                return UserIdentity.ROOT;
+            }
+
+            @Override
+            protected void checkGlobalAuth(ConnectContext context, PrivPredicate predicate) {
+                Assertions.assertNull(ConnectContext.get());
+                rejected.set(context);
+                context.setStatementContext(statement);
+                throw failure;
+            }
+        };
+        Mockito.when(request.getHeader("Authorization")).thenReturn("basic");
+        ConnectContext caller = new ConnectContext();
+        caller.setThreadLocalInfo();
+        try {
+            Assertions.assertSame(failure, Assertions.assertThrows(UnauthorizedException.class,
+                    () -> filter.doFilter(request, response,
+                            (req, res) -> controller.checkWithCookie(request, response, true))));
+            Assertions.assertTrue(rejected.get().isClosingOrClosed());
+            Mockito.verify(statement).close();
+            Assertions.assertSame(caller, ConnectContext.get());
+            Assertions.assertFalse(caller.isClosingOrClosed());
+            Assertions.assertTrue(attributes.isEmpty());
+        } finally {
+            caller.cleanup();
+        }
+    }
+
+    @Test
+    void rejectedCookieClosesUnboundContext() {
+        HttpAuthManager authManager = Mockito.mock(HttpAuthManager.class);
+        SessionValue session = new SessionValue();
+        session.currentUser = UserIdentity.ROOT;
+        Mockito.when(authManager.getSessionValue(Mockito.anyList())).thenReturn(session);
+        Mockito.when(request.getCookies()).thenReturn(new Cookie[] {
+                new Cookie(BaseController.PALO_SESSION_ID, "session")
+        });
+        AccessControllerManager accessManager = Mockito.mock(AccessControllerManager.class);
+        Mockito.when(Env.getCurrentEnv().getAccessManager()).thenReturn(accessManager);
+        AtomicReference<ConnectContext> rejected = new AtomicReference<>();
+        StatementContext statement = Mockito.mock(StatementContext.class);
+        Mockito.when(accessManager.checkGlobalPriv(Mockito.any(ConnectContext.class),
+                Mockito.eq(PrivPredicate.ADMIN_OR_NODE))).thenAnswer(call -> {
+                    Assertions.assertNull(ConnectContext.get());
+                    ConnectContext context = call.getArgument(0);
+                    rejected.set(context);
+                    context.setStatementContext(statement);
+                    return false;
+                });
+        try (MockedStatic<HttpAuthManager> auth = Mockito.mockStatic(HttpAuthManager.class)) {
+            auth.when(HttpAuthManager::getInstance).thenReturn(authManager);
+            Assertions.assertThrows(UnauthorizedException.class,
+                    () -> filter.doFilter(request, response,
+                            (req, res) -> new BaseController().checkWithCookie(request, response, true)));
+        }
+        Assertions.assertTrue(rejected.get().isClosingOrClosed());
+        Mockito.verify(statement).close();
+        Assertions.assertNull(ConnectContext.get());
+        Assertions.assertTrue(attributes.isEmpty());
+    }
+
+    @Test
+    void initializationFailureClosesContextBeforeItIsBound() {
+        AtomicReference<ConnectContext> failed = new AtomicReference<>();
+        IllegalStateException failure = new IllegalStateException("request address unavailable");
+        Mockito.when(request.getRemoteAddr()).thenAnswer(call -> {
+            failed.set((ConnectContext) attributes.values().iterator().next());
+            Assertions.assertNull(ConnectContext.get());
+            throw failure;
+        });
+        LoadAction action = new LoadAction() {
+            @Override
+            protected boolean checkClusterToken(String token) {
+                return true;
+            }
+        };
+        Mockito.when(request.getHeaderNames()).thenReturn(Collections.emptyEnumeration());
+        Mockito.when(request.getHeader("token")).thenReturn("cluster-token");
+        Assertions.assertDoesNotThrow(() -> filter.doFilter(request, response,
+                (req, res) -> action.streamLoad(request, response, "db", "table")));
+        Assertions.assertNotNull(failed.get());
+        Assertions.assertTrue(failed.get().isClosingOrClosed());
+        Assertions.assertNull(ConnectContext.get());
+        Assertions.assertTrue(attributes.isEmpty());
     }
 
     @Test

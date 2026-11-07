@@ -174,19 +174,30 @@ public class CascadesContext implements ScheduleContext {
         this.recursiveCteContext = Optional.ofNullable(recursiveCteContext);
     }
 
-    /** init a temporary context to rewrite expression */
-    public static CascadesContext initTempContext() {
+    /**
+     * Rewrite an expression with a temporary planning context. The result must not retain the context.
+     * An existing session and statement are borrowed; resources created here are closed before returning.
+     */
+    public static <T> T withTempContext(Function<CascadesContext, T> action) {
         ConnectContext connectContext = ConnectContext.get();
-        if (connectContext == null) {
+        boolean ownsContext = connectContext == null;
+        if (ownsContext) {
             connectContext = new ConnectContext();
         }
-        StatementContext statementContext = connectContext.getStatementContext();
-        if (statementContext == null) {
-            statementContext = new StatementContext(connectContext, new OriginStatement("", 0));
+        try {
+            StatementContext statementContext = connectContext.getStatementContext();
+            if (statementContext != null) {
+                return action.apply(initContext(statementContext, DUMMY_PLAN, PhysicalProperties.ANY));
+            }
+            try (StatementContext temporaryStatement = new StatementContext(
+                    connectContext, new OriginStatement("", 0))) {
+                return action.apply(initContext(temporaryStatement, DUMMY_PLAN, PhysicalProperties.ANY));
+            }
+        } finally {
+            if (ownsContext) {
+                connectContext.requestClose(ConnectContext.CloseMode.AFTER_RESPONSE);
+            }
         }
-        return newContext(Optional.empty(), Optional.empty(),
-                statementContext, DUMMY_PLAN,
-                new CTEContext(), PhysicalProperties.ANY, false, null);
     }
 
     /**

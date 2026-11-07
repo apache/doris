@@ -91,6 +91,7 @@ import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.qe.AuditLogHelper;
+import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.SessionVariable;
@@ -142,17 +143,21 @@ public class MTMVPlanUtil {
     // The rules should be disabled when run MTMV task
     public static final List<RuleType> DISABLE_RULES_WHEN_RUN_MTMV_TASK = DISABLE_RULES_WHEN_GENERATE_MTMV_CACHE;
 
+    /** Returns an unbound context owned by the caller, which must close it after the last use. */
     public static ConnectContext createMTMVContext(MTMV mtmv, List<RuleType> disableRules) {
         ConnectContext ctx = createBasicMvContext(null, disableRules, mtmv.getSessionVariables());
-        Optional<String> workloadGroup = mtmv.getWorkloadGroup();
-        if (workloadGroup.isPresent()) {
-            ctx.getSessionVariable().setWorkloadGroup(workloadGroup.get());
+        try {
+            Optional<String> workloadGroup = mtmv.getWorkloadGroup();
+            if (workloadGroup.isPresent()) {
+                ctx.getSessionVariable().setWorkloadGroup(workloadGroup.get());
+            }
+            // Older materialized views can omit qualified names in their query SQL.
+            setCatalogAndDb(ctx, mtmv);
+            return ctx;
+        } catch (RuntimeException | Error e) {
+            ctx.requestClose(ConnectContext.CloseMode.AFTER_RESPONSE);
+            throw e;
         }
-        // Set db&catalog to be used when creating materialized views to avoid SQL statements not writing the full path
-        // After https://github.com/apache/doris/pull/36543,
-        // After 1, this logic is no longer needed. This is to be compatible with older versions
-        setCatalogAndDb(ctx, mtmv);
-        return ctx;
     }
 
     /**
@@ -186,9 +191,11 @@ public class MTMVPlanUtil {
     public static void executeCommand(MTMV mtmv, Command command,
             StatementContext stmtCtx, @Nullable String auditStmt,
             @Nullable Consumer<StmtExecutor> executorConsumer) throws Exception {
-        ConnectContext ctx = createMTMVContext(mtmv, DISABLE_RULES_WHEN_RUN_MTMV_TASK);
-        stmtCtx.setConnectContext(ctx);
-        executeCommand(ctx, command, stmtCtx, auditStmt, executorConsumer);
+        try (AutoCloseConnectContext scope = new AutoCloseConnectContext(
+                createMTMVContext(mtmv, DISABLE_RULES_WHEN_RUN_MTMV_TASK))) {
+            stmtCtx.setConnectContext(scope.connectContext);
+            executeCommand(scope.connectContext, command, stmtCtx, auditStmt, executorConsumer);
+        }
     }
 
     /**
@@ -231,15 +238,16 @@ public class MTMVPlanUtil {
         }
     }
 
+    /** Returns an unbound context owned by the caller, which must close it after the last use. */
     public static ConnectContext createBasicMvContext(@Nullable ConnectContext parentContext,
             List<RuleType> disableRules, Map<String, String> sessionVariables) {
         ConnectContext ctx = new ConnectContext();
-        ctx.setEnv(Env.getCurrentEnv());
-        ctx.setCurrentUserIdentity(UserIdentity.ADMIN);
-        ctx.getState().reset();
-        ctx.getState().setInternal(true);
         ConnectContext previousContext = ConnectContext.get();
         try {
+            ctx.setEnv(Env.getCurrentEnv());
+            ctx.setCurrentUserIdentity(UserIdentity.ADMIN);
+            ctx.getState().reset();
+            ctx.getState().setInternal(true);
             ctx.setThreadLocalInfo();
             ctx.getSessionVariable().setAffectQueryResultInPlanSessionVariables(sessionVariables);
             // Debug session variable should be disabled when refreshed
@@ -258,13 +266,14 @@ public class MTMVPlanUtil {
             }
             return ctx;
         } catch (RuntimeException | Error e) {
-            // Initialization can fail before MTMVCache takes responsibility for context cleanup.
+            ctx.requestClose(ConnectContext.CloseMode.AFTER_RESPONSE);
+            throw e;
+        } finally {
             if (previousContext == null) {
                 ConnectContext.remove();
             } else {
                 previousContext.setThreadLocalInfo();
             }
-            throw e;
         }
     }
 

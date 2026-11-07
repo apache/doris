@@ -343,8 +343,10 @@ public abstract class FileScanNode extends ExternalScanNode {
                 if (expression != null) {
                     expression = TypeCoercionUtils.castIfNotSameType(expression,
                             DataType.fromCatalogType(slotDesc.getType()));
-                    expr = ExpressionTranslator.translate(expression,
-                            new PlanTranslatorContext(CascadesContext.initTempContext()));
+                    Expression defaultExpression = expression;
+                    expr = CascadesContext.withTempContext(cascadesContext ->
+                            ExpressionTranslator.translate(defaultExpression,
+                                    new PlanTranslatorContext(cascadesContext)));
                     defaultExpr = ExprToThriftVisitor.treeToThrift(expr);
                 } else {
                     defaultExpr = tExpr;

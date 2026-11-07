@@ -115,12 +115,8 @@ public abstract class AbstractStreamingTask {
                 log.warn("execute streaming task error, job id is {}, task id is {}, retrying {}/{}: {}",
                         jobId, taskId, retryCount, MAX_RETRY, e.getMessage());
             } finally {
-                // The cancel logic will call the closeOrReleased Resources method by itself.
-                // If it is also called here,
-                // it may result in the inability to obtain relevant information when canceling the task
-                if (!TaskStatus.CANCELED.equals(status)) {
-                    closeOrReleaseResources();
-                }
+                // The executing thread owns each attempt's resources, including canceled attempts.
+                closeOrReleaseResources();
             }
         }
     }

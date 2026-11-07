@@ -255,20 +255,25 @@ public class ConnectorRewriteGroupTask implements TransientTaskExecutor {
 
     private ConnectContext buildConnectContext() {
         ConnectContext taskContext = new ConnectContext();
-        taskContext.setSessionVariable(VariableMgr.cloneSessionVariable(connectContext.getSessionVariable()));
-        taskContext.setEnv(Env.getCurrentEnv());
-        taskContext.setDatabase(connectContext.getDatabase());
-        taskContext.setCurrentUserIdentity(connectContext.getCurrentUserIdentity());
-        taskContext.setRemoteIP(connectContext.getRemoteIP());
+        try {
+            taskContext.setSessionVariable(VariableMgr.cloneSessionVariable(connectContext.getSessionVariable()));
+            taskContext.setEnv(Env.getCurrentEnv());
+            taskContext.setDatabase(connectContext.getDatabase());
+            taskContext.setCurrentUserIdentity(connectContext.getCurrentUserIdentity());
+            taskContext.setRemoteIP(connectContext.getRemoteIP());
 
-        UUID uuid = UUID.randomUUID();
-        TUniqueId queryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
-        taskContext.setQueryId(queryId);
-        taskContext.setStartTime();
+            UUID uuid = UUID.randomUUID();
+            TUniqueId queryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
+            taskContext.setQueryId(queryId);
+            taskContext.setStartTime();
 
-        StatementContext statementContext = new StatementContext(taskContext, null);
-        taskContext.setStatementContext(statementContext);
-        return taskContext;
+            StatementContext statementContext = new StatementContext(taskContext, null);
+            taskContext.setStatementContext(statementContext);
+            return taskContext;
+        } catch (RuntimeException | Error e) {
+            taskContext.cleanup();
+            throw e;
+        }
     }
 
     /**

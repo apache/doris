@@ -27,12 +27,14 @@ import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.scheduler.exception.JobException;
 
 import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedConstruction;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -112,6 +114,26 @@ public class ConnectorRewriteGroupTaskTest {
             } else {
                 previous.setThreadLocalInfo();
             }
+        }
+    }
+
+    @Test
+    public void databaseSetupFailureClosesUnpublishedContext() {
+        ConnectContext parent = Mockito.mock(ConnectContext.class);
+        Mockito.when(parent.getSessionVariable()).thenReturn(new SessionVariable());
+        Mockito.when(parent.getDatabase()).thenReturn("db");
+        ConnectorRewriteGroupTask task = new ConnectorRewriteGroupTask(
+                new ConnectorRewriteGroup(ImmutableSet.of("s3://bucket/table/a.parquet"), 1, 1024L, 0),
+                7L, Mockito.mock(ConnectorTransaction.class), Mockito.mock(ExternalTable.class), parent, null);
+        ConnectContext previous = ConnectContext.get();
+        try (MockedConstruction<ConnectContext> contexts = Mockito.mockConstruction(ConnectContext.class,
+                (context, construction) -> Mockito.doThrow(new IllegalStateException("database setup failed"))
+                        .when(context).setDatabase("db"))) {
+            Assertions.assertThrows(JobException.class, task::execute);
+            Assertions.assertEquals(1, contexts.constructed().size());
+            Mockito.verify(contexts.constructed().get(0)).cleanup();
+            Mockito.verify(parent, Mockito.never()).cleanup();
+            Assertions.assertSame(previous, ConnectContext.get());
         }
     }
 

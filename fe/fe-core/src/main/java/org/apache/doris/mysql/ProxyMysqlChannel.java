@@ -30,6 +30,12 @@ public class ProxyMysqlChannel extends MysqlChannel {
     private final List<ByteBuffer> proxyResultBuffer = Lists.newArrayList();
 
     @Override
+    public void close() {
+        // There is no transport. The RPC result owns the collected packets after execution;
+        // keep them intact until Thrift has serialized the response.
+    }
+
+    @Override
     public void sendOnePacket(ByteBuffer packet) {
         proxyResultBuffer.add(packet);
     }

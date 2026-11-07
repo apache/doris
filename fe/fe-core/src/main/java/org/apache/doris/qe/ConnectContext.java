@@ -192,6 +192,8 @@ import javax.annotation.Nullable;
  * waiting for the request, counting references or submitting work to another executor. Cleanup
  * releases protocol state, rolls back transactions, invokes the
  * existing temporary-table/session hooks, closes the remaining StatementContext and clears statement state.
+ * A forwarded-request proxy owns only its local statement resources: its transaction and session id
+ * belong to the originating connection and must survive the end of the forwarded request.
  * Each step is attempted once;
  * failures are logged and remaining steps continue. Reentrant close callbacks see STOPPING and return.
  * Cleanup binds this context for rollback helpers, then restores an unrelated caller's binding.
@@ -537,7 +539,7 @@ public class ConnectContext {
             command = MysqlCommand.COM_SLEEP;
 
             sessionId = UUID.randomUUID().toString();
-            if (!FeConstants.runningUnitTest) {
+            if (!isProxy && !FeConstants.runningUnitTest) {
                 Env.getCurrentEnv().registerSessionInfo(sessionId);
             }
         } catch (Throwable failure) {
@@ -1605,12 +1607,18 @@ public class ConnectContext {
             if (statementContext != null) {
                 cleanupStep("close statement", statementContext::close);
             }
-            cleanupStep("close transaction", this::closeTxn);
-            cleanupStep("drop temporary tables", this::deleteTempTable);
-            // init can fail before it allocates a session id.
-            if (sessionId != null) {
-                cleanupStep("unregister session info", () -> Env.getCurrentEnv().unregisterSessionInfo(sessionId));
+            if (!isProxy) {
+                cleanupStep("close transaction", this::closeTxn);
+                cleanupStep("drop temporary tables", this::deleteTempTable);
+                // init can fail before it allocates a session id.
+                if (sessionId != null) {
+                    cleanupStep("unregister session info", () -> Env.getCurrentEnv().unregisterSessionInfo(sessionId));
+                }
             }
+            // Proxy transaction state has already been copied to the RPC response. Detach the
+            // local reference without rolling back the originating connection's transaction.
+            txnEntry = null;
+            dbToTempTableNamesMap.clear();
             cleanupStep("clear statement", this::clear);
             preparedStatementContextMap.clear();
             returnRows = 0;

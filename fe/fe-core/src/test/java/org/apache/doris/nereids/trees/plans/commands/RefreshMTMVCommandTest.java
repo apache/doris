@@ -37,6 +37,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo.RefreshMode;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.SystemInfoService;
 
@@ -70,9 +71,11 @@ public class RefreshMTMVCommandTest {
     private String originalCloudUniqueId;
     private SystemInfoService originalSystemInfo;
     private AccessControllerManager originalAccessManager;
+    private ConnectContext previousContext;
 
     @BeforeEach
     public void setUp() {
+        previousContext = ConnectContext.get();
         originalDeployMode = Config.deploy_mode;
         originalCloudUniqueId = Config.cloud_unique_id;
         originalSystemInfo = Env.getCurrentSystemInfo();
@@ -85,8 +88,11 @@ public class RefreshMTMVCommandTest {
         Config.cloud_unique_id = originalCloudUniqueId;
         Deencapsulation.setField(Env.getCurrentEnv(), "systemInfo", originalSystemInfo);
         Deencapsulation.setField(Env.getCurrentEnv(), "accessManager", originalAccessManager);
-        // the dry run and EXPLAIN contexts install themselves as the thread-local context
-        ConnectContext.remove();
+        if (previousContext == null) {
+            ConnectContext.remove();
+        } else {
+            previousContext.setThreadLocalInfo();
+        }
     }
 
     private RefreshMTMVInfo extractRefreshInfo(String sql) throws Exception {
@@ -210,9 +216,10 @@ public class RefreshMTMVCommandTest {
         Mockito.when(mtmv.getQuerySql()).thenReturn("SELECT 1 AS k1");
         Mockito.when(mtmv.getExcludedTriggerTables()).thenReturn(excluded);
 
-        StatementContext stmtCtx = command.createDryRunStatementContext(mtmv, new ConnectContext());
-
-        Assertions.assertEquals(excluded, stmtCtx.getExcludedTriggerTables());
+        try (AutoCloseConnectContext scope = new AutoCloseConnectContext(new ConnectContext())) {
+            StatementContext stmtCtx = command.createDryRunStatementContext(mtmv, scope.connectContext);
+            Assertions.assertEquals(excluded, stmtCtx.getExcludedTriggerTables());
+        }
     }
 
     @Test
@@ -221,15 +228,12 @@ public class RefreshMTMVCommandTest {
         TestRefreshMTMVCommand command = new TestRefreshMTMVCommand(info, true);
         MTMV mtmv = Mockito.mock(MTMV.class);
         Mockito.when(mtmv.getQuerySql()).thenReturn("SELECT /*+ SET_VAR(query_timeout=10) */ 1 AS k1");
-        ConnectContext internalCtx = new ConnectContext();
-        internalCtx.setThreadLocalInfo();
-        try {
+        try (AutoCloseConnectContext scope = new AutoCloseConnectContext(new ConnectContext())) {
+            ConnectContext internalCtx = scope.connectContext;
             StatementContext stmtCtx = command.createDryRunStatementContext(mtmv, internalCtx);
             new IvmIncrRefreshManager().buildQueryPlan(mtmv);
             Assertions.assertSame(stmtCtx, internalCtx.getStatementContext());
             Assertions.assertEquals(10, internalCtx.getSessionVariable().getQueryTimeoutS());
-        } finally {
-            ConnectContext.remove();
         }
     }
 
@@ -247,11 +251,12 @@ public class RefreshMTMVCommandTest {
         Set<TableNameInfo> excluded = Collections.singleton(new TableNameInfo("internal", "db", "dup_t"));
         Mockito.when(mtmv.isIvm()).thenReturn(true);
         Mockito.when(mtmv.getExcludedTriggerTables()).thenReturn(excluded);
-        StatementContext stmtCtx = new StatementContext(new ConnectContext(), null);
-
-        command.createRefreshCommand(mtmv, stmtCtx);
-
-        Assertions.assertEquals(excluded, stmtCtx.getExcludedTriggerTables());
+        try (AutoCloseConnectContext scope = new AutoCloseConnectContext(new ConnectContext())) {
+            StatementContext stmtCtx = new StatementContext(scope.connectContext, null);
+            scope.connectContext.setStatementContext(stmtCtx);
+            command.createRefreshCommand(mtmv, stmtCtx);
+            Assertions.assertEquals(excluded, stmtCtx.getExcludedTriggerTables());
+        }
     }
 
     // ---- the compute group the dry run and EXPLAIN REFRESH contexts run in ----
@@ -272,12 +277,12 @@ public class RefreshMTMVCommandTest {
 
     // The session that issues the statement, in this compute group as after `USE @<group>`; null for a
     // session that has not chosen one.
-    private void enterSession(String computeGroup) {
+    private AutoCloseConnectContext openSession(String computeGroup) {
         ConnectContext session = new ConnectContext();
         if (computeGroup != null) {
             session.setCloudCluster(computeGroup);
         }
-        session.setThreadLocalInfo();
+        return new AutoCloseConnectContext(session);
     }
 
     private MTMV newMtmvDeclaring(String declaredComputeGroup) {
@@ -296,11 +301,17 @@ public class RefreshMTMVCommandTest {
     @Test
     public void testDryRunContextBindsDeclaredComputeGroup() throws Exception {
         enterCloudMode(Lists.newArrayList("cg_of_admin", DECLARED_CG));
-
-        ConnectContext internalCtx = newIncrementalCommand(true).createDryRunConnectContext(
-                newMtmvDeclaring(DECLARED_CG));
-
-        Assertions.assertEquals(DECLARED_CG, internalCtx.getSessionVariable().getCloudCluster());
+        try (AutoCloseConnectContext parent = openSession(ADMIN_CG)) {
+            ConnectContext internalCtx = newIncrementalCommand(true).createDryRunConnectContext(
+                    newMtmvDeclaring(DECLARED_CG));
+            try {
+                Assertions.assertSame(parent.connectContext, ConnectContext.get());
+                Assertions.assertEquals(DECLARED_CG, internalCtx.getSessionVariable().getCloudCluster());
+            } finally {
+                internalCtx.requestClose(ConnectContext.CloseMode.AFTER_RESPONSE);
+            }
+            Assertions.assertFalse(parent.connectContext.isClosingOrClosed());
+        }
     }
 
     // The declared group can be dropped while the MV exists. Like a real refresh, the dry run then
@@ -309,23 +320,31 @@ public class RefreshMTMVCommandTest {
     public void testDryRunRejectsDroppedDeclaredComputeGroup() throws Exception {
         enterCloudMode(Lists.newArrayList("cg_of_admin"));
         TestRefreshMTMVCommand command = newIncrementalCommand(true);
-
-        UserException e = Assertions.assertThrows(UserException.class,
-                () -> command.createDryRunConnectContext(newMtmvDeclaring(DECLARED_CG)));
-
-        Assertions.assertTrue(e.getMessage().contains("Compute group '" + DECLARED_CG + "' not found."),
-                e.getMessage());
+        try (AutoCloseConnectContext parent = openSession(ADMIN_CG)) {
+            UserException e = Assertions.assertThrows(UserException.class,
+                    () -> command.createDryRunConnectContext(newMtmvDeclaring(DECLARED_CG)));
+            Assertions.assertTrue(e.getMessage().contains("Compute group '" + DECLARED_CG + "' not found."),
+                    e.getMessage());
+            Assertions.assertSame(parent.connectContext, ConnectContext.get());
+            Assertions.assertFalse(parent.connectContext.isClosingOrClosed());
+        }
     }
 
     // EXPLAIN REFRESH only plans, but planning assigns backends, so it plans in the declared group too.
     @Test
     public void testExplainContextBindsDeclaredComputeGroup() throws Exception {
         enterCloudMode(Lists.newArrayList("cg_of_admin", DECLARED_CG));
-
-        ConnectContext explainCtx = newIncrementalCommand(false).createExplainConnectContext(
-                newMtmvDeclaring(DECLARED_CG));
-
-        Assertions.assertEquals(DECLARED_CG, explainCtx.getSessionVariable().getCloudCluster());
+        try (AutoCloseConnectContext parent = openSession(ADMIN_CG)) {
+            ConnectContext explainCtx = newIncrementalCommand(false).createExplainConnectContext(
+                    newMtmvDeclaring(DECLARED_CG));
+            try {
+                Assertions.assertSame(parent.connectContext, ConnectContext.get());
+                Assertions.assertEquals(DECLARED_CG, explainCtx.getSessionVariable().getCloudCluster());
+            } finally {
+                explainCtx.requestClose(ConnectContext.CloseMode.AFTER_RESPONSE);
+            }
+            Assertions.assertFalse(parent.connectContext.isClosingOrClosed());
+        }
     }
 
     // A manual REFRESH of an MV that declares no compute group runs in the group of the session that
@@ -334,24 +353,33 @@ public class RefreshMTMVCommandTest {
     @Test
     public void testDryRunWithoutDeclarationRunsInSessionComputeGroup() throws Exception {
         enterCloudMode(Lists.newArrayList(ADMIN_CG, SESSION_CG));
-        enterSession(SESSION_CG);
-
-        ConnectContext internalCtx = newIncrementalCommand(true).createDryRunConnectContext(
-                newMtmvDeclaring(null));
-
-        Assertions.assertEquals(SESSION_CG, internalCtx.getCloudCluster(false));
+        try (AutoCloseConnectContext parent = openSession(SESSION_CG)) {
+            ConnectContext internalCtx = newIncrementalCommand(true).createDryRunConnectContext(newMtmvDeclaring(null));
+            try {
+                Assertions.assertSame(parent.connectContext, ConnectContext.get());
+                Assertions.assertEquals(SESSION_CG, internalCtx.getCloudCluster(false));
+            } finally {
+                internalCtx.requestClose(ConnectContext.CloseMode.AFTER_RESPONSE);
+            }
+            Assertions.assertFalse(parent.connectContext.isClosingOrClosed());
+        }
     }
 
     // EXPLAIN REFRESH plans, and picks backends, in the group a manual REFRESH from this session runs in.
     @Test
     public void testExplainWithoutDeclarationPlansInSessionComputeGroup() throws Exception {
         enterCloudMode(Lists.newArrayList(ADMIN_CG, SESSION_CG));
-        enterSession(SESSION_CG);
-
-        ConnectContext explainCtx = newIncrementalCommand(false).createExplainConnectContext(
-                newMtmvDeclaring(null));
-
-        Assertions.assertEquals(SESSION_CG, explainCtx.getCloudCluster(false));
+        try (AutoCloseConnectContext parent = openSession(SESSION_CG)) {
+            ConnectContext explainCtx = newIncrementalCommand(false).createExplainConnectContext(
+                    newMtmvDeclaring(null));
+            try {
+                Assertions.assertSame(parent.connectContext, ConnectContext.get());
+                Assertions.assertEquals(SESSION_CG, explainCtx.getCloudCluster(false));
+            } finally {
+                explainCtx.requestClose(ConnectContext.CloseMode.AFTER_RESPONSE);
+            }
+            Assertions.assertFalse(parent.connectContext.isClosingOrClosed());
+        }
     }
 
     // Like a refresh (MTMVTask), the dry run re-checks only a declared group: the group it borrows from
@@ -359,12 +387,16 @@ public class RefreshMTMVCommandTest {
     @Test
     public void testDryRunRechecksOnlyTheDeclaredComputeGroup() throws Exception {
         enterCloudMode(Lists.newArrayList(ADMIN_CG));
-        enterSession("cg_dropped_from_session");
-
-        ConnectContext internalCtx = newIncrementalCommand(true).createDryRunConnectContext(
-                newMtmvDeclaring(null));
-
-        Assertions.assertEquals("cg_dropped_from_session", internalCtx.getSessionVariable().getCloudCluster());
+        try (AutoCloseConnectContext parent = openSession("cg_dropped_from_session")) {
+            ConnectContext internalCtx = newIncrementalCommand(true).createDryRunConnectContext(newMtmvDeclaring(null));
+            try {
+                Assertions.assertSame(parent.connectContext, ConnectContext.get());
+                Assertions.assertEquals("cg_dropped_from_session", internalCtx.getSessionVariable().getCloudCluster());
+            } finally {
+                internalCtx.requestClose(ConnectContext.CloseMode.AFTER_RESPONSE);
+            }
+            Assertions.assertFalse(parent.connectContext.isClosingOrClosed());
+        }
     }
 
     // As for a manual REFRESH, a declared group wins over the group of the session.
@@ -372,13 +404,23 @@ public class RefreshMTMVCommandTest {
     public void testDeclaredComputeGroupWinsOverSessionComputeGroup() throws Exception {
         enterCloudMode(Lists.newArrayList(ADMIN_CG, SESSION_CG, DECLARED_CG));
         MTMV mtmv = newMtmvDeclaring(DECLARED_CG);
-
-        enterSession(SESSION_CG);
-        Assertions.assertEquals(DECLARED_CG, newIncrementalCommand(true)
-                .createDryRunConnectContext(mtmv).getSessionVariable().getCloudCluster());
-        enterSession(SESSION_CG);
-        Assertions.assertEquals(DECLARED_CG, newIncrementalCommand(false)
-                .createExplainConnectContext(mtmv).getSessionVariable().getCloudCluster());
+        try (AutoCloseConnectContext parent = openSession(SESSION_CG)) {
+            ConnectContext internalCtx = newIncrementalCommand(true).createDryRunConnectContext(mtmv);
+            try {
+                Assertions.assertSame(parent.connectContext, ConnectContext.get());
+                Assertions.assertEquals(DECLARED_CG, internalCtx.getSessionVariable().getCloudCluster());
+            } finally {
+                internalCtx.requestClose(ConnectContext.CloseMode.AFTER_RESPONSE);
+            }
+            ConnectContext explainCtx = newIncrementalCommand(false).createExplainConnectContext(mtmv);
+            try {
+                Assertions.assertSame(parent.connectContext, ConnectContext.get());
+                Assertions.assertEquals(DECLARED_CG, explainCtx.getSessionVariable().getCloudCluster());
+            } finally {
+                explainCtx.requestClose(ConnectContext.CloseMode.AFTER_RESPONSE);
+            }
+            Assertions.assertFalse(parent.connectContext.isClosingOrClosed());
+        }
     }
 
     // With neither a declared group nor a group the session resolves, the existing resolution applies:
@@ -388,13 +430,23 @@ public class RefreshMTMVCommandTest {
     public void testContextsWithoutDeclarationOrSessionComputeGroupStayUnbound() throws Exception {
         enterCloudMode(Lists.newArrayList());
         MTMV mtmv = newMtmvDeclaring(null);
-
-        enterSession(null);
-        Assertions.assertTrue(Strings.isNullOrEmpty(newIncrementalCommand(true)
-                .createDryRunConnectContext(mtmv).getSessionVariable().getCloudCluster()));
-        enterSession(null);
-        Assertions.assertTrue(Strings.isNullOrEmpty(newIncrementalCommand(false)
-                .createExplainConnectContext(mtmv).getSessionVariable().getCloudCluster()));
+        try (AutoCloseConnectContext parent = openSession(null)) {
+            ConnectContext internalCtx = newIncrementalCommand(true).createDryRunConnectContext(mtmv);
+            try {
+                Assertions.assertSame(parent.connectContext, ConnectContext.get());
+                Assertions.assertTrue(Strings.isNullOrEmpty(internalCtx.getSessionVariable().getCloudCluster()));
+            } finally {
+                internalCtx.requestClose(ConnectContext.CloseMode.AFTER_RESPONSE);
+            }
+            ConnectContext explainCtx = newIncrementalCommand(false).createExplainConnectContext(mtmv);
+            try {
+                Assertions.assertSame(parent.connectContext, ConnectContext.get());
+                Assertions.assertTrue(Strings.isNullOrEmpty(explainCtx.getSessionVariable().getCloudCluster()));
+            } finally {
+                explainCtx.requestClose(ConnectContext.CloseMode.AFTER_RESPONSE);
+            }
+            Assertions.assertFalse(parent.connectContext.isClosingOrClosed());
+        }
     }
 
     private static class TestRefreshMTMVCommand extends RefreshMTMVCommand {

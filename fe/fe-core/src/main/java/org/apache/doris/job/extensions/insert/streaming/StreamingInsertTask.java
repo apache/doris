@@ -41,6 +41,8 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalTVFRelation;
 import org.apache.doris.nereids.util.SqlLiteralUtils;
 import org.apache.doris.qe.AuditLogHelper;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.Coordinator;
+import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.tablefunction.CdcStreamTableValuedFunction;
@@ -67,7 +69,7 @@ import java.util.stream.Collectors;
 @Getter
 public class StreamingInsertTask extends AbstractStreamingTask {
     private String sql;
-    private StmtExecutor stmtExecutor;
+    private volatile StmtExecutor stmtExecutor;
     private InsertIntoTableCommand taskCommand;
     private String currentDb;
     private ConnectContext ctx;
@@ -100,6 +102,20 @@ public class StreamingInsertTask extends AbstractStreamingTask {
     }
 
     @Override
+    public void execute() throws JobException {
+        ConnectContext previousContext = ConnectContext.get();
+        try {
+            super.execute();
+        } finally {
+            if (previousContext == null) {
+                ConnectContext.remove();
+            } else {
+                previousContext.setThreadLocalInfo();
+            }
+        }
+    }
+
+    @Override
     public void before() throws Exception {
         commitOffsetJson = null;
         auditSql = null;
@@ -110,6 +126,7 @@ public class StreamingInsertTask extends AbstractStreamingTask {
         this.status = TaskStatus.RUNNING;
         this.startTimeMs = System.currentTimeMillis();
         ctx = InsertTask.makeConnectContext(userIdentity, currentDb);
+        ctx.setThreadLocalInfo();
         ctx.setSessionVariable(jobProperties.getSessionVariable(ctx.getSessionVariable()));
         // apply after session merge so compute_group wins over session.cloud_cluster
         if (Config.isCloudMode() && StringUtils.isNotEmpty(cloudCluster)) {
@@ -196,8 +213,10 @@ public class StreamingInsertTask extends AbstractStreamingTask {
 
     @Override
     public List<Long> getScanBackendIds() {
-        if (stmtExecutor != null && stmtExecutor.getCoord() != null) {
-            return stmtExecutor.getCoord().getScanBackendIds();
+        StmtExecutor executor = stmtExecutor;
+        Coordinator coordinator = executor == null ? null : executor.getCoord();
+        if (coordinator != null) {
+            return coordinator.getScanBackendIds();
         }
         return Collections.emptyList();
     }
@@ -243,25 +262,33 @@ public class StreamingInsertTask extends AbstractStreamingTask {
     @Override
     public void cancel(boolean needWaitCancelComplete) {
         super.cancel(needWaitCancelComplete);
-        if (null != stmtExecutor) {
+        StmtExecutor executor = stmtExecutor;
+        if (executor != null) {
             log.info("cancelling streaming insert task, job id is {}, task id is {}",
                     getJobId(), getTaskId());
-            stmtExecutor.cancel(new Status(TStatusCode.CANCELLED, "streaming insert task cancelled"),
+            executor.cancel(new Status(TStatusCode.CANCELLED, "streaming insert task cancelled"),
                     needWaitCancelComplete);
         }
     }
 
     @Override
     public void closeOrReleaseResources() {
-        commitOffsetJson = null;
-        if (null != stmtExecutor) {
-            stmtExecutor = null;
-        }
-        if (null != taskCommand) {
-            taskCommand = null;
-        }
-        if (null != ctx) {
-            ctx = null;
+        try {
+            if (ctx != null && ctx.queryId() != null) {
+                QeProcessorImpl.INSTANCE.unregisterQuery(ctx.queryId());
+            }
+        } finally {
+            try {
+                if (ctx != null) {
+                    ctx.requestClose(ConnectContext.CloseMode.AFTER_RESPONSE);
+                }
+            } finally {
+                commitOffsetJson = null;
+                stmtExecutor = null;
+                taskCommand = null;
+                ctx = null;
+                ConnectContext.remove();
+            }
         }
     }
 

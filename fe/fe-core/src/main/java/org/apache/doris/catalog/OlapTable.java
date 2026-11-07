@@ -3550,8 +3550,6 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     public void analyze(String dbName) {
         for (MaterializedIndexMeta meta : indexIdToMeta.values()) {
             try {
-                ConnectContext connectContext = new ConnectContext();
-                connectContext.setDatabase(dbName);
                 meta.parseStmt();
             } catch (IOException e) {
                 LOG.info(e);
