@@ -172,6 +172,25 @@ public class GrantTablePrivilegeCommand extends Command implements ForwardWithSy
         }
     }
 
+    /**
+     * Rule 4 on its own, for the privileges a ROLE carries on a table pattern: the grantor must hold
+     * grant_priv together with every one of them on that object, exactly as when granting them directly.
+     */
+    static void checkGrantorHoldsTablePrivileges(ConnectContext ctx, Collection<Privilege> privileges,
+            TablePattern tblPattern) throws AnalysisException {
+        PrivPredicate predicate = getPrivPredicate(privileges);
+        if (!checkTablePriv(ctx, predicate, tblPattern)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ALL_ACCESS_DENIED_ERROR,
+                    predicate.getPrivs().toPrivilegeList());
+        }
+    }
+
+    /** Rule 6 on its own, for the column privileges a ROLE carries. */
+    static void checkGrantorHoldsColumnPrivileges(ConnectContext ctx, Map<ColPrivilegeKey, Set<String>> colPrivileges)
+            throws AnalysisException {
+        checkColPrivs(ctx, colPrivileges);
+    }
+
     private static void checkColPrivs(ConnectContext ctx, Map<ColPrivilegeKey, Set<String>> colPrivileges)
             throws AnalysisException {
         AccessControllerManager accessManager = Env.getCurrentEnv().getAccessManager();

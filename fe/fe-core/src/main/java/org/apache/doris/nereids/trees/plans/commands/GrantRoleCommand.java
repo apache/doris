@@ -17,15 +17,21 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.analysis.ResourcePattern;
 import org.apache.doris.analysis.StmtType;
+import org.apache.doris.analysis.TablePattern;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.analysis.WorkloadGroupPattern;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
+import org.apache.doris.mysql.privilege.ColPrivilegeKey;
+import org.apache.doris.mysql.privilege.PrivBitSet;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.mysql.privilege.Role;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
@@ -34,7 +40,9 @@ import org.apache.doris.qe.StmtExecutor;
 import com.google.common.base.Preconditions;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * GRANT role [, role] TO user_identity
@@ -72,12 +80,54 @@ public class GrantRoleCommand extends Command implements ForwardWithSync {
             FeNameFormat.checkRoleName(originalRoleName, true /* can be admin */, "Can not grant role");
         }
 
-        checkRolePrivileges();
+        checkRolePrivileges(roles);
     }
 
+    /** The gate of every role grant or revoke: grant_priv. A revoke takes nothing, so it needs no more. */
     public static void checkRolePrivileges() throws AnalysisException {
         if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT/REVOKE");
+        }
+    }
+
+    /**
+     * Granting a role hands its holder every privilege the role carries, so it is held to the rule a
+     * direct GRANT already enforces: the grantor needs grant_priv and, unless it has admin_priv, each
+     * privilege the role carries on the same object (otherwise any account with grant_priv alone could
+     * take any existing role for itself). A role that does not exist is reported by the grant itself.
+     */
+    public static void checkRolePrivileges(List<String> roleNames) throws AnalysisException {
+        checkRolePrivileges();
+        ConnectContext ctx = ConnectContext.get();
+        if (Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ctx, PrivPredicate.ADMIN)) {
+            return;
+        }
+        for (String roleName : roleNames) {
+            Role role = Env.getCurrentEnv().getAuth().getRoleByName(roleName);
+            if (role == null) {
+                continue;
+            }
+            for (Map.Entry<TablePattern, PrivBitSet> entry : role.getTblPatternToPrivs().entrySet()) {
+                GrantTablePrivilegeCommand.checkGrantorHoldsTablePrivileges(ctx,
+                        entry.getValue().toPrivilegeList(), entry.getKey());
+            }
+            Map<ColPrivilegeKey, Set<String>> colPrivileges = role.getColPrivMap();
+            if (colPrivileges != null && !colPrivileges.isEmpty()) {
+                GrantTablePrivilegeCommand.checkGrantorHoldsColumnPrivileges(ctx, colPrivileges);
+            }
+            for (Map<ResourcePattern, PrivBitSet> resourcePrivs : List.of(role.getResourcePatternToPrivs(),
+                    role.getStorageVaultPatternToPrivs(), role.getClusterPatternToPrivs(),
+                    role.getStagePatternToPrivs())) {
+                for (Map.Entry<ResourcePattern, PrivBitSet> entry : resourcePrivs.entrySet()) {
+                    GrantResourcePrivilegeCommand.checkGrantorHoldsResourcePrivileges(ctx,
+                            entry.getValue().toPrivilegeList(), entry.getKey());
+                }
+            }
+            for (Map.Entry<WorkloadGroupPattern, PrivBitSet> entry
+                    : role.getWorkloadGroupPatternToPrivs().entrySet()) {
+                GrantResourcePrivilegeCommand.checkGrantorHoldsWorkloadGroupPrivileges(ctx,
+                        entry.getValue().toPrivilegeList(), entry.getKey());
+            }
         }
     }
 
