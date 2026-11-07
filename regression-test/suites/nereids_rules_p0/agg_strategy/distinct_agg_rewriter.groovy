@@ -21,6 +21,7 @@ suite("distinct_agg_rewriter") {
     set runtime_filter_mode=OFF;
     set enable_parallel_result_sink=false;
     set be_number_for_test=1;
+    set enable_bucketed_hash_agg = false;
     """
     multi_sql """
     analyze table t1000_2 with sync;

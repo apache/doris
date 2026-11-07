@@ -86,6 +86,8 @@ class CostModel extends PlanVisitor<Cost, PlanContext> {
     // The cost of using external tables should be somewhat higher than using internal tables,
     // so when encountering a scan of an external table, a coefficient should be applied.
     static final double EXTERNAL_TABLE_SCAN_FACTOR = 5;
+    static final double BUCKETED_AGG_COST_DISCOUNT = 0.5;
+
     private static final Logger LOG = LogManager.getLogger(CostModel.class);
     private final int beNumber;
     private final int parallelInstance;
@@ -93,7 +95,7 @@ class CostModel extends PlanVisitor<Cost, PlanContext> {
 
     public CostModel(ConnectContext connectContext) {
         SessionVariable sessionVariable = connectContext.getSessionVariable();
-        if (sessionVariable.getBeNumberForTest() != -1) {
+        if (sessionVariable.getBeNumberForTest() > 0) {
             // shape test, fix the BE number and instance number
             beNumber = sessionVariable.getBeNumberForTest();
             parallelInstance = 8;
@@ -382,10 +384,23 @@ class CostModel extends PlanVisitor<Cost, PlanContext> {
                     inputStatistics.getRowCount() / beNumber, 0);
         } else {
             int factor = aggregate.getGroupByExpressions().isEmpty() ? 1 : beNumber;
-            // global
+            double rowCost = inputStatistics.getRowCount() / factor;
+            // Bucketed fusion discount: when the one-phase GLOBAL INPUT_TO_RESULT
+            // aggregate and the child chosen for it have the shape the translator fuses
+            // into BucketedAggregationNode (data-volume gates are enforced by
+            // ChildrenPropertiesRegulator), apply a discount to prefer this path over
+            // two-phase aggregation. Aggregates that the translator keeps on the regular
+            // AggregationNode path still pay for their exchange, so they get no discount:
+            // e.g. the dedup aggregate of a mixed DISTINCT / non-DISTINCT query, whose
+            // non-distinct functions are partial, or an aggregate whose distribute child
+            // does not hash exactly the GROUP BY keys or does not read a single olap scan
+            // pipeline (a nested aggregate, a CTE consumer). CostCalculator checks this
+            // on the memo, see AggregateUtils.isBucketedHashAggFusible.
+            if (context.isBucketedAggFusion()) {
+                rowCost *= BUCKETED_AGG_COST_DISCOUNT;
+            }
             return Cost.of(context.getSessionVariable(),
-                    exprCost / 100 + inputStatistics.getRowCount() / factor,
-                    inputStatistics.getRowCount() / factor, 0);
+                    exprCost / 100 + rowCost, rowCost, 0);
         }
     }
 
