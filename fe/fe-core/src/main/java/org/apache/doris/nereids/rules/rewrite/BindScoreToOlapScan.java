@@ -30,9 +30,9 @@ import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.Match;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.SearchExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Score;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.Search;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
@@ -213,7 +213,7 @@ public class BindScoreToOlapScan implements CustomRewriter {
                 where.addAll(((LogicalFilter<?>) path.get(clause)).getConjuncts());
             }
         }
-        if (where.stream().noneMatch(conjunct -> conjunct.containsType(Match.class, Search.class))) {
+        if (where.stream().noneMatch(conjunct -> conjunct.containsType(Match.class, SearchExpression.class))) {
             throw new AnalysisException(UNSUPPORTED_SELECT_ERROR);
         }
         List<Expression> ranges = where.stream()
@@ -231,7 +231,7 @@ public class BindScoreToOlapScan implements CustomRewriter {
         for (int i = aboveWhere.size() - 1; i >= 0; i--) {
             for (Expression expression : aboveWhere.get(i).getExpressions()) {
                 if (expression instanceof NamedExpression
-                        && (expression.containsType(Score.class, Match.class, Search.class)
+                        && (expression.containsType(Score.class, Match.class, SearchExpression.class)
                                 || expression.getInputSlots().stream().anyMatch(scoringAliases::contains))) {
                     scoringAliases.add(((NamedExpression) expression).toSlot());
                 }
@@ -239,7 +239,7 @@ public class BindScoreToOlapScan implements CustomRewriter {
         }
         for (Plan node : aboveWhere) {
             if (node instanceof LogicalFilter && ((LogicalFilter<?>) node).getConjuncts().stream().anyMatch(
-                    conjunct -> conjunct.containsType(Score.class, Match.class, Search.class)
+                    conjunct -> conjunct.containsType(Score.class, Match.class, SearchExpression.class)
                             || conjunct.getInputSlots().stream().anyMatch(scoringAliases::contains))) {
                 throw new AnalysisException(HAVING_OR_QUALIFY_ERROR);
             }

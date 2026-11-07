@@ -148,8 +148,9 @@ public:
     }
 
     Status leaf_num_rows(const std::string& field_name, uint32_t* num_rows) const {
-        return _leaf_num_rows_resolver ? _leaf_num_rows_resolver(field_name, num_rows)
-                                       : Status::OK();
+        return _leaf_num_rows_resolver
+                       ? _leaf_num_rows_resolver(physical_field_path(field_name), num_rows)
+                       : Status::OK();
     }
 
     void set_leaf_query_mapper(SearchLeafQueryMapper mapper) {
@@ -162,10 +163,12 @@ public:
         if (!_leaf_query_mapper || query == nullptr || *query == nullptr) {
             return Status::OK();
         }
-        return _leaf_query_mapper(field_name, query);
+        return _leaf_query_mapper(physical_field_path(field_name), query);
     }
 
 private:
+    std::string physical_field_path(const std::string& field_name) const;
+
     std::string binding_key_for(const std::string& stored_field_name,
                                 InvertedIndexQueryType query_type) const {
         return stored_field_name + "#" + std::to_string(static_cast<int>(query_type));

@@ -86,7 +86,7 @@ suite("test_search_usage_restrictions", "p0") {
     // Test 5: search() in GROUP BY should fail
     test {
         sql "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ count(*) FROM ${tableName} GROUP BY search('title:Learning')"
-        exception "predicates are only supported inside WHERE filters on single-table scans"
+        exception "search()"
     }
 
     // Test 6: search() in SELECT then GROUP BY alias should fail
@@ -110,17 +110,18 @@ suite("test_search_usage_restrictions", "p0") {
     // Test 9: search() in HAVING clause should fail
     test {
         sql "SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ category, count(*) FROM ${tableName} GROUP BY category HAVING search('title:Learning')"
-        exception "predicates are only supported inside WHERE filters on single-table scans"
+        exception "search()"
     }
 
-    // Test 10: search() with JOIN should fail (not single table)
-    test {
+    // Test 10: SEARCH with an unambiguous field can be pushed through JOIN.
+    explain {
         sql """
             SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ t1.id FROM ${tableName} t1
             JOIN ${tableName2} t2 ON t1.id = t2.id
-            WHERE search('title:Learning')
+            WHERE search('title:Learning') ORDER BY t1.id
         """
-        exception "single"
+        contains "VOlapScanNode"
+        contains "search('title:Learning')"
     }
 
     // Test 11: search() in ORDER BY should fail

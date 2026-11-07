@@ -37,6 +37,7 @@ import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MultiMatch;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
@@ -187,6 +188,19 @@ class ConstantPropagationTest {
         Expression expr3 = ExpressionUtils.and(new EqualTo(b, new StringLiteral("hello")), new MatchAny(b, new StringLiteral("%ll%")));
         Expression rewrittenExpr3 = rewriteExpression(expr3, true);
         Assertions.assertEquals(expr3, rewrittenExpr3);
+    }
+
+    @Test
+    void testMultiMatchKeepsIndexedColumns() {
+        SlotReference title = new SlotReference("title", StringType.INSTANCE, true);
+        SlotReference body = new SlotReference("body", StringType.INSTANCE, true);
+        for (Expression predicate : new Expression[] {
+                new MultiMatch(title, new StringLiteral("any"), new StringLiteral("hello")),
+                new MultiMatch(title, body, new StringLiteral("any"), new StringLiteral("hello"))}) {
+            Expression expression = ExpressionUtils.and(
+                    new EqualTo(title, new StringLiteral("hello world")), predicate);
+            Assertions.assertEquals(expression, rewriteExpression(expression, true));
+        }
     }
 
     @Test

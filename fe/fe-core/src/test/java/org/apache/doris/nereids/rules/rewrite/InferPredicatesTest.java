@@ -23,10 +23,12 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
+import org.apache.doris.nereids.trees.expressions.NonInferableExpression;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.JoinType;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
@@ -798,6 +800,35 @@ class InferPredicatesTest extends TestWithFeService implements MemoPatternMatchS
                                 && filter.getPredicate().toSql().contains("sid = 2")
                                 && filter.getPredicate().toSql().contains("cid < 9"))
                 );
+    }
+
+    @Test
+    void doNotPropagateSearchPredicatesAcrossSetOperations() {
+        for (String operator : new String[] {"INTERSECT", "EXCEPT"}) {
+            for (String predicate : new String[] {"name MATCH 'hello'",
+                    "multi_match(name, 'any', 'hello')", "name MATCH 'hello' OR name = 'world'"}) {
+                String sql = "SELECT name FROM student WHERE " + predicate + " " + operator
+                        + " SELECT name FROM course";
+                Plan plan = PlanChecker.from(connectContext).analyze(sql).rewrite().getPlan();
+                Assertions.assertEquals(1, countNonInferablePredicates(plan), plan.treeString());
+            }
+        }
+    }
+
+    @Test
+    void doNotInferSearchPredicatesAcrossJoin() {
+        for (String join : new String[] {"JOIN", "LEFT JOIN", "LEFT SEMI JOIN"}) {
+            String sql = "SELECT student.name FROM student " + join
+                    + " course ON student.name = course.name WHERE student.name MATCH 'hello'";
+            Plan plan = PlanChecker.from(connectContext).analyze(sql).rewrite().getPlan();
+            Assertions.assertEquals(1, countNonInferablePredicates(plan), plan.treeString());
+        }
+    }
+
+    private long countNonInferablePredicates(Plan plan) {
+        return plan.getExpressions().stream()
+                .filter(expr -> expr.containsType(NonInferableExpression.class)).count()
+                + plan.children().stream().mapToLong(this::countNonInferablePredicates).sum();
     }
 
     @Test
