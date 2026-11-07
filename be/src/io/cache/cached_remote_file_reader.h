@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <map>
@@ -444,12 +445,29 @@ private:
                        const SourceReadBreakdown& source_read_breakdown, FileCacheStatistics* state,
                        FileCacheReadType read_type) const;
 
+    /// Resolve the write mode once and dispatch adaptation, cache hits and required misses.
+    Status _read_with_cache_policy(size_t offset, Slice result, size_t bytes_req,
+                                   size_t* bytes_read, const IOContext* io_ctx,
+                                   ReadStatistics& stats, SourceReadBreakdown& sources);
+
+    // Time and sample each actual storage read, independently of cache writes or other GETs.
+    Status _read_remote_at(size_t offset, Slice result, size_t* bytes_read, const IOContext* io_ctx,
+                           ReadStatistics& stats);
+
+    bool _io_adaptor_eligible(size_t bytes, const IOContext* io_ctx) const;
+    Status _try_read_with_io_adaptor(size_t offset, Slice result, size_t bytes_req,
+                                     CacheWriteMode cache_write_mode, size_t* bytes_read,
+                                     const IOContext* io_ctx, ReadStatistics& stats,
+                                     SourceReadBreakdown& sources, bool* handled);
+
+    std::atomic<bool> _io_adaptor_remote_failed {false};
     bool _is_doris_table = false;
     CacheAlignMode _cache_align_mode {CacheAlignMode::ALIGN_TO_BLOCK};
     CacheWriteMode _cache_write_mode {CacheWriteMode::DEFAULT};
     int64_t _tablet_id = -1;
     std::string _storage_resource_id;
     FileReaderSPtr _remote_file_reader;
+    const bool _io_adaptor_supports_fallback;
     UInt128Wrapper _cache_hash;
     BlockFileCache* _cache = nullptr;
     std::shared_mutex _mtx;
