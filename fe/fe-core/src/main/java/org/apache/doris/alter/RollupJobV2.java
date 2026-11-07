@@ -935,11 +935,18 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
             NereidsParser nereidsParser = new NereidsParser();
             command = (CreateMaterializedViewCommand) nereidsParser.parseSingle(
                     origStmt.originStmt);
+            ConnectContext previousContext = ConnectContext.get();
             ConnectContext ctx = ConnectContextUtil.getDummyCtx(db.getFullName());
             try {
                 command.validate(ctx);
             } finally {
-                ctx.cleanup();
+                try {
+                    ctx.cleanup();
+                } finally {
+                    if (previousContext != null) {
+                        previousContext.setThreadLocalInfo();
+                    }
+                }
             }
         } catch (Exception e) {
             // Under normal circumstances, the stmt will not fail to analyze.

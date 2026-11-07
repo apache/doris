@@ -3109,9 +3109,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TStatus status = new TStatus(TStatusCode.OK);
         result.setStatus(status);
 
-        StreamLoadHandler streamLoadHandler = new StreamLoadHandler(request, null, result, clientAddr);
-
-        try {
+        try (StreamLoadHandler streamLoadHandler = new StreamLoadHandler(request, null, result, clientAddr)) {
             checkGroupCommitStreamLoadAuth(request);
             if (groupCommitMode != null && !groupCommitMode.equals("off_mode") && Env.getCurrentEnv().isMaster()
                     && Config.enable_forward_group_commit_stream_load_to_follower) {
@@ -3158,8 +3156,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             status.setStatusCode(TStatusCode.INTERNAL_ERROR);
             status.addToErrorMsgs(e.getClass().getSimpleName() + ": " + Strings.nullToEmpty(e.getMessage()));
             return result;
-        } finally {
-            ConnectContext.remove();
         }
         return result;
     }
@@ -3181,9 +3177,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         List planFragmentParamsList = new ArrayList<>();
         multiTableFragmentInstanceIdIndexMap.putIfAbsent(request.getTxnId(), new AtomicInteger(1));
         AtomicInteger index = multiTableFragmentInstanceIdIndexMap.get(request.getTxnId());
-        StreamLoadHandler streamLoadHandler = new StreamLoadHandler(request, index, null,
-                                                                    getClientAddrAsString());
-        try {
+        try (StreamLoadHandler streamLoadHandler = new StreamLoadHandler(request, index, null,
+                getClientAddrAsString())) {
             streamLoadHandler.generatePlan();
             planFragmentParamsList.addAll(streamLoadHandler.getFragmentParams());
             if (LOG.isDebugEnabled()) {
@@ -3208,8 +3203,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             status.setStatusCode(TStatusCode.INTERNAL_ERROR);
             status.addToErrorMsgs(e.getClass().getSimpleName() + ": " + Strings.nullToEmpty(e.getMessage()));
             return result;
-        } finally {
-            ConnectContext.remove();
         }
         result.setPipelineParams(planFragmentParamsList);
         if (LOG.isDebugEnabled()) {

@@ -29,6 +29,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.CoordinatorContext;
 import org.apache.doris.task.AgentTask;
@@ -256,41 +257,43 @@ public abstract class AlterJobV2 implements Writable {
             return;
         }
 
-        if (!Strings.isNullOrEmpty(cloudClusterName)) {
-            ConnectContext ctx = new ConnectContext();
-            ctx.setThreadLocalInfo();
-            ctx.setCloudCluster(cloudClusterName);
-            // currently used for CloudSystemInfoService.getCurrentClusterId
-            // later maybe used for managing all workload in BE.
-            ctx.setCurrentUserIdentity(this.userIdentity);
-        }
-
-        // /api/debug_point/add/FE.STOP_ALTER_JOB_RUN
-        if (DebugPointUtil.isEnable("FE.STOP_ALTER_JOB_RUN")) {
-            LOG.info("debug point FE.STOP_ALTER_JOB_RUN, schema change schedule stopped");
-            return;
-        }
-
-        try {
-            switch (jobState) {
-                case PENDING:
-                    stateWait("FE.ALTER_JOB_V2_PENDING");
-                    runPendingJob();
-                    break;
-                case WAITING_TXN:
-                    stateWait("FE.ALTER_JOB_V2_WAITING_TXN");
-                    runWaitingTxnJob();
-                    break;
-                case RUNNING:
-                    stateWait("FE.ALTER_JOB_V2_RUNNING");
-                    runRunningJob();
-                    break;
-                default:
-                    break;
+        try (AutoCloseConnectContext scope = Strings.isNullOrEmpty(cloudClusterName)
+                ? null : new AutoCloseConnectContext(new ConnectContext())) {
+            if (scope != null) {
+                ConnectContext ctx = ConnectContext.get();
+                ctx.setCloudCluster(cloudClusterName);
+                // currently used for CloudSystemInfoService.getCurrentClusterId
+                // later maybe used for managing all workload in BE.
+                ctx.setCurrentUserIdentity(this.userIdentity);
             }
-        } catch (Exception e) {
-            LOG.error("failed to run alter job {}", jobId, e);
-            cancelImpl(e.getMessage());
+
+            // /api/debug_point/add/FE.STOP_ALTER_JOB_RUN
+            if (DebugPointUtil.isEnable("FE.STOP_ALTER_JOB_RUN")) {
+                LOG.info("debug point FE.STOP_ALTER_JOB_RUN, schema change schedule stopped");
+                return;
+            }
+
+            try {
+                switch (jobState) {
+                    case PENDING:
+                        stateWait("FE.ALTER_JOB_V2_PENDING");
+                        runPendingJob();
+                        break;
+                    case WAITING_TXN:
+                        stateWait("FE.ALTER_JOB_V2_WAITING_TXN");
+                        runWaitingTxnJob();
+                        break;
+                    case RUNNING:
+                        stateWait("FE.ALTER_JOB_V2_RUNNING");
+                        runRunningJob();
+                        break;
+                    default:
+                        break;
+                }
+            } catch (Exception e) {
+                LOG.error("failed to run alter job {}", jobId, e);
+                cancelImpl(e.getMessage());
+            }
         }
     }
 

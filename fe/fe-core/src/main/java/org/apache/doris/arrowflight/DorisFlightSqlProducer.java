@@ -165,20 +165,27 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
     }
 
     private void getStreamStatementResult(String handle, ServerStreamListener listener) {
-        String[] handleParts = handle.split(":");
-        String executedPeerIdentity = handleParts[0];
-        String queryId = handleParts[1];
+        int separator = handle.indexOf(':');
+        if (separator <= 0 || separator == handle.length() - 1) {
+            throw CallStatus.INVALID_ARGUMENT.withDescription("Invalid result ticket").toRuntimeException();
+        }
+        String executedPeerIdentity = handle.substring(0, separator);
+        String queryId = handle.substring(separator + 1);
         // The DoGet may come under another bearer token than the GetFlightInfo did: a client that opens
         // a second connection for the endpoint may authenticate again on it. The ticket names the
-        // session that ran the statement, which must still be open.
+        // session that ran the statement, which must still retain this response.
         ConnectContext connectContext = flightSessionsManager.getConnectContext(executedPeerIdentity);
-        // The result is streamed under the session's command lock: the next statement of the
+        // The result is streamed under the session's execution owner: the next statement of the
         // session resets the channel, which would close the VectorSchemaRoot while it is being sent.
-        FlightProtocolAdapter.of(connectContext).runCommand(connectContext, () -> {
+        FlightProtocolAdapter.of(connectContext).runResult(connectContext, () -> {
+            // A lookup before acquiring execution could race another DoGet, expiry or cleanup.
+            final FlightSqlResultCacheEntry result = connectContext.getFlightSqlChannel().getResult(queryId);
+            if (result == null) {
+                throw CallStatus.NOT_FOUND.withDescription("Result ticket expired or was already consumed")
+                        .toRuntimeException();
+            }
             try {
-                final FlightSqlResultCacheEntry flightSqlResultCacheEntry = Objects.requireNonNull(
-                        connectContext.getFlightSqlChannel().getResult(queryId));
-                final VectorSchemaRoot vectorSchemaRoot = flightSqlResultCacheEntry.getVectorSchemaRoot();
+                final VectorSchemaRoot vectorSchemaRoot = result.getVectorSchemaRoot();
                 listener.start(vectorSchemaRoot);
                 listener.putNext();
             } catch (Throwable e) {
@@ -187,9 +194,12 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
                         + connectContext.getState().getErrorMessage();
                 handleStreamException(e, errMsg, listener);
             } finally {
-                listener.completed();
-                // The result has been sent or sent failed, delete it.
-                connectContext.getFlightSqlChannel().invalidate(queryId);
+                try {
+                    listener.completed();
+                } finally {
+                    // A failed listener still relinquishes this result, never another ticket's buffers.
+                    connectContext.getFlightSqlChannel().invalidate(queryId);
+                }
             }
         });
     }
@@ -246,7 +256,7 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
             // Flight keeps it alive across GetFlightInfo -> DoGet so the BE can fetch external-table
             // splits during DoGet, and by now that DoGet is done, #62259), a result no
             // getStreamStatement took away, and its endpoints.
-            FlightProtocolAdapter.of(connectContext).beginRequest();
+            FlightProtocolAdapter.of(connectContext).resetRequestState();
             try (FlightSqlConnectProcessor flightSQLConnectProcessor = new FlightSqlConnectProcessor(connectContext)) {
                 flightSQLConnectProcessor.handleQuery(query);
                 if (connectContext.getState().getStateType() == MysqlStateType.ERR) {
@@ -349,6 +359,8 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
                     + ", error code: " + connectContext.getState().getErrorCode() + ", error msg: "
                     + connectContext.getState().getErrorMessage();
             connectContext.cancelFlightSqlDeferredExecutors(new Status(TStatusCode.CANCELLED, errMsg));
+            // Discard cached results and endpoints too: this failed request returned no ticket.
+            FlightProtocolAdapter.of(connectContext).resetRequestState();
             LOG.error(errMsg, e);
             throw queryFailure(connectContext.getState(), errMsg, e);
         } finally {
@@ -377,7 +389,7 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
                             descriptor).info);
         } catch (FlightRuntimeException e) {
             // Already carries the status meant for the client - UNAVAILABLE from the session's
-            // command lock or from an incremental window that is not ready (queryFailure, with its
+            // command admission or from an incremental window that is not ready (queryFailure, with its
             // doris-error-code metadata), UNAUTHENTICATED from a closed session, and whatever the
             // session layer refuses a session with. Wrapping it as INTERNAL would hide that, as it
             // did between #67820 and this fix; the other entry points below let it through too.
@@ -404,7 +416,7 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
         // A prepared execution is the session's next request even when its handle fails the checks below, so
         // what the previous request left is dropped before them, as executeQueryStatement does for a statement
         // (which then finds nothing left). Prepare and GetSchema are metadata requests and leave it.
-        FlightProtocolAdapter.of(connectContext).beginRequest();
+        FlightProtocolAdapter.of(connectContext).resetRequestState();
         PreparedQuery prepared = preparedQuery(connectContext, preparedStatementId);
         if (prepared.getSchema() == null) {
             // Prepare could not tell this statement's result schema and advertised the placeholder, so
@@ -429,9 +441,9 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
             } catch (Exception e) {
                 LOG.warn("Failed to cancel Flight query after prepared schema changed", e);
             } finally {
-                // No DoGet will pull this result: drop what the request left behind as the next request
-                // would -- its deferred coordinator, the result cached on the channel and its endpoints.
-                FlightProtocolAdapter.of(connectContext).beginRequest();
+                // The schema check rejected the response before publishing its ticket. Discard its
+                // deferred coordinator, cached result and endpoints; no DoGet can consume them.
+                FlightProtocolAdapter.of(connectContext).resetRequestState();
             }
             throw CallStatus.NOT_FOUND.withDescription("Prepared statement schema changed; prepare again")
                     .toRuntimeException();
@@ -657,19 +669,20 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
     @Override
     public FlightInfo getFlightInfoSqlInfo(final CommandGetSqlInfo request, final CallContext context,
             final FlightDescriptor descriptor) {
-        return getFlightInfoForSchema(request, descriptor, Schemas.GET_SQL_INFO_SCHEMA);
+        return getFlightInfoForSchema(request, context, descriptor, Schemas.GET_SQL_INFO_SCHEMA);
     }
 
     @Override
     public void getStreamSqlInfo(final CommandGetSqlInfo command, final CallContext context,
             final ServerStreamListener listener) {
-        this.sqlInfoBuilder.send(command.getInfoList(), listener);
+        requireOpenSession(context);
+        sqlInfoBuilder.send(command.getInfoList(), listener);
     }
 
     @Override
     public FlightInfo getFlightInfoTypeInfo(CommandGetXdbcTypeInfo request, CallContext context,
             FlightDescriptor descriptor) {
-        return getFlightInfoForSchema(request, descriptor, Schemas.GET_TYPE_INFO_SCHEMA);
+        return getFlightInfoForSchema(request, context, descriptor, Schemas.GET_TYPE_INFO_SCHEMA);
     }
 
     @Override
@@ -680,7 +693,7 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
     @Override
     public FlightInfo getFlightInfoCatalogs(final CommandGetCatalogs request, final CallContext context,
             final FlightDescriptor descriptor) {
-        return getFlightInfoForSchema(request, descriptor, Schemas.GET_CATALOGS_SCHEMA);
+        return getFlightInfoForSchema(request, context, descriptor, Schemas.GET_CATALOGS_SCHEMA);
     }
 
     @Override
@@ -702,7 +715,7 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
     @Override
     public FlightInfo getFlightInfoSchemas(final CommandGetDbSchemas request, final CallContext context,
             final FlightDescriptor descriptor) {
-        return getFlightInfoForSchema(request, descriptor, Schemas.GET_SCHEMAS_SCHEMA);
+        return getFlightInfoForSchema(request, context, descriptor, Schemas.GET_SCHEMAS_SCHEMA);
     }
 
     @Override
@@ -730,7 +743,7 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
         if (!request.getIncludeSchema()) {
             schemaToUse = Schemas.GET_TABLES_SCHEMA_NO_SCHEMA;
         }
-        return getFlightInfoForSchema(request, descriptor, schemaToUse);
+        return getFlightInfoForSchema(request, context, descriptor, schemaToUse);
     }
 
     @Override
@@ -755,7 +768,7 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
     @Override
     public FlightInfo getFlightInfoTableTypes(final CommandGetTableTypes request, final CallContext context,
             final FlightDescriptor descriptor) {
-        return getFlightInfoForSchema(request, descriptor, Schemas.GET_TABLE_TYPES_SCHEMA);
+        return getFlightInfoForSchema(request, context, descriptor, Schemas.GET_TABLE_TYPES_SCHEMA);
     }
 
     @Override
@@ -775,7 +788,7 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
     @Override
     public FlightInfo getFlightInfoPrimaryKeys(final CommandGetPrimaryKeys request, final CallContext context,
             final FlightDescriptor descriptor) {
-        return getFlightInfoForSchema(request, descriptor, Schemas.GET_PRIMARY_KEYS_SCHEMA);
+        return getFlightInfoForSchema(request, context, descriptor, Schemas.GET_PRIMARY_KEYS_SCHEMA);
     }
 
     @Override
@@ -787,7 +800,7 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
     @Override
     public FlightInfo getFlightInfoExportedKeys(final CommandGetExportedKeys request, final CallContext context,
             final FlightDescriptor descriptor) {
-        return getFlightInfoForSchema(request, descriptor, Schemas.GET_EXPORTED_KEYS_SCHEMA);
+        return getFlightInfoForSchema(request, context, descriptor, Schemas.GET_EXPORTED_KEYS_SCHEMA);
     }
 
     @Override
@@ -799,7 +812,7 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
     @Override
     public FlightInfo getFlightInfoImportedKeys(final CommandGetImportedKeys request, final CallContext context,
             final FlightDescriptor descriptor) {
-        return getFlightInfoForSchema(request, descriptor, Schemas.GET_IMPORTED_KEYS_SCHEMA);
+        return getFlightInfoForSchema(request, context, descriptor, Schemas.GET_IMPORTED_KEYS_SCHEMA);
     }
 
     @Override
@@ -811,7 +824,7 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
     @Override
     public FlightInfo getFlightInfoCrossReference(CommandGetCrossReference request, CallContext context,
             FlightDescriptor descriptor) {
-        return getFlightInfoForSchema(request, descriptor, Schemas.GET_CROSS_REFERENCE_SCHEMA);
+        return getFlightInfoForSchema(request, context, descriptor, Schemas.GET_CROSS_REFERENCE_SCHEMA);
     }
 
     @Override
@@ -853,7 +866,7 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
             listener.onNext(new SetSessionOptionsResult(errors));
             listener.onCompleted();
         } catch (FlightRuntimeException e) {
-            // Same as in getFlightInfoStatement: keep the status the session's command lock chose.
+            // Same as in getFlightInfoStatement: keep the status returned by session admission.
             LOG.warn("set session options failed", e);
             listener.onError(e);
         } catch (Throwable e) {
@@ -884,9 +897,10 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
     }
 
     /**
-     * Closes the session the way a MySQL client's COM_QUIT ends a connection: its ConnectContext
-     * leaves the pool (releasing the cached results, the deferred executors, the transaction and
-     * the temporary tables), a statement still running is cancelled, and every later call made
+     * Closes the session immediately through an independent RPC, without acquiring execution
+     * ownership. Unlike an in-band COM_QUIT or self KILL CONNECTION, it cancels a concurrent statement.
+     * Its ConnectContext leaves the pool immediately; session resources are released after the request
+     * and its interruption finish. The gRPC connection stays open for this action's response. Every later call made
      * with the session's bearer token is refused as UNAUTHENTICATED, since the token is nothing but
      * the name the session had in the pool. The ADBC Flight SQL driver calls this from
      * Connection.Close() and the Flight SQL JDBC driver from Connection.close().
@@ -919,12 +933,28 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
             ConnectContext connectContext = flightSessionsManager.getConnectContext(context.peerIdentity());
             FlightProtocolAdapter.of(connectContext).runCommand(connectContext, () -> stream.send(connectContext));
         } catch (FlightRuntimeException e) {
-            // Same as in getFlightInfoStatement: keep the status the session's command lock chose.
+            // Same as in getFlightInfoStatement: keep the status returned by session admission.
             LOG.error("stream metadata failed", e);
             listener.error(e);
             throw e;
         } catch (final Throwable e) {
             handleStreamException(e, "", listener);
+        }
+    }
+
+    private <T extends Message> FlightInfo getFlightInfoForSchema(final T request, final CallContext context,
+            final FlightDescriptor descriptor, final Schema schema) {
+        requireOpenSession(context);
+        return getFlightInfoForSchema(request, descriptor, schema);
+    }
+
+    // Static metadata neither borrows mutable session resources nor counts as command activity.
+    // Admission is checked here; a close afterwards cannot invalidate the independent response.
+    private void requireOpenSession(final CallContext context) {
+        ConnectContext connectContext = flightSessionsManager.getConnectContext(context.peerIdentity());
+        if (connectContext.isClosingOrClosed()) {
+            throw CallStatus.UNAUTHENTICATED.withDescription("this Arrow Flight SQL session is closing, connection id: "
+                    + connectContext.getConnectionId() + "; reconnect to run further commands").toRuntimeException();
         }
     }
 

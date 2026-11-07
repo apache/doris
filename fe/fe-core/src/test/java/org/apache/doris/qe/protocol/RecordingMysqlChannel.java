@@ -105,7 +105,7 @@ public class RecordingMysqlChannel extends DummyMysqlChannel {
         ByteBuffer packet = inbound.pollFirst();
         if (packet == null) {
             // An empty buffer is how the real channel reports "peer sent nothing more"; processOnce()
-            // turns that into ctx.setKilled().
+            // turns that into ctx.cleanup().
             return ByteBuffer.allocate(0);
         }
         // The real channel advances the sequence id once per packet it reads, so the first response

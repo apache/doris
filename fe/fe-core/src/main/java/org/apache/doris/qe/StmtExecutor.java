@@ -244,7 +244,7 @@ public class StmtExecutor {
     // the idle reaper's bound and the profile's times counted from its own start.
     private volatile TUniqueId deferredQueryId;
     private volatile long deferredStartTimeMs = -1;
-    private MasterOpExecutor masterOpExecutor = null;
+    private volatile MasterOpExecutor masterOpExecutor = null;
     // Optional forward target for cancellations issued on this executor: statements that
     // spawn a nested internal executor with its own query id (e.g. IVM dry-run delta
     // queries) register it here so Ctrl+C / KILL QUERY / statement timeout on the outer
@@ -1537,6 +1537,11 @@ public class StmtExecutor {
 
     private void forwardToMaster() throws Exception {
         masterOpExecutor = new MasterOpExecutor(originStmt, context, redirectStatus, isQuery());
+        // A cancel that preceded publication could not find the forwarding executor. Hand it the
+        // sticky cancellation now; execute() will not send a statement cancelled before dispatch.
+        if (pendingCoordinatorCancelReason.get() != null) {
+            masterOpExecutor.cancel();
+        }
         if (LOG.isDebugEnabled()) {
             LOG.debug("need to transfer to Master. stmt: {}", context.getStmtId());
         }

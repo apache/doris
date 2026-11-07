@@ -25,6 +25,7 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.jdbc.client.JdbcClient;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
@@ -35,12 +36,16 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.GlobalVariable;
+import org.apache.doris.qe.StmtExecutor;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentMatchers;
 import org.mockito.Mock;
+import org.mockito.MockedConstruction;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 import org.mockito.MockitoAnnotations;
@@ -50,6 +55,7 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
 
 public class StreamingJobUtilsTest {
 
@@ -59,6 +65,46 @@ public class StreamingJobUtilsTest {
     @BeforeEach
     public void setUp() {
         MockitoAnnotations.initMocks(this);
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void testMetadataCleanupRestoresParentContext(boolean fail) throws Exception {
+        boolean savedUnitTest = FeConstants.runningUnitTest;
+        FeConstants.runningUnitTest = true;
+        ConnectContext previous = ConnectContext.get();
+        ConnectContext parent = new ConnectContext();
+        parent.setThreadLocalInfo();
+        AtomicReference<ConnectContext> internal = new AtomicReference<>();
+        try (MockedStatic<Env> environment = Mockito.mockStatic(Env.class);
+                MockedConstruction<StmtExecutor> executors = Mockito.mockConstruction(StmtExecutor.class,
+                        (executor, constructor) -> Mockito.doAnswer(call -> {
+                            internal.set(ConnectContext.get());
+                            if (fail) {
+                                throw new IllegalStateException("metadata SQL failed");
+                            }
+                            return null;
+                        }).when(executor).execute())) {
+            Env env = Mockito.mock(Env.class);
+            InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
+            Mockito.when(catalog.getName()).thenReturn(InternalCatalog.INTERNAL_CATALOG_NAME);
+            Mockito.when(env.getInternalCatalog()).thenReturn(catalog);
+            environment.when(Env::getCurrentEnv).thenReturn(env);
+            StreamingJobUtils.deleteJobMeta(1L);
+            Assertions.assertNotNull(internal.get());
+            Assertions.assertNotSame(parent, internal.get());
+            Assertions.assertTrue(internal.get().isClosingOrClosed());
+            Assertions.assertSame(parent, ConnectContext.get());
+            Assertions.assertFalse(parent.isClosingOrClosed());
+        } finally {
+            parent.cleanup();
+            if (previous == null) {
+                ConnectContext.remove();
+            } else {
+                previous.setThreadLocalInfo();
+            }
+            FeConstants.runningUnitTest = savedUnitTest;
+        }
     }
 
     @Test

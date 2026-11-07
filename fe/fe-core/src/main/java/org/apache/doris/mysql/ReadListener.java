@@ -53,34 +53,23 @@ public class ReadListener implements ChannelListener<ConduitStreamSourceChannel>
         // start async query handle in task thread.
         try {
             channel.getWorker().execute(() -> {
-                ctx.setThreadLocalInfo();
                 try {
-                    connectProcessor.processOnce();
-                    if (!ctx.isKilled()) {
-                        protocol.resumeAcceptQuery();
-                    } else {
-                        protocol.stopAcceptQuery();
-                        ctx.cleanup();
-                    }
+                    ctx.runCommand(() -> {
+                        try {
+                            connectProcessor.processOnce();
+                        } catch (Throwable e) {
+                            LOG.warn("Exception happened in one session(" + ctx + ").", e);
+                            ctx.cleanup();
+                        }
+                    }, protocol::resumeAcceptQuery);
                 } catch (Throwable e) {
-                    LOG.warn("Exception happened in one session(" + ctx + ").", e);
-                    ctx.setKilled();
+                    LOG.warn("Failed to resume reading from MySQL connection {}", ctx, e);
                     ctx.cleanup();
-                } finally {
-                    ConnectContext.remove();
                 }
             });
         } catch (RejectedExecutionException e) {
             LOG.warn("Failed to submit query task for one session({}).", ctx, e);
-            // Keep the same ConnectContext thread-local lifecycle as the normal async path,
-            // so that cleanup()/close listener can access ConnectContext.get() if needed.
-            ctx.setThreadLocalInfo();
-            try {
-                ctx.setKilled();
-                ctx.cleanup();
-            } finally {
-                ConnectContext.remove();
-            }
+            ctx.cleanup();
         }
     }
 }

@@ -1588,6 +1588,8 @@ public class StatementContext implements Closeable {
             } catch (Throwable t) {
                 if (throwable == null) {
                     throwable = t;
+                } else if (throwable != t) {
+                    throwable.addSuppressed(t);
                 }
             }
         }
@@ -1656,9 +1658,29 @@ public class StatementContext implements Closeable {
 
     @Override
     public void close() {
-        releasePlannerResources();
+        Throwable failure = null;
+        try {
+            releasePlannerResources();
+        } catch (RuntimeException | Error e) {
+            failure = e;
+            throw e;
+        } finally {
+            try {
+                closeExecutionResources();
+            } catch (RuntimeException | Error e) {
+                if (failure == null) {
+                    throw e;
+                }
+                if (failure != e) {
+                    failure.addSuppressed(e);
+                }
+            }
+        }
+    }
+
+    private void closeExecutionResources() {
         // After the table locks: stopping a remote Doris scan's node sends a CloseSession to the other
-        // frontend, which must not be waited for under a lock.
+        // frontend, which must not be waited for under a lock. A failed unlock must not skip this cleanup.
         stopScanNodesLeftBehind();
         // Fallback deterministic close of the per-statement connector scope, for statements that open it without
         // planning a scan, so no query-finish callback closes it: external DDL / SHOW / DESCRIBE run via

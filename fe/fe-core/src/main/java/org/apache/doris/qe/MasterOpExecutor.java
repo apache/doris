@@ -60,23 +60,25 @@ public class MasterOpExecutor extends FEOpExecutor {
     @Override
     public void execute() throws Exception {
         super.execute();
-        waitOnReplaying();
+        waitOnReplaying(result);
     }
 
     @Override
     public void cancel() throws Exception {
-        super.cancel();
-        waitOnReplaying();
+        TMasterOpResult cancelResult = cancelForwardedQuery();
+        if (cancelResult != null) {
+            waitOnReplaying(cancelResult);
+        }
     }
 
-    private void waitOnReplaying() throws DdlException {
-        LOG.info("forwarding to master get result max journal id: {}", result.maxJournalId);
-        ctx.getEnv().getJournalObservable().waitOn(result.maxJournalId, journalWaitTimeoutMs);
+    private void waitOnReplaying(TMasterOpResult response) throws DdlException {
+        LOG.info("forwarding to master get result max journal id: {}", response.maxJournalId);
+        env.getJournalObservable().waitOn(response.maxJournalId, journalWaitTimeoutMs);
     }
 
     public void syncJournal() throws Exception {
         result = forward(buildSyncJournalParams());
-        waitOnReplaying();
+        waitOnReplaying(result);
     }
 
     public long getGroupCommitLoadBeId(long tableId, String cluster) throws Exception {

@@ -63,6 +63,7 @@ import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
 import org.apache.doris.persist.RoutineLoadOperation;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
@@ -1075,52 +1076,44 @@ public abstract class RoutineLoadJob
 
     public TPipelineFragmentParams plan(NereidsStreamLoadPlanner planner, TUniqueId loadId, long txnId)
             throws UserException {
-        Preconditions.checkNotNull(planner);
-        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(dbId);
-        Table table = db.getTableOrMetaException(tableId, Table.TableType.OLAP);
-        boolean needCleanCtx = false;
-        table.readLock();
-        try {
-            if (Config.isCloudMode()) {
-                // Use the effective cluster, not the raw snapshot field: this context is what
-                // OlapTableSink uses to pick the backends the load writes to.
-                String effectiveCluster = getCloudCluster();
-                if (ConnectContext.get() == null) {
-                    ConnectContext ctx = new ConnectContext();
-                    ctx.setThreadLocalInfo();
-                    ctx.setCloudCluster(effectiveCluster);
-                    needCleanCtx = true;
-                } else {
+        try (AutoCloseConnectContext scope = ConnectContext.get() == null
+                ? new AutoCloseConnectContext(new ConnectContext()) : null) {
+            Preconditions.checkNotNull(planner);
+            Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(dbId);
+            Table table = db.getTableOrMetaException(tableId, Table.TableType.OLAP);
+            table.readLock();
+            try {
+                if (Config.isCloudMode()) {
+                    // Use the effective cluster, not the raw snapshot field: this context is what
+                    // OlapTableSink uses to pick the backends the load writes to.
+                    String effectiveCluster = getCloudCluster();
                     ConnectContext.get().setCloudCluster(effectiveCluster);
+                    ConnectContext.get().setCurrentUserIdentity(this.getUserIdentity());
+                } else {
+                    setComputeGroup();
+                    // Set user identity for privilege check in expression rewrite (e.g., EncryptKeyRef)
+                    ConnectContext.get().setCurrentUserIdentity(this.getUserIdentity());
                 }
-                ConnectContext.get().setCurrentUserIdentity(this.getUserIdentity());
-            } else {
-                setComputeGroup();
-                // Set user identity for privilege check in expression rewrite (e.g., EncryptKeyRef)
-                ConnectContext.get().setCurrentUserIdentity(this.getUserIdentity());
-            }
-            if (ConnectContext.get().getEnv() == null) {
-                ConnectContext.get().setEnv(Env.getCurrentEnv());
-            }
+                if (ConnectContext.get().getEnv() == null) {
+                    ConnectContext.get().setEnv(Env.getCurrentEnv());
+                }
 
-            TPipelineFragmentParams planParams = planner.plan(loadId);
-            // add table indexes to transaction state
-            TransactionState txnState = Env.getCurrentGlobalTransactionMgr().getTransactionState(db.getId(), txnId);
-            if (txnState == null) {
-                throw new UserException("txn does not exist: " + txnId);
-            }
-            txnState.addTableIndexes(planner.getDestTable());
-            if (uniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS
-                    || uniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS) {
-                txnState.setSchemaForPartialUpdate((OlapTable) table);
-            }
+                TPipelineFragmentParams planParams = planner.plan(loadId);
+                // add table indexes to transaction state
+                TransactionState txnState = Env.getCurrentGlobalTransactionMgr().getTransactionState(db.getId(), txnId);
+                if (txnState == null) {
+                    throw new UserException("txn does not exist: " + txnId);
+                }
+                txnState.addTableIndexes(planner.getDestTable());
+                if (uniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS
+                        || uniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS) {
+                    txnState.setSchemaForPartialUpdate((OlapTable) table);
+                }
 
-            return planParams;
-        } finally {
-            if (needCleanCtx) {
-                ConnectContext.remove();
+                return planParams;
+            } finally {
+                table.readUnlock();
             }
-            table.readUnlock();
         }
     }
 
@@ -2116,8 +2109,7 @@ public abstract class RoutineLoadJob
             ctx.setEnv(Env.getCurrentEnv());
             ctx.setCurrentUserIdentity(UserIdentity.ADMIN);
             ctx.getState().reset();
-            try {
-                ctx.setThreadLocalInfo();
+            try (AutoCloseConnectContext scope = new AutoCloseConnectContext(ctx)) {
                 NereidsParser nereidsParser = new NereidsParser();
                 CreateRoutineLoadCommand command = (CreateRoutineLoadCommand) nereidsParser.parseSingle(
                         origStmt.originStmt);
@@ -2143,8 +2135,6 @@ public abstract class RoutineLoadJob
                 createRoutineLoadInfo.validate(ctx);
                 setRoutineLoadDesc(createRoutineLoadInfo.getRoutineLoadDesc());
                 execMemLimit = createRoutineLoadInfo.getExecMemLimit();
-            } finally {
-                ctx.cleanup();
             }
         } catch (Exception e) {
             // Terminalize this unusable job as CANCELLED. Set endTimestamp only if unset (avoid
