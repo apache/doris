@@ -29,12 +29,14 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.mysql.privilege.Role;
+import org.apache.doris.nereids.trees.plans.commands.GrantRoleCommand;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.Collections;
 import java.util.UUID;
 
 /**
@@ -122,6 +124,10 @@ public class CreateUserInfo {
 
         if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT");
+        }
+        if (role != null) {
+            // The default role is granted to the new user: the same rule as GRANT role.
+            GrantRoleCommand.checkRolePrivileges(Collections.singletonList(role));
         }
     }
 
