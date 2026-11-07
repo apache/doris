@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
@@ -28,6 +29,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Pair;
@@ -46,6 +48,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.system.Backend;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ComparisonChain;
@@ -91,6 +94,12 @@ public class ShowDataCommand extends ShowCommand {
                     .addColumn(new Column("DataSize", ScalarType.createVarchar(20)))
                     .addColumn(new Column("RecycleSize", ScalarType.createVarchar(20)))
                     .build();
+
+    // Row of the all-database and entire-warehouse listings that carries the query spill currently
+    // held in object storage (cloud mode, spill_storage_type=s3). Spill is not attributable to a
+    // database; it gets its own row and is included in the total. A user database name has to
+    // start with a letter, so this name cannot collide with one.
+    private static final String REMOTE_SPILL_ROW_NAME = "__remote_spill__";
 
     private static final ShowResultSetMetaData SHOW_INDEX_DATA_META_DATA =
             ShowResultSetMetaData.builder()
@@ -562,8 +571,22 @@ public class ShowDataCommand extends ShowCommand {
         return toSql();
     }
 
+    /**
+     * Bytes of query spill currently held in object storage, summed over alive BEs.
+     * Only the master FE keeps these values, so listings are forwarded to it.
+     */
+    private long getRemoteSpillSize() throws AnalysisException {
+        long total = 0;
+        for (Backend backend : Env.getCurrentSystemInfo().getAllBackendsByAllCluster().values()) {
+            if (backend.isAlive()) {
+                total += backend.getRemoteSpillBytes();
+            }
+        }
+        return total;
+    }
+
     // |DBName|DataSize|RecycleSize|
-    private boolean getDbStatsByProperties() {
+    private boolean getDbStatsByProperties() throws AnalysisException {
         if (properties == null) {
             return false;
         }
@@ -617,6 +640,12 @@ public class ShowDataCommand extends ShowCommand {
                     total += dataSize;
                     totalRecycleSize += recycleSize;
                 }
+            }
+            // Spill belongs to the warehouse rather than an individual database.
+            if (dbList == null && Config.isCloudMode()) {
+                long remoteSpillSize = getRemoteSpillSize();
+                totalRows.add(Arrays.asList(REMOTE_SPILL_ROW_NAME, String.valueOf(remoteSpillSize), "0"));
+                total += remoteSpillSize;
             }
             List<String> result = Arrays.asList("total", String.valueOf(total), String.valueOf(totalRecycleSize));
             totalRows.add(result);
@@ -684,6 +713,14 @@ public class ShowDataCommand extends ShowCommand {
             totalRows.add(dbInfo);
         }
 
+        // Query spill held in object storage is not attributable to a database: its own row.
+        if (Config.isCloudMode()) {
+            long remoteSpillSize = getRemoteSpillSize();
+            totalRows.add(Arrays.asList("NULL", REMOTE_SPILL_ROW_NAME, String.valueOf(remoteSpillSize),
+                    "0", "0", "0"));
+            totalSize += remoteSpillSize;
+        }
+
         // calc total size
         List<String> dbInfo = new ArrayList<>();
         dbInfo.add("Total");
@@ -704,5 +741,20 @@ public class ShowDataCommand extends ShowCommand {
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitShowDataCommand(this, context);
+    }
+
+    @Override
+    public RedirectStatus toRedirectStatus() {
+        // Only the two warehouse-level listings of cloud mode read the remote spill size, which the
+        // BEs report to the master FE alone; the other forms are served locally as before.
+        if (!Config.isCloudMode()) {
+            return RedirectStatus.NO_FORWARD;
+        }
+        if (properties != null && "true".equals(properties.get(WAREHOUSE))) {
+            return properties.get(DB_LIST) == null ? RedirectStatus.FORWARD_NO_SYNC
+                    : RedirectStatus.NO_FORWARD;
+        }
+        return tableName == null && Strings.isNullOrEmpty(ConnectContext.get().getDatabase())
+                ? RedirectStatus.FORWARD_NO_SYNC : RedirectStatus.NO_FORWARD;
     }
 }

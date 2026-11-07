@@ -506,7 +506,9 @@ int main(int argc, char** argv) {
             ++it;
         }
     }
-    if (spill_paths.empty()) {
+    // With spill_storage_type=s3 query spill goes to object storage (validated by
+    // SpillFileManager::init()), so local spill paths are optional.
+    if (doris::config::spill_storage_type != "s3" && spill_paths.empty()) {
         LOG(ERROR) << "All spill disks are broken, exit.";
         exit(-1);
     }

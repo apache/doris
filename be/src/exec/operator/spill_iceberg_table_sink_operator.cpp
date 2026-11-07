@@ -255,6 +255,9 @@ void SpillIcebergTableSinkLocalState::_init_spill_counters() {
     ADD_COUNTER_WITH_LEVEL(profile, "SpillWriteFileBytes", TUnit::BYTES, 1);
     ADD_COUNTER_WITH_LEVEL(profile, "SpillWriteRows", TUnit::UNIT, 1);
     ADD_COUNTER_WITH_LEVEL(profile, "SpillWriteFileTotalCount", TUnit::UNIT, 1);
+    ADD_COUNTER_WITH_LEVEL(profile, "SpillRemoteUploadBytes", TUnit::BYTES, 1);
+    ADD_TIMER_WITH_LEVEL(profile, "SpillRemoteUploadTime", 1);
+    ADD_TIMER_WITH_LEVEL(profile, "SpillRemoteUploadWaitTime", 1);
 
     //seems init_spill_read_counters()
     ADD_TIMER_WITH_LEVEL(profile, "SpillTotalTime", 1);
@@ -269,6 +272,7 @@ void SpillIcebergTableSinkLocalState::_init_spill_counters() {
     ADD_COUNTER_WITH_LEVEL(profile, "SpillReadFileBytes", TUnit::BYTES, 1);
     ADD_COUNTER_WITH_LEVEL(profile, "SpillReadRows", TUnit::UNIT, 1);
     ADD_COUNTER_WITH_LEVEL(profile, "SpillReadFileCount", TUnit::UNIT, 1);
+    ADD_COUNTER_WITH_LEVEL(profile, "SpillRemoteReadRequests", TUnit::UNIT, 1);
     ADD_COUNTER_WITH_LEVEL(profile, "SpillWriteFileCurrentBytes", TUnit::BYTES, 1);
     ADD_COUNTER_WITH_LEVEL(profile, "SpillWriteFileCurrentCount", TUnit::UNIT, 1);
 }
