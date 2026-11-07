@@ -24,9 +24,14 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
+import org.apache.doris.nereids.trees.plans.logical.LogicalIntersect;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSetOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
@@ -39,6 +44,7 @@ import org.roaringbitmap.RoaringBitmap;
 
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
 
@@ -70,27 +76,73 @@ public class OperativeColumnDerive extends DefaultPlanRewriter<DeriveContext> im
         return visitChildren(this, sink, context);
     }
 
-    private Plan deriveUnion(LogicalUnion union, DeriveContext context) {
-        for (int i = 0; i < union.getOutput().size(); i++) {
-            Slot output = union.getOutput().get(i);
-            if (context.operativeSlotIds.contains(output.getExprId().asInt())) {
-                for (List<SlotReference> childOutput : union.getRegularChildrenOutputs()) {
-                    context.operativeSlotIds.add(childOutput.get(i).getExprId().asInt());
+    /**
+     * Marks the outputs of a set operation, and the outputs of its children, that it reads.
+     *
+     * <p>A distinct set operation deduplicates on all of its outputs, so its children have to read
+     * them whether or not the parent demands them. The demand of the parent can not stand for it:
+     * BuildAggForUnion, which adds the group by that deduplicates, runs after the set operation
+     * rules that already consume the statistics, so relying on it would leave the statistics of the
+     * deduplication keys unknown while those rules need them. An {@code ALL} set operation does not
+     * deduplicate and reads only what is used above it.
+     */
+    private Plan deriveSetOperation(LogicalSetOperation setOperation, DeriveContext context) {
+        boolean distinct = setOperation.getQualifier() == Qualifier.DISTINCT;
+        for (int i = 0; i < setOperation.getOutput().size(); i++) {
+            Slot output = setOperation.getOutput().get(i);
+            if (distinct || context.operativeSlotIds.contains(output.getExprId().asInt())) {
+                context.addOperativeSlot(output);
+                for (List<SlotReference> childOutput : setOperation.getRegularChildrenOutputs()) {
+                    context.addOperativeSlotId(childOutput.get(i).getExprId().asInt());
                 }
             }
         }
-        return visitChildren(this, union, context);
+        return visitChildren(this, setOperation, context);
+    }
+
+    /**
+     * A consumer of a CTE copies the slots of the producer it reads, so a demand on one of its
+     * outputs is a demand on the slot of that producer. Translating it is what lets the demand of
+     * one anchor reach the producer of another one, e.g. a set operation over {@code c2} whose
+     * producer reads {@code c1} demands the column of {@code c1} as well.
+     */
+    @Override
+    public Plan visitLogicalCTEConsumer(LogicalCTEConsumer consumer, DeriveContext context) {
+        for (Map.Entry<Slot, Slot> consumerToProducer : consumer.getConsumerToProducerOutputMap().entrySet()) {
+            if (context.operativeSlotIds.contains(consumerToProducer.getKey().getExprId().asInt())) {
+                context.addOperativeSlotId(consumerToProducer.getValue().getExprId().asInt());
+            }
+        }
+        return consumer;
     }
 
     @Override
     public Plan visitLogicalUnion(LogicalUnion union, DeriveContext context) {
-        Plan round1 = deriveUnion(union, context);
-        // check for back propagation
+        return deriveSetOperationWithBackPropagation(union, context);
+    }
+
+    @Override
+    public Plan visitLogicalIntersect(LogicalIntersect intersect, DeriveContext context) {
+        return deriveSetOperationWithBackPropagation(intersect, context);
+    }
+
+    @Override
+    public Plan visitLogicalExcept(LogicalExcept except, DeriveContext context) {
+        return deriveSetOperationWithBackPropagation(except, context);
+    }
+
+    /**
+     * Derives the demand of a set operation and, because the outputs of the set operation and of its
+     * children are the same values, propagates a demand of a child output back to the output.
+     */
+    private Plan deriveSetOperationWithBackPropagation(LogicalSetOperation setOperation,
+            DeriveContext context) {
+        Plan round1 = deriveSetOperation(setOperation, context);
         boolean needBackPropagation = false;
-        for (int i = 0; i < union.getOutput().size(); i++) {
-            Slot output = union.getOutput().get(i);
+        for (int i = 0; i < setOperation.getOutput().size(); i++) {
+            Slot output = setOperation.getOutput().get(i);
             if (!context.operativeSlotIds.contains(output.getExprId().asInt())) {
-                for (List<SlotReference> childOutput : union.getRegularChildrenOutputs()) {
+                for (List<SlotReference> childOutput : setOperation.getRegularChildrenOutputs()) {
                     if (context.operativeSlotIds.contains(childOutput.get(i).getExprId().asInt())) {
                         // if any child output is operative, this output is operative
                         context.operativeSlotIds.add(output.getExprId().asInt());
@@ -101,7 +153,7 @@ public class OperativeColumnDerive extends DefaultPlanRewriter<DeriveContext> im
             }
         }
         if (needBackPropagation) {
-            return deriveUnion(union, context);
+            return deriveSetOperation(setOperation, context);
         } else {
             return round1;
         }
@@ -190,6 +242,10 @@ public class OperativeColumnDerive extends DefaultPlanRewriter<DeriveContext> im
 
         public void addOperativeSlot(NamedExpression slot) {
             operativeSlotIds.add(slot.getExprId().asInt());
+        }
+
+        public void addOperativeSlotId(int exprId) {
+            operativeSlotIds.add(exprId);
         }
 
         public void addOperativeSlots(Expression exprTree) {

@@ -46,8 +46,8 @@ import java.util.Optional;
 public class LogicalOlapScanToPhysicalOlapScan extends OneImplementationRuleFactory {
     @Override
     public Rule build() {
-        return logicalOlapScan().then(olapScan ->
-                new PhysicalOlapScan(
+        return logicalOlapScan().then(olapScan -> {
+            PhysicalOlapScan physicalOlapScan = new PhysicalOlapScan(
                         olapScan.getRelationId(),
                         olapScan.getTable(),
                         olapScan.getQualifier(),
@@ -72,8 +72,15 @@ public class LogicalOlapScanToPhysicalOlapScan extends OneImplementationRuleFact
                         olapScan.getAnnLimit(),
                         olapScan.getTableAlias(),
                         olapScan.getPartitionPrunablePredicates(),
-                        olapScan.getScanParams())
-        ).toRule(RuleType.LOGICAL_OLAP_SCAN_TO_PHYSICAL_OLAP_SCAN_RULE);
+                        olapScan.getScanParams());
+            if (olapScan.isOperativeSlotsDerived()) {
+                // the physical scan is estimated on its own, e.g. as the child of a
+                // PhysicalStorageLayerAggregate, so it has to carry the derivation state to keep
+                // fetching the statistics of the operative slots only
+                physicalOlapScan.markOperativeSlotsDerived();
+            }
+            return physicalOlapScan;
+        }).toRule(RuleType.LOGICAL_OLAP_SCAN_TO_PHYSICAL_OLAP_SCAN_RULE);
     }
 
     /** convertDistribution */
