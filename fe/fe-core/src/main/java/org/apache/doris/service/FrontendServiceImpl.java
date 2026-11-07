@@ -124,6 +124,7 @@ import org.apache.doris.nereids.trees.plans.distribute.worker.job.AssignedJob;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.planner.GroupCommitPlanner;
 import org.apache.doris.planner.OlapTableSink;
+import org.apache.doris.plugin.audit.AuditLoader;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectProcessor;
 import org.apache.doris.qe.Coordinator;
@@ -132,6 +133,7 @@ import org.apache.doris.qe.MasterCatalogExecutor;
 import org.apache.doris.qe.MasterOpExecutor;
 import org.apache.doris.qe.MysqlConnectProcessor;
 import org.apache.doris.qe.QeProcessorImpl;
+import org.apache.doris.qe.QueryAuditPolicy;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
@@ -1508,6 +1510,36 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         return result;
     }
 
+    static long getLoadTxnTimeout(TLoadTxnBeginRequest request) {
+        long timeout = request.isSetTimeout() ? request.getTimeout() : Config.stream_load_default_timeout_second;
+        if (!isAlwaysOnAuditLoad(request.isSetAuthCode(), request.getToken(), request.getDb(), request.getTbl())) {
+            return timeout;
+        }
+        // Called after token authentication on the master: a sending FE may have different timeout limits.
+        return boundAuditLoadTimeout(timeout);
+    }
+
+    private static boolean isAlwaysOnAuditLoad(boolean hasAuthCode, String token, String db, String table) {
+        return QueryAuditPolicy.isAlwaysOn() && !hasAuthCode && !Strings.isNullOrEmpty(token)
+                && FeConstants.INTERNAL_DB_NAME.equals(db) && AuditLoader.AUDIT_LOG_TABLE.equals(table);
+    }
+
+    private static long boundAuditLoadTimeout(long timeout) {
+        // The V1 load sink stores its RPC timeout in signed milliseconds.
+        long maximum = Math.min(Config.max_stream_load_timeout_second, Integer.MAX_VALUE / 1000);
+        return Math.max(Config.min_load_timeout_second, Math.min(timeout, maximum));
+    }
+
+    private void normalizeAuditLoadTimeout(TStreamLoadPutRequest request) throws AuthenticationException {
+        if (!isAlwaysOnAuditLoad(request.isSetAuthCode(), request.getToken(), request.getDb(), request.getTbl())
+                || !Env.getCurrentEnv().isMaster()) {
+            return;
+        }
+        checkTokenOrThrow(request.getToken());
+        long timeout = request.isSetTimeout() ? request.getTimeout() : Config.stream_load_default_timeout_second;
+        request.setTimeout((int) boundAuditLoadTimeout(timeout));
+    }
+
     private TLoadTxnBeginResult loadTxnBeginImpl(TLoadTxnBeginRequest request, String clientIp) throws UserException {
         if (request.isSetAuthCode()) {
             // TODO: deprecated, removed in 3.1, use token instead.
@@ -1549,7 +1581,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
         }
         // begin
-        long timeoutSecond = request.isSetTimeout() ? request.getTimeout() : Config.stream_load_default_timeout_second;
+        long timeoutSecond = getLoadTxnTimeout(request);
         Backend backend = Env.getCurrentSystemInfo().getBackend(request.getBackendId());
         long startTime = backend != null ? backend.getLastStartTime() : 0;
         TxnCoordinator txnCoord = new TxnCoordinator(TxnSourceType.BE, request.getBackendId(), clientIp, startTime);
@@ -3113,6 +3145,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
         try {
             checkGroupCommitStreamLoadAuth(request);
+            normalizeAuditLoadTimeout(request);
             if (groupCommitMode != null && !groupCommitMode.equals("off_mode") && Env.getCurrentEnv().isMaster()
                     && Config.enable_forward_group_commit_stream_load_to_follower) {
                 TStreamLoadPutResult forwardedResult = forwardGroupCommitStreamLoad(request);

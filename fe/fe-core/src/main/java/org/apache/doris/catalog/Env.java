@@ -1856,6 +1856,8 @@ public class Env {
                             "true");
                 }
             }
+            // Like the upgrades above, rewrite the persisted global values that query_audit_always_on does not allow.
+            VariableMgr.applyQueryAuditPolicyToGlobalValues();
 
             getPolicyMgr().createDefaultStoragePolicy();
 

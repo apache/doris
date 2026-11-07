@@ -57,6 +57,7 @@ import org.apache.doris.thrift.TUniqueId;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
+import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -158,10 +159,20 @@ public class MysqlConnectProcessor extends ConnectProcessor {
         int paramCount = prepareCommand.placeholderCount();
         LOG.debug("execute prepared statement {}, paramCount {}", stmtId, paramCount);
         // null bitmap
-        String stmtStr = "";
+        // With query_audit_always_on, an execution that fails before its EXECUTE text is built below is audited with
+        // the statement it was prepared from.
+        String stmtStr = QueryAuditPolicy.isAlwaysOn() ? prepareCommand.getOriginalStmt().originStmt : "";
+        if (QueryAuditPolicy.isAlwaysOn()) {
+            String sqlHash = prepCtx.getSqlHash();
+            // Proxy contexts can prepare without a COM_QUERY having assigned a hash.
+            ctx.setSqlHash(sqlHash == null ? DigestUtils.md5Hex(stmtStr) : sqlHash);
+        }
         try {
             if (prepCtx.getLongDataError() != null) {
                 ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, prepCtx.getLongDataError());
+                if (QueryAuditPolicy.isAlwaysOn()) {
+                    auditExecute(stmtStr);
+                }
                 return;
             }
             ctx.getProtocolAdapter().beforeStatement(ctx);
@@ -285,7 +296,7 @@ public class MysqlConnectProcessor extends ConnectProcessor {
             } finally {
                 finishExecution(prepCtx);
             }
-            if (ctx.getSessionVariable().isEnablePreparedStmtAuditLog()) {
+            if (shouldAuditExecute()) {
                 stmtStr = executeStmt.toSql();
                 stmtStr = stmtStr + " /*originalSql = " + prepareCommand.getOriginalStmt().originStmt + "*/";
             }
@@ -298,8 +309,25 @@ public class MysqlConnectProcessor extends ConnectProcessor {
         } finally {
             prepCtx.clearLongData();
         }
-        if (ctx.getSessionVariable().isEnablePreparedStmtAuditLog() && executor != null) {
+        auditExecute(stmtStr);
+    }
+
+    // See QueryAuditPolicy.shouldAuditPreparedExecute: with query_audit_always_on, the FE that received the
+    // COM_STMT_EXECUTE audits it, and the master leaves an execution forwarded to it to that FE.
+    private boolean shouldAuditExecute() {
+        return QueryAuditPolicy.shouldAuditPreparedExecute(ctx.getSessionVariable().isEnablePreparedStmtAuditLog(),
+                ctx.isProxy());
+    }
+
+    private void auditExecute(String stmtStr) {
+        boolean audit = shouldAuditExecute();
+        if (audit && executor != null) {
             auditAfterExec(stmtStr, executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog(), true);
+        } else if (audit && QueryAuditPolicy.isAlwaysOn()) {
+            // No executor assigned query/statement IDs, so do not retain the previous statement's IDs.
+            ctx.resetQueryId();
+            ctx.setStmtId(0);
+            auditAfterExec(stmtStr, null, null, true);
         } else {
             // When audit log is disabled for prepared statements, still update QPS metrics.
             AuditLogHelper.updateMetrics(ctx);
