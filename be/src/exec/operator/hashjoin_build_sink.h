@@ -18,6 +18,7 @@
 #pragma once
 
 #include "common/thread_safety_annotations.h"
+#include "exec/common/hash_table/join_hash_table_utils.h"
 #include "exec/operator/join_build_sink_operator.h"
 #include "exec/operator/operator.h"
 #include "exec/runtime_filter/runtime_filter_producer_helper.h"
@@ -231,17 +232,6 @@ struct ProcessHashTableBuild {
         }
 
         SCOPED_TIMER(_parent->_build_table_insert_timer);
-        hash_table_ctx.hash_table->template prepare_build<JoinOpType>(
-                _rows, _batch_size, *has_null_key, hash_table_ctx.direct_mapping_range());
-
-        // In order to make the null keys equal when using single null eq, all null keys need to be set to default value.
-        if (_build_raw_ptrs.size() == 1 && null_map && *has_null_key) {
-            const_cast<IColumn*>(_build_raw_ptrs[0])->replace_column_null_data(null_map->data());
-        }
-
-        hash_table_ctx.init_serialized_keys(_build_raw_ptrs, _rows,
-                                            null_map ? null_map->data() : nullptr, true, true,
-                                            hash_table_ctx.hash_table->get_bucket_size());
         // only 2 cases need to access the null value in hash table
         bool keep_null_key = false;
         if ((JoinOpType == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
@@ -260,10 +250,9 @@ struct ProcessHashTableBuild {
             keep_null_key = true;
         }
 
-        hash_table_ctx.hash_table->build(hash_table_ctx.keys, hash_table_ctx.bucket_nums.data(),
-                                         _rows, keep_null_key);
-        hash_table_ctx.bucket_nums.resize(_batch_size);
-        hash_table_ctx.bucket_nums.shrink_to_fit();
+        build_join_hash_table<JoinOpType>(hash_table_ctx, _build_raw_ptrs, _rows, _batch_size,
+                                          null_map ? null_map->data() : nullptr, *has_null_key,
+                                          keep_null_key);
 
         COUNTER_SET(_parent->_hash_table_memory_usage,
                     (int64_t)hash_table_ctx.hash_table->get_byte_size());
