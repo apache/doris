@@ -2047,3 +2047,8 @@ write/v2/builtin/icu/lower_case=unset/stopwords=unset rows 343 dbfe91cb5d167744
 write/snii/custom/char_replace+standard+word_delimiter+asciifolding+lowercase rows 4691 fdbd2c2c8f810cb4
 write/v1/custom/char_replace+standard+word_delimiter+asciifolding+lowercase rows 496 6a2513d8df6fd927
 write/v2/custom/char_replace+standard+word_delimiter+asciifolding+lowercase rows 496 6a2513d8df6fd927
+# added at 52719502834
+write/v2-array/builtin/chinese/fine_grained/lower_case=unset/stopwords=unset rows 436 f00e2053e41887a1
+write/v2-array/builtin/ik/ik_max_word/lower_case=unset/stopwords=unset rows 419 c35a7c8e356a3bca
+write/v2-array/builtin/icu/lower_case=unset/stopwords=unset rows 282 118e86a496cf6071
+write/v2-array/custom/char_replace+standard+word_delimiter+asciifolding+lowercase rows 399 a760e05471aca7f6

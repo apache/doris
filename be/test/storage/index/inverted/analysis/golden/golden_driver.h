@@ -97,20 +97,16 @@ std::string escape_bytes(std::string_view bytes);
 std::string format_line(const GoldenLine& line);
 
 // The analyzer, or for GoldenKind::NORMALIZE the normalization, that production builds from the
-// index properties of `config`. The policies of `config` must be registered. Fails when the
-// analyzer cannot be built.
+// index properties of `config`, driven by make_text_driver(). The policies of `config` must be
+// registered. Fails when the analyzer cannot be built.
 Status make_golden_driver(const GoldenConfig& config, std::unique_ptr<GoldenDriver>* driver);
 
-// The analyzer of a GoldenKind::ANALYZE `config` behind the TextAnalyzer interface: the one
-// make_golden_driver() drives, in a LuceneBackedTextAnalyzer.
+// The analyzer production builds from the index properties of a GoldenKind::ANALYZE `config`.
 Status make_golden_text_analyzer(const GoldenConfig& config, TextAnalyzerPtr* analyzer);
 
-// Drives `analyzer` as the consumers of the TextAnalyzer interface do: FRESH makes a stream for
-// every line, as a query does, and REUSED keeps one stream for all lines, as a writer does.
+// Drives `analyzer` as its consumers do: FRESH makes a stream for every line, as a query does, and
+// REUSED keeps one stream for all lines, as the writers do.
 std::unique_ptr<GoldenDriver> make_text_driver(TextAnalyzerPtr analyzer);
-
-// make_golden_text_analyzer() in make_text_driver(), with the signature of make_golden_driver().
-Status make_golden_text_driver(const GoldenConfig& config, std::unique_ptr<GoldenDriver>* driver);
 
 // The kind ("tokenizer", "token_filter" or "char_filter") and name of every component the
 // analysis factory registers.

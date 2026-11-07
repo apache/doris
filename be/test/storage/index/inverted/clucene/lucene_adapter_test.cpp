@@ -45,6 +45,7 @@
 #include "storage/index/inverted/clucene/lucene_backed_text_analyzer.h"
 #include "storage/index/inverted/common/inverted_index_desc.h"
 #include "storage/tablet/tablet_schema.h"
+#include "testutil/tmp_file_dirs_util.h"
 #include "util/slice.h"
 
 namespace doris::segment_v2::inverted_index {
@@ -230,7 +231,7 @@ int thrown_code(const std::function<void()>& body) {
 } // namespace
 
 TEST(LuceneBackedTextAnalyzerTest, HandsOutTheCLuceneTokens) {
-    const LuceneBackedTextAnalyzer analyzer(std::make_shared<ScriptedLuceneAnalyzer>(), {});
+    const LuceneBackedTextAnalyzer analyzer(std::make_shared<ScriptedLuceneAnalyzer>());
     const auto stream = analyzer.create_stream();
     EXPECT_EQ(collect_checked(*stream, "a ^b _ c"), kScriptTokens);
     EXPECT_EQ(stream->reserved_bytes(), 0);
@@ -245,19 +246,8 @@ TEST(LuceneBackedTextAnalyzerTest, HandsOutTheCLuceneTokens) {
     EXPECT_EQ(sizes, (std::vector<size_t> {256, 256, 256, 232}));
 }
 
-TEST(LuceneBackedTextAnalyzerTest, ReadsTheValueThroughTheIndexCharFilter) {
-    const LuceneBackedTextAnalyzer analyzer(
-            std::make_shared<ScriptedLuceneAnalyzer>(),
-            {{INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE, INVERTED_INDEX_CHAR_FILTER_CHAR_REPLACE},
-             {INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN, "-"},
-             {INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT, " "}});
-    EXPECT_EQ(collect_checked(*analyzer.create_stream(), "a-b"),
-              (Tokens {{.term = "a", .position_increment = 1},
-                       {.term = "b", .position_increment = 1}}));
-}
-
 TEST(LuceneBackedTextAnalyzerTest, CLuceneErrorsComeOutAsDorisExceptions) {
-    const LuceneBackedTextAnalyzer analyzer(std::make_shared<ScriptedLuceneAnalyzer>(), {});
+    const LuceneBackedTextAnalyzer analyzer(std::make_shared<ScriptedLuceneAnalyzer>());
     const auto stream = analyzer.create_stream();
     TokenBatch batch;
     EXPECT_EQ(thrown_code([&] {
@@ -272,13 +262,11 @@ TEST(LuceneBackedTextAnalyzerTest, CLuceneErrorsComeOutAsDorisExceptions) {
 }
 
 TEST(LuceneBackedTextAnalyzerTest, KeepsTheTextStreamContract) {
-    const LuceneBackedTextAnalyzer scripted(std::make_shared<ScriptedLuceneAnalyzer>(), {});
+    const LuceneBackedTextAnalyzer scripted(std::make_shared<ScriptedLuceneAnalyzer>());
     expect_text_stream_contract([&] { return scripted.create_stream(); },
                                 {"a ^b _ c", words(1000), words(256), "x"});
-    const LuceneBackedTextAnalyzer standard(
-            InvertedIndexAnalyzer::create_builtin_analyzer(InvertedIndexParserType::PARSER_STANDARD,
-                                                           "", "", ""),
-            {});
+    const LuceneBackedTextAnalyzer standard(InvertedIndexAnalyzer::create_builtin_analyzer(
+            InvertedIndexParserType::PARSER_STANDARD, "", "", ""));
     expect_text_stream_contract([&] { return standard.create_stream(); },
                                 {"The Quick brown fox", words(1000), "中文 mixed 文本", "x"});
 }
@@ -343,6 +331,7 @@ TEST(LuceneAnalyzerBridgeTest, ReaderPointerOverloadsThrow) {
 class LuceneBridgeWriterTest : public testing::Test {
 protected:
     void SetUp() override {
+        test::ensure_tmp_file_dirs();
         ASSERT_TRUE(io::global_local_filesystem()->delete_directory(kTestDir).ok());
         ASSERT_TRUE(io::global_local_filesystem()->create_directory(kTestDir).ok());
         TabletIndexPB pb;
