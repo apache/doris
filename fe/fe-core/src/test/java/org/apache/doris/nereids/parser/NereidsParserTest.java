@@ -1729,17 +1729,23 @@ public class NereidsParserTest extends ParserTestBase {
             for (int count : new int[] {0, 3, 100}) {
                 for (boolean toSparse : new boolean[] {false, true}) {
                     for (int shards : new int[] {0, 2}) {
-                        allowed.add(head + "\"variant_max_subcolumns_count\" = \"" + count
-                                + "\", \"variant_enable_typed_paths_to_sparse\" = \"" + toSparse
-                                + "\", \"variant_sparse_hash_shard_count\" = \"" + shards + "\")>");
+                        for (int minRows : new int[] {0, 10, 100}) {
+                            allowed.add(head + "\"variant_max_subcolumns_count\" = \"" + count
+                                    + "\", \"variant_enable_typed_paths_to_sparse\" = \"" + toSparse
+                                    + "\", \"variant_sparse_shard_count\" = \"" + shards
+                                    + "\", \"variant_subcolumn_extraction_min_rows\" = \"" + minRows + "\")>");
+                        }
                     }
                 }
             }
-            for (int minRows : new int[] {0, 100}) {
-                for (int docShards : new int[] {1, 2}) {
-                    allowed.add(head + "\"variant_enable_doc_mode\" = \"true\", "
-                            + "\"variant_doc_materialization_min_rows\" = \"" + minRows
-                            + "\", \"variant_doc_hash_shard_count\" = \"" + docShards + "\")>");
+            for (int count : new int[] {0, 3}) {
+                for (int minRows : new int[] {0, 100}) {
+                    for (int shards : new int[] {1, 2}) {
+                        allowed.add(head + "\"variant_enable_doc_mode\" = \"true\", "
+                                + "\"variant_max_subcolumns_count\" = \"" + count
+                                + "\", \"variant_subcolumn_extraction_min_rows\" = \"" + minRows
+                                + "\", \"variant_sparse_shard_count\" = \"" + shards + "\")>");
+                    }
                 }
             }
             allowed.add(head + "\"variant_enable_nested_group\" = \"true\", "
@@ -1750,15 +1756,80 @@ public class NereidsParserTest extends ParserTestBase {
         }
         String doc = "\"variant_enable_doc_mode\" = \"true\"";
         String[] rejected = {
-                "variant<PROPERTIES(" + doc + ", \"variant_max_subcolumns_count\" = \"0\")>",
                 "variant<PROPERTIES(" + doc + ", \"variant_enable_typed_paths_to_sparse\" = \"true\")>",
-                "variant<PROPERTIES(" + doc + ", \"variant_sparse_hash_shard_count\" = \"2\")>",
+                "variant<PROPERTIES(" + doc + ", \"variant_max_sparse_column_statistics_size\" = \"100\")>",
                 "variant<PROPERTIES(" + doc + ", \"variant_enable_nested_group\" = \"true\")>",
                 "variant<PROPERTIES(\"variant_enable_nested_group\" = \"true\", "
-                        + "\"variant_max_subcolumns_count\" = \"3\")>"};
+                        + "\"variant_max_subcolumns_count\" = \"3\")>",
+                // a deprecated name cannot be set beside the property that replaced it
+                "variant<PROPERTIES(\"variant_sparse_shard_count\" = \"2\", "
+                        + "\"variant_sparse_hash_shard_count\" = \"2\")>",
+                "variant<PROPERTIES(\"variant_sparse_hash_shard_count\" = \"2\", "
+                        + "\"variant_doc_hash_shard_count\" = \"2\")>",
+                "variant<PROPERTIES(\"variant_subcolumn_extraction_min_rows\" = \"2\", "
+                        + "\"variant_doc_materialization_min_rows\" = \"2\")>"};
         for (String type : rejected) {
             Assertions.assertThrows(Exception.class, () -> parser.parseDataType(type), type);
         }
+    }
+
+    @Test
+    public void testVariantDocModeIsASeparateSwitch() {
+        // the property sets of the VARIANT tuning examples, with doc mode stated on or off
+        NereidsParser parser = new NereidsParser();
+        org.apache.doris.nereids.types.VariantType deferred = (org.apache.doris.nereids.types.VariantType)
+                parser.parseDataType("variant<PROPERTIES(\"variant_max_subcolumns_count\" = \"128\", "
+                        + "\"variant_subcolumn_extraction_min_rows\" = \"1000\", "
+                        + "\"variant_enable_doc_mode\" = \"false\")>");
+        Assertions.assertEquals(128, deferred.getVariantMaxSubcolumnsCount());
+        Assertions.assertEquals(1000L, deferred.getvariantDocMaterializationMinRows());
+        Assertions.assertFalse(deferred.getEnableVariantDocMode());
+
+        org.apache.doris.nereids.types.VariantType documents = (org.apache.doris.nereids.types.VariantType)
+                parser.parseDataType("variant<PROPERTIES(\"variant_max_subcolumns_count\" = \"2\", "
+                        + "\"variant_subcolumn_extraction_min_rows\" = \"0\", "
+                        + "\"variant_enable_doc_mode\" = \"true\")>");
+        Assertions.assertEquals(2, documents.getVariantMaxSubcolumnsCount());
+        Assertions.assertTrue(documents.getEnableVariantDocMode());
+        Assertions.assertEquals(TVariantSerializeType.V2, documents.getVariantSerializeType());
+        Assertions.assertTrue(documents.toSql().contains("\"variant_max_subcolumns_count\" = \"2\""),
+                documents.toSql());
+
+        // one shard count fills both stored fields, in either mode
+        for (String mode : new String[] {"true", "false"}) {
+            org.apache.doris.nereids.types.VariantType sharded = (org.apache.doris.nereids.types.VariantType)
+                    parser.parseDataType("variant<PROPERTIES(\"variant_enable_doc_mode\" = \"" + mode
+                            + "\", \"variant_sparse_shard_count\" = \"4\")>");
+            Assertions.assertEquals(4, sharded.getVariantSparseHashShardCount(), mode);
+            Assertions.assertEquals(4, sharded.getVariantDocShardCount(), mode);
+            Assertions.assertTrue(sharded.toSql().contains("\"variant_sparse_shard_count\" = \"4\""),
+                    sharded.toSql());
+        }
+    }
+
+    @Test
+    public void testVariantDeprecatedPropertyNames() {
+        // what older versions print in SHOW CREATE TABLE parses, read as the properties that replaced it
+        NereidsParser parser = new NereidsParser();
+        org.apache.doris.nereids.types.VariantType ordinary = (org.apache.doris.nereids.types.VariantType)
+                parser.parseDataType("variant<PROPERTIES (\"variant_max_subcolumns_count\" = \"2048\","
+                        + "\"variant_enable_typed_paths_to_sparse\" = \"false\","
+                        + "\"variant_max_sparse_column_statistics_size\" = \"10000\","
+                        + "\"variant_sparse_hash_shard_count\" = \"4\")>");
+        Assertions.assertEquals(4, ordinary.getVariantSparseHashShardCount());
+        Assertions.assertEquals(4, ordinary.getVariantDocShardCount());
+
+        org.apache.doris.nereids.types.VariantType doc = (org.apache.doris.nereids.types.VariantType)
+                parser.parseDataType("variant<PROPERTIES (\"variant_enable_doc_mode\" = \"true\","
+                        + "\"variant_doc_materialization_min_rows\" = \"100\","
+                        + "\"variant_doc_hash_shard_count\" = \"8\")>");
+        Assertions.assertEquals(100L, doc.getvariantDocMaterializationMinRows());
+        Assertions.assertEquals(8, doc.getVariantDocShardCount());
+        Assertions.assertEquals(8, doc.getVariantSparseHashShardCount());
+        Assertions.assertTrue(doc.toSql().contains("\"variant_subcolumn_extraction_min_rows\" = \"100\""), doc.toSql());
+        Assertions.assertTrue(doc.toSql().contains("\"variant_sparse_shard_count\" = \"8\""), doc.toSql());
+        Assertions.assertFalse(doc.toSql().contains("hash_shard_count"), doc.toSql());
+        Assertions.assertFalse(doc.toSql().contains("doc_materialization"), doc.toSql());
     }
 
     @Test

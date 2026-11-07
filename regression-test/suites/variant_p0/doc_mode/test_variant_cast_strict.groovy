@@ -21,8 +21,8 @@ suite("test_variant_cast_strict", "p0") {
     // forbid setting max_subcolumns_count and enable_doc_mode together).
     sql """ set default_variant_enable_doc_mode = true """
     sql """ set default_variant_max_subcolumns_count = 37 """
-    sql """ set default_variant_doc_materialization_min_rows = 8 """
-    sql """ set default_variant_doc_hash_shard_count = 7 """
+    sql """ set default_variant_subcolumn_extraction_min_rows = 8 """
+    sql """ set default_variant_sparse_shard_count = 7 """
 
     def t = "variant_cast_strict"
     sql """ DROP TABLE IF EXISTS ${t} """

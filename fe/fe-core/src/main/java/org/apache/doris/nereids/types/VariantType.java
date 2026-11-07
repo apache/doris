@@ -187,11 +187,8 @@ public class VariantType extends PrimitiveType {
             sb.append("\"variant_enable_doc_mode\" = \"")
                                     .append(String.valueOf(enableVariantDocMode)).append("\"");
             sb.append(",");
-            sb.append("\"variant_doc_materialization_min_rows\" = \"")
-                                    .append(String.valueOf(variantDocMaterializationMinRows)).append("\"");
-            sb.append(",");
-            sb.append("\"variant_doc_hash_shard_count\" = \"")
-                                    .append(String.valueOf(variantDocShardCount)).append("\"");
+            sb.append("\"variant_max_subcolumns_count\" = \"")
+                                    .append(String.valueOf(variantMaxSubcolumnsCount)).append("\"");
         } else {
             sb.append("\"variant_max_subcolumns_count\" = \"")
                                     .append(String.valueOf(variantMaxSubcolumnsCount)).append("\"");
@@ -202,12 +199,16 @@ public class VariantType extends PrimitiveType {
             sb.append("\"variant_max_sparse_column_statistics_size\" = \"")
                                     .append(String.valueOf(variantMaxSparseColumnStatisticsSize))
                                     .append("\"");
-            sb.append(",");
-            // Output at least 1 for backward compatibility: old data without this parameter defaults to 0
-            sb.append("\"variant_sparse_hash_shard_count\" = \"")
-                                    .append(String.valueOf(Math.max(1, variantSparseHashShardCount)))
-                                    .append("\"");
         }
+        sb.append(",");
+        sb.append("\"variant_subcolumn_extraction_min_rows\" = \"")
+                                .append(String.valueOf(variantDocMaterializationMinRows)).append("\"");
+        sb.append(",");
+        // The stored field that the column's mode reads: a column created by an older version set only that
+        // one. Output at least 1 for backward compatibility: old data without the parameter defaults to 0.
+        sb.append("\"variant_sparse_shard_count\" = \"")
+                .append(String.valueOf(Math.max(1, enableVariantDocMode ? variantDocShardCount
+                        : variantSparseHashShardCount))).append("\"");
         if (enableNestedGroup) {
             sb.append(",");
             sb.append("\"variant_enable_nested_group\" = \"")

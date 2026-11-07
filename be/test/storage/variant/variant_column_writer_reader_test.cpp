@@ -5507,6 +5507,18 @@ TEST_P(VariantSpecializedWriterCompatibilityTest, doc_compact_writer_round_trip)
     RowsetWriterContext rowset_ctx;
     rowset_ctx.write_type = DataWriteType::TYPE_DIRECT;
     rowset_ctx.tablet_schema = _tablet_schema;
+    // A doc value column is only in a compaction output schema, which chooses the dynamic paths
+    // that every doc bucket extracts; here up to the count of 3, all of them in bucket 0.
+    auto compaction_paths = std::make_shared<VariantCompactionPathsMap>();
+    auto& extracted_paths = (*compaction_paths)[parent_column.unique_id()].sub_path_set;
+    for (int j = 0; j < 10 && extracted_paths.size() < 3; ++j) {
+        const std::string key = "key" + std::to_string(j);
+        if (variant_util::variant_binary_shard_of(StringRef {key.data(), key.size()},
+                                                  kDocBuckets) == static_cast<uint32_t>(kBucket)) {
+            extracted_paths.insert(key);
+        }
+    }
+    rowset_ctx.variant_compaction_paths = compaction_paths;
 
     ColumnWriterOptions root_opts;
     root_opts.meta = footer.add_columns();
@@ -5728,6 +5740,10 @@ TEST_F(VariantColumnWriterReaderTest, test_doc_compact_sparse_write_array_gap) {
     RowsetWriterContext rowset_ctx;
     rowset_ctx.write_type = DataWriteType::TYPE_DIRECT;
     rowset_ctx.tablet_schema = _tablet_schema;
+    // A doc value column is only in a compaction output schema, which chose `arr` to extract.
+    auto compaction_paths = std::make_shared<VariantCompactionPathsMap>();
+    (*compaction_paths)[parent_column.unique_id()].sub_path_set.insert("arr");
+    rowset_ctx.variant_compaction_paths = compaction_paths;
 
     TabletColumn extracted_doc_bucket_col = _tablet_schema->column(1);
     ColumnWriterOptions doc_compact_opts;

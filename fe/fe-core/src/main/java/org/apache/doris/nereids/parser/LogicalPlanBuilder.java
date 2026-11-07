@@ -5443,22 +5443,22 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 ConnectContext.get().getSessionVariable().getDefaultEnableTypedPathsToSparse();
         int variantMaxSparseColumnStatisticsSize = ConnectContext.get() == null ? 0 :
                 ConnectContext.get().getSessionVariable().getDefaultVariantMaxSparseColumnStatisticsSize();
-        // default no bucketing
-        int variantSparseHashShardCount = ConnectContext.get() == null ? 0 :
-                ConnectContext.get().getSessionVariable().getDefaultVariantSparseHashShardCount();
+        // The shard count of the sparse encoding in either mode. It is stored in both old fields,
+        // variantSparseHashShardCount and variantDocShardCount, so the metadata keeps its format.
+        int variantSparseShardCount = ConnectContext.get() == null ? 0 :
+                ConnectContext.get().getSessionVariable().getDefaultVariantSparseShardCount();
 
         boolean enableVariantDocMode = ConnectContext.get() == null ? false :
                 ConnectContext.get().getSessionVariable().getDefaultVariantEnableDocMode();
+        // variant_subcolumn_extraction_min_rows, stored in the old variantDocMaterializationMinRows field
         long variantDocMaterializationMinRows = ConnectContext.get() == null ? 0L :
-                ConnectContext.get().getSessionVariable().getDefaultVariantDocMaterializationMinRows();
-        int variantDocHashShardCount = ConnectContext.get() == null ? 128 :
-                ConnectContext.get().getSessionVariable().getDefaultVariantDocHashShardCount();
+                ConnectContext.get().getSessionVariable().getDefaultVariantSubcolumnExtractionMinRows();
 
         boolean enableNestedGroup = ConnectContext.get() == null ? true :
                 ConnectContext.get().getSessionVariable().getDefaultVariantEnableNestedGroup();
 
         try {
-            // validate properties: variant_enable_doc_mode cannot be set together with other properties
+            // validate properties and read deprecated names as the properties that replaced them
             PropertyAnalyzer.validateVariantProperties(properties);
 
             variantMaxSubcolumnsCount = PropertyAnalyzer
@@ -5467,14 +5467,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                                         .analyzeEnableTypedPathsToSparse(properties, enableTypedPathsToSparse);
             variantMaxSparseColumnStatisticsSize = PropertyAnalyzer.analyzeVariantMaxSparseColumnStatisticsSize(
                                         properties, variantMaxSparseColumnStatisticsSize);
-            variantSparseHashShardCount =
-                    PropertyAnalyzer.analyzeVariantSparseHashShardCount(properties, variantSparseHashShardCount);
+            variantSparseShardCount =
+                    PropertyAnalyzer.analyzeVariantSparseShardCount(properties, variantSparseShardCount);
             enableVariantDocMode = PropertyAnalyzer
                     .analyzeEnableVariantDocMode(properties, enableVariantDocMode);
             variantDocMaterializationMinRows = PropertyAnalyzer
-                    .analyzeVariantDocMaterializationMinRows(properties, variantDocMaterializationMinRows);
-            variantDocHashShardCount = PropertyAnalyzer
-                    .analyzeVariantDocHashShardCount(properties, variantDocHashShardCount);
+                    .analyzeVariantSubcolumnExtractionMinRows(properties, variantDocMaterializationMinRows);
             enableNestedGroup = PropertyAnalyzer
                     .analyzeEnableNestedGroup(properties, enableNestedGroup);
         } catch (org.apache.doris.common.AnalysisException e) {
@@ -5486,16 +5484,15 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             variantMaxSubcolumnsCount = 0;
             enableTypedPathsToSparse = false;
             variantMaxSparseColumnStatisticsSize = 0;
-            variantSparseHashShardCount = 0;
+            variantSparseShardCount = 0;
+            variantDocMaterializationMinRows = 0;
         }
 
-        // When doc mode is enabled, disable subcolumn extraction and sparse column features
+        // Doc mode keeps the whole document beside the subcolumns; the subcolumn count, the row threshold
+        // and the shard count apply as without it
         if (enableVariantDocMode) {
-            // Disable sparse column features
-            variantMaxSubcolumnsCount = 0;
             enableTypedPathsToSparse = false;
             variantMaxSparseColumnStatisticsSize = 0;
-            variantSparseHashShardCount = 0;
             // Validate that all typed fields use data types supported in doc mode
             // document mode only supports string, integral, float, and boolean types
             for (VariantField field : fields) {
@@ -5512,10 +5509,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                             + " is not supported when variant_enable_doc_mode is true");
                 }
             }
-        } else {
-            // When doc mode is disabled, clear doc mode specific settings
-            variantDocMaterializationMinRows = 0;
-            variantDocHashShardCount = 0;
         }
 
         if (!properties.isEmpty()) {
@@ -5523,16 +5516,15 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     + PropertyAnalyzer.PROPERTIES_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE
                     + " and " + PropertyAnalyzer.PROPERTIES_VARIANT_MAX_SUBCOLUMNS_COUNT
                     + " and " + PropertyAnalyzer.PROPERTIES_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE
-                    + " and " + PropertyAnalyzer.PROPERTIES_VARIANT_SPARSE_HASH_SHARD_COUNT
+                    + " and " + PropertyAnalyzer.PROPERTIES_VARIANT_SPARSE_SHARD_COUNT
                     + " and " + PropertyAnalyzer.PROPERTIES_VARIANT_ENABLE_DOC_MODE
-                    + " and " + PropertyAnalyzer.PROPERTIES_VARIANT_DOC_MATERIALIZATION_MIN_ROWS
-                    + " and " + PropertyAnalyzer.PROPERTIES_VARIANT_DOC_HASH_SHARD_COUNT
+                    + " and " + PropertyAnalyzer.PROPERTIES_VARIANT_SUBCOLUMN_EXTRACTION_MIN_ROWS
                     + " and " + PropertyAnalyzer.PROPERTIES_VARIANT_ENABLE_NESTED_GROUP);
         }
 
         return new VariantType(fields, variantMaxSubcolumnsCount, enableTypedPathsToSparse,
-                    variantMaxSparseColumnStatisticsSize, variantSparseHashShardCount,
-                    enableVariantDocMode, variantDocMaterializationMinRows, variantDocHashShardCount,
+                    variantMaxSparseColumnStatisticsSize, variantSparseShardCount,
+                    enableVariantDocMode, variantDocMaterializationMinRows, variantSparseShardCount,
                     // internal, not a property: a declared column is always new, and only old metadata is V1
                     enableNestedGroup, TVariantSerializeType.V2);
     }

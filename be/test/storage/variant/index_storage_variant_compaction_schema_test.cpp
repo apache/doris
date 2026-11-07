@@ -224,11 +224,54 @@ TEST_F(IndexStorageVariantCompactionSchemaTest,
     EXPECT_TRUE(schema_has_extracted_variant_path(*compaction_schema, 2, "cold"));
 }
 
-// Every VARIANT parameter combination the FE accepts (PropertyAnalyzer.validateVariantProperties and
-// LogicalPlanBuilder.visitVariantType): doc mode excludes the subcolumn count, typed paths to sparse
-// and sparse shards; nested group excludes doc mode and a count above 0. For each one the writer's
-// layout, the compaction schema and the compacted layout must follow the same rule, and compaction
-// must keep every value.
+// A compaction can write fewer rows than variant_subcolumn_extraction_min_rows although its inputs
+// already extracted subcolumns, when an earlier compaction extracted them from more rows than it
+// kept (rows merged or deleted): those paths go to the sparse column instead of being dropped.
+TEST_F(IndexStorageVariantCompactionSchemaTest,
+       VariantRowThresholdAboveCompactionRowsFoldsExtractedInputsIntoSparse) {
+    VariantColumnSpec variant;
+    variant.unique_id = 2;
+    variant.name = "v";
+    variant.max_subcolumns_count = 2;
+    variant.serialize_type = VariantSerializeTypePB::VARIANT_SERIALIZE_V2;
+
+    IndexTabletOptions options;
+    options.tablet_id = 110055;
+    options.variant_columns = {std::move(variant)};
+    ASSERT_TRUE(create_tablet(options).ok());
+
+    IndexRowsetSpec rowset;
+    rowset.version = 0;
+    rowset.batches.push_back(IndexBatch::single_variant(
+            {R"({"alpha": "a0", "beta": "b0"})", R"({"alpha": "a1", "beta": "b1"})"}, 0));
+    auto rowset_result = write_rowset(rowset);
+    ASSERT_TRUE(rowset_result.has_value()) << rowset_result.error();
+    auto written = probe_rowset(rowset_result.value());
+    ASSERT_TRUE(written.has_value()) << written.error();
+    ASSERT_TRUE(has_variant_layout(written.value(), 2, "alpha"));
+    ASSERT_TRUE(has_variant_layout(written.value(), 2, "beta"));
+
+    auto compaction_schema = std::make_shared<TabletSchema>(*tablet_schema());
+    compaction_schema->mutable_column_by_uid(2).set_variant_doc_materialization_min_rows(100);
+    VariantCompactionPathsMap compaction_paths;
+    auto status = variant_util::VariantCompactionUtil::get_extended_compaction_schema(
+            {rowset_result.value()}, compaction_schema, compaction_paths);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+
+    const auto* path_set_info = compaction_paths.contains(2) ? &compaction_paths.at(2) : nullptr;
+    ASSERT_NE(path_set_info, nullptr);
+    EXPECT_TRUE(path_set_info->sub_path_set.empty());
+    EXPECT_TRUE(path_set_info->sparse_path_set.contains(StringRef("alpha")));
+    EXPECT_TRUE(path_set_info->sparse_path_set.contains(StringRef("beta")));
+    EXPECT_FALSE(schema_has_extracted_variant_path(*compaction_schema, 2, "alpha"));
+    EXPECT_FALSE(schema_has_extracted_variant_path(*compaction_schema, 2, "beta"));
+}
+
+// Every VARIANT parameter combination the FE accepts (PropertyAnalyzer.validateVariantProperties
+// and LogicalPlanBuilder.visitVariantType): doc mode excludes typed paths to sparse, while the
+// subcolumn count, the row threshold and the shard count apply with and without it; nested group
+// excludes doc mode and a count above 0. For each one the writer's layout, the compaction schema
+// and the compacted layout must follow the same rule, and compaction must keep every value.
 namespace {
 
 enum class Layout { ORDINARY, DOC, NESTED_GROUP };
@@ -270,22 +313,29 @@ std::vector<MatrixCase> all_cases() {
             for (int32_t count : {0, 3, 100}) {
                 for (bool to_sparse : {false, true}) {
                     for (int32_t shards : {0, 2}) {
-                        cases.push_back({.layout = Layout::ORDINARY,
-                                         .serialize_type = serialize_type,
-                                         .max_subcolumns_count = count,
-                                         .typed_paths_to_sparse = to_sparse,
-                                         .with_template = with_template,
-                                         .sparse_hash_shard_count = shards});
+                        // 10 defers 7-row writes until compaction merges 14 rows, 100 both
+                        for (int64_t min_rows : {0, 10, 100}) {
+                            cases.push_back({.layout = Layout::ORDINARY,
+                                             .serialize_type = serialize_type,
+                                             .max_subcolumns_count = count,
+                                             .typed_paths_to_sparse = to_sparse,
+                                             .with_template = with_template,
+                                             .sparse_hash_shard_count = shards,
+                                             .doc_materialization_min_rows = min_rows});
+                        }
                     }
                 }
             }
-            for (int64_t min_rows : {0, 100}) {
-                for (int32_t doc_shards : {1, 2}) {
-                    cases.push_back({.layout = Layout::DOC,
-                                     .serialize_type = serialize_type,
-                                     .with_template = with_template,
-                                     .doc_materialization_min_rows = min_rows,
-                                     .doc_hash_shard_count = doc_shards});
+            for (int32_t count : {0, 3}) {
+                for (int64_t min_rows : {0, 100}) {
+                    for (int32_t doc_shards : {1, 2}) {
+                        cases.push_back({.layout = Layout::DOC,
+                                         .serialize_type = serialize_type,
+                                         .max_subcolumns_count = count,
+                                         .with_template = with_template,
+                                         .doc_materialization_min_rows = min_rows,
+                                         .doc_hash_shard_count = doc_shards});
+                    }
                 }
             }
             cases.push_back({.layout = Layout::NESTED_GROUP,
@@ -326,10 +376,12 @@ std::vector<std::string> nested_group_rows() {
             R"({"owner": "carol", "items": [{"sku": "c", "qty": 3}]})"};
 }
 
-// The paths an ordinary VARIANT materializes: the typed path `t` unless typed paths go to the
-// sparse column (then it competes with the dynamic paths), and the most frequent dynamic paths up
-// to the count, where a count of 0 means every one under V1 and none under V2.
-std::vector<std::string> expected_materialized(const MatrixCase& c) {
+// The paths an ordinary VARIANT materializes in a file of `rows` rows: the typed path `t` unless
+// typed paths go to the sparse column (then it competes with the dynamic paths), and the most
+// frequent dynamic paths up to the count, where a count of 0 means every one under V1 and none
+// under V2. A V2 file below the row threshold materializes no dynamic path; V1 ignores the
+// threshold.
+std::vector<std::string> expected_materialized(const MatrixCase& c, int64_t rows) {
     const bool typed_fixed = c.with_template && !c.typed_paths_to_sparse;
     std::vector<std::string> dynamic;
     for (const auto& path : ORDINARY_PATHS) {
@@ -342,11 +394,26 @@ std::vector<std::string> expected_materialized(const MatrixCase& c) {
         selected = c.serialize_type == VariantSerializeTypePB::VARIANT_SERIALIZE_V1 ? dynamic.size()
                                                                                     : 0;
     }
+    if (c.serialize_type == VariantSerializeTypePB::VARIANT_SERIALIZE_V2 &&
+        rows < c.doc_materialization_min_rows) {
+        selected = 0;
+    }
     std::vector<std::string> result(dynamic.begin(), dynamic.begin() + selected);
     if (typed_fixed) {
         result.emplace_back("t");
     }
     return result;
+}
+
+// The paths a doc VARIANT materializes beside the document in a file of `rows` rows: none below the
+// row threshold, and otherwise those of an ordinary V2 column, whatever its serialize type.
+std::vector<std::string> expected_doc_materialized(const MatrixCase& c, int64_t rows) {
+    if (rows < c.doc_materialization_min_rows) {
+        return {};
+    }
+    MatrixCase as_v2 = c;
+    as_v2.serialize_type = VariantSerializeTypePB::VARIANT_SERIALIZE_V2;
+    return expected_materialized(as_v2, rows);
 }
 
 size_t count_extracted_with_prefix(const TabletSchema& schema, std::string_view prefix) {
@@ -417,9 +484,11 @@ TEST_P(VariantCompactionSchemaMatrixTest, WriterCompactionSchemaAndCompactedLayo
     ASSERT_TRUE(status.ok()) << status.to_string();
     const size_t sparse_columns =
             count_extracted_with_prefix(*compaction_schema, SPARSE_COLUMN_PATH);
+    const auto written_rows = static_cast<int64_t>(rows.size());
+    const auto compacted_rows = static_cast<int64_t>(rows.size() * 2);
     switch (c.layout) {
     case Layout::ORDINARY: {
-        const auto materialized = expected_materialized(c);
+        const auto materialized = expected_materialized(c, compacted_rows);
         for (const auto& path : ORDINARY_PATHS) {
             const bool expect = std::ranges::find(materialized, path) != materialized.end();
             EXPECT_EQ(schema_has_extracted_variant_path(*compaction_schema, 2, path), expect)
@@ -455,10 +524,12 @@ TEST_P(VariantCompactionSchemaMatrixTest, WriterCompactionSchemaAndCompactedLayo
     auto compacted_probe = probe_rowset(compacted.value());
     ASSERT_TRUE(compacted_probe.has_value()) << compacted_probe.error();
     for (const auto* probe : {&written.value(), &compacted_probe.value()}) {
-        const std::string which = probe == &written.value() ? "written " : "compacted ";
+        const bool is_written = probe == &written.value();
+        const std::string which = is_written ? "written " : "compacted ";
+        const int64_t file_rows = is_written ? written_rows : compacted_rows;
         switch (c.layout) {
         case Layout::ORDINARY: {
-            const auto materialized = expected_materialized(c);
+            const auto materialized = expected_materialized(c, file_rows);
             for (const auto& path : ORDINARY_PATHS) {
                 const bool expect = std::ranges::find(materialized, path) != materialized.end();
                 EXPECT_EQ(has_variant_layout(*probe, 2, path), expect) << which << path;
@@ -466,9 +537,15 @@ TEST_P(VariantCompactionSchemaMatrixTest, WriterCompactionSchemaAndCompactedLayo
             }
             break;
         }
-        case Layout::DOC:
+        case Layout::DOC: {
             EXPECT_TRUE(has_doc_value_column(*probe)) << which;
+            const auto materialized = expected_doc_materialized(c, file_rows);
+            for (const auto& path : ORDINARY_PATHS) {
+                const bool expect = std::ranges::find(materialized, path) != materialized.end();
+                EXPECT_EQ(has_variant_layout(*probe, 2, path), expect) << which << path;
+            }
             break;
+        }
         case Layout::NESTED_GROUP:
             EXPECT_TRUE(has_variant_layout(*probe, 2, "owner")) << which;
             break;

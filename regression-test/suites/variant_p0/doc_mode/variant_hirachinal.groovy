@@ -18,7 +18,7 @@
 suite("variant_hirachinal_doc_value", "nonConcurrent"){
     def variantV2Function = "parse_to_variant"
     sql """ set default_variant_enable_doc_mode = true """
-    sql """ set default_variant_doc_materialization_min_rows = 0 """
+    sql """ set default_variant_subcolumn_extraction_min_rows = 0 """
     def set_be_config = { key, value ->
         String backend_id;
         def backendId_to_backendIP = [:]
@@ -72,7 +72,7 @@ suite("variant_hirachinal_doc_value", "nonConcurrent"){
 
     sql "DROP TABLE IF EXISTS ${table_name}"
 
-    sql """ set default_variant_doc_materialization_min_rows = 0 """
+    sql """ set default_variant_subcolumn_extraction_min_rows = 0 """
     sql """
         CREATE TABLE IF NOT EXISTS ${table_name} (
             k bigint,

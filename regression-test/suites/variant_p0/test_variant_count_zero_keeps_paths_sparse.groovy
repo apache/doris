@@ -19,7 +19,7 @@ suite("test_variant_count_zero_keeps_paths_sparse") {
     sql " set default_variant_enable_doc_mode = false "
     sql """ set default_variant_enable_typed_paths_to_sparse = false """
     sql """ set default_variant_max_sparse_column_statistics_size = 10 """
-    sql """ set default_variant_sparse_hash_shard_count = 0 """
+    sql """ set default_variant_sparse_shard_count = 0 """
     sql """ set describe_extend_variant_column = true """
 
     // a count of 0 keeps every dynamic path sparse, while template paths and a positive count give subcolumns

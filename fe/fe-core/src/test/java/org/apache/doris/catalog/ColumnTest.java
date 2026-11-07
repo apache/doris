@@ -221,6 +221,35 @@ public class ColumnTest {
     }
 
     @Test
+    public void testVariantSchemaChangeComparesWhatTheModeReads() throws DdlException {
+        // a column created before doc mode existed reads its doc shard count as the default 64
+        Column ordinary = new Column("v", new VariantType(new ArrayList<>(), 2048, false, 10000, 2, false, 0L, 64,
+                false, TVariantSerializeType.V1), false, null, true, null, "");
+        // a restated definition stores its shard count in both fields
+        ordinary.checkSchemaChangeAllowed(new Column("v", new VariantType(new ArrayList<>(), 2048, false, 10000, 2,
+                false, 0L, 2, false, TVariantSerializeType.V2), false, null, true, null, ""));
+        Assertions.assertThrows(DdlException.class, () -> ordinary.checkSchemaChangeAllowed(new Column("v",
+                new VariantType(new ArrayList<>(), 2048, false, 10000, 3, false, 0L, 3, false,
+                        TVariantSerializeType.V2), false, null, true, null, "")));
+
+        // the row threshold cannot change, with or without doc mode
+        Assertions.assertThrows(DdlException.class, () -> ordinary.checkSchemaChangeAllowed(new Column("v",
+                new VariantType(new ArrayList<>(), 2048, false, 10000, 2, false, 100L, 2, false,
+                        TVariantSerializeType.V2), false, null, true, null, "")));
+        Column doc = new Column("v", new VariantType(new ArrayList<>(), 0, false, 0, 0, true, 10L, 8, false,
+                TVariantSerializeType.V1), false, null, true, null, "");
+        doc.checkSchemaChangeAllowed(new Column("v", new VariantType(new ArrayList<>(), 0, false, 0, 8, true, 10L, 8,
+                false, TVariantSerializeType.V2), false, null, true, null, ""));
+        Assertions.assertThrows(DdlException.class, () -> doc.checkSchemaChangeAllowed(new Column("v",
+                new VariantType(new ArrayList<>(), 0, false, 0, 8, true, 2L, 8, false, TVariantSerializeType.V2),
+                false, null, true, null, "")));
+        // doc mode gives the count one meaning, also on a column of an older version
+        Assertions.assertThrows(DdlException.class, () -> doc.checkSchemaChangeAllowed(new Column("v",
+                new VariantType(new ArrayList<>(), 2048, false, 0, 8, true, 10L, 8, false, TVariantSerializeType.V2),
+                false, null, true, null, "")));
+    }
+
+    @Test
     public void testSchemaChangeArrayToArray() throws DdlException {
         Column oldColumn = new Column("a", ArrayType.create(Type.TINYINT, true), false, null, true, "0", "");
         Column newColumn = new Column("a", ArrayType.create(Type.INT, true), false, null, true, "0", "");

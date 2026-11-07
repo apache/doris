@@ -23,7 +23,7 @@ suite("variant_compute_v2", "p0") {
     sql "SET default_variant_max_subcolumns_count = 0"
     sql "SET default_variant_enable_typed_paths_to_sparse = false"
     sql "SET default_variant_max_sparse_column_statistics_size = 10000"
-    sql "SET default_variant_sparse_hash_shard_count = 1"
+    sql "SET default_variant_sparse_shard_count = 1"
     def segmentScanTable = "variant_v2_segment_scan"
     sql "DROP TABLE IF EXISTS ${segmentScanTable}"
     sql """

@@ -183,6 +183,57 @@ PathToDataTypes collect_regular_types_outside_nested_group(
     return regular_path_to_data_types;
 }
 
+namespace {
+
+// The document holds every path of a doc column, so its statistics rank them.
+void add_doc_value_path_stats(const segment_v2::VariantStatistics& stats,
+                              PathToNoneNullValues& path_to_none_null_values) {
+    for (const auto& [path, size] : stats.doc_value_column_non_null_size) {
+        path_to_none_null_values[path] += size;
+    }
+}
+
+// The dynamic paths a doc column extracts in compaction. Each doc bucket is written by its own
+// writer, which sees only the paths of its bucket, so they are chosen here once from the statistics
+// of all inputs. Typed paths are extracted besides and do not count. Doc mode has one meaning of the
+// count whatever the serialize type: 0 extracts no dynamic path.
+void choose_doc_compaction_subpaths(const TabletSchema& target, const TabletColumn& column,
+                                    const PathToNoneNullValues& path_stats,
+                                    VariantCompactionPaths& paths_set_info) {
+    PathToNoneNullValues dynamic_path_stats;
+    for (const auto& [path, size] : path_stats) {
+        TabletSchema::SubColumnInfo typed_info;
+        if (!generate_sub_column_info(target, column.unique_id(), path, &typed_info)) {
+            dynamic_path_stats.emplace(path, size);
+        }
+    }
+    VariantCompactionUtil::get_subpaths(column.variant_max_subcolumns_count(),
+                                        VariantSerializeTypePB::VARIANT_SERIALIZE_V2,
+                                        dynamic_path_stats, paths_set_info);
+}
+
+// The subpaths a compaction extracts for a column without doc mode. A V2 column writing fewer rows
+// than variant_subcolumn_extraction_min_rows extracts no dynamic path: every path goes to the
+// sparse column, also the subcolumns of an input that an earlier compaction extracted from more
+// rows than it kept (rows merged or deleted). A V1 column ignores the threshold, as it always did
+// without doc mode.
+void choose_compaction_subpaths(const TabletColumn& column, int64_t input_rows,
+                                const PathToNoneNullValues& path_stats,
+                                VariantCompactionPaths& paths_set_info) {
+    if (column.variant_serialize_type() == VariantSerializeTypePB::VARIANT_SERIALIZE_V2 &&
+        input_rows < column.variant_doc_materialization_min_rows()) {
+        for (const auto& [path, _] : path_stats) {
+            paths_set_info.sparse_path_set.emplace(path);
+        }
+        return;
+    }
+    VariantCompactionUtil::get_subpaths(column.variant_max_subcolumns_count(),
+                                        column.variant_serialize_type(), path_stats,
+                                        paths_set_info);
+}
+
+} // namespace
+
 size_t get_number_of_dimensions(const IDataType& type) {
     if (const auto* type_array = typeid_cast<const DataTypeArray*>(&type)) {
         return type_array->get_number_of_dimensions();
@@ -824,7 +875,9 @@ Status VariantCompactionUtil::aggregate_variant_extended_info(
             const auto* source_stats = variant_column_reader->get_stats();
             CHECK(source_stats);
 
-            if (!column->variant_enable_nested_group()) {
+            if (column->variant_enable_doc_mode()) {
+                add_doc_value_path_stats(*source_stats, extended_info.path_to_none_null_values);
+            } else if (!column->variant_enable_nested_group()) {
                 // NG roots still need type metadata for regular subpaths such as `v.owner`,
                 // but their compaction schema should not be driven by flat path stats.
                 for (const auto& [path, size] : source_stats->sparse_column_non_null_size) {
@@ -1179,6 +1232,13 @@ Status VariantCompactionUtil::get_extended_compaction_schema(
         }
     }
 
+    // The rows this compaction writes, compared with variant_subcolumn_extraction_min_rows below.
+    // A load decides per segment; here the whole output stands for its segments.
+    int64_t input_rows = 0;
+    for (const auto& rs : rowsets) {
+        input_rows += rs->num_rows();
+    }
+
     // build the output schema
     TabletSchemaSPtr output_schema = std::make_shared<TabletSchema>();
     output_schema->shawdow_copy_without_columns(*target);
@@ -1226,6 +1286,8 @@ Status VariantCompactionUtil::get_extended_compaction_schema(
             for (int b = 0; b < bucket_num; ++b) {
                 output_schema->append_column(create_doc_value_compaction_column(*column, b));
             }
+            choose_doc_compaction_subpaths(*target, *column, extended_info.path_to_none_null_values,
+                                           paths_set_info);
             continue;
         }
 
@@ -1239,8 +1301,8 @@ Status VariantCompactionUtil::get_extended_compaction_schema(
                                                       output_schema, paths_set_info));
 
         // 3. get the subpaths
-        get_subpaths(column->variant_max_subcolumns_count(), column->variant_serialize_type(),
-                     extended_info.path_to_none_null_values, paths_set_info);
+        choose_compaction_subpaths(*column, input_rows, extended_info.path_to_none_null_values,
+                                   paths_set_info);
 
         // 4. append subcolumns
         if (column->variant_max_subcolumns_count() > 0 || !column->get_sub_columns().empty()) {

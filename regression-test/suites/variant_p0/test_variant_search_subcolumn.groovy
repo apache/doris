@@ -20,7 +20,7 @@
 suite("test_variant_search_subcolumn") {
     def variantV2Function = "parse_to_variant"
     def table_name = "test_variant_search_subcolumn"
-    sql "set default_variant_doc_materialization_min_rows = 0"
+    sql "set default_variant_subcolumn_extraction_min_rows = 0"
 
     sql "DROP TABLE IF EXISTS ${table_name}"
 

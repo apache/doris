@@ -590,16 +590,24 @@ struct VariantShredder::Impl {
         DorisVector<size_t> all(candidate_builders.size());
         std::iota(all.begin(), all.end(), 0);
         RETURN_IF_ERROR(convert_typed_candidates(all, candidate_builders, storage_types));
+        // A V2 segment below the row threshold extracts no dynamic path yet, which is what a count
+        // of 0 means under V2. A V1 column ignores the threshold without doc mode, as before.
+        const bool below_min_rows =
+                options.serialize_type == VariantSerializeTypePB::VARIANT_SERIALIZE_V2 &&
+                rows < options.doc_materialization_min_rows;
         const VariantPathSelection selection =
-                select_variant_paths(candidates, options.max_subcolumns_count,
-                                     options.typed_paths_to_sparse, options.serialize_type);
+                select_variant_paths(candidates, below_min_rows ? 0 : options.max_subcolumns_count,
+                                     options.typed_paths_to_sparse,
+                                     below_min_rows ? VariantSerializeTypePB::VARIANT_SERIALIZE_V2
+                                                    : options.serialize_type);
         publish_root(result);
         RETURN_IF_ERROR(publish_materialized(selection, candidate_builders, result));
         RETURN_IF_ERROR(publish_sparse(selection, candidate_builders, result));
         return Status::OK();
     }
 
-    Status finish_doc(const DorisVector<VariantPathBuilder*>& candidate_builders,
+    Status finish_doc(const DorisVector<VariantPathSelectionCandidate>& candidates,
+                      const DorisVector<VariantPathBuilder*>& candidate_builders,
                       const DorisVector<DataTypePtr>& storage_types,
                       VariantShreddedColumns* result) {
         DorisVector<DocPlan> doc_plan;
@@ -608,9 +616,25 @@ struct VariantShredder::Impl {
 
         VariantPathSelection selection;
         if (rows >= options.doc_materialization_min_rows) {
-            selection.materialized.reserve(doc_plan.size());
-            for (const DocPlan& entry : doc_plan) {
-                selection.materialized.push_back(entry.candidate_index);
+            if (options.is_compaction_extracted_path) {
+                // this shredder holds one doc bucket: compaction chose the dynamic paths of all
+                for (const DocPlan& entry : doc_plan) {
+                    const VariantPathSelectionCandidate& candidate =
+                            candidates[entry.candidate_index];
+                    if ((candidate.is_typed_path && !options.typed_paths_to_sparse) ||
+                        options.is_compaction_extracted_path(*entry.path)) {
+                        selection.materialized.push_back(entry.candidate_index);
+                    }
+                }
+            } else {
+                // The document keeps every path, so only the extracted ones are selected: typed
+                // paths and up to the count of dynamic paths. Doc mode has one meaning of the
+                // count whatever the serialize type: 0 extracts no dynamic path.
+                selection.materialized =
+                        select_variant_paths(candidates, options.max_subcolumns_count,
+                                             options.typed_paths_to_sparse,
+                                             VariantSerializeTypePB::VARIANT_SERIALIZE_V2)
+                                .materialized;
             }
             RETURN_IF_ERROR(convert_typed_candidates(selection.materialized, candidate_builders,
                                                      storage_types));
@@ -627,7 +651,7 @@ struct VariantShredder::Impl {
         RETURN_IF_ERROR(
                 prepare_logical_candidates(&candidates, &candidate_builders, &storage_types));
         if (options.physical_layout == VariantShredderPhysicalLayout::DOC) {
-            RETURN_IF_ERROR(finish_doc(candidate_builders, storage_types, result));
+            RETURN_IF_ERROR(finish_doc(candidates, candidate_builders, storage_types, result));
         } else {
             RETURN_IF_ERROR(finish_ordinary(candidates, candidate_builders, storage_types, result));
         }

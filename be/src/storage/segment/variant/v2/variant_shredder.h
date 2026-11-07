@@ -48,16 +48,23 @@ struct VariantShredderOptions {
     const TabletSchema* tablet_schema = nullptr;
     int32_t parent_column_unique_id = -1;
     VariantShredderPhysicalLayout physical_layout = VariantShredderPhysicalLayout::ORDINARY;
-    // Zero retains all dynamic paths, matching variant_max_subcolumns_count semantics.
+    // Limit of extracted dynamic paths in both layouts.
     size_t max_subcolumns_count = 0;
     bool typed_paths_to_sparse = false;
-    // What max_subcolumns_count == 0 means: every dynamic path (V1) or none (V2).
+    // What max_subcolumns_count == 0 means in the ordinary layout: every dynamic path (V1) or none
+    // (V2). The doc layout always means none.
     VariantSerializeTypePB serialize_type = VariantSerializeTypePB::VARIANT_SERIALIZE_V1;
     uint32_t sparse_bucket_count = 1;
     size_t max_sparse_column_statistics_size =
             BeConsts::DEFAULT_VARIANT_MAX_SPARSE_COLUMN_STATS_SIZE;
     uint32_t doc_bucket_count = 1;
+    // variant_subcolumn_extraction_min_rows: a segment with fewer rows extracts no dynamic path
+    // (the doc layout no typed path either). The ordinary layout of a V1 column ignores it.
     size_t doc_materialization_min_rows = 0;
+    // Doc layout in compaction, where each doc bucket has its own shredder: whether a dynamic path
+    // is extracted, as compaction chose for all buckets at once. Unset chooses by
+    // max_subcolumns_count.
+    std::function<bool(const std::string&)> is_compaction_extracted_path = nullptr;
 };
 
 struct VariantShreddedColumns {
