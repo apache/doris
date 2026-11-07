@@ -28,7 +28,7 @@
 -- !promoted --
 1	11	\N	{"hot_0":0,"p":{"q":{"a":11}}}
 2	"text"	\N	{"hot_0":1,"p":{"q":{"a":"text"}}}
-3	true	\N	{"hot_0":2,"p":{"q":{"a":1}}}
+3	true	\N	{"hot_0":2,"p":{"q":{"a":true}}}
 4	{"child":{"leaf":100}}	100	{"hot_0":3,"p":{"q":{"a":{"child":{"leaf":100}}}}}
 5	\N	\N	{"a%2Eb":300,"a-":200,"hot_0":4}
 6	\N	\N	{"hot_0":5}
@@ -100,7 +100,7 @@ v.takeover	bigint	Yes	false	\N	NONE
 -- !repromoted --
 1	11	\N	{"hot_0":0,"p":{"q":{"a":11}}}
 2	"text"	\N	{"hot_0":1,"p":{"q":{"a":"text"}}}
-3	true	\N	{"hot_0":2,"p":{"q":{"a":1}}}
+3	true	\N	{"hot_0":2,"p":{"q":{"a":true}}}
 4	{"child":{"leaf":100}}	100	{"hot_0":3,"p":{"q":{"a":{"child":{"leaf":100}}}}}
 5	\N	\N	{"a%2Eb":300,"a-":200,"hot_0":4}
 6	\N	\N	{"hot_0":5}
