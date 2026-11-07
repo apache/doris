@@ -679,11 +679,15 @@ public class CastTest {
         boolean originalEnableVariantV2 = Config.enable_variant_v2;
         try {
             Config.enable_variant_v2 = false;
-            Assertions.assertFalse(castNullable(false, VariantType.INSTANCE, BooleanType.INSTANCE));
-            Assertions.assertFalse(castNullable(false, VariantType.INSTANCE, IntegerType.INSTANCE));
-            Assertions.assertFalse(castNullable(false, VariantType.INSTANCE, StringType.INSTANCE));
+            // The legacy kernel serializes a Variant through the nullable root/WRAP path, so it can
+            // emit NULL for a non-NULL Variant input as well. The declared type must stay nullable
+            // for every non-Variant target, otherwise BE returns a nullable column against a
+            // non-nullable slot (VExpr rejects it with "return column type mismatch").
+            Assertions.assertTrue(castNullable(false, VariantType.INSTANCE, BooleanType.INSTANCE));
+            Assertions.assertTrue(castNullable(false, VariantType.INSTANCE, IntegerType.INSTANCE));
+            Assertions.assertTrue(castNullable(false, VariantType.INSTANCE, StringType.INSTANCE));
             Assertions.assertTrue(castNullable(false, VariantType.INSTANCE, JsonType.INSTANCE));
-            Assertions.assertFalse(castNullable(false, VariantType.INSTANCE, ArrayType.of(IntegerType.INSTANCE)));
+            Assertions.assertTrue(castNullable(false, VariantType.INSTANCE, ArrayType.of(IntegerType.INSTANCE)));
             Assertions.assertFalse(castNullable(false, VariantType.INSTANCE, VariantType.INSTANCE));
             Assertions.assertTrue(castNullable(true, VariantType.INSTANCE, VariantType.INSTANCE));
 
