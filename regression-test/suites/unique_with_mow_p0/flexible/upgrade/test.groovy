@@ -20,8 +20,10 @@ suite('test_flexible_partial_update_upgrade', 'p0,restart_fe') {
     for (def use_row_store : [false, true]) {
         logger.info("current params: use_row_store: ${use_row_store}")
         def tableName = "test_f_upgrade_${use_row_store}"
-        if (context.config.withOutLoadData) {
-            // The initial run leaves this final fixture for every rolling-upgrade stage.
+        if (context.config.withOutLoadData
+                || ["CompatibilityRunOriCase", "CompatibilityRunDstCase"].contains(context.config.caseNamePrefix)) {
+            // Full compatibility passes rerun load.groovy, which preserves existing tables.
+            // They must check the same final fixture as the rolling-upgrade stages.
             // Check it before any writes, without recreating the table or replaying the load.
             check_sqls_result_equal(
                 "select k,v1,v2,v3,v4,v5 from ${tableName} order by k",
