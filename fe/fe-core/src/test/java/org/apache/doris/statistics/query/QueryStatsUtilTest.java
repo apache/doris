@@ -117,4 +117,14 @@ public class QueryStatsUtilTest {
         Mockito.verify(pool).invalidateObject(address, client);
         Mockito.verify(pool, Mockito.never()).returnObject(address, client);
     }
+
+    @Test
+    public void testBorrowFailureDoesNotReleaseClient() throws Exception {
+        Mockito.when(pool.borrowObject(Mockito.eq(address), Mockito.anyInt()))
+                .thenThrow(new Exception("borrow failed"));
+
+        Assertions.assertTrue(QueryStatsUtil.getMergedCatalogStats("catalog").isEmpty());
+        Mockito.verify(pool, Mockito.never()).returnObject(Mockito.any(), Mockito.any());
+        Mockito.verify(pool, Mockito.never()).invalidateObject(Mockito.any(), Mockito.any());
+    }
 }
