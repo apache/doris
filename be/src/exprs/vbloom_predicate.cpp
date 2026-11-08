@@ -171,7 +171,7 @@ ZoneMapFilterResult VBloomPredicate::evaluate_dictionary_filter(
     }
     const auto slot = std::dynamic_pointer_cast<VSlotRef>(_children[0]);
     DORIS_CHECK(slot != nullptr);
-    const auto* dictionary = ctx.slot(slot->column_id());
+    const auto* dictionary = ctx.slot({slot->column_id()});
     if (dictionary == nullptr ||
         !bloom_filter_type_matches(_filter->primitive_type(), dictionary->data_type)) {
         return ZoneMapFilterResult::kUnsupported;

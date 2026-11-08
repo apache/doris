@@ -233,7 +233,7 @@ public:
     }
 
     ZoneMapFilterResult evaluate_zonemap_filter(const ZoneMapEvalContext& ctx) const override {
-        auto zone_map = ctx.zone_map(_column_id);
+        auto zone_map = ctx.zone_map({_column_id});
         if (zone_map == nullptr) {
             return unsupported_zonemap_filter(ctx);
         }

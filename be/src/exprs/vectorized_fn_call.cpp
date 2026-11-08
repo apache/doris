@@ -516,7 +516,7 @@ bool VectorizedFnCall::can_execute_on_raw_fixed_values(const DataTypePtr& data_t
         return false;
     }
     auto slot_literal = expr_zonemap::extract_slot_and_literal(_children);
-    if (!slot_literal.has_value() || slot_literal->slot_index != column_id ||
+    if (!slot_literal.has_value() || slot_literal->slot_index[0] != column_id ||
         slot_literal->literal.is_null()) {
         return false;
     }
@@ -603,7 +603,7 @@ bool VectorizedFnCall::can_execute_on_raw_binary_values(const DataTypePtr& data_
         return false;
     }
     const auto slot_literal = expr_zonemap::extract_slot_and_literal(_children);
-    return slot_literal.has_value() && slot_literal->slot_index == column_id &&
+    return slot_literal.has_value() && slot_literal->slot_index[0] == column_id &&
            !slot_literal->literal.is_null() &&
            is_string_type(remove_nullable(slot_literal->slot_type)->get_primitive_type()) &&
            is_string_type(remove_nullable(slot_literal->literal_type)->get_primitive_type());
@@ -641,7 +641,7 @@ bool VectorizedFnCall::can_execute_on_null_map(const DataTypePtr& data_type, int
     }
     if (_function_name == "eq_for_null") {
         const auto slot_literal = expr_zonemap::extract_slot_and_literal(_children);
-        return slot_literal.has_value() && slot_literal->slot_index == column_id &&
+        return slot_literal.has_value() && slot_literal->slot_index[0] == column_id &&
                slot_literal->literal.is_null();
     }
     return false;

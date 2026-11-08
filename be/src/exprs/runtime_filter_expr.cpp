@@ -203,7 +203,7 @@ ZoneMapFilterResult RuntimeFilterExpr::evaluate_zonemap_filter(
     if (_null_aware) {
         const auto child = _impl->get_child(0);
         if (auto slot_ref = std::dynamic_pointer_cast<VSlotRef>(child); slot_ref != nullptr) {
-            auto zone_map = ctx.zone_map(slot_ref->column_id());
+            auto zone_map = ctx.zone_map({slot_ref->column_id()});
             if (zone_map == nullptr) {
                 return unsupported_zonemap_filter(ctx);
             }

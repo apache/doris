@@ -396,14 +396,15 @@ suite("test_expr_zonemap_pruning") {
 
     // Runs the same query with expr zonemap pruning on and off and asserts the two agree. The
     // counter only shows that pruning fired; this is what shows it fired correctly.
-    def assertSameWithAndWithoutPruning = { String predicate ->
+    def assertSameWithAndWithoutPruning = { String tableName = "test_expr_zonemap_pruning_two_columns",
+                                           String predicate ->
         sql """ set enable_expr_zonemap_filter = false """
         def withoutPruning = sql """
-            SELECT COUNT(*) FROM test_expr_zonemap_pruning_two_columns WHERE ${predicate}
+            SELECT COUNT(*) FROM ${tableName} WHERE ${predicate}
         """
         sql """ set enable_expr_zonemap_filter = true """
         def withPruning = sql """
-            SELECT COUNT(*) FROM test_expr_zonemap_pruning_two_columns WHERE ${predicate}
+            SELECT COUNT(*) FROM ${tableName} WHERE ${predicate}
         """
         assertEquals(withoutPruning[0][0] as long, withPruning[0][0] as long)
         return withPruning[0][0] as long
@@ -772,4 +773,59 @@ suite("test_expr_zonemap_pruning") {
     assertSameOnHiddenCol("__DORIS_VERSION_COL__ = ${hiddenVersion} OR v = -1")
     qt_hidden_version_or_miss """SELECT COUNT(*) FROM test_expr_zonemap_pruning_hidden_col WHERE __DORIS_VERSION_COL__ = ${hiddenVersion} OR v = -1"""
     sql """ set show_hidden_columns = false """
+
+    // STRUCT subfield predicates (`s.a OP literal`): the returned rows must be correct, checked
+    // both by enabling/disabling expr zonemap pruning (must agree) and by exact counts.
+    sql """ set enable_expr_zonemap_filter = true """
+    sql """ DROP TABLE IF EXISTS test_expr_zonemap_pruning_struct """
+    sql """
+        CREATE TABLE test_expr_zonemap_pruning_struct (
+            id INT,
+            s STRUCT<a:INT, b:INT>
+        ) ENGINE=OLAP
+        DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "disable_auto_compaction" = "true"
+        )
+    """
+    sql """
+        INSERT INTO test_expr_zonemap_pruning_struct VALUES
+            (1, named_struct('a', 1, 'b', 10)),
+            (2, named_struct('a', 2, 'b', 20)),
+            (3, named_struct('a', 3, 'b', 30)),
+            (4, named_struct('a', 4, 'b', 40)),
+            (5, named_struct('a', 5, 'b', 50));
+    """
+    sql """ sync """
+
+    // on/off must agree — a prune that drops live rows or keeps dead ones would surface here.
+    assertSameWithAndWithoutPruning("test_expr_zonemap_pruning_struct", "s.a <= 2")
+    assertSameWithAndWithoutPruning("test_expr_zonemap_pruning_struct", "s.a = 3")
+    assertSameWithAndWithoutPruning("test_expr_zonemap_pruning_struct", "s.a > 3")
+    assertSameWithAndWithoutPruning("test_expr_zonemap_pruning_struct", "s.a < 4")
+    assertSameWithAndWithoutPruning("test_expr_zonemap_pruning_struct", "s.a != 2")
+    assertSameWithAndWithoutPruning("test_expr_zonemap_pruning_struct", "s.b >= 40")
+    assertSameWithAndWithoutPruning("test_expr_zonemap_pruning_struct", "s.a >= 1 AND s.b <= 30")
+
+    // also pin the exact expected count for each predicate.
+    def assertStructCount = { String predicate, long expected ->
+        def count = sql """ SELECT COUNT(*) FROM test_expr_zonemap_pruning_struct WHERE ${predicate} """
+        assertEquals(expected, count[0][0] as long)
+    }
+    assertStructCount("s.a <= 2", 2L)
+    assertStructCount("s.a = 3", 1L)
+    assertStructCount("s.a > 3", 2L)
+    assertStructCount("s.a < 4", 3L)
+    assertStructCount("s.a != 2", 4L)
+    assertStructCount("s.b >= 40", 2L)
+    assertStructCount("s.a >= 1 AND s.b <= 30", 3L)
+
+    // compare the row set against the no-pruning baseline for one predicate.
+    sql """ set enable_expr_zonemap_filter = false """
+    def expected_struct_ids = sql """ SELECT id FROM test_expr_zonemap_pruning_struct WHERE s.a <= 3 ORDER BY id """
+    sql """ set enable_expr_zonemap_filter = true """
+    def actual_struct_ids = sql """ SELECT id FROM test_expr_zonemap_pruning_struct WHERE s.a <= 3 ORDER BY id """
+    assertEquals(expected_struct_ids, actual_struct_ids)
 }

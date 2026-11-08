@@ -2165,7 +2165,7 @@ bool try_apply_string_dictionary_conjunct(size_t block_position, const DataTypeP
         return false;
     }
     const auto slot_literal = expr_zonemap::extract_slot_and_literal(fn->children());
-    if (!slot_literal.has_value() || slot_literal->slot_index != block_position ||
+    if (!slot_literal.has_value() || slot_literal->slot_index[0] != block_position ||
         slot_literal->literal.get_type() != TYPE_STRING ||
         !remove_nullable(slot_literal->slot_type)->equals(*remove_nullable(column_type)) ||
         !remove_nullable(slot_literal->literal_type)->equals(*remove_nullable(column_type))) {

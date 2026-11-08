@@ -228,6 +228,10 @@ public:
 
     DataTypePtr get_vec_data_type() { return _data_type; }
 
+    // Sub-readers for nested types (STRUCT/ARRAY/MAP). Empty for scalar columns. Used to expose
+    // per-field zone maps for STRUCT pruning.
+    const std::vector<std::shared_ptr<ColumnReader>>& sub_readers() const { return _sub_readers; }
+
     virtual FieldType get_meta_type() { return _meta_type; }
 
     int64_t get_metadata_size() const override;
