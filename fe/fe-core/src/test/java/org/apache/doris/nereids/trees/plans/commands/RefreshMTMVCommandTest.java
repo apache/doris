@@ -60,6 +60,9 @@ import java.util.Set;
 public class RefreshMTMVCommandTest {
 
     private static final String DECLARED_CG = "cg_declared";
+    // Listed first in enterCloudMode, so it is the group admin resolves to when nothing is bound.
+    private static final String ADMIN_CG = "cg_of_admin";
+    private static final String SESSION_CG = "cg_of_session";
 
     private final NereidsParser parser = new NereidsParser();
 
@@ -267,6 +270,16 @@ public class RefreshMTMVCommandTest {
         Deencapsulation.setField(Env.getCurrentEnv(), "accessManager", accessManager);
     }
 
+    // The session that issues the statement, in this compute group as after `USE @<group>`; null for a
+    // session that has not chosen one.
+    private void enterSession(String computeGroup) {
+        ConnectContext session = new ConnectContext();
+        if (computeGroup != null) {
+            session.setCloudCluster(computeGroup);
+        }
+        session.setThreadLocalInfo();
+    }
+
     private MTMV newMtmvDeclaring(String declaredComputeGroup) {
         MTMV mtmv = Mockito.mock(MTMV.class);
         Mockito.when(mtmv.getComputeGroup()).thenReturn(Optional.ofNullable(declaredComputeGroup));
@@ -315,15 +328,71 @@ public class RefreshMTMVCommandTest {
         Assertions.assertEquals(DECLARED_CG, explainCtx.getSessionVariable().getCloudCluster());
     }
 
-    // An MV that declares nothing keeps the existing resolution: neither context names a group, and
-    // the dry run has nothing to re-check, even with no compute group left at all.
+    // A manual REFRESH of an MV that declares no compute group runs in the group of the session that
+    // issues it (MTMVJobManager#refreshMTMV), so its dry run runs there too. Unbound, the internal
+    // context resolves a group the way admin, its identity, does: the first group admin may use.
     @Test
-    public void testContextsWithoutDeclarationKeepImplicitComputeGroup() throws Exception {
+    public void testDryRunWithoutDeclarationRunsInSessionComputeGroup() throws Exception {
+        enterCloudMode(Lists.newArrayList(ADMIN_CG, SESSION_CG));
+        enterSession(SESSION_CG);
+
+        ConnectContext internalCtx = newIncrementalCommand(true).createDryRunConnectContext(
+                newMtmvDeclaring(null));
+
+        Assertions.assertEquals(SESSION_CG, internalCtx.getCloudCluster(false));
+    }
+
+    // EXPLAIN REFRESH plans, and picks backends, in the group a manual REFRESH from this session runs in.
+    @Test
+    public void testExplainWithoutDeclarationPlansInSessionComputeGroup() throws Exception {
+        enterCloudMode(Lists.newArrayList(ADMIN_CG, SESSION_CG));
+        enterSession(SESSION_CG);
+
+        ConnectContext explainCtx = newIncrementalCommand(false).createExplainConnectContext(
+                newMtmvDeclaring(null));
+
+        Assertions.assertEquals(SESSION_CG, explainCtx.getCloudCluster(false));
+    }
+
+    // Like a refresh (MTMVTask), the dry run re-checks only a declared group: the group it borrows from
+    // the session is not one the MV chose, so it is bound as it is, even after it is gone.
+    @Test
+    public void testDryRunRechecksOnlyTheDeclaredComputeGroup() throws Exception {
+        enterCloudMode(Lists.newArrayList(ADMIN_CG));
+        enterSession("cg_dropped_from_session");
+
+        ConnectContext internalCtx = newIncrementalCommand(true).createDryRunConnectContext(
+                newMtmvDeclaring(null));
+
+        Assertions.assertEquals("cg_dropped_from_session", internalCtx.getSessionVariable().getCloudCluster());
+    }
+
+    // As for a manual REFRESH, a declared group wins over the group of the session.
+    @Test
+    public void testDeclaredComputeGroupWinsOverSessionComputeGroup() throws Exception {
+        enterCloudMode(Lists.newArrayList(ADMIN_CG, SESSION_CG, DECLARED_CG));
+        MTMV mtmv = newMtmvDeclaring(DECLARED_CG);
+
+        enterSession(SESSION_CG);
+        Assertions.assertEquals(DECLARED_CG, newIncrementalCommand(true)
+                .createDryRunConnectContext(mtmv).getSessionVariable().getCloudCluster());
+        enterSession(SESSION_CG);
+        Assertions.assertEquals(DECLARED_CG, newIncrementalCommand(false)
+                .createExplainConnectContext(mtmv).getSessionVariable().getCloudCluster());
+    }
+
+    // With neither a declared group nor a group the session resolves, the existing resolution applies:
+    // neither context names a group, and the dry run has nothing to re-check, even with no compute
+    // group left at all.
+    @Test
+    public void testContextsWithoutDeclarationOrSessionComputeGroupStayUnbound() throws Exception {
         enterCloudMode(Lists.newArrayList());
         MTMV mtmv = newMtmvDeclaring(null);
 
+        enterSession(null);
         Assertions.assertTrue(Strings.isNullOrEmpty(newIncrementalCommand(true)
                 .createDryRunConnectContext(mtmv).getSessionVariable().getCloudCluster()));
+        enterSession(null);
         Assertions.assertTrue(Strings.isNullOrEmpty(newIncrementalCommand(false)
                 .createExplainConnectContext(mtmv).getSessionVariable().getCloudCluster()));
     }

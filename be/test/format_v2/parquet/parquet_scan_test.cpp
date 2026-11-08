@@ -2878,8 +2878,8 @@ TEST_F(ParquetScanTest, GlobalRowIdUsesFileLocalPositionForScanRange) {
             const auto location = decode_rowid(rowid_column, row);
             EXPECT_EQ(location.version, context.version);
             EXPECT_EQ(location.backend_id, context.backend_id);
-            EXPECT_EQ(location.file_id, context.file_id);
-            row_ids.push_back(location.row_id);
+            EXPECT_EQ(location.file_local.file_id, context.file_id);
+            row_ids.push_back(location.file_local.row_id);
         }
     }
 
@@ -5201,8 +5201,8 @@ TEST_F(ParquetScanTest, TopNReadsBestRowGroupBeforePublishingBound) {
                         ascending ? (GROUPS - 1 - value / GROUP_ROWS) * GROUP_ROWS +
                                             value % GROUP_ROWS
                                   : value;
-                EXPECT_EQ(location.row_id, expected_position);
-                EXPECT_EQ(location.file_id, rowid_context.file_id);
+                EXPECT_EQ(location.file_local.row_id, expected_position);
+                EXPECT_EQ(location.file_local.file_id, rowid_context.file_id);
             }
             std::ranges::sort(
                     top, [ascending](int32_t a, int32_t b) { return ascending ? a < b : a > b; });

@@ -20,12 +20,21 @@
 #include <glog/logging.h>
 #include <gtest/gtest.h>
 
+#include <string>
+#include <utility>
+
 #include "core/data_type/data_type_date.h"
+#include "core/data_type/data_type_date_time.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
+#include "core/field.h"
+#include "core/value/vdatetime_value.h"
+#include "exec/runtime_filter/utils.h"
 #include "exprs/bloom_filter_func.h"
 #include "exprs/hybrid_set.h"
 #include "exprs/minmax_predicate.h"
+#include "exprs/vexpr.h"
+#include "exprs/vliteral.h"
 #include "testutil/column_helper.h"
 #include "util/raw_value.h"
 
@@ -359,6 +368,125 @@ TEST_F(RuntimeFilterWrapperTest, TestMinMaxAssign) {
     APPLY_FOR_PRIMITIVE_BASE_TYPE(TYPE_IPV6);
 #undef APPLY_FOR_PRIMITIVE_TYPE
 #undef APPLY_FOR_PRIMITIVE_BASE_TYPE
+}
+
+TEST_F(RuntimeFilterWrapperTest, DateMinMaxAssignPreservesDateType) {
+    RuntimeFilterParams params {.filter_id = 0,
+                                .filter_type = RuntimeFilterType::MINMAX_FILTER,
+                                .column_return_type = TYPE_DATE,
+                                .null_aware = false};
+    PMergeFilterRequest request;
+    request.set_filter_type(PFilterType::MINMAX_FILTER);
+    request.mutable_minmax_filter()->mutable_min_val()->set_stringval("2012-01-02");
+    request.mutable_minmax_filter()->mutable_max_val()->set_stringval("2012-03-02");
+
+    RuntimeFilterWrapper wrapper(&params);
+    ASSERT_TRUE(wrapper.assign(request, nullptr).ok());
+    EXPECT_EQ(static_cast<VecDateTimeValue*>(wrapper.minmax_func()->get_min())->type(), TIME_DATE);
+    EXPECT_EQ(static_cast<VecDateTimeValue*>(wrapper.minmax_func()->get_max())->type(), TIME_DATE);
+}
+
+static void check_date_like_minmax_bound(const void* bound, TimeType time_type,
+                                         PrimitiveType column_type, const std::string& text,
+                                         const DataTypePtr& data_type) {
+    const auto* value = static_cast<const VecDateTimeValue*>(bound);
+    EXPECT_EQ(value->type(), time_type);
+    char buffer[30];
+    value->to_string(buffer);
+    EXPECT_EQ(std::string(buffer), text);
+
+    VExprSPtr literal;
+    ASSERT_TRUE(create_literal(data_type, value, literal).ok());
+    ASSERT_TRUE(literal->is_literal());
+    EXPECT_EQ(literal->result_type(), column_type);
+    Field field;
+    static_cast<VLiteral*>(literal.get())->get_column_ptr()->get(0, field);
+    EXPECT_EQ(field.get_type(), column_type);
+}
+
+template <typename Request>
+static void check_date_like_minmax_request(RuntimeFilterWrapper& producer,
+                                           const RuntimeFilterParams& params, TimeType time_type,
+                                           const std::string& min_text, const std::string& max_text,
+                                           const DataTypePtr& data_type) {
+    Request request;
+    request.set_filter_type(get_type(params.filter_type));
+    ASSERT_TRUE(producer.to_protobuf(request.mutable_minmax_filter()).ok());
+    RuntimeFilterWrapper receiver(&params);
+    ASSERT_TRUE(receiver.assign(request, nullptr).ok());
+    EXPECT_EQ(receiver.get_state(), RuntimeFilterWrapper::State::READY);
+    EXPECT_EQ(receiver.column_type(), params.column_return_type);
+    // MIN_FILTER and MAX_FILTER serialize only their owned bound, so the other bound is absent.
+    if (params.filter_type != RuntimeFilterType::MAX_FILTER) {
+        check_date_like_minmax_bound(receiver.minmax_func()->get_min(), time_type,
+                                     params.column_return_type, min_text, data_type);
+    }
+    if (params.filter_type != RuntimeFilterType::MIN_FILTER) {
+        check_date_like_minmax_bound(receiver.minmax_func()->get_max(), time_type,
+                                     params.column_return_type, max_text, data_type);
+    }
+}
+
+static void check_date_like_minmax_round_trip(
+        RuntimeFilterType filter_type, PrimitiveType column_type, TimeType time_type,
+        VecDateTimeValue min_value, VecDateTimeValue max_value, const std::string& min_text,
+        const std::string& max_text, const DataTypePtr& data_type) {
+    RuntimeFilterParams params {.filter_id = 0,
+                                .filter_type = filter_type,
+                                .column_return_type = column_type,
+                                .null_aware = false};
+    RuntimeFilterWrapper producer(&params);
+    ASSERT_TRUE(producer.minmax_func()->assign(&min_value, &max_value).ok());
+    check_date_like_minmax_request<PMergeFilterRequest>(producer, params, time_type, min_text,
+                                                        max_text, data_type);
+    check_date_like_minmax_request<PPublishFilterRequestV2>(producer, params, time_type, min_text,
+                                                            max_text, data_type);
+}
+
+TEST_F(RuntimeFilterWrapperTest, DateLikeMinMaxRoundTripPreservesType) {
+    for (const auto filter_type : {RuntimeFilterType::MIN_FILTER, RuntimeFilterType::MAX_FILTER,
+                                   RuntimeFilterType::MINMAX_FILTER}) {
+        check_date_like_minmax_round_trip(filter_type, TYPE_DATE, TIME_DATE,
+                                          VecDateTimeValue(0, TIME_DATE, 0, 0, 0, 2012, 1, 2),
+                                          VecDateTimeValue(0, TIME_DATE, 0, 0, 0, 2012, 3, 2),
+                                          "2012-01-02", "2012-03-02",
+                                          std::make_shared<DataTypeDate>());
+        check_date_like_minmax_round_trip(filter_type, TYPE_DATETIME, TIME_DATETIME,
+                                          VecDateTimeValue(0, TIME_DATETIME, 1, 2, 3, 2012, 1, 2),
+                                          VecDateTimeValue(0, TIME_DATETIME, 4, 5, 6, 2012, 3, 2),
+                                          "2012-01-02 01:02:03", "2012-03-02 04:05:06",
+                                          std::make_shared<DataTypeDateTime>());
+    }
+}
+
+TEST_F(RuntimeFilterWrapperTest, DateMinMaxAssignAcceptsMidnightDateTimeText) {
+    RuntimeFilterParams params {.filter_id = 0,
+                                .filter_type = RuntimeFilterType::MINMAX_FILTER,
+                                .column_return_type = TYPE_DATE,
+                                .null_aware = false};
+    PMergeFilterRequest request;
+    request.set_filter_type(PFilterType::MINMAX_FILTER);
+    request.mutable_minmax_filter()->mutable_min_val()->set_stringval("2012-01-02 00:00:00");
+    request.mutable_minmax_filter()->mutable_max_val()->set_stringval("2012-03-02 00:00:00");
+
+    RuntimeFilterWrapper wrapper(&params);
+    ASSERT_TRUE(wrapper.assign(request, nullptr).ok());
+    auto data_type = std::make_shared<DataTypeDate>();
+    for (const auto& [bound, expected] :
+         {std::pair {wrapper.minmax_func()->get_min(), "2012-01-02"},
+          std::pair {wrapper.minmax_func()->get_max(), "2012-03-02"}}) {
+        const auto* value = static_cast<const VecDateTimeValue*>(bound);
+        EXPECT_EQ(value->type(), TIME_DATE);
+        char buffer[30];
+        value->to_string(buffer);
+        EXPECT_EQ(std::string(buffer), expected);
+        VExprSPtr literal;
+        ASSERT_TRUE(create_literal(data_type, value, literal).ok());
+        EXPECT_EQ(literal->result_type(), TYPE_DATE);
+        Field field;
+        static_cast<VLiteral*>(literal.get())->get_column_ptr()->get(0, field);
+        EXPECT_EQ(field.get_type(), TYPE_DATE);
+    }
 }
 
 TEST_F(RuntimeFilterWrapperTest, TestBloom) {

@@ -23,12 +23,14 @@
 #include <stdint.h>
 
 #include <algorithm>
+#include <utility>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "io/fs/buffered_reader.h"
 #include "runtime/runtime_profile.h"
 #include "storage/cache/page_cache.h"
+#include "util/coding.h"
 #include "util/slice.h"
 #include "util/thrift_util.h"
 
@@ -182,29 +184,9 @@ void PageReader<IN_COLLECTION, OFFSET_INDEX>::_update_sequential_row_range() {
 }
 
 template <bool IN_COLLECTION, bool OFFSET_INDEX>
-Status PageReader<IN_COLLECTION, OFFSET_INDEX>::parse_page_header() {
-    if (_state == HEADER_PARSED) {
-        return Status::OK();
-    }
-    if (UNLIKELY(_offset < _start_offset || _offset >= _end_offset)) {
-        return Status::IOError("Out-of-bounds Access");
-    }
-    if (UNLIKELY(_offset != _next_header_offset)) {
-        return Status::IOError("Wrong header position, should seek to a page header first");
-    }
-    if (UNLIKELY(_state != INITIALIZED)) {
-        return Status::IOError("Should skip or load current page to get next page");
-    }
-
-    _page_statistics.page_read_counter += 1;
-
-    // Parse page header from file; header bytes are saved for possible cache insertion
-    const uint8_t* page_header_buf = nullptr;
-    size_t max_size = _end_offset - _offset;
-    size_t header_size = std::min(INIT_PAGE_HEADER_SIZE, max_size);
-    const size_t MAX_PAGE_HEADER_SIZE = config::parquet_header_max_size_mb << 20;
+Status PageReader<IN_COLLECTION, OFFSET_INDEX>::_try_cached_header(bool* loaded) {
+    *loaded = false;
     uint32_t real_header_size = 0;
-
     // Try a header-only lookup in the page cache. Cached pages store
     // header + optional v2 levels + uncompressed payload, so we can
     // parse the page header directly from the cached bytes and avoid
@@ -223,7 +205,7 @@ Status PageReader<IN_COLLECTION, OFFSET_INDEX>::parse_page_header() {
             _cur_page_header = tparquet::PageHeader {};
             auto st = deserialize_thrift_msg(reinterpret_cast<const uint8_t*>(s.data),
                                              &real_header_size, true, &_cur_page_header);
-            if (!st.ok()) return st;
+            RETURN_IF_ERROR(st);
             RETURN_IF_ERROR(_validate_page_header(real_header_size));
             _reconcile_offset_index_location(_offset, real_header_size);
             _update_sequential_row_range();
@@ -250,8 +232,10 @@ Status PageReader<IN_COLLECTION, OFFSET_INDEX>::parse_page_header() {
             _last_header_size = real_header_size;
             _page_statistics.parse_page_header_num++;
             _offset += real_header_size;
-            _next_header_offset = _offset + _cur_page_header.compressed_page_size;
+            _serialized_page_size = _cur_page_header.compressed_page_size;
+            _next_header_offset = _offset + _serialized_page_size;
             _state = HEADER_PARSED;
+            *loaded = true;
             return Status::OK();
         } else {
             _page_statistics.page_cache_missing_counter += 1;
@@ -259,52 +243,139 @@ Status PageReader<IN_COLLECTION, OFFSET_INDEX>::parse_page_header() {
             _page_cache_handle = PageCacheHandle();
         }
     }
-    // NOTE: page cache lookup for *decompressed* page data is handled in
-    // ColumnChunkReader::load_page_data(). PageReader should only be
-    // responsible for parsing the header bytes from the file and saving
-    // them in `_header_buf` for possible later insertion into the cache.
+    return Status::OK();
+}
+
+template <bool IN_COLLECTION, bool OFFSET_INDEX>
+Status PageReader<IN_COLLECTION, OFFSET_INDEX>::_parse_encrypted_header(uint32_t* header_size) {
+    const size_t max_size = _end_offset - _offset;
+    const size_t max_header_size = config::parquet_header_max_size_mb << 20;
+    if (max_size < 4) {
+        return Status::Corruption("File encryption [INVALID_MODULE_SIZE]");
+    }
+    const uint8_t* bytes = nullptr;
+    {
+        SCOPED_RAW_TIMER(&_page_statistics.read_page_header_time);
+        RETURN_IF_ERROR(_reader->read_bytes(&bytes, _offset, 4, _io_ctx));
+    }
+    const uint64_t encrypted_size = static_cast<uint64_t>(decode_fixed32_le(bytes)) + 4;
+    // Bound the prefix before the buffered reader can allocate/read the encrypted header.
+    if (encrypted_size > max_size || encrypted_size > max_header_size ||
+        encrypted_size > MAX_ENCRYPTED_PARQUET_MODULE_BYTES) {
+        return Status::Corruption("File encryption [INVALID_MODULE_SIZE]");
+    }
+    {
+        SCOPED_RAW_TIMER(&_page_statistics.read_page_header_time);
+        RETURN_IF_ERROR(_reader->read_bytes(&bytes, _offset, encrypted_size, _io_ctx));
+    }
+    SCOPED_RAW_TIMER(&_page_statistics.decode_header_time);
+    _crypto_dictionary = _metadata.__isset.dictionary_page_offset &&
+                         _metadata.dictionary_page_offset < _metadata.data_page_offset &&
+                         std::cmp_equal(_offset, _metadata.dictionary_page_offset);
+    _crypto_page = _next_crypto_page;
+    DorisVector<uint8_t> decrypted;
+    RETURN_IF_ERROR(_page_read_ctx.encryption->decrypt_header(
+            std::span(bytes, encrypted_size), _crypto_dictionary, _crypto_page, &decrypted));
+    uint32_t consumed = 0;
+    _cur_page_header = tparquet::PageHeader {};
+    RETURN_IF_ERROR(deserialize_crypto_metadata(decrypted, &consumed, &_cur_page_header));
+    RETURN_IF_ERROR(validate_crypto_metadata_padding(decrypted, consumed));
+    if (_crypto_dictionary != (_cur_page_header.type == tparquet::PageType::DICTIONARY_PAGE)) {
+        return Status::Corruption("File encryption [INVALID_PAGE_HEADER]");
+    }
+    *header_size = static_cast<uint32_t>(encrypted_size);
+    return Status::OK();
+}
+
+template <bool IN_COLLECTION, bool OFFSET_INDEX>
+Status PageReader<IN_COLLECTION, OFFSET_INDEX>::_parse_plaintext_header(const uint8_t** bytes,
+                                                                        uint32_t* real_size) {
+    const size_t max_size = _end_offset - _offset;
+    const size_t max_header_size = config::parquet_header_max_size_mb << 20;
+    size_t size = std::min(INIT_PAGE_HEADER_SIZE, max_size);
     while (true) {
         if (UNLIKELY(_io_ctx && _io_ctx->should_stop)) {
             return Status::EndOfFile("stop");
         }
-        header_size = std::min(header_size, max_size);
+        size = std::min(size, max_size);
         {
             SCOPED_RAW_TIMER(&_page_statistics.read_page_header_time);
-            RETURN_IF_ERROR(_reader->read_bytes(&page_header_buf, _offset, header_size, _io_ctx));
+            RETURN_IF_ERROR(_reader->read_bytes(bytes, _offset, size, _io_ctx));
         }
-        real_header_size = cast_set<uint32_t>(header_size);
+        *real_size = cast_set<uint32_t>(size);
         SCOPED_RAW_TIMER(&_page_statistics.decode_header_time);
-        // Reset on every retry as a partial deserialize can otherwise leak a stale union member.
+        // Reset on every retry as partial deserialization may leave stale optional union fields.
         _cur_page_header = tparquet::PageHeader {};
-        auto st =
-                deserialize_thrift_msg(page_header_buf, &real_header_size, true, &_cur_page_header);
-        if (st.ok()) {
-            break;
+        auto status = deserialize_thrift_msg(*bytes, real_size, true, &_cur_page_header);
+        if (status.ok()) {
+            return Status::OK();
         }
-        if (_offset + header_size >= _end_offset || real_header_size > MAX_PAGE_HEADER_SIZE) {
+        if (_offset + size >= _end_offset || *real_size > max_header_size) {
             return Status::IOError(
-                    "Failed to deserialize parquet page header. offset: {}, "
-                    "header size: {}, end offset: {}, real header size: {}",
-                    _offset, header_size, _end_offset, real_header_size);
+                    "Failed to deserialize parquet page header. offset: {}, header size: {}, "
+                    "end offset: {}, real header size: {}",
+                    _offset, size, _end_offset, *real_size);
         }
-        header_size <<= 2;
+        size <<= 2;
     }
+}
 
-    RETURN_IF_ERROR(_validate_page_header(real_header_size));
-    _reconcile_offset_index_location(_offset, real_header_size);
+template <bool IN_COLLECTION, bool OFFSET_INDEX>
+Status PageReader<IN_COLLECTION, OFFSET_INDEX>::parse_page_header() {
+    if (_state == HEADER_PARSED) {
+        return Status::OK();
+    }
+    if (UNLIKELY(_offset < _start_offset || _offset >= _end_offset)) {
+        return Status::IOError("Out-of-bounds Access");
+    }
+    if (UNLIKELY(_offset != _next_header_offset)) {
+        return Status::IOError("Wrong header position, should seek to a page header first");
+    }
+    if (UNLIKELY(_state != INITIALIZED)) {
+        return Status::IOError("Should skip or load current page to get next page");
+    }
+    _page_statistics.page_read_counter += 1;
+    bool cached = false;
+    RETURN_IF_ERROR(_try_cached_header(&cached));
+    if (cached) {
+        return Status::OK();
+    }
+    const uint8_t* bytes = nullptr;
+    uint32_t header_size = 0;
+    if (_page_read_ctx.encryption != nullptr) {
+        RETURN_IF_ERROR(_parse_encrypted_header(&header_size));
+    } else {
+        RETURN_IF_ERROR(_parse_plaintext_header(&bytes, &header_size));
+    }
+    RETURN_IF_ERROR(_validate_page_header(header_size));
+    _serialized_page_size = _cur_page_header.compressed_page_size;
+    if (_page_read_ctx.encryption != nullptr) {
+        RETURN_IF_ERROR(_page_read_ctx.encryption->plaintext_size(
+                _serialized_page_size, &_cur_page_header.compressed_page_size));
+        if (std::cmp_greater(_cur_page_header.uncompressed_page_size,
+                             MAX_ENCRYPTED_PARQUET_MODULE_BYTES)) {
+            return Status::Corruption("File encryption [INVALID_MODULE_SIZE]");
+        }
+        RETURN_IF_ERROR(_validate_page_header(header_size));
+        if (_cur_page_header.type == tparquet::PageType::DATA_PAGE ||
+            _cur_page_header.type == tparquet::PageType::DATA_PAGE_V2) {
+            ++_next_crypto_page;
+        }
+    }
+    _reconcile_offset_index_location(_offset, header_size);
     _update_sequential_row_range();
-
     if (_cur_page_header.type == tparquet::PageType::DATA_PAGE ||
         _cur_page_header.type == tparquet::PageType::DATA_PAGE_V2) {
         ++_page_statistics.data_page_read_counter;
     }
-
-    // Save header bytes for possible cache insertion later
-    _header_buf.assign(page_header_buf, page_header_buf + real_header_size);
-    _last_header_size = real_header_size;
+    // Encrypted headers and payloads never enter the shared plaintext page cache.
+    if (_page_read_ctx.encryption == nullptr) {
+        _header_buf.assign(bytes, bytes + header_size);
+    }
+    _last_header_size = header_size;
     _page_statistics.parse_page_header_num++;
-    _offset += real_header_size;
-    _next_header_offset = _offset + _cur_page_header.compressed_page_size;
+    _offset += header_size;
+    _next_header_offset = _offset + _serialized_page_size;
     _state = HEADER_PARSED;
     return Status::OK();
 }
@@ -317,9 +388,16 @@ Status PageReader<IN_COLLECTION, OFFSET_INDEX>::get_page_data(Slice& slice) {
     if (UNLIKELY(_io_ctx && _io_ctx->should_stop)) {
         return Status::EndOfFile("stop");
     }
-    slice.size = _cur_page_header.compressed_page_size;
+    slice.size = _serialized_page_size;
     RETURN_IF_ERROR(_reader->read_bytes(slice, _offset, _io_ctx));
     _offset += slice.size;
+    if (_page_read_ctx.encryption != nullptr) {
+        RETURN_IF_ERROR(_page_read_ctx.encryption->decrypt_page(
+                std::span(reinterpret_cast<const uint8_t*>(slice.data), slice.size),
+                _crypto_dictionary, _crypto_page, &_decrypted_page));
+        slice = Slice(_decrypted_page.data(), _decrypted_page.size());
+        _decrypted_page_active = true;
+    }
     _state = DATA_LOADED;
     return Status::OK();
 }

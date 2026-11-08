@@ -88,9 +88,9 @@ public class ConnectorPluginSurfaceTest {
             Assertions.assertNotNull(in, "missing connector plugin API version resource");
             version.load(in);
         }
-        // API 29 adds typed table-absence errors but has no spatial metadata or nested-spatial
+        // API 30 adds partition-source streaming but has no spatial metadata or nested-spatial
         // capability. Keep the spatial surface distinct from that upstream contract.
-        Assertions.assertEquals("30.0", version.getProperty("api.version"));
+        Assertions.assertEquals("31.0", version.getProperty("api.version"));
     }
 
     /** Root entry points plus provider/handle types returned to connector plugins. */

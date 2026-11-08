@@ -105,6 +105,7 @@ l_shipmode,l_comment) select c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, 
 
             set 'group_commit', 'async_mode'
             file """${getS3Url()}/regression/tpch/sf1/lineitem.tbl.""" + i
+            retryIfHttpError true
             unset 'label'
 
             check { result, exception, startTime, endTime ->
