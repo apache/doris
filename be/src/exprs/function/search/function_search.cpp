@@ -48,6 +48,7 @@
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_query_context.h"
 #include "storage/index/inverted/analysis/analyzer/analyzer.h"
+#include "storage/index/inverted/common/single_flight.h"
 #include "storage/index/inverted/inverted_index_iterator.h"
 #include "storage/index/inverted/inverted_index_reader.h"
 #include "storage/index/inverted/query/engine/all_query/all_query.h"
@@ -62,6 +63,7 @@
 #include "storage/index/inverted/reader/collection_statistics.h"
 #include "storage/olap_common.h"
 #include "storage/segment/variant/nested_group_provider.h"
+#include "util/defer_op.h"
 #include "util/thrift_util.h"
 
 namespace doris {
@@ -142,6 +144,24 @@ void insert_dsl_result(InvertedIndexQueryCache* cache, const std::string& seg_pr
     cache->insert(dsl_cache_key(seg_prefix, signature),
                   std::make_shared<roaring::Roaring>(*result.get_data_bitmap()), &rows_handle);
 }
+
+// Concurrent identical SEARCH runs over one segment share one execution, as concurrent identical
+// index queries do in the index readers. The leader publishes rows nobody mutates, or null when it
+// ends without a result, and each follower takes a copy, since SQL bitmap composition mutates its
+// input.
+using SearchFlight =
+        segment_v2::inverted_index::SingleFlight<std::shared_ptr<const roaring::Roaring>>;
+
+SearchFlight& search_single_flight() {
+    static SearchFlight flight;
+    return flight;
+}
+
+#ifdef BE_TEST
+FunctionSearch::SingleFlightObserver g_leader_before_compute_observer = nullptr;
+FunctionSearch::SingleFlightObserver g_follower_joined_observer = nullptr;
+void* g_single_flight_observer_opaque = nullptr;
+#endif
 
 bool is_nested_group_search_supported() {
     auto provider = segment_v2::create_nested_group_read_provider();
@@ -395,6 +415,16 @@ Status FunctionSearch::evaluate_inverted_index(
     return Status::OK();
 }
 
+#ifdef BE_TEST
+void FunctionSearch::set_single_flight_observers_for_test(
+        SingleFlightObserver leader_before_compute, SingleFlightObserver follower_joined,
+        void* opaque) {
+    g_leader_before_compute_observer = leader_before_compute;
+    g_follower_joined_observer = follower_joined;
+    g_single_flight_observer_opaque = opaque;
+}
+#endif
+
 Status FunctionSearch::evaluate_inverted_index_with_search_param(
         const TSearchParam& search_param,
         const std::unordered_map<std::string, IndexFieldNameAndTypePair>& data_type_with_names,
@@ -456,12 +486,30 @@ Status FunctionSearch::_evaluate_search_param(
             index_query_context != nullptr && index_query_context->collection_similarity != nullptr;
     auto* dsl_cache =
             enable_cache && !enable_scoring ? InvertedIndexQueryCache::instance() : nullptr;
+    // A SEARCH that is a whole conjunct reads only the rows the scan still holds. Scored, it
+    // keeps every match, as the scores of the rows it returns do not depend on them.
+    const roaring::Roaring* root_candidates = !enable_scoring && index_query_context != nullptr
+                                                      ? index_query_context->search_root_candidates
+                                                      : nullptr;
+    // ParallelScannerBuilder splits a large segment into rowid ranges, and every scanner of the
+    // segment evaluates SEARCH over the whole segment before it intersects its own range: a
+    // 6.3M-row segment split at the default 2M rows ran the same SEARCH three times at once.
+    // Concurrent identical runs over one segment therefore share one execution, whether or not the
+    // result cache is on, under the result cache's key. A scoring run records the scores of its
+    // own scanner and runs alone, as does NESTED with its own evaluator. So does a run within
+    // candidate rows: its rows are partial, and the key does not hold the candidates. A segment
+    // split into 2M-row ranges hands each scanner its own range once the range is under 30% of
+    // the segment (inverted_index_candidate_pushdown_ratio); shared, the scanner of [2M, 4M)
+    // would take the rows its neighbour found in [0, 2M).
+    const bool coalesce = !enable_scoring && !is_nested_query && root_candidates == nullptr;
     std::string seg_prefix;
     std::string dsl_sig;
     bool cache_usable = false;
-    if (dsl_cache) {
+    if (dsl_cache != nullptr || coalesce) {
         seg_prefix = extract_segment_prefix(iterators);
         dsl_sig = dsl_cache_signature(search_param, index_query_context.get());
+    }
+    if (dsl_cache) {
         if (!seg_prefix.empty() && !dsl_sig.empty()) {
             cache_usable = true;
             bool dsl_hit = false;
@@ -482,6 +530,39 @@ Status FunctionSearch::_evaluate_search_param(
             }
         }
     }
+
+    std::string flight_key;
+    bool flight_leader = false;
+    std::shared_ptr<const roaring::Roaring> flight_rows;
+    if (coalesce && !seg_prefix.empty() && !dsl_sig.empty()) {
+        // A shared run must cover the whole segment. SegmentIterator hides candidate_rows from
+        // SEARCH, whose leaves combine whole-segment answers, and a run it hands root candidates
+        // does not coalesce.
+        DORIS_CHECK(index_query_context == nullptr ||
+                    index_query_context->candidate_rows == nullptr);
+        flight_key = dsl_cache_key(seg_prefix, dsl_sig).encode();
+        auto follower = search_single_flight().join_or_lead(flight_key);
+        flight_leader = !follower.has_value();
+#ifdef BE_TEST
+        const auto observer =
+                flight_leader ? g_leader_before_compute_observer : g_follower_joined_observer;
+        if (observer != nullptr) {
+            observer(g_single_flight_observer_opaque);
+        }
+#endif
+        if (!flight_leader) {
+            if (const auto& rows = follower->get(); rows != nullptr) {
+                bitmap_result = InvertedIndexResultBitmap(std::make_shared<roaring::Roaring>(*rows),
+                                                          std::make_shared<roaring::Roaring>());
+                return Status::OK();
+            }
+            // A leader that ended without rows, by an error, an exception or an empty query
+            // tree, leaves each follower to run for itself.
+        }
+    }
+    // The publish allocates nothing, so it reaches the followers on every exit path, exceptions
+    // and memory-limit failures included; a waiting follower is never left behind.
+    DEFER(if (flight_leader) { search_single_flight().publish(flight_key, flight_rows); });
 
     std::shared_ptr<IndexQueryContext> context;
     if (index_query_context) {
@@ -553,12 +634,6 @@ Status FunctionSearch::_evaluate_search_param(
         top_k = index_query_context->query_limit;
     }
 
-    // A SEARCH that is a whole conjunct reads only the rows the scan still holds. Scored, it
-    // keeps every match, as the scores of the rows it returns do not depend on them.
-    const roaring::Roaring* root_candidates = !enable_scoring && index_query_context != nullptr
-                                                      ? index_query_context->search_root_candidates
-                                                      : nullptr;
-
     auto weight = root_query->weight(enable_scoring);
     if (!weight) {
         LOG(WARNING) << "search: Failed to build query weight";
@@ -604,6 +679,9 @@ Status FunctionSearch::_evaluate_search_param(
     // SEARCH never returns UNKNOWN; outer SQL composes this non-nullable match set.
     bitmap_result =
             InvertedIndexResultBitmap(std::move(roaring), std::make_shared<roaring::Roaring>());
+    if (flight_leader) {
+        flight_rows = std::make_shared<const roaring::Roaring>(*bitmap_result.get_data_bitmap());
+    }
 
     // A result read within candidates is partial and stays out of the cache.
     if (dsl_cache && cache_usable && root_candidates == nullptr) {
