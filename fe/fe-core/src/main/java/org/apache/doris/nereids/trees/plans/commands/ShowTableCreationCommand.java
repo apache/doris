@@ -63,6 +63,10 @@ public class ShowTableCreationCommand extends ShowCommand {
         this.wild = wild;
     }
 
+    String getDbName() {
+        return dbName;
+    }
+
     @Override
     public ShowResultSetMetaData getMetaData() {
         return META_DATA;

@@ -61,6 +61,10 @@ public class ShowSmallFilesCommand extends ShowCommand {
         this.dbName = dbName;
     }
 
+    String getDbName() {
+        return dbName;
+    }
+
     @Override
     public ShowResultSetMetaData getMetaData() {
         return META_DATA;

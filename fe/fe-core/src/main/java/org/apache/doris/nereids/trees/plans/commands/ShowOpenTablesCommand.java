@@ -54,6 +54,10 @@ public class ShowOpenTablesCommand extends ShowCommand {
         this.whereClause = whereClause;
     }
 
+    String getDbName() {
+        return databaseName;
+    }
+
     @Override
     public ShowResultSetMetaData getMetaData() {
         return META_DATA;
