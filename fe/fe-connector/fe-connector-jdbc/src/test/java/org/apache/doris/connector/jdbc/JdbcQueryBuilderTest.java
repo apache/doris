@@ -200,6 +200,29 @@ class JdbcQueryBuilderTest {
     }
 
     @Test
+    void testUserDefinedFunctionsRemainLocalWithoutLimit() {
+        JdbcFunctionPushdownConfig config = JdbcFunctionPushdownConfig.create(JdbcDbType.MYSQL, null, true);
+        JdbcQueryBuilder builder = new JdbcQueryBuilder(JdbcDbType.MYSQL, config, Collections.emptyMap());
+        List<ConnectorExpression> args = Collections.singletonList(new ConnectorColumnRef("id", INT_TYPE));
+        // A UDF named like MySQL's abs, and a pre-rendered fragment that calls a UDF.
+        for (ConnectorExpression udf : Arrays.asList(new ConnectorFunctionCall("abs", INT_TYPE, args, false),
+                new ConnectorFunctionCall("CASE WHEN my_udf(`id`) THEN 1 END", INT_TYPE,
+                        Collections.emptyList(), false))) {
+            ConnectorExpression predicate = new ConnectorComparison(
+                    ConnectorComparison.Operator.EQ, udf, ConnectorLiteral.ofInt(1));
+            Assertions.assertEquals("SELECT * FROM `testdb`.`testtbl`",
+                    builder.buildQuery(DB, TABLE, Collections.emptyList(), Optional.of(predicate), 1));
+            Assertions.assertEquals("SELECT * FROM `testdb`.`testtbl` WHERE (`id` = 1)",
+                    builder.buildQuery(DB, TABLE, Collections.emptyList(), Optional.of(
+                            new ConnectorAnd(Arrays.asList(predicate, simpleComparison("id", 1)))), 1));
+        }
+        Assertions.assertEquals("SELECT * FROM `testdb`.`testtbl` WHERE ((abs(`id`)) = 1) LIMIT 1",
+                builder.buildQuery(DB, TABLE, Collections.emptyList(), Optional.of(new ConnectorComparison(
+                        ConnectorComparison.Operator.EQ, new ConnectorFunctionCall("abs", INT_TYPE, args),
+                        ConnectorLiteral.ofInt(1))), 1));
+    }
+
+    @Test
     void testEmptyInRemainsLocalWithoutLimit() {
         ConnectorColumnRef column = new ConnectorColumnRef("id", INT_TYPE);
         for (boolean negated : Arrays.asList(false, true)) {
