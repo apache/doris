@@ -774,9 +774,10 @@ public abstract class ConnectProcessor {
             case STRING_LITERAL: return new StringLiteral(node.string_literal.value);
             case JSON_LITERAL: return new JsonLiteral(node.json_literal.value);
             case DATE_LITERAL:
-                Type literalType = Type.fromThrift(node.type);
-                return DateLiteralUtils.createLiteral(node.date_literal.value,
-                        literalType.isTimeStampNs() ? literalType : null);
+                // Keep the sender's type and scale for all date literals.
+                // A DATETIME(6) value at midnight must not become DATE.
+                // The value .120000 must retain its declared scale of 6.
+                return DateLiteralUtils.createLiteral(node.date_literal.value, Type.fromThrift(node.type));
             case IPV4_LITERAL: return new IPv4Literal(node.ipv4_literal.value);
             case IPV6_LITERAL: return new IPv6Literal(node.ipv6_literal.value);
             case UUID_LITERAL: return new UuidLiteral(new UUID(node.uuid_literal.hi, node.uuid_literal.lo).toString());
