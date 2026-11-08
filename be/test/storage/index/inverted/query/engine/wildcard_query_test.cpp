@@ -18,9 +18,11 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <iterator>
 #include <memory>
 #include <roaring/roaring.hh>
 #include <string>
+#include <vector>
 
 #include "common/status.h"
 #include "io/fs/local_file_system.h"
@@ -29,6 +31,7 @@
 #include "storage/index/inverted/clucene/spi/clucene_index_source.h"
 #include "storage/index/inverted/common/string_helper.h"
 #include "storage/index/inverted/query/engine/expand_query/expand_query.h"
+#include "storage/index/inverted/query/exec/term_pattern.h"
 #include "storage/index/inverted/query/scoring/collection_similarity.h"
 #include "storage/index/inverted/reader/collection_statistics.h"
 
@@ -538,6 +541,37 @@ TEST_F(WildcardQueryV2Test, test_wildcard_query_move_semantics) {
             context, field, index_query::TermPatternKind::kWildcard, pattern);
     auto weight2 = query2->weight(true);
     ASSERT_NE(weight2, nullptr);
+}
+
+// A glob from the start of the dictionary skips the terms without its longest literal run before
+// it converts them, and still expands to every term it matches, in dictionary order.
+TEST_F(WildcardQueryV2Test, test_wildcard_leading_glob_expands_to_every_matching_term) {
+    auto* dir = FSDirectory::getDirectory(kTestDir.c_str());
+    auto reader_holder = make_shared_reader(lucene::index::IndexReader::open(dir, true));
+    ASSERT_TRUE(reader_holder != nullptr);
+    auto source = clucene_index_source(reader_holder, StringHelper::to_wstring("field"), nullptr);
+    const auto expand = [&](const std::string& glob) {
+        index_query::TermPattern pattern;
+        EXPECT_TRUE(index_query::TermPattern::create(index_query::TermPatternKind::kWildcard, glob,
+                                                     &pattern)
+                            .ok());
+        std::vector<std::string> terms;
+        EXPECT_TRUE(source->expand_terms(pattern, 0, &terms).ok());
+        return terms;
+    };
+
+    const std::vector<std::string> dictionary = expand("*");
+    EXPECT_NE(std::ranges::find(dictionary, "cardboard"), dictionary.end());
+    for (const std::string& glob :
+         std::vector<std::string> {"*card*", "*an?a*", "?pp*", "*t*t*", "*123*", "*ion", "*zz*"}) {
+        index_query::WildcardMatcher matcher(glob);
+        std::vector<std::string> expected;
+        std::ranges::copy_if(dictionary, std::back_inserter(expected),
+                             [&](const std::string& term) { return matcher(term); });
+        EXPECT_EQ(expand(glob), expected) << glob;
+    }
+
+    _CLDECDELETE(dir);
 }
 
 } // namespace doris::segment_v2

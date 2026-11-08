@@ -93,7 +93,12 @@ public:
                 ++p;
                 t += text_width;
             } else if (p < _pattern.size() && width(_pattern[p]) == text_width &&
-                       std::memcmp(_pattern.data() + p, text.data() + t, text_width) == 0) {
+                       // A one-byte character is compared in place: memcmp of a runtime length is a
+                       // library call per character, and '*cache*' tries 'c' at every position of
+                       // every term it is matched against.
+                       (text_width == 1 ? _pattern[p] == text[t]
+                                        : std::memcmp(_pattern.data() + p, text.data() + t,
+                                                      text_width) == 0)) {
                 p += text_width;
                 t += text_width;
             } else if (star_p != std::string_view::npos) {
@@ -136,8 +141,9 @@ public:
 
     const std::string& enumeration_prefix() const { return _enumeration_prefix; }
 
-    // Text every matching term holds, empty when the pattern names none. A format may skip the
-    // terms without it before decoding them.
+    // Text every matching term holds, or empty. A format skips the terms without it before decoding
+    // them: kSuffix and kContains take their text, and a glob that enumerates the whole dictionary
+    // takes its longest literal run ("cache" for "*cache*").
     const std::string& required_text() const { return _text; }
 
     // False when no term can match, as for a regular expression Hyperscan cannot compile.
