@@ -70,6 +70,18 @@ another remote read. This does not interrupt an already running shared cache loa
 Hive checks the same captured state between directory requests, including when
 empty partitions are skipped within one iterator call.
 
+Manifest read scheduling is independent of parsed-manifest retention. Native data
+scans with engine-owned metadata scheduling use the same bounded, completion-ordered
+loader when the Manifest Cache is disabled; those loads do not look up or publish
+shared parsed results. The first required manifest is read directly. Further demand
+expands the existing window, and cancellation stops admission and wakes the consumer.
+
+The uncached whole-manifest path is used only for multiple manifests with known live
+file counts whose window fits the SDK's default 30,000-file planning buffer. A single
+manifest, oversized manifests, unknown counts and custom scans retain SDK file streaming
+so the first Split does not wait for a large manifest to be fully parsed. Parsed-cache
+loads keep their existing behavior and may share an in-flight read across queries.
+
 ## Configuration and limits
 
 | Setting | Default | Meaning |

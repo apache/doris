@@ -67,6 +67,7 @@ import org.apache.iceberg.PartitionData;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.RowDelta;
 import org.apache.iceberg.Schema;
+import org.apache.iceberg.SchemaAwareDataTableScan;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.SnapshotSummary;
 import org.apache.iceberg.StructLike;
@@ -5264,8 +5265,9 @@ public class IcebergScanPlanProviderTest {
         }
     }
 
-    @Test
-    public void fullyFilteredStreamingScanPrefetchesWithoutBackendDemand() throws IOException {
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void fullyFilteredStreamingScanPrefetchesWithoutBackendDemand(boolean cacheEnabled) throws IOException {
         Table table = createTable("filtered_demand", SCHEMA, PartitionSpec.unpartitioned());
         Map<Integer, ByteBuffer> bounds = Collections.singletonMap(1,
                 Conversions.toByteBuffer(Types.IntegerType.get(), 10));
@@ -5277,7 +5279,7 @@ public class IcebergScanPlanProviderTest {
         }
         RecordingConnectorContext context = new RecordingConnectorContext();
         IcebergScanPlanProvider provider = new IcebergScanPlanProvider(
-                IcebergCatalogProperties.of(manifestCacheProps()), opsReturning(table), context,
+                IcebergCatalogProperties.of(cacheEnabled ? manifestCacheProps() : Collections.emptyMap()), opsReturning(table), context,
                 new IcebergManifestCache());
         try (ConnectorSplitSource source = provider.streamSplits(emptySession(),
                 scanOf(new IcebergTableHandle("db1", "filtered_demand"))
@@ -5342,6 +5344,157 @@ public class IcebergScanPlanProviderTest {
     }
 
     // --- PERF-04: streaming (C17) + COUNT(*) (C18) paths read through the manifest cache, LAZILY ---
+
+    @Test
+    public void uncachedManifestProjectionDoesNotDiscardSharedCacheStatistics() {
+        Table table = createTable("manifest_projection", SCHEMA, PartitionSpec.unpartitioned());
+        Map<Integer, ByteBuffer> bounds = Collections.singletonMap(1,
+                Conversions.toByteBuffer(Types.IntegerType.get(), 10));
+        table.newAppend().appendFile(DataFiles.builder(table.spec()).withPath("/d/projection.parquet")
+                .withFormat(FileFormat.PARQUET).withFileSizeInBytes(100)
+                .withMetrics(new Metrics(1L, null, null, null, null, bounds, bounds)).build()).commit();
+        ManifestFile manifest = table.currentSnapshot().dataManifests(table.io()).get(0);
+        ManifestCacheValue full = IcebergManifestReader.read(manifest, table, manifest.content(), false);
+        ManifestCacheValue projected = IcebergManifestReader.uncachedLoader(table,
+                SchemaAwareDataTableScan.manifestColumns(table.newScan()), () -> { }).apply(manifest);
+        Assertions.assertEquals(bounds, full.getDataFiles().get(0).lowerBounds());
+        Assertions.assertNull(projected.getDataFiles().get(0).lowerBounds());
+        Assertions.assertEquals(full.getDataFiles().get(0).path(), projected.getDataFiles().get(0).path());
+        Assertions.assertEquals(full.getDataFiles().get(0).recordCount(), projected.getDataFiles().get(0).recordCount());
+        Assertions.assertEquals(bounds, full.getDataFiles().get(0).lowerBounds(),
+                "the uncached projection must not mutate contents retained for other predicates");
+    }
+
+    @Test
+    public void uncachedManifestWindowPreservesSdkStreamingForLargeOrUnknownInputs() {
+        ManifestFile small = manifestWithFileCounts(10, 100);
+        ManifestFile boundary = manifestWithFileCounts(750, 3000);
+        ManifestFile oversized = manifestWithFileCounts(751, 3000);
+        Assertions.assertFalse(IcebergScanPlanProvider.canBufferManifestFiles(List.of(small), 8),
+                "a single SDK manifest already streams without polling");
+        Assertions.assertTrue(IcebergScanPlanProvider.canBufferManifestFiles(List.of(small, boundary), 8));
+        Assertions.assertFalse(IcebergScanPlanProvider.canBufferManifestFiles(List.of(small, oversized), 8));
+        Assertions.assertFalse(IcebergScanPlanProvider.canBufferManifestFiles(
+                List.of(small, manifestWithFileCounts(null, 0)), 8));
+        Assertions.assertFalse(IcebergScanPlanProvider.canBufferManifestFiles(
+                List.of(small, manifestWithFileCounts(Integer.MAX_VALUE, Integer.MAX_VALUE)), 8));
+    }
+
+    private static ManifestFile manifestWithFileCounts(Integer added, Integer existing) {
+        return (ManifestFile) Proxy.newProxyInstance(ManifestFile.class.getClassLoader(),
+                new Class<?>[] {ManifestFile.class}, (proxy, method, args) -> {
+                    if (method.getName().equals("addedFilesCount")) {
+                        return added;
+                    }
+                    if (method.getName().equals("existingFilesCount")) {
+                        return existing;
+                    }
+                    throw new UnsupportedOperationException(method.getName());
+                });
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void streamingManifestSchedulingDoesNotRequireCaching(boolean cacheEnabled) throws IOException {
+        Table table = createTable("manifest_policy", SCHEMA, PartitionSpec.unpartitioned());
+        for (int i = 0; i < 12; i++) {
+            table.newFastAppend().appendFile(dataFile(table.spec(),
+                    "/d/policy_" + i + ".parquet", 100, null, null)).commit();
+        }
+        Set<String> manifests = table.currentSnapshot().dataManifests(table.io()).stream()
+                .map(ManifestFile::path).collect(Collectors.toSet());
+        AtomicInteger reads = new AtomicInteger();
+        Table observed = tableWithScanIo(table, manifestStreamObserver(table.io(), manifests,
+                path -> reads.incrementAndGet()));
+        IcebergManifestCache cache = new IcebergManifestCache();
+        RecordingConnectorContext context = new RecordingConnectorContext();
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(
+                IcebergCatalogProperties.of(cacheEnabled ? manifestCacheProps() : Collections.emptyMap()),
+                opsReturning(observed), context, cache);
+        ConnectorScanRequest request = scanOf(new IcebergTableHandle("db1", "manifest_policy")).build();
+        List<String> expected = sortedPaths(providerOver(table).planScan(null, request));
+        try (ConnectorSplitSource source = provider.streamSplits(emptySession(), request)) {
+            source.onMoreSplitsRequested();
+            Assertions.assertEquals(expected, sortedPaths(drain(source)));
+        }
+        Assertions.assertTrue(context.metadataSubmissions.get() > 0,
+                "cache policy must not select the SDK polling path");
+        Assertions.assertEquals(manifests.size(), reads.get());
+        Assertions.assertEquals(cacheEnabled ? manifests.size() : 0, cache.size());
+        try (ConnectorSplitSource source = provider.streamSplits(emptySession(), request)) {
+            source.onMoreSplitsRequested();
+            Assertions.assertEquals(expected, sortedPaths(drain(source)));
+        }
+        Assertions.assertEquals(manifests.size() * (cacheEnabled ? 1 : 2), reads.get(),
+                "disabled caches must neither retain nor reuse parsed manifests");
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void streamingManifestPolicyPreservesEvolvedPartitionsDeletesAndSnapshot(boolean cacheEnabled)
+            throws IOException {
+        PartitionSpec spec = PartitionSpec.builderFor(PART_SCHEMA).identity("p").build();
+        Table table = createTable("manifest_versions", PART_SCHEMA, spec,
+                Collections.singletonMap(TableProperties.FORMAT_VERSION, "2"));
+        for (int partition = 1; partition <= 2; partition++) {
+            Map<Integer, ByteBuffer> bounds = Collections.singletonMap(2,
+                    Conversions.toByteBuffer(Types.IntegerType.get(), partition));
+            table.newFastAppend().appendFile(DataFiles.builder(spec)
+                    .withPath("/d/version_p" + partition + ".parquet").withPartitionPath("p=" + partition)
+                    .withFormat(FileFormat.PARQUET).withFileSizeInBytes(100)
+                    .withMetrics(new Metrics(10L, null, null, null, null, bounds, bounds)).build()).commit();
+        }
+        long originalSnapshot = table.currentSnapshot().snapshotId();
+        int originalSchema = table.schema().schemaId();
+        DeleteFile delete = FileMetadata.deleteFileBuilder(spec).ofPositionDeletes()
+                .withPath("/d/version_delete.parquet").withFormat(FileFormat.PARQUET)
+                .withFileSizeInBytes(100).withRecordCount(1).withPartitionPath("p=1")
+                .withReferencedDataFile("/d/version_p1.parquet").build();
+        table.newRowDelta().addDeletes(delete).commit();
+        table.updateSchema().updateColumn("p", Types.LongType.get()).commit();
+        IcebergManifestCache cache = new IcebergManifestCache();
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(
+                IcebergCatalogProperties.of(cacheEnabled ? manifestCacheProps() : Collections.emptyMap()),
+                opsReturning(table), new RecordingConnectorContext(), cache);
+        List<IcebergTableHandle> handles = List.of(new IcebergTableHandle("db1", "manifest_versions"),
+                new IcebergTableHandle("db1", "manifest_versions")
+                        .withSnapshot(originalSnapshot, null, originalSchema));
+        for (int pass = 0; pass < 2; pass++) {
+            for (IcebergTableHandle handle : handles) {
+                ConnectorScanRequest request = scanOf(handle).filter(Optional.of(eqInt("p", 1))).build();
+                List<ConnectorScanRange> expected = providerOver(table).planScan(null, request);
+                List<ConnectorScanRange> actual = drain(provider.streamSplits(emptySession(), request));
+                Assertions.assertEquals(sortedPaths(expected), sortedPaths(actual));
+                Assertions.assertEquals(1, actual.size());
+                Assertions.assertEquals(deleteCount(expected.get(0)), deleteCount(actual.get(0)));
+            }
+        }
+        Assertions.assertEquals(cacheEnabled, cache.size() > 0);
+    }
+
+    @Test
+    public void uncachedStreamingManifestFailurePropagatesWithoutRetryingSdk() throws IOException {
+        Table table = createTable("uncached_failure", SCHEMA, PartitionSpec.unpartitioned());
+        table.newFastAppend().appendFile(dataFile(table.spec(), "/d/failure.parquet", 100, null, null)).commit();
+        table.newFastAppend().appendFile(dataFile(table.spec(), "/d/failure_later.parquet", 100, null, null)).commit();
+        Set<String> manifests = table.currentSnapshot().dataManifests(table.io()).stream()
+                .map(ManifestFile::path).collect(Collectors.toSet());
+        AtomicInteger reads = new AtomicInteger();
+        Table observed = tableWithScanIo(table, manifestStreamObserver(table.io(), manifests, path -> {
+            reads.incrementAndGet();
+            throw new IllegalStateException("injected uncached read failure");
+        }));
+        IcebergManifestCache cache = new IcebergManifestCache();
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(
+                IcebergCatalogProperties.of(Collections.emptyMap()), opsReturning(observed),
+                new RecordingConnectorContext(), cache);
+        try (ConnectorSplitSource source = provider.streamSplits(emptySession(),
+                scanOf(new IcebergTableHandle("db1", "uncached_failure")).build())) {
+            Assertions.assertThrows(IllegalStateException.class, source::hasNext);
+        }
+        Assertions.assertEquals(1, reads.get(), "a failed uncached read must not restart SDK planning");
+        Assertions.assertEquals(0, cache.size());
+    }
 
     @Test
     public void streamSplitsManifestCacheEnabledMatchesSdkPathAndConsumesCache() throws IOException {
@@ -5897,7 +6050,7 @@ public class IcebergScanPlanProviderTest {
 
     @Test
     public void countPushdownManifestCacheEmptyNullSnapshotReturnsNoRanges() {
-        // A never-appended table has no current snapshot. cacheBackedFileScanTasks must keep the null-snapshot
+        // A never-appended table has no current snapshot. manifestFileScanTasks must keep the null-snapshot
         // guard (empty iterable), not NPE. MUTATION: dropping the guard -> NPE on scan.snapshot() -> red.
         Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
         IcebergManifestCache cache = new IcebergManifestCache();

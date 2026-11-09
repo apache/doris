@@ -122,6 +122,8 @@ import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.CancellationException;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -220,14 +222,11 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     // populateScanLevelParams, so it never reaches BE. Its presence also gates the line (absent when the cache
     // is disabled -> no line, matching legacy notContains).
     private static final String MANIFEST_CACHE_QUERYID_PROP = "iceberg.manifest_cache_query_id";
-    // T08 manifest cache gate (ported from fe-core IcebergExternalCatalog + IcebergUtils.isManifestCacheEnabled
-    // + CacheSpec.isCacheEnabled). Default OFF: the default scan path stays the iceberg SDK planFiles()
-    // (splitFiles). When enabled, planScan re-plans at the manifest level so the per-manifest data/delete-file
-    // reads hit the connector-owned IcebergManifestCache. The .ttl-second/.capacity properties feed ONLY this
-    // enable formula (legacy quirk); the cache itself is fixed no-TTL / capacity 100000.
+    // Parsed manifest retention is optional; streaming load scheduling does not depend on this gate.
     private static final boolean DEFAULT_MANIFEST_CACHE_ENABLE = false;
     private static final long DEFAULT_MANIFEST_CACHE_TTL_SECOND = 48L * 60 * 60;
     private static final long DEFAULT_MANIFEST_CACHE_CAPACITY = 1024L;
+    private static final int MAX_UNCACHED_MANIFEST_WINDOW_FILES = 30_000;
 
     private final IcebergCatalogProperties catalogProps;
     private final Map<String, String> properties;
@@ -624,12 +623,10 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     }
 
     /**
-     * The streaming source's whole-file enumeration, byte-offset-split at {@code sliceSize}. PERF-04 (C17): when
-     * the manifest cache is enabled, read manifests THROUGH THE CACHE via the lazy {@link #cacheBackedFileScanTasks}
-     * (no-stats overload — Phase 2 iterates on the engine pump thread, see there) so a big streaming scan finally
-     * hits the cache while staying lazy (OOM-safe). An eager Phase-1 cache failure records it and falls back to the
-     * SDK {@code planFiles()} path (mirrors {@link #planFileScanTask}); a later lazy failure surfaces through the
-     * streaming source's {@code hasNext}. Cache disabled -> the SDK path, byte-unchanged.
+     * Enumerates whole-file tasks using bounded, completion-ordered manifest loads independently of caching.
+     * Native data scans with engine-owned scheduling use this path even when parsed manifests are not cached.
+     * Custom SDK scans keep their own planning semantics. An eager cache failure retains the existing SDK
+     * fallback; uncached read failures and failures after streaming starts propagate without re-planning.
      */
     private CloseableIterable<FileScanTask> streamingFileScanTasks(TableScan scan, ConnectorSession session,
             Table table, Optional<ConnectorExpression> filter, long sliceSize,
@@ -638,7 +635,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         if (isManifestCacheEnabled()) {
             try {
                 return TableScanUtil.splitFiles(
-                        cacheBackedFileScanTasks(scan, session, table, filter, null, readControl, readHandle,
+                        manifestFileScanTasks(scan, session, table, filter, null, readControl, readHandle,
                                 scanContext),
                         sliceSize);
             } catch (CancellationException e) {
@@ -653,7 +650,46 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             }
         }
         scanContext.checkCancelled();
+        if (!isManifestCacheEnabled() && canPlanManifestsWithoutCache(scan, session)) {
+            return TableScanUtil.splitFiles(
+                    manifestFileScanTasks(scan, session, table, filter, null, readControl, readHandle, scanContext),
+                    sliceSize);
+        }
         return TableScanUtil.splitFiles(sdkStreamingFileScanTasks(scan, scanContext), sliceSize);
+    }
+
+    private boolean canPlanManifestsWithoutCache(TableScan scan, ConnectorSession session) {
+        if (!SchemaAwareDataTableScan.supportsLocalManifestPlanning(scan)) {
+            return false;
+        }
+        ConnectorTaskScheduler scheduler = manifestReadScheduler(session);
+        // Standalone callers have no engine-owned workers/lifetime. Keep the SDK's executor and scan
+        // semantics rather than silently turning its parallel planning into inline serial reads.
+        if (scheduler == null || scheduler == ConnectorTaskScheduler.DIRECT) {
+            return false;
+        }
+        Snapshot snapshot = scan.snapshot();
+        return snapshot != null && canBufferManifestFiles(snapshot.dataManifests(scan.table().io()),
+                manifestReadConcurrency(session));
+    }
+
+    static boolean canBufferManifestFiles(List<ManifestFile> manifests, int window) {
+        // A single manifest already streams without ParallelIterable in the SDK. Preserve early delivery
+        // within large manifests too: our prefetcher retains whole parsed manifests, whereas SDK consumers
+        // can take the first file before its manifest finishes. Bound the window to the SDK's default
+        // 30,000-file planning buffer; unknown counts retain the streaming SDK path.
+        if (manifests.size() <= 1) {
+            return false;
+        }
+        int filesPerManifest = MAX_UNCACHED_MANIFEST_WINDOW_FILES / window;
+        for (ManifestFile manifest : manifests) {
+            Integer added = manifest.addedFilesCount();
+            Integer existing = manifest.existingFilesCount();
+            if (added == null || existing == null || (long) added + existing > filesPerManifest) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private CloseableIterable<FileScanTask> sdkStreamingFileScanTasks(TableScan scan,
@@ -1615,7 +1651,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         try {
             return buildManifestCountRange(
                     table, scanSchema,
-                    cacheBackedFileScanTasks(scan, session, table, filter, statsQueryId, readHandle),
+                    manifestFileScanTasks(scan, session, table, filter, statsQueryId, readHandle),
                     exactCount, formatVersion, partitioned, orderedPartitionKeys, zone, uriNormalizer,
                     netPositionDeletes);
         } catch (CancellationException | EncryptedCountException e) {
@@ -1677,7 +1713,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         try {
             return accumulateCountPushdownFileTasks(
                     table, scanSchema,
-                    cacheBackedFileScanTasks(scan, session, table, filter, statsQueryId, readHandle), formatVersion,
+                    manifestFileScanTasks(scan, session, table, filter, statsQueryId, readHandle), formatVersion,
                     partitioned, orderedPartitionKeys, zone, uriNormalizer, netPositionDeletes,
                     positionDeleteRows);
         } catch (CancellationException | EncryptedCountException e) {
@@ -3146,7 +3182,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
 
     /**
      * Synchronous (below-batch-threshold) manifest-cache planning: materialize the shared lazy
-     * {@link #cacheBackedFileScanTasks} enumeration into a list, because {@link #determineTargetFileSplitSize}
+     * {@link #manifestFileScanTasks} enumeration into a list, because {@link #determineTargetFileSplitSize}
      * (the per-table heuristic that gives small tables good BE parallelism) needs the whole task list. Byte
      * identical to the pre-PERF-04 body; the streaming ({@link #streamSplits}) and COUNT(*)
      * ({@link #planCountPushdown}) paths consume the same enumeration LAZILY instead (bounded FE heap). Uses the
@@ -3162,7 +3198,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         String statsQueryId = session != null ? session.getQueryId() : null;
         List<FileScanTask> tasks = new ArrayList<>();
         try (CloseableIterable<FileScanTask> whole =
-                cacheBackedFileScanTasks(scan, session, table, filter, statsQueryId, readHandle)) {
+                manifestFileScanTasks(scan, session, table, filter, statsQueryId, readHandle)) {
             for (FileScanTask task : whole) {
                 tasks.add(task);
             }
@@ -3173,50 +3209,49 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     }
 
     /**
-     * PERF-04: the lazy, cache-backed {@link FileScanTask} enumeration shared by the synchronous
-     * ({@link #planFileScanTaskWithManifestCache}), streaming ({@link #streamSplits}), and COUNT(*)
-     * ({@link #planCountPushdown}) paths whenever {@link #isManifestCacheEnabled()}. Ported faithfully from legacy
-     * {@code IcebergScanNode.planFileScanTaskWithManifestCache}: partition-prune manifests with a
-     * {@link ManifestEvaluator}, read each surviving manifest's data/delete files THROUGH THE CACHE, then per data
-     * file apply the {@link InclusiveMetricsEvaluator} (file-stats prune) + {@link ResidualEvaluator} (partition
-     * residual) and attach its deletes via a {@link DeleteFileIndex}. Produces WHOLE-FILE
-     * {@link BaseFileScanTask}s (callers byte-offset-split via {@link TableScanUtil#splitFiles}).
-     *
-     * <p><b>Phase 1 is eager</b> (delete-manifest reads + {@link DeleteFileIndex} build): a data file's deletes
-     * need the full index before any data task can be produced, and running it here (on the caller's thread) lets
-     * the streaming/count callers catch a cache failure and fall back to the SDK path. Bounded like the SDK
-     * {@code planFiles()} (which also reads all delete manifests up front); delete manifests are far fewer than
-     * data manifests. <b>Phase 2 is lazy</b>: the returned iterable's iterator flat-maps the matching data
-     * manifests, yielding one surviving task at a time WITHOUT materializing the list, so a million-file streaming
-     * scan keeps FE heap bounded (peak = the delete index + a bounded manifest window + the split queue).
-     *
-     * <p>{@code statsQueryId} is nullable: a non-null id tallies cache hits/misses under that query (the
-     * synchronous + COUNT paths); {@code null} preserves the existing no-stats streaming path.
-     * Cache counters support concurrent prefetch workers.
+     * Shared manifest-level enumeration. Build the complete delete index before delivering data tasks, then
+     * read matching data manifests through the bounded prefetcher and prune individual files lazily. Caching
+     * only changes lookup/load functions; disabled caches retain results solely within the current window.
+     * {@code statsQueryId} is nullable and records accesses only when caching is enabled.
      */
-    private CloseableIterable<FileScanTask> cacheBackedFileScanTasks(TableScan scan,
+    private CloseableIterable<FileScanTask> manifestFileScanTasks(TableScan scan,
             ConnectorSession session, Table table, Optional<ConnectorExpression> filter, String statsQueryId,
             IcebergTableHandle readHandle) {
-        return cacheBackedFileScanTasks(scan, session, table, filter, statsQueryId,
+        return manifestFileScanTasks(scan, session, table, filter, statsQueryId,
                 new ManifestReadControl(true), readHandle);
     }
 
-    private CloseableIterable<FileScanTask> cacheBackedFileScanTasks(TableScan scan,
+    private CloseableIterable<FileScanTask> manifestFileScanTasks(TableScan scan,
             ConnectorSession session, Table table, Optional<ConnectorExpression> filter, String statsQueryId,
             ManifestReadControl readControl, IcebergTableHandle readHandle) {
-        return cacheBackedFileScanTasks(scan, session, table, filter, statsQueryId, readControl, readHandle,
+        return manifestFileScanTasks(scan, session, table, filter, statsQueryId, readControl, readHandle,
                 new ConnectorScanContext());
     }
 
-    private CloseableIterable<FileScanTask> cacheBackedFileScanTasks(TableScan scan,
+    private CloseableIterable<FileScanTask> manifestFileScanTasks(TableScan scan,
             ConnectorSession session, Table table, Optional<ConnectorExpression> filter, String statsQueryId,
             ManifestReadControl readControl, IcebergTableHandle readHandle, ConnectorScanContext scanContext) {
         scanContext.checkCancelled();
         ConnectorTaskScheduler scheduler = requireActiveManifestScheduler(session);
+        // Cache policy only selects how immutable contents are obtained. Admission, completion order,
+        // cancellation and the retained-result window are identical with and without a cache.
         Snapshot snapshot = scan.snapshot();
         if (snapshot == null) {
             return CloseableIterable.withNoopClose(Collections.emptyList());
         }
+        boolean cacheEnabled = isManifestCacheEnabled();
+        // Cached values serve later predicates/deletes and must retain all metrics. Without either,
+        // uncached scans keep the SDK's projection instead of decoding/copying unused statistics maps.
+        List<String> columns = cacheEnabled || filter.isPresent() || !snapshot.deleteManifests(table.io()).isEmpty()
+                ? null : SchemaAwareDataTableScan.manifestColumns(scan);
+        Function<ManifestFile, ManifestCacheValue> cached = cacheEnabled
+                ? manifest -> manifestCache.getCachedManifestValue(manifest, statsQueryId) : manifest -> null;
+        Function<ManifestFile, ManifestCacheValue> loader = cacheEnabled
+                ? manifest -> manifestCacheGet(manifest, table, statsQueryId)
+                : IcebergManifestReader.uncachedLoader(table, columns, scanContext::checkCancelled);
+        Function<ManifestFile, CompletionStage<ManifestCacheValue>> sharedLoader = cacheEnabled
+                ? manifest -> manifestCache.getManifestCacheValueFuture(manifest, table, statsQueryId)
+                : manifest -> CompletableFuture.completedFuture(loader.apply(manifest));
         Schema scanSchema = scan.schema();
         Expression filterExpr = combineFilter(filter, table, scanSchema, session);
         Map<Integer, PartitionSpec> specsById = SchemaAwareDataTableScan.specsFor(scan);
@@ -3237,7 +3272,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         IcebergManifestReadContext deleteReadContext = new IcebergManifestReadContext(context, readPermits,
                 () -> scanContext.isCancelled() || scheduler != null && scheduler.isClosed(), retainLoadOwner);
 
-        // Phase 1 (eager): partition-prune + cache-load delete manifests into the delete-file index.
+        // Phase 1 (eager): partition-prune and load delete manifests into the complete delete-file index.
         List<DeleteFile> deleteFiles = new ArrayList<>();
         for (ManifestFile manifest : snapshot.deleteManifests(table.io())) {
             scanContext.checkCancelled();
@@ -3251,10 +3286,10 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             if (!ManifestEvaluator.forPartitionFilter(filterExpr, spec, caseSensitive).eval(manifest)) {
                 continue;
             }
-            ManifestCacheValue value = manifestCache.getCachedManifestValue(manifest, statsQueryId);
+            ManifestCacheValue value = cached.apply(manifest);
             if (value == null) {
                 try {
-                    value = deleteReadContext.read(manifest, m -> manifestCacheGet(m, table, statsQueryId));
+                    value = deleteReadContext.read(manifest, loader);
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                     CancellationException cancelled = new CancellationException(
@@ -3281,7 +3316,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                         && specsById.containsKey(manifest.partitionSpecId())
                         && residualEvaluators.containsKey(manifest.partitionSpecId()));
         return new CloseableIterable<FileScanTask>() {
-            private ManifestCacheFileScanTaskIterator iterator;
+            private ManifestFileScanTaskIterator iterator;
             private boolean closed;
 
             @Override
@@ -3294,21 +3329,18 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                 }
                 IcebergManifestPrefetcher prefetcher = new IcebergManifestPrefetcher(
                         dataManifests.iterator(), concurrency,
-                        manifest -> manifestCache.getCachedManifestValue(manifest, statsQueryId),
-                        manifest -> manifestCacheGet(manifest, table, statsQueryId), context, readPermits,
-                        readControl::allowPrefetch, scheduler,
-                        manifest -> manifestCache.getManifestCacheValueFuture(manifest, table, statsQueryId),
-                        retainLoadOwner);
+                        cached, loader, context, readPermits, readControl::allowPrefetch, scheduler,
+                        sharedLoader, retainLoadOwner);
                 scanContext.whenCancelled(prefetcher::cancel);
                 scanContext.checkCancelled();
-                iterator = new ManifestCacheFileScanTaskIterator(prefetcher, specsById,
+                iterator = new ManifestFileScanTaskIterator(prefetcher, specsById,
                         residualEvaluators, metricsEvaluator, deleteIndex, schemaJson, scanContext::checkCancelled);
                 return iterator;
             }
 
             @Override
             public void close() throws IOException {
-                ManifestCacheFileScanTaskIterator active;
+                ManifestFileScanTaskIterator active;
                 synchronized (this) {
                     if (closed) {
                         return;
@@ -3352,7 +3384,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         return scheduler;
     }
 
-    /** Dispatch a manifest read to the stats-tallying or no-stats cache overload (see cacheBackedFileScanTasks). */
+    /** Dispatch a manifest read to the stats-tallying or no-stats cache overload (see manifestFileScanTasks). */
     private ManifestCacheValue manifestCacheGet(ManifestFile manifest, Table table, String statsQueryId) {
         return statsQueryId != null
                 ? manifestCache.getManifestCacheValue(manifest, table, statsQueryId)
@@ -3360,14 +3392,14 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     }
 
     /**
-     * Lazy flat-map iterator behind {@link #cacheBackedFileScanTasks}: walks the matching data manifests, reads
-     * each through the manifest cache on demand, and yields the surviving (metrics + residual pruned)
+     * Lazy flat-map iterator behind {@link #manifestFileScanTasks}: walks the matching data manifests, reads
+     * each through the selected loader on demand, and yields the surviving (metrics + residual pruned)
      * {@link BaseFileScanTask}s one file at a time so the consumer never holds the whole table's task list. Not
      * thread-safe: single-pass, driven by ONE consumer (the sync materialize loop, the streaming pump, or the
      * COUNT file validation). {@code schemaJson}/{@code currentSpecJson} are hoisted loop invariants (constant per
      * table / per manifest spec), byte-identical to the pre-PERF-04 per-file computation.
      */
-    private final class ManifestCacheFileScanTaskIterator implements CloseableIterator<FileScanTask> {
+    private final class ManifestFileScanTaskIterator implements CloseableIterator<FileScanTask> {
         private final IcebergManifestPrefetcher manifestIt;
         private volatile boolean closed;
         private final Map<Integer, PartitionSpec> specsById;
@@ -3382,7 +3414,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         private String currentSpecJson;
         private FileScanTask next;
 
-        ManifestCacheFileScanTaskIterator(IcebergManifestPrefetcher manifestIt,
+        ManifestFileScanTaskIterator(IcebergManifestPrefetcher manifestIt,
                 Map<Integer, PartitionSpec> specsById, Map<Integer, ResidualEvaluator> residualEvaluators,
                 InclusiveMetricsEvaluator metricsEvaluator, DeleteFileIndex deleteIndex, String schemaJson,
                 Runnable checkCancelled) {
@@ -3509,8 +3541,8 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     }
 
     /**
-     * Port of legacy {@code IcebergUtils.isManifestCacheEnabled}: the manifest-level path is used iff the
-     * manifest cache is wired AND the spec is enabled ({@code enable && ttl-second != 0 && capacity != 0}).
+     * Parsed-result retention gate: the manifest cache is used iff it is wired AND its spec is enabled
+     * ({@code enable && ttl-second != 0 && capacity != 0}). Bounded loading is independent of this policy.
      * The {@code .ttl-second}/{@code .capacity} properties feed ONLY this formula (legacy quirk); the cache
      * itself is fixed no-TTL / capacity 100000. Parsing is best-effort (blank/unparseable falls back to the
      * default) via the shared {@link CacheSpec}, matching the legacy fe-core behavior.
