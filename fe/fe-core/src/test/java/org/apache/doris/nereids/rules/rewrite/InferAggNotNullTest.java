@@ -23,9 +23,15 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.jobs.rewrite.TopDownVisitorRewriteJob;
+import org.apache.doris.nereids.rules.FilteredRules;
+import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.IsNull;
+import org.apache.doris.nereids.trees.expressions.Multiply;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.ArrayAgg;
@@ -42,11 +48,15 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.NullIgnoringAggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum0;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.LogicalPlanBuilder;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.MemoTestUtils;
@@ -65,6 +75,86 @@ import java.util.Set;
 
 class InferAggNotNullTest implements MemoPatternMatchSupported {
     private final LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
+
+    @Test
+    void testMergeInferredNotNullWithExistingFilter() {
+        LogicalOlapScan scan = newWideNullableScan(2);
+        Expression a = scan.getOutput().get(0);
+        Expression b = scan.getOutput().get(1);
+        Expression existingPredicate = new GreaterThan(a, new IntegerLiteral(0));
+        for (boolean generated : ImmutableList.of(false, true)) {
+            Expression bNotNull = new Not(new IsNull(b), generated);
+            LogicalAggregate<?> aggregate = new LogicalAggregate<>(ImmutableList.of(),
+                    ImmutableList.of(new Alias(new Sum(new Multiply(a, b)), "total")),
+                    new LogicalFilter<>(ImmutableSet.of(bNotNull, existingPredicate), scan));
+            CascadesContext context = MemoTestUtils.createCascadesContext(aggregate);
+            Rule rule = new InferAggNotNull().build();
+
+            LogicalAggregate<?> rewritten = (LogicalAggregate<?>) rule.transform(aggregate, context).get(0);
+            LogicalFilter<?> filter = (LogicalFilter<?>) rewritten.child();
+            Assertions.assertSame(scan, filter.child());
+            Assertions.assertEquals(ImmutableSet.of(bNotNull, existingPredicate,
+                    new Not(new IsNull(a), true)), filter.getConjuncts());
+            Assertions.assertSame(rewritten, rule.transform(rewritten, context).get(0));
+        }
+    }
+
+    @Test
+    void testInferMultipleInputsWithoutFilter() {
+        LogicalOlapScan scan = newWideNullableScan(2);
+        Expression a = scan.getOutput().get(0);
+        Expression b = scan.getOutput().get(1);
+        LogicalAggregate<?> aggregate = new LogicalAggregate<>(ImmutableList.of(),
+                ImmutableList.of(new Alias(new Sum(new Multiply(a, b)), "total")), scan);
+        CascadesContext context = MemoTestUtils.createCascadesContext(aggregate);
+        Rule rule = new InferAggNotNull().build();
+
+        LogicalAggregate<?> rewritten = (LogicalAggregate<?>) rule.transform(aggregate, context).get(0);
+        LogicalFilter<?> filter = (LogicalFilter<?>) rewritten.child();
+        Assertions.assertSame(scan, filter.child());
+        Assertions.assertEquals(ImmutableSet.of(new Not(new IsNull(a), true),
+                new Not(new IsNull(b), true)), filter.getConjuncts());
+        Assertions.assertSame(rewritten, rule.transform(rewritten, context).get(0));
+    }
+
+    @Test
+    void testKeepFilterWithAllInferredNotNullPredicates() {
+        LogicalOlapScan scan = newWideNullableScan(2);
+        Expression a = scan.getOutput().get(0);
+        Expression b = scan.getOutput().get(1);
+        LogicalAggregate<?> aggregate = new LogicalAggregate<>(ImmutableList.of(),
+                ImmutableList.of(new Alias(new Sum(new Multiply(a, b)), "total")),
+                new LogicalFilter<>(ImmutableSet.of(new Not(new IsNull(a)), new Not(new IsNull(b))), scan));
+        CascadesContext context = MemoTestUtils.createCascadesContext(aggregate);
+
+        Assertions.assertSame(aggregate, new InferAggNotNull().build().transform(aggregate, context).get(0));
+    }
+
+    @Test
+    void testInferAfterEliminateAggCaseWhen() {
+        LogicalOlapScan scan = newWideNullableScan(2);
+        Expression a = scan.getOutput().get(0);
+        Expression b = scan.getOutput().get(1);
+        Expression bNotNull = new Not(new IsNull(b));
+        If conditional = new If(bNotNull, new Multiply(a, b), new NullLiteral(IntegerType.INSTANCE));
+        LogicalAggregate<?> aggregate = new LogicalAggregate<>(ImmutableList.of(),
+                ImmutableList.of(new Alias(new Sum(conditional), "total")), scan);
+        CascadesContext context = MemoTestUtils.createCascadesContext(aggregate);
+        Rule eliminateCase = new EliminateAggCaseWhen().build();
+        Rule inferNotNull = new InferAggNotNull().build();
+
+        // Check one rewrite first so a regression fails without entering an unbounded visitor loop.
+        LogicalAggregate<?> withoutCase = (LogicalAggregate<?>) eliminateCase.transform(aggregate, context).get(0);
+        LogicalAggregate<?> rewritten = (LogicalAggregate<?>) inferNotNull.transform(withoutCase, context).get(0);
+        LogicalFilter<?> filter = (LogicalFilter<?>) rewritten.child();
+        Assertions.assertSame(scan, filter.child());
+        Assertions.assertEquals(ImmutableSet.of(bNotNull, new Not(new IsNull(a), true)), filter.getConjuncts());
+        Assertions.assertSame(rewritten, inferNotNull.transform(rewritten, context).get(0));
+
+        new TopDownVisitorRewriteJob(new FilteredRules(ImmutableList.of(eliminateCase, inferNotNull)), plan -> true)
+                .execute(context.getCurrentJobContext());
+        Assertions.assertTrue(rewritten.deepEquals(context.getRewritePlan()));
+    }
 
     @Test
     void testInfer() {
