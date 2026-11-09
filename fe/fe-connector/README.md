@@ -118,6 +118,16 @@ before releasing read transactions and statement metadata. An SDK call that
 cannot be interrupted may finish later; it must not issue another request
 after observing cancellation.
 
+Partitioned connectors may implement `streamPartitionSources` to batch metadata
+independently of directory work. The hook opens a bounded set of cooperating
+sources without remote I/O. A source reports a metadata dependency through
+`isBlocked`; the engine releases its worker until completion. If `hasNext`
+returns false while waiting, retain that dependency, including a completed one,
+until the next read attempt so readiness cannot be mistaken for end of input.
+Use the existing METADATA scheduler for metadata loading and let SPLIT sources
+claim small directory batches; neither stage may wait for child tasks. The
+default hook keeps ordinary partition-batch sources unchanged.
+
 `SET first_split_wait_timeout_ms = 2500` bounds the first split wait, including
 enumeration executor queueing. The default is 30000 ms; values must be positive.
 `SET_VAR` and FE forwarding are supported. Preparation before enumeration is

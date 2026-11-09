@@ -76,7 +76,10 @@ public:
     AgentUtils() = default;
     virtual ~AgentUtils() = default;
 
-    // Execute shell cmd
+    // Quote one shell argument. For example, "a;pwd" must remain one file name.
+    static std::string shell_quote(const std::string& argument);
+
+    // Execute a shell command. Use shell_quote for each variable argument.
     virtual bool exec_cmd(const std::string& command, std::string* errmsg,
                           bool redirect_stderr = true);
 

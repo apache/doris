@@ -137,6 +137,32 @@ TEST(WordDelimiterFilterTest, CatenateAll) {
     EXPECT_EQ(i, expected.size());
 }
 
+// A NUL inside a token delimits like '-', also when the parts are concatenated. Concatenation used to
+// read the token only up to the NUL and throw std::out_of_range for the parts after it.
+TEST(WordDelimiterFilterTest, CatenatePartsAcrossNul) {
+    const auto terms = [](const TokenStreamPtr& stream) {
+        std::vector<std::string> out;
+        Token token;
+        while (stream->next(&token)) {
+            out.emplace_back(token.termBuffer<char>(), token.termLength<char>());
+        }
+        return out;
+    };
+    const std::string with_nul(
+            "foo\0"
+            "123\0"
+            "bar",
+            11);
+    for (int32_t flags :
+         {WordDelimiterFilter::CATENATE_ALL,
+          WordDelimiterFilter::GENERATE_WORD_PARTS | WordDelimiterFilter::CATENATE_WORDS,
+          WordDelimiterFilter::GENERATE_NUMBER_PARTS | WordDelimiterFilter::CATENATE_NUMBERS}) {
+        std::vector<std::string> nul_terms;
+        ASSERT_NO_THROW(nul_terms = terms(create_filter(with_nul, flags))) << flags;
+        EXPECT_EQ(nul_terms, terms(create_filter("foo-123-bar", flags))) << flags;
+    }
+}
+
 TEST(WordDelimiterFilterTest, PreserveOriginal) {
     auto cut_words = [](const auto& text, const std::vector<ExpectedToken>& expected) {
         auto filter = create_filter(text, WordDelimiterFilter::PRESERVE_ORIGINAL);
