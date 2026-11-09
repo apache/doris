@@ -955,6 +955,28 @@ TEST(PaimonReaderTest, ReadsInt96HistorySemanticsThroughTableMapper) {
     std::filesystem::remove(path);
 }
 
+void check_paimon_split_ids(paimon::PaimonReader& reader, const SplitReadOptions& split_options,
+                            const std::vector<ColumnDefinition>& projected_columns,
+                            const std::vector<int32_t>& expected) {
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+
+    std::vector<int32_t> ids;
+    bool eos = false;
+    while (!eos) {
+        Block block = build_table_block(projected_columns);
+        ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+        if (block.rows() == 0) {
+            continue;
+        }
+        const auto& id_column =
+                assert_cast<const ColumnInt32&>(expect_not_null_table_column(block, 0));
+        for (size_t row = 0; row < block.rows(); ++row) {
+            ids.push_back(id_column.get_element(row));
+        }
+    }
+    EXPECT_EQ(ids, expected);
+}
+
 // Paimon can write both bitmap versions into the same index file. The last entry ends at EOF.
 TEST(PaimonReaderTest, AppliesMixedBitmapDeletionVectorFile) {
     const auto test_dir =
@@ -1005,30 +1027,24 @@ TEST(PaimonReaderTest, AppliesMixedBitmapDeletionVectorFile) {
 
     auto split_options = build_split_options(file_path);
     split_options.cache = &cache;
-    auto check_split = [&](int64_t offset, int64_t length, const std::vector<int32_t>& expected) {
-        split_options.current_range.__set_table_format_params(
-                make_paimon_table_format_desc(dv_path, offset, length));
-        ASSERT_TRUE(reader.prepare_split(split_options).ok());
-
-        std::vector<int32_t> ids;
-        bool eos = false;
-        while (!eos) {
-            Block block = build_table_block(projected_columns);
-            ASSERT_TRUE(reader.get_block(&block, &eos).ok());
-            if (block.rows() == 0) {
-                continue;
-            }
-            const auto& id_column =
-                    assert_cast<const ColumnInt32&>(expect_not_null_table_column(block, 0));
-            for (size_t row = 0; row < block.rows(); ++row) {
-                ids.push_back(id_column.get_element(row));
-            }
-        }
-        EXPECT_EQ(ids, expected);
+    const struct {
+        int64_t offset;
+        int64_t length;
+        std::vector<int32_t> expected;
+    } cases[] = {
+            {.offset = 1, .length = bitmap32_length, .expected = {2, 3, 4}},
+            {.offset = bitmap64_offset,
+             .length = PAIMON_BITMAP64_DV_SIZE,
+             .expected = {1, 3, 4, 5}},
+            // Repeat the first split through the decoded cache.
+            {.offset = 1, .length = bitmap32_length, .expected = {2, 3, 4}},
     };
-    ASSERT_NO_FATAL_FAILURE(check_split(1, bitmap32_length, {2, 3, 4}));
-    ASSERT_NO_FATAL_FAILURE(check_split(bitmap64_offset, PAIMON_BITMAP64_DV_SIZE, {1, 3, 4, 5}));
-    ASSERT_NO_FATAL_FAILURE(check_split(1, bitmap32_length, {2, 3, 4}));
+    for (const auto& test_case : cases) {
+        split_options.current_range.__set_table_format_params(
+                make_paimon_table_format_desc(dv_path, test_case.offset, test_case.length));
+        ASSERT_NO_FATAL_FAILURE(check_paimon_split_ids(reader, split_options, projected_columns,
+                                                       test_case.expected));
+    }
 
     split_options.current_range.__set_table_format_params(
             make_paimon_table_format_desc(dv_path, bitmap64_offset, PAIMON_BITMAP64_DV_SIZE - 1));
