@@ -457,18 +457,24 @@ Status check_after_upload(ObjStorageClient* client, const ObjStorageResponse& up
     return Status::OK();
 }
 
-// Compare every field except the backend's credentials. In particular, a resource can
-// rebind its live holder to another backend while a multipart close is waiting.
-static bool same_config_except_auth(const ObjClientConfig& original,
-                                    const ObjClientConfig& current) {
+// A pending Complete can keep its credentials, timeouts and S3 addressing style.
+// Compare the remaining fields so a resource rebind still uses the new client.
+static bool can_keep_multipart_client(const ObjClientConfig& original,
+                                      const ObjClientConfig& current) {
     if (original.backend.index() != current.backend.index()) {
         return false;
     }
     auto comparable = current;
+    comparable.connection.request_timeout_ms = original.connection.request_timeout_ms;
+    comparable.connection.connect_timeout_ms = original.connection.connect_timeout_ms;
     std::visit(
             [&](auto& backend) {
                 using Backend = std::decay_t<decltype(backend)>;
-                backend.auth = std::get<Backend>(original.backend).auth;
+                const auto& original_backend = std::get<Backend>(original.backend);
+                backend.auth = original_backend.auth;
+                if constexpr (std::is_same_v<Backend, S3ClientConfig>) {
+                    backend.use_virtual_addressing = original_backend.use_virtual_addressing;
+                }
             },
             comparable.backend);
     return comparable == original;
@@ -524,9 +530,8 @@ Status S3FileWriter::_complete() {
     if (!current->client) {
         return Status::InternalError<false>("invalid obj storage client");
     }
-    // Keep the client selected at close for a credential rotation, as before the refactor.
     if (before_wait != current && before_wait->client &&
-        same_config_except_auth(before_wait->config, current->config)) {
+        can_keep_multipart_client(before_wait->config, current->config)) {
         current = before_wait;
     }
     const auto& client = current->client;
