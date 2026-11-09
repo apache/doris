@@ -66,7 +66,7 @@ suite("test_ivm_minmax_count") {
     // running list before the MV history publishes it, so the newest row can temporarily be
     // the previous refresh. Require a different TaskId before trusting a terminal row.
     String lastTaskId = null
-    sql """REFRESH MATERIALIZED VIEW ivm_mm_count_mv INCREMENTAL"""
+    refreshIvm("ivm_mm_count_mv", """REFRESH MATERIALIZED VIEW ivm_mm_count_mv INCREMENTAL""")
     waitingMTMVTaskFinishedByMvName("ivm_mm_count_mv")
     lastTaskId = sql_return_maparray("""
         SELECT TaskId
@@ -84,7 +84,7 @@ suite("test_ivm_minmax_count") {
     // so the hidden min-count state keeps the refresh incremental.
     sql """DELETE FROM ivm_mm_count_t WHERE id = 1"""
     Thread.sleep(1000)
-    sql """REFRESH MATERIALIZED VIEW ivm_mm_count_mv INCREMENTAL"""
+    refreshIvm("ivm_mm_count_mv", """REFRESH MATERIALIZED VIEW ivm_mm_count_mv INCREMENTAL""")
     def duplicateMinTask = latestIvmTask("ivm_mm_count_mv")
     assertEquals("SUCCESS", duplicateMinTask.Status.toString())
     assertNoFallback(duplicateMinTask)
@@ -96,7 +96,7 @@ suite("test_ivm_minmax_count") {
     // Delete one of the three rows that hold the maximum of category b. The maximum survives.
     sql """DELETE FROM ivm_mm_count_t WHERE id = 4"""
     Thread.sleep(1000)
-    sql """REFRESH MATERIALIZED VIEW ivm_mm_count_mv INCREMENTAL"""
+    refreshIvm("ivm_mm_count_mv", """REFRESH MATERIALIZED VIEW ivm_mm_count_mv INCREMENTAL""")
     def duplicateMaxTask = latestIvmTask("ivm_mm_count_mv")
     assertEquals("SUCCESS", duplicateMaxTask.Status.toString())
     assertNoFallback(duplicateMaxTask)
@@ -109,7 +109,7 @@ suite("test_ivm_minmax_count") {
     // value was inserted, so the refresh still falls back to a complete refresh.
     sql """DELETE FROM ivm_mm_count_t WHERE id = 2"""
     Thread.sleep(1000)
-    sql """REFRESH MATERIALIZED VIEW ivm_mm_count_mv INCREMENTAL FALLBACK"""
+    refreshIvm("ivm_mm_count_mv", """REFRESH MATERIALIZED VIEW ivm_mm_count_mv INCREMENTAL FALLBACK""")
     def lastMinTask = latestIvmTask("ivm_mm_count_mv")
     assertEquals("SUCCESS", lastMinTask.Status.toString())
     assertEquals("COMPLETE", lastMinTask.RefreshMode.toString())
@@ -122,7 +122,7 @@ suite("test_ivm_minmax_count") {
     // A smaller inserted value becomes the new minimum without a complete refresh.
     sql """INSERT INTO ivm_mm_count_t VALUES (7, 'a', 7), (8, 'a', 7)"""
     Thread.sleep(1000)
-    sql """REFRESH MATERIALIZED VIEW ivm_mm_count_mv INCREMENTAL"""
+    refreshIvm("ivm_mm_count_mv", """REFRESH MATERIALIZED VIEW ivm_mm_count_mv INCREMENTAL""")
     def smallerInsertTask = latestIvmTask("ivm_mm_count_mv")
     assertEquals("SUCCESS", smallerInsertTask.Status.toString())
     assertNoFallback(smallerInsertTask)

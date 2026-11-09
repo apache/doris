@@ -165,15 +165,24 @@ def maskIvmDryRunSequence = { row, meta ->
 // suites so each one does not carry its own copy; the row carries the columns those suites assert
 // on (TaskId, Status, RefreshMode, IvmFallbackReason, ErrorMsg).
 //
-// A terminal row is not enough on its own: MTMVTask.onSuccess removes the task from the running
-// list and journals the job before it publishes the MV history, so during that window the newest
-// terminal row is still the previous refresh. Requiring a TaskId the caller has not seen yet closes
-// that window, the way the per-suite copies did before they were shared.
-def latestIvmTaskIds = [:]
+// Capture the latest task before submitting each refresh, including the first refresh a suite
+// waits for. A cache of tasks returned by this helper misses refreshes waited for another way.
+def latestIvmTaskIds = new java.util.concurrent.ConcurrentHashMap<String, String>()
+Suite.metaClass.refreshIvm = { String mvName, String statement ->
+    def suite = delegate
+    def key = "${suite.context.dbName}.${mvName}".toString()
+    def previous = suite.sql_return_maparray("""
+        SELECT TaskId FROM tasks('type'='mv')
+        WHERE MvDatabaseName = '${suite.context.dbName}' AND MvName = '${mvName}'
+        ORDER BY CreateTime DESC, TaskId DESC LIMIT 1
+    """)
+    latestIvmTaskIds[key] = previous.isEmpty() ? "" : previous[0].TaskId.toString()
+    suite.sql(statement)
+}
 
 Suite.metaClass.latestIvmTask = { String mvName ->
     def suite = delegate
-    def key = "${suite.context.dbName}.${mvName}"
+    def key = "${suite.context.dbName}.${mvName}".toString()
     def previousTaskId = latestIvmTaskIds[key]
     def taskResult
     Awaitility.await().atMost(300, SECONDS).pollInterval(2, SECONDS).until({

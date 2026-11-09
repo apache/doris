@@ -50,7 +50,7 @@ suite("test_ivm_agg_minmax_topk_7") {
         AS SELECT MIN(name) AS mn, MAX(name) AS mx FROM ivm_topk_7_t
     """
 
-    sql """REFRESH MATERIALIZED VIEW ivm_topk_7_mv COMPLETE"""
+    refreshIvm("ivm_topk_7_mv", """REFRESH MATERIALIZED VIEW ivm_topk_7_mv COMPLETE""")
     waitingMTMVTaskFinishedByMvName("ivm_topk_7_mv")
     order_qt_initial """SELECT mn, mx FROM ivm_topk_7_mv"""
     // Three distinct values with K = 2: both lists are truncated, the MIN bound is 'a' and the
@@ -59,17 +59,17 @@ suite("test_ivm_agg_minmax_topk_7") {
 
     // Deleting the smallest value retires it from the MIN list and keeps MAX unchanged.
     sql """DELETE FROM ivm_topk_7_t WHERE id = 1"""
-    sql """REFRESH MATERIALIZED VIEW ivm_topk_7_mv INCREMENTAL"""
+    refreshIvm("ivm_topk_7_mv", """REFRESH MATERIALIZED VIEW ivm_topk_7_mv INCREMENTAL""")
     def afterDelete = latestIvmTask("ivm_topk_7_mv")
-    assertEquals("SUCCESS", afterDelete.Status.toString())
+    qt_after_delete_status """SELECT '${afterDelete.Status.toString()}'"""
     order_qt_after_delete """SELECT mn, mx FROM ivm_topk_7_mv"""
     ivm_hidden_qt("order_state_after_delete", """SELECT * FROM ivm_topk_7_mv""")
 
     // Inserting a value between the remaining ones only changes the MAX-side candidate list.
     sql """INSERT INTO ivm_topk_7_t VALUES (4, 'aa')"""
-    sql """REFRESH MATERIALIZED VIEW ivm_topk_7_mv INCREMENTAL"""
+    refreshIvm("ivm_topk_7_mv", """REFRESH MATERIALIZED VIEW ivm_topk_7_mv INCREMENTAL""")
     def afterInsert = latestIvmTask("ivm_topk_7_mv")
-    assertEquals("SUCCESS", afterInsert.Status.toString())
+    qt_after_insert_status """SELECT '${afterInsert.Status.toString()}'"""
     order_qt_after_insert """SELECT mn, mx FROM ivm_topk_7_mv"""
     ivm_hidden_qt("order_state_after_insert", """SELECT * FROM ivm_topk_7_mv""")
 }

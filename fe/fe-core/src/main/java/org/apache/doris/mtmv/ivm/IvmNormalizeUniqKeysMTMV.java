@@ -270,9 +270,8 @@ public class IvmNormalizeUniqKeysMTMV extends DefaultPlanRewriter<IvmNormalizeUn
                 + ", currentCanonical=" + currentSignature.getCanonicalString()
                 + ", currentPlan=" + currentPlan.treeString()
                 + ". Run one REFRESH MATERIALIZED VIEW " + mtmv.getName()
-                + " INCREMENTAL FALLBACK to rebuild the IVM layout baseline: that attempt consumes the"
-                + " pending delta and then rebuilds in full, which is what lets the new signature be"
-                + " published. A plain COMPLETE does not read the delta, so it cannot republish it.";
+                + " INCREMENTAL FALLBACK or REFRESH MATERIALIZED VIEW " + mtmv.getName()
+                + " COMPLETE to rebuild the IVM layout baseline and publish its matching signature.";
         throw new IvmException(IvmFailureReason.PLAN_SIGNATURE_MISMATCH, detail);
     }
 

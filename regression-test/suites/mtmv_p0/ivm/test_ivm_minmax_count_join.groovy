@@ -77,7 +77,7 @@ suite("test_ivm_minmax_count_join") {
     // running list before the MV history publishes it, so the newest row can temporarily be
     // the previous refresh. Require a different TaskId before trusting a terminal row.
     String lastTaskId = null
-    sql """REFRESH MATERIALIZED VIEW ivm_mm_join_mv INCREMENTAL"""
+    refreshIvm("ivm_mm_join_mv", """REFRESH MATERIALIZED VIEW ivm_mm_join_mv INCREMENTAL""")
     waitingMTMVTaskFinishedByMvName("ivm_mm_join_mv")
     lastTaskId = sql_return_maparray("""
         SELECT TaskId
@@ -96,7 +96,7 @@ suite("test_ivm_minmax_count_join") {
     sql """INSERT INTO ivm_mm_join_l VALUES (1, 1), (2, 1), (3, 2)"""
     sql """DELETE FROM ivm_mm_join_r WHERE k = 1"""
     Thread.sleep(1000)
-    sql """REFRESH MATERIALIZED VIEW ivm_mm_join_mv INCREMENTAL"""
+    refreshIvm("ivm_mm_join_mv", """REFRESH MATERIALIZED VIEW ivm_mm_join_mv INCREMENTAL""")
     def canceledDeleteTask = latestIvmTask("ivm_mm_join_mv")
     assertEquals("SUCCESS", canceledDeleteTask.Status.toString())
     assertNoFallback(canceledDeleteTask)
@@ -108,7 +108,7 @@ suite("test_ivm_minmax_count_join") {
     // exhausts it, so the refresh must fall back instead of retaining the stale MIN = 1.
     sql """DELETE FROM ivm_mm_join_l WHERE k = 2"""
     Thread.sleep(1000)
-    sql """REFRESH MATERIALIZED VIEW ivm_mm_join_mv INCREMENTAL FALLBACK"""
+    refreshIvm("ivm_mm_join_mv", """REFRESH MATERIALIZED VIEW ivm_mm_join_mv INCREMENTAL FALLBACK""")
     def boundaryTask = latestIvmTask("ivm_mm_join_mv")
     assertEquals("SUCCESS", boundaryTask.Status.toString())
     assertEquals("COMPLETE", boundaryTask.RefreshMode.toString())

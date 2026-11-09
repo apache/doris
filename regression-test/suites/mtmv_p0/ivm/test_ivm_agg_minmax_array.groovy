@@ -58,39 +58,33 @@ suite("test_ivm_agg_minmax_array") {
         GROUP BY category
     """
 
-    String createDdl = sql """SHOW CREATE MATERIALIZED VIEW ivm_array_mv"""
-    assertTrue(createDdl.contains('"ivm_minmax_top_k" = "1"'),
-            "an ARRAY argument must resolve the capacity to 1: " + createDdl)
+    def createDdl = sql_return_maparray """SHOW CREATE MATERIALIZED VIEW ivm_array_mv"""
+    qt_capacity """SELECT ${createDdl.toString().contains('"ivm_minmax_top_k" = "1"')}"""
 
-    def assertNoFallback = { task ->
-        def reason = task.IvmFallbackReason
-        assertTrue(reason == null || reason.toString() == "\\N",
-                "unexpected IVM fallback: ${reason}")
-    }
-
-    sql """REFRESH MATERIALIZED VIEW ivm_array_mv COMPLETE"""
+    refreshIvm("ivm_array_mv", """REFRESH MATERIALIZED VIEW ivm_array_mv COMPLETE""")
     waitingMTMVTaskFinishedByMvName("ivm_array_mv")
     order_qt_initial """SELECT category, min_a, max_a, row_count FROM ivm_array_mv"""
 
     // A smaller minimum enters category a and a larger maximum enters category b; both are
     // derivable from the extreme-plus-count state.
     sql """INSERT INTO ivm_array_t VALUES (6, 'a', [0, 9]), (7, 'b', [10])"""
-    sql """REFRESH MATERIALIZED VIEW ivm_array_mv INCREMENTAL"""
+    refreshIvm("ivm_array_mv", """REFRESH MATERIALIZED VIEW ivm_array_mv INCREMENTAL""")
     waitingMTMVTaskFinishedByMvName("ivm_array_mv")
     def insertTask = latestIvmTask("ivm_array_mv")
-    assertEquals("SUCCESS", insertTask.Status.toString())
-    assertNoFallback(insertTask)
+    qt_insert_task_status """SELECT '${insertTask.Status.toString()}'"""
+    qt_no_fallback """SELECT ${insertTask.IvmFallbackReason == null ||
+            insertTask.IvmFallbackReason.toString() == "\\N"}"""
     order_qt_after_insert """SELECT category, min_a, max_a, row_count FROM ivm_array_mv"""
 
     // Deleting the only row that holds the minimum of category a moves the minimum back to
     // [1, 2], which an extreme-plus-count state cannot derive: the refresh falls back.
     sql """DELETE FROM ivm_array_t WHERE id = 6"""
-    sql """REFRESH MATERIALIZED VIEW ivm_array_mv INCREMENTAL FALLBACK"""
+    refreshIvm("ivm_array_mv", """REFRESH MATERIALIZED VIEW ivm_array_mv INCREMENTAL FALLBACK""")
     waitingMTMVTaskFinishedByMvName("ivm_array_mv")
     def deleteTask = latestIvmTask("ivm_array_mv")
-    assertEquals("SUCCESS", deleteTask.Status.toString())
-    assertEquals("COMPLETE", deleteTask.RefreshMode.toString())
-    assertEquals("MIN_MAX_BOUNDARY_HIT", deleteTask.IvmFallbackReason.toString())
+    qt_delete_task_status """SELECT '${deleteTask.Status.toString()}'"""
+    qt_delete_task_refreshmode """SELECT '${deleteTask.RefreshMode.toString()}'"""
+    qt_delete_task_ivmfallbackreason """SELECT '${deleteTask.IvmFallbackReason.toString()}'"""
     order_qt_after_delete """SELECT category, min_a, max_a, row_count FROM ivm_array_mv"""
 
     // The source query must agree with the MV after every step.
