@@ -45,8 +45,7 @@ suite("test_broker_load_strict_mode", "load_p0") {
                 (c1)
             )
             WITH S3 (
-                "s3.access_key" = "${ak}",
-                "s3.secret_key" = "${sk}",
+                ${getS3CredentialProperties()},
                 "s3.endpoint" = "${s3Endpoint}",
                 "s3.region" = "${s3Region}"
             )
@@ -83,8 +82,7 @@ suite("test_broker_load_strict_mode", "load_p0") {
                 (c1)
             )
             WITH S3 (
-                "s3.access_key" = "${ak}",
-                "s3.secret_key" = "${sk}",
+                ${getS3CredentialProperties()},
                 "s3.endpoint" = "${s3Endpoint}",
                 "s3.region" = "${s3Region}"
             )

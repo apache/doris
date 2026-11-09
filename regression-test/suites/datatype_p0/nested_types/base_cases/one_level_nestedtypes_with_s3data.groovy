@@ -82,8 +82,7 @@ suite("one_level_nestedtypes_with_s3data") {
                 order_qt_sql_s3 """select *
                 from s3(
                     "uri" = "${uri_file}",
-                        "s3.access_key"= "${ak}",
-                        "s3.secret_key" = "${sk}",
+                        ${getS3CredentialProperties()},
                         "format" = "${format}",
                         "provider" = "${getS3Provider()}",
                         "column_separator"="|",
@@ -93,8 +92,7 @@ suite("one_level_nestedtypes_with_s3data") {
                 insert into ${table_name} select *
                 from s3(
                 "uri" = "${uri_file}",
-                        "s3.access_key"= "${ak}",
-                        "s3.secret_key" = "${sk}",
+                        ${getS3CredentialProperties()},
                         "format" = "${format}",
                         "column_separator"="|",
                         "provider" = "${getS3Provider()}",
@@ -120,8 +118,7 @@ suite("one_level_nestedtypes_with_s3data") {
                     , deduplicate_map(c_string)
                 from s3(
                     "uri" = "${uri_file}",
-                        "s3.access_key"= "${ak}",
-                        "s3.secret_key" = "${sk}",
+                        ${getS3CredentialProperties()},
                         "format" = "${format}",
                         "provider" = "${getS3Provider()}",
                         "read_json_by_line"="true") where k1 is not null order by k1 limit 10; """
@@ -147,8 +144,7 @@ suite("one_level_nestedtypes_with_s3data") {
                     , deduplicate_map(c_string)
                 from s3(
                 "uri" = "${uri_file}",
-                        "s3.access_key"= "${ak}",
-                        "s3.secret_key" = "${sk}",
+                        ${getS3CredentialProperties()},
                         "format" = "${format}",
                         "provider" = "${getS3Provider()}",
                         "read_json_by_line"="true"); """
@@ -157,8 +153,7 @@ suite("one_level_nestedtypes_with_s3data") {
             if (format == "csv") {
                 order_qt_sql_s3 """select * from s3(
                     "uri" = "${uri_file}",
-                        "s3.access_key"= "${ak}",
-                        "s3.secret_key" = "${sk}",
+                        ${getS3CredentialProperties()},
                         "format" = "${format}",
                         "provider" = "${getS3Provider()}",
                         "column_separator"="|",
@@ -167,8 +162,7 @@ suite("one_level_nestedtypes_with_s3data") {
                 sql """
                 insert into ${table_name} select * from s3(
                 "uri" = "${uri_file}",
-                        "s3.access_key"= "${ak}",
-                        "s3.secret_key" = "${sk}",
+                        ${getS3CredentialProperties()},
                         "format" = "${format}",
                         "column_separator"="|",
                         "provider" = "${getS3Provider()}",
@@ -176,8 +170,7 @@ suite("one_level_nestedtypes_with_s3data") {
             } else {
                 order_qt_sql_s3 """select * from s3(
                     "uri" = "${uri_file}",
-                        "s3.access_key"= "${ak}",
-                        "s3.secret_key" = "${sk}",
+                        ${getS3CredentialProperties()},
                         "format" = "${format}",
                         "provider" = "${getS3Provider()}",
                         "read_json_by_line"="true") where k1 is not null order by k1 limit 10; """
@@ -185,8 +178,7 @@ suite("one_level_nestedtypes_with_s3data") {
                 sql """
                 insert into ${table_name} select * from s3(
                 "uri" = "${uri_file}",
-                        "s3.access_key"= "${ak}",
-                        "s3.secret_key" = "${sk}",
+                        ${getS3CredentialProperties()},
                         "format" = "${format}",
                         "provider" = "${getS3Provider()}",
                         "read_json_by_line"="true"); """

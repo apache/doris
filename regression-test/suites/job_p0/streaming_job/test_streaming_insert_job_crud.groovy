@@ -58,8 +58,7 @@ suite("test_streaming_insert_job_crud") {
                 "column_separator" = ",",
                 "s3.endpoint" = "${getS3Endpoint()}",
                 "s3.region" = "${getS3Region()}",
-                "s3.access_key" = "${getS3AK()}",
-                "s3.secret_key" = "${getS3SK()}"
+                ${getS3CredentialProperties()}
             );
         """
     }, "mismatched input")
@@ -83,8 +82,7 @@ suite("test_streaming_insert_job_crud") {
                 "column_separator" = ",",
                 "s3.endpoint" = "${getS3Endpoint()}",
                 "s3.region" = "${getS3Region()}",
-                "s3.access_key" = "${getS3AK()}",
-                "s3.secret_key" = "${getS3SK()}"
+                ${getS3CredentialProperties()}
             );
         """
     }, "Invalid properties: [xxx]")
@@ -108,8 +106,7 @@ suite("test_streaming_insert_job_crud") {
                 "column_separator" = ",",
                 "s3.endpoint" = "${getS3Endpoint()}",
                 "s3.region" = "${getS3Region()}",
-                "s3.access_key" = "${getS3AK()}",
-                "s3.secret_key" = "${getS3SK()}"
+                ${getS3CredentialProperties()}
             );
         """
     }, "s3.max_batch_files must be at least 1")
@@ -132,8 +129,7 @@ suite("test_streaming_insert_job_crud") {
                 "column_separator" = ",",
                 "s3.endpoint" = "${getS3Endpoint()}",
                 "s3.region" = "${getS3Region()}",
-                "s3.access_key" = "${getS3AK()}",
-                "s3.secret_key" = "${getS3SK()}"
+                ${getS3CredentialProperties()}
             );
         """
     }, "s3.max_batch_bytes must be between 100 MB and 10 GB")
@@ -156,8 +152,7 @@ suite("test_streaming_insert_job_crud") {
                 "column_separator" = ",",
                 "s3.endpoint" = "${getS3Endpoint()}",
                 "s3.region" = "${getS3Region()}",
-                "s3.access_key" = "${getS3AK()}",
-                "s3.secret_key" = "${getS3SK()}"
+                ${getS3CredentialProperties()}
             );
         """
     }, "max_interval must be at least 1 second")
@@ -181,8 +176,7 @@ suite("test_streaming_insert_job_crud") {
                 "column_separator" = ",",
                 "s3.endpoint" = "${getS3Endpoint()}",
                 "s3.region" = "${getS3Region()}",
-                "s3.access_key" = "${getS3AK()}",
-                "s3.secret_key" = "${getS3SK()}"
+                ${getS3CredentialProperties()}
             );
         """
     }, "Variable enable_insert_strict can't be set to the value of xxx")
@@ -205,8 +199,7 @@ suite("test_streaming_insert_job_crud") {
                 "column_separator" = ",",
                 "s3.endpoint" = "${getS3Endpoint()}",
                 "s3.region" = "${getS3Region()}",
-                "s3.access_key" = "${getS3AK()}",
-                "s3.secret_key" = "${getS3SK()}"
+                ${getS3CredentialProperties()}
             );
         """
     }, "Invalid session variable, [xxx]")
@@ -227,8 +220,7 @@ suite("test_streaming_insert_job_crud") {
             "column_separator" = ",",
             "s3.endpoint" = "${getS3Endpoint()}",
             "s3.region" = "${getS3Region()}",
-            "s3.access_key" = "${getS3AK()}",
-            "s3.secret_key" = "${getS3SK()}"
+            ${getS3CredentialProperties()}
         );
         """
     }, "Invalid uri")
@@ -271,8 +263,7 @@ suite("test_streaming_insert_job_crud") {
             "column_separator" = ",",
             "s3.endpoint" = "${getS3Endpoint()}",
             "s3.region" = "${getS3Region()}",
-            "s3.access_key" = "${getS3AK()}",
-            "s3.secret_key" = "${getS3SK()}"
+            ${getS3CredentialProperties()}
         );
         """
     }, "insert into cols should be corresponding to the query output")
@@ -304,8 +295,7 @@ suite("test_streaming_insert_job_crud") {
             "column_separator" = ",",
             "s3.endpoint" = "${getS3Endpoint()}",
             "s3.region" = "${getS3Region()}",
-            "s3.access_key" = "${getS3AK()}",
-            "s3.secret_key" = "${getS3SK()}"
+            ${getS3CredentialProperties()}
         );
     """
     try {
@@ -355,8 +345,7 @@ suite("test_streaming_insert_job_crud") {
             "column_separator" = ",",
             "s3.endpoint" = "${getS3Endpoint()}",
             "s3.region" = "${getS3Region()}",
-            "s3.access_key" = "${getS3AK()}",
-            "s3.secret_key" = "${getS3SK()}"
+            ${getS3CredentialProperties()}
         );
     """
     }, "Only PAUSED job can be altered")
@@ -383,8 +372,7 @@ suite("test_streaming_insert_job_crud") {
             "column_separator" = ",",
             "s3.endpoint" = "${getS3Endpoint()}",
             "s3.region" = "${getS3Region()}",
-            "s3.access_key" = "${getS3AK()}",
-            "s3.secret_key" = "${getS3SK()}"
+            ${getS3CredentialProperties()}
         );
     """
     }, "job not exist")
@@ -405,8 +393,7 @@ suite("test_streaming_insert_job_crud") {
                 "column_separator" = ",",
                 "s3.endpoint" = "${getS3Endpoint()}",
                 "s3.region" = "${getS3Region()}",
-                "s3.access_key" = "${getS3AK()}",
-                "s3.secret_key" = "${getS3SK()}"
+                ${getS3CredentialProperties()}
             );
         """
         exception "s3.max_batch_files must be at least 1"
@@ -429,8 +416,7 @@ suite("test_streaming_insert_job_crud") {
             "column_separator" = ",",
             "s3.endpoint" = "${getS3Endpoint()}",
             "s3.region" = "${getS3Region()}",
-            "s3.access_key" = "${getS3AK()}",
-            "s3.secret_key" = "${getS3SK()}"
+            ${getS3CredentialProperties()}
         );
     """
 
@@ -452,8 +438,7 @@ suite("test_streaming_insert_job_crud") {
             "column_separator" = ",",
             "s3.endpoint" = "${getS3Endpoint()}",
             "s3.region" = "${getS3Region()}",
-            "s3.access_key" = "${getS3AK()}",
-            "s3.secret_key" = "${getS3SK()}"
+            ${getS3CredentialProperties()}
         );
         """
     }, "The uri property cannot be modified in ALTER JOB")
@@ -471,8 +456,7 @@ suite("test_streaming_insert_job_crud") {
             "column_separator" = ",",
             "s3.endpoint" = "${getS3Endpoint()}",
             "s3.region" = "${getS3Region()}",
-            "s3.access_key" = "${getS3AK()}",
-            "s3.secret_key" = "${getS3SK()}"
+            ${getS3CredentialProperties()}
         );
         """
     }, "The target table cannot be modified in ALTER JOB")

@@ -37,8 +37,7 @@ suite("test_insert_into_s3_tvf", "p0,external") {
             "file_path" = "s3://${s3BasePath}/${path}",
             "format" = "${format}",
             "s3.endpoint" = "${s3_endpoint}",
-            "s3.access_key" = "${ak}",
-            "s3.secret_key" = "${sk}",
+            ${getS3CredentialProperties()},
             "s3.region" = "${region}"
         """
     }
@@ -47,8 +46,7 @@ suite("test_insert_into_s3_tvf", "p0,external") {
     def s3ReadProps = { String path, String format ->
         return """
             "uri" = "https://${bucket}.${s3_endpoint}/${s3BasePrefix}/${path}",
-            "s3.access_key" = "${ak}",
-            "s3.secret_key" = "${sk}",
+            ${getS3CredentialProperties()},
             "format" = "${format}",
             "region" = "${region}"
         """
@@ -504,8 +502,7 @@ suite("test_insert_into_s3_tvf", "p0,external") {
             INSERT INTO s3(
                 "format" = "csv",
                 "s3.endpoint" = "${s3_endpoint}",
-                "s3.access_key" = "${ak}",
-                "s3.secret_key" = "${sk}",
+                ${getS3CredentialProperties()},
                 "s3.region" = "${region}"
             ) SELECT 1;
         """
@@ -519,8 +516,7 @@ suite("test_insert_into_s3_tvf", "p0,external") {
             INSERT INTO s3(
                 "file_path" = "s3://${s3BasePath}/err/data_",
                 "s3.endpoint" = "${s3_endpoint}",
-                "s3.access_key" = "${ak}",
-                "s3.secret_key" = "${sk}",
+                ${getS3CredentialProperties()},
                 "s3.region" = "${region}"
             ) SELECT 1;
         """
@@ -535,8 +531,7 @@ suite("test_insert_into_s3_tvf", "p0,external") {
                 "file_path" = "s3://${s3BasePath}/err/data_",
                 "format" = "json",
                 "s3.endpoint" = "${s3_endpoint}",
-                "s3.access_key" = "${ak}",
-                "s3.secret_key" = "${sk}",
+                ${getS3CredentialProperties()},
                 "s3.region" = "${region}"
             ) SELECT 1;
         """
@@ -551,8 +546,7 @@ suite("test_insert_into_s3_tvf", "p0,external") {
                 "file_path" = "s3://${s3BasePath}/wildcard/*.csv",
                 "format" = "csv",
                 "s3.endpoint" = "${s3_endpoint}",
-                "s3.access_key" = "${ak}",
-                "s3.secret_key" = "${sk}",
+                ${getS3CredentialProperties()},
                 "s3.region" = "${region}"
             ) SELECT 1;
         """

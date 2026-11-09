@@ -74,8 +74,7 @@ suite('test_load_channel_profile') {
             INSERT INTO t
             SELECT CAST(split_part(c1, '|', 1) AS INT) AS a, CAST(split_part(c1, '|', 2) AS INT) AS b FROM S3 (
                 "uri" = "$s3Uri",
-                "s3.access_key" = "$ak",
-                "s3.secret_key" = "$sk",
+                ${getS3CredentialProperties()},
                 "s3.endpoint" = "${s3Endpoint}",
                 "s3.region" = "${s3Region}",
                 "format" = "csv",

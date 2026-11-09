@@ -22,13 +22,13 @@ suite("test_read_csv_empty_line_as_null", "p0,external") {
 
     String ak = getS3AK()
     String sk = getS3SK()
-    String s3_endpoint = getS3Endpoint()
-    String region = getS3Region()
-    String bucket = context.config.otherConfigs.get("s3BucketName");
+    String s3_endpoint = getS3WriteEndpoint()
+    String region = getS3WriteRegion()
+    String bucket = getS3WriteBucketName();
 
 
     def export_table_name = "test_read_csv_empty_line"
-    def outFilePath = "${bucket}/test_read_csv_empty_line/exp_"
+    def outFilePath = "${bucket}/${getS3WriteKey("test_read_csv_empty_line/exp_")}"
 
 
     def create_table = {table_name ->
@@ -51,8 +51,7 @@ suite("test_read_csv_empty_line_as_null", "p0,external") {
             PROPERTIES (
                 "s3.endpoint" = "${s3_endpoint}",
                 "s3.region" = "${region}",
-                "s3.secret_key"="${sk}",
-                "s3.access_key" = "${ak}"
+                ${getS3CredentialProperties()}
             );
         """
 
@@ -84,8 +83,7 @@ suite("test_read_csv_empty_line_as_null", "p0,external") {
     try {
         order_qt_select_1 """ SELECT * FROM S3 (
                             "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.csv",
-                            "ACCESS_KEY"= "${ak}",
-                            "SECRET_KEY" = "${sk}",
+                            ${getS3CredentialProperties("tvf")},
                             "format" = "csv",
                             "column_separator" = ",",
                             "region" = "${region}"
@@ -99,8 +97,7 @@ suite("test_read_csv_empty_line_as_null", "p0,external") {
         sql """ set read_csv_empty_line_as_null=true; """
         order_qt_select_1 """ SELECT * FROM S3 (
                             "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.csv",
-                            "ACCESS_KEY"= "${ak}",
-                            "SECRET_KEY" = "${sk}",
+                            ${getS3CredentialProperties("tvf")},
                             "format" = "csv",
                             "column_separator" = ",",
                             "region" = "${region}"

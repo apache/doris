@@ -24,12 +24,12 @@ import java.nio.file.Paths
 suite("test_outfile_parquet_schema", "p0") {
     String ak = getS3AK()
     String sk = getS3SK()
-    String s3_endpoint = getS3Endpoint()
-    String region = getS3Region()
-    String bucket = getS3BucketName();
+    String s3_endpoint = getS3WriteEndpoint()
+    String region = getS3WriteRegion()
+    String bucket = getS3WriteBucketName();
 
     def export_table_name = "outfile_parquet_schema_test"
-    def outFilePath = "${bucket}/outfile/outfile_parquet_schema_test/exp_"
+    def outFilePath = "${bucket}/${getS3WriteKey("outfile/outfile_parquet_schema_test/exp_")}"
 
     // create table to export data
     sql """ DROP TABLE IF EXISTS ${export_table_name} """
@@ -47,8 +47,7 @@ suite("test_outfile_parquet_schema", "p0") {
     def check_outfile_data = { outfile_url, outfile_format ->
         order_qt_select_tvf """ SELECT * FROM S3 (
                             "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.${outfile_format}",
-                            "ACCESS_KEY"= "${ak}",
-                            "SECRET_KEY" = "${sk}",
+                            ${getS3CredentialProperties("tvf")},
                             "format" = "${outfile_format}",
                             "region" = "${region}"
                         );
@@ -58,8 +57,7 @@ suite("test_outfile_parquet_schema", "p0") {
     def check_outfile_column_name = { outfile_url, outfile_format ->
         order_qt_desc_s3 """ Desc function S3 (
                     "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.${outfile_format}",
-                    "ACCESS_KEY"= "${ak}",
-                    "SECRET_KEY" = "${sk}",
+                    ${getS3CredentialProperties("tvf")},
                     "format" = "${outfile_format}",
                     "region" = "${region}"
                 );
@@ -77,8 +75,7 @@ suite("test_outfile_parquet_schema", "p0") {
             PROPERTIES (
                 "s3.endpoint" = "${s3_endpoint}",
                 "s3.region" = "${region}",
-                "s3.secret_key"="${sk}",
-                "s3.access_key" = "${ak}",
+                ${getS3CredentialProperties()},
                 "schema" = "required,byte_array,id;required,byte_array,name"
             );
         """

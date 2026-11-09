@@ -64,8 +64,7 @@ suite("test_broker_load_with_negtive", "load_p0") {
                 COLUMNS TERMINATED BY ","
             )
             WITH S3 (
-                "AWS_ACCESS_KEY" = "${getS3AK()}",
-                "AWS_SECRET_KEY" = "${getS3SK()}",
+                ${getS3CredentialProperties("AWS")},
                 "AWS_ENDPOINT" = "${getS3Endpoint()}",
                 "AWS_REGION" = "${getS3Region()}",
                 "PROVIDER" = "${getS3Provider()}"
@@ -88,8 +87,7 @@ suite("test_broker_load_with_negtive", "load_p0") {
                 set(v5 = tmp + 2)
             )
             WITH S3 (
-                "AWS_ACCESS_KEY" = "${getS3AK()}",
-                "AWS_SECRET_KEY" = "${getS3SK()}",
+                ${getS3CredentialProperties("AWS")},
                 "AWS_ENDPOINT" = "${getS3Endpoint()}",
                 "AWS_REGION" = "${getS3Region()}",
                 "PROVIDER" = "${getS3Provider()}"
@@ -110,8 +108,7 @@ suite("test_broker_load_with_negtive", "load_p0") {
                 COLUMNS TERMINATED BY ","
             )
             WITH S3 (
-                "AWS_ACCESS_KEY" = "${getS3AK()}",
-                "AWS_SECRET_KEY" = "${getS3SK()}",
+                ${getS3CredentialProperties("AWS")},
                 "AWS_ENDPOINT" = "${getS3Endpoint()}",
                 "AWS_REGION" = "${getS3Region()}",
                 "PROVIDER" = "${getS3Provider()}"
@@ -132,8 +129,7 @@ suite("test_broker_load_with_negtive", "load_p0") {
                 COLUMNS TERMINATED BY ","
             )
             WITH S3 (
-                "AWS_ACCESS_KEY" = "${getS3AK()}",
-                "AWS_SECRET_KEY" = "${getS3SK()}",
+                ${getS3CredentialProperties("AWS")},
                 "AWS_ENDPOINT" = "${getS3Endpoint()}",
                 "AWS_REGION" = "${getS3Region()}",
                 "PROVIDER" = "${getS3Provider()}"

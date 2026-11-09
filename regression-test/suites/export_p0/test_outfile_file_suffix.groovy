@@ -22,9 +22,9 @@ suite("test_outfile_file_suffix", "p0") {
 
     String ak = getS3AK()
     String sk = getS3SK()
-    String s3_endpoint = getS3Endpoint()
-    String region = getS3Region()
-    String bucket = context.config.otherConfigs.get("s3BucketName");
+    String s3_endpoint = getS3WriteEndpoint()
+    String region = getS3WriteRegion()
+    String bucket = getS3WriteBucketName();
 
     def create_table = {table_name -> 
         sql """ DROP TABLE IF EXISTS ${table_name} """
@@ -40,7 +40,7 @@ suite("test_outfile_file_suffix", "p0") {
     def table_name = "test_outfile_file_suffix"
     create_table(table_name)
 
-    def outFilePath = """s3://${bucket}/outfile_"""
+    def outFilePath = """s3://${bucket}/${getS3WriteKey("outfile_")}"""
     def csv_suffix_result = { file_suffix, file_format ->
         def result = sql """
                 select * from ${table_name}
@@ -49,8 +49,7 @@ suite("test_outfile_file_suffix", "p0") {
                 PROPERTIES(
                     "s3.endpoint" = "${s3_endpoint}",
                     "s3.region" = "${region}",
-                    "s3.secret_key"="${sk}",
-                    "s3.access_key" = "${ak}",
+                    ${getS3CredentialProperties()},
                     "file_suffix" = "${file_suffix}"
                 );
             """
@@ -63,8 +62,7 @@ suite("test_outfile_file_suffix", "p0") {
     print("http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.${file_suffix}")
     qt_select """ select * from s3(
                 "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.${file_suffix}",
-                "ACCESS_KEY"= "${ak}",
-                "SECRET_KEY" = "${sk}",
+                ${getS3CredentialProperties("tvf")},
                 "format" = "${file_format}",
                 "provider" = "${getS3Provider()}",
                 "region" = "${region}"

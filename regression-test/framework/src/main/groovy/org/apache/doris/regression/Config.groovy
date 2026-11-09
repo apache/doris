@@ -732,6 +732,10 @@ class Config {
             }
         }
 
+        org.apache.doris.regression.util.SecretRedactor.register(
+                [config.otherConfigs.get("ak"), config.otherConfigs.get("sk"),
+                 config.otherConfigs.get("sessionToken")])
+
         // check smoke config
         if (obj.isSmokeTest) {
             config.isSmokeTest = true

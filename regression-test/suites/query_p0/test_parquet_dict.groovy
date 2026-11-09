@@ -21,8 +21,7 @@ suite("test_parquet_dict", "p0") {
         String sk = context.config.otherConfigs.get("sk")
         qt_s3_tvf """ SELECT * FROM FILE (
             "uri" = "https://doris-regression-hk.oss-cn-hongkong.aliyuncs.com/regression/query_p0/test_page_v2.parquet",
-            "s3.access_key"= "${ak}",
-            "s3.secret_key" = "${sk}",
+            ${getS3CredentialProperties()},
             "format" = "parquet"
         ) where user_id='68535cc98406454081424bf8247d783d' ;
         """

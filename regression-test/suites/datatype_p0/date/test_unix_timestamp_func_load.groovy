@@ -66,8 +66,7 @@ suite("test_unix_timestamp_func_load") {
                 )
             )
             WITH S3 (
-                "s3.access_key" = "${ak}",
-                "s3.secret_key" = "${sk}",
+                ${getS3CredentialProperties()},
                 "s3.endpoint" = "${s3Endpoint}",
                 "s3.region" = "${s3Region}"
             );

@@ -30,14 +30,14 @@ suite("test_outfile_csv_variant_type", "p0") {
 
     String ak = getS3AK()
     String sk = getS3SK()
-    String s3_endpoint = getS3Endpoint()
-    String region = getS3Region()
-    String bucket = context.config.otherConfigs.get("s3BucketName");
+    String s3_endpoint = getS3WriteEndpoint()
+    String region = getS3WriteRegion()
+    String bucket = getS3WriteBucketName();
 
 
     def export_table_name = "outfile_csv_variant_export_test"
     def load_table_name = "outfile_csv_variant_type_load_test"
-    def outFilePath = "${bucket}/outfile/csv/variant_type/exp_"
+    def outFilePath = "${bucket}/${getS3WriteKey("outfile/csv/variant_type/exp_")}"
 
 
     def create_table = {table_name, struct_field ->
@@ -61,8 +61,7 @@ suite("test_outfile_csv_variant_type", "p0") {
             PROPERTIES (
                 "s3.endpoint" = "${s3_endpoint}",
                 "s3.region" = "${region}",
-                "s3.secret_key"="${sk}",
-                "s3.access_key" = "${ak}"
+                ${getS3CredentialProperties()}
             );
         """
 
@@ -96,8 +95,7 @@ suite("test_outfile_csv_variant_type", "p0") {
 
         qt_select_load1 """ SELECT * FROM S3 (
                 "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.csv",
-                "ACCESS_KEY"= "${ak}",
-                "SECRET_KEY" = "${sk}",
+                ${getS3CredentialProperties("tvf")},
                 "format" = "csv",
                 "region" = "${region}"
             );
@@ -132,8 +130,7 @@ suite("test_outfile_csv_variant_type", "p0") {
 
         qt_select_load2 """ SELECT * FROM S3 (
                 "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.csv",
-                "ACCESS_KEY"= "${ak}",
-                "SECRET_KEY" = "${sk}",
+                ${getS3CredentialProperties("tvf")},
                 "format" = "csv",
                 "region" = "${region}"
             );

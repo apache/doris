@@ -53,21 +53,20 @@ suite("test_dml_outfile_auth","p0,auth_call") {
 
     String ak = getS3AK()
     String sk = getS3SK()
-    String s3_endpoint = getS3Endpoint()
-    String region = getS3Region()
-    String bucket = context.config.otherConfigs.get("s3BucketName")
+    String s3_endpoint = getS3WriteEndpoint()
+    String region = getS3WriteRegion()
+    String bucket = getS3WriteBucketName()
 
     connect(user, "${pwd}", context.config.jdbcUrl) {
         test {
             sql """
                 SELECT * FROM ${dbName}.${tableName} t ORDER BY id
-                INTO OUTFILE "s3://${bucket}/outfile/auth/exp_${hashCode}"
+                INTO OUTFILE "s3://${bucket}/${getS3WriteKey("outfile/auth/exp_${hashCode}")}"
                 FORMAT AS parquet 
                 PROPERTIES (
                     "s3.endpoint" = "${s3_endpoint}",
                     "s3.region" = "${region}",
-                    "s3.secret_key"="${sk}",
-                    "s3.access_key" = "${ak}"
+                    ${getS3CredentialProperties()}
                 );"""
             exception "denied"
         }
@@ -76,13 +75,12 @@ suite("test_dml_outfile_auth","p0,auth_call") {
     connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """
             SELECT * FROM ${dbName}.${tableName} t ORDER BY id
-            INTO OUTFILE "s3://${bucket}/outfile/auth/exp_"
+            INTO OUTFILE "s3://${bucket}/${getS3WriteKey("outfile/auth/exp_")}"
             FORMAT AS parquet 
             PROPERTIES (
                 "s3.endpoint" = "${s3_endpoint}",
                 "s3.region" = "${region}",
-                "s3.secret_key"="${sk}",
-                "s3.access_key" = "${ak}"
+                ${getS3CredentialProperties()}
             );"""
     }
 

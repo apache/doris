@@ -446,8 +446,7 @@ suite("docs/data-operate/import/import-way/broker-load-manual.md", "p0,nonConcur
             WITH S3
             (
                 "AWS_ENDPOINT" = "${getS3Endpoint()}",
-                "AWS_ACCESS_KEY" = "${getS3AK()}",
-                "AWS_SECRET_KEY"="${getS3SK()}",
+                ${getS3CredentialProperties("AWS")},
                 "AWS_REGION" = "${getS3Region()}"
             )
             PROPERTIES

@@ -35,8 +35,7 @@ suite("test_json_reader_without_object", "p0") {
     test {
         sql """ select * from s3(
                                 "uri" = "${dataFilePath}/${dataSimpleNumber}",
-                                    "s3.access_key"= "${ak}",
-                                    "s3.secret_key" = "${sk}",
+                                    ${getS3CredentialProperties()},
                                     "format" = "json",
                                     "provider" = "${getS3Provider()}",
                                     "read_json_by_line"="true"); """
@@ -46,8 +45,7 @@ suite("test_json_reader_without_object", "p0") {
     test {
         sql """ select * from s3(
                                 "uri" = "${dataFilePath}/${dataSimpleArray}",
-                                    "s3.access_key"= "${ak}",
-                                    "s3.secret_key" = "${sk}",
+                                    ${getS3CredentialProperties()},
                                     "format" = "json",
                                     "provider" = "${getS3Provider()}",
                                     "strip_outer_array" = "true",

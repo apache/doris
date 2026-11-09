@@ -123,8 +123,7 @@ suite("test_tvf_lz4_compress") {
                 (a, b)
             )
             WITH S3 (
-                "AWS_ACCESS_KEY" = "${ak}",
-                "AWS_SECRET_KEY" = "${sk}",
+                ${getS3CredentialProperties("AWS")},
                 "AWS_ENDPOINT" = "${s3Endpoint}",
                 "AWS_REGION" = "${s3Region}",
                 "compress_type" = "lz4"
@@ -158,8 +157,7 @@ suite("test_tvf_lz4_compress") {
                 (a, b)
             )
             WITH S3 (
-                "AWS_ACCESS_KEY" = "${ak}",
-                "AWS_SECRET_KEY" = "${sk}",
+                ${getS3CredentialProperties("AWS")},
                 "AWS_ENDPOINT" = "${s3Endpoint}",
                 "AWS_REGION" = "${s3Region}",
                 "compress_type" = "lz4frame"
@@ -202,8 +200,7 @@ suite("test_tvf_lz4_compress") {
             INSERT INTO ${table3} 
             SELECT CAST(split_part(c1, ',', 1) AS INT) AS a, CAST(split_part(c1, ',', 2) AS INT) AS b FROM S3 (
                 "uri" = "s3://${s3BucketName}/load/tvf_compress.csv.lz4",
-                "s3.access_key" = "${ak}",
-                "s3.secret_key" = "${sk}",
+                ${getS3CredentialProperties()},
                 "s3.endpoint" = "${s3Endpoint}",
                 "s3.region" = "${s3Region}",
                 "format" = "csv",
@@ -221,8 +218,7 @@ suite("test_tvf_lz4_compress") {
             INSERT INTO ${table3} 
             SELECT CAST(split_part(c1, ',', 1) AS INT) AS a, CAST(split_part(c1, ',', 2) AS INT) AS b FROM S3 (
                 "uri" = "s3://${s3BucketName}/load/tvf_compress.csv.lz4",
-                "s3.access_key" = "${ak}",
-                "s3.secret_key" = "${sk}",
+                ${getS3CredentialProperties()},
                 "s3.endpoint" = "${s3Endpoint}",
                 "s3.region" = "${s3Region}",
                 "format" = "csv",

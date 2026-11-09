@@ -16,14 +16,13 @@
 // under the License.
 
 suite("test_result_file_name_padding", "p0,external") {
-    def bucket = context.config.otherConfigs.get("s3BucketName")
-    def prefix = "regression/result_file_name_padding/${UUID.randomUUID()}/"
-    def client = getS3Client()
+    def bucket = getS3WriteBucketName()
+    def prefix = getS3WriteKey("regression/result_file_name_padding/${UUID.randomUUID()}/")
+    def client = getS3WriteClient()
     def storage = """
-        "s3.endpoint" = "${getS3Endpoint()}",
-        "s3.region" = "${getS3Region()}",
-        "s3.access_key" = "${getS3AK()}",
-        "s3.secret_key" = "${getS3SK()}"
+        "s3.endpoint" = "${getS3WriteEndpoint()}",
+        "s3.region" = "${getS3WriteRegion()}",
+        ${getS3CredentialProperties()}
     """
     def listKeys = { String path ->
         def keys = []

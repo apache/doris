@@ -37,10 +37,10 @@ suite("map_uniq_with_local_tvf", "p0") {
             "disable_auto_compaction" = "false"
             ); """
 
-    String bucket = getS3BucketName()
-    String key = "regression/local_tvf_migration/${UUID.randomUUID()}/mm.orc"
+    String bucket = getS3WriteBucketName()
+    String key = getS3WriteKey("regression/local_tvf_migration/${UUID.randomUUID()}/mm.orc")
     String provider = getS3Provider()
-    String endpoint = getS3Endpoint()
+    String endpoint = getS3WriteEndpoint()
     File fixture = new File(context.config.dataPath, "types/complex_types/mm.orc")
     def deleteFixture
     if (provider.equalsIgnoreCase("AZURE")) {
@@ -58,7 +58,7 @@ suite("map_uniq_with_local_tvf", "p0") {
         blobClient.uploadFromFile(fixture.absolutePath)
         deleteFixture = { blobClient.delete() }
     } else {
-        def s3Client = getS3Client()
+        def s3Client = getS3WriteClient()
         s3Client.putObject(bucket, key, fixture)
         deleteFixture = { s3Client.deleteObject(bucket, key) }
     }
@@ -68,9 +68,8 @@ suite("map_uniq_with_local_tvf", "p0") {
             "format" = "orc",
             "s3.endpoint" = "${endpoint}",
             "provider" = "${provider}",
-            "s3.region" = "${getS3Region()}",
-            "s3.access_key" = "${getS3AK()}",
-            "s3.secret_key" = "${getS3SK()}"
+            "s3.region" = "${getS3WriteRegion()}",
+            ${getS3CredentialProperties()}
         )"""
     } finally {
         deleteFixture()

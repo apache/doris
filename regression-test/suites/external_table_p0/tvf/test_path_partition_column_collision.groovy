@@ -25,8 +25,7 @@ suite("test_path_partition_column_collision", "p0,external") {
         sql """
             desc function s3(
                 "URI" = "https://${bucket}.${s3Endpoint}/regression/tvf/test_path_partition_column_collision/partition_col=from_path/data.csv",
-                "s3.access_key" = "${ak}",
-                "s3.secret_key" = "${sk}",
+                ${getS3CredentialProperties()},
                 "FORMAT" = "csv_with_names",
                 "column_separator" = ",",
                 "use_path_style" = "false", -- aliyun does not support path_style

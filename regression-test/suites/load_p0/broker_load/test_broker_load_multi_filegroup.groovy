@@ -55,8 +55,7 @@ suite("test_broker_load_multi_filegroup", "p0") {
             (p_partkey, p_brand, p_type)
         )
         WITH S3 (
-            "AWS_ACCESS_KEY" = "${getS3AK()}",
-            "AWS_SECRET_KEY" = "${getS3SK()}",
+            ${getS3CredentialProperties("AWS")},
             "AWS_ENDPOINT" = "${s3Endpoint}",
             "AWS_REGION" = "${s3Region}",
             "provider" = "${getS3Provider()}"
@@ -112,8 +111,7 @@ suite("test_broker_load_multi_filegroup", "p0") {
             (p_partkey, p_name, p_mfgr)
         )
         WITH S3 (
-            "AWS_ACCESS_KEY" = "${getS3AK()}",
-            "AWS_SECRET_KEY" = "${getS3SK()}",
+            ${getS3CredentialProperties("AWS")},
             "AWS_ENDPOINT" = "${s3Endpoint}",
             "AWS_REGION" = "${s3Region}",
             "provider" = "${getS3Provider()}"

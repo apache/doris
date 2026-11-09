@@ -28,7 +28,7 @@ under the License.
                 </encoder>
             </then>
             <else>
-                <encoder class="ch.qos.logback.classic.encoder.PatternLayoutEncoder">
+                <encoder class="org.apache.doris.regression.logger.SecretRedactingEncoder">
                     <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} %level [%thread] \(%F:%L\) - %msg%n</pattern>
                 </encoder>
             </else>
@@ -48,7 +48,7 @@ under the License.
         <triggeringPolicy class="ch.qos.logback.core.rolling.SizeBasedTriggeringPolicy">
             <maxFileSize>500MB</maxFileSize>
         </triggeringPolicy>
-        <encoder class="ch.qos.logback.classic.encoder.PatternLayoutEncoder">
+        <encoder class="org.apache.doris.regression.logger.SecretRedactingEncoder">
             <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} %level [%thread] \(%F:%L\) - %msg%n</pattern>
         </encoder>
     </appender>

@@ -153,12 +153,11 @@ suite("test_create_vault_with_case_sensitive", "nonConcurrent") {
         CREATE STORAGE VAULT ${s3VaultName}
         PROPERTIES (
             "type" = "s3",
-            "s3.endpoint"="${getS3Endpoint()}",
-            "s3.region" = "${getS3Region()}",
-            "s3.access_key" = "${getS3AK()}",
-            "s3.secret_key" = "${getS3SK()}",
-            "s3.root.path" = "${s3VaultName}",
-            "s3.bucket" = "${getS3BucketName()}",
+            "s3.endpoint"="${getS3WriteEndpoint()}",
+            "s3.region" = "${getS3WriteRegion()}",
+            ${getS3CredentialProperties()},
+            "s3.root.path" = "${getS3WriteKey(s3VaultName)}",
+            "s3.bucket" = "${getS3WriteBucketName()}",
             "s3.external_endpoint" = "",
             "provider" = "${getS3Provider()}",
             "use_path_style" = "false"
@@ -188,12 +187,11 @@ suite("test_create_vault_with_case_sensitive", "nonConcurrent") {
         CREATE STORAGE VAULT ${s3VaultName.toUpperCase()}
         PROPERTIES (
             "TYPE" = "S3",
-            "s3.endpoint"="${getS3Endpoint()}",
-            "s3.region" = "${getS3Region()}",
-            "s3.access_key" = "${getS3AK()}",
-            "s3.secret_key" = "${getS3SK()}",
-            "s3.root.path" = "${s3VaultName}",
-            "s3.bucket" = "${getS3BucketName()}",
+            "s3.endpoint"="${getS3WriteEndpoint()}",
+            "s3.region" = "${getS3WriteRegion()}",
+            ${getS3CredentialProperties()},
+            "s3.root.path" = "${getS3WriteKey(s3VaultName)}",
+            "s3.bucket" = "${getS3WriteBucketName()}",
             "s3.external_endpoint" = "",
             "provider" = "${getS3Provider()}",
             "use_path_style" = "false"

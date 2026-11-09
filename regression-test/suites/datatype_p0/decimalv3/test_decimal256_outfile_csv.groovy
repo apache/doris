@@ -27,9 +27,9 @@ suite("test_decimal256_outfile_csv") {
 
     String ak = getS3AK()
     String sk = getS3SK()
-    String s3_endpoint = getS3Endpoint()
-    String region = getS3Region()
-    String bucket = context.config.otherConfigs.get("s3BucketName");
+    String s3_endpoint = getS3WriteEndpoint()
+    String region = getS3WriteRegion()
+    String bucket = getS3WriteBucketName();
 
     sql "DROP TABLE IF EXISTS `test_decimal256_outfile_csv`"
     sql """
@@ -85,7 +85,7 @@ suite("test_decimal256_outfile_csv") {
     """
 
 
-    def outFilePath = "${bucket}/outfile/csv/test_decimal256_outfile_csv/exp_"
+    def outFilePath = "${bucket}/${getS3WriteKey("outfile/csv/test_decimal256_outfile_csv/exp_")}"
 
     def outfile_to_S3 = { export_table_name, foramt ->
         // select ... into outfile ...
@@ -96,8 +96,7 @@ suite("test_decimal256_outfile_csv") {
             PROPERTIES (
                 "s3.endpoint" = "${s3_endpoint}",
                 "s3.region" = "${region}",
-                "s3.secret_key"="${sk}",
-                "s3.access_key" = "${ak}"
+                ${getS3CredentialProperties()}
             );
         """
         return res[0][3]
@@ -109,8 +108,7 @@ suite("test_decimal256_outfile_csv") {
 
         qt_select_tvf1 """ SELECT * FROM S3 (
                             "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.csv",
-                            "ACCESS_KEY"= "${ak}",
-                            "SECRET_KEY" = "${sk}",
+                            ${getS3CredentialProperties("tvf")},
                             "format" = "csv",
                             "region" = "${region}"
                         );

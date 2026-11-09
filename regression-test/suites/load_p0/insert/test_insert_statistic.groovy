@@ -133,8 +133,7 @@ suite("test_insert_statistic", "p0") {
     def s3Label = "label_insert_s3_" + System.currentTimeMillis()
     sql """ insert into ${insert_tbl}_3 WITH LABEL ${s3Label} select * from S3 (
                         "uri" = "http://${bucket}.${s3_endpoint}/regression/load/data/empty_field_as_null.csv",
-                        "ACCESS_KEY"= "${ak}",
-                        "SECRET_KEY" = "${sk}",
+                        ${getS3CredentialProperties("tvf")},
                         "format" = "csv",
                         "empty_field_as_null" = "true",
                         "column_separator" = ",",
