@@ -70,3 +70,28 @@ PhysicalResultSink
 1	disk error on node a	ERROR
 3	error while reading block	ERROR
 
+-- !fallback_shape --
+PhysicalResultSink
+--PhysicalProject
+----PhysicalLazyMaterialize[materializedSlots:(topn_lazy_index_predicate_slots_fallback.id) lazySlots:(topn_lazy_index_predicate_slots_fallback.body,topn_lazy_index_predicate_slots_fallback.level)]
+------PhysicalTopN[MERGE_SORT]
+--------PhysicalDistribute[DistributionSpecGather]
+----------PhysicalTopN[LOCAL_SORT]
+------------PhysicalProject
+--------------filter((topn_lazy_index_predicate_slots_fallback.body MATCH_ANY 'error'))
+----------------PhysicalLazyMaterializeOlapScan[topn_lazy_index_predicate_slots_fallback lazySlots:(topn_lazy_index_predicate_slots_fallback.level)]
+
+-- !fallback_match --
+1	disk error on node a	ERROR
+3	error while reading block	ERROR
+5	timeout error from upstream	ERROR
+
+-- !fallback_match_without_lazy_materialization --
+1	disk error on node a	ERROR
+3	error while reading block	ERROR
+5	timeout error from upstream	ERROR
+
+-- !match_without_index --
+1	disk error on node a	ERROR
+3	error while reading block	ERROR
+
