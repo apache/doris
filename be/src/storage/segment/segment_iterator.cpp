@@ -1350,6 +1350,50 @@ Status SegmentIterator::_update_topn_runtime_filter_ranges() {
     return Status::OK();
 }
 
+// Zone-map pruning makes one call per page. A TopN runtime filter is one SharedPredicate for all
+// scanners of a query and takes a shared lock on each call, so every scanner opening a segment
+// would contend on one lock word per page. The pages are tested against the bound the filter holds
+// now instead, as _update_topn_runtime_filter_ranges does later; a bound only tightens, so an older
+// one prunes fewer pages but never a row the TopN needs. Example for column 0:
+//   [k > 100, topn(k <= 500, version 3)] -> [k > 100, k <= 500], version 3 counts as applied
+//   [k > 100, topn(no bound yet)]        -> [k > 100], as the filter passes every page
+std::unordered_map<int32_t, std::shared_ptr<AndBlockColumnPredicate>>
+SegmentIterator::_snapshot_topn_runtime_filters() {
+    auto predicates = _opts.col_id_to_predicates;
+    std::map<const ColumnPredicate*, std::shared_ptr<const ColumnPredicate>> bounds;
+    std::set<ColumnId> columns;
+    for (auto& filter : _topn_runtime_filters) {
+        auto snapshot = filter.predicate->snapshot();
+        if (snapshot.predicate != nullptr) {
+            filter.applied_version = snapshot.version;
+        }
+        bounds.emplace(filter.predicate.get(), std::move(snapshot.predicate));
+        columns.insert(filter.predicate->column_id());
+    }
+    for (const auto cid : columns) {
+        // col_id_to_predicates groups column_predicates by column in their order (BetaRowsetReader,
+        // Segment::new_iterator), so the column's group is rebuilt from column_predicates.
+        auto rebuilt = AndBlockColumnPredicate::create_shared();
+        size_t num_predicates = 0;
+        for (const auto& predicate : _opts.column_predicates) {
+            if (predicate->column_id() != cid) {
+                continue;
+            }
+            ++num_predicates;
+            const auto bound = bounds.find(predicate.get());
+            if (bound == bounds.end()) {
+                rebuilt->add_column_predicate(SingleColumnBlockPredicate::create_unique(predicate));
+            } else if (bound->second != nullptr) {
+                rebuilt->add_column_predicate(
+                        SingleColumnBlockPredicate::create_unique(bound->second));
+            }
+        }
+        DCHECK_EQ(num_predicates, predicates.at(cid)->num_of_column_predicate());
+        predicates[cid] = std::move(rebuilt);
+    }
+    return predicates;
+}
+
 Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row_ranges) {
     std::set<int32_t> cids;
     for (auto& entry : _opts.col_id_to_predicates) {
@@ -1414,6 +1458,7 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
     {
         SCOPED_RAW_TIMER(&_opts.stats->generate_row_ranges_by_zonemap_ns);
         RowRanges zone_map_row_ranges = RowRanges::create_single(num_rows());
+        const auto zone_map_predicates = _snapshot_topn_runtime_filters();
         // second filter data by zone map
         for (const auto& cid : cids) {
             DCHECK(_opts.col_id_to_predicates.count(cid) > 0);
@@ -1421,15 +1466,16 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
                                                       _opts.target_cast_type_for_variants, _opts)) {
                 continue;
             }
+            const auto& predicates = zone_map_predicates.at(cid);
             // do not check zonemap if predicate does not support zonemap
-            if (!_opts.col_id_to_predicates.at(cid)->support_zonemap()) {
+            if (!predicates->support_zonemap()) {
                 VLOG_DEBUG << "skip zonemap for column " << cid;
                 continue;
             }
             // get row ranges by zone map of this column,
             RowRanges column_row_ranges = RowRanges::create_single(num_rows());
             RETURN_IF_ERROR(_column_iterators[cid]->get_row_ranges_by_zone_map(
-                    _opts.col_id_to_predicates.at(cid).get(),
+                    predicates.get(),
                     _opts.del_predicates_for_zone_map.count(cid) > 0
                             ? &(_opts.del_predicates_for_zone_map.at(cid))
                             : nullptr,
