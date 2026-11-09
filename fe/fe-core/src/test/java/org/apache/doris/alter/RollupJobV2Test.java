@@ -18,6 +18,7 @@
 package org.apache.doris.alter;
 
 import org.apache.doris.alter.AlterJobV2.JobState;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.CatalogTestUtil;
 import org.apache.doris.catalog.Column;
@@ -42,6 +43,7 @@ import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.meta.MetaContext;
+import org.apache.doris.nereids.SqlCacheContext;
 import org.apache.doris.nereids.trees.plans.commands.CancelAlterTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.AddRollupOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterOp;
@@ -314,8 +316,14 @@ public class RollupJobV2Test {
             }
         }
 
+        // A query can populate a cache while the shadow index is still invisible.
+        SqlCacheContext cached = new SqlCacheContext(UserIdentity.ROOT);
+        cached.addUsedTable(olapTable);
+        Assertions.assertFalse(cached.getUsedTables().isEmpty());
+        masterEnv.getSqlCacheManager().getSqlCaches().put("during_rollup", cached);
         materializedViewHandler.runAfterCatalogReady();
         Assertions.assertEquals(JobState.FINISHED, rollupJob.getJobState());
+        Assertions.assertNull(masterEnv.getSqlCacheManager().getSqlCaches().getIfPresent("during_rollup"));
     }
 
     @Test
