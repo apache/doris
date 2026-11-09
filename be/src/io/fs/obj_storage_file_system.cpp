@@ -30,7 +30,6 @@
 #include <memory>
 #include <variant>
 
-#include "common/check.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
@@ -422,13 +421,15 @@ std::string ObjStorageFileSystem::generate_presigned_url(const Path& path, int64
         return {};
     }
     if (is_public_endpoint && state->config.endpoint().ends_with(OSS_PRIVATE_ENDPOINT_SUFFIX)) {
-        // Only S3-protocol backends have an OSS private endpoint; the public one differs from it
-        // only by the "-internal" part of the host.
+        // The suffix selects the public address. Keep the configured backend for signing.
         auto public_config = state->config;
-        auto* s3 = std::get_if<S3ClientConfig>(&public_config.backend);
-        DORIS_CHECK(s3 != nullptr);
-        s3->endpoint.erase(s3->endpoint.size() - OSS_PRIVATE_ENDPOINT_SUFFIX.size(),
-                           LEN_OF_OSS_PRIVATE_SUFFIX);
+        std::visit(
+                [](auto& backend) {
+                    auto& endpoint = backend.endpoint;
+                    endpoint.erase(endpoint.size() - OSS_PRIVATE_ENDPOINT_SUFFIX.size(),
+                                   LEN_OF_OSS_PRIVATE_SUFFIX);
+                },
+                public_config.backend);
         auto client_result = ObjClientFactory::instance().get_or_create(public_config);
         if (!client_result) {
             LOG(WARNING) << "failed to create S3 client for presigned URL: "

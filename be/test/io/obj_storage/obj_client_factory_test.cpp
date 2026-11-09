@@ -639,6 +639,23 @@ TEST_F(ObjClientFactoryTest, RefreshVaultDisablesAFileSystemWhoseBackendChanged)
     EXPECT_EQ(_s3_builds, builds);
 }
 
+TEST_F(ObjClientFactoryTest, AzurePresigningUsesRequestedEndpoint) {
+#ifdef USE_AZURE
+    auto param = make_azure_param("presign-internal.aliyuncs.com");
+    auto storage = TEST_TRY(ObjStorageConfigResolver::from_storage_param(param));
+    auto fs = TEST_TRY(ObjStorageFileSystem::create(std::move(storage), "presign-azure"));
+
+    auto public_url = fs->generate_presigned_url("error_log/id", 60, true);
+    EXPECT_TRUE(public_url.starts_with("https://presign.aliyuncs.com/container/error_log/id?"));
+    EXPECT_NE(public_url.find("sig="), std::string::npos);
+    auto private_url = fs->generate_presigned_url("error_log/id", 60, false);
+    EXPECT_TRUE(private_url.starts_with(
+            "https://presign-internal.aliyuncs.com/container/error_log/id?"));
+#else
+    GTEST_SKIP() << "Azure is not built";
+#endif
+}
+
 TEST_F(ObjClientFactoryTest, InvalidatedFileSystemGivesNoPresignedUrl) {
     // Both the private OSS endpoint, whose branch builds another client, and any other endpoint.
     for (const std::string endpoint :
