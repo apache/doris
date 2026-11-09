@@ -979,6 +979,95 @@ TEST_F(AnnIndexWriterTest, TestSkipIndexWhenTotalRowsLessThanMinTrainRows) {
     EXPECT_EQ(writer->buffered_vector_rows(dim), 0);
 }
 
+enum class AnnBuildExit { SUCCESS, TRAIN_ERROR, ADD_ERROR, SAVE_ERROR, EMPTY, TOO_SMALL, ABORT };
+
+class AnnIndexWriterResourceTest : public AnnIndexWriterTest,
+                                   public ::testing::WithParamInterface<AnnBuildExit> {
+protected:
+    static void expect_build_calls(MockVectorIndex& index, TestAnnIndexColumnWriter& writer,
+                                   AnnBuildExit exit) {
+        if (exit == AnnBuildExit::EMPTY || exit == AnnBuildExit::ABORT) {
+            return;
+        }
+        EXPECT_CALL(index, get_min_train_rows())
+                .WillOnce(testing::Return(exit == AnnBuildExit::TOO_SMALL ? 3 : 1));
+        if (exit == AnnBuildExit::TOO_SMALL) {
+            return;
+        }
+        testing::InSequence sequence;
+        EXPECT_CALL(index, train(2, testing::_))
+                .WillOnce(testing::Return(exit == AnnBuildExit::TRAIN_ERROR
+                                                  ? Status::InternalError("train failed")
+                                                  : Status::OK()));
+        if (exit == AnnBuildExit::TRAIN_ERROR) {
+            return;
+        }
+        EXPECT_CALL(index, add(2, testing::_))
+                .WillOnce(testing::Return(exit == AnnBuildExit::ADD_ERROR
+                                                  ? Status::InternalError("add failed")
+                                                  : Status::OK()));
+        if (exit == AnnBuildExit::ADD_ERROR) {
+            return;
+        }
+        EXPECT_CALL(index, save(testing::_))
+                .WillOnce(testing::Invoke([&writer, exit](lucene::store::Directory*) {
+                    EXPECT_EQ(writer.buffered_vector_capacity(), 0);
+                    return exit == AnnBuildExit::SAVE_ERROR ? Status::InternalError("save failed")
+                                                            : Status::OK();
+                }));
+    }
+};
+
+TEST_P(AnnIndexWriterResourceTest, ReleasesResourcesWhileWriterRemainsAlive) {
+    const auto exit = GetParam();
+    const int64_t old_min_segment_rows = config::ann_index_build_min_segment_rows;
+    config::ann_index_build_min_segment_rows = 0;
+    Defer restore_config([&] { config::ann_index_build_min_segment_rows = old_min_segment_rows; });
+
+    auto writer = std::make_unique<TestAnnIndexColumnWriter>(_index_file_writer.get(),
+                                                             _tablet_index.get());
+    auto fs_dir = std::make_shared<DorisRAMFSDirectory>();
+    fs_dir->init(doris::io::global_local_filesystem(), "./ut_dir/tmp_vector_search", nullptr);
+    EXPECT_CALL(*_index_file_writer, open(testing::_)).WillOnce(testing::Return(fs_dir));
+    ASSERT_TRUE(writer->init().ok());
+
+    auto index = std::make_shared<testing::StrictMock<MockVectorIndex>>();
+    std::weak_ptr<VectorIndex> index_ref = index;
+    writer->set_vector_index(index);
+
+    if (exit != AnnBuildExit::EMPTY) {
+        const std::vector<float> vectors = {1, 2, 3, 4, 5, 6, 7, 8};
+        const std::vector<uint64_t> offsets = {0, 4, 8};
+        ASSERT_TRUE(writer->add_array_values(sizeof(float),
+                                             reinterpret_cast<const uint8_t*>(vectors.data()),
+                                             nullptr, offsets.data(), 2)
+                            .ok());
+        ASSERT_GT(writer->buffered_vector_capacity(), 0);
+    }
+
+    expect_build_calls(*index, *writer, exit);
+
+    // Drop the test's owner: only the still-live writer can keep the index alive now.
+    index.reset();
+    ASSERT_FALSE(index_ref.expired());
+    if (exit == AnnBuildExit::ABORT) {
+        writer->close_on_error();
+    } else {
+        auto status = writer->finish();
+        const bool expect_success = exit == AnnBuildExit::SUCCESS || exit == AnnBuildExit::EMPTY ||
+                                    exit == AnnBuildExit::TOO_SMALL;
+        EXPECT_EQ(status.ok(), expect_success) << status;
+    }
+    EXPECT_TRUE(index_ref.expired());
+    EXPECT_EQ(writer->buffered_vector_capacity(), 0);
+}
+
+INSTANTIATE_TEST_SUITE_P(BuildExit, AnnIndexWriterResourceTest,
+                         testing::Values(AnnBuildExit::SUCCESS, AnnBuildExit::TRAIN_ERROR,
+                                         AnnBuildExit::ADD_ERROR, AnnBuildExit::SAVE_ERROR,
+                                         AnnBuildExit::EMPTY, AnnBuildExit::TOO_SMALL,
+                                         AnnBuildExit::ABORT));
+
 TEST_F(AnnIndexWriterTest, TestIVFOnDiskMinTrainRows) {
     FaissVectorIndex index;
     FaissBuildParameter params;
