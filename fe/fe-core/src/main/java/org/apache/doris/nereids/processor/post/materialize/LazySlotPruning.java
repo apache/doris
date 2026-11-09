@@ -50,6 +50,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -118,7 +119,8 @@ public class LazySlotPruning extends DefaultPlanRewriter<LazySlotPruning.Context
 
     @Override
     public Plan visitPhysicalFilter(PhysicalFilter<? extends Plan> filter, Context context) {
-        if (MaterializeProbeVisitor.isIndexLazyFilter(filter)) {
+        Set<Slot> indexLazySlots = MaterializeProbeVisitor.indexLazySlots(filter);
+        if (!indexLazySlots.isEmpty()) {
             /*
              materialization(materializedSlots=[a, b], lazy=[c])
              ->topn(b)
@@ -138,7 +140,7 @@ public class LazySlotPruning extends DefaultPlanRewriter<LazySlotPruning.Context
             boolean lazySlotsChanged = false;
 
             for (Slot slot : context.lazySlots) {
-                if (!filter.getInputSlots().contains(slot)) {
+                if (!indexLazySlots.contains(slot)) {
                     lazySlotsToScan.add(slot);
                 } else {
                     lazySlotsChanged = true;
