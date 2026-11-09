@@ -23,7 +23,6 @@
 #include <bvar/bvar.h>
 #include <fmt/format.h>
 #include <gen_cpp/AgentService_types.h>
-#include <gen_cpp/cloud.pb.h>
 #ifdef BE_TEST
 #include <gtest/gtest_prod.h>
 #endif

@@ -104,6 +104,38 @@ public class AIResourceTest {
     }
 
     @Test
+    public void testEnableStructuredOutput() throws Exception {
+        AIResource resource = new AIResource(name);
+        resource.setProperties(ImmutableMap.copyOf(aiProperties));
+        Assertions.assertTrue(resource.toThrift().isEnableStructuredOutput());
+        JsonObject legacyJson = JsonParser.parseString(GsonUtils.GSON.toJson(resource)).getAsJsonObject();
+        legacyJson.getAsJsonObject("properties").remove(AIProperties.ENABLE_STRUCTURED_OUTPUT);
+        AIResource legacy = GsonUtils.GSON.fromJson(legacyJson, AIResource.class);
+        Assertions.assertTrue(legacy.toThrift().isEnableStructuredOutput());
+        resource.modifyProperties(Map.of(AIProperties.ENABLE_STRUCTURED_OUTPUT, "false"));
+        Assertions.assertFalse(resource.toThrift().isEnableStructuredOutput());
+
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        resource.write(new DataOutputStream(bytes));
+        AIResource restored = (AIResource) Resource.read(
+                new DataInputStream(new ByteArrayInputStream(bytes.toByteArray())));
+        Assertions.assertFalse(restored.toThrift().isEnableStructuredOutput());
+        resource.modifyProperties(Map.of(AIProperties.ENABLE_STRUCTURED_OUTPUT, "true"));
+        Assertions.assertTrue(resource.toThrift().isEnableStructuredOutput());
+        Assertions.assertThrows(DdlException.class,
+                () -> resource.modifyProperties(Map.of(AIProperties.ENABLE_STRUCTURED_OUTPUT, "invalid")));
+        Assertions.assertTrue(resource.toThrift().isEnableStructuredOutput());
+
+        aiProperties.put(AIProperties.ENABLE_STRUCTURED_OUTPUT, "invalid");
+        Assertions.assertThrows(DdlException.class,
+                () -> new AIResource(name).setProperties(ImmutableMap.copyOf(aiProperties)));
+        aiProperties.put(AIProperties.ENABLE_STRUCTURED_OUTPUT, "false");
+        AIResource disabled = new AIResource(name);
+        disabled.setProperties(ImmutableMap.copyOf(aiProperties));
+        Assertions.assertFalse(disabled.toThrift().isEnableStructuredOutput());
+    }
+
+    @Test
     public void testFromCommand() throws UserException {
         try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
             Env env = Mockito.mock(Env.class);

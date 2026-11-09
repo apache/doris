@@ -40,6 +40,7 @@
 #include <random>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <system_error>
 #include <thread>
 #include <type_traits>
@@ -49,6 +50,8 @@
 #include "common/status.h"
 #include "cpp/obj-client/s3_obj_storage_client.h"
 #include "cpp/sync_point.h"
+#include "io/cache/block_file_cache_factory.h"
+#include "io/cache/file_cache_common.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
@@ -62,6 +65,8 @@
 #include "storage/index/index_writer.h"
 #include "testutil/mock/obj_storage_client_test_stub.h"
 #include "testutil/obj_storage_test_util.h"
+#include "util/countdown_latch.h"
+#include "util/defer_op.h"
 #include "util/slice.h"
 #include "util/threadpool.h"
 #include "util/uuid_generator.h"
@@ -279,6 +284,19 @@ static auto test_mock_callbacks = std::array {
 class S3FileWriterTest : public testing::Test {
 public:
     static void SetUpTestSuite() {
+        auto* env = ExecEnv::GetInstance();
+        _previous_cache_factory = env->file_cache_factory();
+        // Standalone runs have no cache factory, and earlier fixtures can leave an empty one.
+        if (_previous_cache_factory == nullptr ||
+            _previous_cache_factory->get_cache_instance_size() == 0) {
+            _test_cache_factory = std::make_unique<io::FileCacheFactory>();
+            auto settings = io::get_file_cache_settings(16 * 1024 * 1024, 0);
+            settings.storage = "memory";
+            auto st = _test_cache_factory->create_file_cache("memory", settings);
+            ASSERT_TRUE(st.ok()) << st;
+            env->set_file_cache_factory(_test_cache_factory.get());
+        }
+
         auto sp = SyncPoint::get_instance();
         sp->enable_processing();
         config::file_cache_enter_disk_resource_limit_mode_percent = 99;
@@ -300,7 +318,7 @@ public:
                               .set_min_threads(5)
                               .set_max_threads(10)
                               .build(&_pool);
-        ExecEnv::GetInstance()->_s3_file_upload_thread_pool = std::move(_pool);
+        env->_s3_file_upload_thread_pool = std::move(_pool);
     }
 
     static void TearDownTestSuite() {
@@ -310,8 +328,17 @@ public:
                           sp->clear_call_back(mockcallback.point_name);
                       });
         sp->disable_processing();
-        ExecEnv::GetInstance()->_s3_file_upload_thread_pool.reset();
+        auto* env = ExecEnv::GetInstance();
+        env->_s3_file_upload_thread_pool.reset();
+        // Release the fixture's S3 client while the AWS SDK is still running.
+        s3_fs.reset();
+        env->set_file_cache_factory(_previous_cache_factory);
+        _test_cache_factory.reset();
     }
+
+private:
+    inline static io::FileCacheFactory* _previous_cache_factory = nullptr;
+    inline static std::unique_ptr<io::FileCacheFactory> _test_cache_factory;
 };
 
 TEST_F(S3FileWriterTest, DisableFileCacheWriteFromS3FileWriter) {
@@ -1413,6 +1440,124 @@ std::string generate_test_string(char magic_char, size_t size) {
 std::string get_s3_path(std::string_view path) {
     return std::string("s3://") + s3_fs->bucket() + "/" + s3_fs->prefix() + "/" + std::string(path);
 };
+
+class S3FileWriterInvalidationTest : public S3FileWriterTest {
+protected:
+    void SetUp() override {
+        _enable_file_cache = config::enable_file_cache;
+        config::enable_file_cache = false;
+        auto* sp = SyncPoint::get_instance();
+        sp->enable_processing();
+        sp->clear_all_call_backs();
+    }
+
+    void TearDown() override {
+        auto* sp = SyncPoint::get_instance();
+        sp->clear_all_call_backs();
+        sp->disable_processing();
+        config::enable_file_cache = _enable_file_cache;
+    }
+
+    static void invalidate_at(const std::string& point,
+                              const std::shared_ptr<ObjStorageFileWriter>& writer) {
+        std::shared_ptr<ObjClientHolder> holder = writer->_obj_client;
+        SyncPoint::get_instance()->set_call_back(point, [holder](auto&&) {
+            holder->invalidate(Status::InvalidArgument<false>("backend changed"));
+        });
+    }
+
+private:
+    bool _enable_file_cache = false;
+};
+
+// The holder is invalidated before the upload task takes the client: the upload fails, and close
+// returns the error after waiting for the task.
+TEST_F(S3FileWriterInvalidationTest, upload_that_has_not_taken_the_client_fails) {
+    auto [mock_client, writer] = create_s3_client("invalidate_before_put_object");
+    invalidate_at("S3FileWriter::_put_object:before_get_client", writer);
+
+    EXPECT_EQ(writer->append(generate_test_string('a', 1024)), Status::OK());
+    EXPECT_FALSE(writer->close().ok());
+    EXPECT_EQ(mock_client->put_object_count, 0);
+}
+
+TEST_F(S3FileWriterInvalidationTest, async_close_waits_for_upload_callbacks_after_invalidation) {
+    auto [mock_client, writer] = create_s3_client("invalidate_before_async_close");
+    CountDownLatch upload_started(1);
+    CountDownLatch release_upload(1);
+    CountDownLatch close_waiting(1);
+    auto* sp = SyncPoint::get_instance();
+    SyncPoint::CallbackGuard upload_guard;
+    SyncPoint::CallbackGuard wait_guard;
+    // Even a failed assertion must release and drain the callback that captures the writer.
+    // In particular, the old early return from _complete() must fail this test without a UAF.
+    Defer drain_upload {[&] {
+        release_upload.count_down();
+        writer->_wait_until_finish("invalidation test cleanup");
+        if (writer->state() == FileWriter::State::ASYNC_CLOSING) {
+            std::ignore = writer->close();
+        }
+    }};
+    sp->set_call_back(
+            "S3FileWriter::_put_object:before_get_client",
+            [&](auto&&) {
+                upload_started.count_down();
+                release_upload.wait();
+            },
+            &upload_guard);
+    sp->set_call_back(
+            "S3FileWriter::_wait_until_finish:before_wait",
+            [&](auto&& args) {
+                if (try_any_cast<std::string_view>(args[0]) == "PutObject") {
+                    close_waiting.count_down();
+                }
+            },
+            &wait_guard);
+
+    ASSERT_TRUE(writer->append(generate_test_string('d', 1024)).ok());
+    writer->_obj_client->invalidate(Status::InvalidArgument<false>("backend changed"));
+    ASSERT_TRUE(writer->close(true).ok());
+    ASSERT_TRUE(upload_started.wait_for(std::chrono::seconds(5)));
+    ASSERT_TRUE(close_waiting.wait_for(std::chrono::seconds(5)));
+    // The async-close future must not become ready while an upload still holds `this`.
+    auto pending = writer->try_finish_close();
+    EXPECT_TRUE(pending.is<ErrorCode::NEED_SEND_AGAIN>()) << pending;
+
+    release_upload.count_down();
+    auto st = writer->close();
+    EXPECT_FALSE(st.ok());
+    EXPECT_NE(st.to_string().find("invalid obj storage client"), std::string::npos) << st;
+    EXPECT_EQ(writer->state(), FileWriter::State::CLOSED);
+    EXPECT_EQ(mock_client->put_object_count, 0);
+}
+
+// The holder is invalidated after all parts finish, before CompleteMultipartUpload is called;
+// close detects the invalidation and never completes the upload.
+TEST_F(S3FileWriterInvalidationTest, multipart_invalidated_after_uploads_is_not_completed) {
+    auto [mock_client, writer] = create_s3_client("invalidate_after_uploads_before_complete");
+    invalidate_at("S3FileWriter::_complete:1", writer);
+
+    EXPECT_EQ(writer->append(generate_test_string('b', config::s3_write_buffer_size * 2)),
+              Status::OK());
+    auto st = writer->close();
+    EXPECT_FALSE(st.ok());
+    EXPECT_NE(st.to_string().find("invalid obj storage client"), std::string::npos) << st;
+    EXPECT_GT(mock_client->upload_part_count, 0);
+    EXPECT_EQ(mock_client->complete_multipart_count, 0);
+}
+
+// A client taken before the holder was invalidated is an accepted boundary: a call in flight
+// cannot be recalled, so this PutObject still reaches the store and close may succeed. Only what
+// comes after it is out of service.
+TEST_F(S3FileWriterInvalidationTest, put_object_that_took_the_client_may_still_finish) {
+    auto [mock_client, writer] = create_s3_client("invalidate_after_get_client");
+    invalidate_at("S3FileWriter::_put_object", writer);
+
+    EXPECT_EQ(writer->append(generate_test_string('c', 1024)), Status::OK());
+    std::ignore = writer->close();
+    EXPECT_EQ(mock_client->put_object_count, 1);
+    EXPECT_EQ(writer->_obj_client->get(), nullptr);
+}
 
 // put object
 // create_multi_parts_upload + upload_part + complete_parts

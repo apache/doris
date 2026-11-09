@@ -33,8 +33,11 @@ namespace doris {
 DataTypeVariantV2::DataTypeVariantV2(int32_t max_subcolumns_count)
         : DataTypeVariantV2(max_subcolumns_count, false) {}
 
-DataTypeVariantV2::DataTypeVariantV2(int32_t max_subcolumns_count, bool enable_doc_mode)
-        : _max_subcolumns_count(max_subcolumns_count), _enable_doc_mode(enable_doc_mode) {
+DataTypeVariantV2::DataTypeVariantV2(int32_t max_subcolumns_count, bool enable_doc_mode,
+                                     bool serialized_as_v2)
+        : _max_subcolumns_count(max_subcolumns_count),
+          _enable_doc_mode(enable_doc_mode),
+          _serialized_as_v2(serialized_as_v2) {
     _name = fmt::format("Variant(max subcolumns count = {}, enable doc mode = {})",
                         max_subcolumns_count, enable_doc_mode);
 }
@@ -65,6 +68,13 @@ char* DataTypeVariantV2::serialize(const IColumn& column, char* buf, int be_exec
 
 const char* DataTypeVariantV2::deserialize(const char* buf, MutableColumnPtr* column,
                                            int be_exec_version) const {
+    // V1 starts with a subcolumn count, not the V2 const/row header. Reject the legacy
+    // marker before reading these bytes as V2 lengths during a mixed-version transfer.
+    if (!_serialized_as_v2) {
+        throw Exception(Status::NotSupported(
+                "Unsupported VARIANT block format: Variant V1 cannot be decoded as Variant V2; "
+                "use compatible backend versions for Variant block transfer"));
+    }
     return DataTypeVariantV2SerDe::deserialize(buf, column, be_exec_version);
 }
 

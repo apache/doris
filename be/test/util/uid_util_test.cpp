@@ -17,6 +17,8 @@
 
 #include "util/uid_util.h"
 
+#include <gen_cpp/Types_types.h>
+#include <gen_cpp/types.pb.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 

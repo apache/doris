@@ -31,6 +31,9 @@
 #include "cpp/obj-client/s3_common.h"
 #include "io/cache/block_file_cache.h"
 #include "io/fs/err_utils.h"
+#include "io/fs/read_io_trace.h"
+#include "io/io_common.h"
+#include "io/obj_storage/obj_client_holder.h"
 #include "runtime/file_scan_profile.h"
 #include "runtime/runtime_profile.h"
 #include "runtime/thread_context.h"
@@ -41,10 +44,13 @@
 #include "util/concurrency_stats.h"
 #include "util/debug_points.h"
 #include "util/s3_util.h"
+#include "util/time.h"
 
 namespace doris::io {
 
-// Throttling by the storage service, which every backend reports as HTTP 429.
+// HTTP 429 from the storage service, which this reader retries with backoff. AWS S3 reports
+// throttling as 503 SlowDown instead, and the SDK client retries that itself
+// (S3CustomRetryStrategy), so it does not take this branch.
 constexpr int OBJ_STORAGE_HTTP_TOO_MANY_REQUESTS = 429;
 
 bvar::Adder<uint64_t> obj_storage_file_reader_read_counter("s3_file_reader", "read_at");
@@ -108,7 +114,7 @@ Status ObjStorageFileReader::close() {
 }
 
 Status ObjStorageFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_read,
-                                          const IOContext* /*io_ctx*/) {
+                                          const IOContext* io_ctx) {
     DCHECK(!closed());
     if (offset > _file_size) {
         return Status::InternalError(
@@ -157,17 +163,36 @@ Status ObjStorageFileReader::read_at_impl(size_t offset, Slice result, size_t* b
                                  .count();
         obj_storage_file_reader_latency << (end_ts - begin_ts);
     }};
-    SCOPED_RAW_TIMER(&_s3_stats.total_get_request_time_ns);
+    SCOPED_ATOMIC_TIMER(&_s3_stats.total_get_request_time_ns);
 
     int total_sleep_time = 0;
     Status last_error;
     while (retry_count <= max_retries) {
         *bytes_read = 0;
         obj_storage_file_reader_read_counter << 1;
+        const uint64_t trace_id = ReadIOTrace::next_id();
+        const int64_t trace_start_ns = trace_id != 0 ? MonotonicNanos() : 0;
         // clang-format off
         auto resp = client->get_object( { .bucket = _bucket, .key = _key, },
                 to, offset, bytes_req, bytes_read);
         // clang-format on
+        if (trace_id != 0) {
+            ReadIOTrace::record(
+                    {.event = "s3_get",
+                     .context = io_ctx,
+                     .file = _path.native(),
+                     .id = trace_id,
+                     .parent_id = io_ctx != nullptr ? io_ctx->read_trace_id : 0,
+                     .offset = offset,
+                     .size = bytes_req,
+                     .start_ns = trace_start_ns,
+                     .bytes = *bytes_read,
+                     .status = resp.status.code,
+                     .attempt = retry_count,
+                     .outcome = resp.status.code == ErrorCode::OK && *bytes_read == bytes_req
+                                        ? "success"
+                                        : "failed_or_short"});
+        }
         _s3_stats.total_get_request_counter++;
         if (resp.status.code != ErrorCode::OK) {
             if (resp.http_code == OBJ_STORAGE_HTTP_TOO_MANY_REQUESTS) {

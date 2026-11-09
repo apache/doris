@@ -34,7 +34,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Pins {@link HiveConnectorMetadata#getTableComment} for an iceberg-on-HMS table read through the gateway.
+ * Pins {@link HiveConnectorMetadata#getTableComment} for Hive and Iceberg tables read through HMS.
  *
  * <p><b>WHY this matters:</b> the comment accessor takes a database and table NAME, never a
  * {@code ConnectorTableHandle}, so the gateway cannot route it to the iceberg sibling the way it routes every
@@ -45,8 +45,8 @@ import java.util.Map;
  * table. Iceberg's HMS catalog mirrors the comment into the HMS table parameters on every commit, so the
  * gateway answers from the metastore table it already reads.</p>
  *
- * <p>The plain-hive assertions are the other half of the contract: a plain hive table must keep the empty
- * comment legacy returned, so this change cannot alter what any existing hive deployment displays.</p>
+ * <p>Plain Hive tables use the same HMS {@code comment} parameter. Their comments must appear in the
+ * gateway's information schema and table status instead of being hidden by the legacy empty result.</p>
  */
 public class HiveConnectorMetadataTableCommentTest {
 
@@ -73,18 +73,26 @@ public class HiveConnectorMetadataTableCommentTest {
     }
 
     @Test
-    public void plainHiveTableKeepsItsLegacyEmptyComment() {
+    public void plainHiveTableReportsItsComment() {
         Map<String, String> params = new HashMap<>();
-        params.put("comment", "a hive table comment that legacy never surfaced");
+        params.put("comment", "客户表's comment");
         HmsTableInfo hive = HmsTableInfo.builder()
                 .dbName("db").tableName("t").tableType("MANAGED_TABLE")
                 .inputFormat("org.apache.hadoop.mapred.TextInputFormat")
                 .parameters(params)
                 .build();
 
-        Assertions.assertEquals("", metadataFor(hive).getTableComment(session, "db", "t"),
-                "a plain hive table must keep the empty comment legacy HMSExternalTable returned; surfacing it "
-                        + "here would change what every existing hive deployment displays");
+        Assertions.assertEquals("客户表's comment", metadataFor(hive).getTableComment(session, "db", "t"));
+    }
+
+    @Test
+    public void plainHiveTableWithoutACommentReportsEmpty() {
+        HmsTableInfo hive = HmsTableInfo.builder()
+                .dbName("db").tableName("t").tableType("EXTERNAL_TABLE")
+                .inputFormat("org.apache.hadoop.mapred.TextInputFormat")
+                .build();
+
+        Assertions.assertEquals("", metadataFor(hive).getTableComment(session, "db", "t"));
     }
 
     @Test

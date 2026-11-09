@@ -75,6 +75,7 @@
 #include "runtime/snapshot_loader.h"
 #include "runtime/user_function_cache.h"
 #include "service/backend_options.h"
+#include "storage/active_tablet_stats.h"
 #include "storage/compaction/cumulative_compaction_policy.h"
 #include "storage/compaction/cumulative_compaction_time_series_policy.h"
 #include "storage/data_dir.h"
@@ -121,6 +122,29 @@ std::atomic_ulong s_report_version(time(nullptr) * 100000);
 
 void increase_report_version() {
     s_report_version.fetch_add(1, std::memory_order_relaxed);
+}
+
+enum class ActiveDim { QUERY, LOAD };
+
+// The two top-N lists differ only in which pair of thrift fields carries the dimension;
+// tablet_id and delta_window_ms are common, so they are written once here.
+template <ActiveDim Dim>
+std::vector<TActiveTabletStat> to_thrift(const std::vector<ActiveTabletCandidate>& candidates) {
+    std::vector<TActiveTabletStat> result;
+    result.reserve(candidates.size());
+    for (const auto& candidate : candidates) {
+        auto& stat = result.emplace_back();
+        stat.__set_tablet_id(candidate.tablet_id);
+        if constexpr (Dim == ActiveDim::QUERY) {
+            stat.__set_scan_count_delta(candidate.delta);
+            stat.__set_last_query_time_ms(candidate.last_time_ms);
+        } else {
+            stat.__set_load_count_delta(candidate.delta);
+            stat.__set_last_load_time_ms(candidate.last_time_ms);
+        }
+        stat.__set_delta_window_ms(candidate.window_ms);
+    }
+    return result;
 }
 
 // FIXME(plat1ko): Paired register and remove task info
@@ -521,6 +545,7 @@ bvar::Adder<uint64_t> report_disk_total("report", "disk_total");
 bvar::Adder<uint64_t> report_disk_failed("report", "disk_failed");
 bvar::Adder<uint64_t> report_tablet_total("report", "tablet_total");
 bvar::Adder<uint64_t> report_tablet_failed("report", "tablet_failed");
+bvar::Adder<uint64_t> report_active_tablet_truncated("report", "active_tablet_truncated");
 bvar::Adder<uint64_t> report_index_policy_total("report", "index_policy_total");
 bvar::Adder<uint64_t> report_index_policy_failed("report", "index_policy_failed");
 
@@ -869,6 +894,7 @@ void update_tablet_meta_callback(StorageEngine& engine, const TAgentTaskRequest&
     LOG(INFO) << "get update tablet meta task. signature=" << req.signature;
 
     Status status;
+    int64_t row_ttl_config_version = -1;
     const auto& update_tablet_meta_req = req.update_tablet_meta_info_req;
     for (const auto& tablet_meta_info : update_tablet_meta_req.tabletMetaInfos) {
         auto tablet = engine.tablet_manager()->get_tablet(tablet_meta_info.tablet_id);
@@ -876,9 +902,25 @@ void update_tablet_meta_callback(StorageEngine& engine, const TAgentTaskRequest&
             status = Status::NotFound("tablet not found");
             LOG(WARNING) << "could not find tablet when update tablet meta. tablet_id="
                          << tablet_meta_info.tablet_id;
+            // A later success in this batch must not acknowledge a failed TTL update.
+            if (tablet_meta_info.__isset.row_ttl_config) {
+                break;
+            }
             continue;
         }
         bool need_to_save = false;
+        if (tablet_meta_info.__isset.row_ttl_config) {
+            RowTtlConfigPB config;
+            config.set_duration_us(tablet_meta_info.row_ttl_config.duration_us);
+            config.set_config_version(tablet_meta_info.row_ttl_config.config_version);
+            std::unique_lock lock(tablet->get_header_lock());
+            status = tablet->tablet_meta()->update_row_ttl_config(config);
+            if (!status.ok()) {
+                break;
+            }
+            tablet->save_meta();
+            row_ttl_config_version = config.config_version();
+        }
         if (tablet_meta_info.__isset.partition_id) {
             // for fix partition_id = 0
             LOG(WARNING) << "change be tablet id: " << tablet->tablet_meta()->tablet_id()
@@ -1043,6 +1085,9 @@ void update_tablet_meta_callback(StorageEngine& engine, const TAgentTaskRequest&
     LOG(INFO) << "finish update tablet meta task. signature=" << req.signature;
     if (req.signature != -1) {
         TFinishTaskRequest finish_task_request;
+        if (row_ttl_config_version >= 0) {
+            finish_task_request.__set_row_ttl_config_version(row_ttl_config_version);
+        }
         finish_task_request.__set_task_status(status.to_thrift());
         finish_task_request.__set_backend(BackendOptions::get_local_backend());
         finish_task_request.__set_task_type(req.task_type);
@@ -1180,10 +1225,12 @@ void report_tablet_callback(StorageEngine& engine, const ClusterInfo* cluster_in
 
     increase_report_version();
     uint64_t report_version;
+    ActiveTabletCollector active;
     for (int i = 0; i < 5; i++) {
         request.tablets.clear();
+        active.clear();
         report_version = s_report_version;
-        engine.tablet_manager()->build_all_report_tablets_info(&request.tablets);
+        engine.tablet_manager()->build_all_report_tablets_info(&request.tablets, &active);
         if (report_version == s_report_version) {
             break;
         }
@@ -1231,7 +1278,17 @@ void report_tablet_callback(StorageEngine& engine, const ClusterInfo* cluster_in
     }
     request.__isset.resource = true;
 
+    active.take_top_n();
+    request.__set_top_query_tablets(to_thrift<ActiveDim::QUERY>(active.query_candidates()));
+    request.__set_top_load_tablets(to_thrift<ActiveDim::LOAD>(active.load_candidates()));
+    if (active.truncated()) {
+        report_active_tablet_truncated << 1;
+    }
+
     bool succ = handle_report(request, cluster_info, "tablet");
+    if (succ) {
+        active.commit();
+    }
     report_tablet_total << 1;
     if (!succ) [[unlikely]] {
         report_tablet_failed << 1;
@@ -1253,10 +1310,16 @@ void report_tablet_callback(CloudStorageEngine& engine, const ClusterInfo* clust
     increase_report_version();
     uint64_t report_version;
     uint64_t total_num_tablets = 0;
+    ActiveTabletCollector active;
     for (int i = 0; i < 5; i++) {
         request.tablets.clear();
+        // build_all_report_tablets_info() only increments tablet_num, so a retry would
+        // otherwise report a multiple of the real tablet count to FE.
+        total_num_tablets = 0;
+        active.clear();
         report_version = s_report_version;
-        engine.tablet_mgr().build_all_report_tablets_info(&request.tablets, &total_num_tablets);
+        engine.tablet_mgr().build_all_report_tablets_info(&request.tablets, &total_num_tablets,
+                                                          &active);
         if (report_version == s_report_version) {
             break;
         }
@@ -1271,7 +1334,17 @@ void report_tablet_callback(CloudStorageEngine& engine, const ClusterInfo* clust
     request.__set_report_version(report_version);
     request.__set_num_tablets(total_num_tablets);
 
+    active.take_top_n();
+    request.__set_top_query_tablets(to_thrift<ActiveDim::QUERY>(active.query_candidates()));
+    request.__set_top_load_tablets(to_thrift<ActiveDim::LOAD>(active.load_candidates()));
+    if (active.truncated()) {
+        report_active_tablet_truncated << 1;
+    }
+
     bool succ = handle_report(request, cluster_info, "tablet");
+    if (succ) {
+        active.commit();
+    }
     report_tablet_total << 1;
     if (!succ) [[unlikely]] {
         report_tablet_failed << 1;
@@ -1720,11 +1793,13 @@ void update_s3_resource(const TStorageResource& param, io::RemoteFileSystemSPtr 
     Status st;
     io::RemoteFileSystemSPtr fs;
 
-    if (!existed_fs) {
+    auto config = io::ObjStorageConfigResolver::from_storage_param(param.s3_storage_param);
+    if (!config.has_value()) {
+        st = std::move(config).error();
+    } else if (!existed_fs) {
         // No such FS instance on BE
-        auto res = io::ObjStorageFileSystem::create(
-                io::ObjStorageConfigResolver::from_storage_param(param.s3_storage_param),
-                std::to_string(param.id));
+        auto res = io::ObjStorageFileSystem::create(std::move(config).value(),
+                                                    std::to_string(param.id));
         if (!res.has_value()) {
             st = std::move(res).error();
         } else {
@@ -1733,14 +1808,21 @@ void update_s3_resource(const TStorageResource& param, io::RemoteFileSystemSPtr 
     } else {
         DCHECK_EQ(existed_fs->type(), io::FileSystemType::OBJECT_STORAGE)
                 << param.id << ' ' << param.name;
-        auto client = static_cast<io::ObjStorageFileSystem*>(existed_fs.get())->client_holder();
-        auto config = io::ObjStorageConfigResolver::from_storage_param(param.s3_storage_param);
-        st = client->reset(config.client);
-        fs = std::move(existed_fs);
+        // FE allows an ALTER RESOURCE to another backend, e.g. S3 to Azure. Keep the holder
+        // while bucket and prefix stay so already-bound rowsets follow the update.
+        auto res = io::ObjStorageFileSystem::refresh_resource(
+                std::static_pointer_cast<io::ObjStorageFileSystem>(existed_fs),
+                std::move(config).value());
+        if (!res.has_value()) {
+            st = std::move(res).error();
+        } else {
+            fs = std::move(res).value();
+        }
     }
 
     if (!st.ok()) {
-        LOG(WARNING) << "update s3 resource failed: " << st;
+        LOG(WARNING) << "update s3 resource failed, resource_id=" << param.id
+                     << ", resource_name=" << param.name << ": " << st;
     } else {
         LOG_INFO("successfully update s3 resource")
                 .tag("resource_id", param.id)

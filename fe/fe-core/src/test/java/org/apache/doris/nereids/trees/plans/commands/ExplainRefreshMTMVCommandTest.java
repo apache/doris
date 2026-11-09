@@ -24,6 +24,7 @@ import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshMethod;
 import org.apache.doris.mtmv.MTMVRefreshInfo;
@@ -42,7 +43,9 @@ import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableComma
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.thrift.TUniqueId;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -52,6 +55,8 @@ import org.mockito.Mockito;
 
 import java.util.Collections;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 public class ExplainRefreshMTMVCommandTest {
     private final NereidsParser parser = new NereidsParser();
@@ -172,6 +177,63 @@ public class ExplainRefreshMTMVCommandTest {
             Assertions.assertSame(originCtx, ConnectContext.get());
             Mockito.verify(executor).handleExplainStmt("plan", true);
             Mockito.verify(planner).plan(Mockito.any(LogicalPlanAdapter.class), Mockito.any());
+        } finally {
+            ConnectContext.remove();
+        }
+    }
+
+    @Test
+    public void testExplainCommandFinishesTheStatementOfItsOwnContext() throws Exception {
+        // EXPLAIN REFRESH MATERIALIZED VIEW plans on an MTMV context of its own, whose cleanup the end of the outer
+        // statement (it runs only the outer query id) does not reach. What its scans registered while planning,
+        // and its connector scope, must still be finished when the EXPLAIN ends, whether planning succeeds or not.
+        // MUTATION: dropping closeExplainConnectContext -> cleanups==0 and closes==0 -> red.
+        assertExplainFinishesItsOwnContext(false);
+        assertExplainFinishesItsOwnContext(true);
+    }
+
+    private void assertExplainFinishesItsOwnContext(boolean planningFails) throws Exception {
+        NereidsPlanner planner = Mockito.mock(NereidsPlanner.class);
+        Mockito.when(planner.getExplainString(Mockito.any())).thenReturn("plan");
+        Mockito.when(planner.getScanNodes()).thenReturn(Collections.<ScanNode>emptyList());
+        Mockito.when(planner.getCascadesContext()).thenReturn(Mockito.mock(org.apache.doris.nereids.CascadesContext.class));
+        AtomicInteger cleanups = new AtomicInteger();
+        AtomicInteger closes = new AtomicInteger();
+        AtomicReference<TUniqueId> planningQueryId = new AtomicReference<>();
+        Mockito.doAnswer(invocation -> {
+            // What a scan does while it plans splits: register its cleanup under the query id of the context it
+            // plans on, and keep a closeable value (a borrowed table) in that statement's connector scope.
+            ConnectContext planningCtx = ConnectContext.get();
+            planningQueryId.set(planningCtx.queryId());
+            QeProcessorImpl.INSTANCE.registerQueryFinishCallback(
+                    DebugUtil.printId(planningCtx.queryId()), cleanups::incrementAndGet);
+            planningCtx.getStatementContext().getOrCreateConnectorStatementScope()
+                    .computeIfAbsent("lease", () -> (AutoCloseable) closes::incrementAndGet);
+            if (planningFails) {
+                throw new IllegalStateException("planning failed");
+            }
+            return null;
+        }).when(planner).plan(Mockito.any(LogicalPlanAdapter.class), Mockito.any());
+        RecordingRefreshMTMVCommand command = new RecordingRefreshMTMVCommand(planner);
+        ConnectContext originCtx = new ConnectContext();
+        originCtx.setQueryId(new TUniqueId(0x13cL, planningFails ? 1L : 2L));
+        originCtx.setThreadLocalInfo();
+        try {
+            ExplainCommand explain = new ExplainCommand(ExplainLevel.NORMAL, command, false);
+            if (planningFails) {
+                Assertions.assertThrows(IllegalStateException.class,
+                        () -> explain.run(originCtx, Mockito.mock(StmtExecutor.class)));
+            } else {
+                explain.run(originCtx, Mockito.mock(StmtExecutor.class));
+            }
+            Assertions.assertNotNull(planningQueryId.get(), "the explain context plans under a query id");
+            Assertions.assertSame(command.explainCtx.queryId(), planningQueryId.get());
+            Assertions.assertNotEquals(originCtx.queryId(), planningQueryId.get(), "a query id of its own");
+            Assertions.assertEquals(1, cleanups.get(), "the EXPLAIN runs what its own context's scans registered");
+            Assertions.assertEquals(1, closes.get(), "and closes that context's connector scope");
+            QeProcessorImpl.INSTANCE.finishQueryCallbacks(planningQueryId.get());
+            Assertions.assertEquals(1, cleanups.get(), "nothing is left registered under it");
+            Assertions.assertSame(originCtx, ConnectContext.get());
         } finally {
             ConnectContext.remove();
         }

@@ -21,7 +21,9 @@ import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorContractValidator;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStatementScope;
+import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.spi.handle.NamedColumnHandle;
+import org.apache.doris.connector.spi.scan.ConnectorScanRange;
 import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
 import org.apache.doris.connector.spi.scan.ScanNodePropertyKeys;
 import org.apache.doris.thrift.TFileScanRangeParams;
@@ -29,9 +31,12 @@ import org.apache.doris.thrift.TFileScanRangeParams;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
@@ -82,9 +87,15 @@ class EsScanPlanProviderTest {
      */
     private static final class TestSession implements ConnectorSession {
         private final ConnectorStatementScope scope;
+        private final Map<String, String> sessionProperties;
 
         TestSession(ConnectorStatementScope scope) {
+            this(scope, Collections.emptyMap());
+        }
+
+        TestSession(ConnectorStatementScope scope, Map<String, String> sessionProperties) {
             this.scope = scope;
+            this.sessionProperties = sessionProperties;
         }
 
         @Override
@@ -129,7 +140,7 @@ class EsScanPlanProviderTest {
 
         @Override
         public Map<String, String> getSessionProperties() {
-            return Collections.emptyMap();
+            return sessionProperties;
         }
 
         @Override
@@ -459,5 +470,105 @@ class EsScanPlanProviderTest {
                 .supportsFileCache());
     }
 
+    @Test
+    void docvalueEligibilityHonorsCatalogFieldLimitAndSourceOnlyColumns() {
+        List<ConnectorColumnHandle> one = Collections.singletonList(new NamedColumnHandle("a"));
+        List<ConnectorColumnHandle> two = Arrays.asList(new NamedColumnHandle("a"), new NamedColumnHandle("b"));
+        List<ConnectorColumnHandle> id = Arrays.asList(new NamedColumnHandle("a"), new NamedColumnHandle("_id"));
+        Map<String, String> properties = minimalPropertyMap();
+        properties.put(EsCatalogProperties.MAX_DOCVALUE_FIELDS, "1");
+        EsScanPlanProvider provider = new EsScanPlanProvider(
+                new CountingRestClient(), EsCatalogProperties.of(properties));
+        EsTableHandle handle = new EsTableHandle("test_index");
+        Assertions.assertEquals("1", provider.getScanNodePropertiesResult(
+                EMPTY_SESSION, handle, one, Optional.empty()).getProperties().get("doc_values_mode"));
+        Assertions.assertEquals("0", provider.getScanNodePropertiesResult(
+                EMPTY_SESSION, handle, two, Optional.empty()).getProperties().get("doc_values_mode"));
+
+        properties.put(EsCatalogProperties.MAX_DOCVALUE_FIELDS, "2");
+        provider = new EsScanPlanProvider(new CountingRestClient(), EsCatalogProperties.of(properties));
+        Assertions.assertEquals("1", provider.getScanNodePropertiesResult(
+                EMPTY_SESSION, handle, two, Optional.empty()).getProperties().get("doc_values_mode"));
+        Assertions.assertEquals("0", provider.getScanNodePropertiesResult(
+                EMPTY_SESSION, handle, id, Optional.empty()).getProperties().get("doc_values_mode"));
+
+        properties.put(EsCatalogProperties.DOC_VALUE_SCAN, "false");
+        provider = new EsScanPlanProvider(new CountingRestClient(), EsCatalogProperties.of(properties));
+        Assertions.assertEquals("0", provider.getScanNodePropertiesResult(
+                EMPTY_SESSION, handle, one, Optional.empty()).getProperties().get("doc_values_mode"));
+    }
+
+    @Test
+    void keywordAliasesAndSessionBatchSizeSurviveThriftPopulation() {
+        CountingRestClient client = new CountingRestClient() {
+            @Override
+            public String getMapping(String indexName) {
+                return "{\"" + indexName + "\":{\"mappings\":{\"properties\":{"
+                        + "\"a\":{\"type\":\"text\",\"fields\":{\"keyword\":{\"type\":\"keyword\"}}},"
+                        + "\"b\":{\"type\":\"keyword\",\"doc_values\":false}}}}}";
+            }
+        };
+        EsScanPlanProvider provider = new EsScanPlanProvider(client, minimalProps());
+        ConnectorSession session = new TestSession(ConnectorStatementScope.NONE,
+                Collections.singletonMap("batch_size", "64"));
+        EsTableHandle handle = new EsTableHandle("test_index");
+        Map<String, String> properties = provider.getScanNodePropertiesResult(session, handle,
+                Collections.singletonList(new NamedColumnHandle("a")), Optional.empty()).getProperties();
+        Assertions.assertEquals("1", properties.get("doc_values_mode"));
+        Assertions.assertEquals("64", properties.get("es.batch_size"));
+        TFileScanRangeParams params = new TFileScanRangeParams();
+        provider.populateScanLevelParams(params, properties);
+        Assertions.assertEquals(Collections.singletonMap("a", "a.keyword"), params.getEsDocvalueContext());
+        Assertions.assertEquals(Collections.singletonMap("a", "a.keyword"), params.getEsFieldsContext());
+        Assertions.assertEquals("{\"match_all\":{}}", params.getEsProperties().get("query_dsl"));
+        Assertions.assertFalse(params.getEsProperties().containsKey("es.batch_size"));
+
+        Map<String, String> sourceOnly = provider.getScanNodePropertiesResult(session, handle,
+                Arrays.asList(new NamedColumnHandle("a"), new NamedColumnHandle("b")),
+                Optional.empty()).getProperties();
+        Assertions.assertEquals("0", sourceOnly.get("doc_values_mode"));
+    }
+
+    @Test
+    void parallelAndWholeIndexPlansPreserveShardRouting() {
+        CountingRestClient client = new CountingRestClient() {
+            @Override
+            public EsShardPartitions searchShards(String indexName) {
+                EsShardPartitions partitions = new EsShardPartitions(indexName);
+                for (int shard : new int[]{0, 1}) {
+                    partitions.addShardRouting(shard, Collections.singletonList(
+                            new EsShardRouting(indexName, shard, true, "node1")));
+                }
+                return partitions;
+            }
+        };
+        EsScanPlanProvider provider = new EsScanPlanProvider(client, minimalProps());
+        ConnectorScanRequest request = ConnectorScanRequest.builder(
+                new EsTableHandle("test_index"), Collections.emptyList()).build();
+        List<ConnectorScanRange> parallel = provider.planScan(new TestSession(ConnectorStatementScope.NONE,
+                Collections.singletonMap("enable_es_parallel_scroll", "true")), request);
+        Assertions.assertEquals(2, parallel.size());
+        Assertions.assertEquals(java.util.Set.of("0", "1"), parallel.stream()
+                .map(range -> range.getProperties().get("shard_id")).collect(java.util.stream.Collectors.toSet()));
+        List<ConnectorScanRange> serial = provider.planScan(new TestSession(ConnectorStatementScope.NONE,
+                Collections.singletonMap("enable_es_parallel_scroll", "false")), request);
+        Assertions.assertEquals(1, serial.size());
+        Assertions.assertEquals("-1", serial.get(0).getProperties().get("shard_id"));
+        Assertions.assertEquals("localhost:9200", serial.get(0).getProperties().get("es_hosts"));
+        Assertions.assertEquals("test_index", serial.get(0).getProperties().get("index"));
+    }
+
+    @Test
+    void earlyStopRequiresValidPositiveNumbersAndExplicitPushdownTracking() {
+        Assertions.assertEquals("64", populateWith(pushdownProps("64", "64", "true"))
+                .getEsProperties().get("limit"));
+        for (String[] values : new String[][]{
+                {"0", "64", "true"}, {"-1", "64", "true"}, {"65", "64", "true"},
+                {"1", "0", "true"}, {"1", "-1", "true"}, {"invalid", "64", "true"},
+                {"1", "invalid", "true"}, {"1", "64", null}, {"1", "64", "false"}}) {
+            Assertions.assertFalse(populateWith(pushdownProps(values[0], values[1], values[2]))
+                    .getEsProperties().containsKey("limit"), Arrays.toString(values));
+        }
+    }
 
 }

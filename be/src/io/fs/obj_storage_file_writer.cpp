@@ -107,6 +107,7 @@ Status ObjStorageFileWriter::_create_multi_upload_request() {
 }
 
 void ObjStorageFileWriter::_wait_until_finish(std::string_view task_name) {
+    TEST_SYNC_POINT_CALLBACK("S3FileWriter::_wait_until_finish:before_wait", task_name);
     auto timeout_duration = config::s3_file_writer_log_interval_second;
     auto msg = fmt::format(
             "{} multipart upload already takes {} seconds, bucket={}, key={}, upload_id={}",
@@ -455,10 +456,6 @@ Status check_after_upload(ObjStorageClient* client, const ObjStorageResponse& up
 }
 
 Status ObjStorageFileWriter::_complete() {
-    const auto& client = _obj_client->get();
-    if (nullptr == client) {
-        return Status::InternalError<false>("invalid obj storage client");
-    }
     if (_failed) {
         _wait_until_finish("early quit");
         return _st;
@@ -503,6 +500,12 @@ Status ObjStorageFileWriter::_complete() {
     LOG(INFO) << "complete_multipart_upload " << _obj_storage_path_opts.path.native()
               << " size=" << _bytes_appended << " number_parts=" << _completed_parts.size()
               << " s3_write_buffer_size=" << config::s3_write_buffer_size;
+    // Taken after every upload finished: the holder can be invalidated while this writer waits,
+    // and returning before the wait would leave upload callbacks running on a closed writer.
+    const auto& client = _obj_client->get();
+    if (nullptr == client) {
+        return Status::InternalError<false>("invalid obj storage client");
+    }
     auto resp =
             client->complete_multipart_upload(_obj_storage_path_opts, _upload_id, _completed_parts);
     if (resp.status.code != ErrorCode::OK) {
@@ -548,6 +551,7 @@ void ObjStorageFileWriter::_put_object(UploadFileBuffer& buf) {
         buf.set_status(Status::InternalError<false>("try to put closed file"));
         return;
     }
+    TEST_SYNC_POINT("S3FileWriter::_put_object:before_get_client");
     const auto& client = _obj_client->get();
     if (nullptr == client) {
         buf.set_status(Status::InternalError<false>("invalid obj storage client"));

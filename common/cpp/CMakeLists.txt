@@ -22,6 +22,6 @@ file(GLOB_RECURSE SRC_FILES CONFIGURE_DEPENDS *.cpp)
 if(NOT BUILD_AZURE STREQUAL "ON")
     list(REMOVE_ITEM SRC_FILES
         "${CMAKE_CURRENT_SOURCE_DIR}/obj-client/azure_obj_storage_client.cpp"
-        "${CMAKE_CURRENT_SOURCE_DIR}/obj-client/auth/azure_auth_factory.cpp")
+        "${CMAKE_CURRENT_SOURCE_DIR}/obj-client/auth/azure/azure_auth_factory.cpp")
 endif()
 add_library(CommonCPP STATIC ${SRC_FILES})

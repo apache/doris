@@ -45,18 +45,12 @@ uint64_t hash_backend(const S3ClientConfig& s3) {
     return hash_code;
 }
 
-uint64_t hash_azure_auth(const std::string& account, const AzureSharedKeyConfig& shared_key) {
-    // Hash account + key together, as ak + sk for S3.
-    return crc32_hash(account + shared_key.account_key);
-}
-
 uint64_t hash_backend(const AzureClientConfig& azure) {
     uint64_t hash_code = 0;
     hash_code ^= static_cast<uint64_t>(ObjStorageProvider::AZURE);
     hash_code ^= crc32_hash(azure.endpoint);
     hash_code ^= crc32_hash(azure.container);
-    hash_code ^= std::visit([&](const auto& auth) { return hash_azure_auth(azure.account, auth); },
-                            azure.auth);
+    hash_combine_azure_auth(&hash_code, azure.account, azure.auth);
     return hash_code;
 }
 
@@ -71,14 +65,9 @@ std::string backend_to_string(const S3ClientConfig& s3) {
             s3.auth.role_arn, s3.auth.external_id, credential_type_name(s3.auth.credential));
 }
 
-const char* azure_auth_name(const AzureSharedKeyConfig&) {
-    return "shared_key";
-}
-
 std::string backend_to_string(const AzureClientConfig& azure) {
-    auto auth = std::visit([](const auto& a) { return azure_auth_name(a); }, azure.auth);
     return fmt::format("azure(endpoint={}, account={}, container={}, auth={})", azure.endpoint,
-                       azure.account, azure.container, auth);
+                       azure.account, azure.container, azure_auth_type_name(azure.auth));
 }
 
 ObjStorageProvider backend_provider(const S3ClientConfig& s3) {
@@ -87,6 +76,32 @@ ObjStorageProvider backend_provider(const S3ClientConfig& s3) {
 
 ObjStorageProvider backend_provider(const AzureClientConfig&) {
     return ObjStorageProvider::AZURE;
+}
+
+// Adapter from the storage-domain provider to the credential layer's own provider identity,
+// used where a provider-native credential is validated.
+ObjCredentialProvider to_obj_credential_provider(ObjStorageProvider provider) {
+    switch (provider) {
+    case ObjStorageProvider::AWS:
+        return ObjCredentialProvider::Aws;
+    case ObjStorageProvider::AZURE:
+        return ObjCredentialProvider::Azure;
+    case ObjStorageProvider::BOS:
+        return ObjCredentialProvider::Bos;
+    case ObjStorageProvider::COS:
+        return ObjCredentialProvider::Cos;
+    case ObjStorageProvider::GCP:
+        return ObjCredentialProvider::Gcp;
+    case ObjStorageProvider::OBS:
+        return ObjCredentialProvider::Obs;
+    case ObjStorageProvider::OSS:
+        return ObjCredentialProvider::Oss;
+    case ObjStorageProvider::TOS:
+        return ObjCredentialProvider::Tos;
+    case ObjStorageProvider::UNKNOWN:
+        return ObjCredentialProvider::Unknown;
+    }
+    return ObjCredentialProvider::Unknown;
 }
 
 // The rules every client request is checked against before anything is built or looked up;
@@ -123,25 +138,16 @@ Status validate_client_backend(const S3ClientConfig& s3) {
     return Status::OK();
 }
 
-Status validate_azure_auth(const AzureClientConfig& azure, const AzureSharedKeyConfig& shared_key) {
-    // Either both are provided or both are empty, as for the flat ak/sk.
-    if (!azure.account.empty() && shared_key.account_key.empty()) {
-        return Status::InvalidArgument<false>("Invalid azure conf, empty account key");
-    }
-    if (!shared_key.account_key.empty() && azure.account.empty()) {
-        return Status::InvalidArgument<false>("Invalid azure conf, empty account name");
-    }
-    return Status::OK();
-}
-
 // Azure has no region, which the flat configuration used to require with a placeholder value
-// ("dummy_region" from FE).
+// ("dummy_region" from FE). The authentication follows the common rules (azure_auth.h).
 Status validate_client_backend(const AzureClientConfig& azure) {
     if (azure.endpoint.empty()) {
         return Status::InvalidArgument<false>("Invalid azure conf, empty endpoint");
     }
-    return std::visit([&](const auto& auth) { return validate_azure_auth(azure, auth); },
-                      azure.auth);
+    if (auto error = validate_azure_auth(azure.account, azure.auth); error.has_value()) {
+        return Status::InvalidArgument<false>(*error);
+    }
+    return Status::OK();
 }
 
 // The storage target stays (endpoint, region, endpoint override); the refreshed source's vendor,
@@ -160,30 +166,6 @@ void merge_client_backend(AzureClientConfig& merged, const AzureClientConfig& up
 }
 
 } // namespace
-
-ObjCredentialProvider to_obj_credential_provider(ObjStorageProvider provider) {
-    switch (provider) {
-    case ObjStorageProvider::AWS:
-        return ObjCredentialProvider::Aws;
-    case ObjStorageProvider::AZURE:
-        return ObjCredentialProvider::Azure;
-    case ObjStorageProvider::BOS:
-        return ObjCredentialProvider::Bos;
-    case ObjStorageProvider::COS:
-        return ObjCredentialProvider::Cos;
-    case ObjStorageProvider::GCP:
-        return ObjCredentialProvider::Gcp;
-    case ObjStorageProvider::OBS:
-        return ObjCredentialProvider::Obs;
-    case ObjStorageProvider::OSS:
-        return ObjCredentialProvider::Oss;
-    case ObjStorageProvider::TOS:
-        return ObjCredentialProvider::Tos;
-    case ObjStorageProvider::UNKNOWN:
-        return ObjCredentialProvider::Unknown;
-    }
-    return ObjCredentialProvider::Unknown;
-}
 
 uint64_t ObjClientConfig::hash() const {
     uint64_t hash_code = std::visit([](const auto& b) { return hash_backend(b); }, backend);

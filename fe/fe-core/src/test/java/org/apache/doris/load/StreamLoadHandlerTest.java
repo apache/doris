@@ -35,6 +35,7 @@ import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.nereids.load.NereidsStreamLoadPlanner;
 import org.apache.doris.nereids.load.NereidsStreamLoadTask;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.service.FrontendServiceImpl;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TDataSink;
@@ -47,6 +48,7 @@ import org.apache.doris.thrift.TOlapTableSink;
 import org.apache.doris.thrift.TPipelineFragmentParams;
 import org.apache.doris.thrift.TPlanFragment;
 import org.apache.doris.thrift.TQueryOptions;
+import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TStreamLoadPutRequest;
 import org.apache.doris.thrift.TStreamLoadPutResult;
 import org.apache.doris.thrift.TTabletLocation;
@@ -59,6 +61,7 @@ import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -265,6 +268,36 @@ public class StreamLoadHandlerTest {
             Assertions.assertEquals("backend_compute_group",
                     ConnectContext.get().getSessionVariable().getCloudCluster());
             Assertions.assertEquals("backend_compute_group", request.getCloudCluster());
+        } finally {
+            ConnectContext.remove();
+            Config.cloud_unique_id = originalCloudUniqueId;
+            Deencapsulation.setField(Env.getCurrentEnv(), "systemInfo", originalSystemInfoService);
+        }
+    }
+
+    @Test
+    public void testStreamLoadPutRejectsMissingBackend() throws Exception {
+        SystemInfoService originalSystemInfoService = Env.getCurrentSystemInfo();
+        String originalCloudUniqueId = Config.cloud_unique_id;
+        CloudSystemInfoService systemInfoService =
+                new TestCloudSystemInfoService(Collections.emptyList());
+        TStreamLoadPutRequest request = new TStreamLoadPutRequest();
+        request.setUser("");
+        request.setToken("test_token");
+        request.setBackendId(10001L);
+        request.setCloudCluster("header_compute_group");
+
+        try {
+            Config.cloud_unique_id = "test_cloud_unique_id";
+            Deencapsulation.setField(Env.getCurrentEnv(), "systemInfo", systemInfoService);
+            ConnectContext.remove();
+
+            TStreamLoadPutResult result = new FrontendServiceImpl(null).streamLoadPut(request);
+
+            Assertions.assertEquals(TStatusCode.ANALYSIS_ERROR, result.getStatus().getStatusCode());
+            Assertions.assertTrue(result.getStatus().getErrorMsgs().get(0).contains("10001"));
+            Assertions.assertFalse(result.isSetPipelineParams());
+            Assertions.assertNull(ConnectContext.get());
         } finally {
             ConnectContext.remove();
             Config.cloud_unique_id = originalCloudUniqueId;

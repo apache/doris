@@ -61,10 +61,12 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.MapAggV2;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MaxBy;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MaxMap;
+import org.apache.doris.nereids.trees.expressions.functions.agg.MaxTopK;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Median;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MinBy;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MinMap;
+import org.apache.doris.nereids.trees.expressions.functions.agg.MinTopK;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctGroupConcat;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctSum;
@@ -216,6 +218,8 @@ public class BuiltinAggregateFunctions implements FunctionHelper {
                 agg(Sum.class, "sum"),
                 agg(Sum0.class, "sum0"),
                 agg(SumMap.class, "sum_map"),
+                agg(MinTopK.class, "min_topk"),
+                agg(MaxTopK.class, "max_topk"),
                 agg(TopN.class, "topn"),
                 agg(TopNArray.class, "topn_array"),
                 agg(TopNWeighted.class, "topn_weighted"),

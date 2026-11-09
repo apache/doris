@@ -30,6 +30,7 @@ import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.thrift.TBucketedAggregationNode;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -682,6 +683,53 @@ public class BucketedAggregateTranslatorTest extends TestWithFeService {
         return planner.getFragments().stream()
                 .map(fragment -> fragment.getExplainString(TExplainLevel.NORMAL))
                 .collect(Collectors.joining("\n"));
+    }
+
+    @Test
+    public void testConfiguredBucketCountIsCapturedInPlan() throws Exception {
+        SessionVariable sessionVariable = connectContext.getSessionVariable();
+        int oldAggPhase = sessionVariable.aggPhase;
+        int oldBeNumberForTest = sessionVariable.getBeNumberForTest();
+        int oldParallelPipelineTaskNum = sessionVariable.parallelPipelineTaskNum;
+        int oldBucketedAggNumBuckets = sessionVariable.bucketedAggNumBuckets;
+        long oldBucketedAggMinInputRows = sessionVariable.bucketedAggMinInputRows;
+        long oldBucketedAggMaxGroupKeys = sessionVariable.bucketedAggMaxGroupKeys;
+        double oldBucketedAggHighCardThreshold = sessionVariable.bucketedAggHighCardThreshold;
+        boolean oldEnableBucketedHashAgg = sessionVariable.enableBucketedHashAgg;
+        try {
+            sessionVariable.aggPhase = 1;
+            sessionVariable.setBeNumberForTest(1);
+            sessionVariable.bucketedAggMinInputRows = 0;
+            sessionVariable.bucketedAggMaxGroupKeys = 0;
+            sessionVariable.bucketedAggHighCardThreshold = 1.0;
+            sessionVariable.enableBucketedHashAgg = true;
+            for (int parallelism : new int[] {1, 4}) {
+                sessionVariable.parallelPipelineTaskNum = parallelism;
+                for (int numBuckets : new int[] {0, 1, 16, 256}) {
+                    sessionVariable.bucketedAggNumBuckets = numBuckets;
+                    List<BucketedAggregationNode> nodes = collectBucketedAggregationNodes("sum(kint)");
+                    Assertions.assertEquals(1, nodes.size());
+                    BucketedAggregationNode node = nodes.get(0);
+                    // Serialization must use the plan's captured value, even if the session changes later.
+                    sessionVariable.bucketedAggNumBuckets = numBuckets == 256 ? 0 : 256;
+                    TBucketedAggregationNode thriftNode = node.treeToThrift().getNodes().get(0).getBucketedAggNode();
+                    Assertions.assertTrue(thriftNode.isSetNumBuckets());
+                    Assertions.assertEquals(numBuckets, thriftNode.getNumBuckets());
+                    String expected = "buckets: " + (numBuckets == 0 ? "auto" : Integer.toString(numBuckets)) + "\n";
+                    Assertions.assertTrue(node.getNodeExplainString("", TExplainLevel.NORMAL).contains(expected));
+                    Assertions.assertTrue(node.getNodeExplainString("", TExplainLevel.BRIEF).contains(expected));
+                }
+            }
+        } finally {
+            sessionVariable.aggPhase = oldAggPhase;
+            sessionVariable.setBeNumberForTest(oldBeNumberForTest);
+            sessionVariable.parallelPipelineTaskNum = oldParallelPipelineTaskNum;
+            sessionVariable.bucketedAggNumBuckets = oldBucketedAggNumBuckets;
+            sessionVariable.bucketedAggMinInputRows = oldBucketedAggMinInputRows;
+            sessionVariable.bucketedAggMaxGroupKeys = oldBucketedAggMaxGroupKeys;
+            sessionVariable.bucketedAggHighCardThreshold = oldBucketedAggHighCardThreshold;
+            sessionVariable.enableBucketedHashAgg = oldEnableBucketedHashAgg;
+        }
     }
 
     private void assertUsesRegularAggregation(String aggregateFunction) throws Exception {

@@ -32,7 +32,6 @@ class ParquetProfileCache;
 }
 
 namespace doris {
-class FileScanner;
 class FileScannerV2;
 } // namespace doris
 
@@ -58,15 +57,8 @@ public:
     int max_scanners_concurrency(RuntimeState* state) const override;
     int min_scanners_concurrency(RuntimeState* state) const override;
     ScannerScheduler* scan_scheduler(RuntimeState* state) const override;
-    static bool should_use_file_scanner_v2(const TQueryOptions& query_options, bool is_load,
-                                           const TFileScanRangeParams& scan_params);
-#ifdef BE_TEST
-    static bool TEST_should_use_file_scanner_v2(const TQueryOptions& query_options, bool is_load,
-                                                const TFileScanRangeParams& scan_params);
-#endif
 
 private:
-    friend class FileScanner;
     friend class FileScannerV2;
     PushDownType _should_push_down_bloom_filter() const override {
         return PushDownType::UNACCEPTABLE;

@@ -115,15 +115,15 @@ text_ignore_above_10
 2022-08-08T20:10:10
 
 -- !sql_5_27 --
-Andy	[100]	["soccer"]	["{"club":"Manchester","position":"forward","salary":50000}"]
-Betty	[90]	["pingpong ball"]	["{"club":"Beijing","position":"attacker","salary":30000}"]
-Cindy	[89]	["武术"]	["{"club":"Shaolin","position":"fighter","salary":25000}"]
-David	[77]	["volleyball"]	["{"club":"Tokyo","position":"spiker","salary":40000}"]
-Emily	[56, 78, 99]	["baseball", "golf", "hockey"]	["{"club":"Yankees","position":"pitcher","salary":80000}", "{"club":"PGA","position":"driver","salary":120000}", "{"club":"Rangers","position":"center","salary":90000}"]
-Frank	[45, 67, 88]	["rugby", "cricket", "boxing"]	["{"club":"Leicester","position":"scrum-half","salary":60000}", "{"club":"Mumbai","position":"batsman","salary":70000}", "{"club":"Vegas","position":"heavyweight","salary":150000}"]
-Grace	[34, 56, 78]	["table tennis", "badminton", "athletics"]	["{"club":"China","position":"attacker","salary":35000}", "{"club":"Denmark","position":"singles","salary":45000}", "{"club":"Jamaica","position":"sprinter","salary":85000}"]
-Henry	[23, 45, 67]	["archery", "fencing", "weightlifting"]	["{"club":"Korea","position":"recurve","salary":20000}", "{"club":"France","position":"epee","salary":30000}", "{"club":"Bulgaria","position":"heavyweight","salary":55000}"]
-Ivy	[12, 34, 56]	["judo", "karate", "taekwondo"]	["{"club":"Japan","position":"lightweight","salary":25000}", "{"club":"Okinawa","position":"kata","salary":22000}", "{"club":"Korea","position":"middleweight","salary":28000}"]
+Andy	[100]	["soccer"]	[{"club":"Manchester","position":"forward","salary":50000}]
+Betty	[90]	["pingpong ball"]	[{"club":"Beijing","position":"attacker","salary":30000}]
+Cindy	[89]	["武术"]	[{"club":"Shaolin","position":"fighter","salary":25000}]
+David	[77]	["volleyball"]	[{"club":"Tokyo","position":"spiker","salary":40000}]
+Emily	[56, 78, 99]	["baseball", "golf", "hockey"]	[{"club":"Yankees","position":"pitcher","salary":80000}, {"club":"PGA","position":"driver","salary":120000}, {"club":"Rangers","position":"center","salary":90000}]
+Frank	[45, 67, 88]	["rugby", "cricket", "boxing"]	[{"club":"Leicester","position":"scrum-half","salary":60000}, {"club":"Mumbai","position":"batsman","salary":70000}, {"club":"Vegas","position":"heavyweight","salary":150000}]
+Grace	[34, 56, 78]	["table tennis", "badminton", "athletics"]	[{"club":"China","position":"attacker","salary":35000}, {"club":"Denmark","position":"singles","salary":45000}, {"club":"Jamaica","position":"sprinter","salary":85000}]
+Henry	[23, 45, 67]	["archery", "fencing", "weightlifting"]	[{"club":"Korea","position":"recurve","salary":20000}, {"club":"France","position":"epee","salary":30000}, {"club":"Bulgaria","position":"heavyweight","salary":55000}]
+Ivy	[12, 34, 56]	["judo", "karate", "taekwondo"]	[{"club":"Japan","position":"lightweight","salary":25000}, {"club":"Okinawa","position":"kata","salary":22000}, {"club":"Korea","position":"middleweight","salary":28000}]
 
 -- !sql_5_28 --
 value1	value2
@@ -269,15 +269,15 @@ text_ignore_above_10
 2022-08-08T20:10:10
 
 -- !sql_6_27 --
-Andy	[100]	["soccer"]	["{"club":"Manchester","position":"forward","salary":50000}"]
-Betty	[90]	["pingpong ball"]	["{"club":"Beijing","position":"attacker","salary":30000}"]
-Cindy	[89]	["武术"]	["{"club":"Shaolin","position":"fighter","salary":25000}"]
-David	[77]	["volleyball"]	["{"club":"Tokyo","position":"spiker","salary":40000}"]
-Emily	[56, 78, 99]	["baseball", "golf", "hockey"]	["{"club":"Yankees","position":"pitcher","salary":80000}", "{"club":"PGA","position":"driver","salary":120000}", "{"club":"Rangers","position":"center","salary":90000}"]
-Frank	[45, 67, 88]	["rugby", "cricket", "boxing"]	["{"club":"Leicester","position":"scrum-half","salary":60000}", "{"club":"Mumbai","position":"batsman","salary":70000}", "{"club":"Vegas","position":"heavyweight","salary":150000}"]
-Grace	[34, 56, 78]	["table tennis", "badminton", "athletics"]	["{"club":"China","position":"attacker","salary":35000}", "{"club":"Denmark","position":"singles","salary":45000}", "{"club":"Jamaica","position":"sprinter","salary":85000}"]
-Henry	[23, 45, 67]	["archery", "fencing", "weightlifting"]	["{"club":"Korea","position":"recurve","salary":20000}", "{"club":"France","position":"epee","salary":30000}", "{"club":"Bulgaria","position":"heavyweight","salary":55000}"]
-Ivy	[12, 34, 56]	["judo", "karate", "taekwondo"]	["{"club":"Japan","position":"lightweight","salary":25000}", "{"club":"Okinawa","position":"kata","salary":22000}", "{"club":"Korea","position":"middleweight","salary":28000}"]
+Andy	[100]	["soccer"]	[{"club":"Manchester","position":"forward","salary":50000}]
+Betty	[90]	["pingpong ball"]	[{"club":"Beijing","position":"attacker","salary":30000}]
+Cindy	[89]	["武术"]	[{"club":"Shaolin","position":"fighter","salary":25000}]
+David	[77]	["volleyball"]	[{"club":"Tokyo","position":"spiker","salary":40000}]
+Emily	[56, 78, 99]	["baseball", "golf", "hockey"]	[{"club":"Yankees","position":"pitcher","salary":80000}, {"club":"PGA","position":"driver","salary":120000}, {"club":"Rangers","position":"center","salary":90000}]
+Frank	[45, 67, 88]	["rugby", "cricket", "boxing"]	[{"club":"Leicester","position":"scrum-half","salary":60000}, {"club":"Mumbai","position":"batsman","salary":70000}, {"club":"Vegas","position":"heavyweight","salary":150000}]
+Grace	[34, 56, 78]	["table tennis", "badminton", "athletics"]	[{"club":"China","position":"attacker","salary":35000}, {"club":"Denmark","position":"singles","salary":45000}, {"club":"Jamaica","position":"sprinter","salary":85000}]
+Henry	[23, 45, 67]	["archery", "fencing", "weightlifting"]	[{"club":"Korea","position":"recurve","salary":20000}, {"club":"France","position":"epee","salary":30000}, {"club":"Bulgaria","position":"heavyweight","salary":55000}]
+Ivy	[12, 34, 56]	["judo", "karate", "taekwondo"]	[{"club":"Japan","position":"lightweight","salary":25000}, {"club":"Okinawa","position":"kata","salary":22000}, {"club":"Korea","position":"middleweight","salary":28000}]
 
 -- !sql_6_28 --
 value1	value2
@@ -465,15 +465,15 @@ text_ignore_above_10
 1660191010000
 
 -- !sql_7_34 --
-Andy	[100]	["soccer"]	["{"club":"Manchester","position":"forward","salary":50000}"]
-Betty	[90]	["pingpong ball"]	["{"club":"Beijing","position":"attacker","salary":30000}"]
-Cindy	[89]	["武术"]	["{"club":"Shaolin","position":"fighter","salary":25000}"]
-David	[77]	["volleyball"]	["{"club":"Tokyo","position":"spiker","salary":40000}"]
-Emily	[56, 78, 99]	["baseball", "golf", "hockey"]	["{"club":"Yankees","position":"pitcher","salary":80000}", "{"club":"PGA","position":"driver","salary":120000}", "{"club":"Rangers","position":"center","salary":90000}"]
-Frank	[45, 67, 88]	["rugby", "cricket", "boxing"]	["{"club":"Leicester","position":"scrum-half","salary":60000}", "{"club":"Mumbai","position":"batsman","salary":70000}", "{"club":"Vegas","position":"heavyweight","salary":150000}"]
-Grace	[34, 56, 78]	["table tennis", "badminton", "athletics"]	["{"club":"China","position":"attacker","salary":35000}", "{"club":"Denmark","position":"singles","salary":45000}", "{"club":"Jamaica","position":"sprinter","salary":85000}"]
-Henry	[23, 45, 67]	["archery", "fencing", "weightlifting"]	["{"club":"Korea","position":"recurve","salary":20000}", "{"club":"France","position":"epee","salary":30000}", "{"club":"Bulgaria","position":"heavyweight","salary":55000}"]
-Ivy	[12, 34, 56]	["judo", "karate", "taekwondo"]	["{"club":"Japan","position":"lightweight","salary":25000}", "{"club":"Okinawa","position":"kata","salary":22000}", "{"club":"Korea","position":"middleweight","salary":28000}"]
+Andy	[100]	["soccer"]	[{"club":"Manchester","position":"forward","salary":50000}]
+Betty	[90]	["pingpong ball"]	[{"club":"Beijing","position":"attacker","salary":30000}]
+Cindy	[89]	["武术"]	[{"club":"Shaolin","position":"fighter","salary":25000}]
+David	[77]	["volleyball"]	[{"club":"Tokyo","position":"spiker","salary":40000}]
+Emily	[56, 78, 99]	["baseball", "golf", "hockey"]	[{"club":"Yankees","position":"pitcher","salary":80000}, {"club":"PGA","position":"driver","salary":120000}, {"club":"Rangers","position":"center","salary":90000}]
+Frank	[45, 67, 88]	["rugby", "cricket", "boxing"]	[{"club":"Leicester","position":"scrum-half","salary":60000}, {"club":"Mumbai","position":"batsman","salary":70000}, {"club":"Vegas","position":"heavyweight","salary":150000}]
+Grace	[34, 56, 78]	["table tennis", "badminton", "athletics"]	[{"club":"China","position":"attacker","salary":35000}, {"club":"Denmark","position":"singles","salary":45000}, {"club":"Jamaica","position":"sprinter","salary":85000}]
+Henry	[23, 45, 67]	["archery", "fencing", "weightlifting"]	[{"club":"Korea","position":"recurve","salary":20000}, {"club":"France","position":"epee","salary":30000}, {"club":"Bulgaria","position":"heavyweight","salary":55000}]
+Ivy	[12, 34, 56]	["judo", "karate", "taekwondo"]	[{"club":"Japan","position":"lightweight","salary":25000}, {"club":"Okinawa","position":"kata","salary":22000}, {"club":"Korea","position":"middleweight","salary":28000}]
 
 -- !sql_7_35 --
 string1	text#1
@@ -669,15 +669,15 @@ text_ignore_above_10
 1660191010000
 
 -- !sql_8_32 --
-Andy	[100]	["soccer"]	["{"club":"Manchester","position":"forward","salary":50000}"]
-Betty	[90]	["pingpong ball"]	["{"club":"Beijing","position":"attacker","salary":30000}"]
-Cindy	[89]	["武术"]	["{"club":"Shaolin","position":"fighter","salary":25000}"]
-David	[77]	["volleyball"]	["{"club":"Tokyo","position":"spiker","salary":40000}"]
-Emily	[56, 78, 99]	["baseball", "golf", "hockey"]	["{"club":"Yankees","position":"pitcher","salary":80000}", "{"club":"PGA","position":"driver","salary":120000}", "{"club":"Rangers","position":"center","salary":90000}"]
-Frank	[45, 67, 88]	["rugby", "cricket", "boxing"]	["{"club":"Leicester","position":"scrum-half","salary":60000}", "{"club":"Mumbai","position":"batsman","salary":70000}", "{"club":"Vegas","position":"heavyweight","salary":150000}"]
-Grace	[34, 56, 78]	["table tennis", "badminton", "athletics"]	["{"club":"China","position":"attacker","salary":35000}", "{"club":"Denmark","position":"singles","salary":45000}", "{"club":"Jamaica","position":"sprinter","salary":85000}"]
-Henry	[23, 45, 67]	["archery", "fencing", "weightlifting"]	["{"club":"Korea","position":"recurve","salary":20000}", "{"club":"France","position":"epee","salary":30000}", "{"club":"Bulgaria","position":"heavyweight","salary":55000}"]
-Ivy	[12, 34, 56]	["judo", "karate", "taekwondo"]	["{"club":"Japan","position":"lightweight","salary":25000}", "{"club":"Okinawa","position":"kata","salary":22000}", "{"club":"Korea","position":"middleweight","salary":28000}"]
+Andy	[100]	["soccer"]	[{"club":"Manchester","position":"forward","salary":50000}]
+Betty	[90]	["pingpong ball"]	[{"club":"Beijing","position":"attacker","salary":30000}]
+Cindy	[89]	["武术"]	[{"club":"Shaolin","position":"fighter","salary":25000}]
+David	[77]	["volleyball"]	[{"club":"Tokyo","position":"spiker","salary":40000}]
+Emily	[56, 78, 99]	["baseball", "golf", "hockey"]	[{"club":"Yankees","position":"pitcher","salary":80000}, {"club":"PGA","position":"driver","salary":120000}, {"club":"Rangers","position":"center","salary":90000}]
+Frank	[45, 67, 88]	["rugby", "cricket", "boxing"]	[{"club":"Leicester","position":"scrum-half","salary":60000}, {"club":"Mumbai","position":"batsman","salary":70000}, {"club":"Vegas","position":"heavyweight","salary":150000}]
+Grace	[34, 56, 78]	["table tennis", "badminton", "athletics"]	[{"club":"China","position":"attacker","salary":35000}, {"club":"Denmark","position":"singles","salary":45000}, {"club":"Jamaica","position":"sprinter","salary":85000}]
+Henry	[23, 45, 67]	["archery", "fencing", "weightlifting"]	[{"club":"Korea","position":"recurve","salary":20000}, {"club":"France","position":"epee","salary":30000}, {"club":"Bulgaria","position":"heavyweight","salary":55000}]
+Ivy	[12, 34, 56]	["judo", "karate", "taekwondo"]	[{"club":"Japan","position":"lightweight","salary":25000}, {"club":"Okinawa","position":"kata","salary":22000}, {"club":"Korea","position":"middleweight","salary":28000}]
 
 -- !sql_8_33 --
 string1	text#1
@@ -825,15 +825,15 @@ text_ignore_above_10
 2022-08-08T20:10:10
 
 -- !sql_5_27 --
-Andy	[100]	["soccer"]	["{"club":"Manchester","position":"forward","salary":50000}"]
-Betty	[90]	["pingpong ball"]	["{"club":"Beijing","position":"attacker","salary":30000}"]
-Cindy	[89]	["武术"]	["{"club":"Shaolin","position":"fighter","salary":25000}"]
-David	[77]	["volleyball"]	["{"club":"Tokyo","position":"spiker","salary":40000}"]
-Emily	[56, 78, 99]	["baseball", "golf", "hockey"]	["{"club":"Yankees","position":"pitcher","salary":80000}", "{"club":"PGA","position":"driver","salary":120000}", "{"club":"Rangers","position":"center","salary":90000}"]
-Frank	[45, 67, 88]	["rugby", "cricket", "boxing"]	["{"club":"Leicester","position":"scrum-half","salary":60000}", "{"club":"Mumbai","position":"batsman","salary":70000}", "{"club":"Vegas","position":"heavyweight","salary":150000}"]
-Grace	[34, 56, 78]	["table tennis", "badminton", "athletics"]	["{"club":"China","position":"attacker","salary":35000}", "{"club":"Denmark","position":"singles","salary":45000}", "{"club":"Jamaica","position":"sprinter","salary":85000}"]
-Henry	[23, 45, 67]	["archery", "fencing", "weightlifting"]	["{"club":"Korea","position":"recurve","salary":20000}", "{"club":"France","position":"epee","salary":30000}", "{"club":"Bulgaria","position":"heavyweight","salary":55000}"]
-Ivy	[12, 34, 56]	["judo", "karate", "taekwondo"]	["{"club":"Japan","position":"lightweight","salary":25000}", "{"club":"Okinawa","position":"kata","salary":22000}", "{"club":"Korea","position":"middleweight","salary":28000}"]
+Andy	[100]	["soccer"]	[{"club":"Manchester","position":"forward","salary":50000}]
+Betty	[90]	["pingpong ball"]	[{"club":"Beijing","position":"attacker","salary":30000}]
+Cindy	[89]	["武术"]	[{"club":"Shaolin","position":"fighter","salary":25000}]
+David	[77]	["volleyball"]	[{"club":"Tokyo","position":"spiker","salary":40000}]
+Emily	[56, 78, 99]	["baseball", "golf", "hockey"]	[{"club":"Yankees","position":"pitcher","salary":80000}, {"club":"PGA","position":"driver","salary":120000}, {"club":"Rangers","position":"center","salary":90000}]
+Frank	[45, 67, 88]	["rugby", "cricket", "boxing"]	[{"club":"Leicester","position":"scrum-half","salary":60000}, {"club":"Mumbai","position":"batsman","salary":70000}, {"club":"Vegas","position":"heavyweight","salary":150000}]
+Grace	[34, 56, 78]	["table tennis", "badminton", "athletics"]	[{"club":"China","position":"attacker","salary":35000}, {"club":"Denmark","position":"singles","salary":45000}, {"club":"Jamaica","position":"sprinter","salary":85000}]
+Henry	[23, 45, 67]	["archery", "fencing", "weightlifting"]	[{"club":"Korea","position":"recurve","salary":20000}, {"club":"France","position":"epee","salary":30000}, {"club":"Bulgaria","position":"heavyweight","salary":55000}]
+Ivy	[12, 34, 56]	["judo", "karate", "taekwondo"]	[{"club":"Japan","position":"lightweight","salary":25000}, {"club":"Okinawa","position":"kata","salary":22000}, {"club":"Korea","position":"middleweight","salary":28000}]
 
 -- !sql_5_28 --
 value1	value2
@@ -979,15 +979,15 @@ text_ignore_above_10
 2022-08-08T20:10:10
 
 -- !sql_6_27 --
-Andy	[100]	["soccer"]	["{"club":"Manchester","position":"forward","salary":50000}"]
-Betty	[90]	["pingpong ball"]	["{"club":"Beijing","position":"attacker","salary":30000}"]
-Cindy	[89]	["武术"]	["{"club":"Shaolin","position":"fighter","salary":25000}"]
-David	[77]	["volleyball"]	["{"club":"Tokyo","position":"spiker","salary":40000}"]
-Emily	[56, 78, 99]	["baseball", "golf", "hockey"]	["{"club":"Yankees","position":"pitcher","salary":80000}", "{"club":"PGA","position":"driver","salary":120000}", "{"club":"Rangers","position":"center","salary":90000}"]
-Frank	[45, 67, 88]	["rugby", "cricket", "boxing"]	["{"club":"Leicester","position":"scrum-half","salary":60000}", "{"club":"Mumbai","position":"batsman","salary":70000}", "{"club":"Vegas","position":"heavyweight","salary":150000}"]
-Grace	[34, 56, 78]	["table tennis", "badminton", "athletics"]	["{"club":"China","position":"attacker","salary":35000}", "{"club":"Denmark","position":"singles","salary":45000}", "{"club":"Jamaica","position":"sprinter","salary":85000}"]
-Henry	[23, 45, 67]	["archery", "fencing", "weightlifting"]	["{"club":"Korea","position":"recurve","salary":20000}", "{"club":"France","position":"epee","salary":30000}", "{"club":"Bulgaria","position":"heavyweight","salary":55000}"]
-Ivy	[12, 34, 56]	["judo", "karate", "taekwondo"]	["{"club":"Japan","position":"lightweight","salary":25000}", "{"club":"Okinawa","position":"kata","salary":22000}", "{"club":"Korea","position":"middleweight","salary":28000}"]
+Andy	[100]	["soccer"]	[{"club":"Manchester","position":"forward","salary":50000}]
+Betty	[90]	["pingpong ball"]	[{"club":"Beijing","position":"attacker","salary":30000}]
+Cindy	[89]	["武术"]	[{"club":"Shaolin","position":"fighter","salary":25000}]
+David	[77]	["volleyball"]	[{"club":"Tokyo","position":"spiker","salary":40000}]
+Emily	[56, 78, 99]	["baseball", "golf", "hockey"]	[{"club":"Yankees","position":"pitcher","salary":80000}, {"club":"PGA","position":"driver","salary":120000}, {"club":"Rangers","position":"center","salary":90000}]
+Frank	[45, 67, 88]	["rugby", "cricket", "boxing"]	[{"club":"Leicester","position":"scrum-half","salary":60000}, {"club":"Mumbai","position":"batsman","salary":70000}, {"club":"Vegas","position":"heavyweight","salary":150000}]
+Grace	[34, 56, 78]	["table tennis", "badminton", "athletics"]	[{"club":"China","position":"attacker","salary":35000}, {"club":"Denmark","position":"singles","salary":45000}, {"club":"Jamaica","position":"sprinter","salary":85000}]
+Henry	[23, 45, 67]	["archery", "fencing", "weightlifting"]	[{"club":"Korea","position":"recurve","salary":20000}, {"club":"France","position":"epee","salary":30000}, {"club":"Bulgaria","position":"heavyweight","salary":55000}]
+Ivy	[12, 34, 56]	["judo", "karate", "taekwondo"]	[{"club":"Japan","position":"lightweight","salary":25000}, {"club":"Okinawa","position":"kata","salary":22000}, {"club":"Korea","position":"middleweight","salary":28000}]
 
 -- !sql_6_28 --
 value1	value2
@@ -1175,15 +1175,15 @@ text_ignore_above_10
 1660191010000
 
 -- !sql_7_34 --
-Andy	[100]	["soccer"]	["{"club":"Manchester","position":"forward","salary":50000}"]
-Betty	[90]	["pingpong ball"]	["{"club":"Beijing","position":"attacker","salary":30000}"]
-Cindy	[89]	["武术"]	["{"club":"Shaolin","position":"fighter","salary":25000}"]
-David	[77]	["volleyball"]	["{"club":"Tokyo","position":"spiker","salary":40000}"]
-Emily	[56, 78, 99]	["baseball", "golf", "hockey"]	["{"club":"Yankees","position":"pitcher","salary":80000}", "{"club":"PGA","position":"driver","salary":120000}", "{"club":"Rangers","position":"center","salary":90000}"]
-Frank	[45, 67, 88]	["rugby", "cricket", "boxing"]	["{"club":"Leicester","position":"scrum-half","salary":60000}", "{"club":"Mumbai","position":"batsman","salary":70000}", "{"club":"Vegas","position":"heavyweight","salary":150000}"]
-Grace	[34, 56, 78]	["table tennis", "badminton", "athletics"]	["{"club":"China","position":"attacker","salary":35000}", "{"club":"Denmark","position":"singles","salary":45000}", "{"club":"Jamaica","position":"sprinter","salary":85000}"]
-Henry	[23, 45, 67]	["archery", "fencing", "weightlifting"]	["{"club":"Korea","position":"recurve","salary":20000}", "{"club":"France","position":"epee","salary":30000}", "{"club":"Bulgaria","position":"heavyweight","salary":55000}"]
-Ivy	[12, 34, 56]	["judo", "karate", "taekwondo"]	["{"club":"Japan","position":"lightweight","salary":25000}", "{"club":"Okinawa","position":"kata","salary":22000}", "{"club":"Korea","position":"middleweight","salary":28000}"]
+Andy	[100]	["soccer"]	[{"club":"Manchester","position":"forward","salary":50000}]
+Betty	[90]	["pingpong ball"]	[{"club":"Beijing","position":"attacker","salary":30000}]
+Cindy	[89]	["武术"]	[{"club":"Shaolin","position":"fighter","salary":25000}]
+David	[77]	["volleyball"]	[{"club":"Tokyo","position":"spiker","salary":40000}]
+Emily	[56, 78, 99]	["baseball", "golf", "hockey"]	[{"club":"Yankees","position":"pitcher","salary":80000}, {"club":"PGA","position":"driver","salary":120000}, {"club":"Rangers","position":"center","salary":90000}]
+Frank	[45, 67, 88]	["rugby", "cricket", "boxing"]	[{"club":"Leicester","position":"scrum-half","salary":60000}, {"club":"Mumbai","position":"batsman","salary":70000}, {"club":"Vegas","position":"heavyweight","salary":150000}]
+Grace	[34, 56, 78]	["table tennis", "badminton", "athletics"]	[{"club":"China","position":"attacker","salary":35000}, {"club":"Denmark","position":"singles","salary":45000}, {"club":"Jamaica","position":"sprinter","salary":85000}]
+Henry	[23, 45, 67]	["archery", "fencing", "weightlifting"]	[{"club":"Korea","position":"recurve","salary":20000}, {"club":"France","position":"epee","salary":30000}, {"club":"Bulgaria","position":"heavyweight","salary":55000}]
+Ivy	[12, 34, 56]	["judo", "karate", "taekwondo"]	[{"club":"Japan","position":"lightweight","salary":25000}, {"club":"Okinawa","position":"kata","salary":22000}, {"club":"Korea","position":"middleweight","salary":28000}]
 
 -- !sql_7_35 --
 string1	text#1
@@ -1379,15 +1379,15 @@ text_ignore_above_10
 1660191010000
 
 -- !sql_8_32 --
-Andy	[100]	["soccer"]	["{"club":"Manchester","position":"forward","salary":50000}"]
-Betty	[90]	["pingpong ball"]	["{"club":"Beijing","position":"attacker","salary":30000}"]
-Cindy	[89]	["武术"]	["{"club":"Shaolin","position":"fighter","salary":25000}"]
-David	[77]	["volleyball"]	["{"club":"Tokyo","position":"spiker","salary":40000}"]
-Emily	[56, 78, 99]	["baseball", "golf", "hockey"]	["{"club":"Yankees","position":"pitcher","salary":80000}", "{"club":"PGA","position":"driver","salary":120000}", "{"club":"Rangers","position":"center","salary":90000}"]
-Frank	[45, 67, 88]	["rugby", "cricket", "boxing"]	["{"club":"Leicester","position":"scrum-half","salary":60000}", "{"club":"Mumbai","position":"batsman","salary":70000}", "{"club":"Vegas","position":"heavyweight","salary":150000}"]
-Grace	[34, 56, 78]	["table tennis", "badminton", "athletics"]	["{"club":"China","position":"attacker","salary":35000}", "{"club":"Denmark","position":"singles","salary":45000}", "{"club":"Jamaica","position":"sprinter","salary":85000}"]
-Henry	[23, 45, 67]	["archery", "fencing", "weightlifting"]	["{"club":"Korea","position":"recurve","salary":20000}", "{"club":"France","position":"epee","salary":30000}", "{"club":"Bulgaria","position":"heavyweight","salary":55000}"]
-Ivy	[12, 34, 56]	["judo", "karate", "taekwondo"]	["{"club":"Japan","position":"lightweight","salary":25000}", "{"club":"Okinawa","position":"kata","salary":22000}", "{"club":"Korea","position":"middleweight","salary":28000}"]
+Andy	[100]	["soccer"]	[{"club":"Manchester","position":"forward","salary":50000}]
+Betty	[90]	["pingpong ball"]	[{"club":"Beijing","position":"attacker","salary":30000}]
+Cindy	[89]	["武术"]	[{"club":"Shaolin","position":"fighter","salary":25000}]
+David	[77]	["volleyball"]	[{"club":"Tokyo","position":"spiker","salary":40000}]
+Emily	[56, 78, 99]	["baseball", "golf", "hockey"]	[{"club":"Yankees","position":"pitcher","salary":80000}, {"club":"PGA","position":"driver","salary":120000}, {"club":"Rangers","position":"center","salary":90000}]
+Frank	[45, 67, 88]	["rugby", "cricket", "boxing"]	[{"club":"Leicester","position":"scrum-half","salary":60000}, {"club":"Mumbai","position":"batsman","salary":70000}, {"club":"Vegas","position":"heavyweight","salary":150000}]
+Grace	[34, 56, 78]	["table tennis", "badminton", "athletics"]	[{"club":"China","position":"attacker","salary":35000}, {"club":"Denmark","position":"singles","salary":45000}, {"club":"Jamaica","position":"sprinter","salary":85000}]
+Henry	[23, 45, 67]	["archery", "fencing", "weightlifting"]	[{"club":"Korea","position":"recurve","salary":20000}, {"club":"France","position":"epee","salary":30000}, {"club":"Bulgaria","position":"heavyweight","salary":55000}]
+Ivy	[12, 34, 56]	["judo", "karate", "taekwondo"]	[{"club":"Japan","position":"lightweight","salary":25000}, {"club":"Okinawa","position":"kata","salary":22000}, {"club":"Korea","position":"middleweight","salary":28000}]
 
 -- !sql_8_33 --
 string1	text#1

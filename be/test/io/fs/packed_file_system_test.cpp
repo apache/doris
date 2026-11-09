@@ -324,6 +324,34 @@ TEST_F(PackedFileSystemTest, NonzeroFirstSegmentUsesPackedWriter) {
     EXPECT_NE(dynamic_cast<PackedFileWriter*>(first_segment_index_writer.get()), nullptr);
 }
 
+TEST_F(PackedFileSystemTest, CreateFileFollowsWriteFileCacheOption) {
+    ASSERT_FALSE(config::enable_file_cache_write_index_file_only);
+    PackedFileSystem merge_fs(_inner_fs, _append_info);
+
+    // A load with disable_file_cache=true must not write packed small files to file cache.
+    FileWriterOptions no_cache_opts {.write_file_cache = false};
+    FileWriterPtr no_cache_writer;
+    ASSERT_TRUE(
+            merge_fs.create_file(Path("rowset_1_0.dat"), &no_cache_writer, &no_cache_opts).ok());
+    auto* packed_writer = dynamic_cast<PackedFileWriter*>(no_cache_writer.get());
+    ASSERT_NE(packed_writer, nullptr);
+    EXPECT_FALSE(packed_writer->_append_info.write_file_cache);
+
+    FileWriterOptions cache_opts {.write_file_cache = true};
+    FileWriterPtr cache_writer;
+    ASSERT_TRUE(merge_fs.create_file(Path("rowset_1_0.idx"), &cache_writer, &cache_opts).ok());
+    packed_writer = dynamic_cast<PackedFileWriter*>(cache_writer.get());
+    ASSERT_NE(packed_writer, nullptr);
+    EXPECT_TRUE(packed_writer->_append_info.write_file_cache);
+
+    // Without options, keep the write_file_cache from append context.
+    FileWriterPtr default_writer;
+    ASSERT_TRUE(merge_fs.create_file(Path("rowset_1_0.dat"), &default_writer, nullptr).ok());
+    packed_writer = dynamic_cast<PackedFileWriter*>(default_writer.get());
+    ASSERT_NE(packed_writer, nullptr);
+    EXPECT_TRUE(packed_writer->_append_info.write_file_cache);
+}
+
 TEST_F(PackedFileSystemTest, OpenFileNotInMergeFile) {
     PackedFileSystem merge_fs(_inner_fs, _append_info);
 

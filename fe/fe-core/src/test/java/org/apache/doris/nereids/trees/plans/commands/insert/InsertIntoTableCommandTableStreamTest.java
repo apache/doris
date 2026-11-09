@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands.insert;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
@@ -37,9 +38,12 @@ import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.connector.hms.HmsClient;
 import org.apache.doris.mtmv.ivm.IvmUtil;
 import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.rules.analysis.CloudTableStreamReadStateHook;
@@ -48,6 +52,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableStreamScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.system.Backend;
@@ -70,6 +75,10 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
 public class InsertIntoTableCommandTableStreamTest extends TestWithFeService {
@@ -228,6 +237,147 @@ public class InsertIntoTableCommandTableStreamTest extends TestWithFeService {
         Assertions.assertTrue(insertExecutor.getStreamUpdateInfos().isEmpty());
         Assertions.assertFalse(insertExecutor.requiresTransaction());
         Assertions.assertEquals(AbstractInsertExecutor.INVALID_TXN_ID, insertExecutor.getTxnId());
+    }
+
+    @Test
+    public void testInsertSelectPreloadsWithoutHoldingTargetLock() throws Exception {
+        assertInsertPreloadLockWindow(false);
+    }
+
+    @Test
+    public void testInsertSelectRetriesSchemaChangeDuringPreload() throws Exception {
+        assertInsertPreloadLockWindow(true);
+    }
+
+    @Test
+    public void testInsertRetriesTargetReplacementBeforeBinding() throws Exception {
+        createTable("create table if not exists test_stream.tbl_replace_target "
+                + "(k1 int default '1', k2 int default '9') duplicate key(k1) "
+                + "distributed by hash(k1) buckets 1 properties('replication_num'='1')");
+        createTable("create table if not exists test_stream.tbl_replace_source "
+                + "(k1 int default '2') duplicate key(k1) "
+                + "distributed by hash(k1) buckets 1 properties('replication_num'='1')");
+        Database database = (Database) Env.getCurrentInternalCatalog().getDbOrMetaException("test_stream");
+        for (boolean needBeginTransaction : List.of(false, true)) {
+            OlapTable target = (OlapTable) database.getTableOrMetaException("tbl_replace_target");
+            OlapTable replacement = (OlapTable) database.getTableOrMetaException("tbl_replace_source");
+            String sql = "insert into test_stream.tbl_replace_target values ()";
+            InsertIntoTableCommand command = (InsertIntoTableCommand) parser.parseSingle(sql);
+            resetQueryContext();
+            StmtExecutor executor = new StmtExecutor(connectContext, sql);
+            AtomicInteger preloadAttempts = new AtomicInteger();
+            StatementContext statement = new StatementContext(connectContext, new OriginStatement(sql, 0)) {
+                @Override
+                public void preloadDeferredScanPartitionViewsBeforeLock(boolean willFinalizePhysicalPlan) {
+                    if (preloadAttempts.incrementAndGet() == 1) {
+                        try {
+                            Env.getCurrentEnv().getAlterInstance().processReplaceTable(
+                                    database, target, "tbl_replace_source", true, false);
+                        } catch (UserException exception) {
+                            throw new IllegalStateException(exception);
+                        }
+                    } else {
+                        Assertions.assertSame(replacement, getInsertTargetTables()
+                                .get(List.of("internal", "test_stream", "tbl_replace_target")));
+                    }
+                    super.preloadDeferredScanPartitionViewsBeforeLock(willFinalizePhysicalPlan);
+                }
+            };
+            executor.setStatementContext(statement);
+            AbstractInsertExecutor insertExecutor = null;
+            try {
+                insertExecutor = command.initPlan(connectContext, executor, needBeginTransaction);
+                Assertions.assertNotNull(insertExecutor);
+                Assertions.assertEquals(2, preloadAttempts.get());
+                Assertions.assertEquals(replacement.getFullSchema(), statement.getInsertTargetSchema());
+            } finally {
+                if (insertExecutor != null && insertExecutor.getTxnId() != AbstractInsertExecutor.INVALID_TXN_ID) {
+                    insertExecutor.onFail(new RuntimeException("test cleanup"));
+                }
+                if (database.getTableOrMetaException("tbl_replace_target") == replacement) {
+                    Env.getCurrentEnv().getAlterInstance().processReplaceTable(
+                            database, replacement, "tbl_replace_source", true, false);
+                }
+                statement.close();
+                resetQueryContext();
+            }
+        }
+    }
+
+    private void assertInsertPreloadLockWindow(boolean changeSchema) throws Exception {
+        Database database = (Database) Env.getCurrentInternalCatalog().getDbOrMetaException("test_stream");
+        OlapTable target = (OlapTable) database.getTableOrMetaException("tbl_target");
+        List<Column> originalSchema = target.getFullSchema();
+        String sql = "insert into test_stream.tbl_target select * from test_stream.tbl_stream_base";
+        InsertIntoTableCommand command = (InsertIntoTableCommand) parser.parseSingle(sql);
+        resetQueryContext();
+        StmtExecutor executor = new StmtExecutor(connectContext, sql);
+        CountDownLatch metastoreEntered = new CountDownLatch(1);
+        CountDownLatch metastoreReleased = new CountDownLatch(1);
+        AtomicInteger preloadAttempts = new AtomicInteger();
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        AtomicReference<AbstractInsertExecutor> plannedExecutor = new AtomicReference<>();
+        HmsClient metastore = Mockito.mock(HmsClient.class);
+        Mockito.when(metastore.listPartitionNames("db", "source", -1)).thenAnswer(invocation -> {
+            if (preloadAttempts.incrementAndGet() == 1) {
+                metastoreEntered.countDown();
+                Assertions.assertTrue(metastoreReleased.await(15, TimeUnit.SECONDS));
+            }
+            return List.of("p=1");
+        });
+        StatementContext statement = new StatementContext(connectContext, new OriginStatement(sql, 0)) {
+            @Override
+            public void preloadDeferredScanPartitionViewsBeforeLock(boolean willFinalizePhysicalPlan) {
+                metastore.listPartitionNames("db", "source", -1);
+                super.preloadDeferredScanPartitionViewsBeforeLock(willFinalizePhysicalPlan);
+            }
+        };
+        executor.setStatementContext(statement);
+        Thread plannerThread = new Thread(() -> {
+            connectContext.setThreadLocalInfo();
+            try {
+                plannedExecutor.set(command.initPlan(connectContext, executor, false));
+            } catch (Throwable throwable) {
+                failure.set(throwable);
+            } finally {
+                ConnectContext.remove();
+            }
+        });
+        try {
+            plannerThread.start();
+            Assertions.assertTrue(metastoreEntered.await(15, TimeUnit.SECONDS));
+            Assertions.assertTrue(target.tryWriteLock(5, TimeUnit.SECONDS),
+                    "INSERT target writers must not wait for pre-lock HMS calls");
+            try {
+                if (changeSchema) {
+                    List<Column> changedSchema = originalSchema.stream()
+                            .map(Column::new).collect(Collectors.toList());
+                    changedSchema.get(1).setDefaultValueInfo(new Column("k2", originalSchema.get(1).getType(),
+                            false, null, "9", ""));
+                    target.setNewFullSchema(changedSchema);
+                }
+            } finally {
+                target.writeUnlock();
+            }
+            metastoreReleased.countDown();
+            plannerThread.join(30_000);
+            Assertions.assertFalse(plannerThread.isAlive());
+            Assertions.assertNull(failure.get(), () -> String.valueOf(failure.get()));
+            Assertions.assertNotNull(plannedExecutor.get());
+            Assertions.assertEquals(changeSchema ? 2 : 1, preloadAttempts.get());
+            Assertions.assertEquals(target.getFullSchema(), statement.getInsertTargetSchema());
+        } finally {
+            metastoreReleased.countDown();
+            plannerThread.join(30_000);
+            target.writeLock();
+            try {
+                target.setNewFullSchema(originalSchema);
+            } finally {
+                target.writeUnlock();
+            }
+            statement.close();
+            resetQueryContext();
+        }
     }
 
     @Test

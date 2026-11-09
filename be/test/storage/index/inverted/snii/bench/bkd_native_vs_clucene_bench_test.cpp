@@ -15,40 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// The SNII-native BKD against the CLucene BKD it replaces (design 12 / task P4-1).
-//
-// WHY THIS EXISTS: design 11's comparison table is a STRUCTURAL argument, not a
-// measurement, and the design says so -- no performance claim from it belongs in
-// a PR description until this runs. One entry in that table is explicitly a
-// REVERSIBLE decision awaiting evidence: the leaf layout puts values first and
-// records a docid_block_offset, betting that one extra offset parse on a
-// whole-leaf hit costs less than the old layout's skip-read on a boundary leaf.
-// If the bet is wrong the layout should be flipped back. The two range cases
-// below are shaped to answer exactly that:
-//
-//   range_wide   - spans many leaves, so almost every leaf is a WHOLE-leaf hit
-//                  and the offset-parse cost dominates.
-//   range_narrow - touches one or two leaves, both BOUNDARY leaves, so the
-//                  value-scan-without-skip path dominates.
-//
-// A native win on both vindicates the layout. A native loss on range_wide with a
-// win on range_narrow is the signal to flip it.
-//
-// Why CPU time is the headline: this machine is shared and hybrid-core, so wall
-// clock moves with whatever else runs. Process CPU time barely does. Wall is
-// still reported -- a large wall/CPU gap means the run was descheduled and
-// should be repeated.
-//
-// Pin to a performance core; on a hybrid CPU an E-core sample is not comparable
-// to a P-core one and mixing them silently widens every percentile:
-//
-//   taskset -c 4 env SNII_BKD_BENCH_POINTS=2000000 SNII_BKD_BENCH_ITERATIONS=30 \
-//     ./run-be-ut.sh --run --filter='*BkdNativeVsClucene*' -j 28
-//
-// Both indexes are built from the SAME encoded points in the SAME process, so
-// the comparison isolates the implementation and not the data or the machine.
-//
-// DISABLED_ so CI never runs it; the filter above opts in.
+// Compares native and CLucene BKD on identical encoded points. Wide ranges exercise whole-leaf reads; narrow ranges exercise boundary-leaf reads. This benchmark is disabled by default.
 
 #include <CLucene.h>
 #include <CLucene/util/bkd/bkd_reader.h>

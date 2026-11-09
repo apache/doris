@@ -42,24 +42,7 @@ inline uint32_t crc32c(Slice data) {
 }
 
 #ifdef BE_TEST
-// T21 test seam. The production crc32c()/crc32c_extend() above delegate to the
-// bundled Google crc32c thirdparty (see commit d0416bb4129), which already runs a
-// runtime-dispatched, hardware-accelerated and interleaved CRC32C -- so T21's
-// "hardware interleaved CRC" goal is already met (and exceeded: that library adds
-// a PCLMULQDQ fold a hand-rolled 3-way _mm_crc32_u64 lacks). Rather than regress
-// that reuse, the reference sub-paths below let unit tests prove, byte-for-byte
-// across all sizes/alignments, that the production path equals the canonical
-// CRC32C and that the hardware path is engaged:
-//   * crc32c_slice8_extend    -- portable software slice-by-8 (always available);
-//   * crc32c_hw_serial_extend -- serial SSE4.2 _mm_crc32 hardware path;
-//   * crc32c_hw3_extend       -- 3-way interleaved SSE4.2 hardware path with a
-//                                GF(2) shift-combine and a 1024-byte fall-back to
-//                                the serial path (the algorithm T21 specifies).
-// hw_serial/hw3 fall back to slice8 when SSE4.2 is absent. Each *_extend applies
-// the standard ~crc pre/post inversion, so *_extend(0, d) == crc32c(d). The whole
-// seam plus its static slice-by-8 table and startup CPUID probe are compiled out
-// of release builds by this BE_TEST gate, so production carries no extra code.
-// Pure functions with no shared mutable state (CONCURRENCY: N/A).
+// Test-only portable and SSE4.2 CRC32C reference functions. Hardware variants fall back to the portable path when SSE4.2 is unavailable.
 namespace detail {
 uint32_t crc32c_slice8_extend(uint32_t crc, Slice data);
 uint32_t crc32c_hw_serial_extend(uint32_t crc, Slice data);

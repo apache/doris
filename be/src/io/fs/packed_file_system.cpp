@@ -21,7 +21,6 @@
 #include <string_view>
 #include <utility>
 
-#include "cloud/config.h"
 #include "common/status.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/packed_file_reader.h"
@@ -99,8 +98,10 @@ Status PackedFileSystem::create_file_impl(const Path& file, FileWriterPtr* write
         return Status::OK();
     }
 
+    // Follow the caller's file cache decision so that packed small files behave the same as
+    // files written directly, e.g. a load with disable_file_cache=true must not populate cache.
     auto append_info = _append_info;
-    if (config::enable_file_cache_write_index_file_only && opts != nullptr) {
+    if (opts != nullptr) {
         append_info.write_file_cache = opts->write_file_cache;
     }
 

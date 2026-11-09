@@ -242,26 +242,35 @@ public class ShowTableStatsCommand extends ShowCommand {
         row.add(String.valueOf(tableStatistic.updatedRows));
         row.add(String.valueOf(tableStatistic.queriedTimes.get()));
         row.add(String.valueOf(tableStatistic.rowCount));
-        LocalDateTime dateTime =
-                LocalDateTime.ofInstant(Instant.ofEpochMilli(tableStatistic.updatedTime),
-                java.time.ZoneId.systemDefault());
-        LocalDateTime lastAnalyzeTime =
-                LocalDateTime.ofInstant(Instant.ofEpochMilli(tableStatistic.lastAnalyzeTime),
-                java.time.ZoneId.systemDefault());
-        row.add(dateTime.format(formatter));
+        row.add(formatStatsTime(tableStatistic.updatedTime, formatter));
         Set<Pair<String, String>> columnsSet = tableStatistic.analyzeColumns();
         Set<Pair<String, String>> newColumnsSet = new HashSet<>();
         for (Pair<String, String> pair : columnsSet) {
             newColumnsSet.add(Pair.of(Util.getTempTableDisplayName(pair.first), pair.second));
         }
         row.add(newColumnsSet.toString());
-        row.add(tableStatistic.jobType.toString());
+        // A record which no analyze job created, for instance the record a load creates for a table whose
+        // statistics were dropped, has no trigger to show.
+        row.add(tableStatistic.jobType == null ? "" : tableStatistic.jobType.toString());
         row.add(String.valueOf(tableStatistic.partitionChanged.get()));
         row.add(String.valueOf(tableStatistic.userInjected));
         row.add(table == null ? "N/A" : String.valueOf(table.autoAnalyzeEnabled()));
-        row.add(lastAnalyzeTime.format(formatter));
+        row.add(formatStatsTime(tableStatistic.lastAnalyzeTime, formatter));
         result.add(row);
         return new ShowResultSet(getMetaData(), result);
+    }
+
+    /**
+     * A stats record may exist for a table which has never been analyzed, for instance the record a load
+     * creates for a table whose statistics were dropped. There is no timestamp to display for those records.
+     */
+    private static String formatStatsTime(long timeInMs, DateTimeFormatter formatter) {
+        if (timeInMs == 0) {
+            return "";
+        }
+        LocalDateTime dateTime = LocalDateTime.ofInstant(Instant.ofEpochMilli(timeInMs),
+                java.time.ZoneId.systemDefault());
+        return dateTime.format(formatter);
     }
 
     /**

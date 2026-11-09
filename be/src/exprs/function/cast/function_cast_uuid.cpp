@@ -19,24 +19,23 @@
 
 namespace doris::CastWrapper {
 
-WrapperType create_uuid_wrapper(FunctionContext* context, const DataTypePtr& from_type) {
+WrapperType create_uuid_wrapper(const CastOptions& options, const DataTypePtr& from_type) {
     if (!check_and_get_data_type<DataTypeString>(from_type.get())) {
         return create_unsupport_wrapper(from_type->get_name(), "UUID");
     }
 
     std::shared_ptr<CastToBase> cast;
-    if (context->enable_strict_mode()) {
+    if (options.strict_mode) {
         cast = std::make_shared<
                 CastToImpl<CastModeType::StrictMode, DataTypeString, DataTypeUUID>>();
     } else {
         cast = std::make_shared<
                 CastToImpl<CastModeType::NonStrictMode, DataTypeString, DataTypeUUID>>();
     }
-    return [cast = std::move(cast)](FunctionContext* context, Block& block,
-                                    const ColumnNumbers& arguments, uint32_t result,
-                                    size_t input_rows_count,
+    return [cast = std::move(cast)](RuntimeState* state, const ColumnWithTypeAndName& source_column,
+                                    ColumnWithTypeAndName& target_column, size_t input_rows_count,
                                     const NullMap::value_type* null_map = nullptr) {
-        return cast->execute_impl(context, block, arguments, result, input_rows_count, null_map);
+        return cast->execute_impl(state, source_column, target_column, input_rows_count, null_map);
     };
 }
 

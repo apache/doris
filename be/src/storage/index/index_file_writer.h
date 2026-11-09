@@ -118,7 +118,7 @@ public:
         std::vector<uint8_t> encoded_norms;
     };
     Status add_snii_index(const TabletIndex* index_meta, uint32_t doc_count,
-                          std::vector<uint32_t> null_docids,
+                          doris::snii::writer::TrackedNullDocids null_docids,
                           doris::snii::writer::SpimiTermBuffer* const term_buffer,
                           doris::snii::format::IndexConfig index_config,
                           SniiAddIndexOptions options,

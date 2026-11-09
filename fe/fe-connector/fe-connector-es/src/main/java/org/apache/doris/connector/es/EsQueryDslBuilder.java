@@ -147,7 +147,9 @@ public final class EsQueryDslBuilder {
         List<ConnectorExpression> notPushDownList = new ArrayList<>();
         String dsl = toEsDsl(filter, notPushDownList, fieldsContext,
                 likePushDown, needCompatDateFields, column2typeMap);
-        if (dsl == null) {
+        // A nested AND can return a partial DSL while recording an unsupported child. OR/NOT must
+        // remain local in that case: e.g. NOT(a = 1 AND local_predicate) cannot become NOT(a = 1).
+        if (dsl == null || !notPushDownList.isEmpty()) {
             return new EsQueryDslResult(matchAllQuery(), Collections.singletonList(0));
         }
         return new EsQueryDslResult(dsl, Collections.emptyList());

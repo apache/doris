@@ -223,6 +223,16 @@ public interface ConnectorScanPlanProvider {
     }
 
     /**
+     * Number of partitions assigned to one split-production batch. The batch-mode threshold and
+     * the amount of work in a batch serve different purposes: the former selects the asynchronous
+     * path, while this size bounds each connector request. Connectors with cheap, incremental
+     * partition resolution may choose a smaller size than the legacy read-session batch.
+     */
+    default int partitionBatchSize(ConnectorSession session, int partitionCount, int parallelism) {
+        return 1024;
+    }
+
+    /**
      * Whether this connector's scan ranges carry meaningful byte lengths
      * ({@link ConnectorScanRange#getLength()}) so the engine can apply {@code TABLESAMPLE} by
      * size-weighted split selection ({@code PluginDrivenScanNode.sampleSplits}). Returning

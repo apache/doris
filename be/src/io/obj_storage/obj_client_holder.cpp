@@ -43,6 +43,9 @@ Status ObjClientHolder::init() {
 
 Status ObjClientHolder::reset(const ObjClientConfig& update) {
     auto current = state();
+    if (current->invalid_reason.has_value()) {
+        return *current->invalid_reason;
+    }
     auto merged = DORIS_TRY(merge_obj_client_config(current->config, update));
     // Compare full-field equality of the merged config, not hash(): distinct configurations
     // can collide, which would skip a required client rebuild (e.g. a credential update).
@@ -57,6 +60,32 @@ Status ObjClientHolder::reset(const ObjClientConfig& update) {
     return _publish(current, std::move(merged), std::move(client));
 }
 
+Status ObjClientHolder::rebind(const ObjClientConfig& config) {
+    auto current = state();
+    if (current->invalid_reason.has_value()) {
+        return *current->invalid_reason;
+    }
+    auto client = DORIS_TRY(ObjClientFactory::instance().get_or_create(config));
+    return _publish(current, config, std::move(client));
+}
+
+void ObjClientHolder::invalidate(Status reason) {
+    // Declared before the lock: after the swap below it holds the replaced state, and possibly
+    // the last reference to its client, which is then released after unlocking.
+    std::shared_ptr<const ObjClientState> next;
+    std::lock_guard lock(_mtx);
+    if (_state->invalid_reason.has_value()) {
+        return;
+    }
+    next = std::make_shared<ObjClientState>(ObjClientState {
+            .config = _state->config,
+            .client = nullptr,
+            .generation = _state->generation + 1,
+            .invalid_reason = std::move(reason),
+    });
+    _state.swap(next);
+}
+
 Status ObjClientHolder::_publish(const std::shared_ptr<const ObjClientState>& expected,
                                  ObjClientConfig config, std::shared_ptr<ObjStorageClient> client) {
     // Declared before the lock: after the swap below it holds the replaced state, and
@@ -68,6 +97,11 @@ Status ObjClientHolder::_publish(const std::shared_ptr<const ObjClientState>& ex
     });
     {
         std::lock_guard lock(_mtx);
+        // Checked before the generation: a publish that overlapped invalidate() reports why the
+        // holder is out of service rather than a conflict that the caller could retry.
+        if (_state->invalid_reason.has_value()) {
+            return *_state->invalid_reason;
+        }
         // Two resets that both start from generation N merge their config onto N. Publishing
         // the second one on top of N + 1 would silently drop the first update, so it is
         // rejected and the caller retries from the new state.

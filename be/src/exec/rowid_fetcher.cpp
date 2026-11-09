@@ -42,18 +42,16 @@
 #include "core/column/column.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type_serde/data_type_serde.h"
-#include "exec/operator/file_scan_operator.h"
-#include "exec/scan/file_scanner.h"
 #include "exec/scan/file_scanner_v2.h"
-#include "format/orc/vorc_reader.h"
-#include "format/parquet/vparquet_reader.h"
 #include "io/io_common.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"      // ExecEnv
 #include "runtime/fragment_mgr.h"  // FragmentMgr
 #include "runtime/runtime_state.h" // RuntimeState
+#include "runtime/workload_group/workload_group.h"
 #include "runtime/workload_group/workload_group_manager.h"
 #include "semaphore"
+#include "service/backend_options.h"
 #include "storage/olap_common.h"
 #include "storage/rowset/beta_rowset.h"
 #include "storage/segment/column_reader.h"
@@ -445,25 +443,11 @@ const std::string RowIdStorageReader::TopNLazyMaterializationSecondPhaseRowsRead
 const std::string RowIdStorageReader::TopNLazyMaterializationSecondPhaseSegmentsRead =
         "TopNLazyMaterializationSecondPhaseSegmentsRead";
 
-bool RowIdStorageReader::should_use_file_scanner_v2(const TQueryOptions& query_options,
-                                                    const TFileScanRangeParams& scan_params,
-                                                    const TFileRangeDesc& range) {
-    const auto format_type =
-            range.__isset.format_type ? range.format_type : scan_params.format_type;
-    // Phase two inherits the query options, including the Thrift presence bit. Reuse phase one's
-    // policy so disabling V2 (or an older payload omitting the option) also keeps row fetches on V1.
-    return FileScanLocalState::should_use_file_scanner_v2(query_options, false, scan_params) &&
-           (format_type == TFileFormatType::FORMAT_PARQUET ||
-            format_type == TFileFormatType::FORMAT_ORC) &&
-           FileScannerV2::is_supported(scan_params, range);
-}
-
 TFileRangeDesc RowIdStorageReader::build_external_fetch_range(const TFileRangeDesc& source_range) {
     // Rows were selected after delete filtering. Preserve the original path and row lineage
     // needed by virtual columns, and do not mutate the FileMapping shared by other fetches.
     auto range = source_range;
     range.table_format_params.iceberg_params.__set_delete_files({});
-    range.table_format_params.transactional_hive_params = TTransactionalHiveDesc {};
     return range;
 }
 
@@ -501,27 +485,12 @@ Status RowIdStorageReader::read_external_row_from_file_mapping(
 
     std::unique_ptr<RuntimeProfile> sub_runtime_profile =
             std::make_unique<RuntimeProfile>("ExternalRowIDFetcher");
-    {
-        if (should_use_file_scanner_v2(runtime_state->query_options(), rpc_scan_params,
-                                       scan_range_desc)) {
-            auto file_scanner = FileScannerV2::create_unique(
-                    runtime_state.get(), sub_runtime_profile.get(), &rpc_scan_params,
-                    &colname_to_slot_id, &tuple_desc);
-            RETURN_IF_ERROR(file_scanner->read_by_rows(scan_range_desc, read_ids, &scan_blocks[idx],
-                                                       &fetch_statistics[idx].init_reader_ms,
-                                                       &fetch_statistics[idx].get_block_ms));
-        } else {
-            // Phase one can still use V1 for table-format variants unsupported by V2, so keep the
-            // matching phase-two path instead of turning a previously valid query into an error.
-            auto file_scanner =
-                    FileScanner::create_unique(runtime_state.get(), sub_runtime_profile.get(),
-                                               &rpc_scan_params, &colname_to_slot_id, &tuple_desc);
-            RETURN_IF_ERROR(file_scanner->prepare_for_read_lines(scan_range_desc));
-            RETURN_IF_ERROR(file_scanner->read_lines_from_range(
-                    scan_range_desc, read_ids, &scan_blocks[idx], external_info,
-                    &fetch_statistics[idx].init_reader_ms, &fetch_statistics[idx].get_block_ms));
-        }
-    }
+    auto file_scanner =
+            FileScannerV2::create_unique(runtime_state.get(), sub_runtime_profile.get(),
+                                         &rpc_scan_params, &colname_to_slot_id, &tuple_desc);
+    RETURN_IF_ERROR(file_scanner->read_by_rows(scan_range_desc, read_ids, &scan_blocks[idx],
+                                               &fetch_statistics[idx].init_reader_ms,
+                                               &fetch_statistics[idx].get_block_ms));
 
     if (scan_blocks[idx].rows() != read_ids.size()) {
         return Status::InternalError(
@@ -683,6 +652,27 @@ TFileScanRangeParams RowIdStorageReader::build_external_scan_params(
         params.slot_name_to_schema_pos.emplace(slot.col_name(), column_idx);
     }
     return params;
+}
+
+void RowIdStorageReader::add_external_fetch_avg_time_profile(
+        const std::vector<ExternalFetchStatistics>& fetch_statistics,
+        RuntimeProfile* runtime_profile, int64_t* init_reader_avg_ms, int64_t* get_block_avg_ms) {
+    // read_by_rowids() reads a request block only when it has a row ID, and every row ID lands
+    // in a scan range, so there is at least one range to average over.
+    DORIS_CHECK(!fetch_statistics.empty());
+    int64_t init_reader_total_ms = 0;
+    int64_t get_block_total_ms = 0;
+    for (const auto& statistics : fetch_statistics) {
+        init_reader_total_ms += statistics.init_reader_ms;
+        get_block_total_ms += statistics.get_block_ms;
+    }
+    const auto range_count = static_cast<int64_t>(fetch_statistics.size());
+    *init_reader_avg_ms = init_reader_total_ms / range_count;
+    *get_block_avg_ms = get_block_total_ms / range_count;
+    runtime_profile->add_info_string(InitReaderAvgTimeProfile,
+                                     std::to_string(*init_reader_avg_ms) + "ms");
+    runtime_profile->add_info_string(GetBlockAvgTimeProfile,
+                                     std::to_string(*get_block_avg_ms) + "ms");
 }
 
 Status RowIdStorageReader::read_batch_external_row(
@@ -902,8 +892,6 @@ Status RowIdStorageReader::read_batch_external_row(
         size_t idx = 0;
         for (const auto& [_, scan_info] : scan_rows) {
             format_to(file_read_lines_buffer, "{}, ", scan_info.first.size());
-            *init_reader_avg_ms = fetch_statistics[idx].init_reader_ms;
-            *get_block_avg_ms += fetch_statistics[idx].get_block_ms;
             format_to(file_read_bytes_buffer, "{}, ", fetch_statistics[idx].file_read_bytes);
             format_to(file_read_times_buffer, "{}, ", fetch_statistics[idx].file_read_times);
             idx++;
@@ -913,12 +901,8 @@ Status RowIdStorageReader::read_batch_external_row(
         format_to(file_read_bytes_buffer, "]");
         format_to(file_read_times_buffer, "]");
 
-        *init_reader_avg_ms /= fetch_statistics.size();
-        *get_block_avg_ms /= fetch_statistics.size();
-        runtime_profile->add_info_string(InitReaderAvgTimeProfile,
-                                         std::to_string(*init_reader_avg_ms) + "ms");
-        runtime_profile->add_info_string(GetBlockAvgTimeProfile,
-                                         std::to_string(*init_reader_avg_ms) + "ms");
+        add_external_fetch_avg_time_profile(fetch_statistics, runtime_profile.get(),
+                                            init_reader_avg_ms, get_block_avg_ms);
         runtime_profile->add_info_string(FileReadLinesProfile,
                                          fmt::to_string(file_read_lines_buffer));
         runtime_profile->add_info_string(FileScannerV2::FileReadBytesProfile,

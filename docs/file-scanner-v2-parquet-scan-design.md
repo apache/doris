@@ -68,9 +68,9 @@ writes directly into Doris columns. This follows the same broad separation used 
 planning is distinct from a persistent per-column reader, and page/encoding decoders expose narrow
 cursor-based contracts rather than an Arrow array as an intermediate result.
 
-V1 remains the differential baseline, but v2 owns an independent reader implementation. Its page
-and encoding algorithms started from proven Doris behavior and are maintained under the v2 tree;
-the production v2 path never instantiates the v1 `ParquetColumnReader`:
+The retired V1 implementation remains a historical differential baseline. V2 owns its reader
+implementation. Its page and encoding algorithms started from proven Doris behavior and are
+maintained under the v2 tree; the production path uses only the V2 `ParquetColumnReader`:
 
 | Stage | State and boundary |
 | --- | --- |
@@ -86,9 +86,9 @@ builders. V2 parses and owns the Thrift footer, schema parser, field-ID assignme
 statistics, dictionary metadata, bloom filters, and page indexes. Production planning never builds
 an Arrow metadata tree; Arrow is limited to fixture writers and differential test oracles.
 
-All new integration remains in `be/src/format_v2/parquet/`. V1 is kept unchanged as the correctness
-and performance control. Compatibility is demonstrated through differential tests and the explicit
-type/encoding matrix, not through a runtime dependency on v1 code.
+All integration remains in `be/src/format_v2/parquet/`. Historical V1 results and external readers
+provide correctness and performance controls. Compatibility is demonstrated through differential
+tests and the explicit type/encoding matrix; the V1 scan implementation has been removed.
 
 ### 2.2 Native Interface Ownership
 
@@ -681,7 +681,7 @@ metadata payload type, and cache-key suffix entirely under `format_v2`. A v2 cac
 shared by v2 readers but can never be cast as a v1 metadata object. Mutable Row Group, selection,
 decoder, and scratch state remains per reader. Path-only keys are insufficient. Parse failures,
 short files, unsupported metadata, and schema-affecting option changes cannot populate or reuse a
-successful entry. No change to the v1 parser or metadata cache behavior is required.
+successful entry. The cache is independent of the retired V1 parser and metadata objects.
 
 On a v2 cold miss, the parser deserializes the footer once into the V2-owned Thrift object and builds
 the native schema tree directly from `SchemaElement` into V2's `NativeFieldDescriptor`. Row-group statistics,
@@ -695,7 +695,7 @@ Before the footer lookup, v2 wraps bounded HTTP Parquet objects in an in-memory 
 loads from byte zero on its first physical access, whether that access is a cold footer read or a
 warm data-page read after a footer-cache hit. This preserves identical cold/warm behavior for HTTP
 servers that advertise Range support but answer an overlong near-EOF range with HTTP 200, and keeps
-the compatibility policy out of the v1 reader.
+the compatibility policy within the V2 reader.
 
 ### Page Cache Parity with V1
 

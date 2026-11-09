@@ -26,6 +26,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.UserException;
 import org.apache.doris.mtmv.BaseColInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.mtmv.MTMVPlanUtil;
@@ -45,6 +46,7 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.resource.computegroup.ComputeGroupBindingUtil;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Maps;
@@ -111,14 +113,13 @@ public class RefreshMTMVCommand extends Command implements Forward, Explainable 
                             + "only supports IVM materialized views");
         }
 
-        // createMTMVContext installs the internal ADMIN context as the thread-local
-        // ConnectContext. Restore the caller's context afterwards, mirroring ExplainCommand:
-        // the next statement of the same multi-statement request must not observe the
-        // internal identity/session.
+        // createDryRunConnectContext installs the internal ADMIN context as the thread-local
+        // ConnectContext, and leaves it installed when its compute group check fails. Restore the
+        // caller's context afterwards, mirroring ExplainCommand: the next statement of the same
+        // multi-statement request must not observe the internal identity/session.
         ConnectContext previousCtx = ConnectContext.get();
         try {
-            ConnectContext internalCtx = MTMVPlanUtil.createMTMVContext(
-                    mtmv, MTMVPlanUtil.DISABLE_RULES_WHEN_RUN_MTMV_TASK);
+            ConnectContext internalCtx = createDryRunConnectContext(mtmv);
             StatementContext stmtCtx = createDryRunStatementContext(mtmv, internalCtx);
 
             LogicalPlan queryPlan = new IvmIncrRefreshManager().buildQueryPlan(mtmv);
@@ -143,6 +144,26 @@ public class RefreshMTMVCommand extends Command implements Forward, Explainable 
                 }
             }
         }
+    }
+
+    /**
+     * The internal context the dry run plans and executes its delta query on. Like the refresh
+     * contexts of MTMVTask, it is bound to the compute group the MV declares, which is re-checked
+     * because it can have been dropped since CREATE / ALTER, so the delta runs, and its workload
+     * group is looked up, in the group every refresh of that MV runs in. An MV that declares none
+     * keeps the existing resolution.
+     */
+    @VisibleForTesting
+    ConnectContext createDryRunConnectContext(MTMV mtmv) throws UserException {
+        ConnectContext internalCtx = MTMVPlanUtil.createMTMVContext(
+                mtmv, MTMVPlanUtil.DISABLE_RULES_WHEN_RUN_MTMV_TASK);
+        // Read once, so the group that is checked is the group that is bound.
+        Optional<String> declaredComputeGroup = mtmv.getComputeGroup();
+        // A no-op outside cloud mode.
+        declaredComputeGroup.ifPresent(internalCtx::setCloudCluster);
+        ComputeGroupBindingUtil.checkComputeGroupBeforeTask(internalCtx.getCurrentUserIdentity(),
+                declaredComputeGroup.orElse(null));
+        return internalCtx;
     }
 
     @VisibleForTesting
@@ -178,7 +199,12 @@ public class RefreshMTMVCommand extends Command implements Forward, Explainable 
     }
 
     protected ConnectContext createExplainConnectContext(MTMV mtmv) {
-        return MTMVPlanUtil.createMTMVContext(mtmv, MTMVPlanUtil.DISABLE_RULES_WHEN_RUN_MTMV_TASK);
+        ConnectContext explainCtx = MTMVPlanUtil.createMTMVContext(
+                mtmv, MTMVPlanUtil.DISABLE_RULES_WHEN_RUN_MTMV_TASK);
+        // Plan, and pick backends, in the group the MV declares, as MTMVTask does for its planning
+        // context. Nothing is executed here, so the group is not re-checked.
+        mtmv.getComputeGroup().ifPresent(explainCtx::setCloudCluster);
+        return explainCtx;
     }
 
     protected LogicalPlan createRefreshCommand(MTMV mtmv, StatementContext statementContext) throws Exception {

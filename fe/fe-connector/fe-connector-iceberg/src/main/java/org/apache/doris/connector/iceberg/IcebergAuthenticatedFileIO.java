@@ -111,6 +111,11 @@ class IcebergAuthenticatedFileIO implements FileIO {
         return delegate.properties();
     }
 
+    /** Exposes optional credential metadata; file operations must continue through this decorator. */
+    FileIO delegate() {
+        return delegate;
+    }
+
     @Override
     public void initialize(Map<String, String> properties) {
         delegate.initialize(properties);

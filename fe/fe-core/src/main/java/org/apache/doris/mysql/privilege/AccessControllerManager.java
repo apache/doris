@@ -23,6 +23,7 @@ import org.apache.doris.authorization.AccessContext;
 import org.apache.doris.authorization.AccessDeniedException;
 import org.apache.doris.authorization.AccessRequirement;
 import org.apache.doris.authorization.AuthorizedResource;
+import org.apache.doris.authorization.AuthorizedSubject;
 import org.apache.doris.authorization.DataMaskSpec;
 import org.apache.doris.authorization.ResourceKind;
 import org.apache.doris.authorization.RowFilterSpec;
@@ -46,6 +47,7 @@ import org.apache.doris.extension.loader.LoadFailure;
 import org.apache.doris.extension.loader.LoadReport;
 import org.apache.doris.extension.loader.PluginHandle;
 import org.apache.doris.extension.loader.PluginRegistry;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.plugin.PropertiesUtils;
 import org.apache.doris.qe.ConnectContext;
 
@@ -68,6 +70,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.ServiceConfigurationError;
 import java.util.ServiceLoader;
 import java.util.Set;
@@ -718,7 +721,7 @@ public class AccessControllerManager {
             if (entry != null && entry.catalogId == catalog.getId()) {
                 return entry.accessController;
             }
-            lazyLoadCtlAccessController((ExternalCatalog) catalog);
+            lazyLoadCtlAccessController((ExternalCatalog) catalog, ctl);
             entry = ctlToCtlAccessController.get(ctl);
             if (entry != null && entry.catalogId == catalog.getId()) {
                 return entry.accessController;
@@ -728,7 +731,7 @@ public class AccessControllerManager {
         return defaultAccessController;
     }
 
-    private void lazyLoadCtlAccessController(ExternalCatalog catalog) {
+    private void lazyLoadCtlAccessController(ExternalCatalog catalog, String catalogName) {
         if (authorizesNothing) {
             // Same reason the constructor loaded nothing: a checkpoint Env replays a CREATE CATALOG but never
             // authorizes against it, and the source it would build here starts threads nothing stops.
@@ -736,44 +739,44 @@ public class AccessControllerManager {
         }
         CatalogAccessControllerEntry staleEntry = null;
         synchronized (this) {
-            if (!isCurrentCatalog(catalog)) {
+            if (!isCurrentCatalog(catalog, catalogName)) {
                 return;
             }
-            CatalogAccessControllerEntry entry = ctlToCtlAccessController.get(catalog.getName());
+            CatalogAccessControllerEntry entry = ctlToCtlAccessController.get(catalogName);
             if (entry != null && entry.catalogId == catalog.getId()) {
                 return;
             }
-            if (entry != null && ctlToCtlAccessController.remove(catalog.getName(), entry)) {
+            if (entry != null && ctlToCtlAccessController.remove(catalogName, entry)) {
                 staleEntry = entry;
             }
         }
-        closeEntry(catalog.getName(), staleEntry);
+        closeEntry(catalogName, staleEntry);
 
         catalog.initAccessController(false);
 
         CatalogAccessControllerEntry displaced = null;
         boolean stillCurrent;
         synchronized (this) {
-            stillCurrent = isCurrentCatalog(catalog);
+            stillCurrent = isCurrentCatalog(catalog, catalogName);
             if (stillCurrent) {
-                CatalogAccessControllerEntry entry = ctlToCtlAccessController.get(catalog.getName());
+                CatalogAccessControllerEntry entry = ctlToCtlAccessController.get(catalogName);
                 if (entry == null || entry.catalogId != catalog.getId()) {
-                    displaced = ctlToCtlAccessController.put(catalog.getName(),
+                    displaced = ctlToCtlAccessController.put(catalogName,
                             new CatalogAccessControllerEntry(catalog.getId(), defaultAccessController, false));
                 }
             }
         }
-        closeEntry(catalog.getName(), displaced);
+        closeEntry(catalogName, displaced);
         if (!stillCurrent) {
             // A DROP can complete while initAccessController() is constructing the plugin. The custom
             // publication path performs the same post-publication check; this also covers the fallback path.
-            removeAccessController(catalog.getName(), catalog.getId());
+            removeAccessController(catalogName, catalog.getId());
             return;
         }
         // If DROP won immediately after the synchronized publication, its onClose() removes this id. If DROP
         // already completed before publication, this final identity check removes the orphan ourselves.
-        if (!isCurrentCatalog(catalog)) {
-            removeAccessController(catalog.getName(), catalog.getId());
+        if (!isCurrentCatalog(catalog, catalogName)) {
+            removeAccessController(catalogName, catalog.getId());
         }
     }
 
@@ -783,6 +786,8 @@ public class AccessControllerManager {
 
     public void createAccessController(ExternalCatalog catalog, String acFactoryClassName, Map<String, String> prop,
                                        boolean isDryRun) {
+        // Rename reuses the catalog object. Keep publication and rollback tied to the original name.
+        String catalogName = catalog.getName();
         String pluginIdentifier = getPluginIdentifierForAccessController(acFactoryClassName);
         AuthorizationPlugin accessController = create(pluginIdentifier, prop);
         if (isDryRun) {
@@ -794,36 +799,36 @@ public class AccessControllerManager {
             // source shares one plugin per service and keeps an unread one for a grace period, so that the
             // CREATE this validated for does not immediately rebuild what it just tore down - but a
             // validation nothing follows does stop polling once that period is up.
-            closeAccessController(catalog.getName(), accessController);
+            closeAccessController(catalogName, accessController);
             return;
         }
 
         CatalogAccessControllerEntry displaced = null;
         boolean installed = false;
         synchronized (this) {
-            if (isCurrentCatalog(catalog)) {
-                CatalogAccessControllerEntry current = ctlToCtlAccessController.get(catalog.getName());
+            if (isCurrentCatalog(catalog, catalogName)) {
+                CatalogAccessControllerEntry current = ctlToCtlAccessController.get(catalogName);
                 if (current == null || current.catalogId != catalog.getId()) {
-                    displaced = ctlToCtlAccessController.put(catalog.getName(),
+                    displaced = ctlToCtlAccessController.put(catalogName,
                             new CatalogAccessControllerEntry(catalog.getId(), accessController, true));
                     installed = true;
                 }
             }
         }
-        closeEntry(catalog.getName(), displaced);
+        closeEntry(catalogName, displaced);
         if (!installed) {
-            closeAccessController(catalog.getName(), accessController);
+            closeAccessController(catalogName, accessController);
             return;
         }
         LOG.info("create access controller {} for catalog {}:{}",
-                acFactoryClassName, catalog.getName(), catalog.getId());
-        if (!isCurrentCatalog(catalog)) {
-            removeAccessController(catalog.getName(), catalog.getId());
+                acFactoryClassName, catalogName, catalog.getId());
+        if (!isCurrentCatalog(catalog, catalogName)) {
+            removeAccessController(catalogName, catalog.getId());
         }
     }
 
-    private boolean isCurrentCatalog(ExternalCatalog catalog) {
-        CatalogIf currentCatalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalog.getName());
+    private boolean isCurrentCatalog(ExternalCatalog catalog, String catalogName) {
+        CatalogIf currentCatalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogName);
         return currentCatalog == catalog && currentCatalog.getId() == catalog.getId();
     }
 
@@ -1346,6 +1351,90 @@ public class AccessControllerManager {
                             AccessTranslation.subjectOf(currentUser), table, context)));
         } finally {
             leaveCheck(outer);
+        }
+    }
+
+    public DataPolicyContext captureDataPolicyContext(UserIdentity user, String ctl, String db,
+            String tbl, Set<String> cols, StatementContext statement) {
+        Set<String> columns = new LinkedHashSet<>();
+        for (String column : cols) {
+            columns.add(column.toLowerCase(Locale.ROOT));
+        }
+        AuthorizedResource.Table table = AuthorizedResource.table(ctl, db, tbl);
+        return new DataPolicyContext(controllerOf(table), AccessTranslation.subjectOf(user), table,
+                columns, ConnectionAccessContext.of(statement.getConnectContext()));
+    }
+
+    public Map<String, DataMaskSpec> evalDataMaskPolicies(DataPolicyContext policy, StatementContext statement) {
+        return statement.getOrEvaluateDataMasks(policy, () -> evalDataMaskPolicies(policy));
+    }
+
+    public Map<String, DataMaskSpec> evalDataMaskPolicies(DataPolicyContext policy) {
+        AccessContext outer = enterCheck(policy.context);
+        try {
+            return ImmutableMap.copyOf(answered(policy.controller, "the data masks of " + policy.table,
+                    inClassLoaderOf(policy.controller, () -> policy.controller.getDataMasks(
+                            policy.subject, policy.table, policy.columns, policy.context))));
+        } finally {
+            leaveCheck(outer);
+        }
+    }
+
+    public List<RowFilterSpec> evalRowFilterPolicies(DataPolicyContext policy) {
+        AccessContext outer = enterCheck(policy.context);
+        try {
+            return List.copyOf(answered(policy.controller, "the row filters of " + policy.table,
+                    inClassLoaderOf(policy.controller, () -> policy.controller.getRowFilters(
+                            policy.subject, policy.table, policy.context))));
+        } finally {
+            leaveCheck(outer);
+        }
+    }
+
+    public static final class DataPolicyContext {
+        private final AuthorizationPlugin controller;
+        private final AuthorizedSubject subject;
+        private final AuthorizedResource.Table table;
+        private final Set<String> columns;
+        private final AccessContext context;
+
+        private DataPolicyContext(AuthorizationPlugin controller, AuthorizedSubject subject,
+                AuthorizedResource.Table table, Set<String> columns, AccessContext context) {
+            this.controller = controller;
+            this.subject = subject;
+            this.table = table;
+            this.columns = Set.copyOf(columns);
+            Optional<String> clientIp = context.getClientIp();
+            Optional<String> queryId = context.getQueryId();
+            this.context = new AccessContext() {
+                @Override
+                public Optional<String> getClientIp() {
+                    return clientIp;
+                }
+
+                @Override
+                public Optional<String> getQueryId() {
+                    return queryId;
+                }
+            };
+        }
+
+        public boolean samePolicyScope(DataPolicyContext other) {
+            return controller == other.controller && subject.equals(other.subject)
+                    && table.equals(other.table) && columns.equals(other.columns)
+                    && context.getClientIp().equals(other.context.getClientIp());
+        }
+
+        @Override
+        public boolean equals(Object other) {
+            return other instanceof DataPolicyContext && samePolicyScope((DataPolicyContext) other)
+                    && context.getQueryId().equals(((DataPolicyContext) other).context.getQueryId());
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(System.identityHashCode(controller), subject, table, columns,
+                    context.getClientIp(), context.getQueryId());
         }
     }
 

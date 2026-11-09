@@ -23,12 +23,19 @@
 #include <optional>
 
 #include "common/object_pool.h"
+#include "core/column/column_const.h"
+#include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_string.h"
+#include "exprs/vexpr_context.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "gen_cpp/QueryCache_types.h"
 #include "storage/rowset/beta_rowset.h"
+#include "testutil/column_helper.h"
 #include "testutil/desc_tbl_builder.h"
+#include "testutil/mock/mock_fn_call.h"
 #include "testutil/mock/mock_runtime_state.h"
+#include "testutil/mock/mock_slot_ref.h"
 
 namespace doris {
 
@@ -93,6 +100,95 @@ TEST_F(OlapScanOperatorChangelogPushDownTest, AppendOnlyKeepsValuePredicatePushD
 
     EXPECT_TRUE(_local_state->can_push_down_column_predicate(_key_slot));
     EXPECT_TRUE(_local_state->can_push_down_column_predicate(_value_slot));
+}
+
+class OlapScanLikeConstantPatternTest : public OlapScanOperatorChangelogPushDownTest {
+protected:
+    void check_pattern(bool wrap_const, uint8_t is_null, const std::string& value, bool opposite) {
+        ColumnPtr column = ColumnHelper::create_nullable_column<DataTypeString>({value}, {is_null});
+        if (wrap_const) {
+            column = ColumnConst::create(column, 1);
+        }
+        auto pattern = MockFnCall::create("pattern");
+        pattern->_mock_is_constant = true;
+        pattern->_data_type = make_nullable(std::make_shared<DataTypeString>());
+        pattern->set_const_expr_col(std::move(column));
+        auto like = MockFnCall::create("like");
+        like->add_child(std::make_shared<MockSlotRef>(0, std::make_shared<DataTypeString>()));
+        like->add_child(pattern);
+        VExprSPtr root = like;
+        if (opposite) {
+            auto not_expr = MockFnCall::create("not");
+            not_expr->_node_type = TExprNodeType::COMPOUND_PRED;
+            not_expr->add_child(like);
+            root = not_expr;
+        }
+        auto ctx = VExprContext::create_shared(root);
+        like->_fn_context_index = ctx->register_function_context(
+                _state.get(), make_nullable(std::make_shared<DataTypeBool>()),
+                {std::make_shared<DataTypeString>(), pattern->data_type()});
+        auto pdt = PushDownType::ACCEPTABLE;
+        StringRef constant_str;
+        FunctionContext* fn_ctx = nullptr;
+        auto st = _local_state->_should_push_down_function_filter(like.get(), ctx.get(),
+                                                                  &constant_str, &fn_ctx, pdt);
+        ASSERT_TRUE(st.ok()) << st.to_string();
+        EXPECT_EQ(pdt, is_null ? PushDownType::UNACCEPTABLE : PushDownType::ACCEPTABLE);
+        if (is_null) {
+            check_expression_fallback(ctx.get());
+        } else {
+            EXPECT_EQ(constant_str.to_string(), value);
+            EXPECT_EQ(fn_ctx, ctx->fn_context(like->_fn_context_index));
+        }
+    }
+
+    void check_expression_fallback(VExprContext* ctx) {
+        // Rejecting pushdown must leave both LIKE and NOT LIKE for expression evaluation.
+        std::vector<std::shared_ptr<ColumnPredicate>> predicates;
+        auto pdt = PushDownType::UNACCEPTABLE;
+        auto st = _local_state->_normalize_function_filters(ctx, _key_slot, predicates, &pdt);
+        ASSERT_TRUE(st.ok()) << st.to_string();
+        EXPECT_TRUE(predicates.empty());
+        EXPECT_EQ(pdt, PushDownType::UNACCEPTABLE);
+    }
+};
+
+TEST_F(OlapScanLikeConstantPatternTest, NullPatternsRetainExpressionEvaluation) {
+    for (bool wrap_const : {false, true}) {
+        for (bool opposite : {false, true}) {
+            check_pattern(wrap_const, 1, "", opposite);
+            // A nonempty NULL payload must never be read as a LIKE pattern.
+            check_pattern(wrap_const, 1, "ignored%", opposite);
+        }
+    }
+}
+
+TEST_F(OlapScanLikeConstantPatternTest, EmptyAndNonemptyPatternsRemainPushable) {
+    for (bool wrap_const : {false, true}) {
+        check_pattern(wrap_const, 0, "", false);
+        check_pattern(wrap_const, 0, "prefix%", false);
+    }
+}
+
+TEST_F(OlapScanLikeConstantPatternTest, BinaryPredicatePreservesNullConstant) {
+    for (bool wrap_const : {false, true}) {
+        ColumnPtr column = ColumnHelper::create_nullable_column<DataTypeInt32>({42}, {1});
+        if (wrap_const) {
+            column = ColumnConst::create(column, 1);
+        }
+        auto constant = MockFnCall::create("constant");
+        constant->_mock_is_constant = true;
+        constant->set_const_expr_col(std::move(column));
+        auto eq = MockFnCall::create("eq");
+        eq->add_child(std::make_shared<MockSlotRef>(0, std::make_shared<DataTypeInt32>()));
+        eq->add_child(constant);
+        auto ctx = VExprContext::create_shared(eq);
+        Field value;
+        EXPECT_EQ(_local_state->_should_push_down_binary_predicate(eq.get(), ctx.get(), value,
+                                                                   {"eq"}),
+                  PushDownType::ACCEPTABLE);
+        EXPECT_TRUE(value.is_null());
+    }
 }
 
 class OlapScanOperatorTsoPruningTest : public OlapScanOperatorChangelogPushDownTest {

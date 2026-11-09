@@ -33,15 +33,16 @@ class ObjectStoreInfoPB;
 namespace doris::io {
 struct ObjStorageUri;
 
-// The single place that turns every input source into typed object storage configuration.
-// After it, factories, holders, file systems and readers never read raw properties, Thrift or
-// Protobuf parameters again.
+// Turns the three flat sources (FE properties, TS3StorageParam, ObjectStoreInfoPB) into typed
+// object storage configuration. After it, factories, holders, file systems and readers never
+// read their raw properties, Thrift or Protobuf parameters again.
 //
-// The flat sources (FE properties, TS3StorageParam, ObjectStoreInfoPB) share one mapping into
-// the backend alternatives: provider AZURE becomes AzureClientConfig, which has always reused
-// ak/sk/bucket as the SharedKey account/key and the container; every other provider becomes
-// S3ClientConfig with that provider as its vendor. Fields the selected backend never read are
-// dropped, e.g. an Azure source's region, token and role_arn.
+// The flat sources share one mapping into the backend alternatives: provider AZURE becomes
+// AzureClientConfig, which has always reused ak/sk/bucket as the SharedKey account/key and the
+// container; every other provider becomes S3ClientConfig with that provider as its vendor.
+// Fields the selected backend never read are dropped, e.g. an Azure source's region, token and
+// role_arn. A field the selected backend cannot hold, i.e. a provider-native credential on an
+// Azure source, is rejected with InvalidArgument for every source.
 class ObjStorageConfigResolver {
 public:
     // FE properties of a FILE_S3 request (AWS_* keys; provider=azure selects Azure) for the
@@ -51,10 +52,10 @@ public:
             const std::map<std::string, std::string>& properties, const ObjStorageUri& location);
 
     // A cold-storage resource sent by FE.
-    static ObjStorageConfig from_storage_param(const TS3StorageParam& param);
+    static Result<ObjStorageConfig> from_storage_param(const TS3StorageParam& param);
 
     // A storage vault in cloud mode, i.e. a Doris internal bucket.
-    static ObjStorageConfig from_object_store_info(const cloud::ObjectStoreInfoPB& info);
+    static Result<ObjStorageConfig> from_object_store_info(const cloud::ObjectStoreInfoPB& info);
 };
 
 } // namespace doris::io

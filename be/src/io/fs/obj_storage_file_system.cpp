@@ -62,6 +62,19 @@ constexpr int LEN_OF_OSS_PRIVATE_SUFFIX = 9; // length of "-internal"
     }
 #endif
 
+// Removes the first and last '/'.
+std::string normalize_prefix(std::string prefix) {
+    if (prefix.empty()) {
+        return prefix;
+    }
+    size_t start = prefix.find_first_not_of('/');
+    if (start == std::string::npos) {
+        return "";
+    }
+    size_t end = prefix.find_last_not_of('/');
+    return prefix.substr(start, end - start + 1);
+}
+
 } // namespace
 
 std::string ObjStorageFileSystem::display_path(std::string_view key) const {
@@ -76,25 +89,45 @@ Result<std::shared_ptr<ObjStorageFileSystem>> ObjStorageFileSystem::create(ObjSt
     return fs;
 }
 
+Result<std::shared_ptr<ObjStorageFileSystem>> ObjStorageFileSystem::refresh_resource(
+        std::shared_ptr<ObjStorageFileSystem> fs, ObjStorageConfig config) {
+    const auto& holder = fs->client_holder();
+    auto current = holder->state();
+    if (current->config.backend.index() == config.client.backend.index()) {
+        RETURN_IF_ERROR_RESULT(holder->reset(config.client));
+        return fs;
+    }
+    bool same_target =
+            config.bucket == fs->bucket() && normalize_prefix(config.prefix) == fs->prefix();
+    LOG(WARNING) << "object storage backend of resource " << fs->id() << " changed from "
+                 << current->config.to_string() << " to " << config.client.to_string() << ", "
+                 << (same_target ? "rebinding its client" : "building a new file system");
+    if (same_target) {
+        RETURN_IF_ERROR_RESULT(holder->rebind(config.client));
+        return fs;
+    }
+    return create(std::move(config), fs->id());
+}
+
+Status ObjStorageFileSystem::refresh_vault(const ObjClientConfig& config) {
+    auto current = _client->state();
+    if (current->config.backend.index() != config.backend.index()) {
+        auto reason = Status::InvalidArgument<false>(
+                "storage vault {} changed backend from {} to {}, its file system is disabled "
+                "until BE restarts",
+                id(), current->config.to_string(), config.to_string());
+        _client->invalidate(reason);
+        return reason;
+    }
+    return _client->reset(config);
+}
+
 ObjStorageFileSystem::ObjStorageFileSystem(ObjStorageConfig config, std::string id)
         : RemoteFileSystem(config.prefix, std::move(id), FileSystemType::OBJECT_STORAGE),
           _bucket(std::move(config.bucket)),
-          _prefix(std::move(config.prefix)),
-          _client(std::make_shared<ObjClientHolder>(std::move(config.client))) {
-    // FIXME(plat1ko): Normalize prefix
-    // remove the first and last '/'
-    if (!_prefix.empty()) {
-        size_t start = _prefix.find_first_not_of('/');
-        if (start == std::string::npos) {
-            _prefix = "";
-        } else {
-            size_t end = _prefix.find_last_not_of('/');
-            if (start > 0 || end < _prefix.size() - 1) {
-                _prefix = _prefix.substr(start, end - start + 1);
-            }
-        }
-    }
-}
+          // FIXME(plat1ko): Normalize prefix
+          _prefix(normalize_prefix(std::move(config.prefix))),
+          _client(std::make_shared<ObjClientHolder>(std::move(config.client))) {}
 
 Status ObjStorageFileSystem::init() {
     return _client->init();
@@ -382,6 +415,12 @@ std::string ObjStorageFileSystem::generate_presigned_url(const Path& path, int64
     // Read the conf and the client from one snapshot so a concurrent reset cannot pair the
     // endpoint of one generation with the client of another.
     auto state = _client->state();
+    // Checked first: the branch below builds a client of its own, which would go around
+    // ObjClientHolder::invalidate.
+    if (state->client == nullptr) {
+        LOG(WARNING) << "no object storage client for presigned URL, resource_id=" << id();
+        return {};
+    }
     if (is_public_endpoint && state->config.endpoint().ends_with(OSS_PRIVATE_ENDPOINT_SUFFIX)) {
         // Only S3-protocol backends have an OSS private endpoint; the public one differs from it
         // only by the "-internal" part of the host.

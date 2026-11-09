@@ -358,23 +358,34 @@ Status decode_dd_region_impl(Slice dd_disk, const FrqRegionMeta& meta, uint64_t 
         return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
                 "frq: trailing bytes after dd region payload");
     }
-    uint64_t cur = win_base;
-    if (n != 0 && cur > std::numeric_limits<uint32_t>::max()) {
+    if (n == 0) {
+        return Status::OK();
+    }
+    if (win_base > std::numeric_limits<uint32_t>::max()) {
         return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
                 "frq: window base exceeds uint32 docid range");
     }
+    // A window is checked whole, so the sum below takes no branch per document: only the first
+    // delta may be zero, and the last docid must fit 32 bits.
+    uint32_t* const docs = docids->data();
+    uint64_t last = win_base + docs[0];
+    uint32_t smallest_delta = std::numeric_limits<uint32_t>::max();
+    for (uint32_t i = 1; i < n; ++i) {
+        last += docs[i];
+        smallest_delta = std::min(smallest_delta, docs[i]);
+    }
+    if (smallest_delta == 0) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "frq: zero docid delta");
+    }
+    if (last > std::numeric_limits<uint32_t>::max()) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "frq: docid accumulation overflow");
+    }
+    auto docid = static_cast<uint32_t>(win_base);
     for (uint32_t i = 0; i < n; ++i) {
-        const uint32_t delta = (*docids)[i];
-        if (i != 0 && delta == 0) {
-            return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
-                    "frq: zero docid delta");
-        }
-        if (delta > std::numeric_limits<uint32_t>::max() - cur) {
-            return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
-                    "frq: docid accumulation overflow");
-        }
-        cur += delta;
-        (*docids)[i] = static_cast<uint32_t>(cur);
+        docid += docs[i];
+        docs[i] = docid;
     }
     return Status::OK();
 }

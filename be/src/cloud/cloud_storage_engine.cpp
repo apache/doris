@@ -124,14 +124,17 @@ CloudStorageEngine::~CloudStorageEngine() {
     stop();
 }
 
-static Status vault_process_error(std::string_view id,
-                                  std::variant<io::ObjStorageConfig, cloud::HdfsVaultInfo>& vault,
-                                  Status err) {
+static Status vault_process_error(
+        std::string_view id,
+        std::variant<Result<io::ObjStorageConfig>, cloud::HdfsVaultInfo>& vault, Status err) {
     std::stringstream ss;
     std::visit(
             [&]<typename T>(T& val) {
-                if constexpr (std::is_same_v<T, io::ObjStorageConfig>) {
-                    ss << val.to_string();
+                if constexpr (std::is_same_v<T, Result<io::ObjStorageConfig>>) {
+                    // A rejected configuration has nothing to show beyond `err`.
+                    if (val.has_value()) {
+                        ss << val->to_string();
+                    }
                 } else if constexpr (std::is_same_v<T, cloud::HdfsVaultInfo>) {
                     val.SerializeToOstream(&ss);
                 }
@@ -144,7 +147,11 @@ struct VaultCreateFSVisitor {
     VaultCreateFSVisitor(const std::string& id, const cloud::StorageVaultPB_PathFormat& path_format,
                          bool check_fs)
             : id(id), path_format(path_format), check_fs(check_fs) {}
-    Status operator()(const io::ObjStorageConfig& s3_conf) const {
+    Status operator()(const Result<io::ObjStorageConfig>& resolved) const {
+        if (!resolved.has_value()) {
+            return resolved.error();
+        }
+        const auto& s3_conf = resolved.value();
         LOG(INFO) << "get new s3 info: " << s3_conf.to_string() << " resource_id=" << id
                   << " check_fs: " << check_fs;
 
@@ -186,11 +193,14 @@ struct RefreshFSVaultVisitor {
                           const cloud::StorageVaultPB_PathFormat& path_format)
             : id(id), fs(std::move(fs)), path_format(path_format) {}
 
-    Status operator()(const io::ObjStorageConfig& s3_conf) const {
+    Status operator()(const Result<io::ObjStorageConfig>& resolved) const {
+        if (!resolved.has_value()) {
+            return resolved.error();
+        }
+        const auto& s3_conf = resolved.value();
         DCHECK_EQ(fs->type(), io::FileSystemType::OBJECT_STORAGE) << id;
         auto s3_fs = std::static_pointer_cast<io::ObjStorageFileSystem>(fs);
-        auto client_holder = s3_fs->client_holder();
-        auto st = client_holder->reset(s3_conf.client);
+        auto st = s3_fs->refresh_vault(s3_conf.client);
         if (!st.ok()) {
             LOG(WARNING) << "failed to update s3 fs, resource_id=" << id << ": " << st;
         }
@@ -490,7 +500,7 @@ void CloudStorageEngine::sync_storage_vault() {
                         : std::visit(RefreshFSVaultVisitor {id, std::move(fs), path_format},
                                      vault_info);
         if (!status.ok()) [[unlikely]] {
-            LOG(WARNING) << vault_process_error(id, vault_info, std::move(st));
+            LOG(WARNING) << vault_process_error(id, vault_info, std::move(status));
         }
     }
 

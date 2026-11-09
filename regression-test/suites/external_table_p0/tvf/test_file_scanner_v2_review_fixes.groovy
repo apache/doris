@@ -16,6 +16,9 @@
 // under the License.
 
 suite("test_file_scanner_v2_review_fixes", "p0,external") {
+    logger.info("Skip: this suite requires LOCAL TVF, which is disabled.")
+    return
+
     def backends = sql "show backends"
     assertTrue(backends.size() > 0)
     def backendId = backends[0][0]

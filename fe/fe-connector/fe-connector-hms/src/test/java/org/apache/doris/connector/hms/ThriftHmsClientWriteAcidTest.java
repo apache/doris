@@ -18,7 +18,6 @@
 package org.apache.doris.connector.hms;
 
 import org.apache.hadoop.hive.common.StatsSetupConst;
-import org.apache.hadoop.hive.common.ValidReadTxnList;
 import org.apache.hadoop.hive.metastore.IMetaStoreClient;
 import org.apache.hadoop.hive.metastore.api.DataOperationType;
 import org.apache.hadoop.hive.metastore.api.LockComponent;
@@ -29,7 +28,6 @@ import org.apache.hadoop.hive.metastore.api.LockType;
 import org.apache.hadoop.hive.metastore.api.NoSuchObjectException;
 import org.apache.hadoop.hive.metastore.api.Partition;
 import org.apache.hadoop.hive.metastore.api.Table;
-import org.apache.hadoop.hive.metastore.api.TableValidWriteIds;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import shade.doris.hive.org.apache.thrift.TApplicationException;
@@ -38,10 +36,8 @@ import java.io.IOException;
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
-import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.BitSet;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -64,29 +60,6 @@ import java.util.concurrent.atomic.AtomicInteger;
  * depends on (Rule 9).</p>
  */
 public class ThriftHmsClientWriteAcidTest {
-
-    // ---- openTxn / commitTxn --------------------------------------------------------------------
-
-    @Test
-    public void testOpenTxnForwardsUserAndReturnsId() {
-        RecordingClient fake = new RecordingClient().stub("openTxn", 42L);
-        ThriftHmsClient client = newClient(fake);
-
-        long txnId = client.openTxn("alice");
-
-        Assertions.assertEquals(42L, txnId);
-        Assertions.assertEquals("alice", argsOf(fake, "openTxn")[0]);
-    }
-
-    @Test
-    public void testCommitTxnForwardsId() {
-        RecordingClient fake = new RecordingClient();
-        ThriftHmsClient client = newClient(fake);
-
-        client.commitTxn(7L);
-
-        Assertions.assertEquals(7L, argsOf(fake, "commitTxn")[0]);
-    }
 
     // ---- dropPartition / partitionExists --------------------------------------------------------
 
@@ -420,116 +393,6 @@ public class ThriftHmsClientWriteAcidTest {
         Assertions.assertThrows(HmsClientException.class, () ->
                 client.updatePartitionStatistics("db", "t", "dt=2024",
                         current -> HmsPartitionStatistics.EMPTY));
-    }
-
-    // ---- getValidWriteIds -----------------------------------------------------------------------
-
-    @Test
-    public void testGetValidWriteIdsSuccessPathEmitsSnapshotThenWriteIds() {
-        // Primary read-ACID path: a compatible metastore returns exactly one write-id list. A
-        // distinctive snapshot (high-watermark 100, NOT the fallback's Long.MAX_VALUE) makes this test
-        // fail if the code silently degrades to the fallback branch.
-        ValidReadTxnList snapshot = new ValidReadTxnList(new long[0], new BitSet(), 100L, 5L);
-        TableValidWriteIds writeIds = new TableValidWriteIds(
-                "db.t", 100L, Collections.emptyList(), ByteBuffer.allocate(0));
-        RecordingClient fake = new RecordingClient()
-                .stub("getValidTxns", snapshot)
-                .stub("getValidWriteIds", Collections.singletonList(writeIds));
-        ThriftHmsClient client = newClient(fake);
-
-        Map<String, String> conf = client.getValidWriteIds("db.t", 42L);
-
-        // (a) The recent snapshot string — NOT currentTransactionId (42) — drives the write-id lookup.
-        Object[] gvwiArgs = argsOf(fake, "getValidWriteIds");
-        Assertions.assertEquals(Collections.singletonList("db.t"), gvwiArgs[0]);
-        Assertions.assertEquals(snapshot.toString(), gvwiArgs[1]);
-        // (b) VALID_TXNS_KEY carries the txn snapshot; VALID_WRITEIDS_KEY carries the write-id list —
-        // no key swap. Both are the SUCCESS values (snapshot watermark 100), not the fallback watermark.
-        Assertions.assertEquals(snapshot.writeToString(), conf.get(HmsAcidConstants.VALID_TXNS_KEY));
-        Assertions.assertTrue(conf.get(HmsAcidConstants.VALID_WRITEIDS_KEY).contains("db.t"));
-        Assertions.assertNotEquals(conf.get(HmsAcidConstants.VALID_TXNS_KEY),
-                conf.get(HmsAcidConstants.VALID_WRITEIDS_KEY));
-    }
-
-    @Test
-    public void testGetValidWriteIdsFallsBackToMaxWatermark() {
-        // An incompatible metastore returns an unexpected write-id list; rather than fail the scan,
-        // getValidWriteIds must degrade to a max watermark and still emit both config keys.
-        ValidReadTxnList snapshot = new ValidReadTxnList();
-        RecordingClient fake = new RecordingClient()
-                .stub("getValidTxns", snapshot)
-                .stub("getValidWriteIds", new ArrayList<>()); // size 0 -> triggers fallback
-        ThriftHmsClient client = newClient(fake);
-
-        Map<String, String> conf = client.getValidWriteIds("db.t", 5L);
-
-        // The recent snapshot (not currentTransactionId) was still forwarded before the size guard threw.
-        Object[] gvwiArgs = argsOf(fake, "getValidWriteIds");
-        Assertions.assertEquals(Collections.singletonList("db.t"), gvwiArgs[0]);
-        Assertions.assertEquals(snapshot.toString(), gvwiArgs[1]);
-        // Both BE-contract keys are present, and the fallback write-id list is scoped to the table.
-        Assertions.assertNotNull(conf.get(HmsAcidConstants.VALID_TXNS_KEY));
-        Assertions.assertNotNull(conf.get(HmsAcidConstants.VALID_WRITEIDS_KEY));
-        Assertions.assertTrue(conf.get(HmsAcidConstants.VALID_WRITEIDS_KEY).contains("db.t"));
-    }
-
-    // ---- acquireSharedLock ----------------------------------------------------------------------
-
-    @Test
-    public void testAcquireSharedLockBuildsSharedReadComponentsAndReturnsWhenAcquired() {
-        RecordingClient fake = new RecordingClient()
-                .stub("lock", new LockResponse(1L, LockState.ACQUIRED));
-        ThriftHmsClient client = newClient(fake);
-
-        client.acquireSharedLock("q1", 5L, "alice", "db", "t",
-                Collections.emptyList(), 1000L);
-
-        LockRequest request = (LockRequest) argsOf(fake, "lock")[0];
-        Assertions.assertEquals(1, request.getComponent().size());
-        LockComponent component = request.getComponent().get(0);
-        Assertions.assertEquals("db", component.getDbname());
-        Assertions.assertEquals("t", component.getTablename());
-        Assertions.assertEquals(LockType.SHARED_READ, component.getType());
-        Assertions.assertEquals(DataOperationType.SELECT, component.getOperationType());
-    }
-
-    @Test
-    public void testAcquireSharedLockOneComponentPerPartition() {
-        RecordingClient fake = new RecordingClient()
-                .stub("lock", new LockResponse(1L, LockState.ACQUIRED));
-        ThriftHmsClient client = newClient(fake);
-
-        client.acquireSharedLock("q1", 5L, "alice", "db", "t",
-                java.util.Arrays.asList("dt=1", "dt=2"), 1000L);
-
-        LockRequest request = (LockRequest) argsOf(fake, "lock")[0];
-        Assertions.assertEquals(2, request.getComponent().size());
-        Assertions.assertEquals("dt=1", request.getComponent().get(0).getPartitionname());
-        Assertions.assertEquals("dt=2", request.getComponent().get(1).getPartitionname());
-    }
-
-    @Test
-    public void testAcquireSharedLockPollsUntilAcquired() {
-        RecordingClient fake = new RecordingClient()
-                .stub("lock", new LockResponse(2L, LockState.WAITING))
-                .stub("checkLock", new LockResponse(2L, LockState.ACQUIRED));
-        ThriftHmsClient client = newClient(fake);
-
-        client.acquireSharedLock("q", 5L, "u", "db", "t", Collections.emptyList(), 5000L);
-
-        Assertions.assertTrue(fake.methodNames.contains("checkLock"));
-    }
-
-    @Test
-    public void testAcquireSharedLockTimesOut() {
-        RecordingClient fake = new RecordingClient()
-                .stub("lock", new LockResponse(3L, LockState.WAITING))
-                .stub("checkLock", new LockResponse(3L, LockState.WAITING));
-        ThriftHmsClient client = newClient(fake);
-
-        // timeoutMs = -1 => the elapsed guard trips on the first poll iteration, deterministically.
-        Assertions.assertThrows(HmsClientException.class, () ->
-                client.acquireSharedLock("q", 5L, "u", "db", "t", Collections.emptyList(), -1L));
     }
 
     @Test

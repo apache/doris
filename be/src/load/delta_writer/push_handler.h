@@ -30,7 +30,6 @@
 #include "common/object_pool.h"
 #include "common/status.h"
 #include "core/block/block.h"
-#include "format/generic_reader.h"
 #include "runtime/runtime_state.h"
 #include "storage/olap_common.h"
 #include "storage/olap_scan_common.h"
@@ -40,6 +39,10 @@
 
 namespace doris {
 
+namespace format {
+class LoadTableReader;
+}
+
 class DescriptorTbl;
 class RuntimeProfile;
 class TBrokerScanRange;
@@ -47,7 +50,6 @@ class TDescriptorTable;
 class TTabletInfo;
 class StorageEngine;
 
-class GenericReader;
 class VExprContext;
 
 class PushHandler {
@@ -88,7 +90,7 @@ class PushBrokerReader {
 
 public:
     PushBrokerReader(const TBrokerScanRange& t_scan_range, const TDescriptorTable& t_desc_tbl);
-    ~PushBrokerReader() = default;
+    ~PushBrokerReader();
     Status init();
     Status next(Block* block);
     void print_profile();
@@ -96,63 +98,25 @@ public:
     Status close();
     bool eof() const { return _eof; }
 
-protected:
-    Status _get_next_reader();
-    Status _init_src_block();
-    Status _cast_to_input_block();
-    Status _convert_to_output_block(Block* block);
-    Status _init_expr_ctxes();
-
 private:
+    Status _get_next_reader();
+
     bool _ready;
     bool _eof;
-    int _next_range;
-    Block* _src_block_ptr = nullptr;
-    Block _src_block;
+    size_t _next_range;
     const TDescriptorTable& _t_desc_tbl;
-    std::unordered_map<std::string, DataTypePtr> _name_to_col_type;
-    std::unordered_set<std::string> _missing_cols;
-    std::unordered_map<std::string, uint32_t> _src_block_name_to_idx;
-    VExprContextSPtrs _dest_expr_ctxs;
-    VExprContextSPtr _pre_filter_ctx_ptr;
-    std::vector<SlotDescriptor*> _src_slot_descs_order_by_dest;
-    std::unordered_map<int, int> _dest_slot_to_src_slot_index;
-
-    std::vector<SlotDescriptor*> _src_slot_descs;
-    std::unique_ptr<RowDescriptor> _row_desc;
     const TupleDescriptor* _dest_tuple_desc = nullptr;
-
     std::unique_ptr<RuntimeState> _runtime_state;
     RuntimeProfile* _runtime_profile = nullptr;
-    std::unique_ptr<GenericReader> _cur_reader;
+    std::unique_ptr<format::LoadTableReader> _cur_reader;
     bool _cur_reader_eof;
     const TBrokerScanRangeParams& _params;
     const std::vector<TBrokerRangeDesc>& _ranges;
     TFileScanRangeParams _file_params;
     std::vector<TFileRangeDesc> _file_ranges;
-
     std::unique_ptr<io::FileCacheStatistics> _file_cache_statistics;
     std::unique_ptr<io::FileReaderStats> _file_reader_stats;
-    std::unique_ptr<io::IOContext> _io_ctx;
-
-    // col names from _slot_descs
-    std::vector<std::string> _all_col_names;
-    std::unordered_map<std::string, uint32_t> _col_name_to_block_idx;
-    VExprContextSPtrs _push_down_exprs;
-    phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>> _slot_id_to_predicates;
-    const std::unordered_map<std::string, int>* _col_name_to_slot_id;
-    // single slot filter conjuncts
-    std::unordered_map<int, VExprContextSPtrs> _slot_id_to_filter_conjuncts;
-    // not single(zero or multi) slot filter conjuncts
-    VExprContextSPtrs _not_single_slot_filter_conjuncts;
-    // File source slot descriptors
-    std::vector<SlotDescriptor*> _file_slot_descs;
-    // row desc for default exprs
-    std::unique_ptr<RowDescriptor> _default_val_row_desc;
-    const TupleDescriptor* _real_tuple_desc = nullptr;
-
-    // Not used, just for placeholding
-    std::vector<TExpr> _pre_filter_texprs;
+    std::shared_ptr<io::IOContext> _io_ctx;
 };
 
 } // namespace doris

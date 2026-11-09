@@ -464,17 +464,46 @@ TEST_F(IndexReaderHelperTest, IsNeedSimilarityScoreWithTExprOpcodeTest) {
     EXPECT_FALSE(IndexReaderHelper::is_need_similarity_score(TExprOpcode::LT, &index_meta));
 }
 
-TEST_F(IndexReaderHelperTest, MatchScoringRequiresAnalyzedPhraseIndex) {
+TEST_F(IndexReaderHelperTest, RegexpScoresConstantOnEveryIndex) {
+    // A regexp scores a constant 1 and reads no statistics, so neither the analyzer nor phrase
+    // support decides whether it scores.
+    for (const auto& properties : std::vector<std::map<std::string, std::string>> {
+                 {},
+                 {{"parser", "none"}},
+                 {{"parser", "english"}},
+                 {{"parser", "english"}, {"support_phrase", "true"}},
+                 {{"normalizer", "split_norm"}}}) {
+        SCOPED_TRACE(::testing::PrintToString(properties));
+        TabletIndexPB pb;
+        pb.set_index_id(1);
+        pb.set_index_name("regexp_index");
+        pb.set_index_type(IndexType::INVERTED);
+        pb.add_col_unique_id(1);
+        for (const auto& [key, value] : properties) {
+            (*pb.mutable_properties())[key] = value;
+        }
+        TabletIndex index;
+        index.init_from_pb(pb);
+        EXPECT_TRUE(IndexReaderHelper::is_need_similarity_score(TExprOpcode::MATCH_REGEXP, &index));
+        EXPECT_TRUE(IndexReaderHelper::is_need_similarity_score(
+                InvertedIndexQueryType::MATCH_REGEXP_QUERY, &index));
+    }
+}
+
+TEST_F(IndexReaderHelperTest, MatchScoringRequiresKeywordOrAnalyzedPhraseIndex) {
     struct Case {
         std::map<std::string, std::string> properties;
         bool expected;
     };
+    // Keyword indexes score with unit frequency and length, so phrase support does not matter;
+    // analyzed indexes still need it (or a lowercase normalizer) to score.
     for (const auto& test : std::vector<Case> {
-                 {.properties = {{"support_phrase", "true"}}, .expected = false},
-                 {.properties = {{"parser", "none"}, {"support_phrase", "true"}},
-                 .expected = false},
+                 {.properties = {}, .expected = true},
+                 {.properties = {{"support_phrase", "true"}}, .expected = true},
+                 {.properties = {{"parser", "none"}}, .expected = true},
+                 {.properties = {{"parser", "none"}, {"support_phrase", "true"}}, .expected = true},
                  {.properties = {{"parser", "unknown"}, {"support_phrase", "true"}},
-                 .expected = false},
+                 .expected = true},
                  {.properties = {{"normalizer", "lowercase"}, {"support_phrase", "true"}},
                  .expected = true},
                  {.properties = {{"parser", "english"}, {"support_phrase", "true"}},

@@ -21,6 +21,7 @@
 #include <aws/core/auth/signer/AWSAuthV4Signer.h>
 #include <aws/core/client/ClientConfiguration.h>
 #include <aws/core/http/HttpClientFactory.h>
+#include <aws/core/http/URI.h>
 #include <aws/core/utils/stream/ResponseStream.h>
 #include <aws/identity-management/auth/STSAssumeRoleCredentialsProvider.h>
 #include <aws/s3/model/AbortMultipartUploadRequest.h>
@@ -240,6 +241,13 @@ private:
 };
 
 } // namespace
+
+TEST_F(S3ClientFactoryTest, InitializesSdkWithRfc3986KeyEncoding) {
+    // Object keys with reserved characters, e.g. `dt=2024-01-01` in a Hive partition path, are
+    // percent-encoded only in this mode; the SDK default leaves `$&,:=@` as they are.
+    AwsSdkManager::instance();
+    EXPECT_TRUE(Aws::Http::s_compliantRfc3986Encoding);
+}
 
 TEST_F(S3ClientFactoryTest, DistinguishesHashCollisions) {
     auto external_conf =

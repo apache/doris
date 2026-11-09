@@ -51,7 +51,10 @@ public class AIProperties extends BaseProperties {
     public static final String DIMENSIONS = "ai.dimensions";
     public static final String EFFORT = "ai.effort";
 
+    public static final String ENABLE_STRUCTURED_OUTPUT = "ai.enable_structured_output";
+
     // default_val
+    public static final String DEFAULT_ENABLE_STRUCTURED_OUTPUT = "true";
     public static final String DEFAULT_TEMPERATURE = "-1";
     public static final String DEFAULT_MAX_TOKEN = "-1";
     public static final String DEFAULT_MAX_RETRIES = "3";
@@ -95,6 +98,12 @@ public class AIProperties extends BaseProperties {
         if (hasMultimodalEmbedProperties) {
             validatePropertyGroup(properties, MULTIMODAL_EMBED_REQUIRED_FIELDS,
                     MULTIMODAL_EMBED_PROVIDER_TYPE, MULTIMODAL_EMBED_API_KEY);
+        }
+
+        String enableStructuredOutput = properties.get(ENABLE_STRUCTURED_OUTPUT);
+        if (enableStructuredOutput != null && !"true".equalsIgnoreCase(enableStructuredOutput)
+                && !"false".equalsIgnoreCase(enableStructuredOutput)) {
+            throw new DdlException("[" + ENABLE_STRUCTURED_OUTPUT + "] must be true or false");
         }
 
         String effort = properties.get(EFFORT);
@@ -156,6 +165,7 @@ public class AIProperties extends BaseProperties {
     }
 
     public static void optionalAIProperties(Map<String, String> properties) {
+        properties.putIfAbsent(ENABLE_STRUCTURED_OUTPUT, DEFAULT_ENABLE_STRUCTURED_OUTPUT);
         properties.putIfAbsent(AIProperties.TEMPERATURE, AIProperties.DEFAULT_TEMPERATURE);
         properties.putIfAbsent(AIProperties.MAX_TOKEN, AIProperties.DEFAULT_MAX_TOKEN);
         properties.putIfAbsent(AIProperties.MAX_RETRIES, AIProperties.DEFAULT_MAX_RETRIES);

@@ -296,22 +296,10 @@ public class NereidsSortedPartitionsCacheManagerExternalTest {
 
     // ──────────────────── Cache B version is the frozen partition NAME-SET for ALL engines ─────
     //
-    // getPartitionMetaVersion always returns the frozen partition NAME SET
-    // (getOriginPartitions(scan).keySet(), copied) -- the SAME map the ranges are built from, so
-    // version == exact content and Cache B rebuilds precisely when the partition set changes, never on a
-    // stale set. This is uniform across hive (snapshotId == -1 sentinel), paimon and iceberg: the old
-    // "<snapshotId>@<schemaId>" O(1) token was removed because it is unsafe wherever a connector's
-    // listPartitions content is not a pure function of the snapshot id (iceberg non-RANGE: identity /
-    // bucket / truncate / multi-field partitioning), whose nameToPartitionItem (Cache A) and snapshot-id
-    // token (a DIFFERENT cache) expire independently. PluginDrivenMvccExternalTable no longer overrides
-    // getSortedPartitionRanges (the -1 short-circuit added in 5c17b748880 was removed): every pin goes
-    // through the inherited ExternalTable#getSortedPartitionRanges -> the cache manager.
+    // External MVCC tables return the index owned by their pinned partition view. These cases
+    // verify that changes in partition content remain visible even at a constant snapshot id.
 
-    /**
-     * Builds a live Env whose {@code getSortedPartitionsCacheManager()} returns {@code rangesCacheMgr},
-     * mockStatic-scoped so {@code table.getSortedPartitionRanges(scan)} (now purely inherited from
-     * {@link ExternalTable}, no override) can resolve {@code Env.getCurrentEnv()} on the real dispatch path.
-     */
+    /** Supplies the legacy manager for tests that also cover generic ExternalTable delegation. */
     private static MockedStatic<Env> mockEnvWithRangesCacheManager(NereidsSortedPartitionsCacheManager rangesCacheMgr) {
         Env env = Mockito.mock(Env.class);
         Mockito.when(env.getSortedPartitionsCacheManager()).thenReturn(rangesCacheMgr);
@@ -381,8 +369,7 @@ public class NereidsSortedPartitionsCacheManagerExternalTest {
             Optional<SortedPartitionRanges<String>> ranges = table.getSortedPartitionRanges(scan);
 
             Assertions.assertTrue(ranges.isPresent(),
-                    "snapshotId == -1 (hive sentinel) with a non-empty partition set must now use Cache B, "
-                            + "keyed by the partition NAME-SET version token");
+                    "snapshot-less tables also publish an index with their non-empty partition view");
         } finally {
             ConnectContext.remove();
         }
@@ -402,8 +389,7 @@ public class NereidsSortedPartitionsCacheManagerExternalTest {
             Assertions.assertEquals(2, first.sortedPartitions.size());
 
             // A second query ("ALTER ADD PARTITION" between queries): the pin's partition NAME SET grew.
-            // The manager's Objects.equals compares the two HashSet version tokens by CONTENT, so it must
-            // detect this change even though snapshotId is still the constant -1 on both pins.
+            // The new pin owns its new index even though snapshotId is still -1 on both pins.
             Map<String, PartitionItem> partsAtQuery2 = Maps.newHashMap();
             partsAtQuery2.put("id=1", listItem(1));
             partsAtQuery2.put("id=2", listItem(2));
@@ -435,16 +421,17 @@ public class NereidsSortedPartitionsCacheManagerExternalTest {
             Map<String, PartitionItem> partsAtQuery1 = Maps.newHashMap();
             partsAtQuery1.put("id=1", listItem(1));
             partsAtQuery1.put("id=2", listItem(2));
-            LogicalFileScan scan1 = pinLatestAndBuildScan(table, realSnapshotPin(partsAtQuery1));
+            PluginDrivenMvccSnapshot firstPin = realSnapshotPin(partsAtQuery1);
+            LogicalFileScan scan1 = pinLatestAndBuildScan(table, firstPin);
             SortedPartitionRanges<String> first = table.getSortedPartitionRanges(scan1).orElse(null);
             Assertions.assertNotNull(first, "ranges built and cached at the first (2-partition) name set");
             Assertions.assertEquals(2, first.sortedPartitions.size());
 
-            // Same query again: IDENTICAL name set at the SAME real snapshot id => cache HIT (same instance).
-            LogicalFileScan scanHit = pinLatestAndBuildScan(table, realSnapshotPin(partsAtQuery1));
+            // A reused partition view owns the same index; no second table-wide sorted-cache lookup.
+            LogicalFileScan scanHit = pinLatestAndBuildScan(table, firstPin);
             SortedPartitionRanges<String> hit = table.getSortedPartitionRanges(scanHit).orElse(null);
             Assertions.assertSame(first, hit,
-                    "unchanged name set at a real snapshotId=42 => cache HIT returns the SAME instance");
+                    "the same pinned view must return the same index");
 
             // A later query whose Cache A refreshed to include a new partition while the connector snapshot
             // id is STILL 42: the name set grew, so Cache B must rebuild even though "42@7" is unchanged.

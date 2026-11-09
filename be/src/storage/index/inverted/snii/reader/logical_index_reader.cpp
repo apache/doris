@@ -21,8 +21,12 @@
 #include <cstdlib>
 #include <future>
 #include <limits>
+#include <list>
 #include <memory>
 #include <mutex>
+#include <string>
+#include <string_view>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -53,6 +57,15 @@ struct LogicalIndexReader::NormsCacheState {
     std::shared_future<Status> in_flight;
 };
 
+// Exact lookup results of an on-demand dictionary, least recently used last.
+struct LogicalIndexReader::TermLookupCache {
+    using Kept = std::pair<std::string, BatchLookupResult>;
+
+    std::mutex mutex;
+    std::list<Kept> order;
+    std::unordered_map<std::string_view, std::list<Kept>::iterator> index;
+};
+
 using format::BlockRef;
 using format::bsbf_hash;
 using format::DictBlockDirectoryReader;
@@ -73,6 +86,17 @@ constexpr uint64_t kMaxDictLookupBatchBytes = 4ULL * 1024 * 1024;
 // for the state/data/vector allocations. The framed norms bytes are charged
 // separately at their exact validated length.
 constexpr size_t kNormsAllocationOverheadCharge = 128;
+// The term lookup cache keeps at most this many terms per reader, each at most this long and with
+// at most this many bytes of inline postings, so its footprint has a fixed bound.
+constexpr size_t kTermLookupCacheTerms = 32;
+constexpr size_t kTermLookupMaxTermBytes = 64;
+constexpr size_t kTermLookupMaxInlineBytes = 256;
+// One kept term at those bounds: its list node (links and the key/result pair), its hash node and
+// bucket, the heap of the key and of the entry's term, the inline postings, and allocator
+// bookkeeping for each of those allocations.
+constexpr size_t kTermLookupEntryCharge =
+        sizeof(std::pair<std::string, LogicalIndexReader::BatchLookupResult>) + 2 * sizeof(void*) +
+        64 + 2 * (kTermLookupMaxTermBytes + 1) + kTermLookupMaxInlineBytes + 6 * 16;
 
 // L0/L1 tiering threshold (bytes). Defaults to kBsbfResidentMaxBytes; the env
 // SNII_BSBF_RESIDENT_MAX overrides it for tuning and for exercising the
@@ -382,19 +406,7 @@ Status LogicalIndexReader::dict_block_reader_for_ordinal(
 }
 
 Status LogicalIndexReader::load_resident_bsbf() {
-    // Block-split bloom XFilter -- gated on RESIDENCY (P1 cold-read fix, see
-    // docs/perf/P1-cold-read-amplification.md). The bloom is set up and used ONLY
-    // when the whole (small) filter fits under the resident cap: it is read in
-    // full, verified, and kept in memory so probes are in-memory and enter the
-    // Doris searcher cache with the rest of the logical-index metadata.
-    //
-    // When NON-resident (the common case for a real text column, where the filter
-    // is many MB) the bloom is skipped ENTIRELY: not even the 28B header is read,
-    // and has_bsbf_ stays false. Every term then falls through to sti -> dict,
-    // which yields the true found/absent. At 1 MiB cache-block granularity a
-    // non-resident bloom never saves a physical block (an absent term still costs
-    // one dict block either way), so its 28B header + per-term 32B probes were pure
-    // cold read amplification.
+    // Load and use the bloom filter only when it fits the resident metadata cap. Larger filters are skipped so cold lookups proceed directly through the sampled term index and DICT blocks.
     const RegionRef& bsbf = core_.section_refs.bsbf;
     if (open_mode_ != LogicalIndexOpenMode::kQuery || bsbf.length == 0 ||
         bsbf.length > bsbf_resident_max_bytes()) {
@@ -500,6 +512,10 @@ size_t LogicalIndexReader::memory_usage() const {
     for (const auto& block : resident_dict_blocks_) {
         bytes += sizeof(block) + block.bytes.capacity() + block.reader.heap_bytes();
     }
+    // The term lookup cache fills lazily as well, so its bounded footprint is reserved in full.
+    if (term_lookups_ != nullptr) {
+        bytes += sizeof(TermLookupCache) + kTermLookupCacheTerms * kTermLookupEntryCharge;
+    }
     // Norms are loaded lazily, but the searcher-cache charge is fixed when this
     // reader is inserted. Reserve their complete framed size and heap state up
     // front so later allocation is already accounted for. Saturation prevents
@@ -518,6 +534,12 @@ size_t LogicalIndexReader::memory_usage() const {
     }
     bytes += digest;
     return bytes;
+}
+
+void LogicalIndexReader::enable_term_lookup_cache() {
+    if (resident_dict_blocks_.empty() && dbd_.n_blocks() != 0) {
+        term_lookups_ = std::make_shared<TermLookupCache>();
+    }
 }
 
 Status LogicalIndexReader::open_norms(format::NormsPodReader* out) const {
@@ -704,6 +726,18 @@ Status LogicalIndexReader::lookup(std::string_view term, bool* found, DictEntry*
     if (!maybe) {
         return Status::OK();
     }
+    if (term_lookups_ != nullptr) {
+        BatchLookupResult kept;
+        if (find_kept_lookup(term, &kept)) {
+            *found = kept.found;
+            if (kept.found) {
+                *entry = std::move(kept.entry);
+                *frq_base = kept.frq_base;
+                *prx_base = kept.prx_base;
+            }
+            return Status::OK();
+        }
+    }
 
     // Use a resident small-DICT block when present; otherwise read the DICT
     // block on demand and parse it with the same validation path used at open.
@@ -714,14 +748,66 @@ Status LogicalIndexReader::lookup(std::string_view term, bool* found, DictEntry*
 
     bool hit = false;
     RETURN_IF_ERROR(br->find_term(term, &hit, entry));
-    if (!hit) {
-        return Status::OK();
+    if (hit) {
+        *found = true;
+        *frq_base = br->frq_base();
+        *prx_base = br->prx_base();
     }
-
-    *found = true;
-    *frq_base = br->frq_base();
-    *prx_base = br->prx_base();
+    keep_lookup(term, hit, *entry, br->frq_base(), br->prx_base());
     return Status::OK();
+}
+
+bool LogicalIndexReader::find_kept_lookup(std::string_view term, BatchLookupResult* out) const {
+    TermLookupCache& cache = *term_lookups_;
+    std::lock_guard lock(cache.mutex);
+    const auto it = cache.index.find(term);
+    if (it == cache.index.end()) {
+        return false;
+    }
+    cache.order.splice(cache.order.begin(), cache.order, it->second);
+    *out = it->second->second;
+    return true;
+}
+
+void LogicalIndexReader::keep_lookup(std::string_view term, bool found, const DictEntry& entry,
+                                     uint64_t frq_base, uint64_t prx_base) const {
+    // Within these bounds the charge memory_usage() reserved covers the cache at its fullest.
+    if (term_lookups_ == nullptr || term.size() > kTermLookupMaxTermBytes ||
+        (found && (entry.term.size() > kTermLookupMaxTermBytes ||
+                   entry.frq_bytes.size() + entry.prx_bytes.size() > kTermLookupMaxInlineBytes))) {
+        return;
+    }
+    BatchLookupResult result;
+    if (found) {
+        result.found = true;
+        result.entry = entry;
+        result.frq_base = frq_base;
+        result.prx_base = prx_base;
+    }
+    TermLookupCache& cache = *term_lookups_;
+    std::lock_guard lock(cache.mutex);
+    if (cache.index.contains(term)) {
+        return;
+    }
+    cache.order.emplace_front(std::string(term), std::move(result));
+    cache.index.emplace(cache.order.front().first, cache.order.begin());
+    if (cache.order.size() > kTermLookupCacheTerms) {
+        cache.index.erase(cache.order.back().first);
+        cache.order.pop_back();
+    }
+}
+
+void LogicalIndexReader::keep_group_lookups(const BatchLookupState& state,
+                                            const BatchLookupGroup& group) const {
+    if (term_lookups_ == nullptr) {
+        return;
+    }
+    for (size_t i = group.begin; i < group.end; ++i) {
+        const size_t term_index = state.candidates_[i].term_index;
+        const BatchLookupResult& result = (*state.results_)[term_index];
+        keep_lookup((*state.terms_)[term_index], result.found, result.entry, result.frq_base,
+                    result.prx_base);
+    }
 }
 
 Status LogicalIndexReader::may_contain(std::string_view term, bool* maybe_present) const {
@@ -752,14 +838,15 @@ Status LogicalIndexReader::locate_candidate_dict_block(std::string_view term, bo
 
 Status LogicalIndexReader::collect_batch_lookup_groups(
         const std::vector<std::string>& terms, std::vector<BatchLookupCandidate>* candidates,
-        std::vector<BatchLookupGroup>* groups) const {
+        std::vector<BatchLookupGroup>* groups, std::vector<BatchLookupResult>* kept_results) const {
     candidates->clear();
     candidates->reserve(terms.size());
     for (size_t i = 0; i < terms.size(); ++i) {
         bool maybe = false;
         uint32_t ordinal = 0;
         RETURN_IF_ERROR(locate_candidate_dict_block(terms[i], &maybe, &ordinal));
-        if (maybe) {
+        if (maybe &&
+            (kept_results == nullptr || !find_kept_lookup(terms[i], &(*kept_results)[i]))) {
             candidates->push_back({i, ordinal});
         }
     }
@@ -804,7 +891,8 @@ Status LogicalIndexReader::prepare_lookup_batch(const std::vector<std::string>& 
         return lookup(terms.front(), &result.found, &result.entry, &result.frq_base,
                       &result.prx_base);
     }
-    RETURN_IF_ERROR(collect_batch_lookup_groups(terms, &state->candidates_, &state->groups_));
+    RETURN_IF_ERROR(collect_batch_lookup_groups(terms, &state->candidates_, &state->groups_,
+                                                term_lookups_ != nullptr ? results : nullptr));
     if (!resident_dict_blocks_.empty()) {
         for (const BatchLookupGroup& group : state->groups_) {
             const DictBlockReader* block_reader = nullptr;
@@ -905,6 +993,7 @@ Status LogicalIndexReader::consume_lookup_wave(BatchLookupState* state,
         RETURN_IF_ERROR(resolve_batch_lookup_entries(*state->terms_, state->candidates_,
                                                      state->groups_[block.group_index],
                                                      block_reader, state->results_));
+        keep_group_lookups(*state, state->groups_[block.group_index]);
     }
     if (!state->pending_.empty()) {
         state->next_group_ = state->pending_.back().group_index + 1;
@@ -928,8 +1017,10 @@ Status LogicalIndexReader::lookup_batch(const std::vector<std::string>& terms,
         std::shared_ptr<const DecodedDictBlock> pin;
         RETURN_IF_ERROR(dict_block_reader_for_ordinal(group.ordinal, /*cache=*/nullptr, &pin,
                                                       &block_reader));
-        return resolve_batch_lookup_entries(terms, state.candidates_, group, *block_reader,
-                                            results);
+        RETURN_IF_ERROR(resolve_batch_lookup_entries(terms, state.candidates_, group, *block_reader,
+                                                     results));
+        keep_group_lookups(state, group);
+        return Status::OK();
     }
     while (!state.done()) {
         io::BatchRangeFetcher fetcher(reader_, /*coalesce_gap=*/0);
@@ -1007,9 +1098,9 @@ Status LogicalIndexReader::dict_block_scan_memory(uint32_t ordinal,
     return Status::OK();
 }
 
-Status LogicalIndexReader::visit_prefix_terms(std::string_view prefix,
-                                              const PrefixHitVisitor& visitor,
-                                              DictBlockCache* cache) const {
+Status LogicalIndexReader::visit_prefix_terms(
+        std::string_view prefix, const PrefixHitVisitor& visitor, DictBlockCache* cache,
+        const std::function<bool(std::string_view term)>& accept_key) const {
     if (!visitor) {
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
                 "logical_index: null prefix visitor");
@@ -1039,12 +1130,12 @@ Status LogicalIndexReader::visit_prefix_terms(std::string_view prefix,
         // Stream this block's prefix range: anchor-jump past pre-prefix segments,
         // decode only the bodies we keep, and stop at the first term past the
         // range (decode_all materialized every entry of every scanned block).
-        // The visitor still owns final term acceptance, so results are identical;
-        // `br`/`pin` stay alive across this synchronous call.
+        // `accept_key` rejects a term before its body is decoded; the visitor sees only accepted
+        // terms. `br`/`pin` stay alive across this synchronous call.
         bool prefix_exhausted = false;
         bool visitor_stopped = false;
         RETURN_IF_ERROR(br->visit_prefix_range(
-                prefix, /*accept_key=*/ {},
+                prefix, accept_key,
                 [&](DictEntry&& e, bool* stop) -> Status {
                     PrefixHit hit;
                     hit.term = e.term;

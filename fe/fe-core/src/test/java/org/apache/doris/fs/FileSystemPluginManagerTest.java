@@ -18,15 +18,20 @@
 package org.apache.doris.fs;
 
 import org.apache.doris.common.util.DatasourcePrintableMap;
+import org.apache.doris.extension.loader.ClassLoadingPolicy;
+import org.apache.doris.extension.loader.PluginLoader;
 import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.filesystem.FileSystemType;
 import org.apache.doris.filesystem.properties.FileSystemProperties;
 import org.apache.doris.filesystem.properties.StorageKind;
 import org.apache.doris.filesystem.spi.FileSystemProvider;
+import org.apache.doris.kerberos.HadoopKerberosAuthenticator;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.net.URL;
+import java.net.URLClassLoader;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -34,6 +39,18 @@ import java.util.Map;
 import java.util.Set;
 
 public class FileSystemPluginManagerTest {
+
+    @Test
+    public void filesystemPluginSharesKerberosInitializationState() throws Exception {
+        URL classes = HadoopKerberosAuthenticator.class.getProtectionDomain().getCodeSource().getLocation();
+        PluginLoader loader = new PluginLoader(new ClassLoadingPolicy(
+                FileSystemPluginManager.FS_PARENT_FIRST_PREFIXES).toParentFirstPackages());
+        try (URLClassLoader plugin = (URLClassLoader) loader.createClassLoader(
+                new URL[] {classes}, getClass().getClassLoader())) {
+            Assertions.assertSame(HadoopKerberosAuthenticator.class,
+                    plugin.loadClass(HadoopKerberosAuthenticator.class.getName()));
+        }
+    }
 
     @Test
     public void registerProvider_registersProviderSensitiveKeysForMasking() {

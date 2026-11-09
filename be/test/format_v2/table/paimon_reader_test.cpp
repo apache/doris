@@ -55,7 +55,7 @@
 #include "exprs/vslot_ref.h"
 #include "format/format_common.h"
 #include "format/table/deletion_vector_reader.h"
-#include "format/table/paimon_reader.h"
+#include "format/table/paimon_deletion_vector.h"
 #include "format_v2/column_data.h"
 #include "format_v2/jni/paimon_jni_reader.h"
 #include "gen_cpp/ExternalTableSchema_types.h"
@@ -993,6 +993,103 @@ TEST(PaimonReaderTest, AppliesBitmapDeletionVectorFile) {
     }
     EXPECT_EQ(ids, std::vector<int32_t>({2, 3, 4}));
 
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
+// A missing deletion vector must not report NOT_FOUND: FileScannerV2 would take it for a missing data
+// file and skip the whole split, surviving rows included.
+TEST(PaimonReaderTest, MissingDeletionVectorFileFailsSplit) {
+    const auto test_dir =
+            std::filesystem::temp_directory_path() / "doris_paimon_missing_deletion_vector_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+
+    const auto file_path = (test_dir / "split.parquet").string();
+    const auto dv_path = (test_dir / "missing-delete-vector.bin").string();
+    write_int_pair_parquet_file(file_path, {1, 2, 3}, {10, 20, 30}, {"one", "two", "three"});
+
+    std::vector<ColumnDefinition> projected_columns;
+    projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+
+    RuntimeProfile profile("test_profile");
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto scan_params = make_local_parquet_scan_params();
+    io::FileReaderStats file_reader_stats;
+    io::FileCacheStatistics file_cache_stats;
+    auto io_ctx = make_io_context(&file_reader_stats, &file_cache_stats);
+    ShardedKVCache cache(1);
+    paimon::PaimonReader reader;
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .conjuncts = {},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = &scan_params,
+                                    .io_ctx = io_ctx,
+                                    .runtime_state = &state,
+                                    .scanner_profile = &profile,
+                            })
+                        .ok());
+
+    auto split_options = build_split_options(file_path);
+    split_options.cache = &cache;
+    split_options.current_range.__set_table_format_params(
+            make_paimon_table_format_desc(dv_path, 0, 16));
+    const auto status = reader.prepare_split(split_options);
+
+    EXPECT_TRUE(status.is<ErrorCode::INTERNAL_ERROR>()) << status;
+    EXPECT_NE(status.to_string().find(dv_path), std::string::npos) << status;
+    ASSERT_TRUE(reader.close().ok());
+    std::filesystem::remove_all(test_dir);
+}
+
+// Only the deletion vector is snapshot metadata here: a missing data file still reports NOT_FOUND,
+// which FileScannerV2 skips under ignore_not_found_file_in_external_table.
+TEST(PaimonReaderTest, MissingDataFileWithDeletionVectorStillReportsNotFound) {
+    const auto test_dir =
+            std::filesystem::temp_directory_path() / "doris_paimon_missing_data_file_test";
+    std::filesystem::remove_all(test_dir);
+    std::filesystem::create_directories(test_dir);
+
+    const auto file_path = (test_dir / "missing-split.parquet").string();
+    const auto dv_path = (test_dir / "delete-vector.bin").string();
+    const auto dv_length = write_paimon_deletion_vector_file(dv_path, {0});
+
+    std::vector<ColumnDefinition> projected_columns;
+    projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+
+    RuntimeProfile profile("test_profile");
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto scan_params = make_local_parquet_scan_params();
+    io::FileReaderStats file_reader_stats;
+    io::FileCacheStatistics file_cache_stats;
+    auto io_ctx = make_io_context(&file_reader_stats, &file_cache_stats);
+    ShardedKVCache cache(1);
+    paimon::PaimonReader reader;
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .conjuncts = {},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = &scan_params,
+                                    .io_ctx = io_ctx,
+                                    .runtime_state = &state,
+                                    .scanner_profile = &profile,
+                            })
+                        .ok());
+
+    SplitReadOptions split_options;
+    split_options.current_range.__set_path(file_path);
+    split_options.current_range.__set_file_size(1024);
+    split_options.cache = &cache;
+    split_options.current_range.__set_table_format_params(
+            make_paimon_table_format_desc(dv_path, 0, dv_length));
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    const auto status = reader.get_block(&block, &eos);
+
+    EXPECT_TRUE(status.is<ErrorCode::NOT_FOUND>()) << status;
     ASSERT_TRUE(reader.close().ok());
     std::filesystem::remove_all(test_dir);
 }

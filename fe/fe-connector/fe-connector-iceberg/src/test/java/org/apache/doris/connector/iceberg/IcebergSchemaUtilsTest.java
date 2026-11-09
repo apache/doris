@@ -677,6 +677,48 @@ public class IcebergSchemaUtilsTest {
     }
 
     @Test
+    public void timestamptzFieldsCarryInstantMarkerAtEveryLevel() {
+        // Spark and Hive write timestamptz as INT96 without an instant annotation, so BE reads it as an instant only
+        // when the field says so. timestamp and timestamp_ns stay unmarked whatever the catalog mapping flag is.
+        // MUTATION: drop the marker -> red; also mark timestamp fields -> red.
+        Schema schema = new Schema(
+                Types.NestedField.optional(1, "tz", Types.TimestampType.withZone()),
+                Types.NestedField.optional(2, "wall", Types.TimestampType.withoutZone()),
+                Types.NestedField.optional(3, "wall_ns", Types.TimestampNanoType.withoutZone()),
+                Types.NestedField.optional(4, "info", Types.StructType.of(
+                        Types.NestedField.optional(5, "tz", Types.TimestampType.withZone()),
+                        Types.NestedField.optional(6, "wall", Types.TimestampType.withoutZone()))),
+                Types.NestedField.optional(7, "tzs",
+                        Types.ListType.ofOptional(8, Types.TimestampType.withZone())),
+                Types.NestedField.optional(9, "by_tz", Types.MapType.ofOptional(10, 11,
+                        Types.TimestampType.withZone(), Types.TimestampType.withoutZone())));
+
+        for (boolean enableTimestampTz : new boolean[] {false, true}) {
+            Map<String, TField> fields = topFields(IcebergSchemaUtils.buildCurrentSchema(schema,
+                    Arrays.asList("tz", "wall", "wall_ns", "info", "tzs", "by_tz"), Collections.emptyMap(),
+                    false, false, enableTimestampTz));
+
+            assertInstantMarker(fields.get("tz"));
+            Assertions.assertFalse(fields.get("wall").isSetTimestampIsAdjustedToUtc());
+            Assertions.assertFalse(fields.get("wall_ns").isSetTimestampIsAdjustedToUtc());
+            TField info = fields.get("info");
+            Assertions.assertFalse(info.isSetTimestampIsAdjustedToUtc());
+            assertInstantMarker(childByName(info, "tz"));
+            Assertions.assertFalse(childByName(info, "wall").isSetTimestampIsAdjustedToUtc());
+            assertInstantMarker(fields.get("tzs").getNestedField().getArrayField().getItemField().getFieldPtr());
+            TField byTz = fields.get("by_tz");
+            assertInstantMarker(byTz.getNestedField().getMapField().getKeyField().getFieldPtr());
+            Assertions.assertFalse(byTz.getNestedField().getMapField().getValueField().getFieldPtr()
+                    .isSetTimestampIsAdjustedToUtc());
+        }
+    }
+
+    private static void assertInstantMarker(TField field) {
+        Assertions.assertTrue(field.isSetTimestampIsAdjustedToUtc(), field.getName());
+        Assertions.assertTrue(field.isTimestampIsAdjustedToUtc(), field.getName());
+    }
+
+    @Test
     public void nestedStructChildNamesAreLowercased() {
         // The crash repro (test_iceberg_struct_schema_evolution / DROP_AND_ADD): a struct child whose iceberg
         // name has mixed case must be emitted LOWERCASED. The Doris slot's DataTypeStruct child names are

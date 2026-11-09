@@ -69,4 +69,14 @@ suite("test_iceberg_insert_overwrite_with_empty_table", "p0,external") {
     order_qt_q2 """ select * from ${tb1} """   // should have 3 records
     order_qt_q3 """ select * from ${tb2} """   // should have no records
 
+    // With strict DML consistency off (the cloud default), the sink of an unpartitioned table sits directly on
+    // the empty relation of a source the planner proves empty, and no writer runs. Such an insert of nothing
+    // skips its transaction, but an overwrite still clears the table.
+    sql """ insert into ${tb2} values (1,1), (1,2), (1,3) """
+    sql """ set enable_strict_consistency_dml = false """
+    qt_q4_plan """ explain shape plan insert overwrite table ${tb2} select * from ${tb2} limit 0 """
+    sql """ insert overwrite table ${tb2} select * from ${tb2} limit 0 """
+    sql """ set enable_strict_consistency_dml = true """
+    order_qt_q4 """ select * from ${tb2} """   // should have no records
+
 }

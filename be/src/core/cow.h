@@ -429,7 +429,7 @@ public:
     //       |                               ~~~~~~~ ^~~~~~~~~~~~~~~~~~~~~~~~
     // ColumnPtr res_data_column = ColumnUInt8::create(1, 1);
     template <typename... Args>
-    static MutablePtr create(Args&&... args) {
+    ALWAYS_INLINE static MutablePtr create(Args&&... args) {
         return MutablePtr(new Derived(std::forward<Args>(args)...));
     }
 #include "common/compile_check_avoid_end.h"

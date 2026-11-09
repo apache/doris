@@ -47,8 +47,8 @@ public:
     MockConstVExpr() : VExpr(make_tnode()) {}
 
     Status get_const_col(VExprContext* /*context*/,
-                         std::shared_ptr<ColumnPtrWrapper>* output) override {
-        *output = std::make_shared<ColumnPtrWrapper>(_col);
+                         std::shared_ptr<ConstantExprResult>* output) override {
+        *output = std::make_shared<ConstantExprResult>(_col);
         return Status::OK();
     }
 

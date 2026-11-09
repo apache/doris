@@ -263,6 +263,21 @@ suite("test_iceberg_mtmv", "p0,external,iceberg,external_docker,external_docker_
         order_qt_refresh_all_partition_rewrite "${mvSql}"
         mv_rewrite_success("${mvSql}", "${mvName}")
 
+        // A new source partition must use partition compensation even when the MV was previously complete.
+        sql """
+            insert into ${catalog_name}.${icebergDb}.${icebergTable3}
+            values (1, 3, "2024-01-03"), (2, 3, "2024-01-03")
+        """
+        sql """refresh table ${catalog_name}.${icebergDb}.${icebergTable3}"""
+        def showPartitionsAfterAdd = sql """show partitions from ${mvName}"""
+        assertFalse(showPartitionsAfterAdd.toString().contains("p_20240103000000_20240104000000"))
+        def explainNewPartition = sql """explain ${mvSql}"""
+        logger.info("explainNewPartition: " + explainNewPartition.toString())
+        assertTrue(explainNewPartition.toString().contains("VUNION"))
+        assertFalse(explainNewPartition.toString().contains("group expression count exceeds"))
+        order_qt_new_source_partition_rewrite "${mvSql}"
+        mv_rewrite_success("${mvSql}", "${mvName}")
+
         sql """drop materialized view if exists ${mvName};"""
         sql """drop table if exists ${catalog_name}.${icebergDb}.${icebergTable3}"""
 

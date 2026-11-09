@@ -83,6 +83,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayShuffle;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySlice;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySort;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySortBy;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySortedMerge;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySplit;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySum;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayUnion;
@@ -163,6 +164,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentUser;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CutIpv6;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CutToFirstSignificantSubdomain;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DamerauLevenshteinDistance;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.DataSketchesHllDownsample;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Database;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Date;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateDiff;
@@ -639,6 +641,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             lambdaScalar(ArrayMatchAny.class, LambdaBindingSpecs.ARRAY_ZIP, "array_match_any"),
             lambdaScalar(ArrayReverseSplit.class, LambdaBindingSpecs.ARRAY_ZIP, "array_reverse_split"),
             lambdaScalar(ArraySort.class, LambdaBindingSpecs.ARRAY_COMPARATOR, "array_sort"),
+            lambdaScalar(ArraySortedMerge.class, LambdaBindingSpecs.ARRAY_SORTED_MERGE, "array_sorted_merge"),
             lambdaScalar(ArraySortBy.class, LambdaBindingSpecs.ARRAY_ZIP, "array_sortby"),
             lambdaScalar(ArraySplit.class, LambdaBindingSpecs.ARRAY_ZIP, "array_split"),
             lambdaScalar(MapAll.class, LambdaBindingSpecs.MAP_ENTRIES, "map_all"),
@@ -773,6 +776,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(CutIpv6.class, "cut_ipv6"),
             scalar(CutToFirstSignificantSubdomain.class, "cut_to_first_significant_subdomain"),
             scalar(DamerauLevenshteinDistance.class, "damerau_levenshtein_distance"),
+            scalar(DataSketchesHllDownsample.class, "datasketches_hll_downsample"),
             scalar(Database.class, "database", "schema", "current_database"),
             scalar(Date.class, "date"),
             scalar(DateDiff.class, "datediff"),

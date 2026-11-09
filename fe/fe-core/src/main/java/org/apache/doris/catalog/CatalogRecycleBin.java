@@ -275,6 +275,15 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         return idToRecycleTime.get(id);
     }
 
+    /**
+     * The table of a recycle bin entry. It keeps the id of the dropped table and is the instance which
+     * {@code RECOVER TABLE} registers again, so its lock is the lock of the recovered table as well.
+     */
+    public Table getRecycledTable(long tableId) {
+        RecycleTableInfo tableInfo = idToTable.get(tableId);
+        return tableInfo == null ? null : tableInfo.getTable();
+    }
+
     public void setRecycleTimeByIdForReplay(long id, Long recycleTime) {
         idToRecycleTime.put(id, recycleTime);
     }

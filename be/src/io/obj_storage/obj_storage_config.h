@@ -24,6 +24,7 @@
 
 #include "common/status.h"
 #include "cpp/aws_common.h"
+#include "cpp/obj-client/auth/azure/azure_auth.h"
 #include "cpp/obj-client/auth/obj_credential.h"
 #include "cpp/obj-client/obj_storage_client.h"
 
@@ -45,6 +46,9 @@ namespace doris::io {
 // Only S3 clients apply these options today. Azure clients ignore them, although they still
 // tell cached Azure clients apart, as in the legacy conf.
 struct ObjStorageConnectionOptions {
+    // Sizes the connection pool of one cached S3 client on one BE; a request waits for a free
+    // connection when the pool is exhausted. One S3 client serves every bucket of its
+    // configuration, so with 50, two buckets share 50 connections, not 50 each.
     // Non-positive values keep the SDK/BE defaults, as in the legacy conf.
     int max_connections = -1;
     int request_timeout_ms = -1;
@@ -89,19 +93,11 @@ struct S3ClientConfig {
     bool operator==(const S3ClientConfig&) const = default;
 };
 
-struct AzureSharedKeyConfig {
-    std::string account_key;
-
-    bool operator==(const AzureSharedKeyConfig&) const = default;
-};
-
-// One alternative per Azure authentication method. Only SharedKey exists so far; another
-// method is added as another alternative, so two methods can never be carried together.
-using AzureAuthConfig = std::variant<AzureSharedKeyConfig>;
-
+// The authentication is the AzureAuthConfig shared with Recycler (common/cpp,
+// azure/azure_auth.h), which owns its methods and their rules; BE only adds the storage target.
 struct AzureClientConfig {
     std::string endpoint;
-    // Required by SharedKey, which signs requests with the account name.
+    // The storage account the endpoint names; SharedKey signs requests with it.
     std::string account;
     // The Azure SDK client is bound to one blob container, so the container is part of
     // the client identity. S3 clients are not bound to a bucket and do not carry one.
@@ -144,10 +140,6 @@ struct ObjStorageConfig {
     std::string to_string() const;
 };
 
-// Adapter from the storage-domain provider to the credential layer's own provider identity,
-// used where a provider-native credential is validated.
-ObjCredentialProvider to_obj_credential_provider(ObjStorageProvider provider);
-
 // Whether the configuration is valid for its backend. Every client request is checked with it
 // before anything is built or looked up (ObjClientFactory), and FE properties are checked with
 // it right after conversion (ObjStorageConfigResolver).
@@ -157,7 +149,8 @@ Status validate_obj_client_config(const ObjClientConfig& config);
 // target stays: S3 keeps its endpoint, region and endpoint override, Azure keeps its endpoint.
 // Credentials, connection options, usage, the S3 vendor and addressing, and the Azure account
 // and container come from `update`, as the flat-field merge does. A different backend is a
-// different storage target, which needs a new binding rather than a reset, so it is rejected.
+// different storage target, which a merge cannot express, so it is rejected;
+// ObjStorageFileSystem::refresh_resource handles it for a refreshed resource.
 Result<ObjClientConfig> merge_obj_client_config(const ObjClientConfig& current,
                                                 const ObjClientConfig& update);
 

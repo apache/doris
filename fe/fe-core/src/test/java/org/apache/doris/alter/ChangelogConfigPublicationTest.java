@@ -39,6 +39,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.cache.NereidsSqlCacheManager;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.datasource.mvcc.MvccReadSelector;
 import org.apache.doris.nereids.SqlCacheContext;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyTablePropertiesOp;
 import org.apache.doris.persist.EditLog;
@@ -199,7 +200,8 @@ public class ChangelogConfigPublicationTest {
         SqlCacheContext cachedRead = Mockito.mock(SqlCacheContext.class);
         SqlCacheContext.TableVersion version = new SqlCacheContext.TableVersion(table.getId(), 1, Table.TableType.OLAP);
         Mockito.when(cachedRead.getUsedTables()).thenReturn(ImmutableMap.of(
-                new SqlCacheContext.FullTableName("internal", "db", "tbl"), version));
+                new SqlCacheContext.TableReference(new SqlCacheContext.FullTableName("internal", "db", "tbl"),
+                        MvccReadSelector.LATEST), version));
         cache.getSqlCaches().put("cached-incr-read", cachedRead);
         Mockito.when(replayEnv.getSqlCacheManager()).thenReturn(cache);
         InternalCatalog catalog = Mockito.mock(InternalCatalog.class);

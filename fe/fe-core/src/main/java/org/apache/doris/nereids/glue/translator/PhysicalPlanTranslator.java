@@ -3491,7 +3491,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 AggregateInfo.AggPhase.FIRST);
 
         BucketedAggregationNode bucketedAggNode = new BucketedAggregationNode(
-                context.nextPlanNodeId(), inputPlanFragment.getPlanRoot(), aggInfo, true);
+                context.nextPlanNodeId(), inputPlanFragment.getPlanRoot(), aggInfo, true,
+                context.getSessionVariable().bucketedAggNumBuckets);
 
         bucketedAggNode.setNereidsId(aggregate.getId());
         context.getNereidsIdToPlanNodeIdMap().put(aggregate.getId(), bucketedAggNode.getId());
@@ -3792,6 +3793,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
      * refer pr: optimize topn query if order by columns is prefix of sort keys of table (#10694)
      */
     private boolean checkPushSort(SortNode sortNode, OlapTable olapTable) {
+        if (olapTable.hasRowTtl()) {
+            return false;
+        }
         // Ensure limit is less than threshold
         if (sortNode.getLimit() <= 0
                 || sortNode.getLimit() > context.getSessionVariable().topnOptLimitThreshold) {
