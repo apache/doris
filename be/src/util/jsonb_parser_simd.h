@@ -152,12 +152,19 @@ public:
     // parse a UTF-8 JSON string with length
     // will reset writer before parse
     static Status parse(const char* pch, size_t len, JsonbWriter& writer) {
+        simdjson::ondemand::parser simdjson_parser;
+        return parse(pch, len, writer, simdjson_parser);
+    }
+
+    // Reuse parser buffers across documents, e.g. when converting a column of JSON strings.
+    // No ondemand values escape this call, so the parser can parse the next row on return.
+    static Status parse(const char* pch, size_t len, JsonbWriter& writer,
+                        simdjson::ondemand::parser& simdjson_parser) {
         if (!pch || len == 0) {
             return Status::InvalidArgument("Empty JSON document");
         }
         writer.reset();
         try {
-            simdjson::ondemand::parser simdjson_parser;
             simdjson::padded_string json_str {pch, len};
             simdjson::ondemand::document doc = simdjson_parser.iterate(json_str);
             bool root_number_validated_from_raw_token = false;

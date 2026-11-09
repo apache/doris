@@ -20,6 +20,7 @@
 #include <gtest/gtest.h>
 
 #include <string>
+#include <vector>
 
 using std::string;
 
@@ -55,4 +56,36 @@ TEST(JsonBinaryValueTest, TestValidation) {
         EXPECT_TRUE(status.ok()) << "Should succeed for: [" << valid_strs[i] << "]";
     }
 }
+
+TEST(JsonBinaryValueTest, ReuseParserAcrossDocumentsAndErrors) {
+    JsonBinaryValue value;
+    const std::vector<std::string> valid_json = {R"({"id":1})",
+                                                 "\"" + std::string(8192, 'x') + "\"",
+                                                 "null",
+                                                 "true",
+                                                 "-123",
+                                                 "18446744073709551616",
+                                                 R"({"nested":["a\nb\u4e2d",false,null,3.25]})",
+                                                 "[]"};
+    const std::vector<std::string> invalid_json = {
+            "", "abc", R"({"a":[1,})", R"({"a":"\uZZZZ"})", "{} {}", "01"};
+
+    for (const auto& invalid : invalid_json) {
+        // Exercise failure after valid input and recovery with the same parser, including
+        // string-buffer growth followed by smaller documents and failures during traversal.
+        for (const auto& json : valid_json) {
+            ASSERT_TRUE(value.from_json_string(json).ok()) << json;
+            JsonbWriter expected;
+            ASSERT_TRUE(JsonbParser::parse(json.data(), json.size(), expected).ok()) << json;
+            EXPECT_EQ(std::string(value.value(), value.size()),
+                      std::string(expected.getOutput()->getBuffer(),
+                                  expected.getOutput()->getSize()));
+
+            EXPECT_FALSE(value.from_json_string(invalid).ok()) << invalid;
+            EXPECT_EQ(value.value(), nullptr);
+            EXPECT_EQ(value.size(), 0);
+        }
+    }
+}
+
 } // namespace doris
