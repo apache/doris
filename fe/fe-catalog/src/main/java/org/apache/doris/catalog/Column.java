@@ -435,6 +435,7 @@ public class Column implements GsonPostProcessable {
         this.clusterKeyId = column.getClusterKeyId();
         this.generatedColumnInfo = column.generatedColumnInfo;
         this.sessionVariables = column.sessionVariables;
+        this.fieldPatternType = column.fieldPatternType;
     }
 
     public void createChildrenColumn(Type type, Column column) {
@@ -463,7 +464,8 @@ public class Column implements GsonPostProcessable {
                 // set column name as pattern
                 Column c = new Column(field.getPattern(), field.getType());
                 c.setIsAllowNull(true);
-                c.setFieldPatternType(field.getPatternType());
+                c.setFieldPatternType(field.getPatternType() == null
+                        ? PatternType.MATCH_NAME_GLOB : field.getPatternType());
                 column.addChildrenColumn(c);
             }
         }
@@ -813,30 +815,7 @@ public class Column implements GsonPostProcessable {
         }
 
         if (type.isVariantType() && other.type.isVariantType()) {
-            if (this.getVariantMaxSubcolumnsCount() != other.getVariantMaxSubcolumnsCount()) {
-                throw new DdlException("Can not change variant max subcolumns count");
-            }
-            if (this.getVariantEnableTypedPathsToSparse() != other.getVariantEnableTypedPathsToSparse()) {
-                throw new DdlException("Can not change variant enable typed paths to sparse");
-            }
-            if (this.getVariantMaxSparseColumnStatisticsSize() != other.getVariantMaxSparseColumnStatisticsSize()) {
-                throw new DdlException("Can not change variant max sparse column statistics size");
-            }
-            if (this.getVariantSparseHashShardCount() != other.getVariantSparseHashShardCount()) {
-                throw new DdlException("Can not change variant sparse bucket num");
-            }
-            if (this.getVariantEnableDocMode() != other.getVariantEnableDocMode()) {
-                throw new DdlException("Can not change variant enable doc snapshot mode");
-            }
-            if (this.getVariantDocShardCount() != other.getVariantDocShardCount()) {
-                throw new DdlException("Can not change variant doc snapshot shard count");
-            }
-            if (this.getVariantEnableNestedGroup() != other.getVariantEnableNestedGroup()) {
-                throw new DdlException("Can not change variant enable nested group");
-            }
-            if (CollectionUtils.isNotEmpty(this.getChildren()) || CollectionUtils.isNotEmpty(other.getChildren())) {
-                throw new DdlException("Can not change variant schema templates");
-            }
+            VariantPropertyChangePolicy.checkColumnLevel(this, other);
         }
     }
 
@@ -974,7 +953,7 @@ public class Column implements GsonPostProcessable {
     public int hashCode() {
         return Objects.hash(name, getDataType(), getStrLen(), getPrecision(), getScale(), aggregationType,
                 isAggregationTypeImplicit, isKey, isAllowNull, isAutoInc, defaultValue, getComment(), children, visible,
-                realDefaultValue, clusterKeyId);
+                realDefaultValue, clusterKeyId, fieldPatternType);
     }
 
     @Override
@@ -1000,7 +979,8 @@ public class Column implements GsonPostProcessable {
                 && visible == other.visible
                 && Objects.equals(children, other.children)
                 && Objects.equals(realDefaultValue, other.realDefaultValue)
-                && clusterKeyId == other.clusterKeyId;
+                && clusterKeyId == other.clusterKeyId
+                && fieldPatternType == other.fieldPatternType;
     }
 
     // distribution column compare only care about attrs which affect data,
@@ -1133,6 +1113,13 @@ public class Column implements GsonPostProcessable {
         }
         if (CollectionUtils.isEmpty(children)) {
             children = null;
+        }
+        if (type.isVariantType() && children != null) {
+            for (Column child : children) {
+                if (child.fieldPatternType == null) {
+                    child.fieldPatternType = PatternType.MATCH_NAME_GLOB;
+                }
+            }
         }
         if (sessionVariables == null) {
             sessionVariables = Maps.newHashMap();

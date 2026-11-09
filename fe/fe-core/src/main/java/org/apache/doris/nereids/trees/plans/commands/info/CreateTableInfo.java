@@ -32,6 +32,7 @@ import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.catalog.VariantTemplateIndexBinder;
 import org.apache.doris.catalog.info.IndexType;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.Config;
@@ -77,8 +78,6 @@ import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewri
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.types.VariantField;
-import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.AutoCloseSessionVariable;
@@ -1444,58 +1443,8 @@ public class CreateTableInfo {
 
                 // check inverted index
                 if (column.getType().isVariantType()) {
-                    Map<String, List<IndexDefinition>> fieldPatternToIndexDef = new HashMap<>();
-                    Map<String, DataType> fieldPatternToDataType = new HashMap<>();
-                    for (IndexDefinition indexDef : indexDefs) {
-                        String fieldPattern = InvertedIndexUtil.getInvertedIndexFieldPattern(indexDef.getProperties());
-                        if (fieldPattern.isEmpty()) {
-                            fieldPatternToIndexDef.computeIfAbsent(fieldPattern, k -> new ArrayList<>()).add(indexDef);
-                            fieldPatternToDataType.put(fieldPattern, column.getType());
-                            continue;
-                        }
-                        boolean findFieldPattern = false;
-                        VariantType variantType = (VariantType) column.getType();
-                        List<VariantField> predefinedFields = variantType.getPredefinedFields();
-                        for (VariantField field : predefinedFields) {
-                            if (field.getPattern().equals(fieldPattern)) {
-                                findFieldPattern = true;
-                                if (!IndexDefinition.isSupportIdxType(field.getDataType())) {
-                                    throw new AnalysisException("field pattern: "
-                                            + fieldPattern + " is not supported for inverted index"
-                                            + " of column: " + column.getName());
-                                }
-
-                                // keep variant subcolumn checks aligned with ordinary column rules
-                                try {
-                                    InvertedIndexUtil.checkInvertedIndexParser(column.getName(),
-                                            field.getDataType().toCatalogDataType().getPrimitiveType(),
-                                            indexDef.getProperties(), invertedIndexFileStorageFormat);
-                                } catch (Exception ex) {
-                                    throw new AnalysisException("invalid INVERTED index: field pattern: "
-                                            + fieldPattern + ", " + ex.getMessage(), ex);
-                                }
-                                fieldPatternToIndexDef.computeIfAbsent(fieldPattern, k -> new ArrayList<>())
-                                                                                                    .add(indexDef);
-                                fieldPatternToDataType.put(fieldPattern, field.getDataType());
-                                break;
-                            }
-                        }
-                        if (!findFieldPattern) {
-                            throw new AnalysisException("can not find field pattern: " + fieldPattern
-                                        + " in column: " + column.getName());
-                        }
-                    }
-                    for (Map.Entry<String, List<IndexDefinition>> fieldIndexEntry : fieldPatternToIndexDef.entrySet()) {
-                        String fieldPattern = fieldIndexEntry.getKey();
-                        List<IndexDefinition> fieldPatternIndexDefs = fieldIndexEntry.getValue();
-                        DataType dataType = fieldPatternToDataType.get(fieldPattern);
-                        if (!InvertedIndexUtil.canHaveMultipleInvertedIndexes(dataType, fieldPatternIndexDefs)) {
-                            throw new AnalysisException("column: "
-                                + column.getName()
-                                + " cannot have multiple inverted indexes of the same type with field pattern: "
-                                + fieldPattern);
-                        }
-                    }
+                    VariantTemplateIndexBinder.validate(column.getName(), column.getType().toCatalogDataType(),
+                            indexDefs, invertedIndexFileStorageFormat);
                 } else {
                     for (IndexDefinition indexDef : indexDefs) {
                         if (!InvertedIndexUtil.getInvertedIndexFieldPattern(indexDef.getProperties()).isEmpty()) {

@@ -4194,30 +4194,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         // The first match wins, the same as the BE writer that picks the physical index of a subcolumn
         // (variant_util.cpp), so a write and a query on one path land on the same index even when
         // the predefined patterns overlap.
-        String subPathString = String.join(".", subPath);
-        String fieldPattern = "";
-        if (column.getChildren() != null) {
-            for (Column child : column.getChildren()) {
-                String childName = child.getName();
-                if (child.getFieldPatternType() == PatternType.MATCH_NAME_GLOB) {
-                    try {
-                        java.nio.file.PathMatcher matcher = java.nio.file.FileSystems.getDefault()
-                                .getPathMatcher("glob:" + childName);
-                        if (matcher.matches(java.nio.file.Paths.get(subPathString))) {
-                            fieldPattern = childName;
-                            break;
-                        }
-                    } catch (Exception e) {
-                        continue;
-                    }
-                } else if (child.getFieldPatternType() == PatternType.MATCH_NAME) {
-                    if (childName.equals(subPathString)) {
-                        fieldPattern = childName;
-                        break;
-                    }
-                }
-            }
-        }
+        String fieldPattern = VariantTemplateIndexBinder.firstMatchingPattern(column, subPath);
 
         List<Index> invertedIndexesWithFieldPattern = new ArrayList<>();
         for (Index index : indexes.getIndexes()) {
