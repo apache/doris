@@ -375,9 +375,9 @@ public class StatementContext implements Closeable {
         this(ConnectContext.get(), null, 0);
     }
 
-    // For StatementScopeIdGenerator
+    // For StatementScopeIdGenerator; its fallback only allocates IDs and must not retain a connection.
     public StatementContext(int initialId) {
-        this(ConnectContext.get(), null, initialId);
+        this(null, null, initialId);
     }
 
     public StatementContext(ConnectContext connectContext, OriginStatement originStatement) {
@@ -395,8 +395,8 @@ public class StatementContext implements Closeable {
             if (CacheAnalyzer.canUseSqlCache(connectContext.getSessionVariable())) {
                 // cannot set the queryId here because the queryId for the current query is set
                 // in the subsequent steps.
-                this.sqlCacheContext = new SqlCacheContext(
-                        connectContext.getCurrentUserIdentity());
+                this.sqlCacheContext = new SqlCacheContext(connectContext.getCurrentUserIdentity(),
+                        Env.getCurrentEnv().getSqlCacheManager().newMetadataSnapshot());
                 if (originStatement != null) {
                     this.sqlCacheContext.setOriginSql(originStatement.originStmt);
                 }

@@ -62,6 +62,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Rule to bind relations in query plan.
@@ -280,26 +281,29 @@ public class CollectRelation implements AnalysisRuleFactory {
             for (MTMV mtmv : mtmvSet) {
                 cascadesContext.getStatementContext().getCandidateMTMVs().add(mtmv);
                 cascadesContext.getStatementContext().getMtmvRelatedTables().put(mtmv.getFullQualifiers(), mtmv);
+                List<List<String>> baseTableQualifiers;
                 mtmv.readMvLock();
                 try {
-                    for (BaseTableInfo baseTableInfo : mtmv.getRelation().getBaseTables()) {
-                        if (!baseTableInfo.isValid()) {
-                            continue;
-                        }
-                        if (isDebugEnabled) {
-                            LOG.debug("mtmv {} related base table include {}", new BaseTableInfo(mtmv), baseTableInfo);
-                        }
-                        try {
-                            // Collect all base tables and lock them before querying
-                            cascadesContext.getStatementContext().getAndCacheTable(baseTableInfo.toList(),
-                                    TableFrom.MTMV, Optional.empty());
-                        } catch (AnalysisException exception) {
-                            LOG.warn("mtmv related base table get err, related table is {}",
-                                    baseTableInfo.toList(), exception);
-                        }
-                    }
+                    // Copy names under the MV lock, but resolve external metadata after releasing it:
+                    // catalog retirement holds the catalog monitor while invalidating MV rewrite caches.
+                    baseTableQualifiers = mtmv.getRelation().getBaseTables().stream()
+                            .filter(BaseTableInfo::isValid)
+                            .map(BaseTableInfo::toList)
+                            .collect(Collectors.toList());
                 } finally {
                     mtmv.readMvUnlock();
+                }
+                for (List<String> baseTableQualifier : baseTableQualifiers) {
+                    if (isDebugEnabled) {
+                        LOG.debug("mtmv {} related base table include {}", new BaseTableInfo(mtmv), baseTableQualifier);
+                    }
+                    try {
+                        // Collect all base tables and lock them before querying
+                        cascadesContext.getStatementContext().getAndCacheTable(baseTableQualifier,
+                                TableFrom.MTMV, Optional.empty());
+                    } catch (AnalysisException exception) {
+                        LOG.warn("mtmv related base table get err, related table is {}", baseTableQualifier, exception);
+                    }
                 }
             }
         }
