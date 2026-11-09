@@ -46,9 +46,7 @@ namespace doris::io {
 // Only S3 clients apply these options today. Azure clients ignore them, although they still
 // tell cached Azure clients apart, as in the legacy conf.
 struct ObjStorageConnectionOptions {
-    // Sizes the connection pool of one cached S3 client on one BE; a request waits for a free
-    // connection when the pool is exhausted. One S3 client serves every bucket of its
-    // configuration, so with 50, two buckets share 50 connections, not 50 each.
+    // Maximum number of connections per cached S3 client on one BE.
     // Non-positive values keep the SDK/BE defaults, as in the legacy conf.
     int max_connections = -1;
     int request_timeout_ms = -1;
@@ -85,6 +83,8 @@ struct S3ClientConfig {
     ObjStorageProvider vendor = ObjStorageProvider::AWS;
     std::string endpoint;
     std::string region;
+    // The BE cache distinguishes buckets. The SDK takes the bucket from each request.
+    std::string cache_bucket;
     // For aws s3, no need to override endpoint.
     bool need_override_endpoint = true;
     bool use_virtual_addressing = true;
@@ -100,8 +100,7 @@ struct AzureClientConfig {
     // Required by SharedKey, which signs requests with the account name; may be empty for
     // SAS and client secret, whose requests do not carry it.
     std::string account;
-    // The Azure SDK client is bound to one blob container, so the container is part of
-    // the client identity. S3 clients are not bound to a bucket and do not carry one.
+    // The Azure SDK client is bound to one blob container.
     std::string container;
     AzureAuthConfig auth;
 
@@ -148,10 +147,9 @@ Status validate_obj_client_config(const ObjClientConfig& config);
 
 // Merges a refreshed resource or vault configuration into the one a holder uses. The storage
 // target stays: S3 keeps its endpoint, region and endpoint override, Azure keeps its endpoint.
-// Credentials, connection options, usage, the S3 vendor and addressing, and the Azure account
-// and container come from `update`, as the flat-field merge does. A different backend is a
-// different storage target, which a merge cannot express, so it is rejected;
-// ObjStorageFileSystem::refresh_resource handles it for a refreshed resource.
+// Credentials, connection options, usage, the S3 vendor, cache bucket and addressing, and the
+// Azure account and container come from `update`, as the flat-field merge does.
+// ObjStorageFileSystem::refresh_resource handles backend changes by replacing the file system.
 Result<ObjClientConfig> merge_obj_client_config(const ObjClientConfig& current,
                                                 const ObjClientConfig& update);
 

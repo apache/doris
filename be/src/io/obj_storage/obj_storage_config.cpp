@@ -33,6 +33,7 @@ uint64_t hash_backend(const S3ClientConfig& s3) {
     hash_code ^= static_cast<uint64_t>(s3.vendor);
     hash_code ^= crc32_hash(s3.endpoint);
     hash_code ^= crc32_hash(s3.region);
+    hash_code ^= crc32_hash(s3.cache_bucket);
     hash_code ^= s3.need_override_endpoint;
     hash_code ^= s3.use_virtual_addressing;
     // Hash ak + sk together so that swapping them does not produce the same result.
@@ -150,10 +151,10 @@ Status validate_client_backend(const AzureClientConfig& azure) {
     return Status::OK();
 }
 
-// The storage target stays (endpoint, region, endpoint override); the refreshed source's vendor,
-// addressing and credentials apply, as in the flat merge.
+// Keep the storage target and use the refreshed source's cache bucket, as in the flat merge.
 void merge_client_backend(S3ClientConfig& merged, const S3ClientConfig& update) {
     merged.vendor = update.vendor;
+    merged.cache_bucket = update.cache_bucket;
     merged.use_virtual_addressing = update.use_virtual_addressing;
     merged.auth = update.auth;
 }

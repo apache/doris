@@ -1503,6 +1503,7 @@ private:
                                 .vendor = doris::io::ObjStorageProvider::AWS,
                                 .endpoint = doris::config::test_s3_endpoint,
                                 .region = doris::config::test_s3_region,
+                                .cache_bucket = "",
                                 .need_override_endpoint = true,
                                 .use_virtual_addressing = true,
                                 .auth =

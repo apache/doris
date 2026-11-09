@@ -152,6 +152,7 @@ TEST_F(ObjClientFactoryTest, ResolvesS3ParamIntoS3Backend) {
     EXPECT_EQ(s3.vendor, ObjStorageProvider::OSS);
     EXPECT_EQ(s3.endpoint, "resolve-s3.example.com");
     EXPECT_EQ(s3.region, "us-east-1");
+    EXPECT_EQ(s3.cache_bucket, param.bucket);
     EXPECT_TRUE(s3.need_override_endpoint);
     EXPECT_FALSE(s3.use_virtual_addressing);
     EXPECT_EQ(s3.auth.access_key, "ak");
@@ -294,7 +295,7 @@ TEST_F(ObjClientFactoryTest, IdentityOnlyCoversFieldsOfTheSelectedBackend) {
     azure_with_s3_fields.__set_role_arn("role");
     EXPECT_EQ(resolve(azure_param), resolve(azure_with_s3_fields));
 
-    // The Azure client is bound to one container; an S3 client is not bound to a bucket.
+    // The Azure SDK binds a client to a container. The BE S3 cache distinguishes buckets too.
     auto azure_other_container = azure_param;
     azure_other_container.__set_bucket("other-container");
     EXPECT_NE(resolve(azure_param), resolve(azure_other_container));
@@ -302,7 +303,7 @@ TEST_F(ObjClientFactoryTest, IdentityOnlyCoversFieldsOfTheSelectedBackend) {
     auto s3_param = make_s3_param("identity-s3.example.com");
     auto s3_other_bucket = s3_param;
     s3_other_bucket.__set_bucket("other-bucket");
-    EXPECT_EQ(resolve(s3_param), resolve(s3_other_bucket));
+    EXPECT_NE(resolve(s3_param), resolve(s3_other_bucket));
 
     auto s3_other_region = s3_param;
     s3_other_region.__set_region("other-region");
@@ -341,19 +342,26 @@ TEST_F(ObjClientFactoryTest, S3ProviderCachesByFullConfig) {
     ASSERT_TRUE(first.has_value()) << first.error();
     EXPECT_EQ(_s3_builds, 1);
 
-    auto other_bucket = param;
-    other_bucket.__set_bucket("other-bucket");
-    auto shared = factory.get_or_create(resolve(other_bucket));
+    auto same_bucket = param;
+    same_bucket.__set_root_path("other-prefix");
+    auto shared = factory.get_or_create(resolve(same_bucket));
     ASSERT_TRUE(shared.has_value()) << shared.error();
     EXPECT_EQ(shared.value(), first.value());
     EXPECT_EQ(_s3_builds, 1);
+
+    auto other_bucket = param;
+    other_bucket.__set_bucket("other-bucket");
+    auto bucket_client = factory.get_or_create(resolve(other_bucket));
+    ASSERT_TRUE(bucket_client.has_value()) << bucket_client.error();
+    EXPECT_NE(bucket_client.value(), first.value());
+    EXPECT_EQ(_s3_builds, 2);
 
     auto other_key = param;
     other_key.__set_sk("other-sk");
     auto separate = factory.get_or_create(resolve(other_key));
     ASSERT_TRUE(separate.has_value()) << separate.error();
     EXPECT_NE(separate.value(), first.value());
-    EXPECT_EQ(_s3_builds, 2);
+    EXPECT_EQ(_s3_builds, 3);
 }
 
 TEST_F(ObjClientFactoryTest, AzureProviderCachesByContainer) {
@@ -515,6 +523,7 @@ TEST_F(ObjClientFactoryTest, ResetMergeKeepsTheStorageTarget) {
     auto current = resolve(make_s3_param("merge-target.example.com"));
     auto update_param = make_s3_param("other-endpoint.example.com");
     update_param.__set_region("other-region");
+    update_param.__set_bucket("other-bucket");
     update_param.__set_sk("new-sk");
     update_param.__set_use_path_style(true);
     update_param.__set_max_conn(7);
@@ -525,6 +534,7 @@ TEST_F(ObjClientFactoryTest, ResetMergeKeepsTheStorageTarget) {
     // The target stays; credentials, addressing and connection options follow the update.
     EXPECT_EQ(s3.endpoint, "merge-target.example.com");
     EXPECT_EQ(s3.region, "us-east-1");
+    EXPECT_EQ(s3.cache_bucket, update_param.bucket);
     EXPECT_EQ(s3.auth.secret_key, "new-sk");
     EXPECT_FALSE(s3.use_virtual_addressing);
     EXPECT_EQ(merged->connection.max_connections, 7);
@@ -784,6 +794,8 @@ TEST_F(ObjClientFactoryTest, ResolvesPropertiesAndVaults) {
     ASSERT_TRUE(from_props.has_value()) << from_props.error();
     EXPECT_EQ(from_props->bucket, "props-bucket");
     EXPECT_EQ(from_props->prefix, "");
+    EXPECT_EQ(std::get<S3ClientConfig>(from_props->client.backend).cache_bucket,
+              from_props->bucket);
     EXPECT_FALSE(std::get<S3ClientConfig>(from_props->client.backend).use_virtual_addressing);
     EXPECT_EQ(from_props->client.connection.max_connections, 8);
 
@@ -828,6 +840,7 @@ TEST_F(ObjClientFactoryTest, ResolvesPropertiesAndVaults) {
     auto from_vault = TEST_TRY(ObjStorageConfigResolver::from_object_store_info(vault));
     EXPECT_EQ(from_vault.bucket, "vault-bucket");
     EXPECT_EQ(from_vault.prefix, "vault-prefix");
+    EXPECT_EQ(std::get<S3ClientConfig>(from_vault.client.backend).cache_bucket, from_vault.bucket);
     // A storage vault is a Doris internal bucket.
     EXPECT_EQ(from_vault.client.usage, ClientUsage::INTERNAL_STORAGE);
     EXPECT_EQ(from_vault.client.provider(), ObjStorageProvider::COS);

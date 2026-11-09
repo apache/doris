@@ -50,7 +50,6 @@ struct FlatClientFields {
     std::string ak;
     std::string sk;
     std::string token;
-    // The Azure container; unused by S3, whose clients are not bound to a bucket.
     std::string bucket;
     ObjStorageProvider provider = ObjStorageProvider::AWS;
     int max_connections = -1;
@@ -132,6 +131,7 @@ Result<std::variant<S3ClientConfig, AzureClientConfig>> flat_backend(
             .vendor = fields.provider,
             .endpoint = fields.endpoint,
             .region = fields.region,
+            .cache_bucket = fields.bucket,
             .need_override_endpoint = fields.need_override_endpoint,
             .use_virtual_addressing = fields.use_virtual_addressing,
             .auth =
@@ -246,7 +246,6 @@ Result<ObjStorageConfig> ObjStorageConfigResolver::from_properties(
         return ResultError(Status::InvalidArgument("Invalid S3 URI {}, bucket is not specified",
                                                    location.original));
     }
-    // For azure's compatibility
     fields.bucket = location.bucket;
 
     // See https://sdk.amazonaws.com/cpp/api/LATEST/class_aws_1_1_s3_1_1_s3_client.html
