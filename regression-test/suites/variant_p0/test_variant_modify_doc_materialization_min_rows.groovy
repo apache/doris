@@ -21,11 +21,11 @@ suite("test_variant_modify_doc_materialization_min_rows", "p0") {
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
 
-    // Step 1: Create table with variant_doc_materialization_min_rows=10
+    // Step 1: Create table with variant_subcolumn_extraction_min_rows=10
     sql """
         CREATE TABLE ${tableName} (
             k INT,
-            v variant<properties("variant_enable_doc_mode"="true","variant_doc_materialization_min_rows"="10", "variant_doc_hash_shard_count" = "32")>
+            v variant<properties("variant_enable_doc_mode"="true","variant_subcolumn_extraction_min_rows"="10", "variant_sparse_shard_count" = "32")>
         ) ENGINE=OLAP
         DUPLICATE KEY(k)
         DISTRIBUTED BY HASH(k) BUCKETS 1
@@ -38,7 +38,6 @@ suite("test_variant_modify_doc_materialization_min_rows", "p0") {
     // Verify SHOW CREATE TABLE shows min_rows=5
     def createResult = sql """ SHOW CREATE TABLE ${tableName} """
     def createStmt = createResult[0][1]
-    // the deprecated name is printed as the property that replaced it
     assertTrue(createStmt.contains('"variant_subcolumn_extraction_min_rows" = "10"'),
         "SHOW CREATE TABLE should show variant_subcolumn_extraction_min_rows=10, got: ${createStmt}")
 
@@ -61,7 +60,7 @@ suite("test_variant_modify_doc_materialization_min_rows", "p0") {
     // Step 2: MODIFY COLUMN cannot change the row threshold
     test {
         sql """
-            ALTER TABLE ${tableName} MODIFY COLUMN v variant<properties("variant_enable_doc_mode"="true","variant_doc_materialization_min_rows"="2", "variant_doc_hash_shard_count" = "32")>;
+            ALTER TABLE ${tableName} MODIFY COLUMN v variant<properties("variant_enable_doc_mode"="true","variant_subcolumn_extraction_min_rows"="2", "variant_sparse_shard_count" = "32")>;
         """
         exception "Can not change variant subcolumn extraction min rows"
     }

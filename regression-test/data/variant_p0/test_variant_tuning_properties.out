@@ -65,5 +65,4 @@ payload	variant<PROPERTIES ("variant_max_subcolumns_count" = "0","variant_enable
 -- !deprecated_names --
 k	int	Yes	true	\N	
 v	variant<PROPERTIES ("variant_max_subcolumns_count" = "2048","variant_enable_typed_paths_to_sparse" = "false","variant_max_sparse_column_statistics_size" = "10000","variant_subcolumn_extraction_min_rows" = "0","variant_sparse_shard_count" = "2")>	Yes	false	\N	NONE
-d	variant<PROPERTIES ("variant_enable_doc_mode" = "true","variant_max_subcolumns_count" = "2048","variant_subcolumn_extraction_min_rows" = "10","variant_sparse_shard_count" = "4")>	Yes	false	\N	NONE
 

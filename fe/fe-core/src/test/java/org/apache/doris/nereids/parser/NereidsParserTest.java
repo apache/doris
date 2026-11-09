@@ -1764,10 +1764,9 @@ public class NereidsParserTest extends ParserTestBase {
                 // a deprecated name cannot be set beside the property that replaced it
                 "variant<PROPERTIES(\"variant_sparse_shard_count\" = \"2\", "
                         + "\"variant_sparse_hash_shard_count\" = \"2\")>",
-                "variant<PROPERTIES(\"variant_sparse_hash_shard_count\" = \"2\", "
-                        + "\"variant_doc_hash_shard_count\" = \"2\")>",
-                "variant<PROPERTIES(\"variant_subcolumn_extraction_min_rows\" = \"2\", "
-                        + "\"variant_doc_materialization_min_rows\" = \"2\")>"};
+                // the doc mode names of the row threshold and the shard count are not accepted
+                "variant<PROPERTIES(" + doc + ", \"variant_doc_materialization_min_rows\" = \"2\")>",
+                "variant<PROPERTIES(" + doc + ", \"variant_doc_hash_shard_count\" = \"2\")>"};
         for (String type : rejected) {
             Assertions.assertThrows(Exception.class, () -> parser.parseDataType(type), type);
         }
@@ -1809,7 +1808,8 @@ public class NereidsParserTest extends ParserTestBase {
 
     @Test
     public void testVariantDeprecatedPropertyNames() {
-        // what older versions print in SHOW CREATE TABLE parses, read as the properties that replaced it
+        // what released versions print in SHOW CREATE TABLE without doc mode parses, and the shard count is read
+        // as the property that replaced it
         NereidsParser parser = new NereidsParser();
         org.apache.doris.nereids.types.VariantType ordinary = (org.apache.doris.nereids.types.VariantType)
                 parser.parseDataType("variant<PROPERTIES (\"variant_max_subcolumns_count\" = \"2048\","
@@ -1818,18 +1818,8 @@ public class NereidsParserTest extends ParserTestBase {
                         + "\"variant_sparse_hash_shard_count\" = \"4\")>");
         Assertions.assertEquals(4, ordinary.getVariantSparseHashShardCount());
         Assertions.assertEquals(4, ordinary.getVariantDocShardCount());
-
-        org.apache.doris.nereids.types.VariantType doc = (org.apache.doris.nereids.types.VariantType)
-                parser.parseDataType("variant<PROPERTIES (\"variant_enable_doc_mode\" = \"true\","
-                        + "\"variant_doc_materialization_min_rows\" = \"100\","
-                        + "\"variant_doc_hash_shard_count\" = \"8\")>");
-        Assertions.assertEquals(100L, doc.getvariantDocMaterializationMinRows());
-        Assertions.assertEquals(8, doc.getVariantDocShardCount());
-        Assertions.assertEquals(8, doc.getVariantSparseHashShardCount());
-        Assertions.assertTrue(doc.toSql().contains("\"variant_subcolumn_extraction_min_rows\" = \"100\""), doc.toSql());
-        Assertions.assertTrue(doc.toSql().contains("\"variant_sparse_shard_count\" = \"8\""), doc.toSql());
-        Assertions.assertFalse(doc.toSql().contains("hash_shard_count"), doc.toSql());
-        Assertions.assertFalse(doc.toSql().contains("doc_materialization"), doc.toSql());
+        Assertions.assertTrue(ordinary.toSql().contains("\"variant_sparse_shard_count\" = \"4\""), ordinary.toSql());
+        Assertions.assertFalse(ordinary.toSql().contains("hash_shard_count"), ordinary.toSql());
     }
 
     @Test

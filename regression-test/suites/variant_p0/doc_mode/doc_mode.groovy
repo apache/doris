@@ -26,7 +26,7 @@ suite("regression_test_variant_doc_mode", "p0"){
     sql """
         CREATE TABLE IF NOT EXISTS ${table_min0} (
             k bigint,
-            v variant<properties("variant_enable_doc_mode"="true","variant_doc_materialization_min_rows"="0")>
+            v variant<properties("variant_enable_doc_mode"="true","variant_subcolumn_extraction_min_rows"="0")>
         )
         DUPLICATE KEY(`k`)
         DISTRIBUTED BY HASH(k) BUCKETS 1
@@ -87,7 +87,7 @@ suite("regression_test_variant_doc_mode", "p0"){
     sql """
         CREATE TABLE IF NOT EXISTS ${table_ins} (
             k bigint,
-            v variant<properties("variant_enable_doc_mode"="true","variant_doc_materialization_min_rows"="0")>
+            v variant<properties("variant_enable_doc_mode"="true","variant_subcolumn_extraction_min_rows"="0")>
         )
         DUPLICATE KEY(`k`)
         DISTRIBUTED BY HASH(k) BUCKETS 1
@@ -172,14 +172,14 @@ suite("regression_test_variant_doc_mode", "p0"){
 
     // ----------------------------
     // Case D: doc_mode + min_rows very large
-    // Covers: different variant_doc_materialization_min_rows behavior, compaction consistency
+    // Covers: different variant_subcolumn_extraction_min_rows behavior, compaction consistency
     // ----------------------------
     def table_min_big = "doc_mode_min_big"
     sql """ DROP TABLE IF EXISTS ${table_min_big} """
     sql """
         CREATE TABLE IF NOT EXISTS ${table_min_big} (
             k bigint,
-            v variant<properties("variant_enable_doc_mode"="true","variant_doc_materialization_min_rows"="10000000")>
+            v variant<properties("variant_enable_doc_mode"="true","variant_subcolumn_extraction_min_rows"="10000000")>
         )
         DUPLICATE KEY(`k`)
         DISTRIBUTED BY HASH(k) BUCKETS 1
@@ -243,7 +243,7 @@ suite("regression_test_variant_doc_mode", "p0"){
     sql """
         CREATE TABLE IF NOT EXISTS ${table_override} (
             k bigint,
-            v variant<properties("variant_enable_doc_mode"="true","variant_doc_materialization_min_rows"="0")>
+            v variant<properties("variant_enable_doc_mode"="true","variant_subcolumn_extraction_min_rows"="0")>
         )
         DUPLICATE KEY(`k`)
         DISTRIBUTED BY HASH(k) BUCKETS 1

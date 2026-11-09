@@ -107,7 +107,7 @@ suite("test_variant_predefine_doc_value", "nonConcurrent"){
                 'float_':double,
                 'boolean_':boolean,
                 'varchar_': text,
-                properties("variant_enable_doc_mode" = "true", "variant_doc_materialization_min_rows" = "0")
+                properties("variant_enable_doc_mode" = "true", "variant_subcolumn_extraction_min_rows" = "0")
             > NULL
         ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 2
         PROPERTIES ( "replication_allocation" = "tag.location.default: 1");

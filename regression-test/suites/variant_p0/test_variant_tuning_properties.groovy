@@ -99,28 +99,46 @@ suite("test_variant_tuning_properties") {
     order_qt_no_extraction_read """SELECT k, payload['source'] FROM test_variant_no_extraction
         WHERE CAST(payload['source'] AS STRING) = 'collector-a'"""
 
-    // the deprecated names still work and are printed as the properties that replaced them
+    // the shard count name of released versions without doc mode still works and is printed as the
+    // property that replaced it
     sql "DROP TABLE IF EXISTS test_variant_deprecated_names"
     sql """
         CREATE TABLE test_variant_deprecated_names (
             k INT,
             v VARIANT<PROPERTIES(
                 "variant_max_subcolumns_count" = "2048",
-                "variant_doc_materialization_min_rows" = "0",
                 "variant_sparse_hash_shard_count" = "2",
                 "variant_enable_doc_mode" = "false"
-            )>,
-            d VARIANT<PROPERTIES(
-                "variant_max_subcolumns_count" = "2048",
-                "variant_enable_doc_mode" = "true",
-                "variant_doc_materialization_min_rows" = "10",
-                "variant_doc_hash_shard_count" = "4"
             )>
         )
         DUPLICATE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1
         PROPERTIES ("replication_num" = "1")
     """
     qt_deprecated_names "DESC test_variant_deprecated_names"
+
+    // the doc mode names of the row threshold and the shard count are not accepted
+    test {
+        sql """
+            CREATE TABLE test_variant_doc_mode_names (
+                k INT,
+                v VARIANT<PROPERTIES("variant_enable_doc_mode" = "true", "variant_doc_materialization_min_rows" = "10")>
+            )
+            DUPLICATE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1
+            PROPERTIES ("replication_num" = "1")
+        """
+        exception "only support for"
+    }
+    test {
+        sql """
+            CREATE TABLE test_variant_doc_mode_names (
+                k INT,
+                v VARIANT<PROPERTIES("variant_enable_doc_mode" = "true", "variant_doc_hash_shard_count" = "4")>
+            )
+            DUPLICATE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1
+            PROPERTIES ("replication_num" = "1")
+        """
+        exception "only support for"
+    }
 
     test {
         sql """

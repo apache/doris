@@ -344,15 +344,6 @@ public class PropertyAnalyzer {
 
     public static final String PROPERTIES_VARIANT_ENABLE_DOC_MODE = "variant_enable_doc_mode";
 
-    // Deprecated alias of variant_subcolumn_extraction_min_rows.
-    @Deprecated
-    public static final String PROPERTIES_VARIANT_DOC_MATERIALIZATION_MIN_ROWS =
-            "variant_doc_materialization_min_rows";
-
-    // Deprecated alias of variant_sparse_shard_count.
-    @Deprecated
-    public static final String PROPERTIES_VARIANT_DOC_HASH_SHARD_COUNT = "variant_doc_hash_shard_count";
-
     // Rows a data file needs before it extracts subcolumns, with or without doc mode.
     public static final String PROPERTIES_VARIANT_SUBCOLUMN_EXTRACTION_MIN_ROWS =
             "variant_subcolumn_extraction_min_rows";
@@ -2516,11 +2507,11 @@ public class PropertyAnalyzer {
     }
 
     public static void validateVariantProperties(Map<String, String> properties) throws AnalysisException {
+        // The doc mode names variant_doc_materialization_min_rows and variant_doc_hash_shard_count are not
+        // accepted any more, only the shard count name of released versions without doc mode.
         if (properties != null) {
-            renameDeprecatedVariantProperties(properties, PROPERTIES_VARIANT_SUBCOLUMN_EXTRACTION_MIN_ROWS,
-                    PROPERTIES_VARIANT_DOC_MATERIALIZATION_MIN_ROWS);
             renameDeprecatedVariantProperties(properties, PROPERTIES_VARIANT_SPARSE_SHARD_COUNT,
-                    PROPERTIES_VARIANT_SPARSE_HASH_SHARD_COUNT, PROPERTIES_VARIANT_DOC_HASH_SHARD_COUNT);
+                    PROPERTIES_VARIANT_SPARSE_HASH_SHARD_COUNT);
         }
         // doc mode keeps the subcolumn count, the row threshold and the shard count, but not these settings
         if (properties != null && "true".equalsIgnoreCase(properties.get(PROPERTIES_VARIANT_ENABLE_DOC_MODE))) {
