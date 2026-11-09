@@ -321,6 +321,7 @@ public interface TableIf {
         UniqueConstraint uniqueConstraint = new UniqueConstraint(name, ImmutableSet.copyOf(columns));
         checkConstraintNotExistenceUnsafe(name, uniqueConstraint, constraintMap);
         constraintMap.put(name, uniqueConstraint);
+        notifyConstraintChanged(getConstraintRelatedTables(uniqueConstraint));
         if (!replay) {
             Env.getCurrentEnv().getEditLog().logAddConstraint(
                     new AlterConstraintLog(uniqueConstraint, this));
@@ -332,6 +333,7 @@ public interface TableIf {
         PrimaryKeyConstraint primaryKeyConstraint = new PrimaryKeyConstraint(name, ImmutableSet.copyOf(columns));
         checkConstraintNotExistenceUnsafe(name, primaryKeyConstraint, constraintMap);
         constraintMap.put(name, primaryKeyConstraint);
+        notifyConstraintChanged(getConstraintRelatedTables(primaryKeyConstraint));
         if (!replay) {
             Env.getCurrentEnv().getEditLog().logAddConstraint(
                     new AlterConstraintLog(primaryKeyConstraint, this));
@@ -363,6 +365,7 @@ public interface TableIf {
                 referencedTable);
         primaryKeyConstraint.addForeignTable(this);
         constraintMap.put(name, foreignKeyConstraint);
+        notifyConstraintChanged(getConstraintRelatedTables(foreignKeyConstraint));
         if (!replay) {
             Env.getCurrentEnv().getEditLog().logAddConstraint(
                     new AlterConstraintLog(foreignKeyConstraint, this));
@@ -407,6 +410,7 @@ public interface TableIf {
         MetaLockUtils.writeLockTables(tables);
         try {
             dropConstraintRef(constraint);
+            notifyConstraintChanged(tables);
         } finally {
             MetaLockUtils.writeUnlockTables(tables);
         }
@@ -439,6 +443,11 @@ public interface TableIf {
             tables.add(((ForeignKeyConstraint) constraint).getReferencedTable());
         }
         return tables;
+    }
+
+    default void notifyConstraintChanged(List<TableIf> relatedTables) {
+        Env.getCurrentEnv().onTableChanged(this);
+        relatedTables.forEach(table -> Env.getCurrentEnv().onTableChanged(table));
     }
 
     default void dropConstraint(String name, boolean replay) {
