@@ -30,7 +30,6 @@ namespace {
 constexpr int64_t ICEBERG_DELETION_VECTOR_MIN_BYTES =
         static_cast<int64_t>(ICEBERG_DELETION_VECTOR_BLOB_OVERHEAD_BYTES);
 constexpr int64_t PAIMON_DELETION_VECTOR_MIN_BYTES = 8;
-constexpr int64_t PAIMON_LENGTH_PREFIX_BYTES = 4;
 
 enum class DeletionVectorSizeLimitStatus {
     DATA_QUALITY,
@@ -39,8 +38,7 @@ enum class DeletionVectorSizeLimitStatus {
 
 Status validate_deletion_vector_read_range(const char* description, int64_t offset, int64_t size,
                                            int64_t min_size, int64_t max_size,
-                                           DeletionVectorSizeLimitStatus size_limit_status,
-                                           size_t& bytes_read) {
+                                           DeletionVectorSizeLimitStatus size_limit_status) {
     if (offset < 0) {
         return Status::DataQualityError("{} offset must be non-negative: {}", description, offset);
     }
@@ -60,7 +58,6 @@ Status validate_deletion_vector_read_range(const char* description, int64_t offs
         return Status::DataQualityError("{} offset plus size overflows: offset {}, size {}",
                                         description, offset, size);
     }
-    bytes_read = static_cast<size_t>(size);
     return Status::OK();
 }
 
@@ -82,25 +79,17 @@ Status missing_file_as_error(Status status, const std::string& path) {
 
 Status validate_iceberg_deletion_vector_read_range(int64_t offset, int64_t size,
                                                    size_t& bytes_read) {
-    return validate_deletion_vector_read_range(
+    RETURN_IF_ERROR(validate_deletion_vector_read_range(
             "Iceberg deletion vector", offset, size, ICEBERG_DELETION_VECTOR_MIN_BYTES,
-            MAX_ICEBERG_DELETION_VECTOR_BYTES, DeletionVectorSizeLimitStatus::NOT_SUPPORTED,
-            bytes_read);
+            MAX_ICEBERG_DELETION_VECTOR_BYTES, DeletionVectorSizeLimitStatus::NOT_SUPPORTED));
+    bytes_read = static_cast<size_t>(size);
+    return Status::OK();
 }
 
-Status validate_paimon_deletion_vector_read_range(int64_t offset, int64_t length,
-                                                  size_t& bytes_read) {
-    if (length < 0) {
-        return Status::DataQualityError("Paimon deletion vector length must be non-negative: {}",
-                                        length);
-    }
-    if (length > std::numeric_limits<int64_t>::max() - PAIMON_LENGTH_PREFIX_BYTES) {
-        return Status::DataQualityError("Paimon deletion vector length overflows: {}", length);
-    }
+Status validate_paimon_deletion_vector_read_range(int64_t offset, int64_t size) {
     return validate_deletion_vector_read_range(
-            "Paimon deletion vector", offset, length + PAIMON_LENGTH_PREFIX_BYTES,
-            PAIMON_DELETION_VECTOR_MIN_BYTES, MAX_PAIMON_DELETION_VECTOR_BYTES,
-            DeletionVectorSizeLimitStatus::DATA_QUALITY, bytes_read);
+            "Paimon deletion vector", offset, size, PAIMON_DELETION_VECTOR_MIN_BYTES,
+            MAX_PAIMON_DELETION_VECTOR_BYTES, DeletionVectorSizeLimitStatus::DATA_QUALITY);
 }
 
 DeletionVectorReader::~DeletionVectorReader() {
@@ -151,16 +140,19 @@ Status DeletionVectorReader::open() {
     _init_file_description();
     RETURN_IF_ERROR(missing_file_as_error(_create_file_reader(), _desc.path));
 
+    RETURN_IF_ERROR(validate_file_range(_desc.start_offset, _desc.size));
+    _is_opened = true;
+    return Status::OK();
+}
+
+Status DeletionVectorReader::validate_file_range(size_t offset, size_t size) const {
     const size_t file_size = _file_reader->size();
-    const size_t start_offset = static_cast<size_t>(_desc.start_offset);
-    const size_t range_size = static_cast<size_t>(_desc.size);
-    if (start_offset > file_size || range_size > file_size - start_offset) {
+    if (offset > file_size || size > file_size - offset) {
         return Status::DataQualityError(
                 "Deletion vector range exceeds file size: path {}, offset {}, size {}, file size "
                 "{}",
-                _desc.path, _desc.start_offset, _desc.size, file_size);
+                _desc.path, offset, size, file_size);
     }
-    _is_opened = true;
     return Status::OK();
 }
 
