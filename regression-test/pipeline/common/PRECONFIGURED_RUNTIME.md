@@ -24,7 +24,15 @@ Performance comments use `DORIS_CI_REPORT_BACKEND=github` by default and require
 artifact publication for that directory. Missing GitHub credentials never select
 artifact mode automatically; unknown backend names fail.
 
-For log upload in preconfigured mode, provision a validated ossutil 2.4.1 binary
+Untrusted test containers should explicitly select `DORIS_CI_LOG_BACKEND=artifact`
+and an existing absolute `DORIS_CI_LOG_DIR`. The existing log-upload call then
+collects each file into a unique artifact directory, without any storage credential.
+A separate trusted publisher can redact and upload archived logs to the authorized
+account. Artifact collection is not a claim of remote publication. Never deliver a
+trusted publisher role or GitHub token to PR-controlled code.
+
+For log upload from a trusted process in preconfigured mode, select
+`DORIS_CI_LOG_BACKEND=oss` (the default) and provision a validated ossutil 2.4.1 binary
 at the absolute `DORIS_CI_OSSUTIL` path. Configure `OSS_REGION`, an HTTPS
 `OSS_ENDPOINT` and a build-specific `DORIS_CI_LOG_OSS_PREFIX` such as
 `oss://example-bucket/build-123/logs`. Supply short-lived `OSS_ACCESS_KEY_ID`,

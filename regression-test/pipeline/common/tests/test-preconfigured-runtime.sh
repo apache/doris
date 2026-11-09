@@ -114,4 +114,8 @@ grep -q 'oss://example-bucket/build-1/log.txt' "$TEST_OSS_ARGS"
 OSS_SESSION_TOKEN='' expect_failure upload_doris_log_to_oss "$tmp/log.txt"
 OSS_ENDPOINT=http://example.invalid expect_failure upload_doris_log_to_oss "$tmp/log.txt"
 TEST_UPLOAD_FAIL=true expect_failure upload_doris_log_to_oss "$tmp/log.txt"
+DORIS_CI_LOG_BACKEND=artifact DORIS_CI_LOG_DIR="$tmp/reports" OSS_SESSION_TOKEN='' upload_doris_log_to_oss "$tmp/log.txt"
+[[ $(find "$tmp/reports" -name log.txt | wc -l | tr -d ' ') == 1 ]]
+DORIS_CI_LOG_BACKEND=typo expect_failure upload_doris_log_to_oss "$tmp/log.txt"
+DORIS_CI_LOG_BACKEND=artifact DORIS_CI_LOG_DIR="$tmp/missing" expect_failure upload_doris_log_to_oss "$tmp/log.txt"
 printf 'PASS: preconfigured runtime, startup errors, explicit report routing and STS-only log upload\n'
