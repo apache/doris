@@ -306,13 +306,13 @@ Status JsonReader::get_block(Block* file_block, size_t* rows, bool* eof) {
         return Status::InternalError("JSON v2 reader is not open");
     }
 
-    const auto batch_size = _runtime_state->batch_size();
+    const auto batch_size = cast_set<size_t>(_runtime_state->batch_size());
     const auto max_block_bytes = _runtime_state->preferred_block_size_bytes();
     *rows = 0;
     *eof = false;
+    _logical_rows = 0;
 
-    while (file_block->rows() < batch_size && !_reader_eof &&
-           file_block->bytes() < max_block_bytes) {
+    while (_logical_rows < batch_size && !_reader_eof && file_block->bytes() < max_block_bytes) {
         if (_read_json_by_line && _skip_first_line) {
             RETURN_IF_ERROR(_line_reader->skip_split_prefix(
                     _reader_range.start_offset, _line_delimiter, &_reader_eof, _io_ctx.get()));
@@ -320,7 +320,7 @@ Status JsonReader::get_block(Block* file_block, size_t* rows, bool* eof) {
             continue;
         }
 
-        const size_t original_rows = file_block->rows();
+        const size_t original_rows = _logical_rows;
         size_t size = 0;
         bool is_empty_row = false;
         Status st = Status::OK();
@@ -349,12 +349,13 @@ Status JsonReader::get_block(Block* file_block, size_t* rows, bool* eof) {
         }
         // An ignored or empty JSON object can produce no row. Avoid spinning forever on a document
         // that was consumed but produced no materialized value.
-        if (!is_empty_row && file_block->rows() == original_rows) {
+        if (!is_empty_row && _logical_rows == original_rows) {
             break;
         }
     }
 
-    *rows = file_block->rows();
+    *rows = _logical_rows;
+    DCHECK(file_block->columns() == 0 || file_block->rows() == *rows);
     _record_scan_rows(cast_set<int64_t>(*rows));
     {
         SCOPED_TIMER(_filter_time);
@@ -671,10 +672,8 @@ Status JsonReader::_extract_json_value(size_t size, bool* eof, bool* is_empty_ro
         return Status::DataQualityError(
                 "JSON data is not an array-object, `strip_outer_array` must be FALSE.");
     }
-    if (!_parsed_jsonpaths.empty() && _strip_outer_array &&
-        _json_value.count_elements().value() == 0) {
-        *is_empty_row = true;
-    }
+    // A rooted ondemand array has one cursor. Counting it here would consume records
+    // before jsonpaths materialization; the append path detects an empty array itself.
     return Status::OK();
 }
 
@@ -725,7 +724,7 @@ Status JsonReader::_append_flat_array_jsonpath_rows(Block* block, bool* is_empty
     DORIS_CHECK(block != nullptr);
     DORIS_CHECK(is_empty_row != nullptr);
     DORIS_CHECK(eof != nullptr);
-    const size_t original_rows = block->rows();
+    const size_t original_rows = _logical_rows;
     bool valid = true;
     _array = _json_value.get_array();
     _array_iter = _array.begin();
@@ -753,7 +752,7 @@ Status JsonReader::_append_flat_array_jsonpath_rows(Block* block, bool* is_empty
         RETURN_IF_ERROR(_write_columns_by_jsonpath(&object_value, block, &valid));
         ++_array_iter;
     }
-    *is_empty_row = block->rows() == original_rows;
+    *is_empty_row = _logical_rows == original_rows;
     return Status::OK();
 }
 
@@ -777,7 +776,7 @@ Status JsonReader::_set_column_values_from_object(simdjson::ondemand::object* ob
     DORIS_CHECK(block != nullptr);
     DORIS_CHECK(valid != nullptr);
     std::vector<bool> seen_columns(block->columns(), false);
-    const size_t cur_row_count = block->rows();
+    const size_t cur_row_count = _logical_rows;
     bool has_valid_value = false;
     size_t key_index = 0;
 
@@ -821,8 +820,28 @@ Status JsonReader::_set_column_values_from_object(simdjson::ondemand::object* ob
         }
     }
     *valid = true;
+    ++_logical_rows;
     if (!has_valid_value) {
         return Status::OK();
+    }
+    return Status::OK();
+}
+
+Status JsonReader::_has_matching_jsonpath(simdjson::ondemand::object* object_value,
+                                          bool* matches) const {
+    *matches = false;
+    for (const auto& path : _parsed_jsonpaths) {
+        // A root path selects the current document without a field lookup.
+        if (JsonFunctions::is_root_path(path)) {
+            *matches = true;
+            continue;
+        }
+        simdjson::ondemand::value value;
+        const auto status = JsonFunctions::extract_from_object(*object_value, path, &value);
+        if (!status.ok() && !status.is<ErrorCode::NOT_FOUND>()) {
+            return status;
+        }
+        *matches = *matches || status.ok();
     }
     return Status::OK();
 }
@@ -833,8 +852,13 @@ Status JsonReader::_write_columns_by_jsonpath(simdjson::ondemand::object* object
     DORIS_CHECK(block != nullptr);
     DORIS_CHECK(valid != nullptr);
     bool has_valid_value = false;
-    const size_t cur_row_count = block->rows();
+    const size_t cur_row_count = _logical_rows;
     _cached_string_values.clear();
+
+    // Even without projected fields, jsonpaths still decides whether the object contributes a row.
+    if (_requested_columns.empty()) {
+        RETURN_IF_ERROR(_has_matching_jsonpath(object_value, &has_valid_value));
+    }
 
     for (size_t i = 0; i < _requested_columns.size(); ++i) {
         const auto& requested = _requested_columns[i];
@@ -889,6 +913,7 @@ Status JsonReader::_write_columns_by_jsonpath(simdjson::ondemand::object* object
         return Status::OK();
     }
     *valid = true;
+    ++_logical_rows;
     return Status::OK();
 }
 
@@ -1086,6 +1111,7 @@ Status JsonReader::_append_null_for_malformed_json(Block* block) {
         assert_cast<ColumnNullable*>(column.get())->insert_default();
         column_with_type.column = std::move(column);
     }
+    ++_logical_rows;
     return Status::OK();
 }
 
@@ -1097,6 +1123,7 @@ Status JsonReader::_handle_json_error(const Status& status, Block* block, size_t
     // block to the row count before this document before either surfacing the error or appending
     // the ignore-malformed null row.
     _truncate_block_to_rows(block, original_rows);
+    _logical_rows = original_rows;
     if (_openx_json_ignore_malformed && status.is<ErrorCode::DATA_QUALITY_ERROR>()) {
         RETURN_IF_ERROR(_append_null_for_malformed_json(block));
         *is_empty_row = false;
