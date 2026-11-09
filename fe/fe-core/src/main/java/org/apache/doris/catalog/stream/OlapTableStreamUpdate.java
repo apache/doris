@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog.stream;
 
+import org.apache.doris.catalog.stream.OlapTableStream.PartitionStreamState;
 import org.apache.doris.common.UserException;
 import org.apache.doris.transaction.TransactionCommitFailedException;
 
@@ -59,32 +60,29 @@ public class OlapTableStreamUpdate extends AbstractTableStreamUpdate {
         this.prev.putAll(((OlapTableStreamUpdate) other).getPrev());
     }
 
-    public void checkPartitionOffset(String dbName, String streamName, Map<Long, Long> historicalPartitionTSO,
-                                     Map<Long, Long> partitionOffset)
+    public void checkPartitionOffset(String dbName, String streamName, Map<Long, PartitionStreamState> partitionStates)
             throws UserException {
         for (Map.Entry<Long, Long> entry : prev.entrySet()) {
-            if (historicalPartitionTSO.containsKey(entry.getKey())) {
-                if (!historicalPartitionTSO.get(entry.getKey()).equals(-entry.getValue())) {
+            PartitionStreamState state = partitionStates.get(entry.getKey());
+            if (state != null && state.getHistoricalTso() != null) {
+                if (!state.getHistoricalTso().equals(-entry.getValue())) {
                     throw new TransactionCommitFailedException("history offset not consumed: "
                             + dbName + '-' + streamName + '-' + entry.getKey() + '-' + entry.getValue()
-                            + " vs " + historicalPartitionTSO.get(entry.getKey()));
+                            + " vs " + state.getHistoricalTso());
                 }
-            } else if (partitionOffset.containsKey(entry.getKey())
-                    && !partitionOffset.get(entry.getKey()).equals(entry.getValue())) {
+            } else if (state != null && state.getOffset() != null
+                    && !state.getOffset().equals(entry.getValue())) {
                 throw new TransactionCommitFailedException("target offset already consumed: "
                         + dbName + '-' + streamName + '-' + entry.getKey() + '-' + entry.getValue()
-                        + " vs " + partitionOffset.get(entry.getKey()));
+                        + " vs " + state.getOffset());
             }
         }
         for (Map.Entry<Long, Long> entry : next.entrySet()) {
-            if (partitionOffset.containsKey(entry.getKey())) {
-                if (!prev.containsKey(entry.getKey())) {
-                    throw new TransactionCommitFailedException(
-                            "previous version missing for partition=" + entry.getKey() + ", db=" + dbName
-                                    + ", stream=" + streamName);
-                }
-            } else {
-                // the new partition id may not be updated in time, so key in table stream not exist is also valid
+            PartitionStreamState state = partitionStates.get(entry.getKey());
+            if (state != null && state.getOffset() != null && !prev.containsKey(entry.getKey())) {
+                throw new TransactionCommitFailedException(
+                        "previous version missing for partition=" + entry.getKey() + ", db=" + dbName
+                                + ", stream=" + streamName);
             }
         }
     }

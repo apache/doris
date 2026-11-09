@@ -154,7 +154,6 @@ private:
     DataTypePtr _native_type;
     std::unique_ptr<VariantMaterializationNode> _variant_plan;
     MutableColumnPtr _variant_physical_column;
-    std::unique_ptr<RuntimeState> _page_cache_runtime_state;
     std::vector<RowRange> _selected_ranges;
     size_t _selected_range_idx = 0;
     int64_t _logical_row_position = 0;

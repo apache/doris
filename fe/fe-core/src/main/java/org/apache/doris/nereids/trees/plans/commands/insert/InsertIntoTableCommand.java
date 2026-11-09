@@ -722,7 +722,7 @@ public class InsertIntoTableCommand extends Command
             }
 
             @Override
-            protected void doDistribute(boolean canUseNereidsDistributePlanner, ExplainLevel explainLevel) {
+            protected void doDistribute(ExplainLevel explainLevel) {
                 // when enter this method, the step 1 already executed
 
                 // step 2
@@ -730,7 +730,7 @@ public class InsertIntoTableCommand extends Command
                         selectInsertExecutorFactory(this, ctx, stmtExecutor, targetTableIf)
                 );
                 // step 3
-                super.doDistribute(canUseNereidsDistributePlanner, explainLevel);
+                super.doDistribute(explainLevel);
             }
         };
 

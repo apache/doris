@@ -1515,3 +1515,8 @@ Other dependencies:
     * pugixml 1.15 -- licenses/LICENSE-pugixml.txt
     * darts-clone (double-array trie, compiled into the kuromoji dictionary) -- licenses/LICENSE-darts-clone.txt
     * mecab-ipadic (IPADIC) 2.7.0-20250920 (Japanese dictionary data shipped under be/dict/kuromoji) -- licenses/LICENSE-ipadic.txt
+
+    * MongoDB C Driver (libmongoc/libbson): 2.5.8 -- Apache License 2.0; bundled notices in licenses/LICENSE-mongo-c-driver.txt
+    * MongoDB Java Sync Driver (sync/core/bson/bson-record-codec): 5.14.0 -- Apache License 2.0
+    * snappy-java (MongoDB bundle): 1.1.10.10 -- Apache License 2.0
+    * zstd-jni (MongoDB bundle): 1.5.7-25 -- licenses/LICENSE-zstd-jni.txt

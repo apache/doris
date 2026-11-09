@@ -38,17 +38,20 @@ struct IOContext;
 
 namespace doris {
 class RuntimeProfile;
+class TFileEncryptionInfo;
 } // namespace doris
 
 namespace doris::format::parquet {
 
 struct NativeParquetPageIndex;
+class ParquetFileCrypto;
 
 // V2-owned footer/schema tree. Production planning and decoding consume this object directly;
 // Arrow metadata is intentionally not materialized from the serialized footer.
 class NativeParquetMetadata {
 public:
-    NativeParquetMetadata(tparquet::FileMetaData metadata, size_t parsed_size);
+    NativeParquetMetadata(tparquet::FileMetaData metadata, size_t parsed_size,
+                          std::shared_ptr<const ParquetFileCrypto> crypto = nullptr);
     ~NativeParquetMetadata();
 
     Status init_schema(bool enable_mapping_varbinary, bool enable_mapping_timestamp_tz,
@@ -56,11 +59,13 @@ public:
     const tparquet::FileMetaData& to_thrift() const { return _metadata; }
     const NativeFieldDescriptor& schema() const { return _schema; }
     size_t get_mem_size() const { return _parsed_size; }
+    const std::shared_ptr<const ParquetFileCrypto>& encryption() const { return _crypto; }
 
 private:
     tparquet::FileMetaData _metadata;
     NativeFieldDescriptor _schema;
     size_t _parsed_size = 0;
+    std::shared_ptr<const ParquetFileCrypto> _crypto;
 };
 
 struct ParquetPageCacheRange {
@@ -146,7 +151,8 @@ struct ParquetFileContext {
     Status open(io::FileReaderSPtr input_file_reader, io::IOContext* io_ctx, bool enable_page_cache,
                 const io::FileDescription& file_description,
                 bool enable_mapping_timestamp_tz = false, bool enable_mapping_varbinary = false,
-                bool preserve_binary_uuid = false);
+                bool preserve_binary_uuid = false,
+                const TFileEncryptionInfo* encryption_info = nullptr);
     Status load_native_offset_indexes(
             int row_group_id, const std::unordered_set<int>& leaf_column_ids,
             std::unordered_map<int, tparquet::OffsetIndex>* offset_indexes) const;
