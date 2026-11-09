@@ -28,9 +28,15 @@ import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.PatternType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.Type;
+import org.apache.doris.catalog.VariantField;
+import org.apache.doris.catalog.VariantPropertyChangePolicy;
+import org.apache.doris.catalog.VariantTemplateIndexBinder;
+import org.apache.doris.catalog.VariantType;
 import org.apache.doris.catalog.info.ColumnPosition;
 import org.apache.doris.catalog.info.IndexType;
 import org.apache.doris.common.DdlException;
@@ -46,6 +52,8 @@ import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.persist.TableAddOrDropColumnsInfo;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.task.UpdateTabletMetaInfoTask;
@@ -61,6 +69,10 @@ import org.junit.jupiter.api.Test;
 import org.mockito.MockedConstruction;
 import org.mockito.Mockito;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
 import java.lang.reflect.Method;
 import java.util.LinkedList;
 import java.util.List;
@@ -2356,6 +2368,223 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
                         connectContext));
         Assertions.assertTrue(exception.getMessage()
                 .contains(PropertyAnalyzer.ROW_TTL_SEQUENCE_COLUMN_CONFLICT));
+    }
+
+    @Test
+    public void testLightVariantPropertyChanges() throws Exception {
+        String name = "sc_variant_properties";
+        dropTable("test." + name, false);
+        createTable("CREATE TABLE test." + name + " (k INT, v VARIANT<'a':STRING>,"
+                + " INDEX idx_a(v) USING INVERTED PROPERTIES('field_pattern'='a'))"
+                + " DUPLICATE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1"
+                + " PROPERTIES('replication_num'='1', 'light_schema_change'='true',"
+                + " 'inverted_index_storage_format'='V2')");
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
+        OlapTable table = (OlapTable) db.getTableOrMetaException(name, Table.TableType.OLAP);
+        SchemaChangeHandler handler = Env.getCurrentEnv().getSchemaChangeHandler();
+        long indexId = table.getIndexes().get(0).getIndexId();
+        int indexJobs = handler.getIndexChangeJobs().size();
+        int version = table.getIndexMetaByIndexId(table.getBaseIndexId()).getSchemaVersion();
+        alterTable("ALTER TABLE test." + name + " MODIFY COLUMN v VARIANT<'a':STRING,"
+                + " PROPERTIES('variant_max_subcolumns_count'='32')>", connectContext);
+        jobSize++;
+        Assertions.assertEquals(32, table.getColumn("v").getVariantMaxSubcolumnsCount());
+        Assertions.assertEquals(OlapTable.OlapTableState.NORMAL, table.getState());
+        Assertions.assertEquals(version + 1, table.getIndexMetaByIndexId(table.getBaseIndexId()).getSchemaVersion());
+        Assertions.assertTrue(handler.getAlterJobsV2().values().stream()
+                .filter(job -> job.getTableId() == table.getId())
+                .allMatch(job -> job.getJobState() == AlterJobV2.JobState.FINISHED));
+        alterTable("ALTER TABLE test." + name + " MODIFY COLUMN v VARIANT<'a':STRING, 'b':INT,"
+                + " PROPERTIES('variant_max_subcolumns_count'='32')>", connectContext);
+        jobSize++;
+        Assertions.assertEquals(2, table.getColumn("v").getChildren().size());
+        Assertions.assertEquals(indexId, table.getIndexes().get(0).getIndexId());
+        Assertions.assertEquals(indexId, table.getInvertedIndex(table.getColumn("v"), List.of("a")).getIndexId());
+        Assertions.assertEquals(indexJobs, handler.getIndexChangeJobs().size());
+        Assertions.assertEquals(OlapTable.OlapTableState.NORMAL, table.getState());
+        expectException("ALTER TABLE test." + name + " MODIFY COLUMN v VARIANT<'a':STRING COMMENT 'changed',"
+                + " 'b':INT, PROPERTIES('variant_max_subcolumns_count'='32')>",
+                "Can only append variant schema templates");
+        expectException("ALTER TABLE test." + name + " MODIFY COLUMN v VARIANT<MATCH_NAME 'a':STRING,"
+                + " 'b':INT, PROPERTIES('variant_max_subcolumns_count'='32')>",
+                "Can only append variant schema templates");
+    }
+
+    @Test
+    public void testMixedVariantPropertyChangesRejected() throws Exception {
+        String name = "sc_variant_mixed";
+        dropTable("test." + name, false);
+        createTable("CREATE TABLE test." + name + " (k INT, v VARIANT NOT NULL)"
+                + " DUPLICATE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1"
+                + " PROPERTIES('replication_num'='1', 'light_schema_change'='true')");
+        for (String suffix : List.of(" NULL", " NOT NULL COMMENT 'changed'", " NOT NULL AFTER k")) {
+            expectException("ALTER TABLE test." + name + " MODIFY COLUMN v VARIANT<"
+                    + "PROPERTIES('variant_max_subcolumns_count'='32')>" + suffix,
+                    "Variant property changes must be isolated");
+        }
+    }
+
+    @Test
+    public void testRowStoreVariantTemplateChangeRejected() throws Exception {
+        String name = "sc_variant_row_store";
+        dropTable("test." + name, false);
+        createTable("CREATE TABLE test." + name + " (k INT, v VARIANT<'a':STRING>)"
+                + " DUPLICATE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1"
+                + " PROPERTIES('replication_num'='1', 'light_schema_change'='true', 'store_row_column'='true')");
+        expectException("ALTER TABLE test." + name + " MODIFY COLUMN v VARIANT<'a':STRING, 'b':INT>",
+                "Can not change variant schema templates on a row-store table");
+        alterTable("ALTER TABLE test." + name + " MODIFY COLUMN v VARIANT<'a':STRING,"
+                + " PROPERTIES('variant_max_subcolumns_count'='32')>", connectContext);
+        jobSize++;
+    }
+
+    @Test
+    public void testFieldPatternAddAndDropIndex() throws Exception {
+        String name = "sc_variant_index";
+        dropTable("test." + name, false);
+        createTable("CREATE TABLE test." + name + " (k INT, v VARIANT<'a':STRING, 'b':INT>,"
+                + " INDEX idx_root(v) USING INVERTED)"
+                + " DUPLICATE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1"
+                + " PROPERTIES('replication_num'='1', 'light_schema_change'='true',"
+                + " 'inverted_index_storage_format'='V2')");
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
+        OlapTable table = (OlapTable) db.getTableOrMetaException(name, Table.TableType.OLAP);
+        SchemaChangeHandler handler = Env.getCurrentEnv().getSchemaChangeHandler();
+        int indexJobs = handler.getIndexChangeJobs().size();
+        expectException("ALTER TABLE test." + name + " ADD INDEX idx_missing(v) USING INVERTED"
+                + " PROPERTIES('field_pattern'='missing')", "can not find field pattern: missing");
+        alterTable("ALTER TABLE test." + name + " ADD INDEX idx_a(v) USING INVERTED"
+                + " PROPERTIES('field_pattern'='a')", connectContext);
+        jobSize++;
+        Assertions.assertEquals(2, table.getIndexes().size());
+        long addedIndexId = table.getInvertedIndex(table.getColumn("v"), List.of("a")).getIndexId();
+        expectException("BUILD INDEX idx_a ON test." + name, "because it is a variant type column");
+        Assertions.assertEquals(indexJobs, handler.getIndexChangeJobs().size());
+        Assertions.assertEquals(OlapTable.OlapTableState.NORMAL, table.getState());
+        expectException("ALTER TABLE test." + name + " ADD INDEX idx_a_duplicate(v) USING INVERTED"
+                + " PROPERTIES('field_pattern'='a')", "already exists");
+        alterTable("ALTER TABLE test." + name + " ADD INDEX idx_b(v) USING INVERTED"
+                + " PROPERTIES('field_pattern'='b')", connectContext);
+        jobSize++;
+        Assertions.assertEquals(3, table.getIndexes().size());
+        alterTable("ALTER TABLE test." + name + " DROP INDEX idx_a", connectContext);
+        jobSize++;
+        Assertions.assertEquals(2, table.getIndexes().size());
+        Assertions.assertTrue(table.getIndexes().stream().noneMatch(index -> index.getIndexName().equals("idx_a")));
+        Assertions.assertEquals(indexJobs + 1, handler.getIndexChangeJobs().size());
+        Assertions.assertEquals(OlapTable.OlapTableState.NORMAL, table.getState());
+        Index selected = table.getInvertedIndex(table.getColumn("v"), List.of("a"));
+        Assertions.assertTrue(selected == null || selected.getIndexId() != addedIndexId);
+    }
+
+    @Test
+    public void testTemplateAppendRevalidatesExistingFieldPatternIndex() throws Exception {
+        String name = "sc_variant_revalidate_binding";
+        dropTable("test." + name, false);
+        createTable("CREATE TABLE test." + name + " (k INT, v VARIANT<'a':STRING>,"
+                + " INDEX idx_a(v) USING INVERTED PROPERTIES('field_pattern'='a'))"
+                + " DUPLICATE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1"
+                + " PROPERTIES('replication_num'='1', 'light_schema_change'='true',"
+                + " 'inverted_index_storage_format'='V2')");
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
+        OlapTable table = (OlapTable) db.getTableOrMetaException(name, Table.TableType.OLAP);
+        Index index = table.getIndexes().get(0);
+        // A loaded legacy binding must be validated against the new schema too, not only at ADD INDEX.
+        index.getProperties().put("field_pattern", "missing");
+        try {
+            expectException("ALTER TABLE test." + name + " MODIFY COLUMN v VARIANT<'a':STRING, 'b':INT>",
+                    "can not find field pattern: missing");
+            Assertions.assertEquals(1, table.getColumn("v").getChildren().size());
+        } finally {
+            index.getProperties().put("field_pattern", "a");
+        }
+    }
+
+    @Test
+    public void testLightVariantTemplateReplay() throws Exception {
+        String name = "sc_variant_replay";
+        dropTable("test." + name, false);
+        createTable("CREATE TABLE test." + name + " (k INT, v VARIANT<'a':STRING>)"
+                + " DUPLICATE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1"
+                + " PROPERTIES('replication_num'='1', 'light_schema_change'='true')");
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
+        OlapTable table = (OlapTable) db.getTableOrMetaException(name, Table.TableType.OLAP);
+        SchemaChangeHandler handler = Env.getCurrentEnv().getSchemaChangeHandler();
+        LinkedList<Column> schema = table.getBaseSchema().stream().map(Column::new)
+                .collect(Collectors.toCollection(LinkedList::new));
+        VariantType type = new VariantType(
+                Lists.newArrayList(new VariantField("a", Type.STRING,
+                        ""), new VariantField("b", Type.INT, "")),
+                32, false, 10000, 0, false, 0L, 64, false);
+        Column target = new Column("v", type);
+        target.setIsAllowNull(table.getColumn("v").isAllowNull());
+        target.setUniqueId(table.getColumn("v").getUniqueId());
+        target.setAggregationType(table.getColumn("v").getAggregationType(),
+                table.getColumn("v").isAggregationTypeImplicit());
+        schema.set(1, target);
+        Map<Long, LinkedList<Column>> schemas = Maps.newHashMap();
+        schemas.put(table.getBaseIndexId(), schema);
+        long jobId = Env.getCurrentEnv().getNextId();
+        TableAddOrDropColumnsInfo journal = new TableAddOrDropColumnsInfo("", db.getId(), table.getId(),
+                table.getBaseIndexId(), schemas, Maps.newHashMap(), Maps.newHashMap(),
+                table.getIndexes(), jobId);
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        journal.write(new DataOutputStream(bytes));
+        TableAddOrDropColumnsInfo decoded = TableAddOrDropColumnsInfo.read(
+                new DataInputStream(new ByteArrayInputStream(bytes.toByteArray())));
+        try {
+            handler.replayModifyTableLightSchemaChange(decoded);
+            Assertions.assertEquals(32, table.getColumn("v").getVariantMaxSubcolumnsCount());
+            Assertions.assertEquals(2, table.getColumn("v").getChildren().size());
+            OlapTable image = GsonUtils.GSON.fromJson(GsonUtils.GSON.toJson(table), OlapTable.class);
+            Assertions.assertEquals(32, image.getColumn("v").getVariantMaxSubcolumnsCount());
+            Assertions.assertFalse(VariantPropertyChangePolicy.templatesChanged(
+                    table.getColumn("v"), image.getColumn("v")));
+            Assertions.assertEquals(2, image.getColumn("v").getChildren().size());
+        } finally {
+            handler.getAlterJobsV2().remove(jobId);
+            handler.runnableSchemaChangeJobV2.remove(jobId);
+        }
+    }
+
+    @Test
+    public void testLightVariantBudgetImageRoundTrip() throws Exception {
+        String name = "sc_variant_budget_image";
+        dropTable("test." + name, false);
+        createTable("CREATE TABLE test." + name + " (k INT, v VARIANT<MATCH_NAME 'a':INT,"
+                + " PROPERTIES('variant_max_subcolumns_count'='3')>)"
+                + " DUPLICATE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1"
+                + " PROPERTIES('replication_num'='1', 'light_schema_change'='true')");
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
+        OlapTable table = (OlapTable) db.getTableOrMetaException(name, Table.TableType.OLAP);
+        for (int budget : List.of(0, 2)) {
+            alterTable("ALTER TABLE test." + name + " MODIFY COLUMN v VARIANT<MATCH_NAME 'a':INT,"
+                    + " PROPERTIES('variant_max_subcolumns_count'='" + budget + "')>", connectContext);
+            jobSize++;
+            OlapTable restored = GsonUtils.GSON.fromJson(GsonUtils.GSON.toJson(table), OlapTable.class);
+            Assertions.assertEquals(budget, restored.getColumn("v").getVariantMaxSubcolumnsCount());
+            Assertions.assertEquals(table.getIndexMetaByIndexId(table.getBaseIndexId()).getSchemaVersion(),
+                    restored.getIndexMetaByIndexId(restored.getBaseIndexId()).getSchemaVersion());
+            Assertions.assertEquals(1, restored.getColumn("v").getChildren().size());
+            Assertions.assertEquals(PatternType.MATCH_NAME,
+                    restored.getColumn("v").getChildren().get(0).getFieldPatternType());
+            Assertions.assertEquals("a",
+                    VariantTemplateIndexBinder.firstMatchingPattern(restored.getColumn("v"), List.of("a")));
+        }
+    }
+
+    @Test
+    public void testVariantTemplateIndexFirstMatch() {
+        Column globFirst = new Column("v", new VariantType(Lists.newArrayList(
+                new VariantField("a.*", Type.STRING, ""),
+                new VariantField("a.b", Type.INT, "", PatternType.MATCH_NAME)), Maps.newHashMap()));
+        Assertions.assertEquals("a.*", VariantTemplateIndexBinder.firstMatchingPattern(globFirst, List.of("a", "b")));
+        Assertions.assertEquals("", VariantTemplateIndexBinder.firstMatchingPattern(globFirst, List.of("c")));
+        Column exactFirst = new Column("v", new VariantType(Lists.newArrayList(
+                new VariantField("a.b", Type.INT, "", PatternType.MATCH_NAME),
+                new VariantField("a.*", Type.STRING, "")), Maps.newHashMap()));
+        Assertions.assertEquals("a.b", VariantTemplateIndexBinder.firstMatchingPattern(exactFirst, List.of("a", "b")));
+        Assertions.assertEquals("a.*", VariantTemplateIndexBinder.firstMatchingPattern(exactFirst, List.of("a", "c")));
     }
 
 }
