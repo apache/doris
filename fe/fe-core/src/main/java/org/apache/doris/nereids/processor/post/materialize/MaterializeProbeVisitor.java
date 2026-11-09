@@ -22,7 +22,12 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.nereids.processor.post.materialize.MaterializeProbeVisitor.ProbeContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Match;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Not;
+import org.apache.doris.nereids.trees.expressions.SearchExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -78,37 +83,69 @@ public class MaterializeProbeVisitor extends DefaultPlanVisitor<Optional<Materia
     }
 
     /**
-     * Whether {@code filter} keeps its predicate slots lazy.
+     * The predicate slots of {@code filter} that stay lazy above the TopN.
      *
-     * <p>With {@code topn_lazy_materialization_using_index} the predicate of a filter directly above an OLAP
-     * scan is evaluated while scanning, so its slots only have to be re-materialized above the TopN instead
-     * of being carried through it. This is the single definition of that shape:
-     * {@link MaterializeProbeVisitor#visitPhysicalFilter} reports those slots as lazy sources,
-     * {@link LazySlotPruning#visitPhysicalFilter} keeps them out of the scan's lazy slots (the scan still
-     * produces them for the predicate) and {@link LazyMaterializeTopN} must not require them materialized.
+     * <p>The scan evaluates the predicate of a filter directly above it, so a predicate slot only has to be
+     * produced by the scan for the predicate and can be fetched again above the TopN instead of being
+     * carried through it. By default that is done for the slots read only by conjuncts made of search() and
+     * MATCH: the inverted index answers those, so where the segments have the index the scan does not read the
+     * column, and only the rows that survive the TopN fetch it. With
+     * {@code topn_lazy_materialization_using_index} it is done for every predicate slot. For
+     *
+     * <pre>
+     *   filter(search('body:error') AND ts > '2026-01-01') -> scan(ts, body)
+     * </pre>
+     *
+     * body stays lazy by default, ts only with the session variable.
+     *
+     * <p>This is the single definition of these slots: {@link MaterializeProbeVisitor#visitPhysicalFilter}
+     * reports them as lazy sources, {@link LazySlotPruning#visitPhysicalFilter} keeps them out of the scan's
+     * lazy slots (the scan still produces them for the predicate) and {@link LazyMaterializeTopN} must not
+     * require them materialized.
      */
-    static boolean isIndexLazyFilter(PhysicalFilter<? extends Plan> filter) {
+    static Set<Slot> indexLazySlots(PhysicalFilter<? extends Plan> filter) {
         if (!(filter.child() instanceof PhysicalOlapScan)) {
-            return false;
+            return ImmutableSet.of();
         }
-        if (!SessionVariable.getTopNLazyMaterializationUsingIndex()) {
-            return false;
+        PhysicalOlapScan scan = (PhysicalOlapScan) filter.child();
+        // As in visitPhysicalOlapScan: the row-id locates a row of the base index, and the table's storage
+        // semantics must let one row-id reconstruct the row.
+        if (scan.getSelectedIndexId() != scan.getTable().getBaseIndexId()
+                || !supportOlapTopnLazyMaterialize(scan.getTable())) {
+            return ImmutableSet.of();
         }
-        // Reject OLAP tables whose storage semantics cannot be reconstructed from one row-id.
-        return supportOlapTopnLazyMaterialize(((PhysicalOlapScan) filter.child()).getTable());
+        if (SessionVariable.getTopNLazyMaterializationUsingIndex()) {
+            return filter.getInputSlots();
+        }
+        Set<Slot> indexOnlySlots = new HashSet<>();
+        Set<Slot> otherSlots = new HashSet<>();
+        for (Expression conjunct : filter.getConjuncts()) {
+            if (isIndexPredicate(conjunct)) {
+                indexOnlySlots.addAll(conjunct.getInputSlots());
+            } else {
+                otherSlots.addAll(conjunct.getInputSlots());
+            }
+        }
+        indexOnlySlots.removeAll(otherSlots);
+        return indexOnlySlots;
+    }
+
+    // search() and MATCH, alone or combined by AND, OR and NOT: (body MATCH_ALL 'a b' OR body MATCH_ANY 'c').
+    private static boolean isIndexPredicate(Expression expression) {
+        if (expression instanceof SearchExpression || expression instanceof Match) {
+            return true;
+        }
+        return (expression instanceof CompoundPredicate || expression instanceof Not)
+                && expression.children().stream().allMatch(MaterializeProbeVisitor::isIndexPredicate);
     }
 
     @Override
     public Optional<MaterializeSource> visitPhysicalFilter(PhysicalFilter<? extends Plan> filter,
                                                            ProbeContext context) {
-        if (isIndexLazyFilter(filter)) {
-            if (filter.getInputSlots().contains(context.slot)) {
-                Relation relation = (Relation) filter.child();
-                return Optional.of(new MaterializeSource(
-                        relation, findRelationOutputSlot(relation, context.slot).orElse(context.slot)));
-            } else {
-                return filter.child().accept(this, context);
-            }
+        if (indexLazySlots(filter).contains(context.slot)) {
+            Relation relation = (Relation) filter.child();
+            return Optional.of(new MaterializeSource(
+                    relation, findRelationOutputSlot(relation, context.slot).orElse(context.slot)));
         }
         return this.visit(filter, context);
     }
