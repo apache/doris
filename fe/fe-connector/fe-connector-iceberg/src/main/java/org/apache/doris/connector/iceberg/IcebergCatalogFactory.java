@@ -457,6 +457,13 @@ public final class IcebergCatalogFactory {
         }
         chosenS3.ifPresent(storage -> storage.toBackendProperties().ifPresent(backend -> {
             Optional<GcsAuth> auth = GcsAuthResolver.resolve(backend.toMap());
+            // Keep explicit FileIO choices. The plugin bundles iceberg-gcp, so upstream ResolvingFileIO
+            // routes gs to GCSFileIO whenever that class is loadable - independently of which GCS
+            // credential mode is configured - and drops the fs.gs.* / fs.s3a.* configuration Doris
+            // builds for GCS. Pin gs on HadoopFileIO for every GCS binding, HMAC and anonymous
+            // included, not only for the native ADC / COMPUTE_ENGINE ones below.
+            auth.ifPresent(ignored -> opts.putIfAbsent(CatalogProperties.FILE_IO_IMPL,
+                    NativeGcsResolvingFileIO.class.getName()));
             if (auth.filter(GcsAuth::isAnonymous).isPresent()) {
                 // Glue and REST metadata can require AWS authentication even when GCS objects are public.
                 opts.put(S3FileIOProperties.CLIENT_FACTORY, AnonymousS3FileIOAwsClientFactory.class.getName());
@@ -482,11 +489,8 @@ public final class IcebergCatalogFactory {
                 opts.put(GcpCredential.CREDENTIAL_PROVIDER_TYPE, credential.getCredentialProviderType().name());
                 putIfNotBlank(opts, GcpCredential.IMPERSONATION_SERVICE_ACCOUNT,
                         credential.getImpersonationServiceAccount());
-                // Keep explicit FileIO choices. By default, S3 aliases use the GCP client factory,
-                // while gs/HDFS paths use HadoopFileIO with the native fs.gs.* configuration. The
-                // plugin bundles iceberg-gcp (REST GoogleAuthManager), so plain ResolvingFileIO would
-                // route gs to GCSFileIO and drop those credentials; NativeGcsResolvingFileIO pins gs.
-                opts.putIfAbsent(CatalogProperties.FILE_IO_IMPL, NativeGcsResolvingFileIO.class.getName());
+                // S3 aliases use the GCP client factory; gs/HDFS stay on HadoopFileIO (pinned above)
+                // with the native fs.gs.* configuration emitted here.
                 opts.put(S3FileIOProperties.CLIENT_FACTORY, GcpS3FileIOAwsClientFactory.class.getName());
             });
         }));
