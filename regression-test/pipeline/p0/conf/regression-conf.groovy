@@ -167,7 +167,7 @@ externalEnvIp="127.0.0.1"
 enableTrinoConnectorTest = false
 
 // Temporary exclusions for CI using the unmodified framework with rootless containers and STS.
-// These suites failed in migration adapters; this does not establish an upstream framework bug.
+// Observed migration compatibility failures do not establish universal upstream framework bugs.
 // Re-enable after the relevant framework compatibility fixes are reviewed and validated upstream.
 if (System.getenv("DORIS_CI_PRISTINE_FRAMEWORK") == "true") {
     excludeSuites += "," + [
@@ -219,6 +219,7 @@ if (System.getenv("DORIS_CI_PRISTINE_FRAMEWORK") == "true") {
         "test_export_csv",
         "test_export_empty_table",
         "test_export_table_with_label_retry",
+        "test_mtmv_outfile",
         "test_nereids_show_backup",
         "test_nereids_show_export",
         "test_nereids_show_restore",
