@@ -21,6 +21,7 @@ import org.apache.iceberg.io.FileIO;
 
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ExecutorService;
@@ -49,8 +50,7 @@ public final class SchemaAwareDataTableScan extends DataTableScan {
      */
     public static Optional<TableScan> withFileIO(TableScan scan, UnaryOperator<FileIO> wrapIO,
             ExecutorService executor) {
-        if ((scan.getClass() != DataTableScan.class && scan.getClass() != SchemaAwareDataTableScan.class)
-                || scan.table().getClass() != BaseTable.class) {
+        if (!supportsLocalManifestPlanning(scan)) {
             return Optional.empty();
         }
         BaseTable table = (BaseTable) scan.table();
@@ -68,6 +68,17 @@ public final class SchemaAwareDataTableScan extends DataTableScan {
                 : new DataTableScan(view, nativeScan.tableSchema(), nativeScan.context());
         // An explicit planWith would override the SDK's plan-in-worker-pool=false setting.
         return Optional.of(nativeScan.shouldPlanWithExecutor() ? scoped.planWith(executor) : scoped);
+    }
+
+    /** Only native data scans can be replaced by local manifest planning without losing custom semantics. */
+    public static boolean supportsLocalManifestPlanning(TableScan scan) {
+        return (scan.getClass() == DataTableScan.class || scan.getClass() == SchemaAwareDataTableScan.class)
+                && scan.table().getClass() == BaseTable.class;
+    }
+
+    /** Preserve the native scan's requested manifest columns, including explicit column statistics. */
+    public static List<String> manifestColumns(TableScan scan) {
+        return ((DataTableScan) scan).scanColumns();
     }
 
     /** Returns the selected snapshot's specs bound to the scan schema. */

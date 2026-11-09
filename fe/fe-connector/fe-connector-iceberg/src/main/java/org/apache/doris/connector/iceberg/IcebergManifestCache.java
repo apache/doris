@@ -24,25 +24,12 @@ import org.apache.doris.connector.cache.MetaCacheDefinition;
 import org.apache.doris.connector.cache.MetaCacheSizeEstimators;
 import org.apache.doris.connector.cache.ScopePath;
 
-import org.apache.iceberg.DataFile;
-import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.ManifestContent;
 import org.apache.iceberg.ManifestFile;
-import org.apache.iceberg.ManifestFiles;
-import org.apache.iceberg.ManifestReader;
-import org.apache.iceberg.PartitionField;
-import org.apache.iceberg.PartitionSpec;
-import org.apache.iceberg.Schema;
-import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
-import org.apache.iceberg.types.Types;
 
-import java.io.IOException;
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
-import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -245,8 +232,8 @@ final class IcebergManifestCache {
     /** Uses one stable statement identity while retaining only values classified as plaintext. */
     ManifestCacheValue readForStatement(ManifestFile manifest, Table table, Object loadScope, boolean privateRead) {
         IcebergManifestEntryKey key = IcebergManifestEntryKey.of(manifest);
-        return privateRead ? loadManifestCacheValue(manifest, table, manifest.content(), false)
-                : entry.getForLoadScope(key, loadScope, k -> loadManifestCacheValue(
+        return privateRead ? IcebergManifestLoader.read(manifest, table, manifest.content(), false)
+                : entry.getForLoadScope(key, loadScope, k -> IcebergManifestLoader.read(
                         manifest, table, k.getContent(), entry.isWeightBounded()));
     }
 
@@ -307,80 +294,6 @@ final class IcebergManifestCache {
     /** Drops stats entries untouched for longer than the TTL — leaked non-EXPLAIN query tallies only. */
     private void sweepExpiredStats(long nowNanos) {
         statsByQuery.entrySet().removeIf(e -> nowNanos - e.getValue().lastTouchNanos >= statsTtlNanos);
-    }
-
-    private static ManifestCacheValue loadManifestCacheValue(ManifestFile manifest, Table table,
-            ManifestContent content, boolean estimateWeight) {
-        try {
-            if (content == ManifestContent.DELETES) {
-                return ManifestCacheValue.forDeleteFiles(loadDeleteFiles(manifest, table), estimateWeight);
-            }
-            return ManifestCacheValue.forDataFiles(loadDataFiles(manifest, table), estimateWeight);
-        } catch (IOException e) {
-            throw new RuntimeException("Failed to read iceberg manifest " + manifest.path(), e);
-        }
-    }
-
-    private static List<DataFile> loadDataFiles(ManifestFile manifest, Table table) throws IOException {
-        List<DataFile> dataFiles = new ArrayList<>();
-        // The SDK byte cache cannot classify file keys before decoding. Keep these bytes out of it;
-        // this adapter alone retains classified plaintext values. The iterator also requires .copy().
-        try (ManifestReader<DataFile> reader = ManifestFiles.read(manifest,
-                new IcebergScanFileIO(table.io(), () -> { }), manifestReadSpecs(manifest, table))) {
-            for (DataFile dataFile : reader) {
-                dataFiles.add(dataFile.copy());
-            }
-        }
-        return dataFiles;
-    }
-
-    /** Recover the manifest writer's partition source types, or read its header when that schema expired. */
-    private static Map<Integer, PartitionSpec> manifestReadSpecs(ManifestFile manifest, Table table) {
-        PartitionSpec spec = table.specs().get(manifest.partitionSpecId());
-        // Fixed-result transforms (bucket/year/month/day/hour) remain readable without their source
-        // schema. Iceberg resolves their result from UNKNOWN; do not require expired source schemas.
-        boolean missingSource = spec.rawPartitionType().fields().stream()
-                .anyMatch(field -> field.type().typeId() == org.apache.iceberg.types.Type.TypeID.UNKNOWN);
-        if (!missingSource) {
-            return Collections.singletonMap(spec.specId(), spec);
-        }
-        Long writerSnapshotId = manifest.snapshotId();
-        Snapshot writerSnapshot = writerSnapshotId == null ? null : table.snapshot(writerSnapshotId);
-        Schema writerSchema = writerSnapshot == null ? null : table.schemas().get(writerSnapshot.schemaId());
-        if (writerSchema == null) {
-            // The manifest header retains its physical partition type after snapshot/schema expiration.
-            return null;
-        }
-        Map<Integer, Types.NestedField> sources = new LinkedHashMap<>();
-        Set<String> reservedNames = new HashSet<>();
-        spec.fields().forEach(field -> reservedNames.add(field.name()));
-        for (PartitionField field : spec.fields()) {
-            Types.NestedField source = writerSchema.findField(field.sourceId());
-            if (source == null) {
-                return null;
-            }
-            String name = "source_" + field.sourceId();
-            while (!reservedNames.add(name)) {
-                name += "_";
-            }
-            sources.put(field.sourceId(), Types.NestedField.optional(field.sourceId(), name, source.type()));
-        }
-        PartitionSpec readable = spec.toUnbound().bind(new Schema(
-                new ArrayList<>(sources.values())), true);
-        return Collections.singletonMap(readable.specId(), readable);
-    }
-
-    private static List<DeleteFile> loadDeleteFiles(ManifestFile manifest, Table table) throws IOException {
-        // Delete manifests can carry independent file keys and need the same SDK cache isolation as data.
-        List<DeleteFile> deleteFiles = new ArrayList<>();
-        try (ManifestReader<DeleteFile> reader =
-                ManifestFiles.readDeleteManifest(manifest, new IcebergScanFileIO(table.io(), () -> { }),
-                        manifestReadSpecs(manifest, table))) {
-            for (DeleteFile deleteFile : reader) {
-                deleteFiles.add(deleteFile.copy());
-            }
-        }
-        return deleteFiles;
     }
 
     /**
