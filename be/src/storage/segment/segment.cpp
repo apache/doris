@@ -1194,11 +1194,40 @@ Status Segment::get_column_reader_for_pruning(const TabletColumn& col,
                                                         &read_options.io_ctx);
 }
 
+bool Segment::can_apply_predicate_safely(
+        int ordinal, const ReadSchema& schema,
+        const std::map<std::string, DataTypePtr>& target_cast_type_for_variants,
+        const StorageReadOptions& read_options) {
+    const TabletColumn* col = schema.column(ordinal);
+    DCHECK(col != nullptr) << "Column not found in schema for ordinal=" << ordinal;
+    DataTypePtr storage_column_type =
+            get_data_type_of(*col, schema.data_type(ordinal), read_options);
+    // A template INT predicate cannot prune a segment whose old a leaf is STRING.
+    if (!variant_util::variant_path_type_matches(*_tablet_schema, *col, storage_column_type,
+                                                 schema.data_type(ordinal))) {
+        return false;
+    }
+    if (storage_column_type == nullptr || col->type() != FieldType::OLAP_FIELD_TYPE_VARIANT ||
+        !target_cast_type_for_variants.contains(col->name())) {
+        // Default column iterator or not variant column
+        return true;
+    }
+    if (storage_column_type->equals(*target_cast_type_for_variants.at(col->name()))) {
+        return true;
+    } else {
+        return false;
+    }
+}
+
 Status Segment::new_index_iterator(const TabletColumn& tablet_column, const TabletIndex* index_meta,
                                    const StorageReadOptions& read_options,
                                    std::unique_ptr<IndexIterator>* iter) {
     if (read_options.runtime_state != nullptr) {
         _be_exec_version = read_options.runtime_state->be_exec_version();
+    }
+    if (!variant_util::variant_index_type_matches(*this, tablet_column, read_options)) {
+        *iter = nullptr;
+        return Status::OK();
     }
     RETURN_IF_ERROR(_create_column_meta_once(read_options.stats, &read_options.io_ctx));
     std::shared_ptr<ColumnReader> reader;

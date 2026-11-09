@@ -601,9 +601,17 @@ bool VariantColumnReader::_has_prefix_path_unlocked(const PathInData& relative_p
     return false;
 }
 
-bool VariantColumnReader::_need_read_flat_leaves(const StorageReadOptions* opts) {
-    return opts != nullptr && opts->tablet_has_extracted_variant_columns &&
-           is_compaction_or_checksum_reader(opts);
+bool VariantColumnReader::_need_read_flat_leaves(const StorageReadOptions* opts) const {
+    if (!is_compaction_or_checksum_reader(opts)) {
+        return false;
+    }
+    // An appended glob with capped sparse statistics re-shreds only this root. Another
+    // root can still be extended, so the table-wide flag would incorrectly read this one
+    // ROOT_ONLY and lose its extracted/sparse values instead of reconstructing the full row.
+    if (opts->variant_compaction_paths != nullptr) {
+        return opts->variant_compaction_paths->contains(_root_unique_id);
+    }
+    return opts->tablet_has_extracted_variant_columns;
 }
 
 bool VariantColumnReader::_can_use_nested_group_read_path() const {

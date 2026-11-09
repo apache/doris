@@ -240,22 +240,7 @@ public:
     bool can_apply_predicate_safely(
             int ordinal, const ReadSchema& schema,
             const std::map<std::string, DataTypePtr>& target_cast_type_for_variants,
-            const StorageReadOptions& read_options) {
-        const TabletColumn* col = schema.column(ordinal);
-        DCHECK(col != nullptr) << "Column not found in schema for ordinal=" << ordinal;
-        DataTypePtr storage_column_type =
-                get_data_type_of(*col, schema.data_type(ordinal), read_options);
-        if (storage_column_type == nullptr || col->type() != FieldType::OLAP_FIELD_TYPE_VARIANT ||
-            !target_cast_type_for_variants.contains(col->name())) {
-            // Default column iterator or not variant column
-            return true;
-        }
-        if (storage_column_type->equals(*target_cast_type_for_variants.at(col->name()))) {
-            return true;
-        } else {
-            return false;
-        }
-    }
+            const StorageReadOptions& read_options);
 
     const TabletSchemaSPtr& tablet_schema() const { return _tablet_schema; }
 

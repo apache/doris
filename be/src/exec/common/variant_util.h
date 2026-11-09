@@ -41,9 +41,11 @@
 
 namespace doris {
 class TabletSchema;
+class StorageReadOptions;
 enum class FieldType;
 namespace segment_v2 {
 struct VariantStatisticsPB;
+class Segment;
 } // namespace segment_v2
 class Block;
 class IColumn;
@@ -81,7 +83,9 @@ struct VariantExtendedInfo {
     std::unordered_set<PathInData, PathInData::Hash>
             nested_paths;               // nested paths in this variant column
     PathToDataTypes path_to_data_types; // key: path, value: data types
-    bool has_nested_group = false;      // whether this variant column has nested group
+    // Source schemas whose sparse statistics may omit paths. Kept per input, not unioned.
+    std::vector<TabletColumnPtr> truncated_sparse_columns;
+    bool has_nested_group = false; // whether this variant column has nested group
 };
 
 /// Returns number of dimensions in Array type. 0 if type is not array.
@@ -179,6 +183,15 @@ bool generate_sub_column_info(const TabletSchema& schema, int32_t col_unique_id,
                               const std::string& path,
                               TabletSchema::SubColumnInfo* sub_column_info);
 
+// Whether the column's materialization budget routes excess paths to sparse storage.
+bool variant_uses_sparse_budget(const TabletColumn& column);
+
+// Physical leaves written before a template ALTER cannot prune/index a different read type.
+bool variant_path_type_matches(const TabletSchema& schema, const TabletColumn& column,
+                               const DataTypePtr& stored_type, const DataTypePtr& read_type);
+bool variant_index_type_matches(segment_v2::Segment& segment, const TabletColumn& column,
+                                const StorageReadOptions& read_options);
+
 class VariantCompactionUtil {
 public:
     // get the subpaths and sparse paths for the variant column
@@ -194,6 +207,10 @@ public:
     static Status aggregate_path_to_stats(
             const RowsetSharedPtr& rs,
             std::unordered_map<int32_t, PathToNoneNullValues>* uid_to_path_stats);
+
+    // Template casts can change non-null counts; budget-only changes cannot.
+    static bool variant_templates_changed(const std::vector<RowsetSharedPtr>& inputs,
+                                          const TabletSchema& target);
 
     // Build the temporary schema for compaction, this will reduce the memory usage of compacting
     // variant columns. `paths` receives that schema's variant path layout.
@@ -226,6 +243,12 @@ public:
                                                           const TabletSchemaSPtr& target,
                                                           const PathToDataTypes& path_to_data_types,
                                                           TabletSchemaSPtr& output_schema);
+
+    // Collect template hits from physical input metadata. False requires this root to re-shred.
+    static bool collect_compaction_template_paths(const TabletSchema& target,
+                                                  const TabletColumn& column,
+                                                  const VariantExtendedInfo& info,
+                                                  std::unordered_set<std::string>& typed_paths);
 
     static Status get_compaction_typed_columns(const TabletSchemaSPtr& target,
                                                const std::unordered_set<std::string>& typed_paths,
