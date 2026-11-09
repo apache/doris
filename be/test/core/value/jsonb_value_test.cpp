@@ -70,16 +70,20 @@ TEST(JsonBinaryValueTest, ReuseParserAcrossDocumentsAndErrors) {
     const std::vector<std::string> invalid_json = {
             "", "abc", R"({"a":[1,})", R"({"a":"\uZZZZ"})", "{} {}", "01"};
 
+    std::vector<std::string> expected_jsonb;
+    for (const auto& json : valid_json) {
+        JsonbWriter expected;
+        ASSERT_TRUE(JsonbParser::parse(json.data(), json.size(), expected).ok()) << json;
+        expected_jsonb.emplace_back(expected.getOutput()->getBuffer(),
+                                    expected.getOutput()->getSize());
+    }
+
     for (const auto& invalid : invalid_json) {
         // Exercise failure after valid input and recovery with the same parser, including
         // string-buffer growth followed by smaller documents and failures during traversal.
-        for (const auto& json : valid_json) {
-            ASSERT_TRUE(value.from_json_string(json).ok()) << json;
-            JsonbWriter expected;
-            ASSERT_TRUE(JsonbParser::parse(json.data(), json.size(), expected).ok()) << json;
-            EXPECT_EQ(std::string(value.value(), value.size()),
-                      std::string(expected.getOutput()->getBuffer(),
-                                  expected.getOutput()->getSize()));
+        for (size_t i = 0; i < valid_json.size(); ++i) {
+            ASSERT_TRUE(value.from_json_string(valid_json[i]).ok()) << valid_json[i];
+            EXPECT_EQ(std::string(value.value(), value.size()), expected_jsonb[i]);
 
             EXPECT_FALSE(value.from_json_string(invalid).ok()) << invalid;
             EXPECT_EQ(value.value(), nullptr);
