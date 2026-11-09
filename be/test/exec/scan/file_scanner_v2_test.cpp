@@ -41,6 +41,7 @@
 #include "exec/operator/file_scan_operator.h"
 #include "exec/runtime_filter/runtime_filter_definitions.h"
 #include "exec/scan/file_scan_io_context.h"
+#include "exec/scan/file_scan_range_utils.h"
 #include "exec/scan/split_source_connector.h"
 #include "exprs/create_predicate_function.h"
 #include "exprs/runtime_filter_expr.h"
@@ -66,6 +67,34 @@ TFileRangeDesc range_with_format(std::string table_format, TFileFormatType::type
         range.__set_table_format_params(std::move(table_desc));
     }
     return range;
+}
+
+TEST(FileScannerV2Test, EncryptionNeverFallsThroughToPlainReadersOrCounts) {
+    TFileScanRangeParams params;
+    params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
+    EXPECT_TRUE(validate_file_scan_support(params).ok());
+    for (int content : {0, 1, 2, 3}) {
+        auto range = range_with_format("iceberg", TFileFormatType::FORMAT_PARQUET);
+        TFileEncryptionInfo info;
+        info.__set_version(1);
+        info.__set_key(std::string(16, 'k'));
+        info.__set_aad_prefix("");
+        TIcebergFileDesc iceberg;
+        if (content == 0) {
+            iceberg.__set_encryption_info(info);
+        } else {
+            TIcebergDeleteFileDesc file;
+            file.__set_content(content);
+            file.__set_encryption_info(info);
+            iceberg.__set_delete_files({file});
+        }
+        range.table_format_params.__set_iceberg_params(iceberg);
+        EXPECT_NE(validate_file_scan_support(params, &range).to_string().find("READ_UNAVAILABLE"),
+                  std::string::npos);
+        params.__set_table_format_params(range.table_format_params);
+        EXPECT_FALSE(validate_file_scan_support(params).ok());
+        params.__isset.table_format_params = false;
+    }
 }
 
 TEST(FileScannerV2Test, CountStarPlaceholderIsNotASemanticProjection) {
@@ -675,6 +704,7 @@ TEST(FileScannerV2Test, FileFormatConversionMatrix) {
             {TFileFormatType::FORMAT_JSON, format::FileFormat::JSON},
             {TFileFormatType::FORMAT_ARROW, format::FileFormat::ARROW},
             {TFileFormatType::FORMAT_WAL, format::FileFormat::WAL},
+            {TFileFormatType::FORMAT_LANCE, format::FileFormat::LANCE},
             {TFileFormatType::FORMAT_ORC, format::FileFormat::ORC},
     };
 

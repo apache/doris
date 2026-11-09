@@ -24,6 +24,7 @@ import org.apache.doris.analysis.AggregateInfo;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprToThriftVisitor;
 import org.apache.doris.analysis.FunctionCallExpr;
+import org.apache.doris.analysis.JoinOperator;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.SortInfo;
@@ -279,7 +280,8 @@ public class AggregationNode extends PlanNode {
 
         ConnectContext connectContext = translatorContext.getConnectContext();
         SessionVariable sessionVariable = connectContext.getSessionVariable();
-        // PR #62438: when false, non-finalize agg falls back to BE base class.
+        // PR #62438: when false, a LOCAL-phase agg falls back to BE base class while its child
+        // keeps the local key distribution (PR #63766).
         boolean enableLeBeforeAgg = sessionVariable.enableLocalExchangeBeforeAgg;
         boolean hasKeys = !aggInfo.getGroupingExprs().isEmpty();
         boolean selfOrInheritedShuffled = translatorContext.hasShuffleForCorrectnessAncestor(this)
@@ -291,7 +293,8 @@ public class AggregationNode extends PlanNode {
         if (canUseDistinctStreamingAgg(sessionVariable)) {
             // DistinctStreamingAggOperatorX.  Two flavors share this operator class:
             //   - streaming preagg (useStreamingPreagg=true): performance-only,
-            //     flag controls
+            //     flag controls while the child keeps the key distribution; after a
+            //     child that breaks it, the force-passthrough rule below applies
             //   - non-streaming dedup (useStreamingPreagg=false): correctness-required,
             //     always HASH regardless of flag
             // Diverges from BE: BE's `!_needs_finalize && !enable_local_exchange_before_agg`
@@ -299,7 +302,8 @@ public class AggregationNode extends PlanNode {
             // wrong-result bug as AggSink (DORIS-25413).
             if (needsFinalize && !hasKeys) {
                 requireChild = LocalExchangeTypeRequire.noRequire();
-            } else if (!needsFinalize && useStreamingPreagg && !enableLeBeforeAgg) {
+            } else if (!needsFinalize && useStreamingPreagg && !enableLeBeforeAgg
+                    && !childBreaksLocalKeyDistribution(connectContext)) {
                 requireChild = baseClassRequire(connectContext);
             } else if (needsFinalize || (hasKeys && !useStreamingPreagg)) {
                 requireChild = AddLocalExchange.isColocated(this)
@@ -315,7 +319,10 @@ public class AggregationNode extends PlanNode {
             if (children.get(0) instanceof HashJoinNode
                     && sessionVariable.enableStreamingAggHashJoinForcePassthrough) {
                 requireChild = LocalExchangeTypeRequire.requirePassthrough();
-            } else if (!needsFinalize && !enableLeBeforeAgg) {
+            } else if (!sessionVariable.enableLocalExchangeBeforeStreamingAgg
+                    && !childBreaksLocalKeyDistribution(connectContext)) {
+                // PR #66222: keep the inherited distribution by default, but still reshuffle
+                // after a child that breaks the grouping-key distribution.
                 requireChild = baseClassRequire(connectContext);
             } else if (!hasKeys) {
                 requireChild = needsFinalize
@@ -331,6 +338,7 @@ public class AggregationNode extends PlanNode {
             //
             // Phase semantics for !needsFinalize:
             //   - FIRST / SECOND (LOCAL phase, !isMerge): performance-only, flag controls
+            //     while the child keeps the key distribution
             //   - FIRST_MERGE (correctness-required): always HASH regardless of flag
             //
             // Diverges from BE here: BE's `!_needs_finalize && !enable_local_exchange_before_agg`
@@ -350,10 +358,12 @@ public class AggregationNode extends PlanNode {
                 requireChild = needsFinalize
                         ? LocalExchangeTypeRequire.noRequire()
                         : baseClassRequire(connectContext);
-            } else if (!needsFinalize && !aggInfo.isMerge() && !enableLeBeforeAgg) {
+            } else if (!needsFinalize && !aggInfo.isMerge() && !enableLeBeforeAgg
+                    && !childBreaksLocalKeyDistribution(connectContext)) {
                 // LOCAL phase (FIRST preagg / SECOND distinct local) + user opted out
-                // of pre-agg LE → base class decides: serial child → PASSTHROUGH
-                // (parallelism), non-serial child → NOOP (no LE).
+                // of pre-agg LE → base class decides. A serial child breaks the key
+                // distribution, so only a non-serial child gets here → NOOP (no LE);
+                // otherwise the next branch still requires HASH, as BE does.
                 requireChild = baseClassRequire(connectContext);
             } else if (!needsFinalize || AddLocalExchange.isColocated(this)) {
                 // FIRST_MERGE (correctness) or finalize+colocate → HASH.
@@ -383,6 +393,37 @@ public class AggregationNode extends PlanNode {
         return children.get(0).isSerialOperatorOnBe(connectContext)
                 ? LocalExchangeTypeRequire.requirePassthrough()
                 : LocalExchangeTypeRequire.noRequire();
+    }
+
+    /**
+     * Mirrors BE OperatorBase::child_breaks_local_key_distribution(): rows reach this node
+     * without any key distribution when the child is serial on BE, or when the child's own
+     * BE required_data_distribution() is a non-hash local exchange.
+     */
+    private boolean childBreaksLocalKeyDistribution(ConnectContext connectContext) {
+        PlanNode child = children.get(0);
+        if (child.isSerialOperatorOnBe(connectContext)) {
+            return true;
+        }
+        if (child instanceof NestedLoopJoinNode) {
+            // NestedLoopJoinProbeOperatorX: ADAPTIVE_PASSTHROUGH, except null-aware left anti
+            // join and the right outer / semi / anti and full outer joins (the serial ones).
+            return ((NestedLoopJoinNode) child).getJoinOp() != JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN
+                    && !child.isSerialNode();
+        }
+        if (child instanceof HashJoinNode) {
+            // HashJoinProbeOperatorX: PASSTHROUGH for a broadcast join when it is forced or the
+            // probe child is serial.
+            HashJoinNode join = (HashJoinNode) child;
+            return join.getJoinOp() != JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN
+                    && join.getDistributionMode() == DistributionMode.BROADCAST
+                    && (connectContext.getSessionVariable().enableBroadcastJoinForcePassthrough
+                            || join.getChild(0).isSerialOperatorOnBe(connectContext));
+        }
+        // TableFunctionOperatorX and AssertNumRowsOperatorX always require PASSTHROUGH. The base
+        // class asks for PASSTHROUGH over a serial child, but SelectNode and RepeatNode take
+        // their child's serial flag, so the serial check above already covers them.
+        return child instanceof TableFunctionNode || child instanceof AssertNumRowsNode;
     }
 
     /**

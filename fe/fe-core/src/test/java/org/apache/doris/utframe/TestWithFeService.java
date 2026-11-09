@@ -166,6 +166,8 @@ public abstract class TestWithFeService {
         Config.heartbeat_interval_second = 1;
         beforeCreatingConnectContext();
         connectContext = createDefaultCtx();
+        // Static test fixtures may have initialized Env before the heartbeat interval was set.
+        Env.getCurrentHeartbeatMgr().setInterval(Config.heartbeat_interval_second * 1000L);
         connectContext.getSessionVariable().feDebug = true;
         beforeCluster();
         createDorisCluster();
@@ -296,11 +298,7 @@ public abstract class TestWithFeService {
     }
 
     public static ConnectContext createCtx(UserIdentity user, String host) throws IOException {
-        ConnectContext ctx = new ConnectContext();
-        ctx.setCurrentUserIdentity(user);
-        ctx.setRemoteIP(host);
-        ctx.setEnv(Env.getCurrentEnv());
-        ctx.setThreadLocalInfo();
+        ConnectContext ctx = UtFrameUtils.createDefaultCtx(user, host);
         ctx.setStatementContext(new StatementContext());
         return ctx;
     }

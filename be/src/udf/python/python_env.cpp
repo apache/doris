@@ -26,6 +26,7 @@
 #include <regex>
 #include <vector>
 
+#include "agent/utils.h"
 #include "common/status.h"
 #include "udf/python/python_server.h"
 #include "util/string_util.h"
@@ -54,7 +55,8 @@ static Status extract_python_version(const std::string& python_path, std::string
         return Status::NotFound("Python executable not found: {}", python_path);
     }
 
-    std::string cmd = fmt::format("\"{}\" --version", python_path);
+    // Double quotes still expand shell expressions such as $(pwd). Keep the path literal.
+    std::string cmd = fmt::format("{} --version", AgentUtils::shell_quote(python_path));
     FILE* pipe = popen(cmd.c_str(), "r");
     if (!pipe) {
         return Status::InternalError("Failed to run: {}", cmd);
@@ -177,7 +179,8 @@ Status PythonEnvironment::scan_from_venv_root_path(
             // Use --system-site-packages to inherit packages from system Python
             // This ensures pandas and pyarrow are available if installed in system
             std::string create_venv_cmd = fmt::format("{} -m venv --system-site-packages {}",
-                                                      interpreter_path, env_base_path);
+                                                      AgentUtils::shell_quote(interpreter_path),
+                                                      AgentUtils::shell_quote(env_base_path));
 
             if (system(create_venv_cmd.c_str()) != 0 || !fs::exists(python_path)) {
                 return Status::RuntimeError("Failed to create python virtual environment, cmd: {}",
@@ -340,8 +343,9 @@ Status list_installed_packages(const PythonVersion& version,
     }
 
     // Run pip list --format=json to get installed packages
-    std::string cmd =
-            fmt::format("\"{}\" -m pip list --format=json 2>/dev/null", version.executable_path);
+    // Use the same path quoting as version discovery and environment creation.
+    std::string cmd = fmt::format("{} -m pip list --format=json 2>/dev/null",
+                                  AgentUtils::shell_quote(version.executable_path));
     FILE* pipe = popen(cmd.c_str(), "r");
     if (!pipe) {
         return Status::InternalError("Failed to run pip list for python version: {}",

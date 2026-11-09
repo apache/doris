@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector.es;
 
+import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.pushdown.ConnectorAnd;
 import org.apache.doris.connector.spi.pushdown.ConnectorColumnRef;
 import org.apache.doris.connector.spi.pushdown.ConnectorComparison;
@@ -46,6 +47,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Converts {@link ConnectorExpression} filter trees into Elasticsearch Query DSL JSON strings.
@@ -104,6 +106,16 @@ public final class EsQueryDslBuilder {
             Map<String, String> column2typeMap,
             boolean likePushDown,
             List<String> needCompatDateFields) {
+        return buildQueryDslWithResult(filter, fieldsContext, column2typeMap, likePushDown,
+                needCompatDateFields, Collections.emptySet());
+    }
+
+    public static EsQueryDslResult buildQueryDslWithResult(ConnectorExpression filter,
+            Map<String, String> fieldsContext,
+            Map<String, String> column2typeMap,
+            boolean likePushDown,
+            List<String> needCompatDateFields,
+            Set<String> sourceValueUnsafeFields) {
         if (filter == null) {
             return new EsQueryDslResult(matchAllQuery(), Collections.emptyList());
         }
@@ -117,11 +129,13 @@ public final class EsQueryDslBuilder {
 
             for (int i = 0; i < conjuncts.size(); i++) {
                 List<ConnectorExpression> tempNotPushed = new ArrayList<>();
-                String dsl = toEsDsl(conjuncts.get(i), tempNotPushed, fieldsContext,
-                        likePushDown, needCompatDateFields, column2typeMap);
+                String dsl = referencesUnsafeSourceField(conjuncts.get(i), sourceValueUnsafeFields) ? null
+                        : toEsDsl(conjuncts.get(i), tempNotPushed, fieldsContext,
+                                likePushDown, needCompatDateFields, column2typeMap);
                 if (dsl != null && tempNotPushed.isEmpty()) {
                     parts.add(dsl);
                 } else {
+                    requireLocalEvaluation(conjuncts.get(i));
                     notPushedIndices.add(i);
                 }
             }
@@ -143,6 +157,12 @@ public final class EsQueryDslBuilder {
             return new EsQueryDslResult(queryDsl, notPushedIndices);
         }
 
+        // Dropping a source-value predicate after translating a transformed/missing index value
+        // cannot be repaired by a residual: matching source documents may already be absent.
+        if (referencesUnsafeSourceField(filter, sourceValueUnsafeFields)) {
+            requireLocalEvaluation(filter);
+            return new EsQueryDslResult(matchAllQuery(), Collections.singletonList(0));
+        }
         // Single expression (not AND)
         List<ConnectorExpression> notPushDownList = new ArrayList<>();
         String dsl = toEsDsl(filter, notPushDownList, fieldsContext,
@@ -150,9 +170,38 @@ public final class EsQueryDslBuilder {
         // A nested AND can return a partial DSL while recording an unsupported child. OR/NOT must
         // remain local in that case: e.g. NOT(a = 1 AND local_predicate) cannot become NOT(a = 1).
         if (dsl == null || !notPushDownList.isEmpty()) {
+            requireLocalEvaluation(filter);
             return new EsQueryDslResult(matchAllQuery(), Collections.singletonList(0));
         }
         return new EsQueryDslResult(dsl, Collections.emptyList());
+    }
+
+    private static boolean referencesUnsafeSourceField(ConnectorExpression expression, Set<String> unsafeFields) {
+        if (expression instanceof ConnectorFunctionCall
+                && "esquery".equals(((ConnectorFunctionCall) expression).getFunctionName())) {
+            // esquery explicitly requests ES index semantics rather than SQL source-value semantics.
+            return false;
+        }
+        if (expression instanceof ConnectorColumnRef) {
+            return unsafeFields.contains(((ConnectorColumnRef) expression).getColumnName());
+        }
+        for (ConnectorExpression child : expression.getChildren()) {
+            if (referencesUnsafeSourceField(child, unsafeFields)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static void requireLocalEvaluation(ConnectorExpression expression) {
+        if (expression instanceof ConnectorFunctionCall
+                && "esquery".equals(((ConnectorFunctionCall) expression).getFunctionName())) {
+            // esquery has no BE implementation. Never leave it inside a residual OR/NOT that
+            // cannot be translated exactly; a remote match_all cannot make it locally evaluable.
+            throw new DorisConnectorException("Cannot evaluate esquery locally: its containing Boolean expression "
+                    + "cannot be fully pushed down to Elasticsearch");
+        }
+        expression.getChildren().forEach(EsQueryDslBuilder::requireLocalEvaluation);
     }
 
     /**
@@ -307,6 +356,32 @@ public final class EsQueryDslBuilder {
             boolean likePushDown,
             List<String> needCompatDateFields,
             Map<String, String> column2typeMap) {
+        // Optimizer NOT simplification is optional. Equality negation can be normalized, but
+        // ranges are existential on multi-value fields: NOT(a<2) is not a>=2 for a=[1,2].
+        ConnectorExpression operand = not.getOperand();
+        ConnectorExpression normalized = null;
+        if (operand instanceof ConnectorNot) {
+            normalized = ((ConnectorNot) operand).getOperand();
+        } else if (operand instanceof ConnectorComparison) {
+            ConnectorComparison comparison = (ConnectorComparison) operand;
+            ConnectorComparison.Operator inverse = negateOperator(comparison.getOperator());
+            if (inverse != null) {
+                normalized = new ConnectorComparison(inverse, comparison.getLeft(), comparison.getRight());
+            }
+        } else if (operand instanceof ConnectorIsNull) {
+            ConnectorIsNull isNull = (ConnectorIsNull) operand;
+            normalized = new ConnectorIsNull(isNull.getOperand(), !isNull.isNegated());
+        } else if (operand instanceof ConnectorAnd || operand instanceof ConnectorOr) {
+            List<ConnectorExpression> negated = new ArrayList<>();
+            for (ConnectorExpression child : operand.getChildren()) {
+                negated.add(new ConnectorNot(child));
+            }
+            normalized = operand instanceof ConnectorAnd ? new ConnectorOr(negated) : new ConnectorAnd(negated);
+        }
+        if (normalized != null) {
+            return toEsDsl(normalized, notPushDownList, fieldsContext,
+                    likePushDown, needCompatDateFields, column2typeMap);
+        }
         String child = toEsDsl(not.getOperand(), notPushDownList, fieldsContext,
                 likePushDown, needCompatDateFields, column2typeMap);
         if (child == null) {
@@ -316,7 +391,30 @@ public final class EsQueryDslBuilder {
         ObjectNode root = MAPPER.createObjectNode();
         ObjectNode boolNode = root.putObject("bool");
         boolNode.set("must_not", parseJsonNode(child));
+        if (operand instanceof ConnectorComparison) {
+            ConnectorComparison comparison = (ConnectorComparison) operand;
+            if (comparison.getOperator() != ConnectorComparison.Operator.EQ_FOR_NULL) {
+                // Complement the original range for arrays, but reject missing values so scalar
+                // NULL still yields UNKNOWN. Null-safe equality deliberately includes NULLs here.
+                String column = extractColumnName(comparison.getLeft());
+                if (column == null) {
+                    column = extractColumnName(comparison.getRight());
+                }
+                boolNode.set("must", parseJsonNode(existsQuery(fieldsContext.getOrDefault(column, column))));
+            }
+        }
         return root.toString();
+    }
+
+    private static ConnectorComparison.Operator negateOperator(ConnectorComparison.Operator op) {
+        switch (op) {
+            case EQ:
+                return ConnectorComparison.Operator.NE;
+            case NE:
+                return ConnectorComparison.Operator.EQ;
+            default:
+                return null;
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -406,17 +504,11 @@ public final class EsQueryDslBuilder {
                 // col <=> non-null is equivalent to EQ (term queries exclude nulls)
                 return termQuery(column, value);
             case NE:
-                // col != '' means col.length() > 0, NULL should not appear in results
-                if (value instanceof String && ((String) value).isEmpty()) {
-                    ObjectNode root = MAPPER.createObjectNode();
-                    ObjectNode boolNode = root.putObject("bool");
-                    boolNode.set("must_not", parseJsonNode(termQuery(column, value)));
-                    boolNode.set("must", parseJsonNode(existsQuery(column)));
-                    return root.toString();
-                }
+                // SQL <> is UNKNOWN for missing values, while ES must_not alone matches them.
                 ObjectNode neRoot = MAPPER.createObjectNode();
                 ObjectNode neBool = neRoot.putObject("bool");
                 neBool.set("must_not", parseJsonNode(termQuery(column, value)));
+                neBool.set("must", parseJsonNode(existsQuery(column)));
                 return neRoot.toString();
             case LT:
                 return rangeQuery(column, "lt", value, needDateCompat);

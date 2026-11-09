@@ -63,7 +63,6 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.AggregateUtils;
 import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.model.Statistics;
 
 import com.google.common.base.Preconditions;
@@ -548,13 +547,9 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
      * naturally) or the FE local-shuffle planner (which plans the correct bucket-hash
      * local exchanges): with the BE-planned local shuffle the backend cannot infer the
      * correct local shuffle type for the set sink/probe and computes wrong results.
-     * It also requires the nereids distribute planner: the legacy coordinator only
-     * supports bucket-shuffle-partitioned sinks whose dest fragment contains a bucket
-     * shuffle join.
      */
     private boolean setOperationBucketShuffleAllowed() {
         return connectContext != null
-                && SessionVariable.canUseNereidsDistributePlanner(connectContext)
                 && (!connectContext.getSessionVariable().isEnableLocalShuffle()
                         || connectContext.getSessionVariable().isEnableLocalShufflePlanner());
     }

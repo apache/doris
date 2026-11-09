@@ -42,7 +42,6 @@ import org.apache.doris.connector.spi.ConnectorPartitionInfo;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.datasource.CatalogIf;
-import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.datasource.plugin.PluginDrivenMetadata;
@@ -275,14 +274,14 @@ public class ShowPartitionsCommand extends ShowCommand {
     private ShowResultSet handleShowPluginDrivenTablePartitions() throws AnalysisException {
         PluginDrivenExternalCatalog pluginCatalog = (PluginDrivenExternalCatalog) catalog;
         String dbName = tableName.getDb();
-        ExternalTable dorisTable = pluginCatalog.getDbOrAnalysisException(dbName)
-                .getTableOrAnalysisException(tableName.getTbl());
+        PluginDrivenExternalTable dorisTable = (PluginDrivenExternalTable) pluginCatalog
+                .getDbOrAnalysisException(dbName).getTableOrAnalysisException(tableName.getTbl());
 
         // Route partition listing through the connector SPI.
         ConnectorSession session = pluginCatalog.buildConnectorSession();
         ConnectorMetadata metadata = PluginDrivenMetadata.get(session, pluginCatalog.getConnector());
-        ConnectorTableHandle handle = metadata
-                .getTableHandle(session, dorisTable.getRemoteDbName(), dorisTable.getRemoteName())
+        PluginDrivenExternalTable.MetadataRead read = dorisTable.observeConnectorMetadata(session, metadata);
+        ConnectorTableHandle handle = dorisTable.resolveConnectorTableHandle(session, metadata)
                 .orElseThrow(() -> new AnalysisException(
                         "table not found: " + dbName + "." + tableName.getTbl()));
 
@@ -291,10 +290,10 @@ public class ShowPartitionsCommand extends ShowCommand {
             // Rich 5-column result (Partition / PartitionKey / RecordCount / FileSizeInBytes /
             // FileCount), matching the legacy paimon SHOW PARTITIONS (D-045). PartitionKey is the
             // table's partition-column names comma-joined, identical on every row (legacy semantics).
-            String partitionColumnsStr = ((PluginDrivenExternalTable) dorisTable).getPartitionColumns()
+            String partitionColumnsStr = dorisTable.getPartitionColumns()
                     .stream().map(Column::getName).collect(Collectors.joining(","));
             for (ConnectorPartitionInfo partition
-                    : metadata.listPartitions(session, handle, Optional.empty())) {
+                    : read.execute(() -> metadata.listPartitions(session, handle, Optional.empty()))) {
                 String partitionName = partition.getPartitionName();
                 if (filterMap != null && !filterMap.isEmpty()
                         && !PartitionsProcDir.filterExpression(FILTER_PARTITION_NAME, partitionName, filterMap)) {
@@ -311,7 +310,7 @@ public class ShowPartitionsCommand extends ShowCommand {
         } else {
             // Single-column result (partition name only). The SPI's listPartitionNames has no
             // offset/limit, so paging is applied FE-side below.
-            for (String partition : metadata.listPartitionNames(session, handle)) {
+            for (String partition : read.execute(() -> metadata.listPartitionNames(session, handle))) {
                 if (filterMap != null && !filterMap.isEmpty()
                         && !PartitionsProcDir.filterExpression(FILTER_PARTITION_NAME, partition, filterMap)) {
                     continue;

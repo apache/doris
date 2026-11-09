@@ -5497,8 +5497,8 @@ TEST_F(NewOrcReaderTest, ReadGlobalRowIdVirtualColumn) {
         std::memcpy(&location, rowid.data, sizeof(location));
         EXPECT_EQ(location.version, context.version);
         EXPECT_EQ(location.backend_id, context.backend_id);
-        EXPECT_EQ(location.file_id, context.file_id);
-        EXPECT_EQ(location.row_id, row);
+        EXPECT_EQ(location.file_local.file_id, context.file_id);
+        EXPECT_EQ(location.file_local.row_id, row);
     }
 }
 
@@ -6341,6 +6341,72 @@ TEST_F(NewOrcReaderTest, ConditionCacheHitSkipsFalseGranulesBeforeColumnRead) {
     ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
     EXPECT_TRUE(eof);
     EXPECT_EQ(rows, 0);
+}
+
+TEST_F(NewOrcReaderTest, ConditionCacheHitSeeksPastSargFilteredStripeSuffix) {
+    const auto file_path = find_repo_file(
+            "regression-test/data/external_table_p0/tvf/test_data/condition_cache_seek.orc");
+    ASSERT_FALSE(file_path.empty());
+    for (const bool lazy : {false, true}) {
+        for (const bool min_max : {false, true}) {
+            SCOPED_TRACE(fmt::format("lazy={}, min_max={}", lazy, min_max));
+            auto io_ctx = std::make_shared<io::IOContext>();
+            auto reader = create_reader_for_path(file_path.string(), nullptr, io_ctx);
+            TQueryOptions options;
+            options.__set_enable_orc_lazy_mat(lazy);
+            options.__set_enable_orc_filter_by_min_max(min_max);
+            RuntimeState state {options, TQueryGlobals()};
+            ASSERT_TRUE(reader->init(&state).ok());
+            reader->set_batch_size(ConditionCacheContext::GRANULE_SIZE);
+
+            std::vector<format::ColumnDefinition> schema;
+            ASSERT_TRUE(reader->get_schema(&schema).ok());
+            auto request = std::make_shared<format::FileScanRequest>();
+            request->predicate_columns = {field_projection(0)};
+            request->non_predicate_columns = {field_projection(1)};
+            request->local_positions = {{format::LocalColumnId(0), format::LocalIndex(0)},
+                                        {format::LocalColumnId(1), format::LocalIndex(1)}};
+            request->conjuncts.push_back(VExprContext::create_shared(
+                    std::make_shared<NullableInt32GreaterThanExpr>(0, 5000)));
+            ASSERT_TRUE(reader->open(request).ok());
+
+            auto ctx = std::make_shared<ConditionCacheContext>();
+            ctx->is_hit = true;
+            ctx->filter_result = std::make_shared<std::vector<bool>>(20, false);
+            (*ctx->filter_result)[0] = true;
+            (*ctx->filter_result)[9] = true;
+            reader->set_condition_cache_context(ctx);
+            int seeks = 0;
+            ScopedDebugPoint debug_point(
+                    "OrcReader._skip_condition_cache_false_granules.before_seek_to_row",
+                    [&]() { ++seeks; });
+
+            // Granule 9 contains the next stripe's matching row, but starts in the
+            // current stripe's filtered suffix. Both columns must resume in stripe 2.
+            std::vector<int32_t> ids;
+            std::vector<int64_t> payloads;
+            bool eof = false;
+            while (!eof) {
+                Block block = build_file_block(schema);
+                size_t rows = 0;
+                ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+                const auto& id_column = assert_cast<const ColumnInt32&>(
+                        assert_cast<const ColumnNullable&>(*block.get_by_position(0).column)
+                                .get_nested_column());
+                const auto& payload_column = assert_cast<const ColumnInt64&>(
+                        assert_cast<const ColumnNullable&>(*block.get_by_position(1).column)
+                                .get_nested_column());
+                for (size_t row = 0; row < rows; ++row) {
+                    ids.push_back(id_column.get_element(row));
+                    payloads.push_back(payload_column.get_element(row));
+                }
+            }
+            EXPECT_EQ(ids, (std::vector<int32_t> {10000, 10001}));
+            EXPECT_EQ(payloads, (std::vector<int64_t> {0, 20000}));
+            EXPECT_GT(seeks, 0);
+            EXPECT_GT(io_ctx->condition_cache_filtered_rows, 0);
+        }
+    }
 }
 
 TEST_F(NewOrcReaderTest, ConditionCacheSeekReturnsCleanEofWhenCancelled) {

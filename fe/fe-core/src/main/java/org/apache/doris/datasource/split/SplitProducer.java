@@ -33,6 +33,7 @@ import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
@@ -54,6 +55,10 @@ public class SplitProducer implements Runnable, Closeable {
 
     public interface BatchSource extends Closeable {
         List<Split> getNextBatch() throws Exception;
+
+        default CompletableFuture<Void> isBlocked() {
+            return null;
+        }
 
         @Override
         default void close() throws IOException {
@@ -81,6 +86,7 @@ public class SplitProducer implements Runnable, Closeable {
     private Backend pendingBackend;
     private List<TScanRangeLocations> pendingRanges;
     private int pendingRangeOffset;
+    private CompletableFuture<Void> waitingForSource;
 
     public SplitProducer(SplitAssignment assignment, Executor executor, BatchSource source,
             Consumer<Exception> completion) {
@@ -197,8 +203,18 @@ public class SplitProducer implements Runnable, Closeable {
                     break;
                 }
                 if (pendingRanges == null && !pending.hasNext()) {
+                    if (awaitSource()) {
+                        more = false;
+                        break;
+                    }
                     List<Split> batch = source.getNextBatch();
                     if (batch.isEmpty()) {
+                        // Completion may race the empty read. A dependency, even one that just
+                        // completed, means retry rather than EOF. Never occupy a worker waiting.
+                        if (source.isBlocked() != null) {
+                            more = !awaitSource();
+                            break;
+                        }
                         exhausted = true;
                         break;
                     }
@@ -252,6 +268,22 @@ public class SplitProducer implements Runnable, Closeable {
         return false;
     }
 
+    private boolean awaitSource() {
+        CompletableFuture<Void> dependency = source.isBlocked();
+        if (dependency == null) {
+            return false;
+        }
+        if (dependency.isDone()) {
+            dependency.join();
+            return false;
+        }
+        if (waitingForSource != dependency) {
+            waitingForSource = dependency;
+            dependency.whenComplete((unused, error) -> schedule());
+        }
+        return true;
+    }
+
     private UserException publishFailure(Throwable failure) {
         if (failure == null || cancelled || assignment.isStop()) {
             return null;
@@ -269,6 +301,7 @@ public class SplitProducer implements Runnable, Closeable {
         pending = Collections.emptyIterator();
         pendingRanges = null;
         pendingBackend = null;
+        waitingForSource = null;
         try {
             source.close();
         } catch (Throwable e) {

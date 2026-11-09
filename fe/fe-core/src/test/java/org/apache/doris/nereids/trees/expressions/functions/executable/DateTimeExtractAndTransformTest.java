@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TimeStampNsLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.TimestampTzLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.DateTimeV2Type;
@@ -40,6 +41,48 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 class DateTimeExtractAndTransformTest {
+    @Test
+    void testCalendarDiffAtMonthEnd() {
+        assertCalendarDiff("2023-03-01 11:00:00", "2023-01-31 12:00:00", 1, 0, 0);
+        assertCalendarDiff("2023-03-01 11:00:00", "2022-11-30 12:00:00", 3, 1, 0);
+        assertCalendarDiff("2021-03-01 11:00:00", "2020-02-29 12:00:00", 12, 4, 1);
+        assertCalendarDiff("2023-02-28 11:00:00", "2023-01-31 12:00:00", 0, 0, 0);
+        assertCalendarDiff("2023-03-31 11:00:00", "2023-01-31 12:00:00", 1, 0, 0);
+        assertCalendarDiff("2021-02-28 11:00:00", "2020-02-29 12:00:00", 11, 3, 0);
+        assertCalendarDiff("2021-03-01 11:00:00", "2020-03-01 12:00:00", 11, 3, 0);
+        assertCalendarDiff("2021-03-01 12:00:00", "2020-03-01 12:00:00", 12, 4, 1);
+        Assertions.assertEquals(new BigIntLiteral(1), DateTimeExtractAndTransform.monthsDiff(
+                new DateV2Literal("2023-03-01"), new DateTimeV2Literal("2023-01-31 12:00:00")));
+        Assertions.assertEquals(new BigIntLiteral(-1), DateTimeExtractAndTransform.monthsDiff(
+                new DateTimeV2Literal("2023-01-31 12:00:00"), new DateV2Literal("2023-03-01")));
+    }
+
+    private void assertCalendarDiff(String end, String start, long months, long quarters, long years) {
+        // Check both argument positions, including the negative differences used by pruning.
+        for (int sign : new int[] {1, -1}) {
+            String left = sign == 1 ? end : start;
+            String right = sign == 1 ? start : end;
+            DateTimeV2Literal dt1 = new DateTimeV2Literal(left);
+            DateTimeV2Literal dt2 = new DateTimeV2Literal(right);
+            TimeStampNsLiteral ns1 = new TimeStampNsLiteral(left);
+            TimeStampNsLiteral ns2 = new TimeStampNsLiteral(right);
+            TimestampTzLiteral tz1 = new TimestampTzLiteral(left);
+            TimestampTzLiteral tz2 = new TimestampTzLiteral(right);
+            BigIntLiteral expectedMonths = new BigIntLiteral(sign * months);
+            BigIntLiteral expectedQuarters = new BigIntLiteral(sign * quarters);
+            BigIntLiteral expectedYears = new BigIntLiteral(sign * years);
+            Assertions.assertEquals(expectedMonths, DateTimeExtractAndTransform.monthsDiff(dt1, dt2));
+            Assertions.assertEquals(expectedMonths, DateTimeExtractAndTransform.monthsDiff(ns1, ns2));
+            Assertions.assertEquals(expectedMonths, DateTimeExtractAndTransform.monthsDiff(tz1, tz2));
+            Assertions.assertEquals(expectedQuarters, DateTimeExtractAndTransform.quartersDiff(dt1, dt2));
+            Assertions.assertEquals(expectedQuarters, DateTimeExtractAndTransform.quartersDiff(ns1, ns2));
+            Assertions.assertEquals(expectedQuarters, DateTimeExtractAndTransform.quartersDiff(tz1, tz2));
+            Assertions.assertEquals(expectedYears, DateTimeExtractAndTransform.yearsDiff(dt1, dt2));
+            Assertions.assertEquals(expectedYears, DateTimeExtractAndTransform.yearsDiff(ns1, ns2));
+            Assertions.assertEquals(expectedYears, DateTimeExtractAndTransform.yearsDiff(tz1, tz2));
+        }
+    }
+
     @Test
     void testAdditionalTimestampNsCalendarFunctions() {
         TimeStampNsLiteral leapDay = new TimeStampNsLiteral("2024-02-29 12:34:56.123456789");

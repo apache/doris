@@ -5,10 +5,10 @@
 # This file must exist on EVERY FE node -- it is not replicated through Doris metadata.
 # Changes take effect after an FE restart.
 #
-# Every setting below is optional. Left commented out, each falls back to the fe.conf key named
-# after it, and then to the built-in default -- so an existing deployment needs no change here.
+# Every setting below is optional. Existing shared settings fall back to the fe.conf key named
+# after them, and then to the built-in default. New settings use only their documented default.
 #
-# NOTE: both settings below are shared with other connectors at the fe.conf end -- one
+# NOTE: the driver and metastore settings are shared with other connectors at the fe.conf end -- one
 # jdbc_drivers_dir and one hive_metastore_client_timeout_second serve jdbc, iceberg and paimon.
 # A per-plugin conf cannot express that, so if you move them here you must also set them in
 # jdbc.conf and paimon.conf. Leaving them commented out keeps the single shared fe.conf value.
@@ -21,3 +21,8 @@
 # unless the catalog overrides it. Falls back to fe.conf's hive_metastore_client_timeout_second,
 # whose default is 10.
 # metastore_client_timeout_second=10
+
+# Encrypted-read admission intent only; default false, with no fe.conf fallback.
+# Enabling this does not enable encrypted writes or bypass missing backend read capabilities.
+# Encrypted scan execution remains unavailable until explicit backend negotiation and readers exist.
+# enable_encryption_read=false
