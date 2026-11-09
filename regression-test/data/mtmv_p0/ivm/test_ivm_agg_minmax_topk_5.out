@@ -7,6 +7,9 @@ b	10
 a	a	10	1	1	[{"value":10, "count":1}]	10	0	2	[regression-fake-sequence]
 b	b	10	1	1	[{"value":10, "count":1}]	10	0	2	[regression-fake-sequence]
 
+-- !after_swap_status --
+SUCCESS
+
 -- !after_swap --
 a	10
 b	10

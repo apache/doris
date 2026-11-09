@@ -55,31 +55,31 @@ suite("test_ivm_agg_minmax_topk_2") {
     """
     // CREATE persisted the auto-selected capacity. Assert the one property instead of pinning the
     // whole DDL, whose unrelated defaults would make the golden churn.
-    def autoDdl = sql """SHOW CREATE MATERIALIZED VIEW ivm_topk_2_mv"""
-    assertTrue(autoDdl.toString().contains('"ivm_minmax_top_k" = "0"'))
+    def autoDdl = sql_return_maparray """SHOW CREATE MATERIALIZED VIEW ivm_topk_2_mv"""
+    qt_auto_capacity """SELECT ${autoDdl.toString().contains('"ivm_minmax_top_k" = "0"')}"""
     sql """SET show_hidden_columns = true;"""
     qt_desc_hidden """desc ivm_topk_2_mv"""
     sql """SET show_hidden_columns = false;"""
 
-    sql """REFRESH MATERIALIZED VIEW ivm_topk_2_mv COMPLETE"""
+    refreshIvm("ivm_topk_2_mv", """REFRESH MATERIALIZED VIEW ivm_topk_2_mv COMPLETE""")
     waitingMTMVTaskFinishedByMvName("ivm_topk_2_mv")
     order_qt_initial """SELECT category, min_score, max_score FROM ivm_topk_2_mv"""
     ivm_hidden_qt("order_state_initial", """SELECT * FROM ivm_topk_2_mv""")
 
     // Appends stay incremental; only the extreme moves.
     sql """INSERT INTO ivm_topk_2_t VALUES (3, 'a', 5)"""
-    sql """REFRESH MATERIALIZED VIEW ivm_topk_2_mv INCREMENTAL"""
+    refreshIvm("ivm_topk_2_mv", """REFRESH MATERIALIZED VIEW ivm_topk_2_mv INCREMENTAL""")
     def afterInsert = latestIvmTask("ivm_topk_2_mv")
-    assertEquals("SUCCESS", afterInsert.Status.toString())
+    qt_after_insert_status """SELECT '${afterInsert.Status.toString()}'"""
     order_qt_after_insert """SELECT category, min_score, max_score FROM ivm_topk_2_mv"""
     ivm_hidden_qt("order_state_after_insert", """SELECT * FROM ivm_topk_2_mv""")
 
     // A batch whose insert-side extreme is better and appears more than once must take the
     // inserted side's count, not the pre-image's.
     sql """INSERT INTO ivm_topk_2_t VALUES (4, 'a', 1), (5, 'a', 1)"""
-    sql """REFRESH MATERIALIZED VIEW ivm_topk_2_mv INCREMENTAL"""
+    refreshIvm("ivm_topk_2_mv", """REFRESH MATERIALIZED VIEW ivm_topk_2_mv INCREMENTAL""")
     def afterMultiInsert = latestIvmTask("ivm_topk_2_mv")
-    assertEquals("SUCCESS", afterMultiInsert.Status.toString())
+    qt_after_multi_insert_status """SELECT '${afterMultiInsert.Status.toString()}'"""
     order_qt_after_multi_insert """SELECT category, min_score, max_score FROM ivm_topk_2_mv"""
     ivm_hidden_qt("order_state_after_multi_insert", """SELECT * FROM ivm_topk_2_mv""")
 
@@ -109,20 +109,20 @@ suite("test_ivm_agg_minmax_topk_2") {
         )
         AS SELECT MIN(score) AS mn FROM ivm_topk_2_mow_t
     """
-    def explicitZeroDdl = sql """SHOW CREATE MATERIALIZED VIEW ivm_topk_2_mow_mv"""
-    assertTrue(explicitZeroDdl.toString().contains('"ivm_minmax_top_k" = "0"'))
-    sql """REFRESH MATERIALIZED VIEW ivm_topk_2_mow_mv COMPLETE"""
+    def explicitZeroDdl = sql_return_maparray """SHOW CREATE MATERIALIZED VIEW ivm_topk_2_mow_mv"""
+    qt_explicit_zero_capacity """SELECT ${explicitZeroDdl.toString().contains('"ivm_minmax_top_k" = "0"')}"""
+    refreshIvm("ivm_topk_2_mow_mv", """REFRESH MATERIALIZED VIEW ivm_topk_2_mow_mv COMPLETE""")
     waitingMTMVTaskFinishedByMvName("ivm_topk_2_mow_mv")
     ivm_hidden_qt("order_mow_state_initial", """SELECT * FROM ivm_topk_2_mow_mv""")
 
     sql """DELETE FROM ivm_topk_2_mow_t WHERE id = 1"""
-    sql """REFRESH MATERIALIZED VIEW ivm_topk_2_mow_mv INCREMENTAL"""
+    refreshIvm("ivm_topk_2_mow_mv", """REFRESH MATERIALIZED VIEW ivm_topk_2_mow_mv INCREMENTAL""")
     def exhausted = latestIvmTask("ivm_topk_2_mow_mv")
-    assertEquals("FAILED", exhausted.Status.toString())
-    assertEquals("MIN_MAX_BOUNDARY_HIT", exhausted.IvmFallbackReason.toString())
+    qt_exhausted_status """SELECT '${exhausted.Status.toString()}'"""
+    qt_exhausted_ivmfallbackreason """SELECT '${exhausted.IvmFallbackReason.toString()}'"""
     order_qt_mow_after_delete """SELECT mn FROM ivm_topk_2_mow_mv"""
 
-    sql """REFRESH MATERIALIZED VIEW ivm_topk_2_mow_mv INCREMENTAL FALLBACK"""
+    refreshIvm("ivm_topk_2_mow_mv", """REFRESH MATERIALIZED VIEW ivm_topk_2_mow_mv INCREMENTAL FALLBACK""")
     waitingMTMVTaskFinishedByMvName("ivm_topk_2_mow_mv")
     order_qt_mow_after_fallback """SELECT mn FROM ivm_topk_2_mow_mv"""
     ivm_hidden_qt("order_mow_state_after_fallback", """SELECT * FROM ivm_topk_2_mow_mv""")

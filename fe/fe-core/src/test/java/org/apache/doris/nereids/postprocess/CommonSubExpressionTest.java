@@ -123,6 +123,24 @@ public class CommonSubExpressionTest extends ExpressionRewriteTestHelper {
     }
 
     @Test
+    public void testCapturedLambdaInputIsNotExtracted() {
+        Slot arrays = new SlotReference("arrays", ArrayType.of(ArrayType.of(IntegerType.INSTANCE)));
+        ArrayItemReference outer = new ArrayItemReference("z", arrays);
+        ArrayItemReference inner = new ArrayItemReference("y", outer.toSlot());
+        ArrayMap nested = new ArrayMap(new Lambda(ImmutableList.of("y"), inner.toSlot(),
+                ImmutableList.of(inner)));
+        ArrayMap complete = new ArrayMap(new Lambda(ImmutableList.of("z"), nested,
+                ImmutableList.of(outer)));
+        CommonSubExpressionCollector collector = new CommonSubExpressionCollector();
+        collector.collect(new Alias(complete, "a"));
+        collector.collect(new Alias(complete, "b"));
+        Set<Expression> extracted = new HashSet<>();
+        collector.commonExprByDepth.values().forEach(extracted::addAll);
+        Assertions.assertFalse(extracted.contains(nested));
+        Assertions.assertTrue(extracted.contains(complete));
+    }
+
+    @Test
     public void testMultiLayers() throws Exception {
         List<NamedExpression> exprs = parseProjections("a, a+b, a+b+1, abs(a+b+1), a");
         Set<Slot> inputSlots = exprs.get(0).getInputSlots();

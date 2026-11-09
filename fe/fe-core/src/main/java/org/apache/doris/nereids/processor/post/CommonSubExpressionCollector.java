@@ -118,6 +118,11 @@ public class CommonSubExpressionCollector extends ExpressionVisitor<Integer, Boo
             Set<ExprId> inner = new LinkedHashSet<>(bound);
             for (Expression child : expr.children()) {
                 if (child instanceof ArrayItemReference) {
+                    // Inputs are evaluated outside this lambda's binding scope and can capture
+                    // an enclosing lambda's parameter even when the body itself does not.
+                    if (hasFreeArrayItem(((ArrayItemReference) child).getArrayExpression(), bound)) {
+                        return true;
+                    }
                     inner.add(((ArrayItemReference) child).getExprId());
                 }
             }

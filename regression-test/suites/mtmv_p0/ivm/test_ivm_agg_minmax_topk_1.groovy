@@ -59,70 +59,80 @@ suite("test_ivm_agg_minmax_topk_1") {
 
     // The resolved capacity is persisted at CREATE. Assert the one property instead of pinning the
     // whole DDL, whose unrelated defaults would make the golden churn.
-    def createDdl = sql """SHOW CREATE MATERIALIZED VIEW ivm_topk_1_mv"""
-    assertTrue(createDdl.toString().contains('"ivm_minmax_top_k" = "2"'))
+    def createDdl = sql_return_maparray """SHOW CREATE MATERIALIZED VIEW ivm_topk_1_mv"""
+    qt_create_capacity """SELECT ${createDdl.toString().contains('"ivm_minmax_top_k" = "2"')}"""
     // DESC with hidden columns pins the state column type next to the per-step state values below.
     sql """SET show_hidden_columns = true;"""
     qt_desc_hidden """desc ivm_topk_1_mv"""
     sql """SET show_hidden_columns = false;"""
 
-    sql """REFRESH MATERIALIZED VIEW ivm_topk_1_mv COMPLETE"""
+    refreshIvm("ivm_topk_1_mv", """REFRESH MATERIALIZED VIEW ivm_topk_1_mv COMPLETE""")
     waitingMTMVTaskFinishedByMvName("ivm_topk_1_mv")
     order_qt_initial """SELECT category, min_score, max_score FROM ivm_topk_1_mv"""
     ivm_hidden_qt("order_state_initial", """SELECT * FROM ivm_topk_1_mv""")
 
     // A smaller value enters the list and pushes the bound down.
     sql """INSERT INTO ivm_topk_1_t VALUES (8, 'a', 5)"""
-    sql """REFRESH MATERIALIZED VIEW ivm_topk_1_mv INCREMENTAL"""
+    refreshIvm("ivm_topk_1_mv", """REFRESH MATERIALIZED VIEW ivm_topk_1_mv INCREMENTAL""")
     waitingMTMVTaskFinishedByMvName("ivm_topk_1_mv")
-    assertEquals("SUCCESS", latestIvmTask("ivm_topk_1_mv").Status.toString())
+    qt_refresh_status_1 """SELECT '${latestIvmTask("ivm_topk_1_mv").Status.toString()}'"""
     order_qt_after_insert """SELECT category, min_score, max_score FROM ivm_topk_1_mv"""
     ivm_hidden_qt("order_state_after_insert", """SELECT * FROM ivm_topk_1_mv""")
 
     // Deleting one of several rows at the extreme only decrements its count.
     sql """DELETE FROM ivm_topk_1_t WHERE id = 1"""
-    sql """REFRESH MATERIALIZED VIEW ivm_topk_1_mv INCREMENTAL"""
+    refreshIvm("ivm_topk_1_mv", """REFRESH MATERIALIZED VIEW ivm_topk_1_mv INCREMENTAL""")
     waitingMTMVTaskFinishedByMvName("ivm_topk_1_mv")
-    assertEquals("SUCCESS", latestIvmTask("ivm_topk_1_mv").Status.toString())
+    qt_refresh_status_2 """SELECT '${latestIvmTask("ivm_topk_1_mv").Status.toString()}'"""
     order_qt_after_delete_one """SELECT category, min_score, max_score FROM ivm_topk_1_mv"""
     ivm_hidden_qt("order_state_after_delete_one", """SELECT * FROM ivm_topk_1_mv""")
 
     // Deleting the last row at the extreme retires the value from the list.
     sql """DELETE FROM ivm_topk_1_t WHERE id = 7"""
-    sql """REFRESH MATERIALIZED VIEW ivm_topk_1_mv INCREMENTAL"""
+    refreshIvm("ivm_topk_1_mv", """REFRESH MATERIALIZED VIEW ivm_topk_1_mv INCREMENTAL""")
     waitingMTMVTaskFinishedByMvName("ivm_topk_1_mv")
-    assertEquals("SUCCESS", latestIvmTask("ivm_topk_1_mv").Status.toString())
+    qt_refresh_status_3 """SELECT '${latestIvmTask("ivm_topk_1_mv").Status.toString()}'"""
     order_qt_after_delete_extreme """SELECT category, min_score, max_score FROM ivm_topk_1_mv"""
     ivm_hidden_qt("order_state_after_delete_extreme", """SELECT * FROM ivm_topk_1_mv""")
 
     // Deleting a value above the trusted bound does not move the extreme.
     sql """DELETE FROM ivm_topk_1_t WHERE id = 2"""
-    sql """REFRESH MATERIALIZED VIEW ivm_topk_1_mv INCREMENTAL"""
+    refreshIvm("ivm_topk_1_mv", """REFRESH MATERIALIZED VIEW ivm_topk_1_mv INCREMENTAL""")
     waitingMTMVTaskFinishedByMvName("ivm_topk_1_mv")
-    assertEquals("SUCCESS", latestIvmTask("ivm_topk_1_mv").Status.toString())
+    qt_refresh_status_4 """SELECT '${latestIvmTask("ivm_topk_1_mv").Status.toString()}'"""
     order_qt_after_delete_above_bound """SELECT category, min_score, max_score FROM ivm_topk_1_mv"""
     ivm_hidden_qt("order_state_after_delete_above_bound", """SELECT * FROM ivm_topk_1_mv""")
 
     // Deleting the only cached value exhausts the known range while rows remain: strict refresh
     // fails, and only an explicit FALLBACK rebuilds the MV.
     sql """DELETE FROM ivm_topk_1_t WHERE id = 8"""
-    sql """REFRESH MATERIALIZED VIEW ivm_topk_1_mv INCREMENTAL"""
+    refreshIvm("ivm_topk_1_mv", """REFRESH MATERIALIZED VIEW ivm_topk_1_mv INCREMENTAL""")
     def exhaustedTask = latestIvmTask("ivm_topk_1_mv")
-    assertEquals("FAILED", exhaustedTask.Status.toString())
-    assertEquals("MIN_MAX_BOUNDARY_HIT", exhaustedTask.IvmFallbackReason.toString())
+    qt_exhausted_task_status """SELECT '${exhaustedTask.Status.toString()}'"""
+    qt_exhausted_task_ivmfallbackreason """SELECT '${exhaustedTask.IvmFallbackReason.toString()}'"""
     order_qt_after_exhaustion """SELECT category, min_score, max_score FROM ivm_topk_1_mv"""
-    sql """REFRESH MATERIALIZED VIEW ivm_topk_1_mv INCREMENTAL FALLBACK"""
+    refreshIvm("ivm_topk_1_mv", """REFRESH MATERIALIZED VIEW ivm_topk_1_mv INCREMENTAL FALLBACK""")
     def fallbackTask = latestIvmTask("ivm_topk_1_mv")
-    assertEquals("SUCCESS", fallbackTask.Status.toString())
-    assertEquals("COMPLETE", fallbackTask.RefreshMode.toString())
+    qt_fallback_task_status """SELECT '${fallbackTask.Status.toString()}'"""
+    qt_fallback_task_refreshmode """SELECT '${fallbackTask.RefreshMode.toString()}'"""
     order_qt_after_fallback """SELECT category, min_score, max_score FROM ivm_topk_1_mv"""
     ivm_hidden_qt("order_state_after_fallback", """SELECT * FROM ivm_topk_1_mv""")
 
     // A different capacity cannot be interpreted against the old state: ALTER rebuilds the MV.
     sql """ALTER MATERIALIZED VIEW ivm_topk_1_mv SET ("ivm_minmax_top_k" = "4")"""
-    def alteredDdl = sql """SHOW CREATE MATERIALIZED VIEW ivm_topk_1_mv"""
-    assertTrue(alteredDdl.toString().contains('"ivm_minmax_top_k" = "4"'))
-    sql """REFRESH MATERIALIZED VIEW ivm_topk_1_mv COMPLETE"""
+    def alteredDdl = sql_return_maparray """SHOW CREATE MATERIALIZED VIEW ivm_topk_1_mv"""
+    qt_altered_capacity """SELECT ${alteredDdl.toString().contains('"ivm_minmax_top_k" = "4"')}"""
+    refreshIvm("ivm_topk_1_mv", """REFRESH MATERIALIZED VIEW ivm_topk_1_mv COMPLETE""")
     waitingMTMVTaskFinishedByMvName("ivm_topk_1_mv")
     ivm_hidden_qt("order_state_after_alter", """SELECT * FROM ivm_topk_1_mv""")
+    // The rebuilt capacity must support a strict incremental refresh and consume each row once.
+    sql """INSERT INTO ivm_topk_1_t VALUES (9, 'a', 25)"""
+    refreshIvm("ivm_topk_1_mv", """REFRESH MATERIALIZED VIEW ivm_topk_1_mv INCREMENTAL""")
+    def afterAlterTask = latestIvmTask("ivm_topk_1_mv")
+    qt_after_alter_task_status """SELECT '${afterAlterTask.Status.toString()}'"""
+    qt_after_alter_no_fallback """SELECT ${afterAlterTask.IvmFallbackReason == null ||
+            afterAlterTask.IvmFallbackReason.toString() == "\\N"}"""
+    order_qt_after_alter_incremental """SELECT category, min_score, max_score FROM ivm_topk_1_mv"""
+    ivm_hidden_qt("order_state_after_alter_incremental", """SELECT * FROM ivm_topk_1_mv""")
+
 }

@@ -145,7 +145,8 @@ class IvmLinearDeltaHandler {
         LogicalProject<?> newProject = project.withProjectsAndChild(newOutputs.build(), child.plan);
         Slot newDmlFactor = helper.findSlotByName(newProject.getOutput(), Column.IVM_DML_FACTOR_COL);
         Slot newSequence = helper.findSlotByName(newProject.getOutput(), Column.SEQUENCE_COL);
-        return Optional.of(new IvmDeltaRewriteResult(newProject, newDmlFactor, newSequence, child.maxDeltaIndex));
+        return Optional.of(new IvmDeltaRewriteResult(newProject, newDmlFactor, newSequence,
+                child.maxDeltaIndex, child.ownedHiddenStateNames));
     }
 
     Optional<IvmDeltaRewriteResult> rewriteFilter(LogicalFilter<? extends Plan> filter,
@@ -169,12 +170,13 @@ class IvmLinearDeltaHandler {
         Plan newPlan = plan.withChildren(ImmutableList.of(deltaChild.plan));
         if (!remapHiddenSlotsFromOutput) {
             return Optional.of(new IvmDeltaRewriteResult(newPlan,
-                    deltaChild.dmlFactorSlot, deltaChild.sequenceSlot, deltaChild.maxDeltaIndex));
+                    deltaChild.dmlFactorSlot, deltaChild.sequenceSlot, deltaChild.maxDeltaIndex,
+                    deltaChild.ownedHiddenStateNames));
         } else {
             Slot newDmlFactorSlot = helper.findSlotByName(newPlan.getOutput(), Column.IVM_DML_FACTOR_COL);
             Slot newSequenceSlot = helper.findSlotByName(newPlan.getOutput(), Column.SEQUENCE_COL);
             return Optional.of(new IvmDeltaRewriteResult(newPlan, newDmlFactorSlot,
-                    newSequenceSlot, deltaChild.maxDeltaIndex));
+                    newSequenceSlot, deltaChild.maxDeltaIndex, deltaChild.ownedHiddenStateNames));
         }
     }
 

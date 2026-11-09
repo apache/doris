@@ -5,11 +5,17 @@
 -- !order_state_initial --
 0	10	30	3	3	[{"value":10, "count":1}, {"value":20, "count":1}]	[{"value":30, "count":1}, {"value":20, "count":1}]	20	20	0	2	[regression-fake-sequence]
 
+-- !after_truncating_insert_status --
+SUCCESS
+
 -- !after_truncating_insert --
 5	30
 
 -- !order_state_after_truncating_insert --
 0	5	30	6	6	[{"value":5, "count":1}, {"value":6, "count":1}]	[{"value":30, "count":1}, {"value":20, "count":1}]	6	20	0	3	[regression-fake-sequence]
+
+-- !after_update_status --
+SUCCESS
 
 -- !after_update --
 4	20

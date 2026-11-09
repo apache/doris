@@ -51,7 +51,7 @@ suite("test_ivm_minmax_runtime_fallback") {
         GROUP BY category
     """
 
-    sql """REFRESH MATERIALIZED VIEW ivm_mm_fb_mv INCREMENTAL"""
+    refreshIvm("ivm_mm_fb_mv", """REFRESH MATERIALIZED VIEW ivm_mm_fb_mv INCREMENTAL""")
     waitingMTMVTaskFinishedByMvName("ivm_mm_fb_mv")
     order_qt_minmax_initial """
         SELECT category, min_score, max_score, row_count
@@ -62,7 +62,7 @@ suite("test_ivm_minmax_runtime_fallback") {
     sql """DELETE FROM ivm_mm_fb_t WHERE id = 1"""
     Thread.sleep(1000)
 
-    sql """REFRESH MATERIALIZED VIEW ivm_mm_fb_mv INCREMENTAL"""
+    refreshIvm("ivm_mm_fb_mv", """REFRESH MATERIALIZED VIEW ivm_mm_fb_mv INCREMENTAL""")
     def strictTask = latestIvmTask("ivm_mm_fb_mv")
     assertEquals("FAILED", strictTask.Status.toString())
     assertEquals("MIN_MAX_BOUNDARY_HIT", strictTask.IvmFallbackReason.toString())
@@ -73,7 +73,7 @@ suite("test_ivm_minmax_runtime_fallback") {
         ORDER BY category
     """
 
-    sql """REFRESH MATERIALIZED VIEW ivm_mm_fb_mv INCREMENTAL FALLBACK"""
+    refreshIvm("ivm_mm_fb_mv", """REFRESH MATERIALIZED VIEW ivm_mm_fb_mv INCREMENTAL FALLBACK""")
     def fallbackTask = latestIvmTask("ivm_mm_fb_mv")
     assertEquals("SUCCESS", fallbackTask.Status.toString())
     assertEquals("COMPLETE", fallbackTask.RefreshMode.toString())

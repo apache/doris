@@ -51,7 +51,7 @@ suite("test_ivm_agg_minmax_topk_6") {
         AS SELECT MIN(score) AS mn, MAX(score) AS mx FROM ivm_topk_6_t
     """
 
-    sql """REFRESH MATERIALIZED VIEW ivm_topk_6_mv COMPLETE"""
+    refreshIvm("ivm_topk_6_mv", """REFRESH MATERIALIZED VIEW ivm_topk_6_mv COMPLETE""")
     waitingMTMVTaskFinishedByMvName("ivm_topk_6_mv")
     order_qt_initial """SELECT mn, mx FROM ivm_topk_6_mv"""
     ivm_hidden_qt("order_state_initial", """SELECT * FROM ivm_topk_6_mv""")
@@ -59,18 +59,18 @@ suite("test_ivm_agg_minmax_topk_6") {
     // Three distinct values in one batch with K = 2: the insert-side list is truncated at 6, so the
     // trusted bound collapses to 6 and 7 is never trusted.
     sql """INSERT INTO ivm_topk_6_t VALUES (4, 5), (5, 6), (6, 7)"""
-    sql """REFRESH MATERIALIZED VIEW ivm_topk_6_mv INCREMENTAL"""
+    refreshIvm("ivm_topk_6_mv", """REFRESH MATERIALIZED VIEW ivm_topk_6_mv INCREMENTAL""")
     def afterTruncatingInsert = latestIvmTask("ivm_topk_6_mv")
-    assertEquals("SUCCESS", afterTruncatingInsert.Status.toString())
+    qt_after_truncating_insert_status """SELECT '${afterTruncatingInsert.Status.toString()}'"""
     order_qt_after_truncating_insert """SELECT mn, mx FROM ivm_topk_6_mv"""
     ivm_hidden_qt("order_state_after_truncating_insert", """SELECT * FROM ivm_topk_6_mv""")
 
     // One UPDATE emits a delete of 30 and an insert of 4: the MAX side loses its extreme and the
     // MIN side gains a smaller value in the same batch.
     sql """UPDATE ivm_topk_6_t SET score = 4 WHERE id = 3"""
-    sql """REFRESH MATERIALIZED VIEW ivm_topk_6_mv INCREMENTAL"""
+    refreshIvm("ivm_topk_6_mv", """REFRESH MATERIALIZED VIEW ivm_topk_6_mv INCREMENTAL""")
     def afterUpdate = latestIvmTask("ivm_topk_6_mv")
-    assertEquals("SUCCESS", afterUpdate.Status.toString())
+    qt_after_update_status """SELECT '${afterUpdate.Status.toString()}'"""
     order_qt_after_update """SELECT mn, mx FROM ivm_topk_6_mv"""
     ivm_hidden_qt("order_state_after_update", """SELECT * FROM ivm_topk_6_mv""")
 }

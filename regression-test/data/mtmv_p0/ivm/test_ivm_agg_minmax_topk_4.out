@@ -30,6 +30,12 @@ a	10	30	3
 b	5	5	1
 c	\N	\N	0
 
+-- !exhausted_status --
+FAILED
+
+-- !exhausted_ivmfallbackreason --
+MIN_MAX_BOUNDARY_HIT
+
 -- !after_exhaustion --
 a	10	30	3
 b	5	5	1

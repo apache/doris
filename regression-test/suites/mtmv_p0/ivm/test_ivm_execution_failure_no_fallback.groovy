@@ -59,7 +59,7 @@ suite("test_ivm_execution_failure_no_fallback", "nonConcurrent") {
         AS SELECT id, v1 FROM ivm_exec_fail_t
     """
 
-    sql """REFRESH MATERIALIZED VIEW ivm_exec_fail_mv INCREMENTAL"""
+    refreshIvm("ivm_exec_fail_mv", """REFRESH MATERIALIZED VIEW ivm_exec_fail_mv INCREMENTAL""")
     waitingMTMVTaskFinishedByMvName("ivm_exec_fail_mv")
     order_qt_execution_failure_initial """
         SELECT id, v1 FROM ivm_exec_fail_mv ORDER BY id
@@ -71,7 +71,7 @@ suite("test_ivm_execution_failure_no_fallback", "nonConcurrent") {
     def failedTask
     try {
         GetDebugPoint().enableDebugPointForAllFEs(commitFailureDebugPoint)
-        sql """REFRESH MATERIALIZED VIEW ivm_exec_fail_mv INCREMENTAL FALLBACK"""
+        refreshIvm("ivm_exec_fail_mv", """REFRESH MATERIALIZED VIEW ivm_exec_fail_mv INCREMENTAL FALLBACK""")
         failedTask = latestIvmTask("ivm_exec_fail_mv")
     } finally {
         GetDebugPoint().disableDebugPointForAllFEs(commitFailureDebugPoint)
@@ -90,7 +90,7 @@ suite("test_ivm_execution_failure_no_fallback", "nonConcurrent") {
         GetDebugPoint().enableDebugPointForAllFEs(
                 rpcFailureFilterDebugPoint, [mv_name: "ivm_exec_fail_mv"])
         GetDebugPoint().enableDebugPointForAllFEs(rpcFailureDebugPoint, [execute: 1])
-        sql """REFRESH MATERIALIZED VIEW ivm_exec_fail_mv INCREMENTAL FALLBACK"""
+        refreshIvm("ivm_exec_fail_mv", """REFRESH MATERIALIZED VIEW ivm_exec_fail_mv INCREMENTAL FALLBACK""")
         retryTask = latestIvmTask("ivm_exec_fail_mv")
     } finally {
         GetDebugPoint().disableDebugPointForAllFEs(rpcFailureFilterDebugPoint)

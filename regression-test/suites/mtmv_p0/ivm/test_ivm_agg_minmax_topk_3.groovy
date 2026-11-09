@@ -51,27 +51,27 @@ suite("test_ivm_agg_minmax_topk_3") {
         AS SELECT MIN(score) AS mn FROM ivm_topk_3_t
     """
 
-    sql """REFRESH MATERIALIZED VIEW ivm_topk_3_mv COMPLETE"""
+    refreshIvm("ivm_topk_3_mv", """REFRESH MATERIALIZED VIEW ivm_topk_3_mv COMPLETE""")
     waitingMTMVTaskFinishedByMvName("ivm_topk_3_mv")
     order_qt_initial """SELECT mn FROM ivm_topk_3_mv"""
     ivm_hidden_qt("order_state_initial", """SELECT * FROM ivm_topk_3_mv""")
 
     // Deleting one of the duplicate extremes only decrements its count.
     sql """DELETE FROM ivm_topk_3_t WHERE id = 1"""
-    sql """REFRESH MATERIALIZED VIEW ivm_topk_3_mv INCREMENTAL"""
+    refreshIvm("ivm_topk_3_mv", """REFRESH MATERIALIZED VIEW ivm_topk_3_mv INCREMENTAL""")
     waitingMTMVTaskFinishedByMvName("ivm_topk_3_mv")
     def afterDuplicate = latestIvmTask("ivm_topk_3_mv")
-    assertEquals("SUCCESS", afterDuplicate.Status.toString())
+    qt_after_duplicate_status """SELECT '${afterDuplicate.Status.toString()}'"""
     order_qt_after_duplicate """SELECT mn FROM ivm_topk_3_mv"""
     ivm_hidden_qt("order_state_after_duplicate", """SELECT * FROM ivm_topk_3_mv""")
 
     // Deleting the last row at the extreme exhausts K = 1 and needs a complete rebuild.
     sql """DELETE FROM ivm_topk_3_t WHERE id = 2"""
-    sql """REFRESH MATERIALIZED VIEW ivm_topk_3_mv INCREMENTAL"""
+    refreshIvm("ivm_topk_3_mv", """REFRESH MATERIALIZED VIEW ivm_topk_3_mv INCREMENTAL""")
     def exhausted = latestIvmTask("ivm_topk_3_mv")
-    assertEquals("FAILED", exhausted.Status.toString())
-    assertEquals("MIN_MAX_BOUNDARY_HIT", exhausted.IvmFallbackReason.toString())
-    sql """REFRESH MATERIALIZED VIEW ivm_topk_3_mv INCREMENTAL FALLBACK"""
+    qt_exhausted_status """SELECT '${exhausted.Status.toString()}'"""
+    qt_exhausted_ivmfallbackreason """SELECT '${exhausted.IvmFallbackReason.toString()}'"""
+    refreshIvm("ivm_topk_3_mv", """REFRESH MATERIALIZED VIEW ivm_topk_3_mv INCREMENTAL FALLBACK""")
     waitingMTMVTaskFinishedByMvName("ivm_topk_3_mv")
     order_qt_after_fallback """SELECT mn FROM ivm_topk_3_mv"""
     ivm_hidden_qt("order_state_after_fallback", """SELECT * FROM ivm_topk_3_mv""")
