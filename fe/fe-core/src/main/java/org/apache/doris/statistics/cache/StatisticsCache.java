@@ -26,6 +26,9 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.metric.LongCounterMetric;
+import org.apache.doris.metric.Metric;
+import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.nereids.trees.plans.algebra.OlapScan;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
@@ -57,47 +60,71 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadPoolExecutor;
 
 public class StatisticsCache {
 
     private static final Logger LOG = LogManager.getLogger(StatisticsCache.class);
 
-    /**
-     * Use a standalone thread pool to avoid interference between this and any other jdk function
-     * that use the thread of ForkJoinPool#common in the system.
-     */
-    private final ThreadPoolExecutor threadPool
-            = ThreadPoolManager.newDaemonFixedThreadPool(
-            10, Integer.MAX_VALUE, "STATS_FETCH", true);
+    private final ThreadPoolExecutor threadPool;
+    private final LongCounterMetric rejectedLoads = new LongCounterMetric(
+            "stats_cache_load_rejected", Metric.MetricUnit.REQUESTS,
+            "Statistics cache loads rejected due to saturation");
 
     private final ColumnStatisticsCacheLoader columnStatisticCacheLoader = new ColumnStatisticsCacheLoader();
     private final HistogramCacheLoader histogramCacheLoader = new HistogramCacheLoader();
     private final PartitionColumnStatisticCacheLoader partitionColumnStatisticCacheLoader
             = new PartitionColumnStatisticCacheLoader();
 
-    private final AsyncLoadingCache<StatisticsCacheKey, Optional<ColumnStatistic>> columnStatisticsCache =
-            Caffeine.newBuilder()
-                    .maximumSize(Config.stats_cache_size)
-                    .refreshAfterWrite(Duration.ofHours(StatisticConstants.STATISTICS_CACHE_REFRESH_INTERVAL))
-                    .executor(threadPool)
-                    .buildAsync(columnStatisticCacheLoader);
-
-    private final AsyncLoadingCache<StatisticsCacheKey, Optional<Histogram>> histogramCache =
-            Caffeine.newBuilder()
-                    .maximumSize(Config.stats_cache_size)
-                    .refreshAfterWrite(Duration.ofHours(StatisticConstants.STATISTICS_CACHE_REFRESH_INTERVAL))
-                    .executor(threadPool)
-                    .buildAsync(histogramCacheLoader);
-
+    private final AsyncLoadingCache<StatisticsCacheKey, Optional<ColumnStatistic>> columnStatisticsCache;
+    private final AsyncLoadingCache<StatisticsCacheKey, Optional<Histogram>> histogramCache;
     private final AsyncLoadingCache<PartitionColumnStatisticCacheKey, Optional<PartitionColumnStatistic>>
-            partitionColumnStatisticCache =
-            Caffeine.newBuilder()
+            partitionColumnStatisticCache;
+
+    public StatisticsCache() {
+        this(ThreadPoolManager.newDaemonFixedThreadPool(10, Config.stats_fetch_queue_size,
+                        "STATS_FETCH", true, new ThreadPoolExecutor.AbortPolicy()),
+                ThreadPoolManager.newDaemonFixedThreadPool(1, 16,
+                        "STATS_CACHE_MAINTENANCE", true, new ThreadPoolExecutor.AbortPolicy()));
+        MetricRepo.DORIS_METRIC_REGISTER.addMetrics(rejectedLoads);
+    }
+
+    @VisibleForTesting
+    StatisticsCache(ThreadPoolExecutor threadPool, ThreadPoolExecutor maintenancePool) {
+        this.threadPool = threadPool;
+        columnStatisticsCache = Caffeine.newBuilder()
                 .maximumSize(Config.stats_cache_size)
                 .refreshAfterWrite(Duration.ofHours(StatisticConstants.STATISTICS_CACHE_REFRESH_INTERVAL))
-                .executor(threadPool)
-                .buildAsync(partitionColumnStatisticCacheLoader);
+                .executor(maintenancePool)
+                .buildAsync(new StatisticsCacheLoader<>(columnStatisticCacheLoader, this::executeLoad));
+        histogramCache = Caffeine.newBuilder()
+                .maximumSize(Config.stats_cache_size)
+                .refreshAfterWrite(Duration.ofHours(StatisticConstants.STATISTICS_CACHE_REFRESH_INTERVAL))
+                .executor(maintenancePool)
+                .buildAsync(new StatisticsCacheLoader<>(histogramCacheLoader, this::executeLoad));
+        partitionColumnStatisticCache = Caffeine.newBuilder()
+                .maximumSize(Config.stats_cache_size)
+                .refreshAfterWrite(Duration.ofHours(StatisticConstants.STATISTICS_CACHE_REFRESH_INTERVAL))
+                .executor(maintenancePool)
+                .buildAsync(new StatisticsCacheLoader<>(partitionColumnStatisticCacheLoader, this::executeLoad));
+    }
+
+    private void executeLoad(Runnable task) {
+        try {
+            threadPool.execute(task);
+        } catch (RejectedExecutionException e) {
+            rejectedLoads.increase(1L);
+            throw e;
+        }
+    }
+
+    @VisibleForTesting
+    long getRejectedLoadCount() {
+        return rejectedLoads.getValue();
+    }
 
     public ColumnStatistic getColumnStatistics(
             long catalogId, long dbId, long tblId, long idxId, String colName, ConnectContext ctx) {
@@ -130,6 +157,8 @@ public class StatisticsCache {
                 }
                 return columnStatistic.get();
             }
+        } catch (RejectedExecutionException e) {
+            // Queue saturation is expected: this lookup uses unknown statistics.
         } catch (Exception e) {
             LOG.warn("Unexpected exception while returning ColumnStatistic", e);
         }
@@ -159,6 +188,8 @@ public class StatisticsCache {
             if (f.isDone()) {
                 return f.get().orElse(PartitionColumnStatistic.UNKNOWN);
             }
+        } catch (RejectedExecutionException e) {
+            // Queue saturation is expected: this lookup uses unknown statistics.
         } catch (Exception e) {
             LOG.warn("Unexpected exception while returning ColumnStatistic", e);
         }
@@ -207,6 +238,8 @@ public class StatisticsCache {
             if (f.isDone()) {
                 return f.get();
             }
+        } catch (RejectedExecutionException e) {
+            // Queue saturation is expected: this lookup uses unknown statistics.
         } catch (Exception e) {
             LOG.warn("Unexpected exception while returning Histogram", e);
         }
@@ -243,16 +276,35 @@ public class StatisticsCache {
     }
 
     public void refreshColStatsSync(long ctlId, long dbId, long tblId, long idxId, String colName) {
-        columnStatisticsCache.synchronous().refresh(new StatisticsCacheKey(ctlId, dbId, tblId, idxId, colName));
+        refresh(columnStatisticsCache, new StatisticsCacheKey(ctlId, dbId, tblId, idxId, colName));
     }
 
     public void refreshHistogramSync(long ctlId, long dbId, long tblId, long idxId, String colName) {
-        histogramCache.synchronous().refresh(new StatisticsCacheKey(ctlId, dbId, tblId, idxId, colName));
+        refresh(histogramCache, new StatisticsCacheKey(ctlId, dbId, tblId, idxId, colName));
+    }
+
+    private <K, V> void refresh(AsyncLoadingCache<K, V> cache, K key) {
+        CompletableFuture<V> previous = cache.asMap().get(key);
+        try {
+            cache.synchronous().refresh(key).whenComplete((value, error) -> {
+                if (error instanceof CancellationException && previous != null) {
+                    // Explicit refresh may precede refreshAfterWrite. Do not keep the old value
+                    // for another full refresh interval, or remove a concurrently published value.
+                    cache.asMap().remove(key, previous);
+                }
+            });
+        } catch (RejectedExecutionException e) {
+            // A missing key has no old value to invalidate.
+        }
     }
 
     public void preHeat() {
         if (!FeConstants.disablePreHeat) {
-            threadPool.submit(this::doPreHeat);
+            try {
+                executeLoad(this::doPreHeat);
+            } catch (RejectedExecutionException e) {
+                // Preheating is best effort, including during FE role transitions.
+            }
         }
     }
 
