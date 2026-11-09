@@ -201,6 +201,7 @@ public class InsertTask extends AbstractTask {
                 throw new JobException("Unsupported INSERT JOB command: " + parsed.getClass().getName());
             }
             stmtExecutor = new StmtExecutor(ctx, new LogicalPlanAdapter(command, ctx.getStatementContext()));
+            ctx.setExecutor(stmtExecutor);
         }
 
         super.before();
@@ -303,9 +304,8 @@ public class InsertTask extends AbstractTask {
             // execution failure must not overwrite a cancellation's reason.
             onFail(Util.getRootCauseMessage(e));
         } finally {
+            // TaskProcessor owns the thread context and closes it after the task releases its handles.
             closeOrReleaseResources();
-            // Only the worker thread may remove its context; cancel() runs on a different connection.
-            ConnectContext.remove();
         }
     }
 

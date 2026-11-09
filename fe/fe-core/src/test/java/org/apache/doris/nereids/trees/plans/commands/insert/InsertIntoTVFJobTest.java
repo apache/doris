@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands.insert;
 
+import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.common.AnalysisException;
@@ -24,14 +25,27 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.connector.ConnectorSessionBuilder;
+import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.ConnectorStatementScope;
+import org.apache.doris.connector.spi.ConnectorTaskScheduler;
+import org.apache.doris.datasource.scan.FederationBackendPolicy;
+import org.apache.doris.datasource.split.SplitAssignment;
+import org.apache.doris.datasource.split.SplitGenerator;
+import org.apache.doris.datasource.split.SplitToScanRange;
 import org.apache.doris.datasource.storage.StorageAdapter;
 import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.job.base.JobExecuteType;
+import org.apache.doris.job.common.TaskStatus;
+import org.apache.doris.job.executor.TaskProcessor;
 import org.apache.doris.job.extensions.insert.InsertJob;
+import org.apache.doris.job.extensions.insert.InsertTask;
 import org.apache.doris.job.extensions.insert.streaming.StreamingJobProperties;
 import org.apache.doris.job.offset.SourceOffsetProvider;
 import org.apache.doris.job.offset.SourceOffsetProviderFactory;
+import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.parser.NereidsParser;
@@ -39,6 +53,7 @@ import org.apache.doris.nereids.trees.plans.commands.CreateJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateJobInfo;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.OriginStatement;
@@ -54,16 +69,21 @@ import org.apache.doris.utframe.TestWithFeService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedConstruction;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.util.Collections;
+import java.util.List;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 public class InsertIntoTVFJobTest extends TestWithFeService {
     private static final String INSERT = "INSERT INTO s3("
@@ -304,6 +324,118 @@ public class InsertIntoTVFJobTest extends TestWithFeService {
         Assertions.assertThrows(UserException.class, () -> command.run(connectContext, executor));
         Assertions.assertEquals(0, coordinatorCreations.get());
         Mockito.verifyNoInteractions(coordinator);
+    }
+
+    @Test
+    public void taskCancellationDuringPlanningClosesOwnedWorkBeforeCoordinatorPublication() throws Exception {
+        CountDownLatch resumePlanning = new CountDownLatch(1);
+        CompletableFuture<ConnectContext> planning = new CompletableFuture<>();
+        CompletableFuture<ConnectContext> reusedContext = new CompletableFuture<>();
+        AtomicReference<Thread> planningThread = new AtomicReference<>();
+        AtomicReference<Thread> reusedThread = new AtomicReference<>();
+        AtomicReference<ConnectorSession> session = new AtomicReference<>();
+        AtomicReference<ConnectorTaskScheduler> metadata = new AtomicReference<>();
+        AtomicReference<ConnectorTaskScheduler> splits = new AtomicReference<>();
+        AtomicInteger unregisters = new AtomicInteger();
+        AtomicInteger finishes = new AtomicInteger();
+        AtomicInteger statementCloses = new AtomicInteger();
+        AtomicInteger splitCloses = new AtomicInteger();
+        SplitAssignment assignment = newSplitAssignment();
+        SplitAssignment lateAssignment = newSplitAssignment();
+        assignment.addCloseable(splitCloses::incrementAndGet);
+        lateAssignment.addCloseable(splitCloses::incrementAndGet);
+        ScanNode scan = Mockito.mock(ScanNode.class);
+        InsertTask task = new InsertTask("cancel-planning", "tvf_job_test", INSERT + SELECT, UserIdentity.ROOT);
+        task.setStatus(TaskStatus.PENDING);
+        TaskProcessor processor = new TaskProcessor(1, 2, runnable -> new Thread(() -> {
+            try (MockedStatic<EnvFactory> workerFactory = Mockito.mockStatic(EnvFactory.class);
+                    MockedConstruction<NereidsPlanner> planners = Mockito.mockConstruction(NereidsPlanner.class,
+                            (planner, creation) -> Mockito.doAnswer(invocation -> {
+                                ConnectContext ctx = ConnectContext.get();
+                                try {
+                                    planningThread.set(Thread.currentThread());
+                                    StmtExecutor owner = ctx.getExecutor();
+                                    Assertions.assertNotNull(owner, "planning must see the task's parsed executor");
+                                    Assertions.assertNull(Deencapsulation.getField(owner, "coord"));
+                                    owner.registerSplitAssignment(assignment, unregisters::incrementAndGet);
+                                    owner.registerQueryCancellationCallback(assignment::stop);
+                                    session.set(ConnectorSessionBuilder.from(ctx).withCatalogId(1).build());
+                                    metadata.set(session.get().getTaskScheduler(ConnectorTaskScheduler.Stage.METADATA));
+                                    splits.set(session.get().getTaskScheduler(ConnectorTaskScheduler.Stage.SPLIT));
+                                    ConnectorStatementScope scope = session.get().getStatementScope();
+                                    scope.computeIfAbsent("resource", () -> (AutoCloseable) statementCloses::incrementAndGet);
+                                    scope.computeIfAbsentForPlanning("planning-value", Object::new);
+                                    ctx.getStatementContext().stopScanNodeAtClose(scan);
+                                    QeProcessorImpl.INSTANCE.registerQueryFinishCallback(DebugUtil.printId(ctx.queryId()),
+                                            finishes::incrementAndGet);
+                                    planning.complete(ctx);
+                                    Assertions.assertTrue(resumePlanning.await(10, TimeUnit.SECONDS));
+                                    // Work discovered after cancellation must observe the same terminal scope.
+                                    owner.registerSplitAssignment(lateAssignment, unregisters::incrementAndGet);
+                                    ConnectorSession lateSession = ConnectorSessionBuilder.from(ctx).build();
+                                    Assertions.assertThrows(CancellationException.class,
+                                            () -> lateSession.getTaskScheduler(ConnectorTaskScheduler.Stage.SPLIT));
+                                } catch (Throwable failure) {
+                                    planning.completeExceptionally(failure);
+                                    throw failure;
+                                }
+                                return null;
+                            }).when(planner).plan(Mockito.any(StatementBase.class), Mockito.any(TQueryOptions.class)))) {
+                workerFactory.when(EnvFactory::getInstance).thenReturn(factory);
+                runnable.run();
+            }
+        }));
+        InsertTask probe = new InsertTask("reuse-probe", null, null, null) {
+            @Override
+            public void runTask() {
+                reusedThread.set(Thread.currentThread());
+                reusedContext.complete(ConnectContext.get());
+            }
+        };
+        probe.setStatus(TaskStatus.PENDING);
+        try {
+            Assertions.assertTrue(processor.addTask(task));
+            ConnectContext workerContext = planning.get(10, TimeUnit.SECONDS);
+            Assertions.assertTrue(task.cancel(false));
+            Assertions.assertSame(connectContext, ConnectContext.get());
+            Assertions.assertTrue(metadata.get().isClosed());
+            Assertions.assertTrue(splits.get().isClosed());
+            Assertions.assertTrue(assignment.isStop());
+            Assertions.assertTrue(assignment.getScanContext().isCancelled());
+            Assertions.assertTrue(assignment.getTerminationFuture().isDone());
+            Assertions.assertEquals(1, splitCloses.get());
+            Assertions.assertEquals(0, finishes.get(), "the worker owns final cleanup after planning exits");
+            resumePlanning.countDown();
+            Assertions.assertTrue(processor.addTask(probe));
+            Assertions.assertNull(reusedContext.get(10, TimeUnit.SECONDS));
+            Assertions.assertSame(planningThread.get(), reusedThread.get());
+            Assertions.assertEquals(TaskStatus.CANCELED, task.getStatus());
+            Assertions.assertEquals("insert task canceled", task.getErrMsg());
+            Assertions.assertEquals(0, coordinatorCreations.get());
+            Mockito.verifyNoInteractions(coordinator);
+            Assertions.assertTrue(lateAssignment.isStop());
+            Assertions.assertTrue(lateAssignment.getTerminationFuture().isDone());
+            Assertions.assertEquals(2, splitCloses.get(), "cancellation and finalization close each split resource once");
+            Mockito.verify(scan).stop();
+            Assertions.assertEquals(2, unregisters.get());
+            Assertions.assertEquals(1, finishes.get());
+            Assertions.assertEquals(1, statementCloses.get());
+            Assertions.assertNull(session.get().getStatementScope().getIfPresent("planning-value"));
+            Assertions.assertThrows(CancellationException.class,
+                    () -> session.get().getStatementScope().computeIfAbsent("after-close", Object::new));
+            List<?> callbacks = Deencapsulation.getField(workerContext.getExecutor(), "queryCancelCallbacks");
+            Assertions.assertTrue(callbacks.isEmpty());
+            QeProcessorImpl.INSTANCE.unregisterQuery(workerContext.queryId());
+            Assertions.assertEquals(1, finishes.get());
+        } finally {
+            resumePlanning.countDown();
+            processor.shutdown();
+        }
+    }
+
+    private static SplitAssignment newSplitAssignment() {
+        return new SplitAssignment(Mockito.mock(FederationBackendPolicy.class), Mockito.mock(SplitGenerator.class),
+                Mockito.mock(SplitToScanRange.class), Collections.emptyMap(), Collections.emptyList(), false, 1, 1);
     }
 
     @Test

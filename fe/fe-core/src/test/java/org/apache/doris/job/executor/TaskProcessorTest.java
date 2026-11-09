@@ -27,10 +27,12 @@ import org.apache.doris.job.task.AbstractTask;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QeProcessorImpl;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.thrift.TUniqueId;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -66,6 +68,32 @@ public class TaskProcessorTest {
         } finally {
             Assertions.assertNull(ConnectContext.get());
             taskProcessor.shutdown();
+        }
+    }
+
+    @Test
+    public void testCloseStatementAndRemoveContextWhenExecutorFinalizationFails() {
+        TaskProcessor processor = new TaskProcessor(1, 1, Thread::new);
+        ConnectContext ctx = new ConnectContext();
+        StatementContext statement = Mockito.spy(new StatementContext(ctx, null));
+        ctx.setStatementContext(statement);
+        StmtExecutor executor = Mockito.mock(StmtExecutor.class);
+        Mockito.doThrow(new RuntimeException("injected finalization failure")).when(executor).finalizeQuery();
+        ctx.setExecutor(executor);
+        ctx.setThreadLocalInfo();
+        AtomicInteger closes = new AtomicInteger();
+        statement.getOrCreateConnectorStatementScope().computeIfAbsent(
+                "resource", () -> (AutoCloseable) closes::incrementAndGet);
+        try {
+            RuntimeException failure = Assertions.assertThrows(RuntimeException.class,
+                    () -> Deencapsulation.invoke(processor, "closeTaskContext"));
+            Assertions.assertEquals("injected finalization failure", failure.getMessage());
+            Mockito.verify(statement).close();
+            Assertions.assertEquals(1, closes.get());
+            Assertions.assertNull(ConnectContext.get());
+        } finally {
+            ConnectContext.remove();
+            processor.shutdown();
         }
     }
 
@@ -145,8 +173,18 @@ public class TaskProcessorTest {
             if (insertTask) {
                 externalTask = new InsertTask("external-insert", null, null, null) {
                     @Override
-                    public void runTask() {
+                    public void before() {
                         installStatementScope(closeCount, scopeInstalled);
+                    }
+
+                    @Override
+                    public void run() {
+                    }
+
+                    @Override
+                    public synchronized boolean onSuccess() {
+                        setStatus(TaskStatus.SUCCESS);
+                        return true;
                     }
                 };
             } else {
