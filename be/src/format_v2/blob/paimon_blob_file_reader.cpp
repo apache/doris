@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "format_v2/blob/blob_file_reader.h"
+#include "format_v2/blob/paimon_blob_file_reader.h"
 
 #include <zlib.h>
 
@@ -90,14 +90,14 @@ constexpr int64_t BLOB_FOOTER_SIZE = 5; // Index length (4) followed by format v
 
 } // namespace
 
-BlobFileReader::~BlobFileReader() {
+PaimonBlobFileReader::~PaimonBlobFileReader() {
     if (_reader) {
         _reader->collect_profile_before_close();
     }
 }
 
-Status BlobFileReader::_read_exact(int64_t offset, char* data, size_t size,
-                                   const io::IOContext* io_ctx) const {
+Status PaimonBlobFileReader::_read_exact(int64_t offset, char* data, size_t size,
+                                         const io::IOContext* io_ctx) const {
     if (offset < 0 || uint64_t(offset) > _reader->size() ||
         size > _reader->size() - uint64_t(offset)) {
         return Status::Corruption("BLOB read exceeds file bounds");
@@ -110,8 +110,8 @@ Status BlobFileReader::_read_exact(int64_t offset, char* data, size_t size,
     return Status::OK();
 }
 
-Status BlobFileReader::open(io::FileReaderSPtr reader, int64_t expected_rows,
-                            const io::IOContext* io_ctx) {
+Status PaimonBlobFileReader::open(io::FileReaderSPtr reader, int64_t expected_rows,
+                                  const io::IOContext* io_ctx) {
     _reader = std::move(reader);
     _ranges.clear();
     if (_reader == nullptr || expected_rows < 0 || _reader->size() < BLOB_FOOTER_SIZE ||
@@ -194,7 +194,7 @@ Status BlobFileReader::open(io::FileReaderSPtr reader, int64_t expected_rows,
     return Status::OK();
 }
 
-Status BlobFileReader::get_range(int64_t row, std::optional<ByteRange>* range) const {
+Status PaimonBlobFileReader::get_range(int64_t row, std::optional<ByteRange>* range) const {
     if (row < 0 || uint64_t(row) >= _ranges.size()) {
         return Status::Corruption("BLOB row {} is outside file row count {}", row, _ranges.size());
     }
@@ -206,8 +206,8 @@ Status BlobFileReader::get_range(int64_t row, std::optional<ByteRange>* range) c
     return Status::OK();
 }
 
-Status BlobFileReader::read_payload(const ByteRange& range, PODArray<char>* bytes,
-                                    const io::IOContext* io_ctx) const {
+Status PaimonBlobFileReader::read_payload(const ByteRange& range, PODArray<char>* bytes,
+                                          const io::IOContext* io_ctx) const {
     // Non-NULL ranges from get_range() were already validated by open().
     DCHECK(_reader != nullptr);
     DCHECK_GE(range.offset, BLOB_HEADER_SIZE);

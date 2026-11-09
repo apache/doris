@@ -1176,7 +1176,7 @@ protected:
         // must be enough for the upper MIN/MAX aggregate without evaluating default expressions or
         // virtual columns.
         for (const auto& mapping : _data_reader.column_mapper->mappings()) {
-            if (!mapping.file_local_id.has_value() ||
+            if (!mapping.file_local_id.has_value() || mapping.requires_blob_materialization ||
                 mapping.virtual_column_type != TableVirtualColumnType::INVALID ||
                 mapping.default_expr != nullptr || mapping.file_type == nullptr ||
                 mapping.table_type == nullptr) {
@@ -1471,6 +1471,13 @@ protected:
     Status _materialize_mapping_column(const ColumnMapping& mapping, Block* current_block,
                                        const size_t rows, ColumnPtr* column,
                                        bool take_projection_result = false) {
+        if (mapping.requires_blob_materialization) {
+            // Preserve the physical source until materialize_virtual_columns(). The placeholder
+            // already has the public table type, so physical binary values never escape upstream.
+            *column = mapping.table_type->create_column_const_with_default_value(rows)
+                              ->convert_to_full_column_if_const();
+            return Status::OK();
+        }
         if (!mapping.is_trivial && mapping.file_local_id.has_value() &&
             !mapping.child_mappings.empty()) {
             DCHECK(mapping.projection != nullptr);

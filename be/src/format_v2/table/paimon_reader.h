@@ -20,6 +20,7 @@
 #include <functional>
 #include <memory>
 #include <optional>
+#include <set>
 #include <utility>
 
 #include "format_v2/table_reader.h"
@@ -29,7 +30,7 @@ struct DeleteFileDesc;
 }
 namespace doris::format::paimon {
 
-class PaimonBlobMaterializer;
+class PaimonBlobColumnsMaterializer;
 
 class PaimonReader final : public format::TableReader {
 public:
@@ -73,9 +74,7 @@ protected:
 private:
     int64_t _split_schema_id = -1;
     std::vector<format::LocalColumnIndex> _variant_schema_overrides;
-    std::unique_ptr<PaimonBlobMaterializer> _blob_materializer;
-    // File-local Block slot holding ROW_POSITION values, not a Paimon logical row ID.
-    std::optional<format::LocalIndex> _blob_row_position_index;
+    std::unique_ptr<PaimonBlobColumnsMaterializer> _blob_columns_materializer;
 };
 
 // Paimon scans can contain both native data-file splits and serialized JNI splits in the same

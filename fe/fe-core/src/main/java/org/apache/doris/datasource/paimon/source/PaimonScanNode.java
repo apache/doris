@@ -1126,6 +1126,9 @@ public class PaimonScanNode extends FileQueryScanNode {
             fileDesc.setAnchorFirstRowId(paimonSplit.getAnchorFirstRowId());
             fileDesc.setAnchorRowCount(paimonSplit.getAnchorRowCount());
         }
+        if (paimonSplit.getBlobDescriptorFieldIds() != null) {
+            fileDesc.setBlobDescriptorFieldIds(paimonSplit.getBlobDescriptorFieldIds());
+        }
         fileDesc.setFileFormat(fileFormat);
         // Hadoop conf is set at ScanNode level via params.properties in createScanRangeLocations(),
         // no need to set it for each split to avoid redundant configuration
@@ -1186,6 +1189,8 @@ public class PaimonScanNode extends FileQueryScanNode {
         // TODO: Allow native reader after Doris native parquet/orc reader can materialize
         // these system-table rows consistently with Paimon system-table semantics.
         boolean forceJniForSystemTable = shouldForceJniForSystemTable();
+        List<Integer> blobDescriptorFieldIds = !forceJniScanner && !forceJniForSystemTable
+                ? nativeBlobDescriptorFieldIds() : Collections.emptyList();
         boolean materializeBlobColumns = !forceJniScanner && !forceJniForSystemTable
                 && needsNativeBlobMaterialization(hasProjectedFile);
         Set<String> projectedNames = materializeBlobColumns ? desc.getSlots().stream()
@@ -1280,7 +1285,8 @@ public class PaimonScanNode extends FileQueryScanNode {
                 splits.addAll(blobSplits.get());
                 rawFileSplitNum += blobSplits.get().size();
                 splitStat.setType(SplitReadType.NATIVE);
-            } else if (!forceJniScanner && !forceJniForSystemTable && !hasProjectedFile
+            } else if (!forceJniScanner && !forceJniForSystemTable
+                    && (!hasProjectedFile || !blobDescriptorFieldIds.isEmpty())
                     && supportNativeReader(optRawFiles)) {
                 // Keep raw-file reads ahead of logical JNI/Rust dispatch: only the native file
                 // reader can use footer aggregates for COUNT(col) and MIN/MAX. Logical DataSplits
@@ -1313,6 +1319,9 @@ public class PaimonScanNode extends FileQueryScanNode {
                         for (Split dorisSplit : dorisSplits) {
                             PaimonSplit paimonSplit = (PaimonSplit) dorisSplit;
                             paimonSplit.setSchemaId(file.schemaId());
+                            if (!blobDescriptorFieldIds.isEmpty()) {
+                                paimonSplit.setBlobDescriptorFieldIds(blobDescriptorFieldIds);
+                            }
                             paimonSplit.setPaimonPartitionValues(partitionInfoMap);
                             // try to set deletion file
                             if (optDeletionFiles.isPresent() && optDeletionFiles.get().get(i) != null) {
@@ -1362,6 +1371,51 @@ public class PaimonScanNode extends FileQueryScanNode {
 
         this.selectedPartitionNum = partitionInfoMaps.size();
         return splits;
+    }
+
+    @VisibleForTesting
+    List<Integer> nativeBlobDescriptorFieldIds() {
+        if (!sessionVariable.enableFileScannerV2 || !(processedTable instanceof FileStoreTable)
+                || processedTable instanceof FallbackReadFileStoreTable) {
+            return Collections.emptyList();
+        }
+        FileStoreTable table = (FileStoreTable) processedTable;
+        if (table.primaryKeys().isEmpty() || table.coreOptions().queryAuthEnabled()) {
+            return Collections.emptyList();
+        }
+        List<String> managedFields = CoreOptions.blobField(table.options());
+        List<Integer> ids = new ArrayList<>();
+        for (org.apache.doris.analysis.SlotDescriptor slot : desc.getSlots()) {
+            if (!slot.getType().typeContainsFile()) {
+                continue;
+            }
+            String name = slot.getColumn().getName();
+            DataField field = table.rowType().getFields().stream()
+                    .filter(candidate -> candidate.name().equalsIgnoreCase(name)).findFirst().orElse(null);
+            // Only managed scalar/array/map BLOBs use this layout. Descriptor-only and view
+            // fields can require a separate FileIO/catalog resolver and retain JNI semantics.
+            if (field == null || !managedFields.contains(field.name())
+                    || !supportsBlobDescriptorType(field.type())) {
+                return Collections.emptyList();
+            }
+            ids.add(field.id());
+        }
+        return ids;
+    }
+
+    private static boolean supportsBlobDescriptorType(org.apache.paimon.types.DataType type) {
+        switch (type.getTypeRoot()) {
+            case BLOB:
+                return true;
+            case ARRAY:
+                return ((org.apache.paimon.types.ArrayType) type).getElementType().getTypeRoot()
+                        == DataTypeRoot.BLOB;
+            case MAP:
+                return ((org.apache.paimon.types.MapType) type).getValueType().getTypeRoot()
+                        == DataTypeRoot.BLOB;
+            default:
+                return false;
+        }
     }
 
     private boolean needsNativeBlobMaterialization(boolean hasProjectedFile) {
