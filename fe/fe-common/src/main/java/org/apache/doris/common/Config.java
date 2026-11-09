@@ -2586,7 +2586,7 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = false, description = "Maximum queued statistics cache loads. Must be positive. "
             + "When full, new lookups use unknown statistics. Takes effect after restarting FE.")
-    public static int stats_fetch_queue_size = 1000;
+    public static int stats_fetch_queue_size = 100000;
 
     /**
      * This config used for ranger cache data mask/row policy
