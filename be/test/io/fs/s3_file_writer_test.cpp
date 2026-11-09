@@ -1516,8 +1516,23 @@ TEST_F(S3FileWriterInvalidationTest, multipart_completion_client_after_refresh) 
     std::get<S3ClientConfig>(rotated.client.backend).auth.secret_key = "new-key";
     check_refresh("S3 key rotation", storage, rotated, true);
 
+    auto addressing = storage;
+    auto& s3 = std::get<S3ClientConfig>(addressing.client.backend);
+    s3.use_virtual_addressing = !s3.use_virtual_addressing;
+    check_refresh("S3 addressing style", storage, addressing, true);
+
+    auto timeout = storage;
+    timeout.client.connection.request_timeout_ms = 15000;
+    check_refresh("request timeout", storage, timeout, true);
+    timeout = storage;
+    timeout.client.connection.connect_timeout_ms = 5000;
+    check_refresh("connect timeout", storage, timeout, true);
+
     rotated.client.connection.request_timeout_ms = 15000;
-    check_refresh("credentials and connection changed", storage, rotated, false);
+    check_refresh("credentials and request timeout", storage, rotated, true);
+    auto vendor = addressing;
+    std::get<S3ClientConfig>(vendor.client.backend).vendor = ObjStorageProvider::OSS;
+    check_refresh("S3 vendor and addressing style", storage, vendor, false);
 #ifdef USE_AZURE
     auto rebound = storage;
     rebound.client.backend = AzureClientConfig {.endpoint = "multipart-rebind.example.com",
@@ -1530,6 +1545,10 @@ TEST_F(S3FileWriterInvalidationTest, multipart_completion_client_after_refresh) 
     std::get<AzureClientConfig>(azure_rotated.client.backend).auth =
             AzureSharedKeyConfig {"bmV3LWFjY291bnQta2V5"};
     check_refresh("Azure key rotation", rebound, azure_rotated, true);
+
+    auto azure_timeout = rebound;
+    azure_timeout.client.connection.request_timeout_ms = 15000;
+    check_refresh("Azure request timeout", rebound, azure_timeout, true);
 #endif
 }
 
