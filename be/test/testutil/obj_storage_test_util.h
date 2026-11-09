@@ -37,6 +37,7 @@ inline ObjClientConfig make_test_s3_client_config(
                             .vendor = vendor,
                             .endpoint = std::move(endpoint),
                             .region = std::move(region),
+                            .cache_bucket = "",
                             .need_override_endpoint = true,
                             .use_virtual_addressing = true,
                             .auth =
