@@ -1415,15 +1415,27 @@ start_iceberg() {
     register_stack_metadata "iceberg" "${ROOT}/docker-compose/iceberg/iceberg.yaml" "${ROOT}/docker-compose/iceberg/iceberg.env"
     compose_down_stack "${ROOT}/docker-compose/iceberg/iceberg.yaml" "${ROOT}/docker-compose/iceberg/iceberg.env" --remove-orphans
     if [[ "${STOP}" -ne 1 ]]; then
+        # Reused data from the previous archive lacks the Paimon jars mounted below.
+        # Check only Paimon here; the Lance jar is downloaded separately afterward.
+        if [[ -d "${ICEBERG_DIR}/data" ]]; then
+            local jar
+            for jar in $(grep -o '\./data/input/jars/paimon[^:]*\.jar' "${ICEBERG_DIR}/iceberg.yaml"); do
+                if [[ ! -f "${ICEBERG_DIR}/${jar#./}" ]]; then
+                    echo "${ICEBERG_DIR}/${jar#./} is missing, ${ICEBERG_DIR}/data is from an older archive"
+                    sudo rm -rf "${ICEBERG_DIR:?}/data"
+                    break
+                fi
+            done
+        fi
         if [[ ! -d "${ICEBERG_DIR}/data" ]]; then
             echo "${ICEBERG_DIR}/data does not exist"
             (
                 cd "${ICEBERG_DIR}" || exit 1
                 rm -f iceberg_data*.zip
-                wget -P "${ROOT}/docker-compose/iceberg" "https://${s3BucketName}.${s3Endpoint}/regression/datalake/pipeline_data/iceberg_data_spark40_paimon142.zip"
-                sudo unzip iceberg_data_spark40_paimon142.zip
+                wget -P "${ROOT}/docker-compose/iceberg" "https://${s3BucketName}.${s3Endpoint}/regression/datalake/pipeline_data/iceberg_data_spark40_paimon210.zip"
+                sudo unzip iceberg_data_spark40_paimon210.zip
                 sudo mv iceberg_data data
-                sudo rm -rf iceberg_data_spark40_paimon142.zip
+                sudo rm -rf iceberg_data_spark40_paimon210.zip
             )
         else
             echo "${ICEBERG_DIR}/data exists, continue !"
