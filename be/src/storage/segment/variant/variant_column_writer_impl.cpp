@@ -865,10 +865,7 @@ Status VariantDocCompactWriter::_initialize_v2_shredder() {
     DORIS_CHECK(compaction_paths != nullptr);
     const auto layout = compaction_paths->find(parent_column.unique_id());
     DORIS_CHECK(layout != compaction_paths->end());
-    options.is_compaction_extracted_path =
-            [&paths = layout->second.sub_path_set](const std::string& path) {
-                return paths.contains(path);
-            };
+    options.compaction_extracted_paths = &layout->second.sub_path_set;
     _v2_shredder = std::make_unique<VariantShredder>(std::move(options));
     return Status::OK();
 }

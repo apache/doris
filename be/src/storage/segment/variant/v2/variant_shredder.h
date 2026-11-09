@@ -32,10 +32,7 @@
 #include "core/data_type/data_type.h"
 #include "storage/segment/variant/v2/variant_path_builder.h"
 #include "storage/segment/variant/variant_statistics.h"
-
-namespace doris {
-class TabletSchema;
-}
+#include "storage/tablet/tablet_schema.h"
 
 namespace doris::segment_v2 {
 
@@ -60,10 +57,9 @@ struct VariantShredderOptions {
     // variant_subcolumn_extraction_min_rows: a segment with fewer rows extracts no dynamic path
     // (the doc layout no typed path either). Without doc mode a V1 column keeps it 0.
     size_t doc_materialization_min_rows = 0;
-    // Doc layout in compaction, where each doc bucket has its own shredder: whether a dynamic path
-    // is extracted, as compaction chose for all buckets at once. Unset chooses by
-    // max_subcolumns_count.
-    std::function<bool(const std::string&)> is_compaction_extracted_path = nullptr;
+    // Doc layout in compaction: the dynamic paths compaction chose for all doc buckets. Unset
+    // chooses by max_subcolumns_count.
+    const PathSet* compaction_extracted_paths = nullptr;
 };
 
 struct VariantShreddedColumns {

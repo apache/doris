@@ -97,7 +97,7 @@ suite("test_query_sys_column_data_sizes_variant", "query,p0") {
         CREATE TABLE test_column_data_sizes_variant_doc_v2 (
             id BIGINT,
             v VARIANT<PROPERTIES("variant_enable_doc_mode" = "true", "variant_subcolumn_extraction_min_rows" = "0",
-                    "variant_sparse_shard_count" = "2")>
+                    "variant_sparse_hash_shard_count" = "2")>
         )
         DUPLICATE KEY(id)
         DISTRIBUTED BY HASH(id) BUCKETS 1
@@ -110,7 +110,7 @@ suite("test_query_sys_column_data_sizes_variant", "query,p0") {
         CREATE TABLE test_column_data_sizes_variant_doc_v3 (
             id BIGINT,
             v VARIANT<PROPERTIES("variant_enable_doc_mode" = "true", "variant_subcolumn_extraction_min_rows" = "0",
-                    "variant_sparse_shard_count" = "2")>
+                    "variant_sparse_hash_shard_count" = "2")>
         )
         DUPLICATE KEY(id)
         DISTRIBUTED BY HASH(id) BUCKETS 1

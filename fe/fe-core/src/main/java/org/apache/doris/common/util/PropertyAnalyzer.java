@@ -338,8 +338,7 @@ public class PropertyAnalyzer {
 
     public static final String PROPERTIES_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE =
             "variant_max_sparse_column_statistics_size";
-    // Deprecated alias of variant_sparse_shard_count.
-    @Deprecated
+    // Number of shards of the sparse encoding, with or without doc mode.
     public static final String PROPERTIES_VARIANT_SPARSE_HASH_SHARD_COUNT = "variant_sparse_hash_shard_count";
 
     public static final String PROPERTIES_VARIANT_ENABLE_DOC_MODE = "variant_enable_doc_mode";
@@ -347,9 +346,6 @@ public class PropertyAnalyzer {
     // Rows a data file needs before it extracts subcolumns, with or without doc mode.
     public static final String PROPERTIES_VARIANT_SUBCOLUMN_EXTRACTION_MIN_ROWS =
             "variant_subcolumn_extraction_min_rows";
-
-    // Number of shards of the sparse encoding, with or without doc mode.
-    public static final String PROPERTIES_VARIANT_SPARSE_SHARD_COUNT = "variant_sparse_shard_count";
 
     // stream properties
     public static final String PROPERTIES_STREAM_TYPE = "type";
@@ -2429,21 +2425,21 @@ public class PropertyAnalyzer {
         return maxSparseColumnStatisticsSize;
     }
 
-    public static int analyzeVariantSparseShardCount(Map<String, String> properties, int defaultValue)
+    public static int analyzeVariantSparseHashShardCount(Map<String, String> properties, int defaultValue)
                                                                                 throws AnalysisException {
         int bucketNum = defaultValue;
-        if (properties != null && properties.containsKey(PROPERTIES_VARIANT_SPARSE_SHARD_COUNT)) {
-            String bucketNumStr = properties.get(PROPERTIES_VARIANT_SPARSE_SHARD_COUNT);
+        if (properties != null && properties.containsKey(PROPERTIES_VARIANT_SPARSE_HASH_SHARD_COUNT)) {
+            String bucketNumStr = properties.get(PROPERTIES_VARIANT_SPARSE_HASH_SHARD_COUNT);
             try {
                 bucketNum = Integer.parseInt(bucketNumStr);
                 if (bucketNum < 0 || bucketNum > 1024) {
-                    throw new AnalysisException("variant_sparse_shard_count must between 0 and 1024 ");
+                    throw new AnalysisException("variant_sparse_hash_shard_count must between 0 and 1024 ");
                 }
             } catch (Exception e) {
-                throw new AnalysisException("variant_sparse_shard_count format error:" + e.getMessage());
+                throw new AnalysisException("variant_sparse_hash_shard_count format error:" + e.getMessage());
             }
 
-            properties.remove(PROPERTIES_VARIANT_SPARSE_SHARD_COUNT);
+            properties.remove(PROPERTIES_VARIANT_SPARSE_HASH_SHARD_COUNT);
         }
         return bucketNum;
     }
@@ -2483,37 +2479,7 @@ public class PropertyAnalyzer {
         return minRows;
     }
 
-    // Deprecated names still work: each is read as the property that replaced it. A property takes one
-    // of its names only.
-    private static void renameDeprecatedVariantProperties(Map<String, String> properties, String name,
-            String... deprecatedNames) throws AnalysisException {
-        List<String> givenNames = new ArrayList<>();
-        if (properties.containsKey(name)) {
-            givenNames.add(name);
-        }
-        for (String deprecatedName : deprecatedNames) {
-            if (properties.containsKey(deprecatedName)) {
-                givenNames.add(deprecatedName);
-            }
-        }
-        if (givenNames.size() > 1) {
-            throw new AnalysisException(String.join(" and ", givenNames) + " are names of the same property "
-                    + name + "; set it once");
-        }
-        for (String deprecatedName : deprecatedNames) {
-            if (properties.containsKey(deprecatedName)) {
-                properties.put(name, properties.remove(deprecatedName));
-            }
-        }
-    }
-
     public static void validateVariantProperties(Map<String, String> properties) throws AnalysisException {
-        // The doc mode names variant_doc_materialization_min_rows and variant_doc_hash_shard_count are not
-        // accepted any more, only the shard count name of released versions without doc mode.
-        if (properties != null) {
-            renameDeprecatedVariantProperties(properties, PROPERTIES_VARIANT_SPARSE_SHARD_COUNT,
-                    PROPERTIES_VARIANT_SPARSE_HASH_SHARD_COUNT);
-        }
         // doc mode keeps the subcolumn count, the row threshold and the shard count, but not this setting
         if (properties != null && "true".equalsIgnoreCase(properties.get(PROPERTIES_VARIANT_ENABLE_DOC_MODE))) {
             if (properties.containsKey(PROPERTIES_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE)) {

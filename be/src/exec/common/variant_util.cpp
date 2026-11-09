@@ -185,10 +185,8 @@ PathToDataTypes collect_regular_types_outside_nested_group(
 
 namespace {
 
-// The dynamic paths a doc column extracts in compaction. Each doc bucket is written by its own
-// writer, which sees only the paths of its bucket, so they are chosen here once from the statistics
-// of all inputs. Typed paths are extracted besides and do not count. A count of 0 means every
-// dynamic path under V1 (a doc column of an older version) and none under V2.
+// The dynamic paths of a doc column, chosen once for all doc buckets: each bucket writer sees only
+// its own paths. Typed paths do not count.
 void choose_doc_compaction_subpaths(const TabletSchema& target, const TabletColumn& column,
                                     const PathToNoneNullValues& path_stats,
                                     VariantCompactionPaths& paths_set_info) {
@@ -204,11 +202,8 @@ void choose_doc_compaction_subpaths(const TabletSchema& target, const TabletColu
                                         paths_set_info);
 }
 
-// The subpaths a column without doc mode extracts in compaction. Below
-// variant_subcolumn_extraction_min_rows no dynamic path is extracted: every path goes to the sparse
-// column, also the subcolumns of an input written before an ALTER raised the threshold, or
-// extracted by an earlier compaction from more rows than it kept (rows merged or deleted). Only a
-// V2 column has a threshold here: without doc mode a V1 column keeps 0.
+// The subpaths of a column without doc mode. Below the row threshold (only V2 columns have one)
+// every path goes to the sparse column, also subcolumns that inputs already extracted.
 void choose_sparse_compaction_subpaths(const TabletColumn& column, int64_t input_rows,
                                        const PathToNoneNullValues& path_stats,
                                        VariantCompactionPaths& paths_set_info) {

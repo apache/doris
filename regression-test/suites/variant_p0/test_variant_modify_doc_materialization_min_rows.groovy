@@ -25,7 +25,7 @@ suite("test_variant_modify_doc_materialization_min_rows", "p0") {
     sql """
         CREATE TABLE ${tableName} (
             k INT,
-            v variant<properties("variant_enable_doc_mode"="true","variant_subcolumn_extraction_min_rows"="10", "variant_sparse_shard_count" = "32")>
+            v variant<properties("variant_enable_doc_mode"="true","variant_subcolumn_extraction_min_rows"="10", "variant_sparse_hash_shard_count" = "32")>
         ) ENGINE=OLAP
         DUPLICATE KEY(k)
         DISTRIBUTED BY HASH(k) BUCKETS 1
@@ -59,7 +59,7 @@ suite("test_variant_modify_doc_materialization_min_rows", "p0") {
 
     // Step 2: ALTER TABLE MODIFY COLUMN to change variant_subcolumn_extraction_min_rows to 2
     sql """
-        ALTER TABLE ${tableName} MODIFY COLUMN v variant<properties("variant_enable_doc_mode"="true","variant_subcolumn_extraction_min_rows"="2", "variant_sparse_shard_count" = "32")>;
+        ALTER TABLE ${tableName} MODIFY COLUMN v variant<properties("variant_enable_doc_mode"="true","variant_subcolumn_extraction_min_rows"="2", "variant_sparse_hash_shard_count" = "32")>;
     """
 
     // Verify SHOW CREATE TABLE shows min_rows=2

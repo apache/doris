@@ -1732,7 +1732,7 @@ public class NereidsParserTest extends ParserTestBase {
                     for (int minRows : new int[] {0, 10, 100}) {
                         allowed.add(head + "\"variant_max_subcolumns_count\" = \"" + count
                                 + "\", \"variant_enable_typed_paths_to_sparse\" = \"false"
-                                + "\", \"variant_sparse_shard_count\" = \"" + shards
+                                + "\", \"variant_sparse_hash_shard_count\" = \"" + shards
                                 + "\", \"variant_subcolumn_extraction_min_rows\" = \"" + minRows + "\")>");
                     }
                 }
@@ -1743,7 +1743,7 @@ public class NereidsParserTest extends ParserTestBase {
                         allowed.add(head + "\"variant_enable_doc_mode\" = \"true\", "
                                 + "\"variant_max_subcolumns_count\" = \"" + count
                                 + "\", \"variant_subcolumn_extraction_min_rows\" = \"" + minRows
-                                + "\", \"variant_sparse_shard_count\" = \"" + shards + "\")>");
+                                + "\", \"variant_sparse_hash_shard_count\" = \"" + shards + "\")>");
                     }
                 }
             }
@@ -1761,9 +1761,6 @@ public class NereidsParserTest extends ParserTestBase {
                 "variant<PROPERTIES(" + doc + ", \"variant_enable_nested_group\" = \"true\")>",
                 "variant<PROPERTIES(\"variant_enable_nested_group\" = \"true\", "
                         + "\"variant_max_subcolumns_count\" = \"3\")>",
-                // a deprecated name cannot be set beside the property that replaced it
-                "variant<PROPERTIES(\"variant_sparse_shard_count\" = \"2\", "
-                        + "\"variant_sparse_hash_shard_count\" = \"2\")>",
                 // the doc mode names of the row threshold and the shard count are not accepted
                 "variant<PROPERTIES(" + doc + ", \"variant_doc_materialization_min_rows\" = \"2\")>",
                 "variant<PROPERTIES(" + doc + ", \"variant_doc_hash_shard_count\" = \"2\")>"};
@@ -1798,18 +1795,17 @@ public class NereidsParserTest extends ParserTestBase {
         for (boolean docMode : new boolean[] {true, false}) {
             org.apache.doris.nereids.types.VariantType sharded = (org.apache.doris.nereids.types.VariantType)
                     parser.parseDataType("variant<PROPERTIES(\"variant_enable_doc_mode\" = \"" + docMode
-                            + "\", \"variant_sparse_shard_count\" = \"4\")>");
+                            + "\", \"variant_sparse_hash_shard_count\" = \"4\")>");
             Assertions.assertEquals(docMode ? 0 : 4, sharded.getVariantSparseHashShardCount());
             Assertions.assertEquals(docMode ? 4 : 0, sharded.getVariantDocShardCount());
-            Assertions.assertTrue(sharded.toSql().contains("\"variant_sparse_shard_count\" = \"4\""),
+            Assertions.assertTrue(sharded.toSql().contains("\"variant_sparse_hash_shard_count\" = \"4\""),
                     sharded.toSql());
         }
     }
 
     @Test
-    public void testVariantDeprecatedPropertyNames() {
-        // what released versions print in SHOW CREATE TABLE without doc mode parses, and the shard count is read
-        // as the property that replaced it
+    public void testVariantDdlOfReleasedVersions() {
+        // what released versions print in SHOW CREATE TABLE without doc mode parses
         NereidsParser parser = new NereidsParser();
         org.apache.doris.nereids.types.VariantType ordinary = (org.apache.doris.nereids.types.VariantType)
                 parser.parseDataType("variant<PROPERTIES (\"variant_max_subcolumns_count\" = \"2048\","
@@ -1818,8 +1814,8 @@ public class NereidsParserTest extends ParserTestBase {
                         + "\"variant_sparse_hash_shard_count\" = \"4\")>");
         Assertions.assertEquals(4, ordinary.getVariantSparseHashShardCount());
         Assertions.assertEquals(0, ordinary.getVariantDocShardCount());
-        Assertions.assertTrue(ordinary.toSql().contains("\"variant_sparse_shard_count\" = \"4\""), ordinary.toSql());
-        Assertions.assertFalse(ordinary.toSql().contains("hash_shard_count"), ordinary.toSql());
+        Assertions.assertTrue(ordinary.toSql().contains("\"variant_sparse_hash_shard_count\" = \"4\""),
+                ordinary.toSql());
     }
 
     @Test

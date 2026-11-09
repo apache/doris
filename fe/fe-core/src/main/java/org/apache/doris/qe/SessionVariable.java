@@ -1037,13 +1037,12 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String DEFAULT_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE =
                                                             "default_variant_max_sparse_column_statistics_size";
+    public static final String DEFAULT_VARIANT_SPARSE_HASH_SHARD_COUNT = "default_variant_sparse_hash_shard_count";
 
     public static final String DEFAULT_VARIANT_ENABLE_DOC_MODE = "default_variant_enable_doc_mode";
 
     public static final String DEFAULT_VARIANT_SUBCOLUMN_EXTRACTION_MIN_ROWS =
             "default_variant_subcolumn_extraction_min_rows";
-
-    public static final String DEFAULT_VARIANT_SPARSE_SHARD_COUNT = "default_variant_sparse_shard_count";
 
     public static final String DEFAULT_VARIANT_ENABLE_NESTED_GROUP = "default_variant_enable_nested_group";
 
@@ -3731,6 +3730,13 @@ public class SessionVariable implements Serializable, Writable {
             description = "Whether to fall back to RE2 when Hyperscan cannot compile a regular expression")
     public boolean enableHyperscanFallback = true;
 
+    @VarAttrDef.VarAttr(
+            name = DEFAULT_VARIANT_SPARSE_HASH_SHARD_COUNT,
+            needForward = true,
+            fuzzy = true
+    )
+    public int defaultVariantSparseHashShardCount = 0;
+
     @VarAttrDef.VarAttr(name = CLOUD_PARTITIONS_TABLE_USE_CACHED_VISIBLE_VERSION, needForward = false,
             description = "Whether cache is used for the visible_version column"
                     + "in the partitions system table on cloud mode")
@@ -3750,14 +3756,6 @@ public class SessionVariable implements Serializable, Writable {
             description = "Value of variant_subcolumn_extraction_min_rows for a VARIANT column defined without it."
     )
     public long defaultVariantSubcolumnExtractionMinRows = 0L;
-
-    @VarAttrDef.VarAttr(
-            name = DEFAULT_VARIANT_SPARSE_SHARD_COUNT,
-            needForward = true,
-            fuzzy = true,
-            description = "Value of variant_sparse_shard_count for a VARIANT column defined without it."
-    )
-    public int defaultVariantSparseShardCount = 1;
 
     @VarAttrDef.VarAttr(
             name = DEFAULT_VARIANT_ENABLE_NESTED_GROUP,
@@ -3849,7 +3847,7 @@ public class SessionVariable implements Serializable, Writable {
         int maxBytes = 10 * 1024 * 1024;
         this.exchangeMultiBlocksByteSize = minBytes + (int) (random.nextDouble() * (maxBytes - minBytes));
         this.defaultVariantMaxSubcolumnsCount = random.nextInt(10);
-        this.defaultVariantSparseShardCount = random.nextInt(5) + 1;
+        this.defaultVariantSparseHashShardCount = random.nextInt(5) + 1;
         this.useV3StorageFormat = random.nextBoolean();
         this.defaultVariantEnableDocMode = random.nextBoolean();
         boolean zeroOrOne = random.nextBoolean();
@@ -6879,8 +6877,8 @@ public class SessionVariable implements Serializable, Writable {
         return defaultVariantMaxSparseColumnStatisticsSize;
     }
 
-    public int getDefaultVariantSparseShardCount() {
-        return defaultVariantSparseShardCount;
+    public int getDefaultVariantSparseHashShardCount() {
+        return defaultVariantSparseHashShardCount;
     }
 
     public boolean getCloudPartitionsTableUseCachedVisibleVersion() {

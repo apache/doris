@@ -246,7 +246,7 @@ public class TypeTest {
         VariantType v2Doc = new VariantType(new ArrayList<>(), 0, false, 0, 8, true, 0L, 8, false,
                 TVariantSerializeType.V2);
         Assertions.assertTrue(v2Doc.toSql().contains("\"variant_max_subcolumns_count\" = \"0\""), v2Doc.toSql());
-        Assertions.assertTrue(v1Doc.toSql().contains("\"variant_sparse_shard_count\" = \"8\""), v1Doc.toSql());
+        Assertions.assertTrue(v1Doc.toSql().contains("\"variant_sparse_hash_shard_count\" = \"8\""), v1Doc.toSql());
         Assertions.assertEquals(v1Doc.toSql(), v2Doc.toSql());
         Assertions.assertNotEquals(v1Doc, v2Doc);
         Assertions.assertEquals(v2Doc.toSql(), new org.apache.doris.nereids.types.VariantType(new ArrayList<>(), 0,

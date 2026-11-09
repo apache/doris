@@ -26,7 +26,7 @@ suite("sparse_key_byte_order", "p0") {
                 def variantProperties = docMode ?
                     '"variant_enable_doc_mode"="true", "variant_enable_nested_group"="false", ' +
                     '"variant_subcolumn_extraction_min_rows"="1000000", ' +
-                    "\"variant_sparse_shard_count\"=\"${shardCount}\"" :
+                    "\"variant_sparse_hash_shard_count\"=\"${shardCount}\"" :
                     '"variant_max_subcolumns_count"="1", "variant_enable_typed_paths_to_sparse"="false", ' +
                     '"variant_enable_nested_group"="false", ' +
                     "\"variant_sparse_hash_shard_count\"=\"${shardCount}\""

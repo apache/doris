@@ -21,7 +21,7 @@ suite("test_variant_predefine_doc_value", "nonConcurrent"){
     def deprecatedFlattenNested = enableVariantV2 ? "false" : "true"
     sql """ set default_variant_enable_doc_mode = true """
     sql """ set default_variant_subcolumn_extraction_min_rows = 0 """
-    //sql """ set default_variant_sparse_shard_count = 0"""
+    //sql """ set default_variant_sparse_hash_shard_count = 0"""
     sql """DROP TABLE IF EXISTS test_predefine"""
     sql """ set enable_variant_flatten_nested = true """
     sql """

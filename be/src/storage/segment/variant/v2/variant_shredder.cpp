@@ -614,18 +614,16 @@ struct VariantShredder::Impl {
         if (rows >= options.doc_materialization_min_rows) {
             // doc mode never moves typed paths to the sparse encoding
             DORIS_CHECK(!options.typed_paths_to_sparse);
-            if (options.is_compaction_extracted_path) {
+            if (options.compaction_extracted_paths != nullptr) {
                 // this shredder holds one doc bucket: compaction chose the dynamic paths of all
                 for (const DocPlan& entry : doc_plan) {
                     if (candidates[entry.candidate_index].is_typed_path ||
-                        options.is_compaction_extracted_path(*entry.path)) {
+                        options.compaction_extracted_paths->contains(*entry.path)) {
                         selection.materialized.push_back(entry.candidate_index);
                     }
                 }
             } else {
-                // The document keeps every path, so only the extracted ones are selected: typed
-                // paths and up to the count of dynamic paths, where a count of 0 means every one
-                // under V1 and none under V2.
+                // this shredder holds the whole document: typed paths and the top dynamic paths
                 selection.materialized =
                         select_variant_paths(candidates, options.max_subcolumns_count,
                                              /*typed_paths_to_sparse=*/false,

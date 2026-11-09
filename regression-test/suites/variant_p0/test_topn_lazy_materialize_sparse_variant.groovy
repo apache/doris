@@ -20,7 +20,7 @@ suite("test_topn_lazy_materialize_sparse_variant", "p0") {
     def variantV2Function = "parse_to_variant"
     sql "set default_variant_enable_doc_mode = false"
     sql "set default_variant_max_subcolumns_count = 1"
-    sql "set default_variant_sparse_shard_count = 2"
+    sql "set default_variant_sparse_hash_shard_count = 2"
     sql "set use_v3_storage_format = true"
     sql "set enable_file_cache = true"
     sql "set enable_segment_limit_pushdown = false"
