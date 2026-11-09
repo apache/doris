@@ -21,17 +21,22 @@ import org.apache.doris.nereids.datasets.ssb.SSBTestBase;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.processor.post.PlanPostProcessors;
 import org.apache.doris.nereids.processor.post.TopnFilterContext;
+import org.apache.doris.nereids.processor.post.TopnFilterPushDownVisitor;
+import org.apache.doris.nereids.processor.post.TopnFilterPushDownVisitor.PushDownContext;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Coalesce;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Substring;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.SortPhase;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterializeOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalRepeat;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.trees.plans.physical.TopnFilter;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
@@ -129,6 +134,90 @@ public class TopNRuntimeFilterTest extends SSBTestBase implements MemoPatternMat
             connectContext.getSessionVariable().topnFilterRatio = previousRatio;
             connectContext.getSessionVariable().pushTopnToAgg = previousPushTopn;
             connectContext.getSessionVariable().setDisableJoinReorder(previousJoinReorder);
+            connectContext.getSessionVariable().setDisableNereidsRules(previousDisabledRules);
+        }
+    }
+
+    @Test
+    public void testTopNFilterThroughRepeat() {
+        double previousRatio = connectContext.getSessionVariable().topnFilterRatio;
+        boolean previousPushTopn = connectContext.getSessionVariable().pushTopnToAgg;
+        String previousDisabledRules = String.join(",",
+                connectContext.getSessionVariable().getDisableNereidsRuleNames());
+        connectContext.getSessionVariable().topnFilterRatio = 1000000;
+        connectContext.getSessionVariable().pushTopnToAgg = false;
+        connectContext.getSessionVariable().setDisableNereidsRules(previousDisabledRules
+                + ",PRUNE_EMPTY_PARTITION,PUSH_DOWN_TOP_N_THROUGH_UNION");
+        try {
+            for (String groupingSets : List.of("((k), ())", "((k), (id))", "((k, id), (k))")) {
+                for (String orderKey : List.of("k", "k + 1", "coalesce(k, 0)")) {
+                    for (String direction : List.of("ASC", "DESC")) {
+                        for (String nullOrder : List.of("FIRST", "LAST")) {
+                            String sql = "SELECT k, c FROM (SELECT k, count(*) AS c FROM topn_safety "
+                                    + "GROUP BY GROUPING SETS " + groupingSets
+                                    + " UNION ALL SELECT c_custkey, CAST(0 AS BIGINT) FROM customer) u "
+                                    + "ORDER BY " + orderKey + " " + direction + " NULLS " + nullOrder + " LIMIT 1";
+                            PlanChecker checker = PlanChecker.from(connectContext).analyze(sql).rewrite().implement();
+                            PhysicalPlan plan = new PlanPostProcessors(checker.getCascadesContext())
+                                    .process(checker.getPhysicalPlan());
+                            Assertions.assertTrue(plan.containsType(PhysicalRepeat.class), plan.treeString());
+                            List<TopnFilter> filters = checker.getCascadesContext()
+                                    .getTopnFilterContext().getTopnFilters();
+                            Assertions.assertFalse(filters.isEmpty(), plan.treeString());
+                            long targetCount = filters.stream().flatMap(filter -> filter.targets.keySet().stream())
+                                    .distinct().count();
+                            // Only the common grouping key keeps its value through every Repeat expansion.
+                            Assertions.assertEquals(groupingSets.equals("((k, id), (k))") ? 2 : 1,
+                                    targetCount, sql + "\n" + filters);
+                        }
+                    }
+                }
+            }
+        } finally {
+            connectContext.getSessionVariable().topnFilterRatio = previousRatio;
+            connectContext.getSessionVariable().pushTopnToAgg = previousPushTopn;
+            connectContext.getSessionVariable().setDisableNereidsRules(previousDisabledRules);
+        }
+    }
+
+    @Test
+    public void testTopNFilterDoesNotCrossAssertNumRows() {
+        double previousRatio = connectContext.getSessionVariable().topnFilterRatio;
+        String previousDisabledRules = String.join(",",
+                connectContext.getSessionVariable().getDisableNereidsRuleNames());
+        connectContext.getSessionVariable().topnFilterRatio = 1000000;
+        connectContext.getSessionVariable().setDisableNereidsRules(previousDisabledRules
+                + ",PRUNE_EMPTY_PARTITION,PUSH_DOWN_TOP_N_THROUGH_UNION");
+        try {
+            for (String direction : List.of("ASC", "DESC")) {
+                for (boolean nullsFirst : List.of(true, false)) {
+                    String sql = "SELECT k FROM (SELECT (SELECT k FROM topn_safety) AS k "
+                            + "UNION ALL SELECT c_custkey FROM customer) u ORDER BY k " + direction
+                            + " NULLS " + (nullsFirst ? "FIRST" : "LAST") + " LIMIT 1";
+                    PlanChecker checker = PlanChecker.from(connectContext).analyze(sql).rewrite().implement();
+                    PhysicalPlan plan = checker.getPhysicalPlan();
+                    List<PhysicalAssertNumRows<? extends Plan>> assertions = plan.collectToList(
+                            node -> node instanceof PhysicalAssertNumRows);
+                    Assertions.assertEquals(1, assertions.size(), plan.treeString());
+                    PhysicalAssertNumRows<? extends Plan> assertion = assertions.get(0);
+                    List<PhysicalTopN<? extends Plan>> topns = plan.collectToList(node -> node instanceof PhysicalTopN);
+                    Assertions.assertFalse(topns.isEmpty(), plan.treeString());
+                    Slot slot = assertion.getOutput().get(0);
+                    for (Expression probe : List.of(slot, new Coalesce(slot, new IntegerLiteral(-1)))) {
+                        PushDownContext context = new PushDownContext(topns.get(0), probe, nullsFirst);
+                        TopnFilterContext filters = new TopnFilterContext();
+                        TopnFilterPushDownVisitor visitor = new TopnFilterPushDownVisitor(filters);
+                        // Visit Assert directly so the test does not depend on the scalar join's probe side.
+                        Assertions.assertFalse(assertion.accept(visitor, context), sql);
+                        Assertions.assertTrue(filters.getTopnFilters().isEmpty(), sql);
+                        // The child accepts this filter; Assert must protect its row count and empty-row behavior.
+                        Assertions.assertTrue(assertion.child().accept(visitor, context), sql);
+                        Assertions.assertFalse(filters.getTopnFilters().isEmpty(), sql);
+                    }
+                }
+            }
+        } finally {
+            connectContext.getSessionVariable().topnFilterRatio = previousRatio;
             connectContext.getSessionVariable().setDisableNereidsRules(previousDisabledRules);
         }
     }

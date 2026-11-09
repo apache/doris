@@ -88,8 +88,8 @@ public class ConnectorPluginSurfaceTest {
             Assertions.assertNotNull(in, "missing connector plugin API version resource");
             version.load(in);
         }
-        // Major 30 adds partition row estimates after the upstream API 29 table-absence errors.
-        Assertions.assertEquals("30.0", version.getProperty("api.version"));
+        // Major 31 adds partition row estimates on top of the upstream API 30 surface.
+        Assertions.assertEquals("31.0", version.getProperty("api.version"));
     }
 
     /** Root entry points plus provider/handle types returned to connector plugins. */

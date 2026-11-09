@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.util;
 
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.common.util.TimeZoneParser;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.qe.ConnectContext;
@@ -461,6 +462,16 @@ public class DateUtils {
             buffer[i] = (char) ('0' + value % 10);
             value /= 10;
         }
+    }
+
+    /** Resolve conversion zones with the session policy shared by CAST and CONVERT_TZ. */
+    public static LocalDateTime convertTimeZone(LocalDateTime datetime, String fromTz, String toTz) {
+        // These are conversion zones, not offsets embedded in DATETIME/TIMESTAMPTZ literals.
+        // Keep aliases, offset syntax and range checks in the common parser.
+        ZoneId fromZone = TimeZoneParser.parse(fromTz, TimeZoneParser.Usage.SESSION);
+        ZoneId toZone = TimeZoneParser.parse(toTz, TimeZoneParser.Usage.SESSION);
+        Instant instant = convertLocalToInstant(datetime, fromZone);
+        return LocalDateTime.ofInstant(instant, toZone);
     }
 
     /** Convert a civil datetime between time zones using the same DST policy as BE cctz. */

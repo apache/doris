@@ -782,18 +782,22 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
      * the sys-table path ({@link #loadSysTable}), which builds its metadata view from this same scoped base.
      */
     private Table resolveTableForRead(ConnectorSession session, IcebergTableHandle handle) {
+        Table table;
         if (tableCache != null) {
-            return IcebergStatementScope.sharedBorrowedTable(session, handle.getDbName(), handle.getTableName(),
+            table = IcebergStatementScope.sharedBorrowedTable(session, handle.getDbName(), handle.getTableName(),
                     () -> tableCache.borrow(TableIdentifier.of(handle.getDbName(), handle.getTableName()),
                             () -> catalogOps.loadTable(handle.getDbName(), handle.getTableName())),
                     () -> catalogOps.loadTable(handle.getDbName(), handle.getTableName()));
+        } else {
+            table = resourceTracker == null
+                    ? IcebergStatementScope.sharedTable(session, handle.getDbName(), handle.getTableName(),
+                            () -> catalogOps.loadTable(handle.getDbName(), handle.getTableName()))
+                    : IcebergStatementScope.sharedTrackedTable(session, handle.getDbName(), handle.getTableName(),
+                            resourceTracker, () -> catalogOps.loadTable(handle.getDbName(), handle.getTableName()),
+                            value -> IcebergConnector.cachedTableCleanup(value, catalogProps.getFlavor()));
         }
-        return resourceTracker == null
-                ? IcebergStatementScope.sharedTable(session, handle.getDbName(), handle.getTableName(),
-                        () -> catalogOps.loadTable(handle.getDbName(), handle.getTableName()))
-                : IcebergStatementScope.sharedTrackedTable(session, handle.getDbName(), handle.getTableName(),
-                        resourceTracker, () -> catalogOps.loadTable(handle.getDbName(), handle.getTableName()),
-                        table -> IcebergConnector.cachedTableCleanup(table, catalogProps.getFlavor()));
+        IcebergEncryptionRead.check(table, catalogProps, context);
+        return table;
     }
 
     /**
@@ -2795,6 +2799,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     }
 
     private IcebergLatestSnapshotCache.CachedSnapshot latestSnapshotPin(Table table) {
+        IcebergEncryptionRead.check(table, catalogProps, context);
         Snapshot current = table.currentSnapshot();
         ConnectorMvccPartitionView.Style emptyPartitionStyle = IcebergPartitionUtils.isValidRelatedTable(table)
                 ? ConnectorMvccPartitionView.Style.RANGE
