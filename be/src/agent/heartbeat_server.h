@@ -21,6 +21,7 @@
 #include <gen_cpp/HeartbeatService.h>
 #include <stdint.h>
 
+#include <atomic>
 #include <mutex>
 
 #include "common/status.h"
@@ -40,6 +41,14 @@ public:
 
     void init_cluster_id();
 
+    // The process epoch of this backend process incarnation: the exact value
+    // reported to the FE as be_start_time in every heartbeat (and echoed back
+    // by the FE as TLanceIndexMutationRequest.be_process_epoch). 0 until the
+    // first HeartbeatServer of this process was constructed; a valid FE
+    // request can never predate that (the FE learns the epoch from a
+    // heartbeat), so consumers may treat 0 as "no epoch established yet".
+    static int64_t process_epoch() { return s_process_epoch.load(); }
+
     // Master send heartbeat to this server
     //
     // Input parameters:
@@ -51,6 +60,11 @@ public:
 
 private:
     Status _heartbeat(const TMasterInfo& master_info);
+
+    // Backing of process_epoch(), written once by the first HeartbeatServer
+    // constructor of this process. Static because the epoch is a property of
+    // the process incarnation, not of the (thrift-server-local) instance.
+    static std::atomic<int64_t> s_process_epoch;
 
     BaseStorageEngine& _engine;
     int64_t _be_epoch;

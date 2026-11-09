@@ -33,6 +33,7 @@ file(GLOB_RECURSE UT_FILES CONFIGURE_DEPENDS
     format_v2/*.cpp
     gutil/*.cpp
     io/*.cpp
+    lance/*.cpp
     load/*.cpp
     olap/*.cpp
     runtime/*.cpp
@@ -155,7 +156,17 @@ include_directories(
 # Removed test files are added back using separate compile arguments.
 add_subdirectory(storage/index/ann)
 
+# lance_fake_worker: the protocol-speaking fake Lance index worker, exec'd by
+# the lance supervisor unit tests through the supervisor's worker-exec seam. Pure C (no Doris linkage) so it starts instantly and fits
+# inside the tiny cgroup memory budget of the real-OOM test. Kept as a .c file
+# so the lance/*.cpp UT glob above never sweeps it into doris_be_test (it
+# carries its own main()).
+add_executable(lance_fake_worker lance/fake_worker/lance_fake_worker.c)
+target_link_libraries(lance_fake_worker pthread)
+
 add_executable(doris_be_test ${UT_FILES})
+# The supervisor tests also need the helper when only doris_be_test is built.
+add_dependencies(doris_be_test lance_fake_worker)
 if (TARGET phdr_cache_test_dso)
     add_dependencies(doris_be_test phdr_cache_test_dso)
 endif()

@@ -38,6 +38,39 @@ import java.util.concurrent.atomic.AtomicReference;
 
 public class LanceIndexInspectionExecutorTest {
     @Test
+    public void testStatementDeadlineBoundsReadAndRestoresContextWithoutInterruptingOwner() throws Exception {
+        CountDownLatch started = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        CountDownLatch finished = new CountDownLatch(1);
+        AtomicBoolean interrupted = new AtomicBoolean();
+        long original = LanceIndexInspectionExecutor.statementDeadlineMs();
+        long start = System.currentTimeMillis();
+        try {
+            Assert.assertThrows(LanceIndexInspectionExecutor.MetadataReadTimeoutException.class,
+                    () -> LanceIndexInspectionExecutor.withDeadline(start + 500L,
+                            () -> LanceIndexInspectionExecutor.execute(() -> {
+                                started.countDown();
+                                try {
+                                    release.await(30, TimeUnit.SECONDS);
+                                } catch (InterruptedException e) {
+                                    interrupted.set(true);
+                                } finally {
+                                    finished.countDown();
+                                }
+                                return 1;
+                            })));
+            Assert.assertEquals(0L, started.getCount());
+            Assert.assertEquals(1L, finished.getCount());
+            Assert.assertFalse(interrupted.get());
+            Assert.assertTrue(System.currentTimeMillis() - start < 2_000L);
+            Assert.assertEquals(original, LanceIndexInspectionExecutor.statementDeadlineMs());
+        } finally {
+            release.countDown();
+            Assert.assertTrue(finished.await(30, TimeUnit.SECONDS));
+        }
+    }
+
+    @Test
     public void testIndexMetadataReadTimeoutKeepsWorkerOwnershipUntilReturn() throws Exception {
         CountDownLatch taskStarted = new CountDownLatch(1);
         CountDownLatch releaseTask = new CountDownLatch(1);

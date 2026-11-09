@@ -1,0 +1,17 @@
+{
+  "dataset_dir": "edge_decimal.lance",
+  "version": 1,
+  "column": "dec128",
+  "verdict": "compare",
+  "expected_contract": {
+    "scv": 1,
+    "flds": [
+      {
+        "fid": 0,
+        "nn": "dec128",
+        "nt": "decimal\u003c128\u003e(10,2)",
+        "nul": true
+      }
+    ]
+  }
+}

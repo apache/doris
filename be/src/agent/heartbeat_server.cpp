@@ -52,11 +52,17 @@ class TProcessor;
 
 namespace doris {
 
+std::atomic<int64_t> HeartbeatServer::s_process_epoch {0};
+
 HeartbeatServer::HeartbeatServer(ClusterInfo* cluster_info)
         : _engine(ExecEnv::GetInstance()->storage_engine()),
           _cluster_info(cluster_info),
           _fe_epoch(0) {
     _be_epoch = GetCurrentTimeMicros() / 1000;
+    // Publish the incarnation epoch process-wide: the lance index worker
+    // service's receipt check compares the FE-echoed be_process_epoch against
+    // this exact value, so both producers and consumers read one number.
+    s_process_epoch.store(_be_epoch);
 }
 
 void HeartbeatServer::init_cluster_id() {

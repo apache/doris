@@ -1,0 +1,17 @@
+{
+  "dataset_dir": "edge_duration.lance",
+  "version": 1,
+  "column": "dur_s",
+  "verdict": "compare",
+  "expected_contract": {
+    "scv": 1,
+    "flds": [
+      {
+        "fid": 0,
+        "nn": "dur_s",
+        "nt": "duration(unit\u003dSECOND)",
+        "nul": true
+      }
+    ]
+  }
+}
