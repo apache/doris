@@ -22,9 +22,6 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.datasource.mvcc.MvccSnapshot;
-import org.apache.doris.datasource.mvcc.MvccUtil;
-import org.apache.doris.datasource.mvcc.PluginDrivenMvccSnapshot;
 import org.apache.doris.nereids.PlanContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.hint.Hint;
@@ -45,7 +42,6 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanNodeAndHash;
 import org.apache.doris.nereids.trees.plans.algebra.OlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
-import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
@@ -226,19 +222,11 @@ class CostModel extends PlanVisitor<Cost, PlanContext> {
     public Cost visitPhysicalFileScan(PhysicalFileScan physicalFileScan, PlanContext context) {
         Statistics statistics = context.getStatisticsWithCheck();
         double scanRowCount = statistics.getRowCount();
-        SelectedPartitions selected = physicalFileScan.getSelectedPartitions();
-        if (selected.isPruned && selected.state == SelectedPartitions.State.MATERIALIZED) {
-            Optional<MvccSnapshot> snapshot = MvccUtil.getSnapshotFromContext(physicalFileScan.getTable(),
-                    physicalFileScan.getTableSnapshot(), physicalFileScan.getScanParams());
-            if (snapshot.isPresent() && snapshot.get() instanceof PluginDrivenMvccSnapshot) {
-                OptionalLong selectedRows = ((PluginDrivenMvccSnapshot) snapshot.get())
-                        .getSelectedPartitionRowCount(selected.selectedPartitions.keySet());
-                if (selectedRows.isPresent()) {
-                    // Partition metadata measures scan work. Keep the table-level cardinality and column
-                    // statistics together so retained filters do not apply pruning selectivity twice.
-                    scanRowCount = selectedRows.getAsLong();
-                }
-            }
+        OptionalLong selectedRows = ScanRowCountUpperBound.forScan(physicalFileScan);
+        if (selectedRows.isPresent()) {
+            // Partition metadata measures scan work. Keep the table-level cardinality and column
+            // statistics together so retained filters do not apply pruning selectivity twice.
+            scanRowCount = selectedRows.getAsLong();
         }
         return Cost.ofCpu(context.getCostWeight(), scanRowCount * EXTERNAL_TABLE_SCAN_FACTOR);
     }
@@ -309,7 +297,12 @@ class CostModel extends PlanVisitor<Cost, PlanContext> {
     public Cost visitPhysicalDistribute(
             PhysicalDistribute<? extends Plan> distribute, PlanContext context) {
         Statistics childStatistics = context.getChildStatistics(0);
-        double intputRowCount = childStatistics.getRowCount();
+        double inputRowCount = childStatistics.getRowCount();
+        OptionalLong scanRows = ScanRowCountUpperBound.forGroup(context.getGroupExpression().child(0));
+        if (scanRows.isPresent()) {
+            // Filters and projections may already estimate fewer rows; only cap an overestimate.
+            inputRowCount = Math.min(inputRowCount, scanRows.getAsLong());
+        }
         DistributionSpec spec = distribute.getDistributionSpec();
         // cost model is trained by clusters with more than 3 BE.
         int beNumForDist = Math.max(3, beNumber);
@@ -317,9 +310,9 @@ class CostModel extends PlanVisitor<Cost, PlanContext> {
         // shuffle
         if (spec instanceof DistributionSpecHash) {
             return Cost.of(context.getCostWeight(),
-                    intputRowCount / beNumForDist,
+                    inputRowCount / beNumForDist,
                     0,
-                    intputRowCount * dataSizeFactor / beNumForDist
+                    inputRowCount * dataSizeFactor / beNumForDist
                     );
         }
 
@@ -331,7 +324,7 @@ class CostModel extends PlanVisitor<Cost, PlanContext> {
             return Cost.of(context.getCostWeight(),
                     0,
                     0,
-                    intputRowCount * dataSizeFactor);
+                    inputRowCount * dataSizeFactor);
 
         }
 
@@ -340,7 +333,7 @@ class CostModel extends PlanVisitor<Cost, PlanContext> {
             return Cost.of(context.getCostWeight(),
                     0,
                     0,
-                    intputRowCount * dataSizeFactor / beNumForDist);
+                    inputRowCount * dataSizeFactor / beNumForDist);
         }
 
         // any
@@ -348,7 +341,7 @@ class CostModel extends PlanVisitor<Cost, PlanContext> {
         return Cost.of(context.getCostWeight(),
                 0,
                 0,
-                intputRowCount * dataSizeFactor
+                inputRowCount * dataSizeFactor
                         * RANDOM_SHUFFLE_TO_HASH_SHUFFLE_FACTOR / beNumForDist);
     }
 
