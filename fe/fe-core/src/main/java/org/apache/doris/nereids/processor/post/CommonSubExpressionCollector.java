@@ -87,13 +87,16 @@ public class CommonSubExpressionCollector extends ExpressionVisitor<Integer, Boo
         // expression can be visited again from a context that does not carry the flag (for example
         // when the same subtree appears in two projections), and the extraction then breaks the
         // lambda scope. An expression that *contains* the whole lambda, such as an array_map with
-        // its lambda, binds its own arguments and stays extractable.
+        // its lambda, binds its own arguments and stays extractable at the top level.
+        // Inside another lambda, even a closed inner binding must not be hoisted: an empty
+        // outer array skips its body, while an earlier projection would evaluate it eagerly.
         // A lambda and its parameter references are not standalone values: only an expression that
         // contains the whole binding can be hoisted, never the binding pieces themselves.
         if (expressions.contains(expr)
                 && !(expr instanceof WhenClause)
                 && !(expr instanceof Lambda)
                 && !(expr instanceof ArrayItemReference)
+                && !(inLambda && expr.containsType(ArrayItemSlot.class, ArrayItemReference.class))
                 && !hasFreeArrayItem(expr)) {
             Set<Expression> commonExpression = getExpressionsFromDepthMap(depth, commonExprByDepth);
             commonExpression.add(expr);

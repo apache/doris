@@ -68,4 +68,36 @@ suite("test_ivm_agg_minmax_topk_8") {
         array_map(z -> array_map(y -> y, z), array(array(score))) AS a,
         array_map(z -> array_map(y -> y, z), array(array(score))) AS b
         FROM ivm_topk_8_t"""
+
+    // A closed inner lambda must still respect the outer lambda's evaluation boundary.
+    sql """DROP TABLE IF EXISTS ivm_topk_8_lambda_t"""
+    sql """
+        CREATE TABLE ivm_topk_8_lambda_t (
+            id INT NOT NULL,
+            outer_arr ARRAY<INT> NOT NULL,
+            a ARRAY<INT> NOT NULL,
+            b ARRAY<INT> NOT NULL
+        )
+        DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES ("replication_num" = "1")
+    """
+    sql """INSERT INTO ivm_topk_8_lambda_t VALUES
+        (1, [], [1], [1, 2]), (2, [0], [1], [2]), (3, [0, 1], [1, 2], [3, 4])"""
+    order_qt_lambda_boundary """
+        SELECT id, x AS p, x AS q FROM (
+            SELECT id, array_map(z -> array_map((u, v) -> u + v, a, b), outer_arr) AS x
+            FROM ivm_topk_8_lambda_t
+        ) s
+    """
+    sql """INSERT INTO ivm_topk_8_lambda_t VALUES (4, [0], [1], [1, 2])"""
+    test {
+        sql """
+            SELECT x AS p, x AS q FROM (
+                SELECT array_map(z -> array_map((u, v) -> u + v, a, b), outer_arr) AS x
+                FROM ivm_topk_8_lambda_t WHERE id = 4
+            ) s
+        """
+        exception "the input column size are not equal completely"
+    }
 }
