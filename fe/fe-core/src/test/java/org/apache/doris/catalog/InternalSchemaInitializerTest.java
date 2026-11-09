@@ -18,21 +18,25 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.ColumnDef;
-import org.apache.doris.catalog.info.ColumnPosition;
+import org.apache.doris.analysis.ColumnNullableType;
 import org.apache.doris.common.UserException;
-import org.apache.doris.nereids.trees.plans.commands.info.AlterOp;
+import org.apache.doris.nereids.trees.plans.commands.info.AddColumnOp;
+import org.apache.doris.nereids.trees.plans.commands.info.AddColumnsOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterTableOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyColumnOp;
+import org.apache.doris.nereids.trees.plans.commands.info.ReorderColumnsOp;
 import org.apache.doris.plugin.audit.AuditLoader;
 import org.apache.doris.statistics.StatisticConstants;
 
 import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
+import java.util.stream.Collectors;
 
 class InternalSchemaInitializerTest {
     @Test
@@ -123,143 +127,117 @@ class InternalSchemaInitializerTest {
                 "scan_bytes_from_remote_storage field is missing from the copied schema");
     }
 
+    // An up-to-date table, also one with columns beyond the schema after it, needs nothing.
     @Test
-    public void testStorageColumnsPositionInAuditTable() throws Exception {
-        // Get storage-related column definitions directly from InternalSchema.AUDIT_SCHEMA
-        ColumnDef localStorageDef = null;
-        ColumnDef remoteStorageDef = null;
-
-        for (int i = 0; i < InternalSchema.AUDIT_SCHEMA.size(); i++) {
-            ColumnDef def = InternalSchema.AUDIT_SCHEMA.get(i);
-            if (def.getName().equals("scan_bytes_from_local_storage")) {
-                localStorageDef = def;
-            } else if (def.getName().equals("scan_bytes_from_remote_storage")) {
-                remoteStorageDef = def;
-            }
-        }
-
-        Assertions.assertNotNull(localStorageDef, "The scan_bytes_from_local_storage column should exist in AUDIT_SCHEMA");
-        Assertions.assertNotNull(remoteStorageDef, "The scan_bytes_from_remote_storage column should exist in AUDIT_SCHEMA");
-
-        // Simulate column position logic in InternalSchemaInitializer
-        // Note: Based on test failure, the system uses FIRST position rather than after a specific column
-        List<AlterOp> alterOps = Lists.newArrayList();
-
-        // Add scan_bytes_from_local_storage column using FIRST position
-        ColumnPosition localStoragePosition = ColumnPosition.FIRST;
-        ModifyColumnOp modifyColumnOp = new ModifyColumnOp(
-                localStorageDef.translateToColumnDefinition(), localStoragePosition, null, Maps.newHashMap());
-        modifyColumnOp.setColumn(localStorageDef.toColumn());
-        alterOps.add(modifyColumnOp);
-
-        // Add scan_bytes_from_remote_storage column using FIRST position
-        ColumnPosition remoteStoragePosition = ColumnPosition.FIRST;
-        ModifyColumnOp modifyColumnOp1 = new ModifyColumnOp(
-                remoteStorageDef.translateToColumnDefinition(), remoteStoragePosition, null, Maps.newHashMap());
-        modifyColumnOp1.setColumn(remoteStorageDef.toColumn());
-        alterOps.add(modifyColumnOp1);
-
-        // Verify the generated AlterClauses
-        Assertions.assertEquals(2, alterOps.size(), "Two AlterClauses should be generated");
-
-        // Verify that column positions are FIRST
-        Assertions.assertTrue(((ModifyColumnOp) alterOps.get(0)).getColPos().isFirst(),
-                "The position of the scan_bytes_from_local_storage column should be FIRST");
-        Assertions.assertTrue(((ModifyColumnOp) alterOps.get(1)).getColPos().isFirst(),
-                "The position of the scan_bytes_from_remote_storage column should be FIRST");
+    public void testAuditTableUpToDate() {
+        List<ColumnDef> schema = schema("a", "b", "c");
+        Assertions.assertEquals(Collections.emptyList(), describe(alterOps(schema, "a", "b", "c")));
+        Assertions.assertEquals(Collections.emptyList(), describe(alterOps(schema, "a", "b", "c", "x")));
     }
 
+    // The columns the table has of the schema are in order and come first: each missing column is added right
+    // after the column before it in the schema, by a light schema change.
     @Test
-    public void testDoesNotModifyExistingColumns() throws Exception {
-        // Create a mock audit table with storage-related columns but with inconsistent types (VARCHAR instead of BIGINT)
-        List<Column> initialSchema = Lists.newArrayList(
-                new Column("query_id", ScalarType.createVarcharType(48), true, null, false, null, ""),
-                new Column("time", ScalarType.createDatetimeV2Type(3), true, null, false, null, ""),
-                new Column("client_ip", ScalarType.createVarcharType(128), true, null, false, null, ""),
-                new Column("user", ScalarType.createVarcharType(128), true, null, false, null, ""),
-                new Column("catalog", ScalarType.createVarcharType(128), true, null, false, null, ""),
-                new Column("db", ScalarType.createVarcharType(128), true, null, false, null, ""),
-                new Column("state", ScalarType.createVarcharType(128), true, null, false, null, ""),
-                new Column("error_code", ScalarType.INT, true, null, false, null, ""),
-                new Column("error_message", ScalarType.STRING, true, null, false, null, ""),
-                new Column("query_time", ScalarType.BIGINT, true, null, false, null, ""),
-                new Column("scan_bytes", ScalarType.BIGINT, true, null, false, null, ""),
-                new Column("scan_rows", ScalarType.BIGINT, true, null, false, null, ""),
-                new Column("return_rows", ScalarType.BIGINT, true, null, false, null, ""),
-                new Column("shuffle_send_rows", ScalarType.BIGINT, true, null, false, null, ""),
-                new Column("shuffle_send_bytes", ScalarType.BIGINT, true, null, false, null, ""),
-                // Intentionally use inconsistent types (VARCHAR instead of BIGINT)
-                new Column("scan_bytes_from_local_storage", ScalarType.createVarcharType(128), true, null, false, null, ""),
-                new Column("scan_bytes_from_remote_storage", ScalarType.createVarcharType(128), true, null, false, null, "")
-        );
+    public void testAuditTableMissingColumnsAddedInPlace() {
+        List<ColumnDef> schema = schema("a", "b", "c", "d", "e");
+        Assertions.assertEquals(Lists.newArrayList("ADD b AFTER a", "ADD d AFTER c"),
+                describe(alterOps(schema, "a", "c", "e")));
+        Assertions.assertEquals(Lists.newArrayList("ADD e AFTER d"), describe(alterOps(schema, "a", "b", "c", "d")));
+        // the second of two adjacent columns follows the first, which the same ALTER adds
+        Assertions.assertEquals(Lists.newArrayList("ADD b AFTER a", "ADD c AFTER b"),
+                describe(alterOps(schema, "a", "d", "e")));
+        // a column beyond the schema stays at the end
+        Assertions.assertEquals(Lists.newArrayList("ADD b AFTER a", "ADD d AFTER c"),
+                describe(alterOps(schema, "a", "c", "e", "x")));
+    }
 
-        // Use the correct constructor to create OlapTable to ensure nameToColumn is properly initialized
-        OlapTable auditTable = new OlapTable(1000, "audit_log", initialSchema, KeysType.AGG_KEYS,
-                new SinglePartitionInfo(), new HashDistributionInfo());
+    // Any other table gets the missing columns appended and is reordered, which rewrites it.
+    @Test
+    public void testAuditTableOutOfOrderReordered() {
+        List<ColumnDef> schema = schema("a", "b", "c", "d", "e");
+        // two columns of the schema swapped
+        Assertions.assertEquals(Lists.newArrayList("ADD (d)", "ORDER BY (a, b, c, d, e)"),
+                describe(alterOps(schema, "a", "c", "b", "e")));
+        Assertions.assertEquals(Lists.newArrayList("ORDER BY (a, b, c, d, e)"),
+                describe(alterOps(schema, "b", "a", "c", "d", "e")));
+        // a column beyond the schema between two of it
+        Assertions.assertEquals(Lists.newArrayList("ADD (b)", "ORDER BY (a, b, c, d, e, x)"),
+                describe(alterOps(schema, "a", "x", "c", "d", "e")));
+        // the first column missing: there is no column for it to follow
+        Assertions.assertEquals(Lists.newArrayList("ADD (a)", "ORDER BY (a, b, c, d, e)"),
+                describe(alterOps(schema, "b", "c", "d", "e")));
+    }
 
-        // Verify columns exist and have VARCHAR type
-        Column localStorageCol = auditTable.getColumn("scan_bytes_from_local_storage");
-        Column remoteStorageCol = auditTable.getColumn("scan_bytes_from_remote_storage");
+    // A table 4.1.3 created lacks the four columns added since. Each is added in place, as the audit schema
+    // defines it.
+    @Test
+    public void testAuditTableOf413AddedInPlace() {
+        List<String> added = Lists.newArrayList("queue_time_ms", "spill_write_bytes_to_remote_storage",
+                "spill_read_bytes_from_remote_storage", "protocol");
+        List<String> currentColumnNames = auditColumnNames();
+        currentColumnNames.removeAll(added);
 
-        Assertions.assertNotNull(localStorageCol, "The scan_bytes_from_local_storage column should exist in auditTable");
-        Assertions.assertNotNull(remoteStorageCol, "The scan_bytes_from_remote_storage column should exist in auditTable");
-        Assertions.assertTrue(localStorageCol.getType().isVarchar(),
-                "The scan_bytes_from_local_storage column type should be VARCHAR");
-        Assertions.assertTrue(remoteStorageCol.getType().isVarchar(),
-                "The scan_bytes_from_remote_storage column type should be VARCHAR");
+        List<AlterTableOp> ops = InternalSchemaInitializer.getAuditTableAlterOps(currentColumnNames,
+                InternalSchema.AUDIT_SCHEMA);
 
-        // Get complete column definitions from InternalSchema.AUDIT_SCHEMA
-        List<ColumnDef> expectedSchema = Lists.newArrayList();
-        for (ColumnDef def : InternalSchema.AUDIT_SCHEMA) {
-            expectedSchema.add(def);
+        Assertions.assertEquals(Lists.newArrayList("ADD queue_time_ms AFTER query_time",
+                "ADD spill_write_bytes_to_remote_storage AFTER spill_read_bytes_from_local_storage",
+                "ADD spill_read_bytes_from_remote_storage AFTER spill_write_bytes_to_remote_storage",
+                "ADD protocol AFTER compute_group"), describe(ops));
+        for (AlterTableOp op : ops) {
+            Column column = ((AddColumnOp) op).getColumn();
+            ColumnDef columnDef = InternalSchema.AUDIT_SCHEMA.stream()
+                    .filter(def -> def.getName().equals(column.getName())).findFirst().get();
+            Assertions.assertEquals(columnDef.getType(), column.getType());
+            Assertions.assertEquals(columnDef.isAllowNull(), column.isAllowNull());
+            Assertions.assertFalse(column.isKey());
         }
+    }
 
-        // Simulate column processing logic in InternalSchemaInitializer
-        List<AlterOp> alterOps = Lists.newArrayList();
+    // A table 3.0 created has its columns in the order the audit schema had before #51363 moved them around. The
+    // missing columns are appended and the table is reordered.
+    @Test
+    public void testAuditTableOf30Reordered() {
+        List<String> currentColumnNames = Lists.newArrayList("query_id", "time", "client_ip", "user", "catalog", "db",
+                "state", "error_code", "error_message", "query_time", "scan_bytes", "scan_rows", "return_rows",
+                "shuffle_send_rows", "shuffle_send_bytes", "scan_bytes_from_local_storage",
+                "scan_bytes_from_remote_storage", "stmt_id", "stmt_type", "is_query", "is_nereids", "frontend_ip",
+                "cpu_time_ms", "sql_hash", "sql_digest", "peak_memory_bytes", "workload_group", "compute_group",
+                "stmt");
+        List<String> missing = auditColumnNames();
+        missing.removeAll(currentColumnNames);
 
-        // Add columns if they don't exist
-        for (int i = 0; i < expectedSchema.size(); i++) {
-            ColumnDef def = expectedSchema.get(i);
-            if (auditTable.getColumn(def.getName()) == null) {
-                // If column doesn't exist, add it
-                String afterColumn = null;
-                if (i > 0) {
-                    for (int j = i - 1; j >= 0; j--) {
-                        String prevColName = expectedSchema.get(j).getName();
-                        if (auditTable.getColumn(prevColName) != null) {
-                            afterColumn = prevColName;
-                            break;
-                        }
-                    }
-                }
-                ColumnPosition position = afterColumn == null ? ColumnPosition.FIRST :
-                        new ColumnPosition(afterColumn);
-                ModifyColumnOp op = new ModifyColumnOp(def.translateToColumnDefinition(), position, null, Maps.newHashMap());
-                op.setColumn(def.toColumn());
-                alterOps.add(op);
+        List<AlterTableOp> ops = InternalSchemaInitializer.getAuditTableAlterOps(currentColumnNames,
+                InternalSchema.AUDIT_SCHEMA);
+
+        Assertions.assertEquals(Lists.newArrayList("ADD (" + String.join(", ", missing) + ")",
+                "ORDER BY (" + String.join(", ", auditColumnNames()) + ")"), describe(ops));
+    }
+
+    private static List<ColumnDef> schema(String... columnNames) {
+        return Arrays.stream(columnNames).map(name -> new ColumnDef(name, ScalarType.createType(PrimitiveType.BIGINT),
+                ColumnNullableType.NULLABLE)).collect(Collectors.toList());
+    }
+
+    private static List<AlterTableOp> alterOps(List<ColumnDef> schema, String... currentColumnNames) {
+        return InternalSchemaInitializer.getAuditTableAlterOps(Lists.newArrayList(currentColumnNames), schema);
+    }
+
+    private static List<String> auditColumnNames() {
+        return InternalSchema.AUDIT_SCHEMA.stream().map(ColumnDef::getName).collect(Collectors.toList());
+    }
+
+    private static List<String> describe(List<AlterTableOp> ops) {
+        return ops.stream().map(op -> {
+            if (op instanceof AddColumnOp) {
+                AddColumnOp addColumnOp = (AddColumnOp) op;
+                return "ADD " + addColumnOp.getColumn().getName() + " AFTER " + addColumnOp.getColPos().getLastCol();
             }
-            // Note: InternalSchemaInitializer.created() method does not check if column types match
-            // It only adds columns that don't exist in the table
-        }
-
-        // Check if AlterClauses were generated for storage-related columns
-        boolean hasLocalStorageClause = false;
-        boolean hasRemoteStorageClause = false;
-
-        for (AlterOp op : alterOps) {
-            ModifyColumnOp modifyColumnOp = (ModifyColumnOp) op;
-            if (modifyColumnOp.getColumn().getName().equals("scan_bytes_from_local_storage")) {
-                hasLocalStorageClause = true;
-            } else if (modifyColumnOp.getColumn().getName().equals("scan_bytes_from_remote_storage")) {
-                hasRemoteStorageClause = true;
+            if (op instanceof AddColumnsOp) {
+                return "ADD (" + ((AddColumnsOp) op).getColumns().stream().map(Column::getName)
+                        .collect(Collectors.joining(", ")) + ")";
             }
-        }
-
-        // Verify the system does not generate AlterClauses for columns that already exist
-        // even if their types don't match the expected types
-        Assertions.assertFalse(hasLocalStorageClause,
-                "The system should not generate AlterClause for the scan_bytes_from_local_storage column that already exists");
-        Assertions.assertFalse(hasRemoteStorageClause,
-                "The system should not generate AlterClause for the scan_bytes_from_remote_storage column that already exists");
+            return "ORDER BY (" + String.join(", ", ((ReorderColumnsOp) op).getColumnsByPos()) + ")";
+        }).collect(Collectors.toList());
     }
 }
