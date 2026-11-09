@@ -72,6 +72,22 @@ TEST_F(ObjStorageUriS3RulesTest, InvalidSchema) {
     EXPECT_FALSE(io::ObjStorageUri::parse_s3(p1).has_value());
 }
 
+TEST_F(ObjStorageUriS3RulesTest, NativeAzureLocation) {
+    auto abfss = io::ObjStorageUri::parse_s3("abfss://c1@acct.dfs.core.windows.net/db/t/f.parquet");
+    ASSERT_TRUE(abfss.has_value()) << abfss.error();
+    EXPECT_EQ("c1", abfss->bucket);
+    EXPECT_EQ("db/t/f.parquet", abfss->key);
+
+    auto wasbs = io::ObjStorageUri::parse_s3("wasbs://c1@acct.blob.core.windows.net/db/f?x=1");
+    ASSERT_TRUE(wasbs.has_value()) << wasbs.error();
+    EXPECT_EQ("c1", wasbs->bucket);
+    EXPECT_EQ("db/f", wasbs->key);
+
+    // Same rules as the s3-style form: a container root has no key, a missing container fails.
+    EXPECT_FALSE(io::ObjStorageUri::parse_s3("abfss://c1@acct.dfs.core.windows.net/").has_value());
+    EXPECT_FALSE(io::ObjStorageUri::parse_s3("abfss://acct.dfs.core.windows.net/db/f").has_value());
+}
+
 TEST_F(ObjStorageUriS3RulesTest, MissingKey) {
     std::string p1 = "https://bucket/";
     EXPECT_FALSE(io::ObjStorageUri::parse_s3(p1).has_value());
@@ -127,6 +143,12 @@ TEST_F(ObjStorageUriS3RulesTest, BucketOnlyKeyOnlyAndOriginal) {
     ASSERT_TRUE(http.has_value()) << http.error();
     EXPECT_EQ("https://a.b.com/bucket/k?x=1", http->original);
     EXPECT_EQ("k", http->key);
+
+    // Also for a native Azure location; parse_s3 never names an account.
+    auto abfss = io::ObjStorageUri::parse_s3("abfss://c1@acct.dfs.core.windows.net/k");
+    ASSERT_TRUE(abfss.has_value()) << abfss.error();
+    EXPECT_EQ("abfss://c1@acct.dfs.core.windows.net/k", abfss->original);
+    EXPECT_EQ("", abfss->account);
 }
 
 } // end namespace doris

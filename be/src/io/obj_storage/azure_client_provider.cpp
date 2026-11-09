@@ -19,11 +19,13 @@
 
 #include <fmt/format.h>
 
+#include <mutex>
 #include <utility>
 
 #include "common/config.h"
 #include "common/logging.h"
 #include "io/obj_storage/obj_client_rate_limit.h"
+#include "util/time.h"
 
 #ifdef USE_AZURE
 #include <azure/core/http/curl_transport.hpp>
@@ -67,13 +69,32 @@ std::string build_azure_tls_debug_context(const std::string& selected_ca_file) {
             azure_env_or_empty("SSL_CERT_FILE"), azure_env_or_empty("CURL_CA_BUNDLE"),
             azure_env_or_empty("SSL_CERT_DIR"));
 }
-
 #endif
+
+// An expired SAS, or one whose expiry cannot be read, is rejected before any request is sent.
+Status check_azure_auth_expiry(const AzureAuthConfig& auth, int64_t now_ms) {
+    if (auto error = validate_azure_auth_expiry(auth, now_ms); error.has_value()) {
+        return Status::InvalidArgument<false>(*error);
+    }
+    return Status::OK();
+}
+
+// The cache's initial capacity, used until set_cache_capacity() gives it one. set_config writes
+// a new value before validating it and restores the old one when it is invalid, all under this
+// lock; reading under it never sees that transient value, e.g. a rejected 0 that ObjClientCache
+// would treat as a broken invariant.
+size_t read_azure_client_cache_capacity() {
+    std::lock_guard lock(*config::get_mutable_string_config_lock());
+    return static_cast<size_t>(config::azure_client_cache_capacity);
+}
 
 } // namespace
 
 Result<std::shared_ptr<ObjStorageClient>> AzureClientProvider::get_or_create(
         const ObjClientConfig& config, const AzureClientConfig& azure) {
+    // Checked before the cache lookup so that a cached client never outlives its SAS: every
+    // reader or writer open passes through here, while range reads reuse the opened client.
+    RETURN_IF_ERROR_RESULT(check_azure_auth_expiry(azure.auth, UnixMillis()));
     if (auto cached = _cache.find(config)) {
         return cached;
     }
@@ -83,7 +104,15 @@ Result<std::shared_ptr<ObjStorageClient>> AzureClientProvider::get_or_create(
         return ResultError(std::move(client_result).error());
     }
     auto obj_client = apply_rate_limit_policy(std::move(client_result).value(), config.usage);
-    return _cache.publish(config, obj_client);
+    // Building can outlast a short-lived SAS; an expired client must not enter the cache.
+    int64_t now_ms = UnixMillis();
+    RETURN_IF_ERROR_RESULT(check_azure_auth_expiry(azure.auth, now_ms));
+    return _cache.publish(config, obj_client, azure_auth_expiry(azure.auth).expires_at_ms, now_ms,
+                          read_azure_client_cache_capacity());
+}
+
+void AzureClientProvider::set_cache_capacity(size_t capacity) {
+    _cache.set_capacity(UnixMillis(), capacity);
 }
 
 Result<std::shared_ptr<ObjStorageClient>> AzureClientProvider::_build(

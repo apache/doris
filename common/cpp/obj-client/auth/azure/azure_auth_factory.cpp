@@ -17,6 +17,7 @@
 
 #include "cpp/obj-client/auth/azure/azure_auth_factory.h"
 
+#include <azure/identity/client_secret_credential.hpp>
 #include <azure/storage/common/storage_credential.hpp>
 #include <utility>
 #include <variant>
@@ -35,6 +36,36 @@ AzureClientBuildResult build(std::string_view container_url, std::string_view ac
             .container_client = std::move(client),
             .shared_key_credential = std::move(credential),
     };
+}
+
+AzureClientBuildResult build(std::string_view container_url, std::string_view /*account*/,
+                             const AzureSasConfig& sas,
+                             Azure::Storage::Blobs::BlobClientOptions client_options) {
+    // The SDK sends the URL query with every request, so the SAS rides on the container URL
+    // itself, e.g. https://acct.blob.core.windows.net/c?sv=...&se=...&sig=...
+    // container_url never carries a query of its own.
+    std::string signed_url = std::string(container_url) + "?" + sas.token;
+    auto client = std::make_shared<Azure::Storage::Blobs::BlobContainerClient>(
+            signed_url, std::move(client_options));
+    return {.container_client = std::move(client)};
+}
+
+AzureClientBuildResult build(std::string_view container_url, std::string_view /*account*/,
+                             const AzureClientSecretConfig& client_secret,
+                             Azure::Storage::Blobs::BlobClientOptions client_options) {
+    Azure::Identity::ClientSecretCredentialOptions identity_options;
+    if (!client_secret.authority_host.empty()) {
+        identity_options.AuthorityHost = client_secret.authority_host;
+    }
+    // Token requests use the same transport (and so the same CA bundle) as blob requests, but
+    // not the blob retry policies, which are tuned for storage responses.
+    identity_options.Transport = client_options.Transport;
+    auto identity = std::make_shared<Azure::Identity::ClientSecretCredential>(
+            client_secret.tenant_id, client_secret.client_id, client_secret.client_secret,
+            identity_options);
+    auto client = std::make_shared<Azure::Storage::Blobs::BlobContainerClient>(
+            std::string(container_url), std::move(identity), std::move(client_options));
+    return {.container_client = std::move(client)};
 }
 
 } // namespace

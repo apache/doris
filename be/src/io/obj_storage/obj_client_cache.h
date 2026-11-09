@@ -17,9 +17,14 @@
 
 #pragma once
 
+#include <cstddef>
+#include <cstdint>
+#include <list>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <unordered_map>
+#include <vector>
 
 #include "io/obj_storage/obj_storage_config.h"
 
@@ -31,27 +36,70 @@ namespace doris::io {
 // SDK clients are built outside the lock. When two threads build the same identity
 // concurrently, the first publish wins and the loser's candidate stays owned by its
 // caller, so the losing SDK client is destroyed after the lock is released.
+//
+// A bounded publish keeps at most `capacity` entries. Short-lived credentials make this
+// necessary: each new SAS token is a new identity, e.g. an Iceberg REST catalog that vends a
+// fresh SAS per query would otherwise add one Azure client (with its own connection pool) per
+// query and never release the old ones. Entries whose credential has expired go first, then
+// the least recently used. Eviction only drops the cache's reference: a reader that holds the
+// client keeps using it, and the last reference is released outside the lock.
 class ObjClientCache {
 public:
-    std::shared_ptr<ObjStorageClient> find(const ObjClientConfig& config) {
-        std::lock_guard lock(_lock);
-        auto it = _clients.find(config);
-        return it == _clients.end() ? nullptr : it->second;
-    }
+    // Returns the cached client and marks it as recently used, or nullptr.
+    std::shared_ptr<ObjStorageClient> find(const ObjClientConfig& config);
 
-    // Returns the client cached for config: candidate if it was published, or the one
-    // another thread published first.
+    // Unbounded publish, for clients whose credentials do not expire on their own (e.g. S3
+    // static keys). Returns the client cached for config: candidate if it was published, or
+    // the one another thread published first.
     std::shared_ptr<ObjStorageClient> publish(const ObjClientConfig& config,
-                                              const std::shared_ptr<ObjStorageClient>& candidate) {
-        std::lock_guard lock(_lock);
-        auto [it, _] = _clients.try_emplace(config, candidate);
-        return it->second;
-    }
+                                              const std::shared_ptr<ObjStorageClient>& candidate);
+
+    // Bounded publish. expires_at_ms is when the candidate's credential expires, if known.
+    // The cache keeps its own capacity, set by set_capacity(); initial_capacity (positive) only
+    // applies while it has none yet, i.e. before the first set_capacity() or bounded publish.
+    //
+    // The capacity is read and applied under _lock so that a capacity change cannot be undone
+    // by a publish that read the old value. Example: a publish reads 256 from the config, the
+    // config is lowered to 1 and set_capacity(1) shrinks the cache, then the publish runs; it
+    // uses the cache's capacity 1, not the stale 256 it was given.
+    std::shared_ptr<ObjStorageClient> publish(const ObjClientConfig& config,
+                                              const std::shared_ptr<ObjStorageClient>& candidate,
+                                              std::optional<int64_t> expires_at_ms, int64_t now_ms,
+                                              size_t initial_capacity);
+
+    // Sets the capacity and applies it at once: evicts expired entries, then the least
+    // recently used ones, until at most `capacity` remain. capacity must be positive.
+    void set_capacity(int64_t now_ms, size_t capacity);
+
+    size_t size();
 
 private:
+    struct Entry {
+        ObjClientConfig config;
+        std::shared_ptr<ObjStorageClient> client;
+        std::optional<int64_t> expires_at_ms;
+    };
+    using EntryList = std::list<Entry>;
+
+    // Inserts or finds config under _lock; returns the cached client.
+    std::shared_ptr<ObjStorageClient> _publish_locked(
+            const ObjClientConfig& config, const std::shared_ptr<ObjStorageClient>& candidate,
+            std::optional<int64_t> expires_at_ms);
+
+    // Moves the clients to drop into `evicted`, which the caller destroys after releasing
+    // _lock: expired entries first, then the least recently used beyond `capacity`.
+    // keep_front exempts the entry a publish just placed at the front, which the caller has
+    // validated, from the expiry sweep.
+    void _evict_locked(int64_t now_ms, size_t capacity, bool keep_front,
+                       std::vector<std::shared_ptr<ObjStorageClient>>* evicted);
+
     std::mutex _lock;
-    std::unordered_map<ObjClientConfig, std::shared_ptr<ObjStorageClient>, ObjClientConfigHash>
-            _clients;
+    // Unset until the first set_capacity() or bounded publish; the unbounded publish never
+    // evicts.
+    std::optional<size_t> _capacity;
+    // Most recently used first.
+    EntryList _entries;
+    std::unordered_map<ObjClientConfig, EntryList::iterator, ObjClientConfigHash> _index;
 };
 
 } // namespace doris::io

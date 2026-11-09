@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <cstddef>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -41,6 +42,9 @@ public:
     void set_client_creator_for_test(
             std::function<std::shared_ptr<ObjStorageClient>(const ObjClientConfig&)> creator);
 #endif
+
+    // Called when azure_client_cache_capacity changes; see AzureClientProvider::set_cache_capacity.
+    void set_azure_client_cache_capacity(size_t capacity) { _azure.set_cache_capacity(capacity); }
 
 private:
     ObjClientFactory();

@@ -129,7 +129,9 @@ Status VFileResultWriter::_create_file_writer(const std::string& file_name) {
             {
                     .write_file_cache = false,
                     .sync_file_data = false,
-            }));
+            },
+            _file_opts->azure_client_config.has_value() ? &*_file_opts->azure_client_config
+                                                        : nullptr));
     switch (_file_opts->file_format) {
     case TFileFormatType::FORMAT_CSV_PLAIN:
         _vfile_writer.reset(new VCSVTransformer(

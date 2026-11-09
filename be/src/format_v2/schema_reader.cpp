@@ -42,6 +42,7 @@ Status fetch_file_schema(const TFileScanRangeParams& params, const TFileRangeDes
     properties->properties = params.properties;
     properties->hdfs_params = params.hdfs_params;
     properties->broker_addresses = params.broker_addresses;
+    properties->azure_client_config = io::azure_client_config_of(params);
     auto file = std::make_unique<io::FileDescription>();
     file->path = range.path;
     file->file_size = range.__isset.file_size ? range.file_size : -1;

@@ -24,6 +24,7 @@
 #include "io/obj_storage/obj_storage_config.h"
 
 namespace doris {
+class TAzureClientConfig;
 class TS3StorageParam;
 namespace cloud {
 class ObjectStoreInfoPB;
@@ -33,16 +34,17 @@ class ObjectStoreInfoPB;
 namespace doris::io {
 struct ObjStorageUri;
 
-// Turns the three flat sources (FE properties, TS3StorageParam, ObjectStoreInfoPB) into typed
-// object storage configuration. After it, factories, holders, file systems and readers never
-// read their raw properties, Thrift or Protobuf parameters again.
+// Turns the three flat sources (FE properties, TS3StorageParam, ObjectStoreInfoPB) and typed
+// Azure input (TAzureClientConfig) into typed object storage configuration. After it,
+// factories, holders, file systems and readers never read their raw properties, Thrift or
+// Protobuf parameters again.
 //
 // The flat sources share one mapping into the backend alternatives: provider AZURE becomes
 // AzureClientConfig, which has always reused ak/sk/bucket as the SharedKey account/key and the
 // container; every other provider becomes S3ClientConfig with that provider as its vendor.
 // Fields the selected backend never read are dropped, e.g. an Azure source's region, token and
 // role_arn. A field the selected backend cannot hold, i.e. a provider-native credential on an
-// Azure source, is rejected with InvalidArgument for every source.
+// Azure source, is rejected with InvalidArgument for every flat source.
 class ObjStorageConfigResolver {
 public:
     // FE properties of a FILE_S3 request (AWS_* keys; provider=azure selects Azure) for the
@@ -56,6 +58,16 @@ public:
 
     // A storage vault in cloud mode, i.e. a Doris internal bucket.
     static Result<ObjStorageConfig> from_object_store_info(const cloud::ObjectStoreInfoPB& info);
+
+    // Typed Azure input sent by FE. Unlike the flat sources it can carry SAS and client secret
+    // credentials. location is the file being accessed: its container fills or must match the
+    // configured one (see AzureConfigCodec::decode), and an account named by its host must
+    // match the configured account, e.g. abfss://c1@other.dfs.core.windows.net/k with
+    // account_name "acct" is rejected instead of sending acct's credentials for another
+    // account's path. The result is validated, so a missing or conflicting field fails here
+    // instead of at the first request.
+    static Result<ObjClientConfig> from_azure_client_config(const TAzureClientConfig& config,
+                                                            const ObjStorageUri& location);
 };
 
 } // namespace doris::io

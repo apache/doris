@@ -97,7 +97,8 @@ struct S3ClientConfig {
 // azure/azure_auth.h), which owns its methods and their rules; BE only adds the storage target.
 struct AzureClientConfig {
     std::string endpoint;
-    // The storage account the endpoint names; SharedKey signs requests with it.
+    // Required by SharedKey, which signs requests with the account name; may be empty for
+    // SAS and client secret, whose requests do not carry it.
     std::string account;
     // The Azure SDK client is bound to one blob container, so the container is part of
     // the client identity. S3 clients are not bound to a bucket and do not carry one.
@@ -130,7 +131,7 @@ struct ObjClientConfig {
 
 // One object storage binding: the bucket (Azure: container) and root prefix it serves, plus
 // the client configuration. Every input source (FE properties, TS3StorageParam,
-// ObjectStoreInfoPB) is turned into this by ObjStorageConfigResolver.
+// ObjectStoreInfoPB, TAzureClientConfig) is turned into this by ObjStorageConfigResolver.
 struct ObjStorageConfig {
     std::string bucket;
     std::string prefix;

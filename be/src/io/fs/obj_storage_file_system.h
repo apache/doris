@@ -40,7 +40,8 @@ namespace doris::io {
 // File system for object storage (S3 and S3-compatible stores, Azure Blob), bound to the bucket
 // (Azure: container) and root prefix of one ObjStorageConfig. Backend differences live in the
 // client the holder provides. It accepts 2 kinds of path:
-//  1. Full path, e.g. s3://bucket/path/to/file.txt (ObjStorageUri::parse_s3).
+//  1. Full path, e.g. s3://bucket/path/to/file.txt or, for Azure,
+//     abfss://container@acct.dfs.core.windows.net/path/to/file.txt (ObjStorageUri::parse_s3).
 //     In this case, the root prefix is not used.
 //  2. only key: path/to/file.txt
 //      In this case, the final key will be "prefix + path/to/file.txt"

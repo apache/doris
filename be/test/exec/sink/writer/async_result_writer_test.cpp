@@ -17,11 +17,13 @@
 
 #include "exec/sink/writer/async_result_writer.h"
 
+#include <gen_cpp/DataSinks_types.h>
 #include <gtest/gtest.h>
 
 #include "core/block/block.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_number.h"
+#include "exec/operator/result_sink_operator.h"
 #include "exec/pipeline/dependency.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
@@ -180,6 +182,35 @@ TEST_F(AsyncResultWriterTest, OpenFailureDrainsQueuedReservation) {
     EXPECT_FALSE(writer.get_writer_status().ok());
     EXPECT_EQ(0, thread_context()->thread_mem_tracker_mgr->reserved_mem());
     EXPECT_EQ(0, GlobalMemoryArbitrator::process_reserved_memory());
+}
+
+TEST(ResultFileOptionsTest, KeepsTypedAzureAccess) {
+    TResultFileSinkOptions t_opt;
+    t_opt.__set_file_path("abfss://container@account.dfs.core.windows.net/out/");
+    t_opt.__set_file_format(TFileFormatType::FORMAT_PARQUET);
+    TAzureSas sas;
+    sas.__set_token("sv=2024-01-01&sig=x");
+    TAzureCredential credential;
+    credential.__set_sas(sas);
+    TAzureClientConfig azure;
+    azure.__set_endpoint("https://account.blob.core.windows.net");
+    azure.__set_credential(credential);
+    t_opt.__set_azure_client_config(azure);
+
+    ResultFileOptions options(t_opt);
+
+    ASSERT_TRUE(options.azure_client_config.has_value());
+    EXPECT_EQ(azure, *options.azure_client_config);
+}
+
+TEST(ResultFileOptionsTest, LeavesAzureAccessUnsetForOtherStorage) {
+    TResultFileSinkOptions t_opt;
+    t_opt.__set_file_path("s3://bucket/out/");
+    t_opt.__set_file_format(TFileFormatType::FORMAT_CSV_PLAIN);
+
+    ResultFileOptions options(t_opt);
+
+    EXPECT_FALSE(options.azure_client_config.has_value());
 }
 
 } // namespace doris

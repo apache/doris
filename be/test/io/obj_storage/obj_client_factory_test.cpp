@@ -380,6 +380,50 @@ TEST_F(ObjClientFactoryTest, AzureProviderCachesByContainer) {
     EXPECT_EQ(_s3_builds, 0);
 }
 
+TEST_F(ObjClientFactoryTest, AzureProviderCacheIsBounded) {
+#ifdef USE_AZURE
+    auto make_sas = [](std::string token) {
+        return ObjClientConfig {
+                .connection = {},
+                .usage = ClientUsage::EXTERNAL_ACCESS,
+                .backend =
+                        AzureClientConfig {
+                                .endpoint = "https://bounded-cache.blob.core.windows.net",
+                                .account = "",
+                                .container = "container",
+                                .auth = AzureSasConfig {.token = std::move(token),
+                                                        .expires_at_ms = std::nullopt},
+                        },
+        };
+    };
+    auto saved_capacity = std::to_string(config::azure_client_cache_capacity);
+    auto& factory = ObjClientFactory::instance();
+    ASSERT_TRUE(config::set_config("azure_client_cache_capacity", "64").ok());
+    auto first = factory.get_or_create(make_sas("sig=first"));
+    ASSERT_TRUE(first.has_value()) << first.error();
+    auto second = factory.get_or_create(make_sas("sig=second"));
+    ASSERT_TRUE(second.has_value()) << second.error();
+
+    // A lowered capacity applies at once, not on the next publish: only the most recently
+    // used client survives.
+    ASSERT_TRUE(config::set_config("azure_client_cache_capacity", "1").ok());
+    auto still_cached = factory.get_or_create(make_sas("sig=second"));
+    ASSERT_TRUE(still_cached.has_value()) << still_cached.error();
+    EXPECT_EQ(still_cached.value(), second.value());
+
+    // A rejected value is rolled back and never reaches the cache, which would otherwise treat
+    // a zero capacity as a broken invariant.
+    EXPECT_FALSE(config::set_config("azure_client_cache_capacity", "0").ok());
+    EXPECT_EQ(config::azure_client_cache_capacity, 1);
+
+    // first was evicted when the capacity was lowered, so it is built again (and evicts second).
+    auto rebuilt = factory.get_or_create(make_sas("sig=first"));
+    ASSERT_TRUE(config::set_config("azure_client_cache_capacity", saved_capacity).ok());
+    ASSERT_TRUE(rebuilt.has_value()) << rebuilt.error();
+    EXPECT_NE(rebuilt.value(), first.value());
+#endif
+}
+
 TEST_F(ObjClientFactoryTest, AzureClientsFollowTheBeRateLimitPolicy) {
 #ifdef USE_AZURE
     const auto deploy_mode = config::deploy_mode;
@@ -791,6 +835,24 @@ TEST_F(ObjClientFactoryTest, ResolvesPropertiesAndVaults) {
     EXPECT_EQ(vault_auth.role_arn, "vault-role");
     EXPECT_EQ(vault_auth.external_id, "vault-external-id");
     EXPECT_EQ(vault_auth.provider_type, CredProviderType::InstanceProfile);
+}
+
+TEST_F(ObjClientFactoryTest, ExpiredSasFailsBeforeAnyClientIsBuilt) {
+    ObjClientConfig config {.connection = {},
+                            .usage = ClientUsage::EXTERNAL_ACCESS,
+                            .backend = AzureClientConfig {
+                                    .endpoint = "https://acct.blob.core.windows.net",
+                                    .account = "",
+                                    .container = "container",
+                                    .auth = AzureSasConfig {.token = "se=1999-12-31&sig=abc",
+                                                            .expires_at_ms = std::nullopt},
+                            }};
+    ObjClientHolder holder(config);
+    auto status = holder.init();
+    // The credential check runs before the Azure SDK is touched, so the result is the same
+    // with or without BUILD_AZURE.
+    EXPECT_TRUE(status.is<ErrorCode::INVALID_ARGUMENT>()) << status;
+    EXPECT_EQ(holder.get(), nullptr);
 }
 
 } // namespace doris::io
