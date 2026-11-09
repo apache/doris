@@ -47,6 +47,7 @@
 #include <thread>
 #include <type_traits>
 #include <unordered_map>
+#include <variant>
 
 #include "common/config.h"
 #include "common/status.h"
@@ -61,6 +62,7 @@
 #include "io/fs/s3_file_bufferpool.h"
 #include "io/fs/s3_file_system.h"
 #include "io/io_common.h"
+#include "io/obj_storage/obj_storage_config.h"
 #include "runtime/exec_env.h"
 #include "storage/index/index_file_writer.h"
 #include "storage/index/index_writer.h"
@@ -1541,6 +1543,68 @@ TEST_F(S3FileWriterInvalidationTest, multipart_invalidated_after_uploads_is_not_
     EXPECT_NE(st.to_string().find("invalid obj storage client"), std::string::npos) << st;
     EXPECT_GT(mock_client->upload_part_count, 0);
     EXPECT_EQ(mock_client->complete_multipart_count, 0);
+}
+
+// Parts have finished when the sync point runs, but the writer has not issued Complete yet.
+TEST_F(S3FileWriterInvalidationTest, multipart_completion_client_after_refresh) {
+    const auto storage = make_test_s3_storage_config("bucket", "", "multipart-refresh.example.com",
+                                                     "us-east-1", "access", "old-key");
+    auto check_refresh = [](const char* scenario, const ObjStorageConfig& initial,
+                            const ObjStorageConfig& update, bool expect_original) {
+        SCOPED_TRACE(scenario);
+        auto fs_result = S3FileSystem::create(initial, "multipart-refresh");
+        ASSERT_TRUE(fs_result.has_value()) << fs_result.error();
+        auto fs = *fs_result;
+        auto holder = fs->client_holder();
+        auto original = std::make_shared<SimpleMockObjStorageClient>();
+        auto refreshed = std::make_shared<SimpleMockObjStorageClient>();
+        holder->set_client_for_test(original);
+        FileWriterPtr writer;
+        ASSERT_TRUE(fs->create_file("s3://bucket/refresh", &writer).ok());
+
+        SyncPoint::CallbackGuard guard;
+        SyncPoint::get_instance()->set_call_back(
+                "S3FileWriter::_complete:1",
+                [&](auto&&) {
+                    auto result = S3FileSystem::refresh_resource(fs, update);
+                    ASSERT_TRUE(result.has_value()) << result.error();
+                    ASSERT_EQ((*result)->client_holder(), holder);
+                    ASSERT_NE(holder->get(), original);
+                    // Both test clients must accept the same parts so the counters identify
+                    // which one sent Complete, independent of the mock's in-memory storage.
+                    refreshed->parts = original->parts;
+                    holder->set_client_for_test(refreshed);
+                },
+                &guard);
+
+        ASSERT_TRUE(
+                writer->append(generate_test_string('r', 2 * config::s3_write_buffer_size)).ok());
+        auto st = writer->close();
+        ASSERT_TRUE(st.ok()) << st;
+        EXPECT_EQ(holder->get(), refreshed);
+        EXPECT_EQ(original->complete_multipart_count, expect_original ? 1 : 0);
+        EXPECT_EQ(refreshed->complete_multipart_count, expect_original ? 0 : 1);
+    };
+
+    auto rotated = storage;
+    std::get<S3ClientConfig>(rotated.client.backend).auth.secret_key = "new-key";
+    check_refresh("S3 key rotation", storage, rotated, true);
+
+    rotated.client.connection.request_timeout_ms = 15000;
+    check_refresh("credentials and connection changed", storage, rotated, false);
+#ifdef USE_AZURE
+    auto rebound = storage;
+    rebound.client.backend = AzureClientConfig {.endpoint = "multipart-rebind.example.com",
+                                                .account = "account",
+                                                .container = storage.bucket,
+                                                .auth = AzureSharedKeyConfig {"YWNjb3VudC1rZXk="}};
+    check_refresh("resource rebound to Azure", storage, rebound, false);
+
+    auto azure_rotated = rebound;
+    std::get<AzureClientConfig>(azure_rotated.client.backend).auth =
+            AzureSharedKeyConfig {"bmV3LWFjY291bnQta2V5"};
+    check_refresh("Azure key rotation", rebound, azure_rotated, true);
+#endif
 }
 
 // A client taken before the holder was invalidated is an accepted boundary: a call in flight

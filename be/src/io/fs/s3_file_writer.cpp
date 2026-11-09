@@ -25,7 +25,9 @@
 
 #include <sstream>
 #include <tuple>
+#include <type_traits>
 #include <utility>
+#include <variant>
 
 #include "common/config.h"
 #include "common/status.h"
@@ -39,6 +41,8 @@
 #include "io/fs/path.h"
 #include "io/fs/s3_file_bufferpool.h"
 #include "io/fs/s3_file_system.h"
+#include "io/obj_storage/obj_client_holder.h"
+#include "io/obj_storage/obj_storage_config.h"
 #include "runtime/exec_env.h"
 #include "util/debug_points.h"
 #include "util/s3_util.h"
@@ -453,6 +457,23 @@ Status check_after_upload(ObjStorageClient* client, const ObjStorageResponse& up
     return Status::OK();
 }
 
+// Compare every field except the backend's credentials. In particular, a resource can
+// rebind its live holder to another backend while a multipart close is waiting.
+static bool same_config_except_auth(const ObjClientConfig& original,
+                                    const ObjClientConfig& current) {
+    if (original.backend.index() != current.backend.index()) {
+        return false;
+    }
+    auto comparable = current;
+    std::visit(
+            [&](auto& backend) {
+                using Backend = std::decay_t<decltype(backend)>;
+                backend.auth = std::get<Backend>(original.backend).auth;
+            },
+            comparable.backend);
+    return comparable == original;
+}
+
 Status S3FileWriter::_complete() {
     if (_failed) {
         _wait_until_finish("early quit");
@@ -463,7 +484,7 @@ Status S3FileWriter::_complete() {
         _wait_until_finish("PutObject");
         return _st;
     }
-    // Wait multipart load and finish.
+    const auto before_wait = _obj_client->state();
     _wait_until_finish("Complete");
     TEST_SYNC_POINT_CALLBACK("S3FileWriter::_complete:1",
                              std::make_pair(&_failed, &_completed_parts));
@@ -498,12 +519,17 @@ Status S3FileWriter::_complete() {
     LOG(INFO) << "complete_multipart_upload " << _obj_storage_path_opts.path.native()
               << " size=" << _bytes_appended << " number_parts=" << _completed_parts.size()
               << " s3_write_buffer_size=" << config::s3_write_buffer_size;
-    // Taken after every upload finished: the holder can be invalidated while this writer waits,
-    // and returning before the wait would leave upload callbacks running on a closed writer.
-    const auto& client = _obj_client->get();
-    if (nullptr == client) {
+    // After draining callbacks, check the live holder even though we kept the original client.
+    auto current = _obj_client->state();
+    if (!current->client) {
         return Status::InternalError<false>("invalid obj storage client");
     }
+    // Keep the client selected at close for a credential rotation, as before the refactor.
+    if (before_wait != current && before_wait->client &&
+        same_config_except_auth(before_wait->config, current->config)) {
+        current = before_wait;
+    }
+    const auto& client = current->client;
     auto resp =
             client->complete_multipart_upload(_obj_storage_path_opts, _upload_id, _completed_parts);
     if (resp.status.code != ErrorCode::OK) {
