@@ -66,6 +66,7 @@
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
 #include "storage/options.h"
+#include "util/hash_util.hpp"
 #include "util/timezone_utils.h"
 
 namespace doris::format {
@@ -264,6 +265,13 @@ std::vector<char> build_paimon_deletion_vector_buffer(
     rows.write(blob.data() + 8);
     return blob;
 }
+
+// Paimon 2.1.0 Bitmap64DeletionVector from the HMS reproduction, with row position 1 deleted.
+constexpr char PAIMON_BITMAP64_DV[] =
+        "\x00\x00\x00\x22\xd1\xd3\x39\x64\x01\x00\x00\x00\x00\x00\x00\x00"
+        "\x00\x00\x00\x00\x3a\x30\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00"
+        "\x10\x00\x00\x00\x01\x00\xee\xbd\x85\xf4";
+constexpr int64_t PAIMON_BITMAP64_DV_SIZE = sizeof(PAIMON_BITMAP64_DV) - 1;
 
 int64_t write_paimon_deletion_vector_file(const std::string& file_path,
                                           const std::vector<uint32_t>& deleted_positions) {
@@ -705,6 +713,18 @@ TEST(PaimonReaderTest, DecodeDeletionVectorBufferRejectsCorruptRoaringBitmap) {
                     .ok());
 }
 
+TEST(PaimonReaderTest, DecodeBitmap64DeletionVectorRejectsInvalidChecksum) {
+    std::string buffer(PAIMON_BITMAP64_DV, PAIMON_BITMAP64_DV_SIZE);
+    buffer.back() ^= 1;
+    DeletionVector deletion_vector;
+
+    auto status =
+            decode_paimon_deletion_vector_buffer(buffer.data(), buffer.size(), &deletion_vector);
+    EXPECT_TRUE(status.is<ErrorCode::DATA_QUALITY_ERROR>());
+    EXPECT_NE(status.to_string().find("CRC32 mismatch"), std::string::npos);
+    EXPECT_TRUE(deletion_vector.isEmpty());
+}
+
 // Scenario: PaimonReader must clear the previous split schema id before reading a new split. A
 // schema-evolved split must not force the following split without schema id to keep BY_FIELD_ID.
 TEST(PaimonReaderTest, ResetsSplitSchemaIdBeforePreparingNextSplit) {
@@ -935,9 +955,8 @@ TEST(PaimonReaderTest, ReadsInt96HistorySemanticsThroughTableMapper) {
     std::filesystem::remove(path);
 }
 
-// Scenario: Paimon reader should parse its bitmap deletion vector and let TableReader apply the
-// generated row-position delete predicate before returning table rows.
-TEST(PaimonReaderTest, AppliesBitmapDeletionVectorFile) {
+// Paimon can write both bitmap versions into the same index file. The last entry ends at EOF.
+TEST(PaimonReaderTest, AppliesMixedBitmapDeletionVectorFile) {
     const auto test_dir =
             std::filesystem::temp_directory_path() / "doris_paimon_deletion_vector_file_test";
     std::filesystem::remove_all(test_dir);
@@ -947,7 +966,20 @@ TEST(PaimonReaderTest, AppliesBitmapDeletionVectorFile) {
     const auto dv_path = (test_dir / "delete-vector.bin").string();
     write_int_pair_parquet_file(file_path, {1, 2, 3, 4, 5}, {10, 20, 30, 40, 50},
                                 {"one", "two", "three", "four", "five"});
-    const auto dv_length = write_paimon_deletion_vector_file(dv_path, {0, 4});
+    const auto bitmap32 = build_paimon_deletion_vector_buffer({0, 4});
+    const auto bitmap32_length = static_cast<uint32_t>(bitmap32.size() - 4);
+    const uint32_t bitmap32_crc = HashUtil::zlib_crc_hash(bitmap32.data() + 4, bitmap32_length, 0);
+    char crc_bytes[4];
+    BigEndian::Store32(crc_bytes, bitmap32_crc);
+    {
+        std::ofstream output(dv_path, std::ios::binary);
+        output.put(1); // Paimon index file version.
+        output.write(bitmap32.data(), static_cast<std::streamsize>(bitmap32.size()));
+        output.write(crc_bytes, sizeof(crc_bytes));
+        output.write(PAIMON_BITMAP64_DV, PAIMON_BITMAP64_DV_SIZE);
+        ASSERT_TRUE(output.good());
+    }
+    const int64_t bitmap64_offset = 1 + bitmap32.size() + sizeof(crc_bytes);
 
     std::vector<ColumnDefinition> projected_columns;
     projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
@@ -973,25 +1005,36 @@ TEST(PaimonReaderTest, AppliesBitmapDeletionVectorFile) {
 
     auto split_options = build_split_options(file_path);
     split_options.cache = &cache;
-    split_options.current_range.__set_table_format_params(
-            make_paimon_table_format_desc(dv_path, 0, dv_length));
-    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+    auto check_split = [&](int64_t offset, int64_t length, const std::vector<int32_t>& expected) {
+        split_options.current_range.__set_table_format_params(
+                make_paimon_table_format_desc(dv_path, offset, length));
+        ASSERT_TRUE(reader.prepare_split(split_options).ok());
 
-    std::vector<int32_t> ids;
-    bool eos = false;
-    while (!eos) {
-        Block block = build_table_block(projected_columns);
-        ASSERT_TRUE(reader.get_block(&block, &eos).ok());
-        if (block.rows() == 0) {
-            continue;
+        std::vector<int32_t> ids;
+        bool eos = false;
+        while (!eos) {
+            Block block = build_table_block(projected_columns);
+            ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+            if (block.rows() == 0) {
+                continue;
+            }
+            const auto& id_column =
+                    assert_cast<const ColumnInt32&>(expect_not_null_table_column(block, 0));
+            for (size_t row = 0; row < block.rows(); ++row) {
+                ids.push_back(id_column.get_element(row));
+            }
         }
-        const auto& id_column =
-                assert_cast<const ColumnInt32&>(expect_not_null_table_column(block, 0));
-        for (size_t row = 0; row < block.rows(); ++row) {
-            ids.push_back(id_column.get_element(row));
-        }
-    }
-    EXPECT_EQ(ids, std::vector<int32_t>({2, 3, 4}));
+        EXPECT_EQ(ids, expected);
+    };
+    ASSERT_NO_FATAL_FAILURE(check_split(1, bitmap32_length, {2, 3, 4}));
+    ASSERT_NO_FATAL_FAILURE(check_split(bitmap64_offset, PAIMON_BITMAP64_DV_SIZE, {1, 3, 4, 5}));
+    ASSERT_NO_FATAL_FAILURE(check_split(1, bitmap32_length, {2, 3, 4}));
+
+    split_options.current_range.__set_table_format_params(
+            make_paimon_table_format_desc(dv_path, bitmap64_offset, PAIMON_BITMAP64_DV_SIZE - 1));
+    const auto status = reader.prepare_split(split_options);
+    EXPECT_TRUE(status.is<ErrorCode::DATA_QUALITY_ERROR>());
+    EXPECT_NE(status.to_string().find("descriptor length mismatch"), std::string::npos);
 
     ASSERT_TRUE(reader.close().ok());
     std::filesystem::remove_all(test_dir);
