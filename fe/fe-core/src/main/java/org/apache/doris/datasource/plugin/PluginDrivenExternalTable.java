@@ -35,6 +35,7 @@ import org.apache.doris.connector.spi.ConnectorColumnStatistics;
 import org.apache.doris.connector.spi.ConnectorMetadata;
 import org.apache.doris.connector.spi.ConnectorPartitionInfo;
 import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.ConnectorTableNotFoundException;
 import org.apache.doris.connector.spi.ConnectorTableSchema;
 import org.apache.doris.connector.spi.ConnectorTableStatistics;
 import org.apache.doris.connector.spi.ConnectorViewDefinition;
@@ -75,6 +76,7 @@ import org.apache.doris.thrift.TTableType;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -128,11 +130,27 @@ public class PluginDrivenExternalTable extends ExternalTable {
      */
     public Optional<ConnectorTableHandle> resolveConnectorTableHandle(
             ConnectorSession session, ConnectorMetadata metadata) {
+        Connector connector = ((PluginDrivenExternalCatalog) catalog).getConnector();
+        Optional<Runnable> observation = observeConnectorTableLookup(connector);
+        String dbName = db != null ? db.getRemoteName() : "";
+        // Some catalogs reject table requests for views with non-404 errors. Classify views before
+        // probing the table endpoint so snapshot loading can continue to view expansion.
+        Optional<ConnectorTableHandle> handle = readConnectorMetadata(observation, session, metadata,
+                () -> supportsView() && isView()
+                        ? Optional.empty() : metadata.getTableHandle(session, dbName, getRemoteName()));
+        // A view has no table handle. Check live view existence before treating an empty handle as a
+        // dropped table; the cached isView flag can outlive a remote view deletion.
+        if (!handle.isPresent() && !metadata.viewExists(session, dbName, getRemoteName())) {
+            observation.ifPresent(Runnable::run);
+        }
+        return handle;
+    }
+
+    private Optional<Runnable> observeConnectorTableLookup(Connector connector) {
         PluginDrivenExternalCatalog owner = (PluginDrivenExternalCatalog) catalog;
-        Connector connector = owner.getConnector();
         ExternalDatabase<?> database = getDb();
         boolean invalidateDatabase = owner.getLowerCaseTableNames() != 0;
-        Optional<Runnable> observation = database.observeTableLookup(this, () -> {
+        return database.observeTableLookup(this, () -> {
             try {
                 if (invalidateDatabase) {
                     connector.invalidateDb(db.getRemoteName());
@@ -148,17 +166,63 @@ public class PluginDrivenExternalTable extends ExternalTable {
                 }
             }
         });
-        String dbName = db != null ? db.getRemoteName() : "";
-        // Some catalogs reject table requests for views with non-404 errors. Classify views before
-        // probing the table endpoint so snapshot loading can continue to view expansion.
-        Optional<ConnectorTableHandle> handle = supportsView() && isView()
-                ? Optional.empty() : metadata.getTableHandle(session, dbName, getRemoteName());
-        // A view has no table handle. Check live view existence before treating an empty handle as a
-        // dropped table; the cached isView flag can outlive a remote view deletion.
-        if (!handle.isPresent() && !metadata.viewExists(session, dbName, getRemoteName())) {
-            observation.ifPresent(Runnable::run);
+    }
+
+    /** A synthetic system relation repairs the shared source identity rather than its transient name. */
+    protected PluginDrivenExternalTable lookupRepairSource() {
+        return this;
+    }
+
+    /** Capture before resolving a handle, then retain through every provider read made with that handle. */
+    public MetadataRead observeConnectorMetadata(ConnectorSession session, ConnectorMetadata metadata) {
+        PluginDrivenExternalTable source = lookupRepairSource();
+        Connector connector = ((PluginDrivenExternalCatalog) source.catalog).getConnector();
+        return new MetadataRead(source, source.observeConnectorTableLookup(connector), session, metadata);
+    }
+
+    /** Query-local observation; it owns no cache or remote resource and may also guard deferred reads. */
+    public static final class MetadataRead {
+        private final PluginDrivenExternalTable source;
+        private final Optional<Runnable> observation;
+        private final ConnectorSession session;
+        private final ConnectorMetadata metadata;
+
+        private MetadataRead(PluginDrivenExternalTable source, Optional<Runnable> observation,
+                ConnectorSession session, ConnectorMetadata metadata) {
+            this.source = source;
+            this.observation = observation;
+            this.session = session;
+            this.metadata = metadata;
         }
-        return handle;
+
+        public <T> T execute(Supplier<T> read) {
+            return source.readConnectorMetadata(observation, session, metadata, read);
+        }
+    }
+
+    /** Keep provider IO outside the existing identity guards, including failures after handle resolution. */
+    private <T> T readConnectorMetadata(Optional<Runnable> observation, ConnectorSession session,
+            ConnectorMetadata metadata, Supplier<T> read) {
+        try {
+            return read.get();
+        } catch (RuntimeException failure) {
+            Optional<ConnectorTableNotFoundException> missing = ExceptionUtils.getThrowableList(failure).stream()
+                    .filter(ConnectorTableNotFoundException.class::isInstance)
+                    .map(ConnectorTableNotFoundException.class::cast).findFirst();
+            if (observation.isPresent() && missing.isPresent()
+                    && db.getRemoteName().equals(missing.get().getDatabaseName())
+                    && getRemoteName().equals(missing.get().getTableName())) {
+                try {
+                    // Iceberg table loads also report absence for live views. That is not a dropped relation.
+                    if (!metadata.viewExists(session, db.getRemoteName(), getRemoteName())) {
+                        observation.get().run();
+                    }
+                } catch (RuntimeException cleanupFailure) {
+                    failure.addSuppressed(cleanupFailure);
+                }
+            }
+            throw failure;
+        }
     }
 
     /**
@@ -328,16 +392,19 @@ public class PluginDrivenExternalTable extends ExternalTable {
         withPluginContextClassLoader(connector, () -> {
             ConnectorSession session = pluginCatalog.buildConnectorSession();
             ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
+            MetadataRead read = observeConnectorMetadata(session, metadata);
             ConnectorTableHandle handle = resolveConnectorTableHandle(session, metadata)
                     .orElseThrow(() -> new DorisConnectorException(
                             "Cannot resolve row-level DML target " + getName()));
-            metadata.validateRowLevelDmlMode(session, handle, request.getOperation());
-            ConnectorWritePlanProvider provider = writePlanProvider(connector, handle);
-            withPluginContextClassLoader(provider, () -> {
-                provider.validateRowLevelDml(session, handle, request);
+            return read.execute(() -> {
+                metadata.validateRowLevelDmlMode(session, handle, request.getOperation());
+                ConnectorWritePlanProvider provider = writePlanProvider(connector, handle);
+                withPluginContextClassLoader(provider, () -> {
+                    provider.validateRowLevelDml(session, handle, request);
+                    return null;
+                });
                 return null;
             });
-            return null;
         });
     }
 
@@ -702,6 +769,7 @@ public class PluginDrivenExternalTable extends ExternalTable {
         ConnectorSession session = buildSchemaSession(pluginCatalog);
         try {
             ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
+            MetadataRead read = observeConnectorMetadata(session, metadata);
             String dbName = db != null ? db.getRemoteName() : "";
             String tableName = getRemoteName();
             if (isView()) {
@@ -709,7 +777,8 @@ public class PluginDrivenExternalTable extends ExternalTable {
                 // from the view definition's columns instead. Mirrors legacy IcebergUtils.loadViewSchemaCacheValue
                 // (icebergView.schema()). Gated on isView() => only view-supporting connectors (SUPPORTS_VIEW) reach
                 // here; view-less connectors (jdbc/paimon/maxcompute) keep isView()==false and skip this.
-                ConnectorViewDefinition viewDefinition = metadata.getViewDefinition(session, dbName, tableName);
+                ConnectorViewDefinition viewDefinition =
+                        read.execute(() -> metadata.getViewDefinition(session, dbName, tableName));
                 ConnectorTableSchema viewSchema = new ConnectorTableSchema(
                         tableName, viewDefinition.getColumns(), null, Collections.emptyMap());
                 return Optional.of(toSchemaCacheValue(metadata, session, dbName, tableName, viewSchema));
@@ -720,7 +789,7 @@ public class PluginDrivenExternalTable extends ExternalTable {
                 return Optional.empty();
             }
 
-            ConnectorTableSchema tableSchema = metadata.getTableSchema(session, handleOpt.get());
+            ConnectorTableSchema tableSchema = read.execute(() -> metadata.getTableSchema(session, handleOpt.get()));
             return Optional.of(toSchemaCacheValue(metadata, session, dbName, tableName, tableSchema));
         } finally {
             closeSchemaSession(session);
@@ -891,7 +960,9 @@ public class PluginDrivenExternalTable extends ExternalTable {
         ConnectorSession session = pluginCatalog.buildConnectorSession();
         ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
         String dbName = db != null ? db.getRemoteName() : "";
-        ConnectorViewDefinition definition = metadata.getViewDefinition(session, dbName, getRemoteName());
+        ConnectorViewDefinition definition = readConnectorMetadata(
+                observeConnectorTableLookup(connector), session, metadata,
+                () -> metadata.getViewDefinition(session, dbName, getRemoteName()));
         return definition.getSql();
     }
 
@@ -913,11 +984,12 @@ public class PluginDrivenExternalTable extends ExternalTable {
         }
         ConnectorSession session = pluginCatalog.buildConnectorSession();
         ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
+        MetadataRead read = observeConnectorMetadata(session, metadata);
         Optional<ConnectorTableHandle> handleOpt = resolveConnectorTableHandle(session, metadata);
         if (!handleOpt.isPresent()) {
             return Optional.empty();
         }
-        return metadata.renderShowCreateTableDdl(session, handleOpt.get());
+        return read.execute(() -> metadata.renderShowCreateTableDdl(session, handleOpt.get()));
     }
 
     @Override
@@ -1143,6 +1215,7 @@ public class PluginDrivenExternalTable extends ExternalTable {
         }
         ConnectorSession session = pluginCatalog.buildConnectorSession();
         ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
+        MetadataRead read = observeConnectorMetadata(session, metadata);
         Optional<ConnectorTableHandle> handle = resolveConnectorTableHandle(session, metadata);
         if (!handle.isPresent()) {
             return Optional.empty();
@@ -1151,7 +1224,7 @@ public class PluginDrivenExternalTable extends ExternalTable {
         if (provider == null) {
             return Optional.empty();
         }
-        return withPluginContextClassLoader(provider, () -> {
+        return read.execute(() -> withPluginContextClassLoader(provider, () -> {
             Optional<List<ConnectorColumn>> connectorColumns =
                     provider.getWriteColumns(session, handle.get(), branchName);
             if (!connectorColumns.isPresent()) {
@@ -1163,7 +1236,7 @@ public class PluginDrivenExternalTable extends ExternalTable {
                 ctx.getStatementContext().setConnectorWriteMetadataIdentity(getId(), identity);
             }
             return connectorColumns.map(ConnectorColumnConverter::convertColumns);
-        });
+        }));
     }
 
     /** The raw connector-emitted table-property map (including FE-internal / render-hint keys). */
@@ -1256,6 +1329,7 @@ public class PluginDrivenExternalTable extends ExternalTable {
         Connector connector = pluginCatalog.getConnector();
         ConnectorSession session = pluginCatalog.buildConnectorSession();
         ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
+        MetadataRead read = observeConnectorMetadata(session, metadata);
         Optional<ConnectorTableHandle> handleOpt = resolveConnectorTableHandle(session, metadata);
         if (!handleOpt.isPresent()) {
             return Collections.emptyMap();
@@ -1265,8 +1339,9 @@ public class PluginDrivenExternalTable extends ExternalTable {
         // would describe a partition set the data scan never reads. The connector-FILTERED shape does not
         // come through here - it is served by applyPartitionFilterForScan - so this eager path is always
         // unfiltered.
-        ConnectorTableHandle handle = pinPartitionViewHandle(handleOpt.get(), metadata, session, snapshot);
-        return buildNameToPartitionItems(snapshot, metadata, session, handle, partitionColumns);
+        ConnectorTableHandle handle =
+                read.execute(() -> pinPartitionViewHandle(handleOpt.get(), metadata, session, snapshot));
+        return buildNameToPartitionItems(snapshot, read, metadata, session, handle, partitionColumns);
     }
 
     /**
@@ -1375,17 +1450,20 @@ public class PluginDrivenExternalTable extends ExternalTable {
         Connector connector = pluginCatalog.getConnector();
         ConnectorSession session = pluginCatalog.buildConnectorSession();
         ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
+        MetadataRead read = observeConnectorMetadata(session, metadata);
         Optional<ConnectorTableHandle> handleOpt = resolveConnectorTableHandle(session, metadata);
         if (!handleOpt.isPresent()) {
             return Optional.empty();
         }
         // Pin FIRST, in both shapes: a time-travel / @options query must apply the connector predicate to - and
         // enumerate - the generation this statement pinned, never the latest one.
-        ConnectorTableHandle handle = pinPartitionViewHandle(handleOpt.get(), metadata, session, snapshot);
+        ConnectorTableHandle handle =
+                read.execute(() -> pinPartitionViewHandle(handleOpt.get(), metadata, session, snapshot));
         Optional<FilterApplicationResult<ConnectorTableHandle>> filterResult = Optional.empty();
         if (partitionFilter.isPresent()) {
-            Optional<FilterApplicationResult<ConnectorTableHandle>> applied = metadata.applyFilter(
-                    session, handle, new ConnectorFilterConstraint(partitionFilter.get()));
+            ConnectorTableHandle pinnedHandle = handle;
+            Optional<FilterApplicationResult<ConnectorTableHandle>> applied = read.execute(() -> metadata.applyFilter(
+                    session, pinnedHandle, new ConnectorFilterConstraint(partitionFilter.get())));
             if (!applied.isPresent()) {
                 return Optional.empty();
             }
@@ -1396,7 +1474,9 @@ public class PluginDrivenExternalTable extends ExternalTable {
         List<String> remoteNames = getSchemaCacheValue(snapshot)
                 .map(value -> ((PluginDrivenSchemaCacheValue) value).getPartitionColumnRemoteNames())
                 .orElse(Collections.emptyList());
-        List<ConnectorPartitionInfo> partitions = metadata.listPartitions(session, handle, partitionFilter);
+        ConnectorTableHandle selectedHandle = handle;
+        List<ConnectorPartitionInfo> partitions =
+                read.execute(() -> metadata.listPartitions(session, selectedHandle, partitionFilter));
         Map<String, PartitionItem> nameToPartitionItem = Maps.newHashMapWithExpectedSize(partitions.size());
         for (ConnectorPartitionInfo partition : partitions) {
             try {
@@ -1469,13 +1549,14 @@ public class PluginDrivenExternalTable extends ExternalTable {
     }
 
     private Map<String, PartitionItem> buildNameToPartitionItems(Optional<MvccSnapshot> snapshot,
-            ConnectorMetadata metadata, ConnectorSession session, ConnectorTableHandle handle,
+            MetadataRead read, ConnectorMetadata metadata, ConnectorSession session, ConnectorTableHandle handle,
             List<Column> partitionColumns) {
         List<String> remoteNames = getSchemaCacheValue(snapshot)
                 .map(value -> ((PluginDrivenSchemaCacheValue) value).getPartitionColumnRemoteNames())
                 .orElse(Collections.emptyList());
         List<Type> types = partitionColumns.stream().map(Column::getType).collect(Collectors.toList());
-        List<ConnectorPartitionInfo> partitions = metadata.listPartitions(session, handle, Optional.empty());
+        List<ConnectorPartitionInfo> partitions =
+                read.execute(() -> metadata.listPartitions(session, handle, Optional.empty()));
         List<String> partitionNames = new ArrayList<>(partitions.size());
         List<List<String>> partitionValues = new ArrayList<>(partitions.size());
         for (ConnectorPartitionInfo partition : partitions) {
@@ -1526,12 +1607,13 @@ public class PluginDrivenExternalTable extends ExternalTable {
         Connector connector = pluginCatalog.getConnector();
         ConnectorSession session = pluginCatalog.buildConnectorSession();
         ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
+        MetadataRead read = observeConnectorMetadata(session, metadata);
         Optional<ConnectorTableHandle> handleOpt = resolveConnectorTableHandle(session, metadata);
         if (!handleOpt.isPresent()) {
             return Collections.emptyMap();
         }
         List<ConnectorPartitionInfo> partitions =
-                metadata.listPartitions(session, handleOpt.get(), Optional.empty());
+                read.execute(() -> metadata.listPartitions(session, handleOpt.get(), Optional.empty()));
         Map<String, List<String>> nameToValues = Maps.newLinkedHashMap();
         for (ConnectorPartitionInfo partition : partitions) {
             List<String> values = new ArrayList<>(remoteNames.size());
@@ -1569,7 +1651,8 @@ public class PluginDrivenExternalTable extends ExternalTable {
             ConnectorSession session = pluginCatalog.buildConnectorSession();
             ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
             String tableName = getRemoteName();
-            String comment = metadata.getTableComment(session, remoteDbName, tableName);
+            String comment = readConnectorMetadata(observeConnectorTableLookup(connector), session, metadata,
+                    () -> metadata.getTableComment(session, remoteDbName, tableName));
             if (escapeQuota && comment != null) {
                 return comment.replace("'", "\\'");
             }
@@ -1710,11 +1793,12 @@ public class PluginDrivenExternalTable extends ExternalTable {
         ConnectorSession session = pluginCatalog.buildCrossStatementSession();
         try {
             ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
+            MetadataRead read = observeConnectorMetadata(session, metadata);
             Optional<ConnectorTableHandle> handleOpt = resolveConnectorTableHandle(session, metadata);
             if (!handleOpt.isPresent()) {
                 return Collections.emptyList();
             }
-            return metadata.listFileSizes(session, handleOpt.get());
+            return read.execute(() -> metadata.listFileSizes(session, handleOpt.get()));
         } finally {
             session.getStatementScope().closeAll();
         }
@@ -1786,12 +1870,14 @@ public class PluginDrivenExternalTable extends ExternalTable {
     }
 
     private long fetchRowCount(ConnectorSession session, ConnectorMetadata metadata) {
+        MetadataRead read = observeConnectorMetadata(session, metadata);
         Optional<ConnectorTableHandle> handleOpt = resolveConnectorTableHandle(session, metadata);
         if (!handleOpt.isPresent()) {
             return UNKNOWN_ROW_COUNT;
         }
 
-        Optional<ConnectorTableStatistics> statsOpt = metadata.getTableStatistics(session, handleOpt.get());
+        Optional<ConnectorTableStatistics> statsOpt =
+                read.execute(() -> metadata.getTableStatistics(session, handleOpt.get()));
         if (statsOpt.isPresent()) {
             ConnectorTableStatistics stats = statsOpt.get();
             if (stats.getRowCount() >= 0) {
@@ -1821,9 +1907,15 @@ public class PluginDrivenExternalTable extends ExternalTable {
         // row width, this time EXCLUDING partition columns because their values live in the directory path,
         // not the data files. Mirrors legacy HMSExternalTable.getRowCountFromFileList. Gated by the global
         // feature flag because the listing can be a costly remote round-trip; the connector self-samples,
-        // pins its classloader, and degrades to -1 rather than throwing.
+        // pins its classloader, and degrades ordinary failures to -1. Confirmed absence first repairs the lookup.
         if (GlobalVariable.enable_get_row_count_from_file_list) {
-            long dataSize = metadata.estimateDataSizeByListingFiles(session, handleOpt.get());
+            long dataSize;
+            try {
+                dataSize = read.execute(() -> metadata.estimateDataSizeByListingFiles(session, handleOpt.get()));
+            } catch (ConnectorTableNotFoundException missing) {
+                // Repair confirmed absence before preserving this best-effort estimate's UNKNOWN result.
+                return UNKNOWN_ROW_COUNT;
+            }
             if (dataSize > 0) {
                 long rowWidth = estimatedRowWidth(true);
                 if (rowWidth > 0) {
@@ -1878,12 +1970,13 @@ public class PluginDrivenExternalTable extends ExternalTable {
         ConnectorSession session = pluginCatalog.buildCrossStatementSession();
         try {
             ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
+            MetadataRead read = observeConnectorMetadata(session, metadata);
             Optional<ConnectorTableHandle> handleOpt = resolveConnectorTableHandle(session, metadata);
             if (!handleOpt.isPresent()) {
                 return UNKNOWN_ROW_COUNT;
             }
             Optional<ConnectorTableStatistics> statsOpt =
-                    metadata.getTableStatistics(session, handleOpt.get(), snapshot);
+                    read.execute(() -> metadata.getTableStatistics(session, handleOpt.get(), snapshot));
             if (statsOpt.isPresent() && statsOpt.get().getRowCount() >= 0) {
                 return statsOpt.get().getRowCount();
             }

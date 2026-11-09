@@ -455,7 +455,7 @@ public class PartitionCompensatorTest extends TestWithFeService {
         Mockito.when(mvPctInfo.getPctInfos()).thenReturn(ImmutableList.of(colInfo1, colInfo2));
         // All MV partitions contain data
         Mockito.when(mtmv.selectNonEmptyPartitionIds(ArgumentMatchers.any(), ArgumentMatchers.any()))
-                .thenReturn(ImmutableList.of(1L));
+                .thenAnswer(invocation -> ImmutableList.copyOf(invocation.<Collection<Long>>getArgument(0)));
 
         AsyncMaterializationContext matCtx = Mockito.mock(AsyncMaterializationContext.class);
         Mockito.when(matCtx.getMtmv()).thenReturn(mtmv);
@@ -512,7 +512,7 @@ public class PartitionCompensatorTest extends TestWithFeService {
         Mockito.when(mtmv.getId()).thenReturn(100L);
         Mockito.when(mtmv.getDatabase()).thenReturn(mvDb);
         Mockito.when(mtmv.selectNonEmptyPartitionIds(ArgumentMatchers.any(), ArgumentMatchers.any()))
-                .thenReturn(ImmutableList.of(1L));
+                .thenAnswer(invocation -> ImmutableList.copyOf(invocation.<Collection<Long>>getArgument(0)));
 
         long validMvPartitionId = 101L;
         long partiallyStaleMvPartitionId = 102L;
@@ -590,7 +590,7 @@ public class PartitionCompensatorTest extends TestWithFeService {
         Mockito.when(mtmv.getId()).thenReturn(100L);
         Mockito.when(mtmv.getDatabase()).thenReturn(mvDb);
         Mockito.when(mtmv.selectNonEmptyPartitionIds(ArgumentMatchers.any(), ArgumentMatchers.any()))
-                .thenReturn(ImmutableList.of(1L));
+                .thenAnswer(invocation -> ImmutableList.copyOf(invocation.<Collection<Long>>getArgument(0)));
 
         long mvP20260301Id = 101L;
         long mvP20260401Id = 102L;

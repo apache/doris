@@ -23,6 +23,7 @@
 #include <arrow/type_fwd.h>
 #include <glog/logging.h>
 
+#include "common/logging.h"
 #include "core/assert_cast.h"
 #include "core/block/block.h"
 #include "core/block/column_numbers.h"
@@ -50,7 +51,8 @@ namespace doris {
 
 PythonUDTFFunction::PythonUDTFFunction(const TFunction& t_fn) : TableFunction(), _t_fn(t_fn) {
     _fn_name = _t_fn.name.function_name;
-    TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, _timezone_obj);
+    DORIS_CHECK(
+            TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, _timezone_obj));
 
     // Like Java UDTF, FE passes the element type T, and we wrap it into array<T> here
     // This makes the behavior consistent with Java UDTF

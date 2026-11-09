@@ -134,7 +134,6 @@ public class LocalExchangePlacementAuditTest extends TestWithFeService {
         SessionVariable sv = connectContext.getSessionVariable();
         sv.setEnableLocalShufflePlanner(true);
         sv.setEnableLocalShuffle(true);
-        sv.setEnableNereidsDistributePlanner(true);
         // ignore_storage_data_distribution is the real pooling switch: useSerialSource() gates on
         // it. force_to_local_shuffle only forces ScanNode.isSerialNode(), which a small table
         // already satisfies via `scanRangeNum < parallelExecInstanceNum * numScanBackends`, so

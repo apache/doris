@@ -29,6 +29,44 @@ import java.util.concurrent.TimeUnit;
 public class IdNameIndexTest {
 
     @Test
+    void foldedRetirementKeepsIndependentUnicodeAndSiblingIdentities() {
+        IdNameIndex index = new IdNameIndex("tables");
+        index.put(1L, "Foo");
+        index.put(2L, "FOO");
+        index.put(3L, "bar");
+        index.put(4L, "I");
+        index.put(5L, "ı");
+        index.removeNamesMatching("foo", true);
+        Assertions.assertNull(index.getName(1L));
+        Assertions.assertNull(index.getName(2L));
+        Assertions.assertEquals("bar", index.getName(3L));
+        index.removeNamesMatching("I", true);
+        Assertions.assertNull(index.getName(4L));
+        Assertions.assertEquals("ı", index.getName(5L));
+        index.put(6L, "İ");
+        index.put(7L, "i̇");
+        index.put(8L, "i");
+        index.removeNamesMatching("İ", true);
+        Assertions.assertNull(index.getName(6L));
+        Assertions.assertNull(index.getName(7L));
+        Assertions.assertEquals("i", index.getName(8L));
+        Assertions.assertEquals(3, index.sizeForTest());
+    }
+
+    @Test
+    void exactRetirementKeepsCaseDistinctNames() {
+        IdNameIndex index = new IdNameIndex("tables");
+        index.put(1L, "Foo");
+        index.put(2L, "FOO");
+        index.removeNamesMatching("Foo", false);
+        Assertions.assertNull(index.getName(1L));
+        Assertions.assertEquals("FOO", index.getName(2L));
+        index.checkCanPut(3L, "Foo");
+        index.put(3L, "Foo");
+        Assertions.assertTrue(index.containsMappingForTest(3L, "Foo"));
+    }
+
+    @Test
     public void testPutAndIdempotentPut() {
         IdNameIndex index = new IdNameIndex("test database");
 

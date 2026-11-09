@@ -24,8 +24,6 @@ import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.info.TableNameInfo;
-import org.apache.doris.cloud.qe.ComputeGroupException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.util.TimeUtils;
@@ -45,7 +43,6 @@ import org.apache.doris.nereids.trees.plans.commands.info.PauseMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo.RefreshMode;
 import org.apache.doris.nereids.trees.plans.commands.info.ResumeMTMVInfo;
-import org.apache.doris.qe.ConnectContext;
 
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
@@ -159,24 +156,8 @@ public class MTMVJobManager implements MTMVHookService {
     public void refreshMTMV(RefreshMTMVInfo info) throws DdlException, MetaNotFoundException, JobException {
         MTMVJob job = getJobByTableNameInfo(info.getMvName());
         MTMVTaskContext mtmvTaskContext = MTMVTaskContext.of(MTMVTaskTriggerMode.MANUAL, info.getPartitions(),
-                info.getRefreshMode(), info.allowFallback(), getCurrentComputeGroup());
+                info.getRefreshMode(), info.allowFallback(), MTMVPlanUtil.getSessionComputeGroup());
         Env.getCurrentEnv().getJobManager().triggerJob(job.getJobId(), mtmvTaskContext);
-    }
-
-    private String getCurrentComputeGroup() {
-        if (!Config.isCloudMode()) {
-            return null;
-        }
-        ConnectContext ctx = ConnectContext.get();
-        if (ctx == null) {
-            return null;
-        }
-        try {
-            return ctx.getCloudCluster(false);
-        } catch (ComputeGroupException e) {
-            LOG.warn("failed to resolve compute group for refresh mtmv", e);
-            return null;
-        }
     }
 
     @Override

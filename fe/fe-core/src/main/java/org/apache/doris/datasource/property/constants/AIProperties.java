@@ -17,13 +17,8 @@
 
 package org.apache.doris.datasource.property.constants;
 
-import org.apache.doris.common.DdlException;
-
-import com.google.common.base.Strings;
-
 import java.util.Arrays;
 import java.util.List;
-import java.util.Map;
 
 public class AIProperties extends BaseProperties {
     public static final String AI_PREFIX = "ai.";
@@ -73,104 +68,4 @@ public class AIProperties extends BaseProperties {
     public static final List<String> PROVIDERS
             = Arrays.asList("OPENAI", "LOCAL", "GEMINI", "DEEPSEEK", "ANTHROPIC",
             "MOONSHOT", "QWEN", "MINIMAX", "ZHIPU", "BAICHUAN", "VOYAGEAI", "JINA");
-    private static final List<String> ALL_EFFORT_LEVELS =
-            Arrays.asList("none", "minimal", "low", "medium", "high", "xhigh", "max");
-    private static final List<String> ANTHROPIC_EFFORT_LEVELS =
-            Arrays.asList("low", "medium", "high", "xhigh", "max");
-    private static final List<String> GEMINI_EFFORT_LEVELS =
-            Arrays.asList("minimal", "low", "medium", "high");
-
-    public static void requiredAIProperties(Map<String, String> properties) throws DdlException {
-        boolean hasGeneralProperties = hasAnyProperty(properties, REQUIRED_FIELDS, API_KEY);
-        boolean hasEmbedProperties = hasAnyProperty(properties, EMBED_REQUIRED_FIELDS, EMBED_API_KEY);
-        boolean hasMultimodalEmbedProperties = hasAnyProperty(properties,
-                MULTIMODAL_EMBED_REQUIRED_FIELDS, MULTIMODAL_EMBED_API_KEY);
-        if (!hasGeneralProperties && !hasEmbedProperties && !hasMultimodalEmbedProperties) {
-            throw new DdlException("At least one complete AI property group must be configured.");
-        }
-
-        if (hasGeneralProperties) {
-            validatePropertyGroup(properties, REQUIRED_FIELDS, PROVIDER_TYPE, API_KEY);
-        }
-        if (hasEmbedProperties) {
-            validatePropertyGroup(properties, EMBED_REQUIRED_FIELDS, EMBED_PROVIDER_TYPE, EMBED_API_KEY);
-        }
-        if (hasMultimodalEmbedProperties) {
-            validatePropertyGroup(properties, MULTIMODAL_EMBED_REQUIRED_FIELDS,
-                    MULTIMODAL_EMBED_PROVIDER_TYPE, MULTIMODAL_EMBED_API_KEY);
-        }
-
-        String enableStructuredOutput = properties.get(ENABLE_STRUCTURED_OUTPUT);
-        if (enableStructuredOutput != null && !"true".equalsIgnoreCase(enableStructuredOutput)
-                && !"false".equalsIgnoreCase(enableStructuredOutput)) {
-            throw new DdlException("[" + ENABLE_STRUCTURED_OUTPUT + "] must be true or false");
-        }
-
-        String effort = properties.get(EFFORT);
-        if (!Strings.isNullOrEmpty(effort)) {
-            String providerType = properties.get(PROVIDER_TYPE);
-            List<String> effortLevels = ALL_EFFORT_LEVELS;
-            if ("ANTHROPIC".equals(providerType)) {
-                effortLevels = ANTHROPIC_EFFORT_LEVELS;
-            } else if ("GEMINI".equals(providerType)) {
-                effortLevels = GEMINI_EFFORT_LEVELS;
-            }
-            if (!effortLevels.contains(effort)) {
-                throw new DdlException("[" + EFFORT + "] must be one of " + effortLevels
-                        + " for provider: " + providerType);
-            }
-        }
-
-        // Check weather the 'temperature' is valid
-        String temp = properties.get(AIProperties.TEMPERATURE);
-        if (!Strings.isNullOrEmpty(temp) && !temp.equals("-1")) {
-            double tempVal = Double.parseDouble(temp);
-            if (!(tempVal >= 0 && tempVal <= 1)) {
-                throw new DdlException("Temperature must be a double between 0 and 1");
-            }
-        }
-
-        // Check 'dimensions'
-        temp = properties.get(AIProperties.DIMENSIONS);
-        if (!Strings.isNullOrEmpty(temp) && !temp.equals("-1")) {
-            int tempVal = Integer.parseInt(temp);
-            if (tempVal <= 0) {
-                throw new DdlException("Dimensions must be a positive integer");
-            }
-        }
-    }
-
-    private static boolean hasAnyProperty(Map<String, String> properties, List<String> requiredFields,
-            String apiKeyField) {
-        return properties.containsKey(apiKeyField) || requiredFields.stream().anyMatch(properties::containsKey);
-    }
-
-    private static void validatePropertyGroup(Map<String, String> properties, List<String> requiredFields,
-            String providerTypeField, String apiKeyField) throws DdlException {
-        for (String field : requiredFields) {
-            if (Strings.isNullOrEmpty(properties.get(field))) {
-                throw new DdlException("Missing [" + field + "] in properties.");
-            }
-        }
-
-        String providerType = properties.get(providerTypeField).toUpperCase();
-        properties.put(providerTypeField, providerType);
-        if (!PROVIDERS.contains(providerType)) {
-            throw new DdlException("Provider must be one of " + PROVIDERS);
-        }
-
-        if (!"LOCAL".equals(providerType) && Strings.isNullOrEmpty(properties.get(apiKeyField))) {
-            throw new DdlException("Missing [" + apiKeyField + "] in properties for provider: " + providerType);
-        }
-    }
-
-    public static void optionalAIProperties(Map<String, String> properties) {
-        properties.putIfAbsent(ENABLE_STRUCTURED_OUTPUT, DEFAULT_ENABLE_STRUCTURED_OUTPUT);
-        properties.putIfAbsent(AIProperties.TEMPERATURE, AIProperties.DEFAULT_TEMPERATURE);
-        properties.putIfAbsent(AIProperties.MAX_TOKEN, AIProperties.DEFAULT_MAX_TOKEN);
-        properties.putIfAbsent(AIProperties.MAX_RETRIES, AIProperties.DEFAULT_MAX_RETRIES);
-        properties.putIfAbsent(AIProperties.RETRY_DELAY_SECOND, AIProperties.DEFAULT_RETRY_DELAY_SECOND);
-        properties.putIfAbsent(AIProperties.ANTHROPIC_VERSION, AIProperties.DEFAULT_ANTHROPIC_VERSION);
-        properties.putIfAbsent(AIProperties.DIMENSIONS, AIProperties.DEFAULT_DIMENSIONS);
-    }
 }
