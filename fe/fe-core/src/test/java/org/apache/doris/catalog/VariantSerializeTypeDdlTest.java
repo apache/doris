@@ -76,6 +76,22 @@ public class VariantSerializeTypeDdlTest extends TestWithFeService {
     }
 
     @Test
+    public void testModifyColumnKeepsTypedPathsToSparse() throws Exception {
+        // variant_enable_typed_paths_to_sparse = true comes only from the internal session variable, and a
+        // restated definition cannot state it
+        connectContext.getSessionVariable().defaultEnableTypedPathsToSparse = true;
+        createTable("CREATE TABLE variant_serialize_type.t_typed_sparse (k INT, v VARIANT) "
+                + "DUPLICATE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES ('replication_num'='1')");
+        connectContext.getSessionVariable().defaultEnableTypedPathsToSparse = false;
+        OlapTable table = (OlapTable) Env.getCurrentInternalCatalog()
+                .getDbOrMetaException("variant_serialize_type").getTableOrMetaException("t_typed_sparse");
+        Assertions.assertTrue(table.getColumn("v").getVariantEnableTypedPathsToSparse());
+        alterTableSync("ALTER TABLE t_typed_sparse MODIFY COLUMN v VARIANT COMMENT 'kept'");
+        Assertions.assertEquals("kept", table.getColumn("v").getComment());
+        Assertions.assertTrue(table.getColumn("v").getVariantEnableTypedPathsToSparse());
+    }
+
+    @Test
     public void testCtasOfOldColumnCreatesV2() throws Exception {
         createTableWithOldColumn("t_ctas_source");
         CreateTableCommand command = (CreateTableCommand) new NereidsParser().parseSingle(

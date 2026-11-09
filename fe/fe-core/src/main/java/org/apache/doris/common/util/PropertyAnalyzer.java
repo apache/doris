@@ -2378,16 +2378,17 @@ public class PropertyAnalyzer {
         return maxSubcoumnsCount;
     }
 
+    // variant_enable_typed_paths_to_sparse is internal now: a column of an older version keeps its value, and a new one
+    // takes it from the session variable default_variant_enable_typed_paths_to_sparse, which only tests set. The
+    // property still takes `false`, which released versions print in SHOW CREATE TABLE, but not `true`.
     public static boolean analyzeEnableTypedPathsToSparse(Map<String, String> properties,
                         boolean defaultValue) throws AnalysisException {
         boolean enableTypedPathsToSparse = defaultValue;
         if (properties != null && properties.containsKey(PROPERTIES_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE)) {
-            String enableTypedPathsToSparseStr = properties.get(PROPERTIES_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE);
-            try {
-                enableTypedPathsToSparse = Boolean.parseBoolean(enableTypedPathsToSparseStr);
-            } catch (Exception e) {
-                throw new AnalysisException("variant_enable_typed_paths_to_sparse must be `true` or `false`");
+            if (Boolean.parseBoolean(properties.get(PROPERTIES_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE))) {
+                throw new AnalysisException("variant_enable_typed_paths_to_sparse = true is not supported");
             }
+            enableTypedPathsToSparse = false;
             properties.remove(PROPERTIES_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE);
         }
         return enableTypedPathsToSparse;
@@ -2513,12 +2514,8 @@ public class PropertyAnalyzer {
             renameDeprecatedVariantProperties(properties, PROPERTIES_VARIANT_SPARSE_SHARD_COUNT,
                     PROPERTIES_VARIANT_SPARSE_HASH_SHARD_COUNT);
         }
-        // doc mode keeps the subcolumn count, the row threshold and the shard count, but not these settings
+        // doc mode keeps the subcolumn count, the row threshold and the shard count, but not this setting
         if (properties != null && "true".equalsIgnoreCase(properties.get(PROPERTIES_VARIANT_ENABLE_DOC_MODE))) {
-            if (properties.containsKey(PROPERTIES_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE)) {
-                throw new AnalysisException("variant_enable_typed_paths_to_sparse and variant_enable_doc_mode "
-                        + "cannot be set together");
-            }
             if (properties.containsKey(PROPERTIES_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE)) {
                 throw new AnalysisException("variant_max_sparse_column_statistics_size and variant_enable_doc_mode "
                         + "cannot be set together");

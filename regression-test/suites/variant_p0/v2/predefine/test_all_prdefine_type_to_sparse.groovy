@@ -23,6 +23,8 @@ suite("test_all_prdefine_type_to_sparse", "p0,nonConcurrent") {
 
     def tableName = "test_all_prdefine_type_to_sparse"
     sql "DROP TABLE IF EXISTS ${tableName}"
+    // typed paths to sparse is internal: only the session variable sets it
+    sql "set default_variant_enable_typed_paths_to_sparse = true"
     sql """
         CREATE TABLE ${tableName} (
         `id` bigint NOT NULL,
@@ -62,7 +64,6 @@ suite("test_all_prdefine_type_to_sparse", "p0,nonConcurrent") {
                 'array_ipv4_*':array<ipv4>,
                 'array_ipv6_*':array<ipv6>,
                 properties (
-                    "variant_enable_typed_paths_to_sparse" = "true",
                     "variant_max_subcolumns_count" = "1",
                     "variant_sparse_hash_shard_count" = "3"
                 )
@@ -70,6 +71,7 @@ suite("test_all_prdefine_type_to_sparse", "p0,nonConcurrent") {
     ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true")
 
     """
+    sql "set default_variant_enable_typed_paths_to_sparse = false"
 
     sql """
          INSERT INTO ${tableName} VALUES

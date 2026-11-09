@@ -1008,7 +1008,9 @@ TEST(VariantShredderTest, SparseRowsUseByteOrderWithoutChangingStatisticsSelecti
             options.sparse_bucket_count = buckets;
             options.max_sparse_column_statistics_size = 1;
             options.doc_bucket_count = buckets;
-            options.doc_materialization_min_rows = 4;
+            // the default V1 column has no row threshold without doc mode
+            options.doc_materialization_min_rows =
+                    layout == segment_v2::VariantShredderPhysicalLayout::DOC ? 4 : 0;
             segment_v2::VariantShredder shredder(options);
             segment_v2::VariantShredder::TestAccess::set_binary_cells_per_chunk(shredder, 2);
             ASSERT_TRUE(shredder.append(values.read_view(), 0, values.size()).ok());
@@ -1227,12 +1229,16 @@ TEST(VariantShredderTest, ChunkedBinaryTransposeMatchesSingleChunkForOrdinaryAnd
         SCOPED_TRACE(physical_layout == segment_v2::VariantShredderPhysicalLayout::ORDINARY
                              ? "ordinary"
                              : "doc");
+        // the default V1 column has no row threshold without doc mode
         const segment_v2::VariantShredderOptions options {
                 .physical_layout = physical_layout,
                 .max_subcolumns_count = 1,
                 .sparse_bucket_count = 2,
                 .doc_bucket_count = 2,
-                .doc_materialization_min_rows = sparse_masks.size() + 1,
+                .doc_materialization_min_rows =
+                        physical_layout == segment_v2::VariantShredderPhysicalLayout::DOC
+                                ? sparse_masks.size() + 1
+                                : 0,
         };
         segment_v2::VariantShredder single_chunk(options);
         ASSERT_TRUE(single_chunk.append(values->read_view(), 0, values->size()).ok());

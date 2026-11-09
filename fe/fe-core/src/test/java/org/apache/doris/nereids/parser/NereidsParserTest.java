@@ -1721,20 +1721,19 @@ public class NereidsParserTest extends ParserTestBase {
 
     @Test
     public void testVariantPropertyCombinations() {
-        // The combinations BE VariantCompactionSchemaMatrixTest covers all parse; the conflicting ones do not.
+        // The combinations BE VariantCompactionSchemaMatrixTest covers parse, except typed paths to sparse, which is
+        // internal now: the property takes only `false`, as released versions print it. The conflicting ones do not.
         NereidsParser parser = new NereidsParser();
         List<String> allowed = new ArrayList<>();
         for (String template : new String[] {"", "'t':INT, "}) {
             String head = "variant<" + template + "PROPERTIES(";
             for (int count : new int[] {0, 3, 100}) {
-                for (boolean toSparse : new boolean[] {false, true}) {
-                    for (int shards : new int[] {0, 2}) {
-                        for (int minRows : new int[] {0, 10, 100}) {
-                            allowed.add(head + "\"variant_max_subcolumns_count\" = \"" + count
-                                    + "\", \"variant_enable_typed_paths_to_sparse\" = \"" + toSparse
-                                    + "\", \"variant_sparse_shard_count\" = \"" + shards
-                                    + "\", \"variant_subcolumn_extraction_min_rows\" = \"" + minRows + "\")>");
-                        }
+                for (int shards : new int[] {0, 2}) {
+                    for (int minRows : new int[] {0, 10, 100}) {
+                        allowed.add(head + "\"variant_max_subcolumns_count\" = \"" + count
+                                + "\", \"variant_enable_typed_paths_to_sparse\" = \"false"
+                                + "\", \"variant_sparse_shard_count\" = \"" + shards
+                                + "\", \"variant_subcolumn_extraction_min_rows\" = \"" + minRows + "\")>");
                     }
                 }
             }
@@ -1756,6 +1755,7 @@ public class NereidsParserTest extends ParserTestBase {
         }
         String doc = "\"variant_enable_doc_mode\" = \"true\"";
         String[] rejected = {
+                "variant<PROPERTIES(\"variant_enable_typed_paths_to_sparse\" = \"true\")>",
                 "variant<PROPERTIES(" + doc + ", \"variant_enable_typed_paths_to_sparse\" = \"true\")>",
                 "variant<PROPERTIES(" + doc + ", \"variant_max_sparse_column_statistics_size\" = \"100\")>",
                 "variant<PROPERTIES(" + doc + ", \"variant_enable_nested_group\" = \"true\")>",

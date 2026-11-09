@@ -46,20 +46,22 @@ suite("variant_decimal256_storage_error", "p0,nonConcurrent") {
     }
 
     sql "DROP TABLE IF EXISTS variant_decimal256_sparse"
+    // typed paths to sparse is internal: only the session variable sets it
+    sql "set default_variant_enable_typed_paths_to_sparse = true"
     sql """
         CREATE TABLE variant_decimal256_sparse (
             id INT,
             var VARIANT<
                 'decimal256_': DECIMAL(76, 2),
                 PROPERTIES(
-                    "variant_max_subcolumns_count" = "1",
-                    "variant_enable_typed_paths_to_sparse" = "true")
+                    "variant_max_subcolumns_count" = "1")
             >
         ) ENGINE = OLAP
         DUPLICATE KEY(id)
         DISTRIBUTED BY HASH(id) BUCKETS 1
         PROPERTIES("replication_num" = "1")
     """
+    sql "set default_variant_enable_typed_paths_to_sparse = false"
     sql """
         INSERT INTO variant_decimal256_sparse VALUES
             (1, parse_to_variant('{"decimal256_":"123.45","hot":1}')),

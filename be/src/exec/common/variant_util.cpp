@@ -185,18 +185,10 @@ PathToDataTypes collect_regular_types_outside_nested_group(
 
 namespace {
 
-// The document holds every path of a doc column, so its statistics rank them.
-void add_doc_value_path_stats(const segment_v2::VariantStatistics& stats,
-                              PathToNoneNullValues& path_to_none_null_values) {
-    for (const auto& [path, size] : stats.doc_value_column_non_null_size) {
-        path_to_none_null_values[path] += size;
-    }
-}
-
 // The dynamic paths a doc column extracts in compaction. Each doc bucket is written by its own
 // writer, which sees only the paths of its bucket, so they are chosen here once from the statistics
-// of all inputs. Typed paths are extracted besides and do not count. Doc mode has one meaning of the
-// count whatever the serialize type: 0 extracts no dynamic path.
+// of all inputs. Typed paths are extracted besides and do not count. A count of 0 means every
+// dynamic path under V1 (a doc column of an older version) and none under V2.
 void choose_doc_compaction_subpaths(const TabletSchema& target, const TabletColumn& column,
                                     const PathToNoneNullValues& path_stats,
                                     VariantCompactionPaths& paths_set_info) {
@@ -208,20 +200,19 @@ void choose_doc_compaction_subpaths(const TabletSchema& target, const TabletColu
         }
     }
     VariantCompactionUtil::get_subpaths(column.variant_max_subcolumns_count(),
-                                        VariantSerializeTypePB::VARIANT_SERIALIZE_V2,
-                                        dynamic_path_stats, paths_set_info);
+                                        column.variant_serialize_type(), dynamic_path_stats,
+                                        paths_set_info);
 }
 
-// The subpaths a compaction extracts for a column without doc mode. A V2 column writing fewer rows
-// than variant_subcolumn_extraction_min_rows extracts no dynamic path: every path goes to the
-// sparse column, also the subcolumns of an input written before an ALTER raised the threshold, or
-// extracted by an earlier compaction from more rows than it kept (rows merged or deleted). A V1
-// column ignores the threshold, as it always did without doc mode.
-void choose_compaction_subpaths(const TabletColumn& column, int64_t input_rows,
-                                const PathToNoneNullValues& path_stats,
-                                VariantCompactionPaths& paths_set_info) {
-    if (column.variant_serialize_type() == VariantSerializeTypePB::VARIANT_SERIALIZE_V2 &&
-        input_rows < column.variant_doc_materialization_min_rows()) {
+// The subpaths a column without doc mode extracts in compaction. Below
+// variant_subcolumn_extraction_min_rows no dynamic path is extracted: every path goes to the sparse
+// column, also the subcolumns of an input written before an ALTER raised the threshold, or
+// extracted by an earlier compaction from more rows than it kept (rows merged or deleted). Only a
+// V2 column has a threshold here: without doc mode a V1 column keeps 0.
+void choose_sparse_compaction_subpaths(const TabletColumn& column, int64_t input_rows,
+                                       const PathToNoneNullValues& path_stats,
+                                       VariantCompactionPaths& paths_set_info) {
+    if (input_rows < column.variant_doc_materialization_min_rows()) {
         for (const auto& [path, _] : path_stats) {
             paths_set_info.sparse_path_set.emplace(path);
         }
@@ -842,6 +833,7 @@ Status VariantCompactionUtil::aggregate_path_to_stats(
     return Status::OK();
 }
 
+// NOLINTNEXTLINE(readability-function-cognitive-complexity): one loop per kind of path statistics.
 Status VariantCompactionUtil::aggregate_variant_extended_info(
         const RowsetSharedPtr& rs,
         std::unordered_map<int32_t, VariantExtendedInfo>* uid_to_variant_extended_info) {
@@ -876,7 +868,10 @@ Status VariantCompactionUtil::aggregate_variant_extended_info(
             CHECK(source_stats);
 
             if (column->variant_enable_doc_mode()) {
-                add_doc_value_path_stats(*source_stats, extended_info.path_to_none_null_values);
+                // the document holds every path of a doc column, so its statistics rank them
+                for (const auto& [path, size] : source_stats->doc_value_column_non_null_size) {
+                    extended_info.path_to_none_null_values[path] += size;
+                }
             } else if (!column->variant_enable_nested_group()) {
                 // NG roots still need type metadata for regular subpaths such as `v.owner`,
                 // but their compaction schema should not be driven by flat path stats.
@@ -1301,8 +1296,8 @@ Status VariantCompactionUtil::get_extended_compaction_schema(
                                                       output_schema, paths_set_info));
 
         // 3. get the subpaths
-        choose_compaction_subpaths(*column, input_rows, extended_info.path_to_none_null_values,
-                                   paths_set_info);
+        choose_sparse_compaction_subpaths(*column, input_rows,
+                                          extended_info.path_to_none_null_values, paths_set_info);
 
         // 4. append subcolumns
         if (column->variant_max_subcolumns_count() > 0 || !column->get_sub_columns().empty()) {

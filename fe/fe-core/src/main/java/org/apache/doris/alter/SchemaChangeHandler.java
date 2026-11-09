@@ -1009,10 +1009,12 @@ public class SchemaChangeHandler extends AlterHandler {
             if (col.getName().equalsIgnoreCase(newColName)) {
                 modColIndex = i;
                 found = true;
-                // A restated definition parses as V2, but the column keeps the layout its data is stored with.
+                // A restated definition parses as V2 and cannot state variant_enable_typed_paths_to_sparse, but the
+                // column keeps the layout its data is stored with.
                 if (col.getType().isVariantType() && modColumn.getType().isVariantType()) {
                     modColumn.setType(((VariantType) modColumn.getType())
-                            .withSerializeType(col.getVariantSerializeType()));
+                            .withSerializeType(col.getVariantSerializeType())
+                            .withEnableTypedPathsToSparse(col.getVariantEnableTypedPathsToSparse()));
                 }
                 if (!col.equals(modColumn)) {
                     typeChanged = true;

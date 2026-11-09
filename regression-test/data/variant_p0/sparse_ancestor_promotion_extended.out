@@ -47,7 +47,7 @@
 
 -- !promoted_layout --
 id	int	Yes	true	\N	
-v	variant<PROPERTIES ("variant_max_subcolumns_count" = "1","variant_enable_typed_paths_to_sparse" = "false","variant_max_sparse_column_statistics_size" = "10000","variant_subcolumn_extraction_min_rows" = "0","variant_sparse_shard_count" = "1")>	Yes	false	\N	NONE
+v	variant<PROPERTIES ("variant_max_subcolumns_count" = "1","variant_max_sparse_column_statistics_size" = "10000","variant_subcolumn_extraction_min_rows" = "0","variant_sparse_shard_count" = "1")>	Yes	false	\N	NONE
 v.p.q.a	json	Yes	false	\N	NONE
 
 -- !compaction_status --
@@ -88,7 +88,7 @@ v.p.q.a	json	Yes	false	\N	NONE
 
 -- !demoted_layout --
 id	int	Yes	true	\N	
-v	variant<PROPERTIES ("variant_max_subcolumns_count" = "1","variant_enable_typed_paths_to_sparse" = "false","variant_max_sparse_column_statistics_size" = "10000","variant_subcolumn_extraction_min_rows" = "0","variant_sparse_shard_count" = "1")>	Yes	false	\N	NONE
+v	variant<PROPERTIES ("variant_max_subcolumns_count" = "1","variant_max_sparse_column_statistics_size" = "10000","variant_subcolumn_extraction_min_rows" = "0","variant_sparse_shard_count" = "1")>	Yes	false	\N	NONE
 v.takeover	bigint	Yes	false	\N	NONE
 
 -- !compaction_status --
@@ -147,7 +147,7 @@ v.takeover	bigint	Yes	false	\N	NONE
 
 -- !repromoted_layout --
 id	int	Yes	true	\N	
-v	variant<PROPERTIES ("variant_max_subcolumns_count" = "1","variant_enable_typed_paths_to_sparse" = "false","variant_max_sparse_column_statistics_size" = "10000","variant_subcolumn_extraction_min_rows" = "0","variant_sparse_shard_count" = "1")>	Yes	false	\N	NONE
+v	variant<PROPERTIES ("variant_max_subcolumns_count" = "1","variant_max_sparse_column_statistics_size" = "10000","variant_subcolumn_extraction_min_rows" = "0","variant_sparse_shard_count" = "1")>	Yes	false	\N	NONE
 v.p.q.a	json	Yes	false	\N	NONE
 
 -- !compaction_status --

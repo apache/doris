@@ -817,9 +817,6 @@ public class Column implements GsonPostProcessable {
             if (this.getVariantMaxSubcolumnsCount() != other.getVariantMaxSubcolumnsCount()) {
                 throw new DdlException("Can not change variant max subcolumns count");
             }
-            if (this.getVariantEnableTypedPathsToSparse() != other.getVariantEnableTypedPathsToSparse()) {
-                throw new DdlException("Can not change variant enable typed paths to sparse");
-            }
             if (this.getVariantMaxSparseColumnStatisticsSize() != other.getVariantMaxSparseColumnStatisticsSize()) {
                 throw new DdlException("Can not change variant max sparse column statistics size");
             }

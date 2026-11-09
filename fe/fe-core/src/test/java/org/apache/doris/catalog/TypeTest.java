@@ -239,8 +239,8 @@ public class TypeTest {
         Assertions.assertNotEquals(v1Zero, v2Zero);
         Assertions.assertEquals(v1Counted, v2Counted);
 
-        // doc mode gives the count one meaning whatever the serialize type, and prints it; the shard count comes
-        // from the field the mode reads
+        // with doc mode a count of 0 also means every path under V1 and none under V2, so the types differ although
+        // they print the same; the shard count comes from the field the mode reads
         VariantType v1Doc = new VariantType(new ArrayList<>(), 0, false, 0, 0, true, 0L, 8, false,
                 TVariantSerializeType.V1);
         VariantType v2Doc = new VariantType(new ArrayList<>(), 0, false, 0, 8, true, 0L, 8, false,
@@ -248,7 +248,7 @@ public class TypeTest {
         Assertions.assertTrue(v2Doc.toSql().contains("\"variant_max_subcolumns_count\" = \"0\""), v2Doc.toSql());
         Assertions.assertTrue(v1Doc.toSql().contains("\"variant_sparse_shard_count\" = \"8\""), v1Doc.toSql());
         Assertions.assertEquals(v1Doc.toSql(), v2Doc.toSql());
-        Assertions.assertEquals(v1Doc, v2Doc);
+        Assertions.assertNotEquals(v1Doc, v2Doc);
         Assertions.assertEquals(v2Doc.toSql(), new org.apache.doris.nereids.types.VariantType(new ArrayList<>(), 0,
                 false, 0, 8, true, 0L, 8, false, TVariantSerializeType.V2).toSql());
     }

@@ -72,15 +72,18 @@ suite("regression_test_variant_hirachinal", "variant_type"){
 
     sql "DROP TABLE IF EXISTS ${table_name}"
 
+    // typed paths to sparse is internal: only the session variable sets it
+    sql "set default_variant_enable_typed_paths_to_sparse = true"
     sql """
         CREATE TABLE IF NOT EXISTS ${table_name} (
             k bigint,
-            v variant<'c.d' : decimal(10, 5), properties("variant_max_subcolumns_count" = "2", "variant_enable_typed_paths_to_sparse" = "true")>
+            v variant<'c.d' : decimal(10, 5), properties("variant_max_subcolumns_count" = "2")>
         )
         DUPLICATE KEY(`k`)
         DISTRIBUTED BY HASH(k) BUCKETS 1
         properties("replication_num" = "1", "disable_auto_compaction" = "false");
     """
+    sql "set default_variant_enable_typed_paths_to_sparse = false"
 
     sql """insert into ${table_name} values (1, ${variantV2Function}('{"a": 1, "b": 2, "c" : {"d" : 2}}')), (2, ${variantV2Function}('{"a": 3, "b": 4}'));"""
     sql """insert into ${table_name} values (3, ${variantV2Function}('{"c": {"d": 6}}'));"""

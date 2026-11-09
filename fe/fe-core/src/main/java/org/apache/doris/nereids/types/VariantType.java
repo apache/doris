@@ -193,9 +193,6 @@ public class VariantType extends PrimitiveType {
             sb.append("\"variant_max_subcolumns_count\" = \"")
                                     .append(String.valueOf(variantMaxSubcolumnsCount)).append("\"");
             sb.append(",");
-            sb.append("\"variant_enable_typed_paths_to_sparse\" = \"")
-                                    .append(String.valueOf(enableTypedPathsToSparse)).append("\"");
-            sb.append(",");
             sb.append("\"variant_max_sparse_column_statistics_size\" = \"")
                                     .append(String.valueOf(variantMaxSparseColumnStatisticsSize))
                                     .append("\"");
@@ -233,7 +230,7 @@ public class VariantType extends PrimitiveType {
                     && this.variantDocMaterializationMinRows == other.variantDocMaterializationMinRows
                     && Objects.equals(predefinedFields, other.predefinedFields)
                     // the serialize type only changes what a max subcolumns count of 0 means
-                    && (variantMaxSubcolumnsCount != 0 || enableVariantDocMode || enableNestedGroup
+                    && (variantMaxSubcolumnsCount != 0 || enableNestedGroup
                             || this.variantSerializeType == other.variantSerializeType);
     }
 

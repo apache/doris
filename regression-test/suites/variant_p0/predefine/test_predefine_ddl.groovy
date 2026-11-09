@@ -164,7 +164,7 @@ suite("test_predefine_ddl", "p0") {
             `var` variant<
                 MATCH_NAME 'ab' : int,
                 MATCH_NAME 'ab' : string,
-                properties("variant_max_subcolumns_count" = "10", "variant_enable_typed_paths_to_sparse" = "true")
+                properties("variant_max_subcolumns_count" = "10")
             > NULL,
             INDEX idx_ab (var) USING INVERTED PROPERTIES("field_pattern"="ab", "parser"="unicode", "support_phrase" = "true") COMMENT ''
         ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`)

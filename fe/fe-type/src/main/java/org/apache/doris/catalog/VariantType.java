@@ -172,6 +172,13 @@ public class VariantType extends ScalarType {
                 variantDocMaterializationMinRows, variantDocShardCount, enableNestedGroup, serializeType);
     }
 
+    /** This type with the given variant_enable_typed_paths_to_sparse, as a new instance. */
+    public VariantType withEnableTypedPathsToSparse(boolean typedPathsToSparse) {
+        return new VariantType(predefinedFields, variantMaxSubcolumnsCount, typedPathsToSparse,
+                variantMaxSparseColumnStatisticsSize, variantSparseHashShardCount, enableVariantDocMode,
+                variantDocMaterializationMinRows, variantDocShardCount, enableNestedGroup, variantSerializeType);
+    }
+
     @Override
     public String toSql(int depth) {
         StringBuilder sb = new StringBuilder();
@@ -193,9 +200,6 @@ public class VariantType extends ScalarType {
         } else {
             sb.append("\"variant_max_subcolumns_count\" = \"")
                                     .append(String.valueOf(variantMaxSubcolumnsCount)).append("\"");
-            sb.append(",");
-            sb.append("\"variant_enable_typed_paths_to_sparse\" = \"")
-                                        .append(String.valueOf(enableTypedPathsToSparse)).append("\"");
             sb.append(",");
             sb.append("\"variant_max_sparse_column_statistics_size\" = \"")
                                         .append(String.valueOf(variantMaxSparseColumnStatisticsSize)).append("\"");
@@ -260,7 +264,7 @@ public class VariantType extends ScalarType {
                 && variantDocMaterializationMinRows == otherVariantType.variantDocMaterializationMinRows
                 && enableNestedGroup == otherVariantType.enableNestedGroup
                 // the serialize type only changes what a max subcolumns count of 0 means
-                && (variantMaxSubcolumnsCount != 0 || enableVariantDocMode || enableNestedGroup
+                && (variantMaxSubcolumnsCount != 0 || enableNestedGroup
                         || variantSerializeType == otherVariantType.variantSerializeType);
     }
 

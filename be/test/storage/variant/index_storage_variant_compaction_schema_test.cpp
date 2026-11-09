@@ -314,8 +314,13 @@ std::vector<MatrixCase> all_cases() {
             for (int32_t count : {0, 3, 100}) {
                 for (bool to_sparse : {false, true}) {
                     for (int32_t shards : {0, 2}) {
-                        // 10 defers 7-row writes until compaction merges 14 rows, 100 both
+                        // 10 defers 7-row writes until compaction merges 14 rows, 100 both;
+                        // without doc mode only a V2 column has a threshold
                         for (int64_t min_rows : {0, 10, 100}) {
+                            if (serialize_type == VariantSerializeTypePB::VARIANT_SERIALIZE_V1 &&
+                                min_rows != 0) {
+                                continue;
+                            }
                             cases.push_back({.layout = Layout::ORDINARY,
                                              .serialize_type = serialize_type,
                                              .max_subcolumns_count = count,
@@ -380,8 +385,7 @@ std::vector<std::string> nested_group_rows() {
 // The paths an ordinary VARIANT materializes in a file of `rows` rows: the typed path `t` unless
 // typed paths go to the sparse column (then it competes with the dynamic paths), and the most
 // frequent dynamic paths up to the count, where a count of 0 means every one under V1 and none
-// under V2. A V2 file below the row threshold materializes no dynamic path; V1 ignores the
-// threshold.
+// under V2. A file below the row threshold materializes no dynamic path.
 std::vector<std::string> expected_materialized(const MatrixCase& c, int64_t rows) {
     const bool typed_fixed = c.with_template && !c.typed_paths_to_sparse;
     std::vector<std::string> dynamic;
@@ -395,8 +399,7 @@ std::vector<std::string> expected_materialized(const MatrixCase& c, int64_t rows
         selected = c.serialize_type == VariantSerializeTypePB::VARIANT_SERIALIZE_V1 ? dynamic.size()
                                                                                     : 0;
     }
-    if (c.serialize_type == VariantSerializeTypePB::VARIANT_SERIALIZE_V2 &&
-        rows < c.doc_materialization_min_rows) {
+    if (rows < c.doc_materialization_min_rows) {
         selected = 0;
     }
     std::vector<std::string> result(dynamic.begin(), dynamic.begin() + selected);
@@ -407,14 +410,13 @@ std::vector<std::string> expected_materialized(const MatrixCase& c, int64_t rows
 }
 
 // The paths a doc VARIANT materializes beside the document in a file of `rows` rows: none below the
-// row threshold, and otherwise those of an ordinary V2 column, whatever its serialize type.
+// row threshold (typed paths included), and otherwise those of an ordinary column of the same
+// serialize type, so a V1 doc column with a count of 0 materializes every path.
 std::vector<std::string> expected_doc_materialized(const MatrixCase& c, int64_t rows) {
     if (rows < c.doc_materialization_min_rows) {
         return {};
     }
-    MatrixCase as_v2 = c;
-    as_v2.serialize_type = VariantSerializeTypePB::VARIANT_SERIALIZE_V2;
-    return expected_materialized(as_v2, rows);
+    return expected_materialized(c, rows);
 }
 
 size_t count_extracted_with_prefix(const TabletSchema& schema, std::string_view prefix) {
