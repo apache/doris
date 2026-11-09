@@ -26,16 +26,16 @@
 #include <glog/logging.h>
 #include <google/protobuf/message.h>
 #include <google/protobuf/service.h>
-#include <google/protobuf/util/json_util.h>
 #include <rapidjson/document.h>
-#include <rapidjson/error/en.h>
 #include <rapidjson/prettywriter.h>
 #include <rapidjson/stringbuffer.h>
 
+#include <algorithm>
 #include <array>
 #include <functional>
 #include <memory>
 #include <optional>
+#include <sstream>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -52,24 +52,6 @@ namespace doris::cloud {
 
 extern void get_kv_range_boundaries_count(std::vector<std::string>& partition_boundaries,
                                           std::unordered_map<std::string, size_t>& partition_count);
-
-template <typename Message>
-static google::protobuf::util::Status parse_json_message(const std::string& unresolved_path,
-                                                         const std::string& body, Message* req) {
-    static_assert(std::is_base_of_v<google::protobuf::Message, Message>);
-    auto st = google::protobuf::util::JsonStringToMessage(body, req);
-    if (!st.ok()) {
-        std::string msg = "failed to strictly parse http request for '" + unresolved_path +
-                          "' error: " + st.ToString();
-        LOG_WARNING(msg).tag("body", encryt_sk(hide_access_key(body)));
-
-        // ignore unknown fields
-        google::protobuf::util::JsonParseOptions json_parse_options;
-        json_parse_options.ignore_unknown_fields = true;
-        return google::protobuf::util::JsonStringToMessage(body, req, json_parse_options);
-    }
-    return {};
-}
 
 std::tuple<int, std::string_view> convert_ms_code_to_http_code(MetaServiceCode ret) {
     switch (ret) {
@@ -169,12 +151,11 @@ void MetaServiceImpl::http(::google::protobuf::RpcController* controller,
     auto* cntl = static_cast<brpc::Controller*>(controller);
     brpc::ClosureGuard closure_guard(done);
 
-    LOG(INFO) << "rpc from " << cntl->remote_side()
-              << " request: " << cntl->http_request().uri().path();
-    std::string http_request = format_http_request(cntl);
-    std::string http_request_for_log = encryt_sk(http_request);
-    http_request_for_log = hide_cloud_unique_ids(hide_ak(http_request_for_log));
-    const auto& unresolved_path = cntl->http_request().unresolved_path();
+    const auto& request = cntl->http_request();
+    const auto& path = request.uri().path();
+    LOG(INFO) << "rpc from " << cntl->remote_side() << " request: " << path;
+
+    const auto& unresolved_path = request.unresolved_path();
     auto api_path = split_http_api_path(unresolved_path);
     const auto& handlers = get_http_handlers();
     auto it = handlers.find(api_path.route);
@@ -186,8 +167,10 @@ void MetaServiceImpl::http(::google::protobuf::RpcController* controller,
         cntl->http_response().set_status_code(403);
         cntl->response_attachment().append(body);
         cntl->response_attachment().append("\n");
-        LOG(WARNING) << "failed to handle http from " << cntl->remote_side()
-                     << " request: " << http_request_for_log << " msg: " << body;
+        LOG(WARNING) << "failed to handle http from " << cntl->remote_side() << " request: " << path
+                     << " ret=403 msg: " << body;
+        VLOG_DEBUG << "http request details from " << cntl->remote_side()
+                   << hide_ak(encryt_sk(format_http_request(cntl)));
         return;
     }
 
@@ -209,8 +192,9 @@ void MetaServiceImpl::http(::google::protobuf::RpcController* controller,
 
     int ret = cntl->http_response().status_code();
     LOG(INFO) << (ret == 200 ? "succ to " : "failed to ") << __PRETTY_FUNCTION__ << " "
-              << cntl->remote_side() << " request=\n"
-              << http_request_for_log << "\n ret=" << ret << " msg=" << msg;
+              << cntl->remote_side() << " request: " << path << " ret=" << ret << " msg=" << msg;
+    VLOG_DEBUG << "http request details from " << cntl->remote_side()
+               << hide_ak(encryt_sk(format_http_request(cntl)));
 }
 
 } // namespace doris::cloud

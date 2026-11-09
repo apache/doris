@@ -37,7 +37,6 @@
 #include "common/util.h"
 #include "cpp/sync_point.h"
 #include "meta-service/doris_txn.h"
-#include "meta-service/meta_service_helper.h"
 #include "meta-service/meta_service_http.h"
 #include "meta-service/meta_service_schema.h"
 #include "meta-service/meta_service_tablet_stats.h"
@@ -683,7 +682,7 @@ HttpResponse process_http_set_value(TxnKv* txn_kv, brpc::Controller* cntl) {
     }
 
     LOG(INFO) << "parsed pb to save key_type=" << key_type << " key=" << hex(key)
-              << " pb_to_save=" << hide_cloud_unique_ids(proto_to_json(*pb_to_save));
+              << " pb_to_save=" << proto_to_json(*pb_to_save);
 
     // ATTN:
     // StatsTabletKey is special, it has a series of keys, we only handle the base stat key
