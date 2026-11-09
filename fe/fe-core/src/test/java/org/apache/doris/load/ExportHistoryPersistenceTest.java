@@ -19,10 +19,17 @@ package org.apache.doris.load;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.io.CountingDataOutputStream;
+import org.apache.doris.common.io.Text;
+import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.journal.JournalEntity;
 import org.apache.doris.persist.EditLog;
+import org.apache.doris.persist.OperationType;
 
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
@@ -36,7 +43,9 @@ import java.lang.management.LockInfo;
 import java.lang.management.ManagementFactory;
 import java.lang.management.ThreadInfo;
 import java.lang.management.ThreadMXBean;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
@@ -48,6 +57,205 @@ import java.util.concurrent.atomic.AtomicReference;
 
 public class ExportHistoryPersistenceTest {
     private static final long NOW = 20_000_000L;
+
+    @Test
+    public void testCreateReplayWithDifferentRetentionAllowsRealRetry() throws Exception {
+        long now = System.currentTimeMillis();
+        Image initial = image(Collections.singletonList(metadata(
+                job(90, "retry", ExportJobState.FINISHED, now - 600_000), null)));
+        Env master = restore(initial, 0);
+        Env follower = restore(initial, 0);
+        master.getExportMgr().removeOldExportJobs(now, 0, 1000);
+        follower.getExportMgr().removeOldExportJobs(now, 3600, 1000);
+        Assertions.assertNull(master.getExportMgr().getJob(90));
+        Assertions.assertNotNull(follower.getExportMgr().getJob(90));
+
+        // IDs are assigned before admission; the later admitted attempt can have a smaller ID.
+        ExportJob replacement = job(10, "retry", ExportJobState.PENDING, -1);
+        byte[] create = admit(master, replacement);
+        replay(follower, create);
+        Assertions.assertEquals(ExportJobState.CANCELLED, follower.getExportMgr().getJob(10).getState());
+        Assertions.assertEquals(-1, follower.getExportMgr().getJob(10).getFinishTimeMs());
+        replay(follower, journal(OperationType.OP_EXPORT_UPDATE_STATE, new ExportJobStateTransfer(
+                job(10, "retry", ExportJobState.CANCELLED, now), ExportJobState.CANCELLED)));
+
+        Env checkpoint = restore(save(follower, 0), 0);
+        // Promotion must permit a real registration, both directly and after a checkpoint round trip.
+        for (Env promoted : Arrays.asList(follower, checkpoint)) {
+            admit(promoted, job(5, "retry", ExportJobState.PENDING, -1));
+            assertLabel(promoted, "retry", 5);
+            Assertions.assertNotNull(promoted.getExportMgr().getJob(90));
+            Assertions.assertNotNull(promoted.getExportMgr().getJob(10));
+        }
+    }
+
+    @Test
+    public void testLiveAdmissionIgnoresIdOrderAndLateHistoryUpdates() throws Exception {
+        long now = System.currentTimeMillis();
+        Env env = restore(image(Arrays.asList(
+                metadata(job(90, "live", ExportJobState.CANCELLED, -1), null),
+                metadata(job(80, "live", ExportJobState.CANCELLED, -1), null))), 0);
+        assertLabel(env, "live", 80);
+        admit(env, job(10, "live", ExportJobState.PENDING, -1));
+        assertLabel(env, "live", 10);
+
+        List<byte[]> backfilled = backfill(env, now);
+        Assertions.assertEquals(2, backfilled.size());
+        for (byte[] update : backfilled) {
+            replay(env, update);
+        }
+        for (long id : new long[] {90, 80}) {
+            replay(env, journal(OperationType.OP_EXPORT_UPDATE_STATE, new ExportJobStateTransfer(
+                    job(id, "live", ExportJobState.FINISHED, now + 1), ExportJobState.FINISHED)));
+            assertLabel(env, "live", 10);
+        }
+        Assertions.assertThrows(LabelAlreadyUsedException.class,
+                () -> admit(env, job(1, "live", ExportJobState.PENDING, -1)));
+        replay(env, journal(OperationType.OP_EXPORT_UPDATE_STATE, new ExportJobStateTransfer(
+                job(10, "live", ExportJobState.CANCELLED, now), ExportJobState.CANCELLED)));
+        admit(env, job(1, "live", ExportJobState.PENDING, -1));
+        assertLabel(env, "live", 1);
+    }
+
+    @Test
+    public void testExplicitImageOwnerSurvivesBothOrdersAndRoundTrip() throws Exception {
+        long now = System.currentTimeMillis();
+        for (ExportJobState state : Arrays.asList(ExportJobState.CANCELLED, ExportJobState.FINISHED)) {
+            ExportJobState historyState = state == ExportJobState.CANCELLED
+                    ? ExportJobState.FINISHED : ExportJobState.CANCELLED;
+            for (boolean reverse : new boolean[] {false, true}) {
+                List<JsonObject> rows = new ArrayList<>(Arrays.asList(
+                        metadata(job(90, "explicit", historyState, now), false),
+                        metadata(job(10, "explicit", state, now), true)));
+                if (reverse) {
+                    Collections.reverse(rows);
+                }
+                Env env = restore(image(rows), 0);
+                assertLabel(env, "explicit", 10);
+                Image saved = save(env, 0);
+                assertImageOwner(saved, 10L);
+                Env restored = restore(saved, 0);
+                assertLabel(restored, "explicit", 10);
+                Env reordered = restore(image(reversed(imageRows(saved))), 0);
+                assertLabel(reordered, "explicit", 10);
+                if (state == ExportJobState.CANCELLED) {
+                    admit(reordered, job(1, "explicit", ExportJobState.PENDING, -1));
+                    assertLabel(reordered, "explicit", 1);
+                } else {
+                    Assertions.assertThrows(LabelAlreadyUsedException.class,
+                            () -> admit(reordered, job(1, "explicit", ExportJobState.PENDING, -1)));
+                }
+            }
+        }
+    }
+
+    @Test
+    public void testMissingMarkerKeepsLegacyPreferenceAndStateReplay() throws Exception {
+        long now = System.currentTimeMillis();
+        for (boolean reverse : new boolean[] {false, true}) {
+            List<JsonObject> rows = Arrays.asList(
+                    metadata(job(90, "legacy", ExportJobState.CANCELLED, now), null),
+                    metadata(job(10, "legacy", ExportJobState.FINISHED, now), null));
+            for (JsonObject row : rows) {
+                Assertions.assertFalse(row.has("labelOwner"));
+            }
+            Env env = restore(image(reverse ? reversed(rows) : rows), 0);
+            assertLabel(env, "legacy", 10);
+            // Legacy images cannot recover admission order; retain the existing state preference.
+            replay(env, journal(OperationType.OP_EXPORT_UPDATE_STATE, new ExportJobStateTransfer(
+                    job(90, "legacy", ExportJobState.FINISHED, now), ExportJobState.FINISHED)));
+            assertLabel(env, "legacy", 90);
+            assertImageOwner(save(env, 0), 90L);
+        }
+    }
+
+    @Test
+    public void testMixedImageAndLegacyCreateCannotLoseExplicitOwnership() throws Exception {
+        long now = System.currentTimeMillis();
+        for (boolean reverse : new boolean[] {false, true}) {
+            List<JsonObject> rows = Arrays.asList(
+                    metadata(job(90, "mixed", ExportJobState.FINISHED, now), null),
+                    metadata(job(80, "mixed", ExportJobState.FINISHED, now), false),
+                    metadata(job(10, "mixed", ExportJobState.CANCELLED, now), true));
+            Env env = restore(image(reverse ? reversed(rows) : rows), 0);
+            assertLabel(env, "mixed", 10);
+            replay(env, journal(OperationType.OP_EXPORT_UPDATE_STATE, new ExportJobStateTransfer(
+                    job(90, "mixed", ExportJobState.FINISHED, now + 1), ExportJobState.FINISHED)));
+            assertLabel(env, "mixed", 10);
+            assertImageOwner(save(env, 0), 10L);
+
+            // An old CREATE record has no marker, but its journal order still establishes admission.
+            ExportJob legacyCreate = ExportJob.read(new DataInputStream(new ByteArrayInputStream(
+                    encodedMetadata(metadata(job(5, "mixed", ExportJobState.PENDING, -1), null)))));
+            replay(env, journal(OperationType.OP_EXPORT_CREATE, legacyCreate));
+            Assertions.assertEquals(ExportJobState.CANCELLED, env.getExportMgr().getJob(5).getState());
+            assertLabel(env, "mixed", 5);
+            List<byte[]> backfilled = backfill(env, now);
+            Assertions.assertEquals(1, backfilled.size());
+            for (byte[] update : backfilled) {
+                replay(env, update);
+            }
+            assertLabel(env, "mixed", 5);
+            admit(env, job(1, "mixed", ExportJobState.PENDING, -1));
+            assertLabel(env, "mixed", 1);
+        }
+    }
+
+    @Test
+    public void testHistoryCannotReviveAfterOwnerIsFilteredOrRemoved() throws Exception {
+        int oldTtl = Config.history_job_keep_max_second;
+        int oldMax = Config.max_export_history_job_num;
+        try {
+            Config.history_job_keep_max_second = 0;
+            Config.max_export_history_job_num = 1000;
+            long now = System.currentTimeMillis();
+            for (boolean cleanup : new boolean[] {false, true}) {
+                Env env = restore(image(Arrays.asList(
+                        metadata(job(90, "removed", ExportJobState.CANCELLED, -1), null),
+                        metadata(job(80, "removed", ExportJobState.CANCELLED, -1), null))), 0);
+                admit(env, job(10, "removed", ExportJobState.PENDING, -1));
+                replay(env, journal(OperationType.OP_EXPORT_UPDATE_STATE, new ExportJobStateTransfer(
+                        job(10, "removed", ExportJobState.CANCELLED, now - 600_000), ExportJobState.CANCELLED)));
+                if (cleanup) {
+                    env.getExportMgr().removeOldExportJobs(now, 0, 1000);
+                    Assertions.assertNull(env.getExportMgr().getJob(10));
+                    assertNoLabel(env, "removed");
+                    // Both a never-selected legacy job and the demoted legacy owner remain in history.
+                    List<byte[]> backfilled = backfill(env, now);
+                    Assertions.assertEquals(2, backfilled.size());
+                    for (byte[] update : backfilled) {
+                        replay(env, update);
+                        assertNoLabel(env, "removed");
+                    }
+                    replay(env, journal(OperationType.OP_EXPORT_UPDATE_STATE, new ExportJobStateTransfer(
+                            job(90, "removed", ExportJobState.FINISHED, now), ExportJobState.FINISHED)));
+                    assertNoLabel(env, "removed");
+                }
+                Image saved = save(env, 0);
+                Assertions.assertEquals(2, imageRows(saved).size());
+                assertImageOwner(saved, null);
+                for (List<JsonObject> order : Arrays.asList(imageRows(saved), reversed(imageRows(saved)))) {
+                    Env restored = restore(image(order), 0);
+                    assertNoLabel(restored, "removed");
+                    replay(restored, journal(OperationType.OP_EXPORT_UPDATE_STATE, new ExportJobStateTransfer(
+                            job(80, "removed", ExportJobState.FINISHED, now + 1), ExportJobState.FINISHED)));
+                    for (byte[] update : backfill(restored, now + 2)) {
+                        replay(restored, update);
+                    }
+                    assertNoLabel(restored, "removed");
+                    Image again = save(restored, 0);
+                    assertImageOwner(again, null);
+                    Env second = restore(again, 0);
+                    assertNoLabel(second, "removed");
+                    admit(second, job(1, "removed", ExportJobState.PENDING, -1));
+                    assertLabel(second, "removed", 1);
+                }
+            }
+        } finally {
+            Config.history_job_keep_max_second = oldTtl;
+            Config.max_export_history_job_num = oldMax;
+        }
+    }
 
     @Test
     public void testStateTransferRealBytesPreserveAllFields() throws Exception {
@@ -546,6 +754,125 @@ public class ExportHistoryPersistenceTest {
             Assertions.assertEquals("journal failure", expected.getMessage());
         }
         Assertions.assertSame(failing, failingMgr.getJob(2));
+    }
+
+    private static byte[] admit(Env env, ExportJob job) throws Exception {
+        Env serving = Mockito.mock(Env.class);
+        EditLog editLog = Mockito.mock(EditLog.class);
+        Mockito.when(serving.getEditLog()).thenReturn(editLog);
+        AtomicReference<byte[]> create = new AtomicReference<>();
+        Mockito.doAnswer(invocation -> {
+            create.set(journal(OperationType.OP_EXPORT_CREATE, invocation.getArgument(0)));
+            return null;
+        }).when(editLog).logExportCreate(job);
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(serving);
+            env.getExportMgr().addExportJobAndRegisterTask(job);
+        }
+        Mockito.verify(editLog).logExportCreate(job);
+        Assertions.assertNotNull(create.get());
+        Assertions.assertSame(job, env.getExportMgr().getJob(job.getId()));
+        Assertions.assertEquals(ExportJobState.PENDING, job.getState());
+        return create.get();
+    }
+
+    private static List<byte[]> backfill(Env env, long confirmedTime) {
+        Env serving = Mockito.mock(Env.class);
+        EditLog editLog = Mockito.mock(EditLog.class);
+        Mockito.when(serving.isReady()).thenReturn(true);
+        Mockito.when(serving.isMaster()).thenReturn(true);
+        Mockito.when(serving.getEditLog()).thenReturn(editLog);
+        List<byte[]> updates = new ArrayList<>();
+        Mockito.doAnswer(invocation -> {
+            updates.add(journal(OperationType.OP_EXPORT_UPDATE_STATE,
+                    new ExportJobStateTransfer(invocation.getArgument(0), invocation.getArgument(1))));
+            return null;
+        }).when(editLog).logExportUpdateState(Mockito.any(ExportJob.class), Mockito.any(ExportJobState.class));
+        env.getExportMgr().backfillMissingFinishTimes(serving, serving, false, confirmedTime);
+        return updates;
+    }
+
+    private static byte[] journal(short opCode, Writable data) throws Exception {
+        JournalEntity entry = new JournalEntity();
+        entry.setOpCode(opCode);
+        entry.setData(data);
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        entry.write(new DataOutputStream(bytes));
+        return bytes.toByteArray();
+    }
+
+    private static void replay(Env env, byte[] bytes) throws Exception {
+        JournalEntity entry = new JournalEntity();
+        entry.readFields(new DataInputStream(new ByteArrayInputStream(bytes)));
+        EditLog.loadJournal(env, 1L, entry);
+    }
+
+    private static JsonObject metadata(ExportJob job, Boolean owner) throws Exception {
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        job.write(new DataOutputStream(bytes));
+        JsonObject json = JsonParser.parseString(Text.readString(
+                new DataInputStream(new ByteArrayInputStream(bytes.toByteArray())))).getAsJsonObject();
+        json.remove("labelOwner");
+        if (owner != null) {
+            json.addProperty("labelOwner", owner);
+        }
+        return json;
+    }
+
+    private static byte[] encodedMetadata(JsonObject json) throws Exception {
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        Text.writeString(new DataOutputStream(bytes), json.toString());
+        return bytes.toByteArray();
+    }
+
+    private static Image image(List<JsonObject> rows) throws Exception {
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        DataOutputStream out = new DataOutputStream(bytes);
+        out.writeInt(rows.size());
+        long checksum = rows.size();
+        for (JsonObject row : rows) {
+            long id = row.get("id").getAsLong();
+            out.writeLong(id);
+            Text.writeString(out, row.toString());
+            checksum ^= id;
+        }
+        return new Image(bytes.toByteArray(), checksum);
+    }
+
+    private static List<JsonObject> imageRows(Image image) throws Exception {
+        DataInputStream in = new DataInputStream(new ByteArrayInputStream(image.bytes));
+        int size = in.readInt();
+        List<JsonObject> rows = new ArrayList<>();
+        long checksum = size;
+        for (int i = 0; i < size; i++) {
+            long id = in.readLong();
+            checksum ^= id;
+            JsonObject json = JsonParser.parseString(Text.readString(in)).getAsJsonObject();
+            Assertions.assertEquals(id, json.get("id").getAsLong());
+            rows.add(json);
+        }
+        Assertions.assertEquals(-1, in.read(), "the image section must retain its original framing");
+        Assertions.assertEquals(image.checksum, checksum);
+        return rows;
+    }
+
+    private static List<JsonObject> reversed(List<JsonObject> rows) {
+        List<JsonObject> reversed = new ArrayList<>(rows);
+        Collections.reverse(reversed);
+        return reversed;
+    }
+
+    private static void assertImageOwner(Image image, Long owner) throws Exception {
+        for (JsonObject json : imageRows(image)) {
+            Assertions.assertTrue(json.has("labelOwner"), "every selected job needs an explicit owner marker");
+            Assertions.assertFalse(json.get("labelOwner").isJsonNull());
+            Assertions.assertEquals(Long.valueOf(json.get("id").getAsLong()).equals(owner),
+                    json.get("labelOwner").getAsBoolean());
+        }
+    }
+
+    private static void assertNoLabel(Env env, String label) {
+        Assertions.assertFalse(labels(env).getOrDefault(1L, Collections.emptyMap()).containsKey(label));
     }
 
     private static Image save(Env env, long initialChecksum) throws Exception {

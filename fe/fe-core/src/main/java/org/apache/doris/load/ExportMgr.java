@@ -115,6 +115,7 @@ public class ExportMgr {
                     throw new LabelAlreadyUsedException(job.getLabel());
                 }
             }
+            job.setLabelOwner(true);
             unprotectAddJob(job);
             Env.getCurrentEnv().getEditLog().logExportCreate(job);
         } finally {
@@ -256,15 +257,38 @@ public class ExportMgr {
     }
 
     private void unprotectRegisterLabel(ExportJob job) {
+        if (Boolean.FALSE.equals(job.getLabelOwner())) {
+            return;
+        }
         Map<String, Long> labelToJobId = dbTolabelToExportJobId.computeIfAbsent(
                 job.getDbId(), k -> Maps.newHashMap());
         Long currentJobId = labelToJobId.get(job.getLabel());
         ExportJob currentJob = currentJobId == null ? null : exportIdToJob.get(currentJobId);
-        if (job.getState() == ExportJobState.CANCELLED
-                && currentJob != null && currentJob.getState() != ExportJobState.CANCELLED) {
-            return;
+        if (Boolean.TRUE.equals(job.getLabelOwner())) {
+            // Live admission and ordered CREATE replay are authoritative, regardless of IDs or states.
+            if (currentJob != null) {
+                currentJob.setLabelOwner(false);
+            }
+            job.setLabelOwner(true);
+        } else if (currentJob != null) {
+            // Only legacy metadata uses the old state preference; it cannot displace an explicit owner.
+            if (currentJob.getLabelOwner() != null
+                    || (job.getState() == ExportJobState.CANCELLED
+                    && currentJob.getState() != ExportJobState.CANCELLED)) {
+                return;
+            }
         }
         labelToJobId.put(job.getLabel(), job.getId());
+    }
+
+    public boolean isLabelOwner(ExportJob job) {
+        readLock();
+        try {
+            return Long.valueOf(job.getId()).equals(dbTolabelToExportJobId
+                    .getOrDefault(job.getDbId(), Collections.emptyMap()).get(job.getLabel()));
+        } finally {
+            readUnlock();
+        }
     }
 
     public ExportJob getJob(long jobId) {
@@ -586,6 +610,7 @@ public class ExportMgr {
     public void replayCreateExportJob(ExportJob job) {
         writeLock();
         try {
+            job.setLabelOwner(true);
             unprotectAddJob(job);
         } finally {
             writeUnlock();
@@ -607,7 +632,11 @@ public class ExportMgr {
             job.setFinishTimeMs(stateTransfer.getFinishTimeMs());
             job.setFailMsg(stateTransfer.getFailMsg());
             job.setOutfileInfo(stateTransfer.getOutFileInfo());
-            unprotectRegisterLabel(job);
+            // A late legacy update may refine an existing legacy mapping, never resurrect a removed owner.
+            if (job.getLabelOwner() == null && dbTolabelToExportJobId
+                    .getOrDefault(job.getDbId(), Collections.emptyMap()).containsKey(job.getLabel())) {
+                unprotectRegisterLabel(job);
+            }
         } finally {
             writeUnlock();
         }

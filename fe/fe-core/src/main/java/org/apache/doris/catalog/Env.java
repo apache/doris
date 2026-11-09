@@ -2893,7 +2893,7 @@ public class Env {
             long jobId = job.getId();
             checksum ^= jobId;
             dos.writeLong(jobId);
-            job.write(dos);
+            job.write(dos, exportMgr.isLabelOwner(job));
         }
         return checksum;
     }
