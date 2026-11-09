@@ -32,6 +32,8 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.Status;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.MysqlCapability;
@@ -399,6 +401,25 @@ public class ConnectContextTest {
 
         // clean up
         ctx.cleanup();
+    }
+
+    @Test
+    public void testTimeoutDoesNotCancelTheNextCommand() {
+        ConnectContext ctx = Mockito.spy(new ConnectContext());
+        ctx.setCommand(MysqlCommand.COM_QUERY);
+        ctx.setStartTime();
+        ctx.setExecutor(executor);
+        long previousStart = ctx.getStartTime();
+        StmtExecutor next = Mockito.mock(StmtExecutor.class);
+        Mockito.doAnswer(invocation -> {
+            Deencapsulation.setField(ctx, "startTime", previousStart + 1);
+            ctx.setExecutor(next);
+            return 1;
+        }).when(ctx).getExecTimeoutS();
+        ctx.checkTimeout(previousStart + 2000);
+        Mockito.verify(executor, Mockito.never()).cancel(Mockito.any(Status.class));
+        Mockito.verify(next, Mockito.never()).cancel(Mockito.any(Status.class));
+        Assertions.assertFalse(ctx.isKilled());
     }
 
     @Test

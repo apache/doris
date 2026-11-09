@@ -35,9 +35,12 @@ public class OssBackendServiceClientChannelProvider implements BackendServiceCli
                 .flowControlWindow(Config.grpc_max_message_size_bytes)
                 .keepAliveWithoutCalls(true)
                 .maxInboundMessageSize(Config.grpc_max_message_size_bytes)
-                .enableRetry()
-                .maxRetryAttempts(10)
                 .usePlaintext();
+        if (Config.grpc_backend_client_enable_retry) {
+            channelBuilder.enableRetry();
+        } else {
+            channelBuilder.disableRetry();
+        }
         if (Config.grpc_backend_client_use_direct_executor) {
             channelBuilder.directExecutor();
         } else {

@@ -104,24 +104,27 @@ public class MysqlResultSender implements ResultSender {
         boolean isShortCircuited = statementContext.isShortCircuitQuery()
                 && statementContext.getShortCircuitQueryContext() != null;
         ShortCircuitQueryContext shortCircuitCtx = statementContext.getShortCircuitQueryContext();
+        byte[][] serializedFields = ctx.getCommand() == MysqlCommand.COM_STMT_EXECUTE && isShortCircuited
+                ? shortCircuitCtx.getOrCreateSerializedFields(colNames.size()) : null;
         // send field one by one
         for (int i = 0; i < colNames.size(); ++i) {
-            serializer.reset();
-            if (ctx.getCommand() == MysqlCommand.COM_STMT_EXECUTE && isShortCircuited) {
+            if (serializedFields != null) {
                 // Using PreparedStatment pre serializedField to avoid serialize each time
                 // we send a field
-                byte[] serializedField = shortCircuitCtx.getSerializedField(i);
+                byte[] serializedField = serializedFields[i];
                 if (serializedField == null) {
+                    serializer.reset();
                     if (fieldInfos != null) {
                         serializer.writeField(fieldInfos.get(i), types.get(i));
                     } else {
                         serializer.writeField(colNames.get(i), types.get(i));
                     }
                     serializedField = serializer.toArray();
-                    shortCircuitCtx.addSerializedField(i, serializedField);
+                    serializedFields[i] = serializedField;
                 }
-                channel.sendOnePacket(ByteBuffer.wrap(serializedField));
+                channel.sendOnePacket(serializedField);
             } else {
+                serializer.reset();
                 if (fieldInfos != null) {
                     serializer.writeField(fieldInfos.get(i), types.get(i));
                 } else {

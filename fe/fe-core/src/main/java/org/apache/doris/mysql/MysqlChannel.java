@@ -554,6 +554,23 @@ public class MysqlChannel implements BytesChannel {
         sendBuffer.put(buffer);
     }
 
+    public void sendOnePacket(byte[] packet) throws IOException {
+        int length = packet.length;
+        // Preserve the ByteBuffer overrides of proxy/dummy channels and the existing
+        // handshake, direct-write and multi-packet paths.
+        if (sendBuffer == null || isSslHandshaking || length >= MAX_PHYSICAL_PACKET_LENGTH
+                || length > sendBuffer.capacity()) {
+            sendOnePacket(ByteBuffer.wrap(packet));
+            return;
+        }
+        writeHeader(length, isSslMode);
+        if (sendBuffer.remaining() < length) {
+            flush();
+        }
+        sendBuffer.put(packet);
+        accSequenceId();
+    }
+
     public void sendOnePacket(ByteBuffer packet) throws IOException {
         // handshake in packet with header and has encrypted, need to send in ssl format
         // ssl mode in packet no header and no encrypted, need to encrypted and add header and send in ssl format
