@@ -95,6 +95,7 @@ public class UnboundTableSinkCreator {
         String catalogName = RelationUtil.getQualifierName(ConnectContext.get(), nameParts).get(0);
         CatalogIf<?> curCatalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogName);
         if (curCatalog instanceof InternalCatalog) {
+            rejectStaticPartitionForOlapTable(staticPartitionKeyValues);
             return new UnboundTableSink<>(nameParts, colNames, hints, temporaryPartition, partitions,
                     isPartialUpdate, partialUpdateNewKeyPolicy, dmlCommandType, Optional.empty(),
                     Optional.empty(), plan);
@@ -138,6 +139,7 @@ public class UnboundTableSinkCreator {
         String catalogName = RelationUtil.getQualifierName(ConnectContext.get(), nameParts).get(0);
         CatalogIf<?> curCatalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogName);
         if (curCatalog instanceof InternalCatalog) {
+            rejectStaticPartitionForOlapTable(staticPartitionKeyValues);
             return new UnboundTableSink<>(nameParts, colNames, hints, temporaryPartition, partitions,
                     isAutoDetectPartition,
                     isPartialUpdate, partialUpdateNewKeyPolicy, dmlCommandType, Optional.empty(),
@@ -165,6 +167,13 @@ public class UnboundTableSinkCreator {
                         + " is not supported."
                         + (isAutoDetectPartition
                         ? " PARTITION(*) is only supported in overwrite partition for OLAP table" : ""));
+    }
+
+    private static void rejectStaticPartitionForOlapTable(Map<String, Expression> staticPartitionKeyValues) {
+        if (staticPartitionKeyValues != null && !staticPartitionKeyValues.isEmpty()) {
+            throw new AnalysisException("Static partition syntax PARTITION (column=value) is not supported for OLAP "
+                    + "tables. Specify partition names instead, or use PARTITION (*) for INSERT OVERWRITE.");
+        }
     }
 
     private static void validatePaimonPartitionSyntax(boolean temporaryPartition,
