@@ -50,6 +50,19 @@ suite("test_variant_tuning_properties") {
     order_qt_deferred_compacted_read """SELECT k, payload, payload['user_id'], payload['action'], payload['os_name']
         FROM test_variant_deferred_subcolumns"""
 
+    // the row threshold can change: new data files follow the new one
+    sql """ALTER TABLE test_variant_deferred_subcolumns MODIFY COLUMN payload VARIANT<PROPERTIES(
+        "variant_max_subcolumns_count" = "128",
+        "variant_subcolumn_extraction_min_rows" = "1000",
+        "variant_sparse_shard_count" = "1",
+        "variant_enable_doc_mode" = "false")>"""
+    waitForSchemaChangeDone {
+        sql """SHOW ALTER TABLE COLUMN WHERE TableName = 'test_variant_deferred_subcolumns'
+            ORDER BY CreateTime DESC LIMIT 1"""
+        time 600
+    }
+    qt_deferred_altered "DESC test_variant_deferred_subcolumns"
+
     // doc mode keeps the whole document and still extracts up to the count, the most frequent paths first
     sql "DROP TABLE IF EXISTS test_variant_doc_mode_count"
     sql """

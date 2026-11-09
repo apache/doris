@@ -5443,8 +5443,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 ConnectContext.get().getSessionVariable().getDefaultEnableTypedPathsToSparse();
         int variantMaxSparseColumnStatisticsSize = ConnectContext.get() == null ? 0 :
                 ConnectContext.get().getSessionVariable().getDefaultVariantMaxSparseColumnStatisticsSize();
-        // The shard count of the sparse encoding in either mode. It is stored in both old fields,
-        // variantSparseHashShardCount and variantDocShardCount, so the metadata keeps its format.
+        // The shard count of the sparse encoding in either mode. It is stored in the field of the column's mode,
+        // variantDocShardCount with doc mode and variantSparseHashShardCount without, as each mode had its own
+        // property before.
         int variantSparseShardCount = ConnectContext.get() == null ? 0 :
                 ConnectContext.get().getSessionVariable().getDefaultVariantSparseShardCount();
 
@@ -5523,8 +5524,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         }
 
         return new VariantType(fields, variantMaxSubcolumnsCount, enableTypedPathsToSparse,
-                    variantMaxSparseColumnStatisticsSize, variantSparseShardCount,
-                    enableVariantDocMode, variantDocMaterializationMinRows, variantSparseShardCount,
+                    variantMaxSparseColumnStatisticsSize, enableVariantDocMode ? 0 : variantSparseShardCount,
+                    enableVariantDocMode, variantDocMaterializationMinRows,
+                    enableVariantDocMode ? variantSparseShardCount : 0,
                     // internal, not a property: a declared column is always new, and only old metadata is V1
                     enableNestedGroup, TVariantSerializeType.V2);
     }

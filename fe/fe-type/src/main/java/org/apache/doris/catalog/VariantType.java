@@ -204,8 +204,8 @@ public class VariantType extends ScalarType {
         sb.append("\"variant_subcolumn_extraction_min_rows\" = \"")
                                     .append(String.valueOf(variantDocMaterializationMinRows)).append("\"");
         sb.append(",");
-        // The stored field that the column's mode reads: a column created by an older version set only that
-        // one. Output at least 1 for backward compatibility: old data without the parameter defaults to 0.
+        // The field of the column's mode holds the shard count. Output at least 1 for backward compatibility:
+        // old data without the parameter defaults to 0.
         sb.append("\"variant_sparse_shard_count\" = \"")
                 .append(String.valueOf(Math.max(1, enableVariantDocMode ? variantDocShardCount
                         : variantSparseHashShardCount))).append("\"");

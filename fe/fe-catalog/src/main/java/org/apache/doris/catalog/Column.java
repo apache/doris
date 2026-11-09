@@ -823,20 +823,20 @@ public class Column implements GsonPostProcessable {
             if (this.getVariantMaxSparseColumnStatisticsSize() != other.getVariantMaxSparseColumnStatisticsSize()) {
                 throw new DdlException("Can not change variant max sparse column statistics size");
             }
+            if (this.getVariantSparseHashShardCount() != other.getVariantSparseHashShardCount()) {
+                throw new DdlException("Can not change variant sparse bucket num");
+            }
             if (this.getVariantEnableDocMode() != other.getVariantEnableDocMode()) {
                 throw new DdlException("Can not change variant enable doc snapshot mode");
             }
-            // Compare the shard count that the mode reads: a column created by an older version stored only
-            // that one, and 0 means 1.
-            int shardCount = Math.max(1, this.getVariantEnableDocMode() ? this.getVariantDocShardCount()
-                    : this.getVariantSparseHashShardCount());
-            int otherShardCount = Math.max(1, other.getVariantEnableDocMode() ? other.getVariantDocShardCount()
-                    : other.getVariantSparseHashShardCount());
-            if (shardCount != otherShardCount) {
-                throw new DdlException("Can not change variant sparse shard count");
+            if (this.getVariantDocShardCount() != other.getVariantDocShardCount()) {
+                throw new DdlException("Can not change variant doc snapshot shard count");
             }
-            if (this.getvariantDocMaterializationMinRows() != other.getvariantDocMaterializationMinRows()) {
-                throw new DdlException("Can not change variant subcolumn extraction min rows");
+            // without doc mode a V1 column ignores the row threshold, so it cannot take one
+            if (!this.getVariantEnableDocMode() && this.getVariantSerializeType() == TVariantSerializeType.V1
+                    && other.getvariantDocMaterializationMinRows() != 0) {
+                throw new DdlException("Can not set variant_subcolumn_extraction_min_rows on a column created "
+                        + "before it applied without doc mode");
             }
             if (this.getVariantEnableNestedGroup() != other.getVariantEnableNestedGroup()) {
                 throw new DdlException("Can not change variant enable nested group");

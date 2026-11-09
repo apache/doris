@@ -225,8 +225,9 @@ TEST_F(IndexStorageVariantCompactionSchemaTest,
 }
 
 // A compaction can write fewer rows than variant_subcolumn_extraction_min_rows although its inputs
-// already extracted subcolumns, when an earlier compaction extracted them from more rows than it
-// kept (rows merged or deleted): those paths go to the sparse column instead of being dropped.
+// already extracted subcolumns, when an ALTER raised the threshold or an earlier compaction
+// extracted them from more rows than it kept (rows merged or deleted): those paths go to the sparse
+// column instead of being dropped.
 TEST_F(IndexStorageVariantCompactionSchemaTest,
        VariantRowThresholdAboveCompactionRowsFoldsExtractedInputsIntoSparse) {
     VariantColumnSpec variant;

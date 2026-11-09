@@ -1794,13 +1794,13 @@ public class NereidsParserTest extends ParserTestBase {
         Assertions.assertTrue(documents.toSql().contains("\"variant_max_subcolumns_count\" = \"2\""),
                 documents.toSql());
 
-        // one shard count fills both stored fields, in either mode
-        for (String mode : new String[] {"true", "false"}) {
+        // one shard count, stored in the field of the mode
+        for (boolean docMode : new boolean[] {true, false}) {
             org.apache.doris.nereids.types.VariantType sharded = (org.apache.doris.nereids.types.VariantType)
-                    parser.parseDataType("variant<PROPERTIES(\"variant_enable_doc_mode\" = \"" + mode
+                    parser.parseDataType("variant<PROPERTIES(\"variant_enable_doc_mode\" = \"" + docMode
                             + "\", \"variant_sparse_shard_count\" = \"4\")>");
-            Assertions.assertEquals(4, sharded.getVariantSparseHashShardCount(), mode);
-            Assertions.assertEquals(4, sharded.getVariantDocShardCount(), mode);
+            Assertions.assertEquals(docMode ? 0 : 4, sharded.getVariantSparseHashShardCount());
+            Assertions.assertEquals(docMode ? 4 : 0, sharded.getVariantDocShardCount());
             Assertions.assertTrue(sharded.toSql().contains("\"variant_sparse_shard_count\" = \"4\""),
                     sharded.toSql());
         }
@@ -1817,7 +1817,7 @@ public class NereidsParserTest extends ParserTestBase {
                         + "\"variant_max_sparse_column_statistics_size\" = \"10000\","
                         + "\"variant_sparse_hash_shard_count\" = \"4\")>");
         Assertions.assertEquals(4, ordinary.getVariantSparseHashShardCount());
-        Assertions.assertEquals(4, ordinary.getVariantDocShardCount());
+        Assertions.assertEquals(0, ordinary.getVariantDocShardCount());
         Assertions.assertTrue(ordinary.toSql().contains("\"variant_sparse_shard_count\" = \"4\""), ordinary.toSql());
         Assertions.assertFalse(ordinary.toSql().contains("hash_shard_count"), ordinary.toSql());
     }

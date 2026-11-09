@@ -30,6 +30,17 @@ payload.user_id	bigint	Yes	false	\N	NONE
 5	{"action":"click","user_id":105}	105	click	\N
 6	{"action":"view","device_flag":true,"user_id":106}	106	view	\N
 
+-- !deferred_altered --
+k	int	Yes	true	\N	
+payload	variant<PROPERTIES ("variant_max_subcolumns_count" = "128","variant_enable_typed_paths_to_sparse" = "false","variant_max_sparse_column_statistics_size" = "10000","variant_subcolumn_extraction_min_rows" = "1000","variant_sparse_shard_count" = "1")>	Yes	false	\N	NONE
+payload.action	text	Yes	false	\N	NONE
+payload.campaign_a	bigint	Yes	false	\N	NONE
+payload.device_flag	boolean	Yes	false	\N	NONE
+payload.os_name	text	Yes	false	\N	NONE
+payload.source_page	text	Yes	false	\N	NONE
+payload.tag_a	text	Yes	false	\N	NONE
+payload.user_id	bigint	Yes	false	\N	NONE
+
 -- !doc_mode_load --
 event_id	bigint	No	true	\N	
 payload	variant<PROPERTIES ("variant_enable_doc_mode" = "true","variant_max_subcolumns_count" = "2","variant_subcolumn_extraction_min_rows" = "0","variant_sparse_shard_count" = "1")>	Yes	false	\N	NONE

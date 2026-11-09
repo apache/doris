@@ -214,9 +214,9 @@ void choose_doc_compaction_subpaths(const TabletSchema& target, const TabletColu
 
 // The subpaths a compaction extracts for a column without doc mode. A V2 column writing fewer rows
 // than variant_subcolumn_extraction_min_rows extracts no dynamic path: every path goes to the
-// sparse column, also the subcolumns of an input that an earlier compaction extracted from more
-// rows than it kept (rows merged or deleted). A V1 column ignores the threshold, as it always did
-// without doc mode.
+// sparse column, also the subcolumns of an input written before an ALTER raised the threshold, or
+// extracted by an earlier compaction from more rows than it kept (rows merged or deleted). A V1
+// column ignores the threshold, as it always did without doc mode.
 void choose_compaction_subpaths(const TabletColumn& column, int64_t input_rows,
                                 const PathToNoneNullValues& path_stats,
                                 VariantCompactionPaths& paths_set_info) {
