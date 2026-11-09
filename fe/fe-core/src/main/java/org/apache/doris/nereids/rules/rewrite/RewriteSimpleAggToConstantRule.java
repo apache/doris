@@ -156,6 +156,9 @@ public class RewriteSimpleAggToConstantRule implements RewriteRuleFactory {
             return null;
         }
 
+        // Metadata-derived values still depend on the whole table, even if another branch scans fewer partitions.
+        statementContext.getSqlCacheContext().ifPresent(cache -> cache.useOlapTableVersion(table));
+
         // Build: LogicalProject(constants) -> LogicalOneRowRelation(dummy)
         // The OneRowRelation provides a single-row source; all real values come from the project.
         LogicalOneRowRelation oneRowRelation = new LogicalOneRowRelation(

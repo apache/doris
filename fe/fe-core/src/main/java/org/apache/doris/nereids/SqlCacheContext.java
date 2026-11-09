@@ -40,6 +40,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ResultSet;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.cache.CacheProxy;
+import org.apache.doris.rpc.RpcException;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.ImmutableList;
@@ -208,7 +209,10 @@ public class SqlCacheContext {
                 new TableVersion(
                         tableIf.getId(),
                         version,
-                        tableIf.getType()
+                        tableIf.getType(),
+                        usedVariables.isEmpty() && tableIf.getType() == TableType.OLAP && tableIf instanceof OlapTable
+                                && ((OlapTable) tableIf).isPartitionedTable()
+                                ? new OlapTableSqlCacheVersion((OlapTable) tableIf, version) : null
                 )
         );
     }
@@ -286,8 +290,12 @@ public class SqlCacheContext {
         return ImmutableMap.copyOf(dataMaskPolicies);
     }
 
+    /** Record a variable and retain partition-independent lookup keys for its cached value variants. */
     public synchronized void addUsedVariable(Variable value) {
         usedVariables.add(value);
+        // Variable-aware FE lookup derives another value's key before planning its partition pruning.
+        // Keep the existing table-wide key for these queries, including variables resolved after table binding.
+        useSourceTableVersions();
     }
 
     public synchronized List<Variable> getUsedVariables() {
@@ -360,6 +368,57 @@ public class SqlCacheContext {
 
     public Map<FullTableName, TableVersion> getUsedTables() {
         return Collections.unmodifiableMap(usedTables);
+    }
+
+    /** Record native scan dependencies before the first SQL cache key is computed. */
+    public synchronized void addOlapScan(OlapTable table, Map<Long, Long> partitionVersions) {
+        if (table instanceof MTMV) {
+            // MV substitution can hide source partitions from the final physical scans. Preserve the
+            // logical source tables' versions before the BE key is computed, including partial UNION rewrites.
+            useSourceTableVersions();
+            return;
+        }
+        for (TableVersion version : usedTables.values()) {
+            if (version.id == table.getId() && version.olapVersion != null) {
+                try {
+                    version.olapVersion.addScan(table, partitionVersions);
+                } catch (RpcException e) {
+                    setHasUnsupportedTables(true);
+                    LOG.warn("Cannot record SQL cache partitions for {}", table.getName(), e);
+                }
+            }
+        }
+    }
+
+    /** Preserve table-wide validation for metadata aggregates. */
+    public synchronized void useOlapTableVersion(OlapTable table) {
+        for (TableVersion version : usedTables.values()) {
+            if (version.id == table.getId() && version.olapVersion != null) {
+                version.olapVersion.useTableVersion();
+            }
+        }
+    }
+
+    /** Retain empty partitions that were eligible for this query before empty-partition pruning. */
+    public synchronized void addPrunedOlapPartitions(OlapTable table, Set<Long> partitionIds) {
+        if (table instanceof MTMV) {
+            // An empty MV can disappear before physical scan capture, hiding its source dependencies.
+            useSourceTableVersions();
+            return;
+        }
+        for (TableVersion version : usedTables.values()) {
+            if (version.id == table.getId() && version.olapVersion != null) {
+                version.olapVersion.addEmptyPartitions(table, partitionIds);
+            }
+        }
+    }
+
+    private void useSourceTableVersions() {
+        for (TableVersion version : usedTables.values()) {
+            if (version.olapVersion != null) {
+                version.olapVersion.useTableVersion();
+            }
+        }
     }
 
     public Map<FullTableName, String> getUsedViews() {
@@ -450,7 +509,7 @@ public class SqlCacheContext {
                     .append("=")
                     .append(tableVersion.id)
                     .append("@")
-                    .append(tableVersion.version);
+                    .append(tableVersion.getCacheKey());
         }
         for (Entry<FullTableName, String> entry : usedViews.entrySet()) {
             cacheKey.append("|")
@@ -593,6 +652,19 @@ public class SqlCacheContext {
         public final long id;
         public final long version;
         public final TableType type;
+        public final OlapTableSqlCacheVersion olapVersion;
+
+        public TableVersion(long id, long version, TableType type) {
+            this(id, version, type, null);
+        }
+
+        /** Data-version component shared by FE validation and BE cache lookup. */
+        public String getCacheKey() {
+            if (olapVersion != null && olapVersion.isUsable()) {
+                return olapVersion.getCacheKey();
+            }
+            return Long.toString(version);
+        }
     }
 
     /** CacheKeyType */
