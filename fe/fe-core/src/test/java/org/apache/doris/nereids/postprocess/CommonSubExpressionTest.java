@@ -141,6 +141,26 @@ public class CommonSubExpressionTest extends ExpressionRewriteTestHelper {
     }
 
     @Test
+    public void testClosedNestedLambdaKeepsEvaluationBoundary() {
+        Slot arrays = new SlotReference("outer_arr", ArrayType.of(IntegerType.INSTANCE));
+        Slot a = new SlotReference("a", ArrayType.of(IntegerType.INSTANCE));
+        Slot b = new SlotReference("b", ArrayType.of(IntegerType.INSTANCE));
+        ArrayItemReference u = new ArrayItemReference("u", a);
+        ArrayItemReference v = new ArrayItemReference("v", b);
+        ArrayMap inner = new ArrayMap(new Lambda(ImmutableList.of("u", "v"),
+                new Add(u.toSlot(), v.toSlot()), ImmutableList.of(u, v)));
+        ArrayItemReference z = new ArrayItemReference("z", arrays);
+        ArrayMap outer = new ArrayMap(new Lambda(ImmutableList.of("z"), inner, ImmutableList.of(z)));
+        CommonSubExpressionCollector collector = new CommonSubExpressionCollector();
+        collector.collect(new Alias(outer, "p"));
+        collector.collect(new Alias(outer, "q"));
+        Set<Expression> extracted = new HashSet<>();
+        collector.commonExprByDepth.values().forEach(extracted::addAll);
+        Assertions.assertFalse(extracted.contains(inner));
+        Assertions.assertTrue(extracted.contains(outer));
+    }
+
+    @Test
     public void testMultiLayers() throws Exception {
         List<NamedExpression> exprs = parseProjections("a, a+b, a+b+1, abs(a+b+1), a");
         Set<Slot> inputSlots = exprs.get(0).getInputSlots();
