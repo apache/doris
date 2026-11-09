@@ -54,9 +54,9 @@ static google::protobuf::util::Status parse_json_message(const std::string& unre
     static_assert(std::is_base_of_v<google::protobuf::Message, Message>);
     auto st = google::protobuf::util::JsonStringToMessage(body, req);
     if (!st.ok()) {
-        std::string msg = "failed to strictly parse http request for '" + unresolved_path +
-                          "' error: " + st.ToString();
-        LOG_WARNING(msg).tag("body", encryt_sk(hide_access_key(body)));
+        LOG_WARNING("failed to strictly parse HTTP request")
+                .tag("path", unresolved_path)
+                .tag("parse_code", static_cast<int>(st.code()));
 
         // ignore unknown fields
         google::protobuf::util::JsonParseOptions json_parse_options;
@@ -66,16 +66,17 @@ static google::protobuf::util::Status parse_json_message(const std::string& unre
     return {};
 }
 
-#define PARSE_MESSAGE_OR_RETURN(ctrl, req)                                                      \
-    do {                                                                                        \
-        std::string body = ctrl->request_attachment().to_string();                              \
-        auto& unresolved_path = ctrl->http_request().unresolved_path();                         \
-        auto st = parse_json_message(unresolved_path, body, &req);                              \
-        if (!st.ok()) {                                                                         \
-            std::string msg = "parse http request '" + unresolved_path + "': " + st.ToString(); \
-            LOG_WARNING(msg).tag("body", encryt_sk(hide_access_key(body)));                     \
-            return http_json_reply(MetaServiceCode::PROTOBUF_PARSE_ERR, msg);                   \
-        }                                                                                       \
+#define PARSE_MESSAGE_OR_RETURN(ctrl, req)                                                \
+    do {                                                                                  \
+        std::string body = ctrl->request_attachment().to_string();                        \
+        auto& unresolved_path = ctrl->http_request().unresolved_path();                   \
+        auto st = parse_json_message(unresolved_path, body, &req);                        \
+        if (!st.ok()) {                                                                   \
+            std::string msg =                                                             \
+                    "parse http request '" + unresolved_path + "': invalid request JSON"; \
+            LOG_WARNING(msg).tag("parse_code", static_cast<int>(st.code()));              \
+            return http_json_reply(MetaServiceCode::PROTOBUF_PARSE_ERR, msg);             \
+        }                                                                                 \
     } while (0)
 
 const std::unordered_map<std::string_view, HttpHandlerInfo>& get_http_handlers() {
