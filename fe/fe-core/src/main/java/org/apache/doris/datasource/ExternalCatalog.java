@@ -748,7 +748,11 @@ public abstract class ExternalCatalog
                 Env.getCurrentEnv().getExtMetaCacheMgr().invalidateCatalog(id);
             }
         } finally {
-            endTableLookupRefresh();
+            try {
+                Env.getCurrentEnv().onCatalogChanged(name);
+            } finally {
+                endTableLookupRefresh();
+            }
         }
     }
 
@@ -1755,7 +1759,7 @@ public abstract class ExternalCatalog
         ExternalMetaCacheMgr extMetaCacheMgr = Env.getCurrentEnv().getExtMetaCacheMgr();
         if (java.util.Objects.nonNull(schemaCacheTtl)
                 || updatedProps.containsKey(ExternalMetaCacheBudgetManager.CATALOG_MAX_WEIGHT_PROPERTY)) {
-            extMetaCacheMgr.removeCatalog(id);
+            extMetaCacheMgr.removeCatalog(id, name);
             return;
         }
         for (String key : updatedProps.keySet()) {

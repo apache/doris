@@ -25,6 +25,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.cache.SqlCacheMetadataVersions;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.mysql.FieldInfo;
@@ -64,6 +65,7 @@ public class SqlCacheContext {
     private static final Logger LOG = LogManager.getLogger(SqlCacheContext.class);
 
     private final UserIdentity userIdentity;
+    private final SqlCacheMetadataVersions.Snapshot metadataVersions;
     private volatile TUniqueId queryId;
     // if contains udf/udaf/tableValuesFunction we can not process it and skip use sql cache
     private volatile boolean cannotProcessExpression;
@@ -109,6 +111,12 @@ public class SqlCacheContext {
 
     /** SqlCacheContext */
     public SqlCacheContext(UserIdentity userIdentity) {
+        this(userIdentity, new SqlCacheMetadataVersions().snapshot());
+    }
+
+    /** Capture metadata revisions from the SQL cache manager that will validate this statement. */
+    public SqlCacheContext(UserIdentity userIdentity, SqlCacheMetadataVersions.Snapshot metadataVersions) {
+        this.metadataVersions = metadataVersions;
         if (userIdentity == null) {
             ConnectContext connectContext = ConnectContext.get();
             if (connectContext != null) {
@@ -119,6 +127,10 @@ public class SqlCacheContext {
             userIdentity = new UserIdentity(Auth.ROOT_USER, "%");
         }
         this.userIdentity = userIdentity;
+    }
+
+    public boolean metadataVersionsMatch() {
+        return metadataVersions.isCurrent();
     }
 
     public String getPhysicalPlan() {
@@ -185,6 +197,8 @@ public class SqlCacheContext {
             setCannotProcessExpression(true);
             return;
         }
+        metadataVersions.addTable(tableIf.getId(),
+                new FullTableName(catalog.getName(), database.getFullName(), tableIf.getName()));
         if (!catalog.isInternalCatalog() && !this.externalCatalogConfigs.containsKey(catalog.getName())) {
             this.externalCatalogConfigs.put(catalog.getName(), getCatalogConfigs(catalog));
         }
@@ -208,7 +222,9 @@ public class SqlCacheContext {
                 new TableVersion(
                         tableIf.getId(),
                         version,
-                        tableIf.getType()
+                        tableIf.getType(),
+                        tableIf instanceof OlapTable ? ((OlapTable) tableIf).getBaseIndexId() : -1L,
+                        tableIf instanceof OlapTable ? ((OlapTable) tableIf).getBaseSchemaVersion() : -1
                 )
         );
     }
@@ -228,6 +244,8 @@ public class SqlCacheContext {
             setCannotProcessExpression(true);
             return;
         }
+        metadataVersions.addTable(tableIf.getId(),
+                new FullTableName(catalog.getName(), database.getFullName(), tableIf.getName()));
         if (!catalog.isInternalCatalog() && !this.externalCatalogConfigs.containsKey(catalog.getName())) {
             this.externalCatalogConfigs.put(catalog.getName(), getCatalogConfigs(catalog));
         }
@@ -450,7 +468,7 @@ public class SqlCacheContext {
                     .append("=")
                     .append(tableVersion.id)
                     .append("@")
-                    .append(tableVersion.version);
+                    .append(tableVersion.getCacheKey());
         }
         for (Entry<FullTableName, String> entry : usedViews.entrySet()) {
             cacheKey.append("|")
@@ -593,6 +611,17 @@ public class SqlCacheContext {
         public final long id;
         public final long version;
         public final TableType type;
+        public final long baseIndexId;
+        public final int schemaVersion;
+
+        public TableVersion(long id, long version, TableType type) {
+            this(id, version, type, -1L, -1);
+        }
+
+        public String getCacheKey() {
+            String dataVersion = Long.toString(version);
+            return schemaVersion < 0 ? dataVersion : dataVersion + ":schema:" + baseIndexId + ":" + schemaVersion;
+        }
     }
 
     /** CacheKeyType */
