@@ -81,11 +81,15 @@ TEST(TimeStampTzValueTest, AddLocalCalendarDays) {
              .expected = "2024-11-03 01:30:00.123456-05:00",
              .days = -1,
              .elapsed_seconds = -86400},
-            // Use the existing cctz gap policy and preserve the fractional second.
+            // Shift by the gap length and preserve the fractional second in both directions.
             {.input = "2024-03-09 02:30:00.123456-05:00",
-             .expected = "2024-03-10 03:00:00.123456-04:00",
+             .expected = "2024-03-10 03:30:00.123456-04:00",
              .days = 1,
-             .elapsed_seconds = 84600},
+             .elapsed_seconds = 86400},
+            {.input = "2024-03-11 02:30:00.123456-04:00",
+             .expected = "2024-03-10 03:30:00.123456-04:00",
+             .days = -1,
+             .elapsed_seconds = -82800},
     };
     for (const auto& test : cases) {
         SCOPED_TRACE(test.input);
