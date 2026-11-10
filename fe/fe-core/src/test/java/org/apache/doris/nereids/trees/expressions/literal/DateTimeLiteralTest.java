@@ -793,4 +793,27 @@ class DateTimeLiteralTest {
         Assertions.assertEquals("2262-04-11 23:47:16.854775807",
                 TimeStampNsLiteral.getMaxValue().getStringValue());
     }
+
+    // Issue 68723 / BE is_leap (`&& year`): DateTimeLiteral.plusDays must skip 0000-02-29
+    // and keep the time-of-day. Unfixed plusDays uses Java LocalDateTime and returns
+    // 0000-02-29 12:34:56.
+    @Test
+    void testDateTimeLiteralYear0PlusDays() {
+        Expression next = new DateTimeLiteral(0, 2, 28, 12, 34, 56).plusDays(1);
+        Assertions.assertEquals("'0000-03-01 12:34:56'", next.toSql());
+    }
+
+    // Issue 68723 / BE is_leap (`&& year`): Java plusMonths/plusYears pin overflow
+    // days to 0000-02-29; Doris February in year 0 ends on the 28th. The time-of-day
+    // is unchanged.
+    @Test
+    void testDateTimeV2LiteralYear0PlusMonthsAndYears() {
+        Expression months = new DateTimeV2Literal(DateTimeV2Type.SYSTEM_DEFAULT,
+                "0000-01-31 10:00:00").plusMonths(1);
+        Assertions.assertEquals("'0000-02-28 10:00:00'", months.toSql());
+        Expression years = new DateTimeV2Literal(DateTimeV2Type.SYSTEM_DEFAULT,
+                "0004-02-29 10:00:00").plusYears(-4);
+        Assertions.assertEquals("'0000-02-28 10:00:00'", years.toSql());
+    }
+
 }

@@ -126,6 +126,7 @@ import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StructLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TimeStampNsLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TimeV2Literal;
+import org.apache.doris.nereids.trees.expressions.literal.TimestampTzLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarBinaryLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
@@ -1422,6 +1423,108 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
             isError = true;
         }
         Assertions.assertEquals(isError, true);
+    }
+
+    // Expected values follow BE is_leap (`&& year` in be/src/util/time_lut.h) and the
+    // FE parser rule that February 29 is valid only when year > 0 (DateLiteral.checkDate).
+    // Issue 68723: Java LocalDateTime treats year 0 as leap, so unfixed folding yields
+    // 0000-02-29 for date_add('0000-02-28', 1) and last_day('0000-02-01').
+    // Edge years 4, 100, 400, 1900, 2000 match the proleptic Gregorian rule; only year 0
+    // differs, because 0 is divisible by 400 but BE requires a non-zero year.
+    @Test
+    void testYear0IsCommonYearInFolding() {
+        DateV2Literal year0Feb28 = new DateV2Literal("0000-02-28");
+        DateV2Literal year0Mar1 = new DateV2Literal("0000-03-01");
+        DateV2Literal year0Feb1 = new DateV2Literal("0000-02-01");
+        DateTimeV2Literal year0Feb28Ts = new DateTimeV2Literal(
+                DateTimeV2Type.SYSTEM_DEFAULT, "0000-02-28 12:34:56");
+        DateTimeV2Literal year0Feb1Ts = new DateTimeV2Literal(
+                DateTimeV2Type.SYSTEM_DEFAULT, "0000-02-01 12:34:56");
+        IntegerLiteral one = new IntegerLiteral(1);
+        IntegerLiteral two = new IntegerLiteral(2);
+        IntegerLiteral four = new IntegerLiteral(4);
+
+        Assertions.assertEquals("'0000-03-01'", DateTimeArithmetic.dateAdd(year0Feb28, one).toSql());
+        Assertions.assertEquals("'0000-03-02'", DateTimeArithmetic.dateAdd(year0Feb28, two).toSql());
+        Assertions.assertEquals("'0000-02-28'", DateTimeArithmetic.dateSub(year0Mar1, one).toSql());
+        Assertions.assertEquals("'0000-03-01 12:34:56'",
+                DateTimeArithmetic.dateAdd(year0Feb28Ts, one).toSql());
+        Assertions.assertEquals("'0000-02-28'", DateTimeExtractAndTransform.lastDay(year0Feb1).toSql());
+        Assertions.assertEquals("'0000-02-28'", DateTimeExtractAndTransform.lastDay(year0Feb1Ts).toSql());
+
+        // daynr(0000-03-01) - daynr(0000-01-01) + 1 = 60, matching BE/MySQL TO_DAYS.
+        Assertions.assertEquals("59", DateTimeExtractAndTransform.dayOfYear(year0Feb28).toSql());
+        Assertions.assertEquals("60", DateTimeExtractAndTransform.dayOfYear(year0Mar1).toSql());
+        Assertions.assertEquals("61",
+                DateTimeExtractAndTransform.dayOfYear(new DateV2Literal("0000-03-02")).toSql());
+        Assertions.assertEquals("62",
+                DateTimeExtractAndTransform.dayOfYear(new DateV2Literal("0000-03-03")).toSql());
+        Assertions.assertEquals("365",
+                DateTimeExtractAndTransform.dayOfYear(new DateV2Literal("0000-12-31")).toSql());
+
+        // weekday = (ISO Monday=1..Sunday=7 + 6) % 7. 0000-03-01 is Wednesday in both
+        // calendars; 0000-02-28 is the previous day in the Doris calendar (Tuesday = 1).
+        Assertions.assertEquals("1", DateTimeExtractAndTransform.weekDay(year0Feb28).toSql());
+        Assertions.assertEquals("2", DateTimeExtractAndTransform.weekDay(year0Mar1).toSql());
+
+        // DateV2Value::calc_week returns 0 for every date in year 0.
+        for (int mode = 0; mode <= 7; mode++) {
+            IntegerLiteral modeLiteral = new IntegerLiteral(mode);
+            Assertions.assertEquals("0", DateTimeExtractAndTransform.week(year0Feb28, modeLiteral).toSql());
+            Assertions.assertEquals("0", DateTimeExtractAndTransform.week(year0Mar1, modeLiteral).toSql());
+            Assertions.assertEquals("0",
+                    DateTimeExtractAndTransform.week(new DateV2Literal("0000-12-31"), modeLiteral).toSql());
+        }
+
+        Assertions.assertEquals("'0000-02-28'",
+                DateTimeArithmetic.monthsAdd(new DateV2Literal("0000-01-31"), one).toSql());
+        Assertions.assertEquals("'0000-02-28'",
+                DateTimeArithmetic.yearsSub(new DateV2Literal("0004-02-29"), four).toSql());
+
+        Assertions.assertEquals("'0004-02-29'",
+                DateTimeArithmetic.dateAdd(new DateV2Literal("0004-02-28"), one).toSql());
+        Assertions.assertEquals("'0004-02-29'",
+                DateTimeExtractAndTransform.lastDay(new DateV2Literal("0004-02-01")).toSql());
+        Assertions.assertEquals("'0100-03-01'",
+                DateTimeArithmetic.dateAdd(new DateV2Literal("0100-02-28"), one).toSql());
+        Assertions.assertEquals("'0400-02-29'",
+                DateTimeArithmetic.dateAdd(new DateV2Literal("0400-02-28"), one).toSql());
+        Assertions.assertEquals("'1900-03-01'",
+                DateTimeArithmetic.dateAdd(new DateV2Literal("1900-02-28"), one).toSql());
+        Assertions.assertEquals("'2000-02-29'",
+                DateTimeArithmetic.dateAdd(new DateV2Literal("2000-02-28"), one).toSql());
+    }
+
+    // BE calc_daynr / is_leap: year 0 has 365 days, so day-of-year 59 is 0000-02-28
+    // and day-of-year 60 is 0000-03-01 (issue 68723). Java plusDays from 0000-01-01
+    // treats year 0 as leap and yields 0000-02-29 for makedate(0, 60).
+    @Test
+    void testYear0MakeDate() {
+        Assertions.assertEquals("'0000-02-28'",
+                DateTimeExtractAndTransform.makeDate(new IntegerLiteral(0),
+                        new IntegerLiteral(59)).toSql());
+        Assertions.assertEquals("'0000-03-01'",
+                DateTimeExtractAndTransform.makeDate(new IntegerLiteral(0),
+                        new IntegerLiteral(60)).toSql());
+    }
+
+    // 0000-02-25 + 7 days: Doris (365-day year 0 via BE is_leap) lands on 0000-03-04.
+    // Java inserts 0000-02-29 and lands on 0000-03-03.
+    @Test
+    void testYear0WeeksAdd() {
+        Assertions.assertEquals("'0000-03-04'",
+                DateTimeArithmetic.weeksAdd(new DateV2Literal("0000-02-25"),
+                        new IntegerLiteral(1)).toSql());
+    }
+
+    // Issue 68723 / BE is_leap (`&& year`): 0000-02-28 + 1 day is 0000-03-01.
+    // The time-of-day and timezone suffix stay in place. Unfixed plusDays builds
+    // 0000-02-29 and TimestampTzLiteral.roundMicroSecond rejects that date.
+    @Test
+    void testYear0TimestampTzDateAdd() {
+        TimestampTzLiteral start = new TimestampTzLiteral("0000-02-28 12:34:56+00:00");
+        Assertions.assertEquals("'0000-03-01 12:34:56+00:00'",
+                DateTimeArithmetic.dateAdd(start, new IntegerLiteral(1)).toSql());
     }
 
     @Test

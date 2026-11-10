@@ -697,23 +697,25 @@ public class DateTimeExtractAndTransform {
 
     @ExecFunction(name = "last_day")
     public static Expression lastDay(DateV2Literal date) {
-        LocalDateTime nextMonthFirstDay = LocalDateTime.of((int) date.getYear(), (int) date.getMonth(), 1,
-                0, 0, 0).plusMonths(1);
-        return DateV2Literal.fromJavaDateType(nextMonthFirstDay.minusDays(1));
+        return lastDayOfMonth(date.getYear(), date.getMonth());
     }
 
     @ExecFunction(name = "last_day")
     public static Expression lastDay(DateTimeV2Literal date) {
-        LocalDateTime nextMonthFirstDay = LocalDateTime.of((int) date.getYear(), (int) date.getMonth(), 1,
-                0, 0, 0).plusMonths(1);
-        return DateV2Literal.fromJavaDateType(nextMonthFirstDay.minusDays(1));
+        return lastDayOfMonth(date.getYear(), date.getMonth());
     }
 
     @ExecFunction(name = "last_day")
     public static Expression lastDay(TimeStampNsLiteral date) {
-        LocalDateTime nextMonthFirstDay = LocalDateTime.of((int) date.getYear(), (int) date.getMonth(), 1,
-                0, 0, 0).plusMonths(1);
-        return DateV2Literal.fromJavaDateType(nextMonthFirstDay.minusDays(1));
+        return lastDayOfMonth(date.getYear(), date.getMonth());
+    }
+
+    // Java plusMonths(1).minusDays(1) treats year 0 as leap and yields 0000-02-29.
+    // BE last_day uses is_leap, which is false for year 0, so February ends on the 28th.
+    private static Expression lastDayOfMonth(long year, long month) {
+        LocalDateTime nextMonthFirstDay = LocalDateTime.of((int) year, (int) month, 1, 0, 0, 0)
+                .plusMonths(1);
+        return DateV2Literal.fromJavaDateType(DateLiteral.clampYear0Feb29(nextMonthFirstDay.minusDays(1)));
     }
 
     /**
@@ -1003,7 +1005,7 @@ public class DateTimeExtractAndTransform {
             throw new AnalysisException("Operation makedate of " + yearValue + ", " + dayValue + " out of range");
         }
         return dayValue > 0
-                ? DateV2Literal.fromJavaDateType(LocalDateTime.of(yearValue, 1, 1, 0, 0, 0).plusDays(dayValue - 1))
+                ? new DateV2Literal(yearValue, 1, 1).plusDays(dayValue - 1)
                 : new NullLiteral(DateV2Type.INSTANCE);
     }
 
@@ -1106,17 +1108,17 @@ public class DateTimeExtractAndTransform {
 
     @ExecFunction(name = "weekday")
     public static Expression weekDay(DateV2Literal date) {
-        return new TinyIntLiteral((byte) ((date.toJavaDateType().getDayOfWeek().getValue() + 6) % 7));
+        return new TinyIntLiteral((byte) ((date.getDayOfWeek() + 6) % 7));
     }
 
     @ExecFunction(name = "weekday")
     public static Expression weekDay(DateTimeV2Literal date) {
-        return new TinyIntLiteral((byte) ((date.toJavaDateType().getDayOfWeek().getValue() + 6) % 7));
+        return new TinyIntLiteral((byte) ((date.getDayOfWeek() + 6) % 7));
     }
 
     @ExecFunction(name = "weekday")
     public static Expression weekDay(TimeStampNsLiteral date) {
-        return new TinyIntLiteral((byte) ((date.toJavaDateType().getDayOfWeek().getValue() + 6) % 7));
+        return new TinyIntLiteral((byte) ((date.getDayOfWeek() + 6) % 7));
     }
 
     @ExecFunction(name = "week")
@@ -1160,6 +1162,13 @@ public class DateTimeExtractAndTransform {
             } else { // 0001-01-02
                 return new TinyIntLiteral((byte) 1);
             }
+        }
+
+        // BE DateV2Value::calc_week returns 0 for every date in year 0
+        // (be/src/core/value/vdatetime_value.cpp). Keep the 0000-01-01/02 special
+        // case above; other year-0 dates follow that BE contract.
+        if (localDateTime.getYear() == 0 && mode >= 0 && mode <= 7) {
+            return new TinyIntLiteral((byte) 0);
         }
 
         switch (mode) {
