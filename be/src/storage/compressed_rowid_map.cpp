@@ -31,15 +31,6 @@
 
 namespace doris {
 namespace {
-// Account small ownership objects as well as their buffers. Class-specific
-// allocation keeps the public header independent of allocator implementation.
-struct TrackedRowIdObject {
-    static void* operator new(size_t size) { return Allocator<false>().alloc(size); }
-    static void operator delete(void* pointer, size_t size) {
-        Allocator<false>().free(pointer, size);
-    }
-};
-
 constexpr size_t MAX_PLAIN_BYTES =
         CompressedRowIdMap::BLOCK_ROWS / 8 + 10 * (CompressedRowIdMap::BLOCK_ROWS - 1);
 
@@ -64,7 +55,7 @@ void CompressedRowIdMap::PayloadDeleter::operator()(uint8_t* data) const noexcep
     Allocator<false>().free(data, bytes);
 }
 
-struct CompressedRowIdMap::Cursor::Impl : TrackedRowIdObject {
+struct CompressedRowIdMap::Cursor::Impl {
     DorisUniqueBufferPtr<uint64_t> values {BLOCK_ROWS};
     const CompressedRowIdMap* owner = nullptr;
     uint32_t source = 0;
@@ -87,13 +78,13 @@ Status CompressedRowIdMap::Cursor::reserve() {
 }
 
 size_t CompressedRowIdMap::Cursor::memory_usage() const {
-    return _impl == nullptr ? 0 : sizeof(Impl) + BLOCK_ROWS * sizeof(uint64_t);
+    return _impl == nullptr ? 0 : BLOCK_ROWS * sizeof(uint64_t);
 }
 uint64_t CompressedRowIdMap::Cursor::decoded_blocks() const {
     return _impl == nullptr ? 0 : _impl->decoded;
 }
 
-struct CompressedRowIdMap::DecodeWorkspace::Impl : TrackedRowIdObject {
+struct CompressedRowIdMap::DecodeWorkspace::Impl {
     DorisUniqueBufferPtr<uint8_t> context {ZSTD_estimateDCtxSize()};
     DorisUniqueBufferPtr<uint8_t> plain {MAX_PLAIN_BYTES};
     ZSTD_DCtx* dctx = ZSTD_initStaticDCtx(context.get(), ZSTD_estimateDCtxSize());
@@ -101,10 +92,10 @@ struct CompressedRowIdMap::DecodeWorkspace::Impl : TrackedRowIdObject {
 CompressedRowIdMap::DecodeWorkspace::DecodeWorkspace() = default;
 CompressedRowIdMap::DecodeWorkspace::~DecodeWorkspace() = default;
 size_t CompressedRowIdMap::DecodeWorkspace::memory_usage() const {
-    return _impl == nullptr ? 0 : sizeof(Impl) + ZSTD_estimateDCtxSize() + MAX_PLAIN_BYTES;
+    return _impl == nullptr ? 0 : ZSTD_estimateDCtxSize() + MAX_PLAIN_BYTES;
 }
 
-struct CompressedRowIdMap::Impl : TrackedRowIdObject {
+struct CompressedRowIdMap::Impl {
     struct Source {
         DorisVector<BlockMeta> blocks;
         DorisUniqueBufferPtr<uint64_t> builder;
@@ -113,14 +104,13 @@ struct CompressedRowIdMap::Impl : TrackedRowIdObject {
         uint32_t last_row = 0;
         uint64_t last_target = 0;
     };
-    struct Encoder : TrackedRowIdObject {
+    struct Encoder {
         DorisUniqueBufferPtr<uint8_t> context {encoder_context_bytes()};
         DorisUniqueBufferPtr<uint8_t> plain {MAX_PLAIN_BYTES};
         DorisUniqueBufferPtr<uint8_t> compressed {ZSTD_compressBound(MAX_PLAIN_BYTES)};
         ZSTD_CCtx* cctx = ZSTD_initStaticCCtx(context.get(), encoder_context_bytes());
         static size_t memory_usage() {
-            return sizeof(Encoder) + encoder_context_bytes() + MAX_PLAIN_BYTES +
-                   ZSTD_compressBound(MAX_PLAIN_BYTES);
+            return encoder_context_bytes() + MAX_PLAIN_BYTES + ZSTD_compressBound(MAX_PLAIN_BYTES);
         }
     };
     DorisVector<Source> sources;
@@ -129,7 +119,7 @@ struct CompressedRowIdMap::Impl : TrackedRowIdObject {
     bool finished = false;
 
     void update_usage() {
-        usage.metadata_bytes = sizeof(Impl) + sources.capacity() * sizeof(Source);
+        usage.metadata_bytes = sources.capacity() * sizeof(Source);
         usage.encoder_bytes = encoder == nullptr ? 0 : Encoder::memory_usage();
         usage.peak_bytes = std::max(usage.peak_bytes, usage.allocated_bytes());
     }

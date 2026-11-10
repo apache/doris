@@ -95,7 +95,7 @@ TEST(CompressedRowIdMapTest, MixedBlocksGapsWideOrdinalsAndBackwardSeeks) {
     }
     EXPECT_GT(map.memory_usage().payload_bytes, 0);
     EXPECT_GT(cursor.decoded_blocks(), 100);
-    EXPECT_LT(cursor.memory_usage(), 33 * 1024);
+    EXPECT_EQ(cursor.memory_usage(), Map::BLOCK_ROWS * sizeof(uint64_t));
 }
 
 TEST(CompressedRowIdMapTest, InterleavedSourcesKeepIndependentCursorBlocks) {
@@ -345,8 +345,11 @@ TEST(CompressedRowIdMapTest, TrackedMemoryIsBalancedAndAllocationFailureIsAStatu
     const int64_t baseline = consumed();
     {
         Map map;
+        EXPECT_EQ(map.memory_usage().allocated_bytes(), 0);
+        EXPECT_EQ(consumed(), baseline);
         ASSERT_TRUE(map.init_source(8192).ok());
         for (uint32_t row = 0; row < 8192; row += 2) ASSERT_TRUE(map.append(0, row, row * 7).ok());
+        EXPECT_EQ(consumed() - baseline, map.memory_usage().allocated_bytes());
         ASSERT_TRUE(map.finish().ok());
         EXPECT_EQ(consumed() - baseline, map.memory_usage().allocated_bytes());
         Map::Cursor cursor;
