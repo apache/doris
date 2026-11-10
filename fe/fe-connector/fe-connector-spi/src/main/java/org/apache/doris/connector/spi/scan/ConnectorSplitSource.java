@@ -18,6 +18,7 @@
 package org.apache.doris.connector.spi.scan;
 
 import java.io.Closeable;
+import java.util.concurrent.CompletableFuture;
 
 /**
  * A lazy, closeable source of {@link ConnectorScanRange}s for streaming (batched) split generation,
@@ -36,6 +37,19 @@ import java.io.Closeable;
  * serially. Successive batches may run on different background workers.</p>
  */
 public interface ConnectorSplitSource extends Closeable {
+
+    /**
+     * An asynchronous metadata dependency for cooperating sources opened by
+     * {@link ConnectorScanPlanProvider#streamPartitionSources}, or null when immediately runnable
+     * (including end of input). Ordinary {@code streamSplits} sources remain synchronous.
+     * Readers must observe exceptional completion and retry after normal completion. While blocked,
+     * {@code hasNext()} may return false without indicating end of input; in that case this method must
+     * retain the dependency, even after completion, until the next {@code hasNext()} attempt. Completion
+     * callbacks must only schedule work; they must not advance or close this source. The default incurs no allocation.
+     */
+    default CompletableFuture<Void> isBlocked() {
+        return null;
+    }
 
     /**
      * Nonblocking, idempotent hint that a backend has requested a batch beyond its first one.

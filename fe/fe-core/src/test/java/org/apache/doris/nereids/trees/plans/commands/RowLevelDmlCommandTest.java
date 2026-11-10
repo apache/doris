@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.plans.commands;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.PlannerHook;
@@ -34,6 +35,7 @@ import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.thrift.TStatusCode;
 
+import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -135,6 +137,25 @@ public class RowLevelDmlCommandTest {
 
         Assertions.assertSame(analyzed, captured.get());
         Mockito.verify(planner, Mockito.never()).setAnalyzedPlan(Mockito.any());
+    }
+
+    @Test
+    public void onlyADeleteMarksItsTargetAsWritingNoRowValues() {
+        // Every row-level DML pins the target's writer schema, a DELETE for its delete sink. Only the DELETE writes
+        // no row values, so only its target is marked and keeps DEFAULT(column) off the write-only defaults.
+        ExternalTable target = Mockito.mock(ExternalTable.class);
+        Mockito.when(target.getId()).thenReturn(7L);
+        StatementContext statementContext = new StatementContext();
+        ConnectContext ctx = Mockito.mock(ConnectContext.class);
+        Mockito.when(ctx.getStatementContext()).thenReturn(statementContext);
+
+        new RowLevelDmlCommand(transform, RowLevelDmlArgs.forUpdate(target, ImmutableList.of("t"), null,
+                ImmutableList.of(), null), RowLevelDmlOp.UPDATE).getExplainPlan(ctx);
+        Assertions.assertFalse(statementContext.isConnectorDeleteTarget(7L));
+
+        new RowLevelDmlCommand(transform, RowLevelDmlArgs.forDelete(target, ImmutableList.of("t"), null, false,
+                ImmutableList.of(), null), RowLevelDmlOp.DELETE).getExplainPlan(ctx);
+        Assertions.assertTrue(statementContext.isConnectorDeleteTarget(7L));
     }
 
     @Test

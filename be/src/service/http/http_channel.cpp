@@ -22,6 +22,9 @@
 #include <event2/bufferevent.h>
 #include <event2/http.h>
 #include <event2/http_struct.h>
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 #include <sstream>
 #include <string>

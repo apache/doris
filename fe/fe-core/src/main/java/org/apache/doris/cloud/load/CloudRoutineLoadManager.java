@@ -40,7 +40,12 @@ public class CloudRoutineLoadManager extends RoutineLoadManager {
     @Override
     public void addRoutineLoadJob(RoutineLoadJob routineLoadJob, String dbName, String tableName)
                     throws UserException {
-        if (!Strings.isNullOrEmpty(ConnectContext.get().getCloudCluster())) {
+        // When the job declares a compute group explicitly, that declaration is the binding and the
+        // session's cluster must not overwrite it.
+        if (!Strings.isNullOrEmpty(routineLoadJob.getDeclaredComputeGroup())) {
+            LOG.info("routine load job {} pinned to declared compute group {}",
+                    routineLoadJob.getName(), routineLoadJob.getDeclaredComputeGroup());
+        } else if (!Strings.isNullOrEmpty(ConnectContext.get().getCloudCluster())) {
             routineLoadJob.setCloudCluster(ConnectContext.get().getCloudCluster());
         } else {
             throw new UserException("cloud cluster is empty, please specify cloud cluster");

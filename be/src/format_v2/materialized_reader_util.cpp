@@ -26,6 +26,7 @@
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/types.h"
+#include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
 #include "format_v2/file_reader.h"
 #include "io/io_common.h"

@@ -76,9 +76,11 @@ import org.apache.doris.nereids.trees.expressions.functions.LambdaBinding;
 import org.apache.doris.nereids.trees.expressions.functions.LambdaBindingSpec;
 import org.apache.doris.nereids.trees.expressions.functions.RewriteWhenAnalyze;
 import org.apache.doris.nereids.trees.expressions.functions.Udf;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AIAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.NullableAggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.SupportMultiDistinct;
+import org.apache.doris.nereids.trees.expressions.functions.ai.AIFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 import org.apache.doris.nereids.trees.expressions.functions.udf.AliasUdfBuilder;
@@ -638,13 +640,8 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
 
         if (wantToParseSqlFromSqlCache) {
             sqlCacheContext = context.cascadesContext.getStatementContext().getSqlCacheContext();
-            if (builder instanceof AliasUdfBuilder
-                    || buildResult.second instanceof Udf) {
-                if (sqlCacheContext.isPresent()) {
-                    sqlCacheContext.get().setCannotProcessExpression(true);
-                }
-            }
         }
+        disableSqlCacheForUnsupportedFunction(buildResult.second);
         if (unboundFunction.isSkew() && unboundFunction.isDistinct() && buildResult.first instanceof AggregateFunction
                 && buildResult.first instanceof SupportMultiDistinct) {
             Expression bound = ((AggregateFunction) buildResult.first).withIsSkew(true);
@@ -674,7 +671,16 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
     @Override
     public Expression visitBoundFunction(BoundFunction boundFunction, ExpressionRewriteContext context) {
         boundFunction = (BoundFunction) super.visitBoundFunction(boundFunction, context);
+        disableSqlCacheForUnsupportedFunction(boundFunction);
         return TypeCoercionUtils.processBoundFunction(boundFunction);
+    }
+
+    private void disableSqlCacheForUnsupportedFunction(BoundFunction function) {
+        if (wantToParseSqlFromSqlCache
+                && (function instanceof Udf || function instanceof AIFunction || function instanceof AIAgg)) {
+            getCascadesContext().getStatementContext().getSqlCacheContext()
+                    .ifPresent(cache -> cache.setCannotProcessExpression(true));
+        }
     }
 
     private ElementAt canonicalizeStructSelector(ElementAt elementAt) {

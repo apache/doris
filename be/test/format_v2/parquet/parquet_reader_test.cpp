@@ -1973,6 +1973,59 @@ TEST_F(NewParquetReaderTest, UuidPlainDictionaryNullableAndMappingMatrix) {
     }
 }
 
+TEST_F(NewParquetReaderTest, ReadsNullableBooleanDictionaryFromExternalWriter) {
+    const char* source_root = std::getenv("ROOT");
+    ASSERT_NE(source_root, nullptr);
+    // Public interoperability fixture from StarRocks/starrocks PR #81788.
+    _file_path = std::string(source_root) +
+                 "/be/test/format_v2/parquet/test_data/boolean_rle_dictionary.parquet";
+    for (const size_t batch_size : {1, 3, 1024}) {
+        SCOPED_TRACE(batch_size);
+        auto reader = create_reader();
+        reader->set_batch_size(batch_size);
+        RuntimeState state {TQueryOptions(), TQueryGlobals()};
+        ASSERT_TRUE(reader->init(&state).ok());
+        std::vector<format::ColumnDefinition> schema;
+        ASSERT_TRUE(reader->get_schema(&schema).ok());
+        ASSERT_EQ(schema.size(), 2);
+        auto request = std::make_shared<format::FileScanRequest>();
+        for (size_t column = 0; column < schema.size(); ++column) {
+            request->non_predicate_columns.push_back(field_projection(schema[column].local_id));
+            request->local_positions.emplace(format::LocalColumnId(schema[column].local_id),
+                                             format::LocalIndex(column));
+        }
+        ASSERT_TRUE(reader->open(request).ok());
+        const std::array<int, 10> expected {1, 0, -1, 1, 1, 0, -1, 0, 1, 1};
+        size_t total = 0;
+        bool eof = false;
+        while (!eof) {
+            Block block;
+            for (const auto& column : schema) {
+                block.insert({column.type->create_column(), column.type, column.name});
+            }
+            size_t rows = 0;
+            const auto status = reader->get_block(&block, &rows, &eof);
+            ASSERT_TRUE(status.ok()) << status;
+            ASSERT_LE(total + rows, expected.size());
+            const auto& booleans =
+                    assert_cast<const ColumnNullable&>(*block.get_by_position(1).column);
+            for (size_t row = 0; row < rows; ++row) {
+                EXPECT_EQ(block.get_by_position(0).type->to_string(*block.get_by_position(0).column,
+                                                                   row),
+                          std::to_string(total + row));
+                EXPECT_EQ(booleans.is_null_at(row), expected[total + row] == -1);
+                if (expected[total + row] != -1) {
+                    EXPECT_EQ(assert_cast<const ColumnUInt8&>(booleans.get_nested_column())
+                                      .get_element(row),
+                              expected[total + row]);
+                }
+            }
+            total += rows;
+        }
+        EXPECT_EQ(total, expected.size());
+    }
+}
+
 TEST_F(NewParquetReaderTest, InitializesProfileOnlyOncePerFile) {
     class CountingParquetReader final : public format::parquet::ParquetReader {
     public:
@@ -4210,8 +4263,8 @@ TEST_F(NewParquetReaderTest, GlobalRowIdSchemaAndSelectionUseFileRowPosition) {
         const auto location = decode_rowid(rowids, row);
         EXPECT_EQ(location.version, context.version);
         EXPECT_EQ(location.backend_id, context.backend_id);
-        EXPECT_EQ(location.file_id, context.file_id);
-        EXPECT_EQ(location.row_id, static_cast<uint32_t>(row + 2));
+        EXPECT_EQ(location.file_local.file_id, context.file_id);
+        EXPECT_EQ(location.file_local.row_id, static_cast<uint32_t>(row + 2));
     }
 }
 

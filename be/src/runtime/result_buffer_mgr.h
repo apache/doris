@@ -27,6 +27,7 @@
 #include <mutex>
 #include <shared_mutex>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "common/status.h"
@@ -71,6 +72,9 @@ public:
     // cancel
     bool cancel(const TUniqueId& unique_id, const Status& reason);
 
+    void cancel_arrow_flight_query(const TUniqueId& buffer_id, const Status& reason);
+    void cancel_arrow_flight_buffers(const TUniqueId& query_id, const Status& reason);
+
     // cancel one query at a future time.
     void cancel_at_time(time_t cancel_time, const TUniqueId& unique_id);
 
@@ -89,6 +93,7 @@ private:
     std::shared_mutex _buffer_map_lock;
     // buffer block map
     BufferMap _buffer_map;
+    std::unordered_map<TUniqueId, std::unordered_set<TUniqueId>> _arrow_flight_query_buffers;
 
     // lock for timeout map
     std::mutex _timeout_lock;

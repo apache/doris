@@ -22,7 +22,6 @@
 
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gen_cpp/Types_types.h>
-#include <gen_cpp/segment_v2.pb.h>
 #include <stdint.h>
 
 #include <atomic>
@@ -38,6 +37,7 @@
 #include "agent/be_exec_version_manager.h"
 #include "cctz/time_zone.h"
 #include "common/be_mock_util.h"
+#include "common/check.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/factory_creator.h"
@@ -50,6 +50,9 @@
 #include "util/timezone_utils.h"
 
 namespace doris {
+namespace segment_v2 {
+enum CompressionTypePB : int;
+}
 namespace io {
 class S3FileSystem;
 } // namespace io
@@ -245,7 +248,7 @@ public:
     const cctz::time_zone& timezone_obj() const { return _timezone_obj; }
     void set_timezone(const std::string& timezone) {
         _timezone = timezone;
-        TimezoneUtils::find_cctz_time_zone(_timezone, _timezone_obj);
+        DORIS_CHECK(TimezoneUtils::find_cctz_time_zone(_timezone, _timezone_obj));
     }
     const std::string& lc_time_names() const { return _lc_time_names; }
     const TUniqueId& query_id() const { return _query_id; }
@@ -473,18 +476,7 @@ public:
                _query_options.enable_fuzzy_blockable_task;
     }
 
-    segment_v2::CompressionTypePB fragement_transmission_compression_type() const {
-        if (_query_options.__isset.fragment_transmission_compression_codec) {
-            if (_query_options.fragment_transmission_compression_codec == "lz4") {
-                return segment_v2::CompressionTypePB::LZ4;
-            } else if (_query_options.fragment_transmission_compression_codec == "snappy") {
-                return segment_v2::CompressionTypePB::SNAPPY;
-            } else {
-                return segment_v2::CompressionTypePB::NO_COMPRESSION;
-            }
-        }
-        return segment_v2::CompressionTypePB::NO_COMPRESSION;
-    }
+    segment_v2::CompressionTypePB fragement_transmission_compression_type() const;
 
     bool skip_storage_engine_merge() const {
         return _query_options.__isset.skip_storage_engine_merge &&

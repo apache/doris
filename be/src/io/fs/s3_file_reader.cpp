@@ -38,6 +38,7 @@
 #include "io/cache/block_file_cache.h"
 #include "io/fs/err_utils.h"
 #include "io/fs/read_io_trace.h"
+#include "io/fs/s3_file_system.h"
 #include "io/io_common.h"
 #include "runtime/file_scan_profile.h"
 #include "runtime/runtime_profile.h"

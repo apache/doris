@@ -15,10 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// Regression tests for ES connector predicate pushdown correctness.
-// Covers fixes:
-//   P0-4: REGEXP must generate ES 'regexp' query, not 'wildcard'
-//   P1-3: IS NULL must generate 'must_not exists', not 'term null'
+// Check SQL predicate results independently of whether ES index semantics permit pushdown.
 
 suite("test_es_query_predicate_correctness", "p2,external") {
     String enabled = context.config.otherConfigs.get("enableEsTest")
@@ -44,14 +41,29 @@ suite("test_es_query_predicate_correctness", "p2,external") {
             "enable_keyword_sniff"="true"
         );"""
 
+        def verifySourcePredicates = { String version ->
+            // SQL predicates apply to materialized source values even when ES omits their keyword index values.
+            def expected = "internal.${context.dbName}.es_predicate_source_expected"
+            sql "drop table if exists ${expected}"
+            sql """create table ${expected} (row_id int, test1 string, message string)
+                distributed by hash(row_id) buckets 1 properties("replication_num"="1")"""
+            sql "insert into ${expected} select 0,test1,message from test1"
+            ["test1 regexp 'string[12]'", "test1 regexp 'string.*'",
+             "test1 regexp 'string1|string3'", "test1 like 'string%'",
+             "message is null", "message is not null"].eachWithIndex { predicate, i ->
+                quickTest("es_${version}_source_predicate_${i}",
+                        "select test1 from test1 where ${predicate} order by test1",
+                        "select test1 from ${expected} where ${predicate} order by test1")
+            }
+        }
+
         // ======================================================================
         // ES 7 tests
         // ======================================================================
         sql """switch es7_pred_test"""
+        verifySourcePredicates("7")
 
-        // P0-4: REGEXP with character class [12] → ES 'regexp' query
-        // Before fix: generated 'wildcard' query, returning 0 rows
-        // After fix: generates 'regexp' query, correctly matching string1 and string2
+        // Character classes and alternation must retain SQL regular-expression semantics.
         order_qt_es7_regexp_charclass """select test1 from test1 where test1 regexp 'string[12]' order by test1"""
 
         // REGEXP with dot-star
@@ -60,12 +72,10 @@ suite("test_es_query_predicate_correctness", "p2,external") {
         // REGEXP with alternation
         order_qt_es7_regexp_alternation """select test1 from test1 where test1 regexp 'string1|string3' order by test1"""
 
-        // LIKE should still work (uses wildcard query, correct for LIKE)
+        // LIKE must include matching source values omitted by ignore_above.
         order_qt_es7_like """select test1 from test1 where test1 like 'string%' order by test1"""
 
-        // P1-3: IS NULL / IS NOT NULL
-        // Before fix: IS NULL generated {term: {field: null}} returning 0 rows
-        // After fix: generates {bool: {must_not: [{exists: {field: ...}}]}}
+        // NULL predicates must agree with the source values used by the local oracle.
         order_qt_es7_is_null """select count(*) from test1 where message is null"""
         order_qt_es7_is_not_null """select count(*) from test1 where message is not null"""
         order_qt_es7_total_count """select count(*) from test1"""
@@ -74,6 +84,7 @@ suite("test_es_query_predicate_correctness", "p2,external") {
         // ES 8 tests (same queries, verifying both versions)
         // ======================================================================
         sql """switch es8_pred_test"""
+        verifySourcePredicates("8")
 
         order_qt_es8_regexp_charclass """select test1 from test1 where test1 regexp 'string[12]' order by test1"""
         order_qt_es8_regexp_dotstar """select test1 from test1 where test1 regexp 'string.*' order by test1"""
@@ -97,10 +108,15 @@ suite("test_es_query_predicate_correctness", "p2,external") {
             contains "ES terminate_after: 5"
         }
 
-        // Case 2: LIMIT with fully-pushable predicate (equality on keyword field)
-        // After predicate pushdown, conjuncts should be empty → terminate_after active
+        // A raw keyword with ignore_above needs a residual, so it cannot terminate the ES scan early.
         explain {
             sql("select * from test1 where test1 = 'string1' limit 3")
+            notContains "ES terminate_after"
+        }
+
+        // An unchanged numeric docvalue remains eligible for predicate and LIMIT pushdown.
+        explain {
+            sql("select test3 from test1 where test3 = 3.14 limit 3")
             contains "ES terminate_after: 3"
         }
 
@@ -127,6 +143,12 @@ suite("test_es_query_predicate_correctness", "p2,external") {
 
         explain {
             sql("select * from test1 where test1 = 'string1' limit 3")
+            notContains "ES terminate_after"
+        }
+
+        // An unchanged numeric docvalue remains eligible for predicate and LIMIT pushdown.
+        explain {
+            sql("select test3 from test1 where test3 = 3.14 limit 3")
             contains "ES terminate_after: 3"
         }
 

@@ -65,12 +65,12 @@ jobs:
           archive="$RUNNER_TEMP/codex-exec-goal.tar.gz"
           package="$RUNNER_TEMP/codex-exec-goal"
           ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" \
-            cp -f oss://doris-community-ci/codex/releases/codex-exec-goal-0.162.1-3547e9086675-x86_64-unknown-linux-gnu.tar.gz "$archive"
-          echo "51304e4f9c343ae84e00a304344df41c2fd32821c83bdbf5be68b0f0c25ddae1  $archive" | sha256sum --check
+            cp -f oss://doris-community-ci/codex/releases/codex-exec-goal-0.166.0-217b6e00e031-x86_64-unknown-linux-gnu.tar.gz "$archive"
+          echo "19fe4ad3224b4c1bfb90952fd2054b63029bb9ffab6b9e8db3269039193f071c  $archive" | sha256sum --check
           mkdir -p "$package"
           tar -xzf "$archive" -C "$package"
           (cd "$package" && sha256sum --check SHA256SUMS)
-          test "$(jq -r .version "$package/codex-package.json")" = 0.162.1
+          test "$(jq -r .version "$package/codex-package.json")" = 0.166.0
           "$package/bin/codex" --version
           "$package/bin/codex" exec --help | grep -q -- '--goal'
           echo "CODEX_CANARY_BIN=$package/bin/codex" >> "$GITHUB_ENV"
@@ -370,17 +370,17 @@ jobs:
           package="$RUNNER_TEMP/codex-exec-goal"
           ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" \
             cp -f "$OSS_CODEX_PACKAGE_OBJECT" "$archive"
-          echo "51304e4f9c343ae84e00a304344df41c2fd32821c83bdbf5be68b0f0c25ddae1  $archive" | sha256sum --check
+          echo "19fe4ad3224b4c1bfb90952fd2054b63029bb9ffab6b9e8db3269039193f071c  $archive" | sha256sum --check
           mkdir -p "$package"
           tar -xzf "$archive" -C "$package"
           (cd "$package" && sha256sum --check SHA256SUMS)
-          test "$(jq -r .version "$package/codex-package.json")" = 0.162.1
+          test "$(jq -r .version "$package/codex-package.json")" = 0.166.0
           echo "$package/bin" >> "$GITHUB_PATH"
         env:
           OSS_AK: ${{ secrets.OSS_AK }}
           OSS_SK: ${{ secrets.OSS_SK }}
           OSS_ENDPOINT: oss-cn-hongkong.aliyuncs.com
-          OSS_CODEX_PACKAGE_OBJECT: oss://doris-community-ci/codex/releases/codex-exec-goal-0.162.1-3547e9086675-x86_64-unknown-linux-gnu.tar.gz
+          OSS_CODEX_PACKAGE_OBJECT: oss://doris-community-ci/codex/releases/codex-exec-goal-0.166.0-217b6e00e031-x86_64-unknown-linux-gnu.tar.gz
 
       - name: Verify pinned Codex runtime
         timeout-minutes: 2
@@ -388,7 +388,7 @@ jobs:
           set -euo pipefail
           codex_cmd="$(command -v codex)"
           test "$(readlink -f "$codex_cmd")" = "$RUNNER_TEMP/codex-exec-goal/bin/codex"
-          echo "a0d5ec053074d66570aa967129d350541f344f76671a199b5a7bc0d45366cdf7  $codex_cmd" | sha256sum --check
+          echo "9346ee98398cb7240702e45eed4cbe38c7fb990d9e031dba4e7525383c415deb  $codex_cmd" | sha256sum --check
           codex --version
           codex exec --help | grep -q -- '--goal'
           codex exec --goal resume --help >/dev/null
@@ -919,7 +919,7 @@ jobs:
             --base-sha "$BASE_SHA" \
             --model "gpt-6.1-sol" \
             --fallback-model "gpt-6-sol" \
-            --capacity-fallback-model "gpt-6-astra" \
+            --capacity-fallback-model "gpt-6-sol" \
             --effort xhigh \
             --budget-seconds "$budget_seconds"
           status=$?
