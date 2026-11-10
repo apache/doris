@@ -147,6 +147,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.protobuf.ByteString;
+import lombok.Setter;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
@@ -192,6 +193,7 @@ public class StmtExecutor {
     private List<List<String>> changedSessionVarsForAudit;
     private ProfileType profileType = ProfileType.QUERY;
 
+    @Setter
     private volatile Coordinator coord = null;
     // A statement can be cancelled while it is still planning and has no coordinator yet.
     private final AtomicReference<Status> pendingCoordinatorCancelReason = new AtomicReference<>();
@@ -1246,7 +1248,7 @@ public class StmtExecutor {
         }
         Coordinator coordRef = coord;
         if (coordRef != null) {
-            coordRef.cancel(pendingCoordinatorCancelReason.get());
+            coordRef.cancel(cancelReason);
         }
         if (mysqlLoadId != null) {
             Env.getCurrentEnv().getLoadManager().getMysqlLoadManager().cancelMySqlLoad(mysqlLoadId);
@@ -1259,14 +1261,6 @@ public class StmtExecutor {
 
     public void cancel(Status cancelReason) {
         cancel(cancelReason, true);
-    }
-
-    public void setCoord(Coordinator coordinator) {
-        coord = coordinator;
-        Status cancelReason = pendingCoordinatorCancelReason.get();
-        if (coordinator != null && cancelReason != null) {
-            coordinator.cancel(cancelReason);
-        }
     }
 
     /** The first terminal status delivered to this executor, or null when it has not been cancelled. */

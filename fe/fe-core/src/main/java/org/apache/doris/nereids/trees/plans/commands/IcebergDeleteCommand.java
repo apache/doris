@@ -21,6 +21,7 @@ import org.apache.doris.analysis.StmtType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.iceberg.IcebergConflictDetectionFilterUtils;
@@ -58,6 +59,7 @@ import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.planner.DataSink;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.StmtExecutor;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -209,7 +211,7 @@ public class IcebergDeleteCommand extends Command implements ForwardWithSync, Ex
                 deleteExecutor.beginTransaction();
                 deleteExecutor.finalizeSinkForDelete(fragment, dataSink, physicalSink);
                 deleteExecutor.getCoordinator().setTxnId(deleteExecutor.getTxnId());
-                executor.setCoord(deleteExecutor.getCoordinator());
+                publishDeleteCoordinator(executor, deleteExecutor.getCoordinator());
                 deleteExecutor.executeSingleInsert(executor);
                 return null;
             });
@@ -364,6 +366,17 @@ public class IcebergDeleteCommand extends Command implements ForwardWithSync, Ex
                 analyzedPlan.set(planner.getCascadesContext().getRewritePlan());
             }
         });
+    }
+
+    @VisibleForTesting
+    static void publishDeleteCoordinator(StmtExecutor executor, Coordinator coordinator) {
+        executor.setCoord(coordinator);
+        // A cancellation during FE metadata planning had no Coordinator to notify. Publishing
+        // first also lets cancel() deliver any cancellation that races with this handoff.
+        Status cancelReason = executor.getPendingCancelReason();
+        if (cancelReason != null) {
+            coordinator.cancel(cancelReason);
+        }
     }
 
     @VisibleForTesting

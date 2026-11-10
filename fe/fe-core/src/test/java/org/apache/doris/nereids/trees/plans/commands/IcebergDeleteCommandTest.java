@@ -28,6 +28,7 @@ import org.apache.doris.nereids.PlannerHook;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.thrift.TStatusCode;
 
@@ -136,5 +137,48 @@ public class IcebergDeleteCommandTest {
                         executor, Mockito.mock(ConnectContext.class)));
 
         Assertions.assertTrue(exception.getMessage().contains("query was killed"));
+    }
+
+    @Test
+    public void rowLevelFallbackReplaysCancellationBeforeCoordinatorPublication() {
+        StmtExecutor executor = Mockito.mock(StmtExecutor.class);
+        Coordinator coordinator = Mockito.mock(Coordinator.class);
+        Status reason = new Status(TStatusCode.CANCELLED, "cancelled during metadata planning");
+        Mockito.when(executor.getPendingCancelReason()).thenReturn(reason);
+
+        IcebergDeleteCommand.publishDeleteCoordinator(executor, coordinator);
+
+        org.mockito.InOrder handoff = Mockito.inOrder(executor, coordinator);
+        handoff.verify(executor).setCoord(coordinator);
+        handoff.verify(executor).getPendingCancelReason();
+        handoff.verify(coordinator).cancel(reason);
+    }
+
+    @Test
+    public void rowLevelFallbackObservesCancellationDuringCoordinatorPublication() {
+        StmtExecutor executor = Mockito.mock(StmtExecutor.class);
+        Coordinator coordinator = Mockito.mock(Coordinator.class);
+        Status reason = new Status(TStatusCode.CANCELLED, "cancelled during coordinator handoff");
+        AtomicReference<Status> pending = new AtomicReference<>();
+        Mockito.doAnswer(invocation -> {
+            pending.set(reason);
+            return null;
+        }).when(executor).setCoord(coordinator);
+        Mockito.when(executor.getPendingCancelReason()).thenAnswer(invocation -> pending.get());
+
+        IcebergDeleteCommand.publishDeleteCoordinator(executor, coordinator);
+
+        Mockito.verify(coordinator).cancel(reason);
+    }
+
+    @Test
+    public void rowLevelFallbackPublishesWithoutCancellation() {
+        StmtExecutor executor = Mockito.mock(StmtExecutor.class);
+        Coordinator coordinator = Mockito.mock(Coordinator.class);
+
+        IcebergDeleteCommand.publishDeleteCoordinator(executor, coordinator);
+
+        Mockito.verify(executor).setCoord(coordinator);
+        Mockito.verifyNoInteractions(coordinator);
     }
 }

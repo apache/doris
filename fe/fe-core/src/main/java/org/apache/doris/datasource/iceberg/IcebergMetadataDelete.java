@@ -170,8 +170,13 @@ public final class IcebergMetadataDelete {
                 return OptionalLong.of(0L);
             }
             return OptionalLong.of(deletedRowCount(committed));
+        } catch (WriteIdentityChangedException e) {
+            // The SDK has reclaimed this known-uncommitted update. Replanning against a changed
+            // table identity would violate the statement's binding, so do not use row-level DELETE.
+            throw new UserException("Iceberg write metadata changed for " + table.name()
+                    + " after the write was bound; retry the statement", e);
         } catch (ValidationException e) {
-            // Nothing was committed. A concurrent writer made at least one candidate partial.
+            // Nothing was committed. A snapshot change or a partial candidate declines the shortcut.
             LOG.info("Metadata delete of {} is no longer whole-file ({}); falling back.",
                     table.name(), e.getMessage());
             return OptionalLong.empty();
@@ -271,6 +276,14 @@ public final class IcebergMetadataDelete {
                 && Objects.equals(expected.properties(), current.properties());
     }
 
+    // ValidationException implements the SDK's CleanableFailure contract, so staged manifests
+    // are reclaimed even when the catalog requires strict cleanup of known failures only.
+    private static final class WriteIdentityChangedException extends ValidationException {
+        private WriteIdentityChangedException() {
+            super("Iceberg write metadata changed since the metadata delete preflight");
+        }
+    }
+
     /**
      * Fences the final CAS, including Iceberg retry replays, to the snapshot inspected by the
      * candidate preflight. This turns a concurrent append/delete into a safe row-level fallback.
@@ -336,14 +349,13 @@ public final class IcebergMetadataDelete {
         }
 
         private void checkMetadata(TableMetadata metadata) {
+            if (!sameWriteIdentity(expectedMetadata, metadata)) {
+                throw new WriteIdentityChangedException();
+            }
             Snapshot snapshot = metadata.currentSnapshot();
             if (snapshot == null || snapshot.snapshotId() != requiredSnapshotId) {
                 throw new ValidationException(
                         "Table changed since the metadata delete preflight; retry the statement");
-            }
-            if (!sameWriteIdentity(expectedMetadata, metadata)) {
-                throw new ValidationException(
-                        "Iceberg write metadata changed since the metadata delete preflight");
             }
         }
 
