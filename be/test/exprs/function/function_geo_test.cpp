@@ -21,6 +21,7 @@
 
 #include <iomanip>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -341,35 +342,116 @@ std::string encode_point(double x, double y) {
     point.encode_to(&buf);
     return buf;
 }
+
+using RowResults = std::vector<std::optional<uint8_t>>;
+
+// Executes a spatial relation function the way a scan thread does: one FunctionContext, opened
+// in both scopes, runs every block. Argument `const_arg` of each block is a constant shape, a
+// ColumnConst over a one-row column.
+class ConstShapeRunner {
+public:
+    ConstShapeRunner(const std::string& func_name, size_t const_arg) : _const_arg(const_arg) {
+        _arg_types[const_arg] = std::make_shared<DataTypeString>();
+        _arg_types[1 - const_arg] = make_nullable(std::make_shared<DataTypeString>());
+        Block sample_block = make_block("", {std::string()});
+        _func = SimpleFunctionFactory::instance().get_function(
+                func_name, sample_block.get_columns_with_type_and_name(), _return_type);
+        EXPECT_NE(nullptr, _func);
+        _fn_utils = std::make_unique<FunctionUtils>(
+                _return_type, std::vector<DataTypePtr> {_arg_types[0], _arg_types[1]}, false);
+        EXPECT_TRUE(
+                _func->open(fn_ctx(), FunctionContext::FunctionStateScope::FRAGMENT_LOCAL).ok());
+        EXPECT_TRUE(_func->open(fn_ctx(), FunctionContext::FunctionStateScope::THREAD_LOCAL).ok());
+    }
+
+    ~ConstShapeRunner() {
+        static_cast<void>(
+                _func->close(fn_ctx(), FunctionContext::FunctionStateScope::THREAD_LOCAL));
+        static_cast<void>(
+                _func->close(fn_ctx(), FunctionContext::FunctionStateScope::FRAGMENT_LOCAL));
+    }
+
+    // Runs one block whose other argument holds `values`, std::nullopt for NULL. Returns the
+    // result of each row, std::nullopt for NULL.
+    RowResults run(const std::string& const_value,
+                   const std::vector<std::optional<std::string>>& values) {
+        Block block = make_block(const_value, values);
+        block.insert({nullptr, _return_type, "result"});
+        Status status = _func->execute(fn_ctx(), block, {0, 1}, 2, values.size());
+        EXPECT_TRUE(status.ok()) << status;
+        if (!status.ok()) {
+            return {};
+        }
+        const auto& result = assert_cast<const ColumnNullable&>(*block.get_by_position(2).column);
+        const auto& data = assert_cast<const ColumnUInt8&>(result.get_nested_column()).get_data();
+        RowResults results;
+        for (size_t row = 0; row < values.size(); ++row) {
+            results.push_back(result.is_null_at(row) ? std::nullopt
+                                                     : std::optional<uint8_t>(data[row]));
+        }
+        return results;
+    }
+
+private:
+    FunctionContext* fn_ctx() { return _fn_utils->get_fn_ctx(); }
+
+    Block make_block(const std::string& const_value,
+                     const std::vector<std::optional<std::string>>& values) const {
+        auto const_column = ColumnString::create();
+        const_column->insert_data(const_value.data(), const_value.size());
+        auto value_column = ColumnString::create();
+        auto null_map = ColumnUInt8::create();
+        for (const auto& value : values) {
+            if (value) {
+                value_column->insert_data(value->data(), value->size());
+            } else {
+                value_column->insert_default();
+            }
+            null_map->insert_value(value ? 0 : 1);
+        }
+        ColumnWithTypeAndName columns[2];
+        columns[_const_arg] = {ColumnConst::create(std::move(const_column), values.size()),
+                               _arg_types[_const_arg], "const_shape"};
+        columns[1 - _const_arg] = {
+                ColumnNullable::create(std::move(value_column), std::move(null_map)),
+                _arg_types[1 - _const_arg], "shape"};
+        Block block;
+        block.insert(columns[0]);
+        block.insert(columns[1]);
+        return block;
+    }
+
+    size_t _const_arg;
+    DataTypePtr _arg_types[2];
+    DataTypePtr _return_type = make_nullable(std::make_shared<DataTypeUInt8>());
+    FunctionBasePtr _func;
+    std::unique_ptr<FunctionUtils> _fn_utils;
+};
 } // namespace
 
 // A constant polygon is decoded once and then checked against every row of the block.
 TEST(VGeoFunctionsTest, function_geo_st_contains_const_polygon) {
     std::string polygon = encode_wkt("POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))");
-    DataSet data_set = {{{polygon, encode_point(5, 5)}, (uint8_t)1},
-                        {{polygon, encode_point(50, 50)}, (uint8_t)0},
-                        {{polygon, encode_point(10, 5)}, (uint8_t)0},
-                        {{polygon, encode_point(10 - 5e-7, 5)}, (uint8_t)0},
-                        {{polygon, encode_point(10 - 2e-6, 5)}, (uint8_t)1},
-                        {{polygon, Null()}, Null()},
-                        {{polygon, encode_point(1, 9)}, (uint8_t)1}};
-    InputTypeSet input_types = {Consted {PrimitiveType::TYPE_VARCHAR}, PrimitiveType::TYPE_VARCHAR};
-    static_cast<void>(check_function<DataTypeUInt8, true>("st_contains", input_types, data_set));
-
+    std::vector<std::optional<std::string>> points = {
+            encode_point(5, 5),         encode_point(50, 50),       encode_point(10, 5),
+            encode_point(10 - 5e-7, 5), encode_point(10 - 2e-6, 5), std::nullopt,
+            encode_point(1, 9)};
+    RowResults expected = {1, 0, 0, 0, 1, std::nullopt, 1};
+    {
+        ConstShapeRunner runner("st_contains", 0);
+        EXPECT_EQ(expected, runner.run(polygon, points));
+    }
     // The polygon is the second argument of st_within.
-    DataSet within_data_set = {{{encode_point(5, 5), polygon}, (uint8_t)1},
-                               {{encode_point(50, 50), polygon}, (uint8_t)0},
-                               {{encode_point(1, 9), polygon}, (uint8_t)1}};
-    InputTypeSet within_input_types = {PrimitiveType::TYPE_VARCHAR,
-                                       Consted {PrimitiveType::TYPE_VARCHAR}};
-    static_cast<void>(
-            check_function<DataTypeUInt8, true>("st_within", within_input_types, within_data_set));
-
+    {
+        ConstShapeRunner runner("st_within", 1);
+        EXPECT_EQ(expected, runner.run(polygon, points));
+    }
     // An invalid constant makes every row NULL.
-    DataSet invalid_data_set = {{{std::string("invalid"), encode_point(5, 5)}, Null()},
-                                {{std::string("invalid"), encode_point(50, 50)}, Null()}};
-    static_cast<void>(
-            check_function<DataTypeUInt8, true>("st_contains", input_types, invalid_data_set));
+    {
+        ConstShapeRunner runner("st_contains", 0);
+        EXPECT_EQ((RowResults {std::nullopt, std::nullopt}),
+                  runner.run("invalid", {encode_point(5, 5), encode_point(50, 50)}));
+    }
 }
 
 // The decoded constant is kept in the thread-local state across blocks. A block whose constant
@@ -377,49 +459,13 @@ TEST(VGeoFunctionsTest, function_geo_st_contains_const_polygon) {
 TEST(VGeoFunctionsTest, function_geo_st_contains_const_polygon_across_blocks) {
     std::string small_polygon = encode_wkt("POLYGON ((0 0, 10 0, 10 10, 0 10, 0 0))");
     std::string large_polygon = encode_wkt("POLYGON ((0 0, 30 0, 30 30, 0 30, 0 0))");
-    std::string inside_both = encode_point(5, 5);
-    std::string inside_large = encode_point(20, 20);
+    std::vector<std::optional<std::string>> points = {encode_point(5, 5), encode_point(20, 20)};
 
-    DataTypePtr string_type = std::make_shared<DataTypeString>();
-    DataTypePtr return_type = make_nullable(std::make_shared<DataTypeUInt8>());
-    auto make_block = [&](const std::string& polygon) {
-        auto polygon_column = ColumnString::create();
-        polygon_column->insert_data(polygon.data(), polygon.size());
-        auto point_column = ColumnString::create();
-        point_column->insert_data(inside_both.data(), inside_both.size());
-        point_column->insert_data(inside_large.data(), inside_large.size());
-        Block block;
-        block.insert({ColumnConst::create(std::move(polygon_column), 2), string_type, "polygon"});
-        block.insert({std::move(point_column), string_type, "point"});
-        return block;
-    };
-
-    Block sample_block = make_block(small_polygon);
-    auto func = SimpleFunctionFactory::instance().get_function(
-            "st_contains", sample_block.get_columns_with_type_and_name(), return_type);
-    ASSERT_NE(nullptr, func);
-    FunctionUtils fn_utils(return_type, {string_type, string_type}, false);
-    auto* fn_ctx = fn_utils.get_fn_ctx();
-    ASSERT_TRUE(func->open(fn_ctx, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL).ok());
-    ASSERT_TRUE(func->open(fn_ctx, FunctionContext::FunctionStateScope::THREAD_LOCAL).ok());
-
-    auto contains = [&](const std::string& polygon) {
-        Block block = make_block(polygon);
-        block.insert({nullptr, return_type, "result"});
-        EXPECT_TRUE(func->execute(fn_ctx, block, {0, 1}, 2, 2).ok());
-        const auto& result = assert_cast<const ColumnNullable&>(*block.get_by_position(2).column);
-        EXPECT_FALSE(result.is_null_at(0));
-        EXPECT_FALSE(result.is_null_at(1));
-        const auto& data = assert_cast<const ColumnUInt8&>(result.get_nested_column()).get_data();
-        return std::vector<uint8_t> {data[0], data[1]};
-    };
-    EXPECT_EQ((std::vector<uint8_t> {1, 0}), contains(small_polygon));
-    EXPECT_EQ((std::vector<uint8_t> {1, 0}), contains(small_polygon));
-    EXPECT_EQ((std::vector<uint8_t> {1, 1}), contains(large_polygon));
-    EXPECT_EQ((std::vector<uint8_t> {1, 0}), contains(small_polygon));
-
-    static_cast<void>(func->close(fn_ctx, FunctionContext::FunctionStateScope::THREAD_LOCAL));
-    static_cast<void>(func->close(fn_ctx, FunctionContext::FunctionStateScope::FRAGMENT_LOCAL));
+    ConstShapeRunner runner("st_contains", 0);
+    EXPECT_EQ((RowResults {1, 0}), runner.run(small_polygon, points));
+    EXPECT_EQ((RowResults {1, 0}), runner.run(small_polygon, points));
+    EXPECT_EQ((RowResults {1, 1}), runner.run(large_polygon, points));
+    EXPECT_EQ((RowResults {1, 0}), runner.run(small_polygon, points));
 }
 
 TEST(VGeoFunctionsTest, function_geo_st_circle) {
