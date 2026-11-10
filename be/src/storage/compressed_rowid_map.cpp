@@ -60,6 +60,10 @@ Status zstd_status(size_t result) {
 }
 } // namespace
 
+void CompressedRowIdMap::PayloadDeleter::operator()(uint8_t* data) const noexcept {
+    Allocator<false>().free(data, bytes);
+}
+
 struct CompressedRowIdMap::Cursor::Impl : TrackedRowIdObject {
     DorisUniqueBufferPtr<uint64_t> values {BLOCK_ROWS};
     const CompressedRowIdMap* owner = nullptr;
@@ -120,17 +124,13 @@ struct CompressedRowIdMap::Impl : TrackedRowIdObject {
         }
     };
     DorisVector<Source> sources;
-    DorisVector<DorisUniqueBufferPtr<uint8_t>> pages;
-    size_t page_used = PAGE_BYTES;
     std::unique_ptr<Encoder> encoder;
     MemoryUsage usage;
     bool finished = false;
 
     void update_usage() {
-        usage.metadata_bytes = sizeof(Impl) + sources.capacity() * sizeof(Source) +
-                               pages.capacity() * sizeof(DorisUniqueBufferPtr<uint8_t>);
+        usage.metadata_bytes = sizeof(Impl) + sources.capacity() * sizeof(Source);
         usage.encoder_bytes = encoder == nullptr ? 0 : Encoder::memory_usage();
-        usage.arena_capacity = pages.size() * PAGE_BYTES;
         usage.peak_bytes = std::max(usage.peak_bytes, usage.allocated_bytes());
     }
 
@@ -139,14 +139,12 @@ struct CompressedRowIdMap::Impl : TrackedRowIdObject {
             return;
         }
         DORIS_CHECK_LE(payload.size(), BLOCK_ROWS * sizeof(uint64_t));
-        if (PAGE_BYTES - page_used < payload.size()) {
-            pages.push_back(make_unique_buffer<uint8_t>(PAGE_BYTES));
-            page_used = 0;
-        }
-        meta.offset = (pages.size() - 1) * PAGE_BYTES + page_used;
+        // One allocation per nonempty source block; the allocator handles small
+        // buffers. Moving the directory entry transfers ownership without copying bytes.
+        meta.payload = Payload(static_cast<uint8_t*>(Allocator<false>().alloc(payload.size())),
+                               PayloadDeleter {payload.size()});
         meta.payload_bytes = static_cast<uint32_t>(payload.size());
-        memcpy(pages.back().get() + page_used, payload.data(), payload.size());
-        page_used += payload.size();
+        memcpy(meta.payload.get(), payload.data(), payload.size());
         usage.payload_bytes += payload.size();
     }
 
@@ -174,7 +172,7 @@ struct CompressedRowIdMap::Impl : TrackedRowIdObject {
         meta.kind = linear ? Kind::LINEAR : Kind::DELTA;
         meta.flags = meta.live == meta.rows ? 0 : flag_bits(Flag::BITMAP);
         if (linear && meta.flags == 0) {
-            source.blocks[source.current_block] = meta;
+            source.blocks[source.current_block] = std::move(meta);
             return Status::OK();
         }
         if (encoder == nullptr) {
@@ -228,7 +226,7 @@ struct CompressedRowIdMap::Impl : TrackedRowIdObject {
             payload = {reinterpret_cast<const uint8_t*>(source.builder.get()), meta.plain_bytes};
         }
         append_payload(meta, payload);
-        source.blocks[source.current_block] = meta;
+        source.blocks[source.current_block] = std::move(meta);
         update_usage();
         return Status::OK();
     }
@@ -319,17 +317,13 @@ const CompressedRowIdMap::BlockMeta& CompressedRowIdMap::block_meta(uint32_t sou
 
 Status CompressedRowIdMap::block_payload(const BlockMeta& meta,
                                          std::span<const uint8_t>* payload) const {
-    if (meta.payload_bytes == 0) {
-        *payload = {};
-        return Status::OK();
+    // Corrupt length metadata must fail before the decoder can read past this
+    // block's allocation; a missing owner with a nonempty length is invalid as well.
+    if (meta.payload_bytes != meta.payload.get_deleter().bytes ||
+        (meta.payload_bytes != 0 && meta.payload == nullptr)) {
+        return invalid_block("payload allocation/length");
     }
-    uint64_t page = meta.offset / PAGE_BYTES;
-    size_t offset = meta.offset % PAGE_BYTES;
-    if (page >= _impl->pages.size() || meta.payload_bytes > PAGE_BYTES - offset ||
-        (page == _impl->pages.size() - 1 && offset + meta.payload_bytes > _impl->page_used)) {
-        return invalid_block("payload outside arena");
-    }
-    *payload = {_impl->pages[page].get() + offset, meta.payload_bytes};
+    *payload = {meta.payload.get(), meta.payload_bytes};
     return Status::OK();
 }
 

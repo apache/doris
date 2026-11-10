@@ -23,6 +23,7 @@
 #include <chrono>
 #include <cstdio>
 #include <random>
+#include <utility>
 #include <vector>
 
 #include "runtime/thread_context.h"
@@ -54,9 +55,8 @@ TEST(CompressedRowIdMapTest, EmptyLinearAndVeryLargeSourceDoNotAllocateDenseRows
     }
     ASSERT_TRUE(map.finish().ok());
     auto usage = map.memory_usage();
-    EXPECT_EQ(usage.directory_bytes, (244141 + 2) * 32);
+    EXPECT_EQ(usage.directory_bytes, (244141 + 2) * sizeof(Map::BlockMeta));
     EXPECT_EQ(usage.payload_bytes, 0);
-    EXPECT_EQ(usage.arena_capacity, 0);
     EXPECT_EQ(usage.builder_bytes, 0);
     EXPECT_EQ(usage.encoder_bytes, 0);
     Map::Cursor cursor;
@@ -93,7 +93,7 @@ TEST(CompressedRowIdMapTest, MixedBlocksGapsWideOrdinalsAndBackwardSeeks) {
         ASSERT_TRUE(map.get(0, row, cursor, workspace, &result).ok());
         ASSERT_EQ(result, expected[row]);
     }
-    EXPECT_EQ(map.memory_usage().arena_capacity, Map::PAGE_BYTES);
+    EXPECT_GT(map.memory_usage().payload_bytes, 0);
     EXPECT_GT(cursor.decoded_blocks(), 100);
     EXPECT_LT(cursor.memory_usage(), 33 * 1024);
 }
@@ -187,20 +187,22 @@ TEST(CompressedRowIdMapTest, CorruptDirectoryBitmapVarintAndZstdReturnErrors) {
     ASSERT_TRUE(map.init_source(4096).ok());
     for (uint32_t row = 0; row < 4096; row += 2) ASSERT_TRUE(map.append(0, row, row * 13).ok());
     ASSERT_TRUE(map.finish().ok());
-    auto good = map.block_meta(0, 0);
     auto& meta = const_cast<Map::BlockMeta&>(map.block_meta(0, 0));
     Map::Cursor cursor;
     Map::DecodeWorkspace workspace;
     uint64_t target;
-    meta.offset = UINT64_MAX;
+    auto payload_owner = std::move(meta.payload);
     EXPECT_FALSE(map.get(0, 0, cursor, workspace, &target).ok());
-    meta = good;
+    meta.payload = std::move(payload_owner);
+    meta.payload_bytes++;
+    EXPECT_FALSE(map.get(0, 0, cursor, workspace, &target).ok());
+    meta.payload_bytes--;
     meta.rows--;
     EXPECT_FALSE(map.get(0, 0, cursor, workspace, &target).ok());
-    meta = good;
+    meta.rows++;
     meta.plain_bytes++;
     EXPECT_FALSE(map.get(0, 0, cursor, workspace, &target).ok());
-    meta = good;
+    meta.plain_bytes--;
     std::span<const uint8_t> payload;
     ASSERT_TRUE(map.block_payload(meta, &payload).ok());
     ASSERT_NE(meta.flags & Map::flag_bits(Map::Flag::ZSTD), 0);
@@ -234,7 +236,7 @@ TEST(CompressedRowIdMapTest, CorruptDirectoryBitmapVarintAndZstdReturnErrors) {
     EXPECT_FALSE(Map::decode(malformed, padding, cursor, workspace).ok());
 }
 
-TEST(CompressedRowIdMapTest, SharedArenaPagesAndMetadataAccountForWholeMap) {
+TEST(CompressedRowIdMapTest, OwnedPayloadsAndMetadataAccountForWholeMap) {
     Map map;
     constexpr uint32_t SOURCES = 8;
     constexpr uint32_t ROWS = 32768;
@@ -251,15 +253,36 @@ TEST(CompressedRowIdMapTest, SharedArenaPagesAndMetadataAccountForWholeMap) {
     }
     ASSERT_TRUE(map.finish().ok());
     auto usage = map.memory_usage();
-    EXPECT_EQ(usage.directory_bytes, 64 * 32);
-    EXPECT_GT(usage.payload_bytes, Map::PAGE_BYTES);
-    EXPECT_EQ(usage.arena_capacity, 2 * Map::PAGE_BYTES);
+    EXPECT_EQ(usage.directory_bytes, 64 * sizeof(Map::BlockMeta));
+    EXPECT_GT(usage.payload_bytes, 1U << 20);
     EXPECT_GT(usage.metadata_bytes, 0);
     EXPECT_GE(usage.peak_bytes, usage.allocated_bytes());
     Map::Cursor cursor;
     Map::DecodeWorkspace workspace;
     for (uint32_t source = 0; source < SOURCES; ++source)
         check_rows(map, source, oracle[source], cursor, workspace);
+}
+
+TEST(CompressedRowIdMapTest, TinyPayloadUsesOnlyItsOwnAllocation) {
+    MemTracker tracker("compressed-rowid-tiny-payload");
+    SCOPED_CONSUME_MEM_TRACKER(&tracker);
+    {
+        Map map;
+        ASSERT_TRUE(map.init_source(4).ok());
+        ASSERT_TRUE(map.append(0, 0, 100).ok());
+        ASSERT_TRUE(map.append(0, 2, 103).ok());
+        ASSERT_TRUE(map.append(0, 3, 104).ok());
+        ASSERT_TRUE(map.finish().ok());
+        thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
+        EXPECT_EQ(map.memory_usage().payload_bytes, 3);
+        EXPECT_EQ(tracker.consumption(), map.memory_usage().allocated_bytes());
+        EXPECT_LT(tracker.consumption(), 4096); // No minimum arena page remains.
+        Map::Cursor cursor;
+        Map::DecodeWorkspace workspace;
+        check_rows(map, 0, {100, MISSING, 103, 104}, cursor, workspace);
+    }
+    thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
+    EXPECT_EQ(tracker.consumption(), 0);
 }
 
 TEST(CompressedRowIdMapTest, SourceViewsMatchDenseAndValidateSniiCoverage) {
@@ -336,7 +359,7 @@ TEST(CompressedRowIdMapTest, TrackedMemoryIsBalancedAndAllocationFailureIsAStatu
     EXPECT_EQ(consumed(), baseline);
     {
         Map map;
-        auto status = map.init_source(UINT32_MAX); // 32 MiB directory plus existing objects.
+        auto status = map.init_source(UINT32_MAX); // 40 MiB directory exceeds this tracker limit.
         EXPECT_TRUE(status.is<ErrorCode::MEM_LIMIT_EXCEEDED>()) << status;
     }
     EXPECT_EQ(consumed(), baseline);
@@ -462,6 +485,8 @@ TEST(CompressedRowIdMapBenchmark, ReportsWholeMapMemoryAndLookupCosts) {
             thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
             const int64_t tracked_build_peak = tracker.peak_consumption();
             const int64_t tracked_retained = tracker.consumption();
+            MemTracker read_tracker("compressed-rowid-read-benchmark");
+            SCOPED_CONSUME_MEM_TRACKER(&read_tracker);
             Map::DecodeWorkspace workspace;
             std::vector<Map::Cursor> cursors(sources);
             uint64_t sum = 0;
@@ -516,21 +541,98 @@ TEST(CompressedRowIdMapBenchmark, ReportsWholeMapMemoryAndLookupCosts) {
             const int64_t tracked_total_peak = tracker.peak_consumption();
             const auto memory = map.memory_usage();
             printf("ROWID_BENCH rows=%u sources=%u gap=%u dense_bytes=%zu oracle_bytes=%zu "
-                   "directory=%zu payload=%zu arena_capacity=%zu metadata=%zu retained=%zu "
+                   "directory=%zu payload=%zu metadata=%zu retained=%zu "
                    "owned_peak=%zu cursor_bytes=%zu workspace=%zu build_ms=%.3f sequential_ms=%.3f "
                    "sequential_decodes=%lu sparse_4096_ms=%.3f random_4096_ms=%.3f checksum=%lu "
                    "cold_decode_ms=%.3f dense_build_ms=%.3f dense_sequential_ms=%.3f "
-                   "tracked_build_peak=%ld tracked_retained=%ld tracked_total_peak=%ld "
+                   "tracked_build_peak=%ld tracked_retained=%ld tracked_read_peak=%ld "
+                   "tracked_total_peak=%ld "
                    "builders_before_finish=%zu encoder_before_finish=%zu\n",
                    ROWS, sources, gap, ROWS * sizeof(uint64_t), ROWS * sizeof(uint64_t),
-                   memory.directory_bytes, memory.payload_bytes, memory.arena_capacity,
-                   memory.metadata_bytes, memory.allocated_bytes(), memory.peak_bytes, cursor_bytes,
+                   memory.directory_bytes, memory.payload_bytes, memory.metadata_bytes,
+                   memory.allocated_bytes(), memory.peak_bytes, cursor_bytes,
                    workspace.memory_usage(), build_ms, sequential_ms, sequential_decodes, sparse_ms,
                    random_ms, sum, cold_decode_ms, dense_build_ms, dense_sequential_ms,
-                   tracked_build_peak, tracked_retained, tracked_total_peak,
+                   tracked_build_peak, tracked_retained,
+                   tracked_retained + read_tracker.peak_consumption(), tracked_total_peak,
                    before_finish.builder_bytes, before_finish.encoder_bytes);
         }
     }
+}
+
+TEST(CompressedRowIdMapBenchmark, ReportsLargeJointMappingMemoryAndLookupCosts) {
+    using Clock = std::chrono::steady_clock;
+    auto ms = [](auto start) {
+        return std::chrono::duration<double, std::milli>(Clock::now() - start).count();
+    };
+    constexpr uint32_t SOURCES = 16;
+    constexpr uint32_t PER_SOURCE = 1 << 20;
+    constexpr uint32_t ROWS = SOURCES * PER_SOURCE;
+    MemTracker tracker("compressed-rowid-large-benchmark");
+    SCOPED_CONSUME_MEM_TRACKER(&tracker);
+    Map map;
+    auto start = Clock::now();
+    for (uint32_t source = 0; source < SOURCES; ++source)
+        ASSERT_TRUE(map.init_source(PER_SOURCE).ok());
+    // Joint output ordinals cover [0, output_rows) exactly. Replay the seed when
+    // reading, so no dense oracle is needed for this 128 MiB-equivalent mapping.
+    std::mt19937 random(89);
+    uint64_t output_rows = 0;
+    for (uint32_t row = 0; row < PER_SOURCE; ++row) {
+        for (uint32_t source = 0; source < SOURCES; ++source) {
+            if (random() % 10 != 0) ASSERT_TRUE(map.append(source, row, output_rows++).ok());
+        }
+    }
+    const auto before_finish = map.memory_usage();
+    ASSERT_TRUE(map.finish().ok());
+    const double build_ms = ms(start);
+    thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
+    const int64_t tracked_build_peak = tracker.peak_consumption();
+    const int64_t tracked_retained = tracker.consumption();
+    MemTracker read_tracker("compressed-rowid-large-read-benchmark");
+    SCOPED_CONSUME_MEM_TRACKER(&read_tracker);
+
+    Map::DecodeWorkspace workspace;
+    std::vector<Map::Cursor> cursors(SOURCES);
+    random.seed(89);
+    uint64_t expected = 0;
+    uint64_t checksum = 0;
+    start = Clock::now();
+    for (uint32_t row = 0; row < PER_SOURCE; ++row) {
+        for (uint32_t source = 0; source < SOURCES; ++source) {
+            const uint64_t target = random() % 10 != 0 ? expected++ : MISSING;
+            uint64_t value;
+            ASSERT_TRUE(map.get(source, row, cursors[source], workspace, &value).ok());
+            ASSERT_EQ(value, target);
+            if (value != MISSING) checksum += value;
+        }
+    }
+    const double sequential_ms = ms(start);
+    ASSERT_EQ(expected, output_rows);
+    EXPECT_EQ(checksum, output_rows * (output_rows - 1) / 2);
+    uint64_t sequential_decodes = 0;
+    size_t cursor_bytes = 0;
+    for (const auto& cursor : cursors) {
+        sequential_decodes += cursor.decoded_blocks();
+        cursor_bytes += cursor.memory_usage();
+    }
+    EXPECT_EQ(sequential_decodes, ROWS / Map::BLOCK_ROWS);
+    thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
+    const auto memory = map.memory_usage();
+    EXPECT_EQ(tracker.consumption(),
+              memory.allocated_bytes() + cursor_bytes + workspace.memory_usage());
+    printf("ROWID_LARGE_BENCH rows=%u sources=%u output_rows=%lu dense_bytes=%zu "
+           "directory=%zu payload=%zu metadata=%zu retained=%zu owned_peak=%zu "
+           "builders_before_finish=%zu encoder_before_finish=%zu cursor_bytes=%zu workspace=%zu "
+           "tracked_build_peak=%ld tracked_retained=%ld tracked_read_peak=%ld "
+           "tracked_total_peak=%ld "
+           "build_ms=%.3f sequential_ms=%.3f sequential_decodes=%lu checksum=%lu\n",
+           ROWS, SOURCES, output_rows, ROWS * sizeof(uint64_t), memory.directory_bytes,
+           memory.payload_bytes, memory.metadata_bytes, memory.allocated_bytes(), memory.peak_bytes,
+           before_finish.builder_bytes, before_finish.encoder_bytes, cursor_bytes,
+           workspace.memory_usage(), tracked_build_peak, tracked_retained,
+           tracked_retained + read_tracker.peak_consumption(), tracker.peak_consumption(), build_ms,
+           sequential_ms, sequential_decodes, checksum);
 }
 
 } // namespace
