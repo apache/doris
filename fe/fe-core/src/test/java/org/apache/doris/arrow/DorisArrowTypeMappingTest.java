@@ -160,7 +160,6 @@ public class DorisArrowTypeMappingTest {
                 row(PrimitiveType.ARRAY, new ArrowType.List()),
                 row(PrimitiveType.MAP, new ArrowType.Map(false)),
                 row(PrimitiveType.STRUCT, new ArrowType.Struct()),
-                row(PrimitiveType.FILE, new ArrowType.Null()),
                 // Types that never name a stored column fall through to Null.
                 row(PrimitiveType.INVALID_TYPE, new ArrowType.Null()),
                 row(PrimitiveType.UNSUPPORTED, new ArrowType.Null()),
@@ -178,15 +177,29 @@ public class DorisArrowTypeMappingTest {
     }
 
     /**
-     * A type this table does not know is a type whose schema nobody has looked at: a new
-     * {@link PrimitiveType} must get a row here, and the row must say what BE emits for it.
+     * Every primitive type has a mapping or an explicit rejection test.
      */
     @Test
-    public void everyPrimitiveTypeHasARow() {
+    public void everyPrimitiveTypeIsCovered() {
         Set<PrimitiveType> covered = mapping().map(row -> (PrimitiveType) row.get()[0])
                 .collect(Collectors.toSet());
+        covered.add(PrimitiveType.FILE);
         for (PrimitiveType type : PrimitiveType.values()) {
-            Assertions.assertTrue(covered.contains(type), type + " has no row in the mapping table");
+            Assertions.assertTrue(covered.contains(type), type + " has no mapping or rejection coverage");
+        }
+    }
+
+    @Test
+    public void fileAndNestedFileHaveNoArrowRepresentation() {
+        Assertions.assertThrows(UnsupportedOperationException.class,
+                () -> arrowType(PrimitiveType.FILE, null, null));
+        for (TColumnDesc column : Arrays.asList(
+                desc("file", TPrimitiveType.FILE),
+                desc("files", TPrimitiveType.ARRAY, desc("item", TPrimitiveType.FILE)),
+                desc("files", TPrimitiveType.MAP,
+                        desc("key", TPrimitiveType.STRING), desc("value", TPrimitiveType.FILE)),
+                desc("holder", TPrimitiveType.STRUCT, desc("file", TPrimitiveType.FILE)))) {
+            Assertions.assertThrows(UnsupportedOperationException.class, () -> buildField(column));
         }
     }
 

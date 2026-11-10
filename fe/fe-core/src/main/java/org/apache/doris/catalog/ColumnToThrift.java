@@ -40,7 +40,6 @@ public class ColumnToThrift {
     }
 
     public static TColumn toThrift(Column column) {
-        column.validateFileSchema();
         TColumn tColumn = new TColumn();
         tColumn.setColumnName(column.getNonShadowName());
 
@@ -131,7 +130,6 @@ public class ColumnToThrift {
     }
 
     public static void setChildrenTColumn(Column children, TColumn tColumn) {
-        children.validateFileSchema();
         TColumn childrenTColumn = new TColumn();
         childrenTColumn.setColumnName(children.getName());
 

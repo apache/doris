@@ -58,6 +58,7 @@ import org.apache.doris.thrift.TPipelineWorkloadGroup;
 import org.apache.doris.thrift.TQueryGlobals;
 import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TResourceLimit;
+import org.apache.doris.thrift.TS3Resource;
 import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeParams;
 import org.apache.doris.thrift.TUniqueId;
@@ -98,6 +99,7 @@ public class CoordinatorContext {
     public final TQueryGlobals queryGlobals;
     public final TQueryOptions queryOptions;
     public final TDescriptorTable descriptorTable;
+    public final Map<String, TS3Resource> s3Resources;
     public final TNetworkAddress coordinatorAddress
             = new TNetworkAddress(FrontendOptions.getLocalHostAddress(), Config.rpc_port);
     // public final TNetworkAddress directConnectFrontendAddress;
@@ -141,7 +143,8 @@ public class CoordinatorContext {
             ExecutionProfile executionProfile,
             TQueryGlobals queryGlobals,
             TQueryOptions queryOptions,
-            TDescriptorTable descriptorTable) {
+            TDescriptorTable descriptorTable,
+            Map<String, TS3Resource> s3Resources) {
         this.connectContext = connectContext;
         this.fragments = fragments;
         this.distributedPlans = distributedPlans;
@@ -155,6 +158,7 @@ public class CoordinatorContext {
         this.queryGlobals = queryGlobals;
         this.queryOptions = queryOptions;
         this.descriptorTable = descriptorTable;
+        this.s3Resources = s3Resources;
 
         this.coordinator = Objects.requireNonNull(coordinator, "coordinator can not be null");
     }
@@ -181,6 +185,7 @@ public class CoordinatorContext {
         this.queryOptions = queryOptions;
         this.queryGlobals = queryGlobals;
         this.descriptorTable = descriptorTable;
+        this.s3Resources = Map.of();
         this.executionProfile = executionProfile;
 
         this.connectContext = ConnectContext.get();
@@ -308,7 +313,8 @@ public class CoordinatorContext {
                 coordinator, connectContext,
                 planner.getDistributedPlans().valueList(),
                 planner.getFragments(), planner.getRuntimeFilters(), planner.getTopnFilters(),
-                planner.getScanNodes(), executionProfile, queryGlobals, queryOptions, descriptorTable
+                planner.getScanNodes(), executionProfile, queryGlobals, queryOptions, descriptorTable,
+                planner.getS3Resources()
         );
     }
 
