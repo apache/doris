@@ -17,6 +17,7 @@
 
 #include "io/fs/obj_storage_file_reader.h"
 
+#include <aws/core/http/URI.h>
 #include <bvar/latency_recorder.h>
 #include <bvar/reducer.h>
 #include <fmt/format.h>
@@ -98,6 +99,8 @@ ObjStorageFileReader::ObjStorageFileReader(std::shared_ptr<const ObjClientHolder
     DorisMetrics::instance()->s3_file_reader_total->increment(1);
     obj_storage_file_reader_total << 1;
     obj_storage_file_being_read << 1;
+
+    Aws::Http::SetCompliantRfc3986Encoding(true);
 }
 
 ObjStorageFileReader::~ObjStorageFileReader() {

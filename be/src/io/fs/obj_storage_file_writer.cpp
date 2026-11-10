@@ -17,6 +17,7 @@
 
 #include "io/fs/obj_storage_file_writer.h"
 
+#include <aws/core/http/URI.h>
 #include <bvar/recorder.h>
 #include <bvar/reducer.h>
 #include <bvar/window.h>
@@ -71,6 +72,7 @@ ObjStorageFileWriter::ObjStorageFileWriter(std::shared_ptr<ObjClientHolder> clie
           _obj_client(std::move(client)) {
     obj_storage_file_writer_total << 1;
     obj_storage_file_being_written << 1;
+    Aws::Http::SetCompliantRfc3986Encoding(true);
 
     init_cache_builder(opts, _obj_storage_path_opts.path);
 }

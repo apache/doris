@@ -42,11 +42,6 @@ AwsSdkManager::AwsSdkManager() {
     _aws_options.loggingOptions.logger_create_fn = [logLevel] {
         return std::make_shared<DorisAWSLogger>(logLevel);
     };
-    // Object keys must be encoded strictly by RFC 3986 in request URIs. The setting is global
-    // to the SDK, and InitAPI sets it from these options, so it is not reset to the SDK default
-    // false; every object storage client is built after this factory (ObjClientFactory
-    // initializes it first).
-    _aws_options.httpOptions.compliantRfc3986Encoding = true;
     Aws::InitAPI(_aws_options);
     _get_ca_cert_file_path();
 
