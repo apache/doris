@@ -65,6 +65,7 @@ protected:
         plan_node.__set_node_type(TPlanNodeType::OLAP_SCAN_NODE);
         plan_node.__set_num_children(0);
         plan_node.__set_row_tuples({0});
+        plan_node.__set_nullable_tuples({false});
         plan_node.__set_olap_scan_node(olap_scan_node);
 
         _parent = std::make_shared<OlapScanOperatorX>(&_pool, plan_node, 0, *_descs, 1,
@@ -122,11 +123,10 @@ protected:
 
     void check_expression_fallback(VExprContext* ctx) {
         // Rejecting pushdown must leave both LIKE and NOT LIKE for expression evaluation.
-        std::vector<std::shared_ptr<ColumnPredicate>> predicates;
         auto pdt = PushDownType::UNACCEPTABLE;
-        auto st = _local_state->_normalize_function_filters(ctx, _key_slot, predicates, &pdt);
+        auto st = _local_state->_normalize_function_filters(ctx, _key_slot, &pdt);
         ASSERT_TRUE(st.ok()) << st.to_string();
-        EXPECT_TRUE(predicates.empty());
+        EXPECT_TRUE(_local_state->_push_down_functions.empty());
         EXPECT_EQ(pdt, PushDownType::UNACCEPTABLE);
     }
 };
