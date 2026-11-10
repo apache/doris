@@ -210,15 +210,10 @@ public class TimestampTzLiteral extends DateTimeLiteral {
         if (isDateOutOfRange(local.toLocalDateTime()) || isDateOutOfRange(target)) {
             throw new AnalysisException("datetime out of range: " + target);
         }
-        // Keep the original offset when the target repeats: November 4 01:30-05 minus
-        // one day selects the second occurrence of November 3 01:30 in New York.
-        if (zone.getRules().getValidOffsets(target).contains(local.getOffset())) {
-            return fromJavaDateType(LocalDateTime.ofInstant(
-                    target.toInstant(local.getOffset()), ZoneOffset.UTC), getScale());
-        }
-        // Match BE cctz's gap policy (the transition instant), retaining microseconds.
+        // Keep the original offset in an overlap and shift gap input by the gap length,
+        // matching BE lookup.pre: New York's 2024-03-10 02:30 becomes 03:30.
         return fromJavaDateType(LocalDateTime.ofInstant(
-                convertLocalToInstantPreservingFraction(target, zone), ZoneOffset.UTC), getScale());
+                ZonedDateTime.ofLocal(target, zone, local.getOffset()).toInstant(), ZoneOffset.UTC), getScale());
     }
 
     /**

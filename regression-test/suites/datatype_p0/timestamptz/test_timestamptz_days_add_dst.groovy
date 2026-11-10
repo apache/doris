@@ -17,6 +17,7 @@
 
 suite("test_timestamptz_days_add_dst") {
     sql "SET time_zone = 'America/New_York'"
+    sql "SET enable_sql_cache = false"
     sql "DROP TABLE IF EXISTS timestamptz_days_add_dst"
     sql """
         CREATE TABLE timestamptz_days_add_dst (id INT, ts TIMESTAMPTZ(6), delta INT)
@@ -38,7 +39,8 @@ suite("test_timestamptz_days_add_dst") {
         (10, NULL, 1),
         (11, '2024-03-09 12:00:00.123456-05:00', NULL),
         (12, '2024-11-03 01:50:00.123456-04:00', 1),
-        (13, '2024-11-03 01:10:00.123456-05:00', 1)
+        (13, '2024-11-03 01:10:00.123456-05:00', 1),
+        (14, '2024-03-11 02:30:00.123456-04:00', -1)
     """
     sql "DROP TABLE IF EXISTS timestamptz_days_zero_events"
     sql "DROP TABLE IF EXISTS timestamptz_days_zero_ids"
@@ -85,6 +87,8 @@ suite("test_timestamptz_days_add_dst") {
                        CAST(days_sub(CAST('2024-11-04 01:30:00.123456-05:00' AS TIMESTAMPTZ(6)), 1)
                             AS STRING),
                        CAST(days_add(CAST('2024-03-09 02:30:00.123456-05:00' AS TIMESTAMPTZ(6)), 1)
+                            AS STRING),
+                       CAST(days_sub(CAST('2024-03-11 02:30:00.123456-04:00' AS TIMESTAMPTZ(6)), 1)
                             AS STRING)
             """)
             // Cover vector/vector, vector/constant, constant/vector, and NULL propagation.
@@ -137,6 +141,7 @@ suite("test_timestamptz_days_add_dst") {
             sql "SET time_zone = 'America/New_York'"
         }
     } finally {
+        sql "SET enable_sql_cache = default"
         sql "SET debug_skip_fold_constant = false"
         sql "SET runtime_filter_mode = default"
         sql "SET time_zone = default"

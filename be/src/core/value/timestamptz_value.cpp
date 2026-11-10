@@ -197,9 +197,9 @@ void TimestampTzValue::convert_local_to_utc(const cctz::time_zone& local_time_zo
     cctz::civil_second local_cs(dt.year(), dt.month(), dt.day(), dt.hour(), dt.minute(),
                                 dt.second());
     const auto lookup = local_time_zone.lookup(local_cs);
-    // Match cctz::convert's gap policy without repeating the civil-time lookup.
-    auto local_tp =
-            lookup.kind == cctz::time_zone::civil_lookup::SKIPPED ? lookup.trans : lookup.pre;
+    // Use the pre-transition offset to shift gap input by the gap length, e.g. New York's
+    // 2024-03-10 02:30 becomes 03:30. The preferred offset applies only to an overlap.
+    auto local_tp = lookup.pre;
 
     if (lookup.kind == cctz::time_zone::civil_lookup::REPEATED) {
         const auto pre_offset = local_time_zone.lookup(lookup.pre).offset;
