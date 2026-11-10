@@ -191,11 +191,7 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
                 return commonCheckResult;
             }
         }
-        TypeCheckResult result = checkInputDataTypesInternal();
-        if (result.success()) {
-            ExpressionUtils.checkFileExpression(this);
-        }
-        return result;
+        return checkInputDataTypesInternal();
     }
 
     public int fastChildrenHashCode() {
