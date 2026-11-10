@@ -900,4 +900,23 @@ TEST_F(ObjClientFactoryTest, ExpiredSasFailsBeforeAnyClientIsBuilt) {
     EXPECT_EQ(holder.get(), nullptr);
 }
 
+TEST_F(ObjClientFactoryTest, VaultSseSettingIsLoggedAndReusesTheClient) {
+    cloud::ObjectStoreInfoPB vault;
+    vault.set_provider(cloud::ObjectStoreInfoPB_Provider_S3);
+    vault.set_endpoint(unique_endpoint("vault-sse"));
+    vault.set_region("us-east-1");
+    vault.set_bucket("bucket");
+
+    auto storage = TEST_TRY(ObjStorageConfigResolver::from_object_store_info(vault));
+    EXPECT_NE(storage.to_string().find("sse_enabled=false"), std::string::npos);
+    auto& factory = ObjClientFactory::instance();
+    auto client = TEST_TRY(factory.get_or_create(storage.client));
+
+    vault.set_sse_enabled(true);
+    auto updated = TEST_TRY(ObjStorageConfigResolver::from_object_store_info(vault));
+    EXPECT_NE(updated.to_string().find("sse_enabled=true"), std::string::npos);
+    auto cached = TEST_TRY(factory.get_or_create(updated.client));
+    EXPECT_EQ(client, cached);
+}
+
 } // namespace doris::io

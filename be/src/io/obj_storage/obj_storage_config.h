@@ -135,6 +135,8 @@ struct ObjStorageConfig {
     std::string bucket;
     std::string prefix;
     ObjClientConfig client;
+    // Vault metadata reported in BE diagnostics.
+    bool sse_enabled = false;
 
     // Credentials are masked.
     std::string to_string() const;

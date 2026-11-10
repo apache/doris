@@ -195,7 +195,8 @@ std::string ObjClientConfig::to_string() const {
 }
 
 std::string ObjStorageConfig::to_string() const {
-    return fmt::format("(bucket={}, prefix={}, client={})", bucket, prefix, client.to_string());
+    return fmt::format("(bucket={}, prefix={}, client={}, sse_enabled={})", bucket, prefix,
+                       client.to_string(), sse_enabled);
 }
 
 Status validate_obj_client_config(const ObjClientConfig& config) {
