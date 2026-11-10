@@ -746,6 +746,14 @@ public class ConnectContext {
         return merged;
     }
 
+    /** Restore session roles separately so retained account identities never inherit request authority. */
+    public void setCurrentUserIdentityFromRpc(TUserIdentity identity) {
+        setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithRoles(
+                identity.getUsername(), identity.getHost(), identity.is_domain, Collections.emptySet()));
+        setAuthenticatedRoles(identity.isSetAuthenticatedRoles()
+                ? identity.getAuthenticatedRoles() : Collections.emptySet());
+    }
+
     public Principal getAuthenticatedPrincipal() {
         return authenticatedPrincipal;
     }

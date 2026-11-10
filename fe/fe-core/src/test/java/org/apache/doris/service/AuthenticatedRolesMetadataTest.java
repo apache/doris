@@ -17,9 +17,30 @@
 
 package org.apache.doris.service;
 
+import org.apache.doris.analysis.TablePattern;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.authorization.AccessContext;
+import org.apache.doris.authorization.AccessDeniedException;
+import org.apache.doris.authorization.AccessRequirement;
+import org.apache.doris.authorization.AccessRequirements;
+import org.apache.doris.authorization.AuthorizedResource;
+import org.apache.doris.authorization.AuthorizedSubject;
+import org.apache.doris.authorization.spi.AuthorizationPlugin;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.InfoSchemaDb;
+import org.apache.doris.common.Config;
+import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.job.base.JobExecutionConfiguration;
+import org.apache.doris.job.extensions.insert.InsertJob;
+import org.apache.doris.mysql.authenticate.ldap.LdapManager;
+import org.apache.doris.mysql.privilege.AccessControllerManager;
+import org.apache.doris.mysql.privilege.Auth;
+import org.apache.doris.mysql.privilege.EngineAuthorizationContext;
+import org.apache.doris.mysql.privilege.PrivBitSet;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.mysql.privilege.Privilege;
+import org.apache.doris.mysql.privilege.Role;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
@@ -45,6 +66,7 @@ import org.mockito.Mockito;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /** Exercises schema RPCs with real grants after detaching them from the authenticated session. */
@@ -142,6 +164,88 @@ public class AuthenticatedRolesMetadataTest extends TestWithFeService {
             Assertions.assertFalse(Env.getCurrentEnv().getAccessManager().checkTblPriv(session,
                     "internal", DB, "hidden_table", PrivPredicate.SELECT));
         } finally {
+            connectContext.setThreadLocalInfo();
+        }
+    }
+
+    @Test
+    public void testForwardedRolesDoNotEscapeIntoJobCreator() throws Exception {
+        TUserIdentity request = roundTrip(mappedSession("metadata_job_creator").getCurrentUserIdentityForRpc());
+        ConnectContext forwarded = new ConnectContext();
+        forwarded.setEnv(Env.getCurrentEnv());
+        forwarded.setCurrentUserIdentityFromRpc(request);
+        InsertJob job = new InsertJob(forwarded, null, "metadata_role_job", Collections.emptyList(),
+                Collections.emptySet(), Collections.emptyMap(), "", new JobExecutionConfiguration());
+        ConnectContext.remove();
+        try {
+            Assertions.assertTrue(Env.getCurrentEnv().getAccessManager().checkTblPriv(forwarded,
+                    "internal", DB, "mapped_table", PrivPredicate.SELECT));
+            Assertions.assertTrue(job.getCreateUser().getAuthenticatedRoles().isEmpty());
+            Assertions.assertFalse(Env.getCurrentEnv().getAccessManager().checkTblPriv(job.getCreateUser(),
+                    "internal", DB, "mapped_table", PrivPredicate.SELECT));
+            InsertJob replayed = GsonUtils.GSON.fromJson(GsonUtils.GSON.toJson(job), InsertJob.class);
+            Assertions.assertTrue(replayed.getCreateUser().getAuthenticatedRoles().isEmpty());
+            Assertions.assertFalse(Env.getCurrentEnv().getAccessManager().checkTblPriv(replayed.getCreateUser(),
+                    "internal", DB, "mapped_table", PrivPredicate.SELECT));
+            assertMetadata(roundTrip(forwarded.getCurrentUserIdentityForRpc()),
+                    Collections.singletonList("mapped_table"));
+        } finally {
+            connectContext.setThreadLocalInfo();
+        }
+    }
+
+    @Test
+    public void testPluginRolesExcludeSyntheticLdapRoleAndKeepRealSameNameRole() throws Exception {
+        createRole(LdapManager.LDAP_DEFAULT_ROLE);
+        createRole("metadata_ldap_group_role");
+        grantPriv("GRANT SELECT_PRIV ON internal." + DB + ".hidden_table TO ROLE 'metadata_ldap_group_role'");
+        addUser("metadata_ldap_alice", true);
+        addUser("metadata_ldap_bob", true);
+        grantRole("GRANT '" + LdapManager.LDAP_DEFAULT_ROLE + "' TO 'metadata_ldap_alice'@'%'");
+        Auth auth = Env.getCurrentEnv().getAuth();
+        LdapManager original = auth.getLdapManager();
+        String originalType = Config.authentication_type;
+        LdapManager ldap = Mockito.mock(LdapManager.class);
+        TablePattern informationSchema = new TablePattern(InfoSchemaDb.DATABASE_NAME, "*");
+        informationSchema.analyze();
+        Role synthetic = new Role(LdapManager.LDAP_DEFAULT_ROLE, informationSchema,
+                PrivBitSet.of(Privilege.SELECT_PRIV));
+        Role group = auth.getRoleByName("metadata_ldap_group_role");
+        Mockito.when(ldap.getUserRoles(Mockito.anyString())).thenReturn(Set.of(synthetic, group));
+        Config.authentication_type = "ldap";
+        Deencapsulation.setField(auth, "ldapManager", ldap);
+        ConnectContext.remove();
+        try {
+            AccessControllerManager manager = new AccessControllerManager(auth);
+            EngineAuthorizationContext engine = new EngineAuthorizationContext(manager, auth);
+            AuthorizationPlugin plugin = new AuthorizationPlugin() {
+                @Override
+                public String name() {
+                    return "ldap_named_role_policy";
+                }
+
+                @Override
+                public void checkPrivilege(AuthorizedSubject subject, AuthorizedResource resource,
+                        AccessRequirement requirement, AccessContext context) throws AccessDeniedException {
+                    if (!engine.rolesOf(subject).contains(LdapManager.LDAP_DEFAULT_ROLE)) {
+                        throw AccessDeniedException.of(subject, resource, requirement, name());
+                    }
+                }
+            };
+            engine.servedBy(plugin);
+            Deencapsulation.setField(manager, "defaultAccessController", plugin);
+            UserIdentity bob = UserIdentity.createAnalyzedUserIdentWithIp("metadata_ldap_bob", "%");
+            UserIdentity alice = UserIdentity.createAnalyzedUserIdentWithIp("metadata_ldap_alice", "%");
+            Assertions.assertTrue(auth.getRolesByUserWithLdap(bob).contains(synthetic));
+            Assertions.assertTrue(Env.getCurrentEnv().getAccessManager()
+                    .checkTblPriv(bob, "internal", DB, "hidden_table", PrivPredicate.SELECT));
+            Assertions.assertFalse(manager.decide(bob, AuthorizedResource.global(), AccessRequirements.SELECT));
+            Assertions.assertTrue(manager.decide(alice, AuthorizedResource.global(), AccessRequirements.SELECT));
+            Assertions.assertFalse(auth.getRoleNamesForAuthorization(bob).contains(LdapManager.LDAP_DEFAULT_ROLE));
+            Assertions.assertTrue(auth.getRoleNamesForAuthorization(alice).contains(LdapManager.LDAP_DEFAULT_ROLE));
+        } finally {
+            Config.authentication_type = originalType;
+            Deencapsulation.setField(auth, "ldapManager", original);
             connectContext.setThreadLocalInfo();
         }
     }

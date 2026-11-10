@@ -75,8 +75,8 @@ public class EngineAuthorizationContext implements AuthorizationContext {
      */
     @Override
     public Set<String> rolesOf(AuthorizedSubject subject) {
-        return auth.getRoleNamesByUserWithLdap(
-                AccessTranslation.userIdentityOf(subject, manager.contextOfCheckInFlight()), false);
+        return auth.getRoleNamesForAuthorization(
+                AccessTranslation.userIdentityOf(subject, manager.contextOfCheckInFlight()));
     }
 
     @Override

@@ -75,6 +75,22 @@ public class SessionRoleContextTest {
     }
 
     @Test
+    public void testRpcSessionKeepsRolesSeparateFromRetainedAccount() {
+        TUserIdentity request = UserIdentity.createAnalyzedUserIdentWithIp("mapped_user", "%").toThrift();
+        request.setAuthenticatedRoles(Collections.singleton("mapped_role"));
+        ConnectContext session = new ConnectContext();
+        session.setCurrentUserIdentityFromRpc(request);
+        Assertions.assertTrue(session.getCurrentUserIdentity().getAuthenticatedRoles().isEmpty());
+        Assertions.assertEquals(Collections.singleton("mapped_role"), session.getAuthenticatedRoles());
+        Assertions.assertEquals(Collections.singleton("mapped_role"),
+                session.getCurrentUserIdentityForRpc().getAuthenticatedRoles());
+        session.setCurrentUserIdentityFromRpc(
+                UserIdentity.createAnalyzedUserIdentWithIp("mapped_user", "%").toThrift());
+        Assertions.assertTrue(session.getAuthenticatedRoles().isEmpty());
+        Assertions.assertFalse(session.getCurrentUserIdentityForRpc().isSetAuthenticatedRoles());
+    }
+
+    @Test
     public void testRolesStayWithTheirAccountIncludingHostAndDomain() {
         UserIdentity account = UserIdentity.createAnalyzedUserIdentWithIp("mapped_user", "%");
         ConnectContext session = new ConnectContext();

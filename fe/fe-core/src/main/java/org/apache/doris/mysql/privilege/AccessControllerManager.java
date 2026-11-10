@@ -1399,6 +1399,7 @@ public class AccessControllerManager {
         private final AuthorizedResource.Table table;
         private final Set<String> columns;
         private final AccessContext context;
+        private final Set<String> authenticatedRoles;
 
         private DataPolicyContext(AuthorizationPlugin controller, AuthorizedSubject subject,
                 AuthorizedResource.Table table, Set<String> columns, AccessContext context) {
@@ -1406,9 +1407,11 @@ public class AccessControllerManager {
             this.subject = subject;
             this.table = table;
             this.columns = Set.copyOf(columns);
+            UserIdentity identity = AccessTranslation.userIdentityOf(subject, context);
+            this.authenticatedRoles = identity.getAuthenticatedRoles();
             Optional<String> clientIp = context.getClientIp();
             Optional<String> queryId = context.getQueryId();
-            this.context = new AccessContext() {
+            this.context = UserIdentityAccessContext.of(identity, new AccessContext() {
                 @Override
                 public Optional<String> getClientIp() {
                     return clientIp;
@@ -1418,12 +1421,13 @@ public class AccessControllerManager {
                 public Optional<String> getQueryId() {
                     return queryId;
                 }
-            };
+            });
         }
 
         public boolean samePolicyScope(DataPolicyContext other) {
             return controller == other.controller && subject.equals(other.subject)
                     && table.equals(other.table) && columns.equals(other.columns)
+                    && authenticatedRoles.equals(other.authenticatedRoles)
                     && context.getClientIp().equals(other.context.getClientIp());
         }
 
@@ -1435,7 +1439,7 @@ public class AccessControllerManager {
 
         @Override
         public int hashCode() {
-            return Objects.hash(System.identityHashCode(controller), subject, table, columns,
+            return Objects.hash(System.identityHashCode(controller), subject, table, columns, authenticatedRoles,
                     context.getClientIp(), context.getQueryId());
         }
     }

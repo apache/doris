@@ -297,6 +297,17 @@ public class Auth implements Writable {
     }
 
     public Set<Role> getRolesByUserWithLdap(UserIdentity userIdentity) {
+        Set<Role> roles = getRolesByUserWithAuthentication(userIdentity);
+        if (isLdapAuthEnabled()) {
+            Set<Role> ldapRoles = ldapManager.getUserRoles(userIdentity.getQualifiedUser());
+            if (!CollectionUtils.isEmpty(ldapRoles)) {
+                roles.addAll(ldapRoles);
+            }
+        }
+        return roles;
+    }
+
+    private Set<Role> getRolesByUserWithAuthentication(UserIdentity userIdentity) {
         Set<Role> roles = Sets.newHashSet();
         Set<String> roleNames = userRoleManager.getRolesByUser(userIdentity);
         ConnectContext ctx = ConnectContext.get();
@@ -312,30 +323,32 @@ public class Auth implements Writable {
                 roles.add(role);
             }
         }
-        if (isLdapAuthEnabled()) {
-            Set<Role> ldapRoles = ldapManager.getUserRoles(userIdentity.getQualifiedUser());
-            if (!CollectionUtils.isEmpty(ldapRoles)) {
-                roles.addAll(ldapRoles);
-            }
-        }
         return roles;
     }
 
-    public Set<String> getRoleNamesByUserWithLdap(UserIdentity user, boolean showUserDefaultRole) {
+    /** Named memberships for plugins; legacy LDAP's synthetic privilege roles stay inside built-in checks. */
+    public Set<String> getRoleNamesForAuthorization(UserIdentity user) {
         readLock();
         try {
-            Set<Role> rolesByUserWithLdap = getRolesByUserWithLdap(user);
-            Set<String> res = Sets.newHashSetWithExpectedSize(rolesByUserWithLdap.size());
-            for (Role role : rolesByUserWithLdap) {
-                String roleName = role.getRoleName();
-                if (showUserDefaultRole || !roleName.startsWith(RoleManager.DEFAULT_ROLE_PREFIX)) {
-                    res.add(roleName);
-                }
-            }
-            return res;
+            return getRoleNamesByRoles(getRolesByUserWithAuthentication(user), false);
         } finally {
             readUnlock();
         }
+    }
+
+    public Set<String> getRoleNamesByUserWithLdap(UserIdentity user, boolean showUserDefaultRole) {
+        return getRoleNamesByRoles(getRolesByUserWithLdap(user), showUserDefaultRole);
+    }
+
+    private Set<String> getRoleNamesByRoles(Set<Role> roles, boolean showUserDefaultRole) {
+        Set<String> res = Sets.newHashSetWithExpectedSize(roles.size());
+        for (Role role : roles) {
+            String roleName = role.getRoleName();
+            if (showUserDefaultRole || !roleName.startsWith(RoleManager.DEFAULT_ROLE_PREFIX)) {
+                res.add(roleName);
+            }
+        }
+        return res;
     }
 
     public List<UserIdentity> getUserIdentityForLdap(String remoteUser, String remoteHost) {
