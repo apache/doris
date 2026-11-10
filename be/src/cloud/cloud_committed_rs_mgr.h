@@ -66,6 +66,7 @@ private:
     };
 
     struct CommittedRowsetValue {
+        // A null meta marks an empty rowset whose metadata was not written to MS.
         RowsetMetaSharedPtr rowset_meta;
         int64_t expiration_time; // seconds since epoch
 
@@ -77,7 +78,6 @@ private:
     std::map<TxnTabletKey, CommittedRowsetValue> _committed_rs_map;
     // Multimap for efficient expiration cleanup: expiration_time -> <txn_id, tablet_id>
     std::multimap<int64_t, TxnTabletKey> _expiration_map;
-    std::map<TxnTabletKey, int64_t /* expiration_time */> _empty_rowset_markers;
     std::shared_mutex _rwlock;
     std::shared_ptr<Thread> _clean_thread;
     CountDownLatch _stop_latch;
