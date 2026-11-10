@@ -192,12 +192,9 @@ DecimalType OlapTableBlockConvertor::_get_decimalv3_min_or_max(const DataTypePtr
     return value;
 }
 
-Status OlapTableBlockConvertor::_internal_validate_column(RuntimeState* state, Block* block,
-                                                          const DataTypePtr& type, ColumnPtr column,
-                                                          size_t slot_index,
-                                                          fmt::memory_buffer& error_prefix,
-                                                          const size_t row_count,
-                                                          IColumn::Permutation* rows) {
+Status OlapTableBlockConvertor::_internal_validate_column(
+        RuntimeState* state, const DataTypePtr& type, ColumnPtr& column,
+        fmt::memory_buffer& error_prefix, const size_t row_count, IColumn::Permutation* rows) {
     DCHECK((rows == nullptr) || (rows->size() == row_count));
     fmt::memory_buffer error_msg;
     auto set_invalid_and_append_error_msg = [&](size_t row) {
@@ -211,10 +208,26 @@ Status OlapTableBlockConvertor::_internal_validate_column(RuntimeState* state, B
         return ret;
     };
 
-    const auto* column_ptr = check_and_get_column<ColumnNullable>(*column);
-    const auto& real_column_ptr =
+    auto* column_ptr = check_and_get_column<ColumnNullable>(*column);
+    ColumnPtr real_column_ptr =
             column_ptr == nullptr ? column : (column_ptr->get_nested_column_ptr());
-    const auto* null_map = column_ptr == nullptr ? nullptr : column_ptr->get_null_map_data().data();
+    const unsigned char* null_map =
+            column_ptr == nullptr ? nullptr : column_ptr->get_null_map_data().data();
+    auto refresh_column_views = [&] {
+        column_ptr = check_and_get_column<ColumnNullable>(*column);
+        real_column_ptr = column_ptr == nullptr ? column : column_ptr->get_nested_column_ptr();
+        null_map = column_ptr == nullptr ? nullptr : column_ptr->get_null_map_data().data();
+    };
+    auto mutate_column = [&] {
+        auto mutable_column = IColumn::mutate(column);
+        auto* mutable_column_ptr = check_and_get_column<ColumnNullable>(*mutable_column);
+        auto* mutable_real_column = mutable_column_ptr == nullptr
+                                            ? mutable_column.get()
+                                            : mutable_column_ptr->get_nested_column_ptr().get();
+        column = std::move(mutable_column);
+        refresh_column_views();
+        return mutable_real_column;
+    };
     auto need_to_validate = [](size_t j, size_t row, const std::vector<char>& filter_map,
                                const unsigned char* null_map) {
         return !filter_map[row] && (null_map == nullptr || null_map[j] == 0);
@@ -334,7 +347,7 @@ Status OlapTableBlockConvertor::_internal_validate_column(RuntimeState* state, B
     case TYPE_VARCHAR:
     case TYPE_STRING: {
         RETURN_IF_ERROR(string_column_checker(column, type, rows, _filter_map));
-        block->get_by_position(slot_index).column = std::move(column);
+        refresh_column_views();
         break;
     }
     case TYPE_JSONB: {
@@ -356,9 +369,8 @@ Status OlapTableBlockConvertor::_internal_validate_column(RuntimeState* state, B
         break;
     }
     case TYPE_DECIMALV2: {
-        // column_decimal utilizes the ColumnPtr from the block* block in _validate_data and can be modified.
-        auto* column_decimal = const_cast<ColumnDecimal128V2*>(
-                assert_cast<const ColumnDecimal128V2*>(real_column_ptr.get()));
+        auto* mutable_real_column = mutate_column();
+        auto* column_decimal = assert_cast<ColumnDecimal128V2*>(mutable_real_column);
         const auto& max_decimalv2 = _get_decimalv2_min_or_max<false>(type);
         const auto& min_decimalv2 = _get_decimalv2_min_or_max<true>(type);
         for (size_t j = 0; j < row_count; ++j) {
@@ -445,7 +457,8 @@ Status OlapTableBlockConvertor::_internal_validate_column(RuntimeState* state, B
     }
 #undef CHECK_VALIDATION_FOR_DECIMALV3
     case TYPE_ARRAY: {
-        const auto* column_array = assert_cast<const ColumnArray*>(real_column_ptr.get());
+        auto* mutable_real_column = mutate_column();
+        auto* column_array = assert_cast<ColumnArray*>(mutable_real_column);
         const auto* type_array = assert_cast<const DataTypeArray*>(remove_nullable(type).get());
         auto nested_type = type_array->get_nested_type();
         const auto& offsets = column_array->get_offsets();
@@ -456,27 +469,25 @@ Status OlapTableBlockConvertor::_internal_validate_column(RuntimeState* state, B
             }
         }
         fmt::format_to(error_prefix, "ARRAY type failed: ");
-        auto data_column_ptr = column_array->get_data_ptr();
         switch (nested_type->get_primitive_type()) {
         case TYPE_CHAR:
         case TYPE_VARCHAR:
         case TYPE_STRING: {
-            RETURN_IF_ERROR(
-                    string_column_checker(data_column_ptr, nested_type, &permutation, _filter_map));
-            const_cast<ColumnArray*>(column_array)->get_data_ptr() = std::move(data_column_ptr);
+            RETURN_IF_ERROR(string_column_checker(column_array->get_data_ptr(), nested_type,
+                                                  &permutation, _filter_map));
             break;
         }
         default:
-            RETURN_IF_ERROR(_validate_column(state, block, nested_type, data_column_ptr, slot_index,
+            RETURN_IF_ERROR(_validate_column(state, nested_type, column_array->get_data_ptr(),
                                              error_prefix, permutation.size(), &permutation));
             break;
         }
         break;
     }
     case TYPE_MAP: {
-        const auto* column_map = assert_cast<const ColumnMap*>(real_column_ptr.get());
-        // column_map utilizes the ColumnPtr from the block* block in _validate_data and can be modified.
-        RETURN_IF_ERROR((const_cast<ColumnMap*>(column_map))->deduplicate_keys(true));
+        auto* mutable_real_column = mutate_column();
+        auto* column_map = assert_cast<ColumnMap*>(mutable_real_column);
+        RETURN_IF_ERROR(column_map->deduplicate_keys(true));
 
         const auto* type_map = assert_cast<const DataTypeMap*>(remove_nullable(type).get());
         auto key_type = type_map->get_key_type();
@@ -494,16 +505,13 @@ Status OlapTableBlockConvertor::_internal_validate_column(RuntimeState* state, B
         case TYPE_CHAR:
         case TYPE_VARCHAR:
         case TYPE_STRING: {
-            auto key_column_ptr = column_map->get_keys_ptr();
-            RETURN_IF_ERROR(
-                    string_column_checker(key_column_ptr, key_type, &permutation, _filter_map));
-            const_cast<ColumnMap*>(column_map)->get_keys_ptr() = std::move(key_column_ptr);
+            RETURN_IF_ERROR(string_column_checker(column_map->get_keys_ptr(), key_type,
+                                                  &permutation, _filter_map));
             break;
         }
         default:
-            RETURN_IF_ERROR(_validate_column(state, block, key_type, column_map->get_keys_ptr(),
-                                             slot_index, error_prefix, permutation.size(),
-                                             &permutation));
+            RETURN_IF_ERROR(_validate_column(state, key_type, column_map->get_keys_ptr(),
+                                             error_prefix, permutation.size(), &permutation));
             break;
         }
 
@@ -511,22 +519,20 @@ Status OlapTableBlockConvertor::_internal_validate_column(RuntimeState* state, B
         case TYPE_CHAR:
         case TYPE_VARCHAR:
         case TYPE_STRING: {
-            auto value_column_ptr = column_map->get_values_ptr();
-            RETURN_IF_ERROR(
-                    string_column_checker(value_column_ptr, val_type, &permutation, _filter_map));
-            const_cast<ColumnMap*>(column_map)->get_values_ptr() = std::move(value_column_ptr);
+            RETURN_IF_ERROR(string_column_checker(column_map->get_values_ptr(), val_type,
+                                                  &permutation, _filter_map));
             break;
         }
         default:
-            RETURN_IF_ERROR(_validate_column(state, block, val_type, column_map->get_values_ptr(),
-                                             slot_index, error_prefix, permutation.size(),
-                                             &permutation));
+            RETURN_IF_ERROR(_validate_column(state, val_type, column_map->get_values_ptr(),
+                                             error_prefix, permutation.size(), &permutation));
             break;
         }
         break;
     }
     case TYPE_STRUCT: {
-        const auto column_struct = assert_cast<const ColumnStruct*>(real_column_ptr.get());
+        auto* mutable_real_column = mutate_column();
+        auto* column_struct = assert_cast<ColumnStruct*>(mutable_real_column);
         const auto* type_struct = assert_cast<const DataTypeStruct*>(remove_nullable(type).get());
         DCHECK(type_struct->get_elements().size() == column_struct->tuple_size());
         fmt::format_to(error_prefix, "STRUCT type failed: ");
@@ -536,17 +542,13 @@ Status OlapTableBlockConvertor::_internal_validate_column(RuntimeState* state, B
             case TYPE_CHAR:
             case TYPE_VARCHAR:
             case TYPE_STRING: {
-                auto element_column_ptr = column_struct->get_column_ptr(sc);
-                RETURN_IF_ERROR(string_column_checker(element_column_ptr, element_type, nullptr,
-                                                      _filter_map));
-                const_cast<ColumnStruct*>(column_struct)->get_column_ptr(sc) =
-                        std::move(element_column_ptr);
+                RETURN_IF_ERROR(string_column_checker(column_struct->get_column_ptr(sc),
+                                                      element_type, nullptr, _filter_map));
                 break;
             }
             default:
-                RETURN_IF_ERROR(_validate_column(state, block, type_struct->get_element(sc),
-                                                 column_struct->get_column_ptr(sc), slot_index,
-                                                 error_prefix,
+                RETURN_IF_ERROR(_validate_column(state, type_struct->get_element(sc),
+                                                 column_struct->get_column_ptr(sc), error_prefix,
                                                  column_struct->get_column_ptr(sc)->size()));
                 break;
             }
@@ -595,12 +597,11 @@ Status OlapTableBlockConvertor::_validate_data(RuntimeState* state, Block* block
         // VRowDistribution's _deal_missing_map() relies on these slots being full columns.
         block->get_by_position(i).column =
                 block->get_by_position(i).column->convert_to_full_column_if_const();
-        const auto& column = block->get_by_position(i).column;
+        auto& column = block->get_by_position(i).column;
 
         fmt::memory_buffer error_prefix;
         fmt::format_to(error_prefix, "column_name[{}], ", desc->col_name());
-        RETURN_IF_ERROR(
-                _validate_column(state, block, desc->type(), column, i, error_prefix, rows));
+        RETURN_IF_ERROR(_validate_column(state, desc->type(), column, error_prefix, rows));
     }
     return Status::OK();
 }
