@@ -50,9 +50,9 @@ pch_reuse(Storage)
 # index glue TUs re-parse the same storage header closure once per file, so
 # batching them cuts the repeated frontend work. Batch 12 bounds jumbo-TU size
 # and memory. Opted out:
-# - seven files whose file-scope macros (CL_MAX_PATH and friends,
-#   IS_CHINESE_CHAR, APPLY_FOR_PRIMITITYPE, RETURN_IF_NOT_EOF_AND_OK,
-#   FORMAT_*_ADD_JSON_NODE, RETURN_IF_ERROR_) must not leak into unity siblings
+# - six files whose file-scope macros (CL_MAX_PATH and friends,
+#   IS_CHINESE_CHAR, APPLY_FOR_PRIMITITYPE, FORMAT_*_ADD_JSON_NODE,
+#   RETURN_IF_ERROR_) must not leak into unity siblings
 # - the three heaviest template-instantiation TUs (predicate creators) which
 #   would dominate any batch they join
 set(STORAGE_UNITY_SKIP
@@ -71,7 +71,6 @@ set(STORAGE_UNITY_SKIP
     ${CMAKE_CURRENT_SOURCE_DIR}/index/index_fs_directory.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/index/inverted/analysis/tokenizer/basic/basic_tokenizer.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/index/zone_map/zone_map_index.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/iterator/vcollect_iterator.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/tablet/tablet.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/task/engine_clone_task.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/predicate/predicate_creator_comparison.cpp

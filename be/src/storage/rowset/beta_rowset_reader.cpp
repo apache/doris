@@ -36,6 +36,8 @@
 #include "runtime/runtime_profile.h"
 #include "storage/changelog.h"
 #include "storage/delete/delete_handler.h"
+#include "storage/iterator/heap_merge_iterator.h"
+#include "storage/iterator/unique_key_iterator.h"
 #include "storage/iterator/vgeneric_iterators.h"
 #include "storage/olap_define.h"
 #include "storage/predicate/block_column_predicate.h"
@@ -339,16 +341,14 @@ Status BetaRowsetReader::_init_iterator() {
     }
     // merge or union segment iterator
     if (is_merge_iterator()) {
-        int32_t sequence_loc = _read_context->use_sequence_column_for_merge_order
-                                       ? _read_context->read_schema->sequence_ordinal()
-                                       : -1;
-        if (_read_options.changelog_tso_idx != -1) {
-            sequence_loc = _read_options.changelog_tso_idx;
+        // The merge only sorts; a UniqueKeyIterator above it drops the older versions of a key.
+        const MergeDecision decision = decide_merge(*_read_context);
+        _iterator =
+                new_heap_merge_iterator(std::move(iterators), _read_context->read_schema, decision);
+        if (decision.drop_older_versions) {
+            _iterator = new_unique_key_iterator(std::move(_iterator), decision,
+                                                _read_context->merged_rows);
         }
-        _iterator = new_merge_iterator(std::move(iterators), sequence_loc, _read_context->is_unique,
-                                       _read_context->read_orderby_key_reverse,
-                                       _read_context->merged_rows, _read_context->read_schema,
-                                       _read_options.changelog_tso_idx != -1);
     } else {
         if (_read_context->read_orderby_key_reverse) {
             // reverse iterators to read backward for ORDER BY key DESC

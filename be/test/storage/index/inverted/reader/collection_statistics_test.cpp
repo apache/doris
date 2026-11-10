@@ -289,14 +289,6 @@ public:
         return Status::NotSupported("MockRowsetReader::next_batch not implemented");
     }
 
-    Status next_batch(BlockView* block_view) override {
-        return Status::NotSupported("MockRowsetReader::next_batch not implemented");
-    }
-
-    Status next_batch(BlockWithSameBit* block_view) override {
-        return Status::NotSupported("MockRowsetReader::next_batch not implemented");
-    }
-
     bool delete_flag() override { return false; }
 
     Version version() override { return Version(1, 1); }

@@ -103,7 +103,7 @@ protected:
     }
 
     // Changelog read schema: single leading key column, a value column, and the changelog TSO
-    // column (identified by its name so Level1Iterator uses it as the merge sequence
+    // column (identified by its name so the merge uses it as the sequence
     // column). DUP_KEYS matches the FE-generated hidden changelog table, which keeps every
     // change event instead of deduplicating by user key.
     TabletSchemaSPtr create_changelog_schema(const std::string& tso_name = CHANGELOG_TSO_COL) {

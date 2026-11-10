@@ -40,6 +40,7 @@ namespace doris {
 class DeleteBitmap;
 class DeleteHandler;
 class TabletSchema;
+struct MergeDecision;
 
 struct RowsetReaderContext {
     ReaderType reader_type = ReaderType::READER_QUERY;
@@ -117,6 +118,11 @@ struct RowsetReaderContext {
     // General LIMIT budget forwarded to SegmentIterator.
     int64_t general_read_limit = -1;
 };
+
+// How the merges of a read order its rows and whether they drop the older versions of a key,
+// from the knobs of its context: the merge of the rowsets in BlockReader and the merge of the
+// segments of one rowset in BetaRowsetReader.
+MergeDecision decide_merge(const RowsetReaderContext& context);
 
 } // namespace doris
 

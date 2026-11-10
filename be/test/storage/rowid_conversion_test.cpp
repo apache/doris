@@ -1130,8 +1130,8 @@ TEST_P(TestRowIdConversion, Conversion) {
     bool has_delete_handler = std::get<2>(GetParam());
     bool is_vertical_merger = std::get<3>(GetParam());
 
-    // if num_input_rowset = 2, VCollectIterator::Level1Iterator::_merge = flase
-    // if num_input_rowset = 3, VCollectIterator::Level1Iterator::_merge = true
+    // if num_input_rowset = 2, BlockReader reads the rowsets one after another
+    // if num_input_rowset = 3, BlockReader merges the rowsets
     for (auto num_input_rowset = 2; num_input_rowset <= 3; num_input_rowset++) {
         uint32_t rows_per_segment = 4567;
         // RowsetReader: SegmentIterator
@@ -1142,7 +1142,7 @@ TEST_P(TestRowIdConversion, Conversion) {
                                    num_segments, rows_per_segment, overlap, has_delete_handler,
                                    is_vertical_merger);
         }
-        // RowsetReader: VMergeIterator
+        // RowsetReader: VHeapMergeIterator
         {
             uint32_t num_segments = 2;
             SegmentsOverlapPB overlap = OVERLAPPING;
@@ -1158,7 +1158,7 @@ TEST_P(TestRowIdConversion, Conversion) {
                                    num_segments, rows_per_segment, overlap, has_delete_handler,
                                    is_vertical_merger);
         }
-        // RowsetReader: VUnionIterator + VMergeIterator
+        // RowsetReader: VUnionIterator + VHeapMergeIterator
         {
             uint32_t num_segments = 2;
             SegmentsOverlapPB overlap = OVERLAP_UNKNOWN;

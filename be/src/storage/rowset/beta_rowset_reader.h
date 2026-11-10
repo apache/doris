@@ -53,10 +53,6 @@ public:
                                  bool use_cache = false) override;
     void reset_read_options() override;
     Status next_batch(Block* block) override { return _next_batch(block); }
-    Status next_batch(BlockView* block_view) override { return _next_batch(block_view); }
-    Status next_batch(BlockWithSameBit* block_with_same_bit) override {
-        return _next_batch(block_with_same_bit);
-    }
 
     bool is_merge_iterator() const override {
         return _read_context->need_ordered_result && _get_segment_num() > 1 &&

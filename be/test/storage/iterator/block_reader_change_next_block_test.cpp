@@ -17,8 +17,8 @@
 
 // End-to-end branch coverage for BlockReader::_min_delta_next_block and
 // BlockReader::_detail_change_next_block. Instead of standing up a real tablet /
-// rowset stack, we inject a fake VCollectIterator::LevelIterator that walks a
-// pre-built merged changelog block one row at a time, so we can exercise every
+// rowset stack, we inject fake merged rows that hand out a pre-built merged
+// changelog block, read one row at a time through the reader's cursor, so we can exercise every
 // min-delta fold result (SKIP / INSERT / DELETE / UPDATE_BEFORE_AFTER) and every
 // detail op (INSERT / DELETE / UPDATE, including the pending-row batch split).
 
@@ -27,7 +27,7 @@
 #pragma clang diagnostic ignored "-Wkeyword-macro"
 #endif
 #include "storage/iterator/block_reader.h"
-#include "storage/iterator/vcollect_iterator.h"
+#include "storage/iterator/merged_row_cursor.h"
 #if defined(__clang__)
 #pragma clang diagnostic pop
 #endif
@@ -289,49 +289,28 @@ std::shared_ptr<Block> make_unsupported_compare_source_block(
     return block;
 }
 
-// Fake merge iterator: hands out rows from `source` one at a time. `is_same` is
-// derived from primary-key equality with the previous emitted row, matching the
-// real merge iterator's contract that consecutive same-key rows are flagged.
-class FakeLevelIterator : public VCollectIterator::LevelIterator {
+// Fake merged rows: hands out `source` as one batch. The reader's cursor flags the rows whose
+// key equals the key of the row before, as it does over a real merge.
+class FakeMergedRows : public RowwiseIterator {
 public:
-    FakeLevelIterator(TabletReader* reader, std::shared_ptr<Block> source)
-            : LevelIterator(reader), _source(std::move(source)) {
-        _ref.block = _source;
-        _ref.row_pos = 0;
-        _ref.is_same = false;
-    }
+    FakeMergedRows(ReadSchemaSPtr schema, std::shared_ptr<Block> source)
+            : _schema(std::move(schema)), _source(std::move(source)) {}
 
-    Status init(bool /*get_data_by_ref*/) override { return Status::OK(); }
-    int64_t version() const override { return 0; }
-
-    Status next(IteratorRowRef* ref) override {
-        int prev = _ref.row_pos;
-        int next_pos = prev + 1;
-        if (next_pos >= _source->rows()) {
-            _ref.row_pos = -1;
-            *ref = _ref;
+    Status next_batch(Block* block) override {
+        if (_done) {
             return Status::Error<END_OF_FILE>("");
         }
-        int64_t prev_key = read_i64(KEY_IDX, prev);
-        int64_t cur_key = read_i64(KEY_IDX, next_pos);
-        _ref.row_pos = next_pos;
-        _ref.is_same = (prev_key == cur_key);
-        *ref = _ref;
+        _done = true;
+        *block = *_source;
         return Status::OK();
     }
 
-    Status next(Block* /*block*/) override { return Status::Error<END_OF_FILE>(""); }
-
-    Status ensure_first_row_ref() override { return Status::OK(); }
-    void update_profile(RuntimeProfile* /*profile*/) override {}
+    const ReadSchema& schema() const override { return *_schema; }
 
 private:
-    int64_t read_i64(int col, int row) const {
-        return assert_cast<const ColumnInt64&>(*_source->get_by_position(col).column)
-                .get_element(row);
-    }
-
+    ReadSchemaSPtr _schema;
     std::shared_ptr<Block> _source;
+    bool _done = false;
 };
 
 // Read schema mirroring the merged changelog block layout above.
@@ -376,13 +355,12 @@ void configure_reader(BlockReader& reader, std::shared_ptr<Block> source, size_t
                         .ok());
     reader._read_schema = std::move(read_schema);
 
-    reader._next_row.block = source;
-    reader._next_row.row_pos = 0;
-    reader._next_row.is_same = false;
     reader._eof = false;
 
-    reader._vcollect_iter._inner_iter =
-            std::make_unique<FakeLevelIterator>(&reader, std::move(source));
+    reader._rows_iter = std::make_unique<FakeMergedRows>(reader._read_schema, std::move(source));
+    reader._cursor = std::make_unique<MergedRowCursor>(reader._rows_iter.get(),
+                                                       std::vector<uint32_t> {KEY_IDX});
+    ASSERT_TRUE(reader._cursor->init(&reader._next_row).ok());
 }
 
 // Build the empty output block matching the source schema.

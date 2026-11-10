@@ -43,7 +43,9 @@
 #include "runtime/runtime_state.h"
 #include "storage/changelog.h"
 #include "storage/iterator/changelog_block_reader_utils.h"
-#include "storage/iterator/vcollect_iterator.h"
+#include "storage/iterator/heap_merge_iterator.h"
+#include "storage/iterator/topn_iterator.h"
+#include "storage/iterator/unique_key_iterator.h"
 #include "storage/olap_common.h"
 #include "storage/olap_define.h"
 #include "storage/row_ttl.h"
@@ -61,6 +63,47 @@ namespace doris {
 using namespace ErrorCode;
 
 static constexpr int32_t BLOCK_SIZE_CHECK_INTERVAL_ROWS = 64;
+
+namespace {
+
+// The rows of rowsets that are not merged with each other: every rowset read to its end through
+// its rowset reader, one after another. A rowset reader merges the segments of its rowset itself
+// when they overlap on keys and the read wants key order (BetaRowsetReader::is_merge_iterator()).
+class RowsetReadersIterator final : public RowwiseIterator {
+public:
+    RowsetReadersIterator(std::vector<RowsetReaderSharedPtr> rs_readers, ReadSchemaSPtr read_schema)
+            : _rs_readers(std::move(rs_readers)), _read_schema(std::move(read_schema)) {}
+
+    Status next_batch(Block* block) override {
+        while (_current < _rs_readers.size()) {
+            Status st = _rs_readers[_current]->next_batch(block);
+            if (!st.is<END_OF_FILE>()) {
+                return st;
+            }
+            DCHECK_EQ(block->rows(), 0);
+            // This rowset is done: release its reader, which holds the rowset.
+            _rs_readers[_current].reset();
+            ++_current;
+        }
+        return Status::EndOfFile("no more rowsets to read");
+    }
+
+    const ReadSchema& schema() const override { return *_read_schema; }
+
+    void update_profile(RuntimeProfile* profile) override {
+        if (_current < _rs_readers.size()) {
+            _rs_readers[_current]->update_profile(profile);
+        }
+    }
+
+private:
+    std::vector<RowsetReaderSharedPtr> _rs_readers;
+    const ReadSchemaSPtr _read_schema;
+    // The rowset read now; the ones before it are done.
+    size_t _current = 0;
+};
+
+} // namespace
 
 BlockReader::~BlockReader() {
     for (int i = 0; i < _agg_functions.size(); ++i) {
@@ -248,7 +291,7 @@ Status BlockReader::_min_delta_next_block(Block* block, bool* eof) {
             _stored_data_columns[i]->insert_from(*_next_row.block->get_by_position(i).column,
                                                  _next_row.row_pos);
         }
-        auto res = _vcollect_iter.next(&_next_row);
+        auto res = _cursor->next(&_next_row);
         if (UNLIKELY(res.is<END_OF_FILE>())) {
             _eof = true;
         } else if (UNLIKELY(!res.ok())) {
@@ -416,7 +459,7 @@ Status BlockReader::_detail_change_next_block(Block* block, bool* eof) {
             output_row_count++;
         }
 
-        auto res = _vcollect_iter.next(&_next_row);
+        auto res = _cursor->next(&_next_row);
         if (UNLIKELY(res.is<END_OF_FILE>())) {
             _eof = true;
         } else if (UNLIKELY(!res.ok())) {
@@ -457,7 +500,7 @@ bool BlockReader::_rowsets_not_mono_asc_disjoint(const ReaderParams& read_params
     return false;
 }
 
-Status BlockReader::_init_collect_iter(const ReaderParams& read_params) {
+Status BlockReader::_init_rows_iter(const ReaderParams& read_params) {
     auto res = _capture_rs_readers(read_params);
     if (!res.ok()) {
         LOG(WARNING) << "fail to init reader when _capture_rs_readers. res:" << res
@@ -467,55 +510,145 @@ Status BlockReader::_init_collect_iter(const ReaderParams& read_params) {
                      << ", version:" << read_params.version;
         return res;
     }
-    // check if rowsets are noneoverlapping
-    {
-        SCOPED_RAW_TIMER(&_stats.block_reader_vcollect_iter_init_timer_ns);
-        _is_rowsets_overlapping = _rowsets_not_mono_asc_disjoint(read_params);
-        const bool is_min_delta_stream =
-                read_params.changelog_scan_type == TChangelogScanType::MIN_DELTA;
-        const bool force_merge = read_params.read_orderby_key || is_min_delta_stream;
-        const bool is_reverse = !is_min_delta_stream && read_params.read_orderby_key_reverse;
-        _vcollect_iter.init(this, _is_rowsets_overlapping, force_merge, is_reverse);
+
+    // TopN limit. Whether we reach here is decided by the scanner;
+    // it only sets read_orderby_key_limit on the no-merge tablet types.
+    if (_reader_context.read_orderby_key_limit > 0) {
+        DORIS_CHECK(_reader_context.general_read_limit <= 0);
+        for (const auto& rs_split : read_params.rs_splits) {
+            // Forward the local row budget to SegmentIterator. SegmentIterator applies
+            // it after its own predicate/common-expr filtering, so LIMIT and pushed
+            // conjuncts stay in the same layer.
+            rs_split.rs_reader->set_topn_limit(_reader_context.read_orderby_key_limit);
+        }
+        // TopNIterator inits every rowset reader by itself when it reaches the rowset.
+        _rows_iter = std::make_unique<TopNIterator>(read_params.rs_splits, &_reader_context,
+                                                    _read_schema);
+        return Status::OK();
     }
 
-    std::vector<RowsetReaderSharedPtr> valid_rs_readers;
-    RuntimeState* runtime_state = read_params.runtime_state;
+    _merge = _merge_rowsets(read_params);
 
+    // The children of the merge in (rowset version, segment) order, or the rowsets read one after
+    // another.
+    std::vector<RowwiseIteratorUPtr> children;
+    std::vector<RowsetReaderSharedPtr> rs_readers;
+    RuntimeState* runtime_state = read_params.runtime_state;
+    int64_t previous_start_version = -1;
     {
         SCOPED_RAW_TIMER(&_stats.block_reader_rs_readers_init_timer_ns);
-        for (int i = 0; i < read_params.rs_splits.size(); ++i) {
+        for (const auto& rs_split : read_params.rs_splits) {
             if (runtime_state != nullptr && runtime_state->is_cancelled()) {
                 return runtime_state->cancel_reason();
             }
-
-            auto& rs_split = read_params.rs_splits[i];
-
-            // _vcollect_iter.topn_next() will init rs_reader by itself
-            if (!_vcollect_iter.use_topn_next()) {
-                RETURN_IF_ERROR(rs_split.rs_reader->init(&_reader_context, rs_split));
+            RETURN_IF_ERROR(rs_split.rs_reader->init(&_reader_context, rs_split));
+            // General limit is forwarded to SegmentIterator, which applies it after
+            // predicate/common-expr filtering and before lazy-reading non-predicate columns.
+            if (_reader_context.general_read_limit > 0) {
+                rs_split.rs_reader->set_topn_limit(
+                        static_cast<size_t>(_reader_context.general_read_limit));
             }
-
-            Status res1 = _vcollect_iter.add_child(rs_split);
-            if (!res1.ok() && !res1.is<END_OF_FILE>()) {
-                LOG(WARNING) << "failed to add child to iterator, err=" << res1;
-                return res1;
+            if (!_merge) {
+                rs_readers.push_back(rs_split.rs_reader);
+                continue;
             }
-            if (res1.ok()) {
-                valid_rs_readers.push_back(rs_split.rs_reader);
-            }
-        }
-    }
-    {
-        SCOPED_RAW_TIMER(&_stats.block_reader_build_heap_init_timer_ns);
-        RETURN_IF_ERROR(_vcollect_iter.build_heap(valid_rs_readers));
-        // _vcollect_iter.topn_next() can not use current_row
-        if (!_vcollect_iter.use_topn_next()) {
-            auto status = _vcollect_iter.current_row(&_next_row);
-            _eof = status.is<END_OF_FILE>();
+            // The merge puts the newer of two rows of one key first by the order of its
+            // children, so the rowsets must come in version order.
+            DORIS_CHECK_GE(rs_split.rs_reader->rowset()->start_version(), previous_start_version);
+            previous_start_version = rs_split.rs_reader->rowset()->start_version();
+            RETURN_IF_ERROR(_add_merge_children(rs_split.rs_reader, &children));
         }
     }
 
+    const MergeDecision decision = decide_merge(_reader_context);
+    if (!_merge) {
+        // !_merge means that data are in order, so we just reverse the rowsets to return data
+        // in reverse
+        if (decision.reverse) {
+            std::ranges::reverse(rs_readers);
+        }
+        _rows_iter = std::make_unique<RowsetReadersIterator>(std::move(rs_readers), _read_schema);
+        return Status::OK();
+    }
+
+    return _init_merge(std::move(children), decision, runtime_state);
+}
+
+Status BlockReader::_add_merge_children(const RowsetReaderSharedPtr& rs_reader,
+                                        std::vector<RowwiseIteratorUPtr>* children) {
+    if (!rs_reader->is_merge_iterator()) {
+        // The rowset reader reads the segments of this rowset one after another.
+        children->push_back(std::make_unique<RowsetReadersIterator>(
+                std::vector<RowsetReaderSharedPtr> {rs_reader}, _read_schema));
+        return Status::OK();
+    }
+    // The segments of this rowset overlap on keys: every one is a child of the merge, so one
+    // merge orders the segments of a rowset and the rowsets together.
+    std::vector<RowwiseIteratorUPtr> segment_iters;
+    RETURN_IF_ERROR(rs_reader->get_segment_iterators(&_reader_context, &segment_iters));
+    for (auto& segment_iter : segment_iters) {
+        children->push_back(std::move(segment_iter));
+    }
+    _rs_readers.push_back(rs_reader);
     return Status::OK();
+}
+
+bool BlockReader::_merge_rowsets(const ReaderParams& read_params) {
+    // check if rowsets are noneoverlapping
+    SCOPED_RAW_TIMER(&_stats.block_reader_vcollect_iter_init_timer_ns);
+    _is_rowsets_overlapping = _rowsets_not_mono_asc_disjoint(read_params);
+    // when aggregate is enabled or key_type is DUP_KEYS, we don't merge
+    // multiple data to aggregate for better performance
+    bool merge = !(_reader_type == ReaderType::READER_QUERY &&
+                   (_direct_mode || _tablet->keys_type() == KeysType::DUP_KEYS ||
+                    (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
+                     _tablet->enable_unique_key_merge_on_write())));
+    if (_reader_context.read_changelog) {
+        merge = false;
+    }
+    // When data is none overlapping, no need to build heap to traverse data
+    const bool force_merge = read_params.read_orderby_key ||
+                             read_params.changelog_scan_type == TChangelogScanType::MIN_DELTA;
+    if (!_is_rowsets_overlapping) {
+        merge = false;
+    } else if (force_merge) {
+        merge = true;
+    }
+    return merge;
+}
+
+Status BlockReader::_init_merge(std::vector<RowwiseIteratorUPtr> children,
+                                const MergeDecision& decision, RuntimeState* runtime_state) {
+    SCOPED_RAW_TIMER(&_stats.block_reader_build_heap_init_timer_ns);
+    // The merge only sorts; a UniqueKeyIterator above it drops the older versions of a key.
+    _rows_iter = new_heap_merge_iterator(std::move(children), _read_schema, decision);
+    if (decision.drop_older_versions) {
+        _rows_iter = new_unique_key_iterator(std::move(_rows_iter), decision, &_merged_rows);
+    }
+    StorageReadOptions opts(_stats);
+    opts.block_row_max = cast_set<uint32_t>(batch_max_rows());
+    opts.preferred_block_size_bytes = _reader_context.preferred_block_size_bytes;
+    opts.runtime_state = runtime_state;
+    opts.tablet_id = _tablet->tablet_id();
+    return _rows_iter->init(opts);
+}
+
+Status BlockReader::_init_next_row() {
+    if (_merge) {
+        const MergeDecision decision = decide_merge(_reader_context);
+        // A fold sees every row of a key: only the reads that keep the newest row drop the
+        // others.
+        DORIS_CHECK(!decision.drop_older_versions);
+        _cursor = std::make_unique<MergedRowCursor>(_rows_iter.get(), decision.compare_ordinals);
+    } else {
+        _cursor = std::make_unique<MergedRowCursor>(_rows_iter.get());
+    }
+    auto status = _cursor->init(&_next_row);
+    if (status.is<END_OF_FILE>()) {
+        _eof = true;
+        return Status::OK();
+    }
+    return status;
 }
 
 Status BlockReader::_init_agg_state(const ReaderParams& read_params) {
@@ -598,7 +731,7 @@ Status BlockReader::init(const ReaderParams& read_params) {
         }
     }
 
-    auto status = _init_collect_iter(read_params);
+    auto status = _init_rows_iter(read_params);
     if (!status.ok()) [[unlikely]] {
         if (!config::is_cloud_mode()) {
             static_cast<Tablet*>(_tablet.get())->report_error(status);
@@ -610,13 +743,13 @@ Status BlockReader::init(const ReaderParams& read_params) {
     // (e.g. INSERT+DELETE -> SKIP, INSERT+UPDATE -> INSERT). Reduces downstream traffic.
     if (read_params.changelog_scan_type == TChangelogScanType::MIN_DELTA) {
         _next_block_func = &BlockReader::_min_delta_next_block;
-        return Status::OK();
+        return _init_next_row();
     }
     // DETAIL: emit every recorded change as-is, with BEFORE+AFTER rows for UPDATE.
     // Used when the consumer needs full change history rather than the net delta.
     if (read_params.changelog_scan_type == TChangelogScanType::DETAIL) {
         _next_block_func = &BlockReader::_detail_change_next_block;
-        return Status::OK();
+        return _init_next_row();
     }
 
     if (_direct_mode) {
@@ -633,26 +766,31 @@ Status BlockReader::init(const ReaderParams& read_params) {
             _next_block_func = &BlockReader::_direct_next_block;
         } else if (merge_by_sequence_mapping) {
             _next_block_func = &BlockReader::_replace_key_next_block;
+            RETURN_IF_ERROR(_init_next_row());
         } else {
-            _next_block_func = &BlockReader::_unique_key_next_block;
+            // The UniqueKeyIterator above the merge keeps only the newest row of every key, and
+            // rowsets read one after another hold every key once.
+            _next_block_func = &BlockReader::_direct_next_block;
+            _filter_delete_sign = _delete_sign_available;
         }
         break;
     case KeysType::AGG_KEYS:
         _next_block_func = &BlockReader::_agg_key_next_block;
+        RETURN_IF_ERROR(_init_next_row());
         RETURN_IF_ERROR(_init_agg_state(read_params));
         break;
     default:
         DCHECK(false) << "No next row function for type:" << _tablet_schema->keys_type();
         break;
     }
-    _filter_delete_sign =
-            _next_block_func == &BlockReader::_unique_key_next_block && _delete_sign_available;
 
     return Status::OK();
 }
 
 Status BlockReader::_direct_next_block(Block* block, bool* eof) {
-    auto res = _vcollect_iter.next(block);
+    SCOPED_RAW_TIMER(_merge ? &_stats.collect_iterator_merge_next_timer
+                            : &_stats.collect_iterator_normal_next_timer);
+    auto res = _rows_iter->next_batch(block);
     if (UNLIKELY(!res.ok() && !res.is<END_OF_FILE>())) {
         return res;
     }
@@ -678,7 +816,7 @@ Status BlockReader::_replace_key_next_block(Block* block, bool* eof) {
         while (!_eof) {
             // the version is in reverse order, the first row is the highest version,
             // in UNIQUE_KEY highest version is the final result
-            auto res = _vcollect_iter.next(&_next_row);
+            auto res = _cursor->next(&_next_row);
             if (UNLIKELY(res.is<END_OF_FILE>())) {
                 _eof = true;
                 *eof = true;
@@ -755,7 +893,7 @@ Status BlockReader::_agg_key_next_block(Block* block, bool* eof) {
     _append_agg_data(target_columns);
 
     while (true) {
-        auto res = _vcollect_iter.next(&_next_row);
+        auto res = _cursor->next(&_next_row);
         if (UNLIKELY(res.is<END_OF_FILE>())) {
             _eof = true;
             *eof = true;
@@ -794,44 +932,6 @@ Status BlockReader::_agg_key_next_block(Block* block, bool* eof) {
     _update_agg_data(target_columns);
 
     _merged_rows += merged_row;
-    return Status::OK();
-}
-
-Status BlockReader::_unique_key_next_block(Block* block, bool* eof) {
-    if (UNLIKELY(_eof)) {
-        *eof = true;
-        return Status::OK();
-    }
-
-    auto target_block_row = 0;
-    auto target_columns_guard = block->mutate_columns_scoped();
-    auto& target_columns = target_columns_guard.mutable_columns();
-
-    do {
-        RETURN_IF_ERROR(_insert_data_normal(target_columns));
-        target_block_row++;
-
-        // the version is in reverse order, the first row is the highest version,
-        // in UNIQUE_KEY highest version is the final result, there is no need to
-        // merge the lower versions
-        auto res = _vcollect_iter.next(&_next_row);
-        if (UNLIKELY(res.is<END_OF_FILE>())) {
-            _eof = true;
-            *eof = true;
-            break;
-        }
-
-        if (UNLIKELY(!res.ok())) {
-            LOG(WARNING) << "next failed: " << res;
-            return res;
-        }
-        // Byte-budget check: _next_row is already saved so stopping here is safe.
-        if (target_block_row % BLOCK_SIZE_CHECK_INTERVAL_ROWS == 0 &&
-            _reached_byte_budget(target_columns)) {
-            break;
-        }
-    } while (target_block_row < batch_max_rows());
-
     return Status::OK();
 }
 

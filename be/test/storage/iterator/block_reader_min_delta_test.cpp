@@ -142,7 +142,7 @@ TEST_F(BlockReaderMinDeltaTest, ChangelogOperationCodeLayoutGuard) {
 // Contract test for the group-boundary rule in BlockReader::_min_delta_next_block. A MIN_DELTA
 // group is a run of consecutive rows sharing the same user key; the reader folds each group into
 // one net change via calculate_result(first_op, last_op). Exercising _min_delta_next_block end to
-// end needs a fully constructed BlockReader + VCollectIterator + rowset readers, which is far too
+// end needs a fully constructed BlockReader + merge + rowset readers, which is far too
 // heavy for a unit test, so we pin the boundary rule itself.
 //
 // The subtle bug this guards against: the reader used to split groups on IteratorRowRef::is_same,
