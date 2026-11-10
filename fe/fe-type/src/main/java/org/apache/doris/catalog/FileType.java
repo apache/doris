@@ -17,8 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.persist.gson.GsonPostProcessable;
-import org.apache.doris.persist.gson.GsonPreProcessable;
 import org.apache.doris.thrift.TColumnType;
 import org.apache.doris.thrift.TTypeDesc;
 import org.apache.doris.thrift.TTypeNode;
@@ -37,7 +35,7 @@ import java.util.Locale;
  * Independent FILE identity with six canonical nullable physical children.
  * Scan selection is separate metadata and never changes this schema.
  */
-public final class FileType extends Type implements GsonPostProcessable, GsonPreProcessable {
+public final class FileType extends Type {
     public static final int FIELD_COUNT = 6;
     // JSON strings can expand sixfold; inline uses padded Base64. MySQL column_length is uint32.
     public static final long JSON_DISPLAY_LENGTH = Math.min(0xffff_ffffL,
@@ -95,17 +93,6 @@ public final class FileType extends Type implements GsonPostProcessable, GsonPre
                             && field.getContainsNull(),
                     "Invalid FILE child at position %s; expected %s", i, canonical.getName());
         }
-    }
-
-    @Override
-    public void gsonPostProcess() {
-        validateFields(fields);
-        fields = canonicalFields();
-    }
-
-    @Override
-    public void gsonPreProcess() {
-        validateFields(fields);
     }
 
     @Override

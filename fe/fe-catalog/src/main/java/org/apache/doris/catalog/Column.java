@@ -24,9 +24,7 @@ import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.persist.gson.GsonPostProcessable;
-import org.apache.doris.persist.gson.GsonPreProcessable;
 
-import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -48,7 +46,7 @@ import java.util.Set;
 /**
  * This class represents the column-related metadata.
  */
-public class Column implements GsonPostProcessable, GsonPreProcessable {
+public class Column implements GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(Column.class);
     public static final String HIDDEN_COLUMN_PREFIX = "__DORIS_";
     // all shadow indexes should have this prefix in name
@@ -268,12 +266,11 @@ public class Column implements GsonPostProcessable, GsonPreProcessable {
     }
 
     public Column(String name, PrimitiveType dataType) {
-        this(name, dataType == PrimitiveType.FILE ? Type.FILE : ScalarType.createType(dataType),
-                false, null, false, null, "");
+        this(name, ScalarType.createType(dataType), false, null, false, null, "");
     }
 
     public Column(String name, PrimitiveType dataType, boolean isAllowNull) {
-        this(name, dataType == PrimitiveType.FILE ? Type.FILE : ScalarType.createType(dataType), isAllowNull);
+        this(name, ScalarType.createType(dataType), isAllowNull);
     }
 
     public Column(String name, PrimitiveType dataType, int len, int precision, int scale, boolean isAllowNull) {
@@ -1124,28 +1121,8 @@ public class Column implements GsonPostProcessable, GsonPreProcessable {
         return defaultValue != null || realDefaultValue != null || defaultValueExprDef != null;
     }
 
-    /** Verify redundant column children agree with the canonical FILE type. */
-    public void validateFileSchema() {
-        if (type.isFileType()) {
-            Preconditions.checkArgument(children != null && children.size() == FileType.FIELD_COUNT,
-                    "FILE column requires six canonical children");
-            List<StructField> fields = new ArrayList<>();
-            for (int i = 0; i < children.size(); i++) {
-                Column child = children.get(i);
-                fields.add(new StructField(child.getName(), child.getType(), null, child.isAllowNull()));
-            }
-            FileType.validateFields(fields);
-        }
-    }
-
-    @Override
-    public void gsonPreProcess() {
-        validateFileSchema();
-    }
-
     @Override
     public void gsonPostProcess() throws IOException {
-        validateFileSchema();
         // This just for bugfix. Because when user upgrade from 0.x to 1.1.x,
         // the length of String type become 1. The reason is not very clear and maybe fixed by #14275.
         // Here we try to rectify the error string length, by setting all String' length to MAX_STRING_LENGTH

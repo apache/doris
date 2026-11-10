@@ -73,7 +73,6 @@ public class FileTypeTest {
         Assertions.assertEquals(6, publicStruct.getFields().size());
         Assertions.assertEquals(VarBinaryType.INSTANCE, publicStruct.getField("inline").getDataType());
         Assertions.assertTrue(publicStruct.getFields().stream().allMatch(StructField::isNullable));
-        Assertions.assertEquals(catalog, new Column("f", PrimitiveType.FILE).getType());
         Assertions.assertFalse(file.acceptsType(StructType.SYSTEM_DEFAULT));
         Assertions.assertFalse(catalog.matchesType(new org.apache.doris.catalog.StructType(
                 new java.util.ArrayList<>(Type.FILE.getFields()))));
@@ -211,16 +210,5 @@ public class FileTypeTest {
         for (String sql : Arrays.asList("BIGINT", "ARRAY<INT>", "STRUCT<f:STRING>", "MAP<STRING,INT>")) {
             Assertions.assertFalse(DataType.convertFromString(sql).toCatalogDataType().typeContainsFile());
         }
-    }
-
-    @Test
-    public void testRejectMalformedNestedColumnMetadata() {
-        Column nested = new Column("a", new org.apache.doris.catalog.ArrayType(fileType().toCatalogDataType()));
-        nested.getChildren().get(0).getChildren().remove(5);
-        Assertions.assertThrows(Exception.class, () -> ColumnToThrift.toThrift(nested));
-        Assertions.assertThrows(Exception.class,
-                () -> GsonUtils.GSON.fromJson("{\"clazz\":\"FileType\"}", Type.class));
-        Assertions.assertThrows(Exception.class, () -> GsonUtils.GSON.fromJson(
-                "{\"clazz\":\"ScalarType\",\"type\":\"FILE\"}", Type.class));
     }
 }

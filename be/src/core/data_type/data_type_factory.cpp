@@ -570,8 +570,6 @@ DataTypePtr DataTypeFactory::create_data_type(const std::vector<TTypeNode>& type
             DataTypePtr dt = std::make_shared<DataTypeVariantV2>(
                     scalar_type.variant_max_subcolumns_count, doc_mode);
             return is_nullable ? make_nullable(dt) : dt;
-        } else if (scalar_type.type == TPrimitiveType::FILE) {
-            throw Exception(ErrorCode::INVALID_ARGUMENT, "FILE requires a FILE type node");
         }
         return create_data_type(thrift_to_type(scalar_type.type), is_nullable,
                                 scalar_type.__isset.precision ? scalar_type.precision : 0,
@@ -703,8 +701,6 @@ DataTypePtr DataTypeFactory::create_data_type(
         } else if (primitive_type == TYPE_VARIANT) {
             nested = std::make_shared<DataTypeVariantV2>(node.variant_max_subcolumns_count(),
                                                          node.variant_enable_doc_mode());
-        } else if (primitive_type == TYPE_FILE) {
-            throw Exception(ErrorCode::INVALID_ARGUMENT, "FILE requires a FILE type node");
         } else {
             return create_data_type(primitive_type, is_nullable,
                                     scalar_type.has_precision() ? scalar_type.precision() : 0,

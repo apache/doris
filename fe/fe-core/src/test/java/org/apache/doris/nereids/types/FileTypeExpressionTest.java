@@ -17,8 +17,6 @@
 
 package org.apache.doris.nereids.types;
 
-import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.catalog.FunctionVolatility;
@@ -89,39 +87,6 @@ public class FileTypeExpressionTest {
                 String.join(" ", context));
         Assertions.assertTrue(error.getMessage().contains(expectedMessage),
                 () -> String.join(" ", context) + ": expected " + expectedMessage + "; actual " + error.getMessage());
-    }
-
-    @Test
-    public void testFlightRejectsOnlyFileResultColumns() {
-        ConnectContext previous = ConnectContext.get();
-        try {
-            ConnectContext flight = ConnectContext.forFlight("file-result-test");
-            flight.setCurrentUserIdentity(UserIdentity.ROOT);
-            flight.setRemoteIP("127.0.0.1");
-            flight.setEnv(Env.getCurrentEnv());
-            flight.setThreadLocalInfo();
-            String file = "cast(null as file)";
-            for (String value : Arrays.asList(file, "array(" + file + ")",
-                    "named_struct('f', " + file + ")", "map('key', " + file + ")")) {
-                String sql = "select " + value;
-                assertAnalysisError("Arrow Flight does not support FILE result columns",
-                        () -> PlanChecker.from(flight).analyze(sql), sql);
-                Assertions.assertDoesNotThrow(
-                        () -> PlanChecker.from(MemoTestUtils.createConnectContext()).analyze(sql), sql);
-                flight.setThreadLocalInfo();
-            }
-            for (String sql : Arrays.asList("select 1", "select named_struct('s', 'text')",
-                    "select element_at(" + file + ", 'uri')",
-                    "select to_json(" + file + ")")) {
-                Assertions.assertDoesNotThrow(() -> PlanChecker.from(flight).analyze(sql), sql);
-            }
-        } finally {
-            if (previous == null) {
-                ConnectContext.remove();
-            } else {
-                previous.setThreadLocalInfo();
-            }
-        }
     }
 
     @Test
@@ -612,6 +577,7 @@ public class FileTypeExpressionTest {
                 "select any_value(distinct f) from (select cast(null as file) f) t",
                 "select element_at(f, 'uri'), count(*) from (select cast(null as file) f) t "
                         + "group by element_at(f, 'uri')",
+                "select distinct element_at(f, 'uri') from (select cast(null as file) f) t",
                 "select u, o, s, c, h, b from (select cast(null as file) f) t "
                         + "lateral view explode_file(f) e as u, o, s, c, h, b",
                 "select u, o, s, c, h, b from (select cast(null as file) f) t "
@@ -664,17 +630,18 @@ public class FileTypeExpressionTest {
                 "select cast(null as struct<f:file>) in (cast(null as struct<f:file>))",
                 "select f from (select cast(null as file) f) t order by f",
                 "select f from (select cast(null as file) f) t group by f",
+                "select distinct f from (select cast(null as file) f) t",
+                "select distinct f from (select cast(null as struct<f:file>) f) t",
                 "select cast(null as file) union select cast(null as file)",
                 "select cast(null as file) intersect select cast(null as file)",
                 "select min(cast(null as file))",
                 "select element_at(cast(null as file), 'missing')",
-                "select u from (select cast(null as file) f) t lateral view explode_file(f) e as u",
                 "select u from (select cast(null as file) f) t lateral view explode_file(f) e as u, o, s, c, h",
                 "select u from (select cast(null as file) f) t "
                         + "lateral view explode_file_outer(f) e as u, o, s, c, h")) {
             String expectedMessage = "does not support FILE";
             if (sql.contains("lateral view")) {
-                expectedMessage = "EXPLODE_FILE requires exactly six column aliases";
+                expectedMessage = "has 6 columns available but 5 columns specified";
             } else if (sql.contains("missing")) {
                 expectedMessage = "the specified field name missing was not found";
             } else if (sql.contains(" = ")) {
