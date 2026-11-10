@@ -2769,6 +2769,19 @@ public class Config extends ConfigBase {
             + "(wait_timeout still governs that). 0 disables the bound.")
     public static int arrow_flight_deferred_query_idle_timeout_second = 3600;
 
+    @ConfField(mutable = true, description = "Arrow Flight SQL only. Where a client fetches (DoGet) a result that "
+            + "this FE holds itself: the result of a statement the FE answers without a BE (SHOW, USE, SET, a "
+            + "query answered from FE metadata) and of every metadata request (GetCatalogs, GetDbSchemas, "
+            + "GetTables, GetTableTypes, GetSqlInfo, ...). Such a result exists only in the session on this FE. "
+            + "false (the default) names this FE's own address in the endpoint (its host as FrontendOptions "
+            + "reports it, and arrow_flight_sql_port), which a client outside the cluster network often cannot "
+            + "resolve or reach, for example one that connects through a load balancer or a proxy. true sends "
+            + "the endpoint with no location, which the Flight protocol defines as redeemable only on the "
+            + "service that issued the ticket: the client fetches over the connection it already holds to this "
+            + "FE. Results held on a BE are not affected (see public_host and arrow_flight_sql_proxy_port in "
+            + "be.conf). Read for each request, so a change applies from the next GetFlightInfo.")
+    public static boolean arrow_flight_fe_result_empty_location = false;
+
     @ConfField(mutable = true, masterOnly = true, description = "In auto bucketing, the number of buckets is "
             + "estimated based on the partition size. For storage "
             + "and computing integration, a partition size of 5GB " + "is estimated as one bucket, but for cloud, a "

@@ -26,6 +26,7 @@ import org.apache.doris.arrowflight.protocol.FlightProtocolAdapter.PreparedQuery
 import org.apache.doris.arrowflight.results.FlightSqlEndpointsLocation;
 import org.apache.doris.arrowflight.results.FlightSqlResultCacheEntry;
 import org.apache.doris.arrowflight.sessions.FlightSessionsManager;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.IncrWindowNotReadyException;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.util.DebugUtil;
@@ -931,9 +932,23 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
     private <T extends Message> FlightInfo getFlightInfoForSchema(final T request, final FlightDescriptor descriptor,
             final Schema schema) {
         final Ticket ticket = new Ticket(Any.pack(request).toByteArray());
-        final List<FlightEndpoint> endpoints = Collections.singletonList(new FlightEndpoint(ticket, location));
+        final List<FlightEndpoint> endpoints = Collections.singletonList(localResultEndpoint(ticket));
 
         return new FlightInfo(schema, descriptor, endpoints, -1, -1);
+    }
+
+    /**
+     * The endpoint of a result this FE holds itself (a statement answered without a BE, a metadata
+     * request). The result lives in the session on this FE, so its DoGet must reach this FE: by this
+     * FE's own address, or, with {@link Config#arrow_flight_fe_result_empty_location}, by no location
+     * at all, which a Flight client redeems on the service that issued the ticket, over the connection
+     * it already holds. The setting is read per request, so a runtime change applies to the next one.
+     */
+    private FlightEndpoint localResultEndpoint(Ticket ticket) {
+        if (Config.arrow_flight_fe_result_empty_location) {
+            return new FlightEndpoint(ticket);
+        }
+        return new FlightEndpoint(ticket, location);
     }
 
     private static void handleStreamException(Throwable e, String errMsg, ServerStreamListener listener) {
