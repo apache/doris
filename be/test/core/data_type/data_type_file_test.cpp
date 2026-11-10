@@ -54,6 +54,9 @@ TEST(DataTypeFileTest, CanonicalIdentityAndMetadata) {
     for (const auto& child : type.get_elements()) {
         EXPECT_TRUE(child->is_nullable());
     }
+    for (const auto index : {0, 3, 4}) {
+        EXPECT_EQ(remove_nullable(type.get_element(index))->get_primitive_type(), TYPE_STRING);
+    }
     EXPECT_EQ(remove_nullable(type.get_element(5))->get_primitive_type(), TYPE_VARBINARY);
     EXPECT_FALSE(type.equals(DataTypeStruct(type.get_elements(), type.get_element_names())));
     EXPECT_EQ(type.try_get_position_by_name("URI"), 0);
@@ -86,7 +89,7 @@ TEST(DataTypeFileTest, RejectMalformedTypeDescriptors) {
     malformed.types[1].type = TTypeNodeType::ARRAY;
     EXPECT_THROW(DataTypeFactory::instance().create_data_type(malformed, false), Exception);
     malformed = original;
-    malformed.types[1].scalar_type.__set_len(1024);
+    malformed.types[1].scalar_type.__set_type(TPrimitiveType::BIGINT);
     EXPECT_THROW(DataTypeFactory::instance().create_data_type(malformed, false), Exception);
     malformed = original;
     malformed.types[0].struct_fields[0].__set_contains_null(false);
@@ -193,9 +196,10 @@ TEST(DataTypeFileTest, SerializationRetainsBinaryInlineAndNulls) {
     DataTypeFile type;
     auto column = type.create_column();
     const std::string bytes("\0\xff\0", 3);
+    const std::string uri = "s3://bucket/object?versionId=" + std::string(70000, 'a');
     column->insert(Field::create_field<TYPE_FILE>(
-            File {Field::create_field<TYPE_STRING>(String {"s3://bucket/object?versionId=v1"}),
-                  Field(), Field::create_field<TYPE_BIGINT>(Int64 {0}), Field(), Field(),
+            File {Field::create_field<TYPE_STRING>(uri), Field(),
+                  Field::create_field<TYPE_BIGINT>(Int64 {0}), Field(), Field(),
                   Field::create_field<TYPE_VARBINARY>(StringView(bytes))}));
     column->insert(Field::create_field<TYPE_FILE>(
             File {Field::create_field<TYPE_STRING>(String {"hdfs://host/a"}), Field(), Field(),
@@ -211,6 +215,7 @@ TEST(DataTypeFileTest, SerializationRetainsBinaryInlineAndNulls) {
     EXPECT_EQ(type.deserialize(buffer.data(), &restored, version), end);
     ASSERT_EQ(restored->size(), 3);
     auto value = (*restored)[0];
+    EXPECT_EQ(value.get<TYPE_FILE>()[0].get<TYPE_STRING>(), uri);
     const auto& inline_value = value.get<TYPE_FILE>()[5].get<TYPE_VARBINARY>();
     EXPECT_EQ(std::string(inline_value.data(), inline_value.size()), bytes);
     EXPECT_TRUE((*restored)[1].get<TYPE_FILE>()[5].is_null());

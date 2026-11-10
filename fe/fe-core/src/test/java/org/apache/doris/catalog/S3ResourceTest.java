@@ -38,7 +38,6 @@ import org.apache.doris.nereids.trees.plans.commands.info.CreateResourceInfo;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.runtime.ThriftPlansBuilder;
 import org.apache.doris.task.PushStoragePolicyTask;
 import org.apache.doris.thrift.TGcpCredential;
 import org.apache.doris.thrift.TObjStorageType;
@@ -550,55 +549,6 @@ public class S3ResourceTest {
                 Assertions.assertEquals("GCP".equalsIgnoreCase(provider),
                         CloudObjectStoreAdapter.getObjStoreInfoPB(vault.getCopiedProperties()).getUsePathStyle());
             }
-        }
-    }
-
-    @Test
-    void queryResourceConfigurationIsSharedWithinExecuteAndRefreshedOnNextExecute() throws Exception {
-        Env env = Mockito.mock(Env.class);
-        ResourceMgr manager = Mockito.mock(ResourceMgr.class);
-        AccessControllerManager access = Mockito.mock(AccessControllerManager.class);
-        ConnectContext context = Mockito.spy(new ConnectContext());
-        S3Resource resource = new S3Resource("s3_resource");
-        resource.setProperties(ImmutableMap.<String, String>builder()
-                .put("s3.endpoint", "https://oss-cn-beijing.aliyuncs.com")
-                .put("s3.region", "cn-beijing")
-                .put("s3.bucket", "bucket")
-                .put("s3.access_key", "fake-access-key")
-                .put("s3.secret_key", "first")
-                .put("s3.session_token", "fake-session-token")
-                .put("s3.connection.maximum", "77")
-                .put("use_path_style", "true")
-                .put("s3_validity_check", "false")
-                .build());
-        Mockito.when(env.getResourceMgr()).thenReturn(manager);
-        Mockito.when(env.getAccessManager()).thenReturn(access);
-        Mockito.when(manager.getResource("s3_resource")).thenReturn(resource);
-        Mockito.when(access.checkResourcePriv(context, "s3_resource", PrivPredicate.USAGE)).thenReturn(true);
-        try (MockedStatic<Env> current = Mockito.mockStatic(Env.class)) {
-            current.when(Env::getCurrentEnv).thenReturn(env);
-            context.getOrRegisterS3Resource("s3_resource");
-            TS3Resource first = ThriftPlansBuilder.collectS3Resources(context).get("s3_resource");
-            assertBackendProperties(first, "https://oss-cn-beijing.aliyuncs.com", "cn-beijing",
-                    "fake-access-key", "first");
-            Assertions.assertEquals("fake-session-token", first.getProperties().get(S3ResourceCompat.Env.TOKEN));
-            Assertions.assertEquals("77", first.getProperties().get(S3ResourceCompat.Env.MAX_CONNECTIONS));
-            Assertions.assertEquals("true", first.getProperties().get(S3ResourceCompat.USE_PATH_STYLE));
-            resource.modifyProperties(new HashMap<>(Map.of("s3.secret_key", "second", "s3_validity_check", "false")));
-            first.getProperties().put("AWS_SECRET_KEY", "mutated wire copy");
-            Assertions.assertEquals("first", ThriftPlansBuilder.collectS3Resources(context)
-                    .get("s3_resource").getProperties().get("AWS_SECRET_KEY"));
-            Assertions.assertEquals("second", resource.toThrift().getProperties().get("AWS_SECRET_KEY"));
-            context.setStartTime();
-            Assertions.assertTrue(context.getS3Resources().isEmpty());
-            context.getOrRegisterS3Resource("s3_resource");
-            Assertions.assertEquals("second", ThriftPlansBuilder.collectS3Resources(context)
-                    .get("s3_resource").getProperties().get("AWS_SECRET_KEY"));
-
-            Mockito.when(access.checkResourcePriv(context, "s3_resource", PrivPredicate.USAGE)).thenReturn(false);
-            context.setStartTime();
-            Assertions.assertThrows(AnalysisException.class, () -> context.getOrRegisterS3Resource("s3_resource"));
-            Assertions.assertTrue(context.getS3Resources().isEmpty());
         }
     }
 

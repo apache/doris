@@ -17,6 +17,7 @@
 
 package org.apache.doris.tablefunction;
 
+import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FileType;
@@ -24,7 +25,12 @@ import org.apache.doris.catalog.S3Resource;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.planner.DataGenScanNode;
+import org.apache.doris.planner.PlanNodeId;
+import org.apache.doris.planner.ScanContext;
+import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.resource.computegroup.ComputeGroupMgr;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TDataGenFunctionName;
@@ -96,6 +102,20 @@ public class ListFilesTableValuedFunction extends DataGenTableValuedFunction {
         return "ListFilesTableValuedFunction";
     }
 
+    public String getResourceName() {
+        return resourceName;
+    }
+
+    public ScanNode getScanNode(PlanNodeId id, TupleDescriptor desc, SessionVariable sv, TS3Resource resource) {
+        return new DataGenScanNode(id, desc, this,
+                ScanContext.builder().clusterName(sv.resolveCloudClusterName()).build()) {
+            @Override
+            protected List<TableValuedFunctionTask> getTasks() throws AnalysisException {
+                return ListFilesTableValuedFunction.this.getTasks(resource);
+            }
+        };
+    }
+
     @Override
     public List<Column> getTableColumns() {
         return ImmutableList.of(
@@ -107,8 +127,10 @@ public class ListFilesTableValuedFunction extends DataGenTableValuedFunction {
     @Override
     public List<TableValuedFunctionTask> getTasks() throws AnalysisException {
         ConnectContext context = ConnectContext.get();
-        checkS3Resource(context);
-        TS3Resource resource = context.getOrRegisterS3Resource(resourceName);
+        return getTasks(checkS3Resource(context).toThrift());
+    }
+
+    private List<TableValuedFunctionTask> getTasks(TS3Resource resource) throws AnalysisException {
         List<Backend> backends = new ArrayList<>();
         for (Backend backend : Env.getCurrentSystemInfo().getBackendsByCurrentCluster().values()) {
             if (backend.isAlive()) {
@@ -120,7 +142,7 @@ public class ListFilesTableValuedFunction extends DataGenTableValuedFunction {
             throw new AnalysisException("No Alive backends" + hints);
         }
         Collections.shuffle(backends);
-        TTVFListFileScanRange params = new TTVFListFileScanRange().setResource(resource)
+        TTVFListFileScanRange params = new TTVFListFileScanRange().setResource(resource.deepCopy())
                 .setUri(uri).setRecursive(recursive);
         TScanRange range = new TScanRange().setDataGenScanRange(new TDataGenScanRange().setListFileParams(params));
         return ImmutableList.of(new TableValuedFunctionTask(backends.get(0), range));

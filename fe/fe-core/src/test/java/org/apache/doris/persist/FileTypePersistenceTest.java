@@ -28,7 +28,6 @@ import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.persist.gson.GsonUtilsCatalog;
 
 import com.google.gson.Gson;
-import com.google.gson.JsonObject;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -56,20 +55,6 @@ public class FileTypePersistenceTest {
                 Column restored = gson.fromJson(gson.toJson(column), Column.class);
                 assertColumn(column, restored);
             }
-        }
-    }
-
-    @Test
-    public void testMalformedColumnSchemaRejectedOnWriteAndRead() {
-        for (Gson gson : Arrays.asList(GsonUtils.GSON, GsonUtilsCatalog.GSON)) {
-            Column column = new Column("files", new ArrayType(FileType.create()), true);
-            JsonObject json = gson.toJsonTree(column).getAsJsonObject();
-            json.getAsJsonArray("children").get(0).getAsJsonObject()
-                    .getAsJsonArray("children").remove(5);
-            Assertions.assertThrows(Exception.class,
-                    () -> gson.fromJson(json, Column.class));
-            column.getChildren().get(0).getChildren().remove(5);
-            Assertions.assertThrows(Exception.class, () -> gson.toJson(column));
         }
     }
 

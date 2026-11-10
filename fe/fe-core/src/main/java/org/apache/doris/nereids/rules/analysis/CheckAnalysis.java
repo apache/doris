@@ -46,7 +46,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalQualify;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
-import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSetOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
@@ -56,7 +55,6 @@ import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.thrift.TResultSinkType;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -136,7 +134,6 @@ public class CheckAnalysis implements AnalysisRuleFactory {
                     checkUnexpectedExpressions(plan);
                     checkAggregateFunction(plan);
                     checkGroupingScalarFunction(plan);
-                    checkArrowFlightResult(plan, ctx.connectContext);
                     checkIvmExpression(plan, ctx.connectContext);
                     return null;
                 })
@@ -168,15 +165,6 @@ public class CheckAnalysis implements AnalysisRuleFactory {
         if (plan instanceof LogicalSetOperation
                 && (!(plan instanceof LogicalUnion) || ((LogicalSetOperation) plan).getQualifier() != Qualifier.ALL)) {
             plan.getOutput().forEach(key -> ExpressionUtils.checkFileKey(key, plan.getType().toString()));
-        }
-    }
-
-    private void checkArrowFlightResult(Plan plan, ConnectContext connectContext) {
-        if (plan instanceof LogicalResultSink
-                && connectContext.getResultSinkType() == TResultSinkType.ARROW_FLIGHT_PROTOCOL
-                && plan.getExpressions().stream()
-                        .anyMatch(output -> output.getDataType().typeContainsFile())) {
-            throw new AnalysisException("Arrow Flight does not support FILE result columns");
         }
     }
 

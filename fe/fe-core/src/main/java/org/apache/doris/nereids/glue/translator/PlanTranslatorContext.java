@@ -25,6 +25,7 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.S3Resource;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.nereids.CascadesContext;
@@ -47,6 +48,7 @@ import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TPushAggOp;
+import org.apache.doris.thrift.TS3Resource;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
@@ -68,6 +70,7 @@ public class PlanTranslatorContext {
     private final StatementContext statementContext;
     private final ScanContext scanContext;
     private final List<PlanFragment> planFragments = Lists.newArrayList();
+    private final Map<String, TS3Resource> s3Resources = Maps.newLinkedHashMap();
 
     private DescriptorTable descTable;
 
@@ -191,6 +194,17 @@ public class PlanTranslatorContext {
         this.translator = new RuntimeFilterTranslator(ctx.getRuntimeFilterContext());
         this.topnFilterContext = ctx.getTopnFilterContext();
         this.descTable = descTable;
+    }
+
+    public TS3Resource getOrRegisterS3Resource(String resourceName) {
+        return s3Resources.computeIfAbsent(resourceName,
+                name -> S3Resource.checkResource(name, connectContext).toThrift()).deepCopy();
+    }
+
+    public Map<String, TS3Resource> getS3Resources() {
+        Map<String, TS3Resource> resources = Maps.newLinkedHashMap();
+        s3Resources.forEach((name, resource) -> resources.put(name, resource.deepCopy()));
+        return resources;
     }
 
     /**

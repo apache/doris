@@ -18,8 +18,6 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.common.Config;
-import org.apache.doris.persist.gson.GsonPostProcessable;
-import org.apache.doris.persist.gson.GsonPreProcessable;
 import org.apache.doris.thrift.TColumnType;
 import org.apache.doris.thrift.TScalarType;
 import org.apache.doris.thrift.TTypeDesc;
@@ -44,7 +42,7 @@ import java.util.Objects;
  *   3. subtype. For example, in the case of decimal, a type can be decimal(*, *)
  *   indicating that any decimal type is a subtype of the decimal type.
  */
-public class ScalarType extends Type implements GsonPostProcessable, GsonPreProcessable {
+public class ScalarType extends Type {
     // We use a fixed-length decimal type to represent a date time.
     public static final int DATETIME_PRECISION = 18;
 
@@ -130,7 +128,6 @@ public class ScalarType extends Type implements GsonPostProcessable, GsonPreProc
     private String lenStr;
 
     public ScalarType(PrimitiveType type) {
-        Preconditions.checkArgument(type != PrimitiveType.FILE, "FILE requires its independent FileType");
         this.type = type;
     }
 
@@ -1099,16 +1096,6 @@ public class ScalarType extends Type implements GsonPostProcessable, GsonPreProc
             return ((VariantType) this).getEnableNestedGroup();
         }
         return false; // Default to false for backward compatibility.
-    }
-
-    @Override
-    public void gsonPostProcess() {
-        Preconditions.checkArgument(type != PrimitiveType.FILE, "FILE requires its independent FileType");
-    }
-
-    @Override
-    public void gsonPreProcess() {
-        Preconditions.checkArgument(type != PrimitiveType.FILE, "FILE requires its independent FileType");
     }
 
 }

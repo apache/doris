@@ -1040,8 +1040,6 @@ public abstract class Type {
                 } else if (scalarType.getType() == TPrimitiveType.VARCHAR) {
                     Preconditions.checkState(scalarType.isSetLen());
                     type = ScalarType.createVarcharType(scalarType.getLen());
-                } else if (scalarType.getType() == TPrimitiveType.FILE) {
-                    throw new IllegalArgumentException("FILE must use a FILE type node with six children");
                 } else if (scalarType.getType() == TPrimitiveType.HLL) {
                     type = ScalarType.createHllType();
                 } else if (scalarType.getType() == TPrimitiveType.DECIMALV2) {

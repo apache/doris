@@ -138,7 +138,8 @@ public class FileTypeDdlTest extends TestWithFeService {
                     () -> Deencapsulation.invoke(new MaterializedViewHandler(), "checkAndPrepareMaterializedView",
                             sync, source, Collections.emptyMap()));
             Assertions.assertTrue(syncError.getMessage().contains(
-                    "FILE columns are not supported in internal tables"), syncError.getMessage());
+                    "Do not support FILE type or types containing FILE in materialized view columns"),
+                    syncError.getMessage());
 
             String asyncSql = "CREATE MATERIALIZED VIEW ddl_async_file BUILD DEFERRED REFRESH COMPLETE ON MANUAL "
                     + "DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES('replication_num'='1') "
