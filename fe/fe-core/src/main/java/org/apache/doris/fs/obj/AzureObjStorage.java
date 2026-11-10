@@ -21,10 +21,12 @@ import org.apache.doris.backup.Status;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.ObjectStorageGlob;
 import org.apache.doris.common.util.S3URI;
 import org.apache.doris.common.util.S3Util;
 import org.apache.doris.datasource.property.storage.AzureProperties;
 import org.apache.doris.datasource.property.storage.AzurePropertyUtils;
+import org.apache.doris.fs.GlobListResult;
 import org.apache.doris.fs.remote.RemoteFile;
 
 import com.azure.core.http.rest.PagedIterable;
@@ -59,16 +61,16 @@ import java.io.File;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
-import java.nio.file.FileSystems;
-import java.nio.file.PathMatcher;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
@@ -350,11 +352,23 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
     }
 
     public Status globList(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {
+        return globListInternal(remotePath, result, fileNameOnly, false, null, -1, -1).getStatus();
+    }
+
+    public GlobListResult globListWithLimit(String remotePath, List<RemoteFile> result, String startFile,
+            long fileSizeLimit, long fileNumLimit) {
+        return globListInternal(remotePath, result, false, true, startFile, fileSizeLimit, fileNumLimit);
+    }
+
+    private GlobListResult globListInternal(String remotePath, List<RemoteFile> result, boolean fileNameOnly,
+            boolean filesOnly, String startFile, long fileSizeLimit, long fileNumLimit) {
         long roundCnt = 0;
         long elementCnt = 0;
         long matchCnt = 0;
         long startTime = System.nanoTime();
-        Status st = Status.OK;
+        Status st;
+        String lastMatchedKey = "";
+        long matchedBytes = 0;
         try {
             remotePath = AzurePropertyUtils.validateAndNormalizeUri(remotePath);
             S3URI uri = S3URI.create(remotePath, isUsePathStyle, forceParsingByStandardUri);
@@ -365,76 +379,93 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
             // Controlled by config: s3_skip_list_for_deterministic_path
             // Note: Skip when using path style (see S3ObjStorage for detailed explanation)
             String keyPattern = uri.getKey();
-            if (Config.s3_skip_list_for_deterministic_path
+            if (!filesOnly && Config.s3_skip_list_for_deterministic_path
                     && !isUsePathStyle
                     && S3Util.isDeterministicPattern(keyPattern)) {
                 Status headStatus = globListByGetProperties(bucket, keyPattern, result, fileNameOnly, startTime);
                 if (headStatus != null) {
-                    return headStatus;
+                    return new GlobListResult(headStatus);
                 }
                 // If headStatus is null, fall through to use listing
             }
 
-            String globPath = S3Util.extendGlobs(uri.getKey());
+            String globPath = ObjectStorageGlob.expandNumericRanges(keyPattern);
             if (LOG.isDebugEnabled()) {
                 LOG.debug("try to glob list for azure, remote path {}, orig {}", globPath, remotePath);
             }
             BlobContainerClient client = getClient().getBlobContainerClient(bucket);
-            java.nio.file.Path pathPattern = Paths.get(globPath);
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("azure glob list pathPattern: {}, bucket: {}", pathPattern, bucket);
-            }
-            PathMatcher matcher = FileSystems.getDefault().getPathMatcher("glob:" + pathPattern);
+            Pattern matcher = Pattern.compile(ObjectStorageGlob.globToRegex(globPath));
 
             HashSet<String> directorySet = new HashSet<>();
             String listPrefix = S3Util.getLongestPrefix(globPath);
             if (LOG.isDebugEnabled()) {
                 LOG.debug("azure glob list prefix is {}", listPrefix);
             }
-            ListBlobsOptions options = new ListBlobsOptions().setPrefix(listPrefix);
-            String newContinuationToken = null;
-            do {
-                roundCnt++;
-                PagedResponse<BlobItem> pagedResponse = getPagedBlobItems(client, options, newContinuationToken);
+            for (String prefix : ObjectStorageGlob.expandedGlobListPrefixes(globPath, Comparator.naturalOrder())) {
+                ListBlobsOptions options = new ListBlobsOptions().setPrefix(prefix);
+                String newContinuationToken = null;
+                do {
+                    roundCnt++;
+                    PagedResponse<BlobItem> pagedResponse = getPagedBlobItems(client, options, newContinuationToken);
 
-                for (BlobItem blobItem : pagedResponse.getElements()) {
-                    elementCnt++;
-                    java.nio.file.Path blobPath = Paths.get(blobItem.getName());
-
-                    boolean isPrefix = false;
-                    while (null != blobPath && blobPath.normalize().toString().startsWith(listPrefix)) {
-                        if (LOG.isDebugEnabled()) {
-                            LOG.debug("get blob {}", blobPath.normalize().toString());
-                        }
-                        if (!matcher.matches(blobPath)) {
-                            isPrefix = true;
-                            blobPath = blobPath.getParent();
+                    for (BlobItem blobItem : pagedResponse.getElements()) {
+                        elementCnt++;
+                        if (filesOnly) {
+                            String key = blobItem.getName();
+                            if (key.endsWith("/") || (startFile != null && key.compareTo(startFile) <= 0)
+                                    || !matcher.matcher(key).matches()) {
+                                continue;
+                            }
+                            if ((fileNumLimit > 0 && matchCnt >= fileNumLimit)
+                                    || (fileSizeLimit > 0 && matchedBytes >= fileSizeLimit)) {
+                                return new GlobListResult(Status.OK, key, bucket, listPrefix);
+                            }
+                            BlobItemProperties props = blobItem.getProperties();
+                            long size = props.getContentLength();
+                            result.add(new RemoteFile(constructS3Path(key, bucket), true, size, size,
+                                    props.getLastModified().toInstant().toEpochMilli()));
+                            matchedBytes += size;
+                            matchCnt++;
+                            lastMatchedKey = key;
                             continue;
                         }
-                        if (directorySet.contains(blobPath.normalize().toString())) {
-                            break;
-                        }
-                        if (isPrefix) {
-                            directorySet.add(blobPath.normalize().toString());
-                        }
+                        java.nio.file.Path blobPath = Paths.get(blobItem.getName());
 
-                        matchCnt++;
-                        RemoteFile remoteFile = new RemoteFile(
-                                fileNameOnly ? blobPath.getFileName().toString() : constructS3Path(blobPath.toString(),
-                                        uri.getBucket()),
-                                !isPrefix,
-                                isPrefix ? -1 : blobItem.getProperties().getContentLength(),
-                                isPrefix ? -1 : blobItem.getProperties().getContentLength(),
-                                isPrefix ? 0 : blobItem.getProperties().getLastModified().getSecond());
-                        result.add(remoteFile);
+                        boolean isPrefix = false;
+                        while (null != blobPath && blobPath.normalize().toString().startsWith(listPrefix)) {
+                            if (LOG.isDebugEnabled()) {
+                                LOG.debug("get blob {}", blobPath.normalize().toString());
+                            }
+                            if (!matcher.matcher(blobPath.toString()).matches()) {
+                                isPrefix = true;
+                                blobPath = blobPath.getParent();
+                                continue;
+                            }
+                            if (directorySet.contains(blobPath.normalize().toString())) {
+                                break;
+                            }
+                            if (isPrefix) {
+                                directorySet.add(blobPath.normalize().toString());
+                            }
 
-                        blobPath = blobPath.getParent();
-                        isPrefix = true;
+                            matchCnt++;
+                            RemoteFile remoteFile = new RemoteFile(
+                                    fileNameOnly ? blobPath.getFileName().toString()
+                                            : constructS3Path(blobPath.toString(), bucket),
+                                    !isPrefix,
+                                    isPrefix ? -1 : blobItem.getProperties().getContentLength(),
+                                    isPrefix ? -1 : blobItem.getProperties().getContentLength(),
+                                    isPrefix ? 0 : blobItem.getProperties().getLastModified().getSecond());
+                            result.add(remoteFile);
+
+                            blobPath = blobPath.getParent();
+                            isPrefix = true;
+                        }
                     }
-                }
-                newContinuationToken = pagedResponse.getContinuationToken();
-            } while (newContinuationToken != null);
-
+                    newContinuationToken = pagedResponse.getContinuationToken();
+                } while (newContinuationToken != null);
+            }
+            return new GlobListResult(Status.OK, lastMatchedKey, bucket, listPrefix);
         } catch (BlobStorageException e) {
             LOG.warn("glob file " + remotePath + " failed because azure error: " + e.getMessage());
             st = new Status(Status.ErrCode.COMMON_ERROR, "glob file " + remotePath
@@ -450,7 +481,7 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
                     remotePath, elementCnt, roundCnt, matchCnt,
                     duration / 1000);
         }
-        return st;
+        return new GlobListResult(st);
     }
 
     /**
@@ -467,10 +498,10 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
     private Status globListByGetProperties(String bucket, String keyPattern,
             List<RemoteFile> result, boolean fileNameOnly, long startTime) {
         try {
-            // First expand [...] brackets to {...} braces, then expand {..} ranges, then expand braces
-            String expandedPattern = S3Util.expandBracketPatterns(keyPattern);
-            expandedPattern = S3Util.extendGlobs(expandedPattern);
-            List<String> expandedPaths = S3Util.expandBracePatterns(expandedPattern);
+            List<String> expandedPaths = ObjectStorageGlob.exactKeys(keyPattern);
+            if (expandedPaths == null) {
+                return null;
+            }
 
             // Fall back to listing if too many paths to avoid overwhelming Azure with requests
             // Controlled by config: s3_head_request_max_paths
