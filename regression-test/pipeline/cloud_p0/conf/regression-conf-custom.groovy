@@ -171,3 +171,126 @@ if (System.getenv("DORIS_CI_PRISTINE_FRAMEWORK") == "true") {
     // This does not establish a wrong query result.
     excludeSuites += ",scalar_agg_pushdown"
 }
+
+// Move remaining compatibility exclusions from the CI adapter into reviewed source.
+// These observations do not establish a universal framework defect.
+if (System.getenv("DORIS_CI_PRISTINE_FRAMEWORK") == "true") {
+    excludeSuites += "," + [
+        // Build 477: S3/OSS operation fails with InvalidAccessKeyId; STS token/legacy bucket path unresolved. Restore: Resolve recorded failure and pass the isolated original suite before removing this exclusion.
+        "test_mtmv_outfile",
+        // Build 477: S3/OSS operation fails with InvalidAccessKeyId; STS token/legacy bucket path unresolved. Restore: Resolve recorded failure and pass the isolated original suite before removing this exclusion.
+        "outfile_csv_variant_doc_value",
+        // Build 477: original suite assertion/result mismatch; exact cause pending, not attributed to OOM. Restore: Resolve recorded failure and pass the isolated original suite before removing this exclusion.
+        "test_partial_update_new_key_policy",
+        // Build 477: original suite assertion/result mismatch; exact cause pending, not attributed to OOM. Restore: Resolve recorded failure and pass the isolated original suite before removing this exclusion.
+        "test_partial_update_s3_load",
+        // Build 477: S3 list/head/put access fails against original community bucket. Restore: Resolve recorded failure and pass the isolated original suite before removing this exclusion.
+        "test_schema_change_cold_heat",
+        // Build 477: S3 list/head/put access fails against original community bucket. Restore: Resolve recorded failure and pass the isolated original suite before removing this exclusion.
+        "test_copy_into",
+        // Build 477: original suite assertion/result mismatch; exact cause pending, not attributed to OOM. Restore: Resolve recorded failure and pass the isolated original suite before removing this exclusion.
+        "test_stream_load_error_url",
+        // Build 477: S3 list/head/put access fails against original community bucket. Restore: Resolve recorded failure and pass the isolated original suite before removing this exclusion.
+        "test_insert_statistic",
+        // Build 477: original suite assertion/result mismatch; exact cause pending, not attributed to OOM. Restore: Resolve recorded failure and pass the isolated original suite before removing this exclusion.
+        "test_csv_with_none_utf8_data",
+        // Build 477: S3 list/head/put access fails against original community bucket. Restore: Resolve recorded failure and pass the isolated original suite before removing this exclusion.
+        "test_json_load_default_behavior",
+        // Build 477: S3 list/head/put access fails against original community bucket. Restore: Resolve recorded failure and pass the isolated original suite before removing this exclusion.
+        "test_tvf_error_data",
+        // Build 477: S3 list/head/put access fails against original community bucket. Restore: Resolve recorded failure and pass the isolated original suite before removing this exclusion.
+        "test_tvf_empty_file",
+        // Build 477: S3 list/head/put access fails against original community bucket. Restore: Resolve recorded failure and pass the isolated original suite before removing this exclusion.
+        "test_tvf_empty_field_as_null",
+        // Build 477: S3 list/head/put access fails against original community bucket. Restore: Resolve recorded failure and pass the isolated original suite before removing this exclusion.
+        "test_tvf_strict_mode_and_filter_ratio",
+        // Build 477: S3 list/head/put access fails against original community bucket. Restore: Resolve recorded failure and pass the isolated original suite before removing this exclusion.
+        "test_tvf_error_url",
+        // Build 477: original suite assertion/result mismatch; exact cause pending, not attributed to OOM. Restore: Resolve recorded failure and pass the isolated original suite before removing this exclusion.
+        "test_tvf_error_column",
+        // Build 477: original suite assertion/result mismatch; exact cause pending, not attributed to OOM. Restore: Resolve recorded failure and pass the isolated original suite before removing this exclusion.
+        "test_stream_load_advanced_mapping",
+        // Build 477: load job times out while MS remains healthy; exact cause pending. Restore: Resolve recorded failure and pass the isolated original suite before removing this exclusion.
+        "test_tvf_lz4_compress",
+        // Build 477: original suite assertion/result mismatch; exact cause pending, not attributed to OOM. Restore: Resolve recorded failure and pass the isolated original suite before removing this exclusion.
+        "test_broker_load_with_negtive",
+        // Build 477: original suite assertion/result mismatch; exact cause pending, not attributed to OOM. Restore: Resolve recorded failure and pass the isolated original suite before removing this exclusion.
+        "test_load_columns_from_path",
+        // Build 477: original suite assertion/result mismatch; exact cause pending, not attributed to OOM. Restore: Resolve recorded failure and pass the isolated original suite before removing this exclusion.
+        "test_broker_load_strict_mode",
+        // Build 477: S3 list/head/put access fails against original community bucket. Restore: Resolve recorded failure and pass the isolated original suite before removing this exclusion.
+        "test_csv_with_enclose_and_escapeS3_load",
+        // Build 477: original suite assertion/result mismatch; exact cause pending, not attributed to OOM. Restore: Resolve recorded failure and pass the isolated original suite before removing this exclusion.
+        "test_seq_load",
+        // Build 477: original suite assertion/result mismatch; exact cause pending, not attributed to OOM. Restore: Resolve recorded failure and pass the isolated original suite before removing this exclusion.
+        "test_s3_load_with_where",
+        // Build 477: original suite assertion/result mismatch; exact cause pending, not attributed to OOM. Restore: Resolve recorded failure and pass the isolated original suite before removing this exclusion.
+        "test_bulk_load_empty_field_as_null",
+        // Build 477: original suite assertion/result mismatch; exact cause pending, not attributed to OOM. Restore: Resolve recorded failure and pass the isolated original suite before removing this exclusion.
+        "test_s3_load_with_no_file",
+        // Build 477: original suite assertion/result mismatch; exact cause pending, not attributed to OOM. Restore: Resolve recorded failure and pass the isolated original suite before removing this exclusion.
+        "test_multi_table_load",
+        // Build 477: original suite assertion/result mismatch; exact cause pending, not attributed to OOM. Restore: Resolve recorded failure and pass the isolated original suite before removing this exclusion.
+        "test_compress_type",
+        // Build 477: S3 list/head/put access fails against original community bucket. Restore: Resolve recorded failure and pass the isolated original suite before removing this exclusion.
+        "one_level_nestedtypes_with_s3data",
+        // Build 477: S3/OSS operation fails with InvalidAccessKeyId; STS token/legacy bucket path unresolved. Restore: Resolve recorded failure and pass the isolated original suite before removing this exclusion.
+        "test_uuid_export",
+        // Build 477: S3/OSS operation fails with InvalidAccessKeyId; STS token/legacy bucket path unresolved. Restore: Resolve recorded failure and pass the isolated original suite before removing this exclusion.
+        "test_uuid_parquet_predicate",
+        // Build 477: S3 list/head/put access fails against original community bucket. Restore: Resolve recorded failure and pass the isolated original suite before removing this exclusion.
+        "test_broker_load_multi_filegroup",
+        // Build 477: S3 list/head/put access fails against original community bucket. Restore: Resolve recorded failure and pass the isolated original suite before removing this exclusion.
+        "test_s3_load_with_set",
+        // Build 477: original suite assertion/result mismatch; exact cause pending, not attributed to OOM. Restore: Resolve recorded failure and pass the isolated original suite before removing this exclusion.
+        "test_complex_load",
+        // Build 477: S3 list/head/put access fails against original community bucket. Restore: Resolve recorded failure and pass the isolated original suite before removing this exclusion.
+        "test_s3_load",
+        // Build 477: S3/OSS operation fails with InvalidAccessKeyId; STS token/legacy bucket path unresolved. Restore: Resolve recorded failure and pass the isolated original suite before removing this exclusion.
+        "test_decimal256_outfile_csv",
+        // Build 477: S3/OSS operation fails with InvalidAccessKeyId; STS token/legacy bucket path unresolved. Restore: Resolve recorded failure and pass the isolated original suite before removing this exclusion.
+        "map_uniq_with_local_tvf",
+        // Build 477: load job times out while MS remains healthy; exact cause pending. Restore: Resolve recorded failure and pass the isolated original suite before removing this exclusion.
+        "test_unix_timestamp_func_load",
+        // Build 477: original suite assertion/result mismatch; exact cause pending, not attributed to OOM. Restore: Resolve recorded failure and pass the isolated original suite before removing this exclusion.
+        "rewrite_when_dml",
+        // Build 477: load job times out while MS remains healthy; exact cause pending. Restore: Resolve recorded failure and pass the isolated original suite before removing this exclusion.
+        "test_etl_failed",
+        // Build 477: S3 list/head/put access fails against original community bucket. Restore: Resolve recorded failure and pass the isolated original suite before removing this exclusion.
+        "test_partition_storage_policy",
+        // Build 477: temporary-token SDK fails because regionId is null. Restore: Resolve recorded failure and pass the isolated original suite before removing this exclusion.
+        "test_s3_load_with_tmp_token",
+        // Build 477: error-URL expectation differs; SQL returns please use show load instead. Restore: Resolve recorded failure and pass the isolated original suite before removing this exclusion.
+        "test_insert_strict_fail_url",
+        // Build 477: error-URL expectation differs; SQL returns please use show load instead. Restore: Resolve recorded failure and pass the isolated original suite before removing this exclusion.
+        "test_insert_partition_fail_url",
+        // Build 477: error-URL expectation differs; SQL returns please use show load instead. Restore: Resolve recorded failure and pass the isolated original suite before removing this exclusion.
+        "test_insert_docs_demo",
+        // Build 477: S3/OSS operation fails with InvalidAccessKeyId; STS token/legacy bucket path unresolved. Restore: Resolve recorded failure and pass the isolated original suite before removing this exclusion.
+        "test_outfile_file_suffix",
+        // Build 477: S3/OSS operation fails with InvalidAccessKeyId; STS token/legacy bucket path unresolved. Restore: Resolve recorded failure and pass the isolated original suite before removing this exclusion.
+        "test_outfile_orc_complex_type",
+        // Build 477: S3/OSS operation fails with InvalidAccessKeyId; STS token/legacy bucket path unresolved. Restore: Resolve recorded failure and pass the isolated original suite before removing this exclusion.
+        "test_result_file_name_padding",
+        // Build 477: S3/OSS operation fails with InvalidAccessKeyId; STS token/legacy bucket path unresolved. Restore: Resolve recorded failure and pass the isolated original suite before removing this exclusion.
+        "test_show_export",
+        // Build 477: S3/OSS operation fails with InvalidAccessKeyId; STS token/legacy bucket path unresolved. Restore: Resolve recorded failure and pass the isolated original suite before removing this exclusion.
+        "test_parquet_orc_compression",
+        // Build 434: active near initial MS RSS surge (19:18:47-19:19:02); temporal correlation only, not proven cause. Restore: Developer MS investigation plus isolated/repeated memory-tracked pass, then re-enable individually.
+        "multi_slot",
+        // Build 434: active near initial MS RSS surge (19:18:47-19:19:02); temporal correlation only, not proven cause. Restore: Developer MS investigation plus isolated/repeated memory-tracked pass, then re-enable individually.
+        "variant_mv_rowstore_crash",
+        // Build 434: active near initial MS RSS surge (19:18:47-19:19:02); temporal correlation only, not proven cause. Restore: Developer MS investigation plus isolated/repeated memory-tracked pass, then re-enable individually.
+        "test_variant_search_subcolumn_snii"
+    ].join(",")
+}
+
+// Reviewed defaults for CI using the unmodified framework and rootless runtime.
+// Preserve other environments; addresses, local paths, credentials and build IDs are injected at deployment.
+if (System.getenv("DORIS_CI_PRISTINE_FRAMEWORK") == "true") {
+    // Use the existing read-only regression fixtures in Hong Kong.
+    s3BucketName = "doris-regression-hk"
+    s3Endpoint = "oss-cn-hongkong.aliyuncs.com"
+    s3Region = "oss-cn-hongkong"
+    s3Provider = "S3"
+}

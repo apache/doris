@@ -180,3 +180,13 @@ if (System.getenv("DORIS_CI_PRISTINE_FRAMEWORK") == "true") {
         "test_analyze_long_string"
     ].join(",")
 }
+
+// Reviewed defaults for CI using the unmodified framework and rootless runtime.
+// Preserve other environments; addresses, local paths, credentials and build IDs are injected at deployment.
+if (System.getenv("DORIS_CI_PRISTINE_FRAMEWORK") == "true") {
+    // Use the existing read-only regression fixtures in Hong Kong.
+    s3BucketName = "doris-regression-hk"
+    s3Endpoint = "oss-cn-hongkong.aliyuncs.com"
+    s3Region = "oss-cn-hongkong"
+    s3Provider = "S3"
+}
