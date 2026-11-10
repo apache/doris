@@ -27,6 +27,7 @@ file(GLOB_RECURSE FORMAT_V2_SRC_FILES CONFIGURE_DEPENDS
 list(APPEND SRC_FILES ${FORMAT_V2_SRC_FILES})
 
 add_library(Format STATIC ${SRC_FILES})
+target_link_libraries(Format PUBLIC mongoc2)
 
 # Read the pinned SDK timezone rules without changing SDK decoding or public interfaces.
 target_include_directories(Format PRIVATE

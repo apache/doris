@@ -41,6 +41,7 @@
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_spatial.h"
 #include "core/data_type/data_type_varbinary.h"
+#include "core/data_type_serde/bson_value_view.h"
 #include "core/data_type_serde/data_type_serde.h"
 #include "core/data_type_serde/data_type_varbinary_serde.h"
 #include "core/string_buffer.hpp"
@@ -213,6 +214,38 @@ TEST_F(DataTypeVarbinarySerDeTest, ConcreteBinaryColumnsPreserveInheritedTextEnc
           DataTypePtr(std::make_shared<DataTypeSpatial>(TYPE_GEOMETRY)),
           DataTypePtr(std::make_shared<DataTypeSpatial>(TYPE_GEOGRAPHY))}) {
         expect_binary_serde_text(type);
+    }
+}
+
+TEST_F(DataTypeVarbinarySerDeTest, BsonDecodeRemainsSpecificToVarbinary) {
+    bson_value_t oid {};
+    oid.value_type = BSON_TYPE_OID;
+    for (size_t i = 0; i < 12; ++i) {
+        oid.value.v_oid.bytes[i] = static_cast<uint8_t>(i);
+    }
+    const auto value = BsonValueView::of(oid);
+    const BsonDecodeContext context;
+    const auto binary_type = std::make_shared<DataTypeVarbinary>();
+    auto binary = binary_type->create_column();
+    ASSERT_TRUE(binary_type->get_serde()->read_one_cell_from_bson(*binary, value, context).ok());
+    ASSERT_EQ(binary->size(), 1);
+    EXPECT_EQ(binary->get_data_at(0).to_string(),
+              std::string(reinterpret_cast<const char*>(oid.value.v_oid.bytes), 12));
+
+    // BSON ObjectId bytes are VARBINARY, not WKB; spatial columns must keep the default rejection.
+    for (const auto kind : {TYPE_GEOMETRY, TYPE_GEOGRAPHY}) {
+        for (const bool nullable : {false, true}) {
+            DataTypePtr type = std::make_shared<DataTypeSpatial>(kind);
+            if (nullable) {
+                type = make_nullable(type);
+            }
+            auto column = type->create_column();
+            column->insert_default();
+            const auto status = type->get_serde()->read_one_cell_from_bson(*column, value, context);
+            EXPECT_FALSE(status.ok());
+            EXPECT_NE(status.to_string().find("BSON decoding is not supported"), std::string::npos);
+            EXPECT_EQ(column->size(), 1);
+        }
     }
 }
 

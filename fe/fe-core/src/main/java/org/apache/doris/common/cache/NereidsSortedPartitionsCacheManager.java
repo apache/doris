@@ -71,6 +71,19 @@ public class NereidsSortedPartitionsCacheManager {
         partitionCaches.invalidate(key);
     }
 
+    /** Match the stable ID as well, including entries under a table's previous name. */
+    public void invalidateTable(long tableId) {
+        partitionCaches.asMap().entrySet().removeIf(entry -> entry.getValue().tableId == tableId);
+    }
+
+    public void invalidateDatabase(String catalog, String db) {
+        partitionCaches.asMap().keySet().removeIf(key -> key.catalog.equals(catalog) && key.db.equals(db));
+    }
+
+    public void invalidateCatalog(String catalog) {
+        partitionCaches.asMap().keySet().removeIf(key -> key.catalog.equals(catalog));
+    }
+
     public Optional<SortedPartitionRanges<?>> get(
             SupportBinarySearchFilteringPartitions table, CatalogRelation scan) {
         ConnectContext connectContext = ConnectContext.get();

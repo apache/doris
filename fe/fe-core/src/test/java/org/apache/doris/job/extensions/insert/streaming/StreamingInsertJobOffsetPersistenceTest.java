@@ -21,6 +21,7 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.cache.NereidsSqlCacheManager;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.InternalCatalog;
@@ -138,6 +139,7 @@ public class StreamingInsertJobOffsetPersistenceTest {
         ConnectContext previousContext = ConnectContext.get();
         try (MockedStatic<Env> envMockedStatic = Mockito.mockStatic(Env.class)) {
             Env env = Mockito.mock(Env.class);
+            Mockito.when(env.getSqlCacheManager()).thenReturn(new NereidsSqlCacheManager());
             InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
             CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
             Mockito.when(catalog.getName()).thenReturn(InternalCatalog.INTERNAL_CATALOG_NAME);

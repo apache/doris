@@ -173,13 +173,14 @@ class OlapTableSqlCacheVersionTest {
         Assertions.assertTrue(version.olapVersion.isUsable());
         tableFirst.addUsedVariable(variable);
         Assertions.assertFalse(version.olapVersion.isUsable());
-        Assertions.assertEquals("2", version.getCacheKey());
+        Assertions.assertEquals("2:schema:-1:0", version.getCacheKey());
 
         SqlCacheContext variableFirst = new SqlCacheContext(UserIdentity.ROOT);
         variableFirst.addUsedVariable(variable);
         variableFirst.addUsedTable(table);
         variableFirst.addOlapScan(table, ImmutableMap.of(10L, 2L));
-        Assertions.assertEquals("2", variableFirst.getUsedTables().values().iterator().next().getCacheKey());
+        Assertions.assertEquals("2:schema:-1:0",
+                variableFirst.getUsedTables().values().iterator().next().getCacheKey());
     }
 
     @Test
@@ -198,7 +199,7 @@ class OlapTableSqlCacheVersionTest {
             }
             SqlCacheContext.TableVersion version = context.getUsedTables().values().iterator().next();
             Assertions.assertFalse(version.olapVersion.isUsable());
-            Assertions.assertEquals("2", version.getCacheKey());
+            Assertions.assertEquals("2:schema:-1:0", version.getCacheKey());
         }
     }
 
@@ -262,7 +263,7 @@ class OlapTableSqlCacheVersionTest {
             }
             SqlCacheContext.TableVersion version = context.getUsedTables().values().iterator().next();
             Assertions.assertFalse(version.olapVersion.isUsable());
-            Assertions.assertEquals("2", version.getCacheKey());
+            Assertions.assertEquals("2:schema:-1:0", version.getCacheKey());
         }
     }
 

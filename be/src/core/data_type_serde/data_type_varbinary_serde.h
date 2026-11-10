@@ -39,7 +39,7 @@ class ColumnSpatial;
 template <typename ColumnType>
 class DataTypeVarbinarySerDeBase : public DataTypeSerDe {
 public:
-    DataTypeVarbinarySerDeBase(int nesting_level = 1) : DataTypeSerDe(nesting_level) {};
+    DataTypeVarbinarySerDeBase(int nesting_level = 1) : DataTypeSerDe(nesting_level) {}
 
     std::string get_name() const override { return "Varbinary"; }
 
@@ -128,6 +128,13 @@ public:
 extern template class DataTypeVarbinarySerDeBase<ColumnVarbinary>;
 extern template class DataTypeVarbinarySerDeBase<ColumnSpatial>;
 
-using DataTypeVarbinarySerDe = DataTypeVarbinarySerDeBase<ColumnVarbinary>;
+// BSON ObjectId/BinData use VARBINARY; spatial WKB must retain the default BSON rejection.
+class DataTypeVarbinarySerDe : public DataTypeVarbinarySerDeBase<ColumnVarbinary> {
+public:
+    using DataTypeVarbinarySerDeBase<ColumnVarbinary>::DataTypeVarbinarySerDeBase;
+
+    Status decode_bson_value(IColumn& column, const BsonValueView& value,
+                             const BsonDecodeContext& context) const override;
+};
 
 } // namespace doris
