@@ -911,6 +911,8 @@ public class Env {
         }
         this.tsoService = new TSOService();
         this.tableStreamManager = new TableStreamManager();
+        registerDbFunctionsById(getInternalCatalog().getDbNullable(InfoSchemaDb.DATABASE_ID));
+        registerDbFunctionsById(getInternalCatalog().getDbNullable(MysqlDb.DATABASE_ID));
     }
 
     public static Map<String, Long> getSessionReportTimeMap() {
@@ -2736,6 +2738,8 @@ public class Env {
         // So ignore it to use default catalog manager.
         if (mgr != null) {
             this.catalogMgr = mgr;
+            registerDbFunctionsById(getInternalCatalog().getDbNullable(InfoSchemaDb.DATABASE_ID));
+            registerDbFunctionsById(getInternalCatalog().getDbNullable(MysqlDb.DATABASE_ID));
         }
         LOG.info("finished replay catalog from image");
         return checksum;
