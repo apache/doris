@@ -38,7 +38,7 @@ ObjClientHolder::~ObjClientHolder() = default;
 Status ObjClientHolder::init() {
     auto current = state();
     auto client = DORIS_TRY(ObjClientFactory::instance().get_or_create(current->config));
-    return _publish(current, current->config, std::move(client));
+    return _publish(current->config, std::move(client));
 }
 
 Status ObjClientHolder::reset(const ObjClientConfig& update) {
@@ -57,7 +57,7 @@ Status ObjClientHolder::reset(const ObjClientConfig& update) {
 
     LOG(WARNING) << "reset object storage client with new config: " << update.to_string();
 
-    return _publish(current, std::move(merged), std::move(client));
+    return _publish(std::move(merged), std::move(client));
 }
 
 Status ObjClientHolder::rebind(const ObjClientConfig& config) {
@@ -66,7 +66,7 @@ Status ObjClientHolder::rebind(const ObjClientConfig& config) {
         return *current->invalid_reason;
     }
     auto client = DORIS_TRY(ObjClientFactory::instance().get_or_create(config));
-    return _publish(current, config, std::move(client));
+    return _publish(config, std::move(client));
 }
 
 void ObjClientHolder::invalidate(Status reason) {
@@ -86,33 +86,22 @@ void ObjClientHolder::invalidate(Status reason) {
     _state.swap(next);
 }
 
-Status ObjClientHolder::_publish(const std::shared_ptr<const ObjClientState>& expected,
-                                 ObjClientConfig config, std::shared_ptr<ObjStorageClient> client) {
+Status ObjClientHolder::_publish(ObjClientConfig config, std::shared_ptr<ObjStorageClient> client) {
     // Declared before the lock: after the swap below it holds the replaced state, and
     // possibly the last reference to its client, which is then released after unlocking.
-    std::shared_ptr<const ObjClientState> next = std::make_shared<ObjClientState>(ObjClientState {
+    std::shared_ptr<const ObjClientState> next;
+    std::lock_guard lock(_mtx);
+    // A publish that overlapped invalidate() reports why the holder is out of service, so a
+    // client that was already being built cannot bring it back.
+    if (_state->invalid_reason.has_value()) {
+        return *_state->invalid_reason;
+    }
+    next = std::make_shared<ObjClientState>(ObjClientState {
             .config = std::move(config),
             .client = std::move(client),
-            .generation = expected->generation + 1,
+            .generation = _state->generation + 1,
     });
-    {
-        std::lock_guard lock(_mtx);
-        // Checked before the generation: a publish that overlapped invalidate() reports why the
-        // holder is out of service rather than a conflict that the caller could retry.
-        if (_state->invalid_reason.has_value()) {
-            return *_state->invalid_reason;
-        }
-        // Two resets that both start from generation N merge their config onto N. Publishing
-        // the second one on top of N + 1 would silently drop the first update, so it is
-        // rejected and the caller retries from the new state.
-        if (_state->generation != expected->generation) {
-            return Status::Aborted(
-                    "object storage client was updated concurrently, expected generation {}, "
-                    "current {}",
-                    expected->generation, _state->generation);
-        }
-        _state.swap(next);
-    }
+    _state.swap(next);
     return Status::OK();
 }
 

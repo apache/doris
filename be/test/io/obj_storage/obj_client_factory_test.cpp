@@ -451,8 +451,8 @@ TEST_F(ObjClientFactoryTest, HolderPublishesConfigAndClientTogether) {
     EXPECT_EQ(holder.state(), current);
 }
 
-TEST_F(ObjClientFactoryTest, HolderRejectsResetMergedOntoStaleState) {
-    auto param = make_s3_param(unique_endpoint("holder-conflict"));
+TEST_F(ObjClientFactoryTest, OverlappingResetsLetTheLastPublishWin) {
+    auto param = make_s3_param(unique_endpoint("holder-overlap"));
     ObjClientHolder holder(resolve(param));
     ASSERT_TRUE(holder.init().ok());
 
@@ -461,18 +461,19 @@ TEST_F(ObjClientFactoryTest, HolderRejectsResetMergedOntoStaleState) {
     auto inner = param;
     inner.__set_sk("inner-sk");
     // While the outer reset builds its client outside the lock, another reset publishes
-    // generation 2. The outer reset was merged onto generation 1, so publishing it would
-    // overwrite the inner update with a config that never saw it.
+    // generation 2. The outer reset then publishes generation 3 on top of it: both succeed and
+    // the last one stays, with its whole update.
     Status inner_status;
     _on_s3_build = [&] { inner_status = holder.reset(resolve(inner)); };
 
     auto outer_status = holder.reset(resolve(outer));
 
     ASSERT_TRUE(inner_status.ok()) << inner_status;
-    EXPECT_TRUE(outer_status.is<ErrorCode::ABORTED>()) << outer_status;
+    ASSERT_TRUE(outer_status.ok()) << outer_status;
     auto current = holder.state();
-    EXPECT_EQ(current->generation, 2U);
-    EXPECT_EQ(secret_key_of(current->config), "inner-sk");
+    EXPECT_EQ(current->generation, 3U);
+    EXPECT_EQ(secret_key_of(current->config), "outer-sk");
+    EXPECT_EQ(holder.get(), current->client);
 }
 
 TEST_F(ObjClientFactoryTest, ResetMergeKeepsTheStorageTarget) {
@@ -561,8 +562,8 @@ TEST_F(ObjClientFactoryTest, InvalidateWinsOverAResetBuildingItsClient) {
     _on_s3_build = [&] { holder.invalidate(Status::InvalidArgument<false>("backend changed")); };
     auto st = holder.reset(resolve(rotated));
 
-    // The publish reports the reason rather than Aborted, which callers treat as retryable.
-    EXPECT_FALSE(st.is<ErrorCode::ABORTED>()) << st;
+    // The publish reports the reason instead of bringing the client back.
+    EXPECT_FALSE(st.ok()) << st;
     EXPECT_NE(st.to_string().find("backend changed"), std::string::npos) << st;
     EXPECT_EQ(holder.get(), nullptr);
 }
