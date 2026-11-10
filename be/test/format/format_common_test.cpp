@@ -62,7 +62,7 @@ TEST(KVCacheTest, DifferentKeysOnSameShardLoadConcurrently) {
     EXPECT_TRUE(second_loaded_before_first);
 }
 
-TEST(KVCacheTest, SameKeyLoadsOnceForConcurrentCallers) {
+TEST(KVCacheTest, ConcurrentMissesPublishOneValue) {
     constexpr int num_callers = 8;
     ShardedKVCache cache(1);
     std::atomic<int> factory_calls {0};
@@ -71,40 +71,101 @@ TEST(KVCacheTest, SameKeyLoadsOnceForConcurrentCallers) {
     auto factory_entered_future = factory_entered.get_future();
     auto release_factory_future = release_factory.get_future().share();
     std::vector<std::shared_ptr<int>> values(num_callers);
+    std::vector<std::weak_ptr<int>> candidates(num_callers);
+    std::atomic<int> cache_hits {0};
     std::vector<std::thread> callers;
 
     for (int i = 0; i < num_callers; ++i) {
         callers.emplace_back([&, i]() {
-            values[i] = cache.get<int>("shared", [&]() -> std::shared_ptr<int> {
-                if (++factory_calls == 1) {
-                    factory_entered.set_value();
-                }
-                release_factory_future.wait();
-                return std::make_shared<int>(7);
-            });
+            bool cache_hit = false;
+            values[i] = cache.get<int>(
+                    "shared",
+                    [&]() {
+                        auto value = std::make_shared<int>(i);
+                        candidates[i] = value;
+                        // Hold all factories until every caller has missed the cache.
+                        if (++factory_calls == num_callers) {
+                            factory_entered.set_value();
+                        }
+                        release_factory_future.wait();
+                        return value;
+                    },
+                    &cache_hit);
+            cache_hits += cache_hit;
         });
     }
 
-    factory_entered_future.wait();
+    bool all_factories_entered =
+            factory_entered_future.wait_for(std::chrono::seconds(5)) == std::future_status::ready;
     release_factory.set_value();
     for (auto& caller : callers) {
         caller.join();
     }
 
-    EXPECT_EQ(factory_calls.load(), 1);
+    EXPECT_TRUE(all_factories_entered);
+    EXPECT_EQ(factory_calls.load(), num_callers);
+    EXPECT_EQ(cache_hits.load(), num_callers - 1);
     ASSERT_NE(values.front(), nullptr);
     for (const auto& value : values) {
         EXPECT_EQ(value, values.front());
     }
+    int retained_candidates = 0;
+    for (const auto& candidate : candidates) {
+        retained_candidates += !candidate.expired();
+    }
+    EXPECT_EQ(retained_candidates, 1);
 }
 
-TEST(KVCacheTest, FailedFactoryDoesNotPoisonEntry) {
+TEST(KVCacheTest, SlowFactoryDoesNotBlockSameKey) {
+    ShardedKVCache cache(1);
+    std::promise<void> first_entered;
+    std::promise<void> release_first;
+    auto first_entered_future = first_entered.get_future();
+    auto release_first_future = release_first.get_future();
+    std::weak_ptr<int> discarded;
+    bool first_cache_hit = false;
+    bool second_cache_hit = true;
+    auto first = std::async(std::launch::async, [&]() {
+        return cache.get<int>(
+                "shared",
+                [&]() {
+                    first_entered.set_value();
+                    release_first_future.wait();
+                    auto value = std::make_shared<int>(7);
+                    discarded = value;
+                    return value;
+                },
+                &first_cache_hit);
+    });
+    first_entered_future.wait();
+    auto second = std::async(std::launch::async, [&]() {
+        return cache.get<int>(
+                "shared", []() { return std::make_shared<int>(9); }, &second_cache_hit);
+    });
+    bool second_completed = second.wait_for(std::chrono::seconds(5)) == std::future_status::ready;
+    // Release the first factory even on failure so a regression fails instead of hanging the test.
+    release_first.set_value();
+    auto first_value = first.get();
+    auto second_value = second.get();
+
+    EXPECT_TRUE(second_completed);
+    ASSERT_NE(second_value, nullptr);
+    EXPECT_EQ(*second_value, 9);
+    EXPECT_EQ(first_value, second_value);
+    EXPECT_TRUE(first_cache_hit);
+    EXPECT_FALSE(second_cache_hit);
+    EXPECT_TRUE(discarded.expired());
+}
+
+TEST(KVCacheTest, FailedFactoryDoesNotBlockOrDiscardConcurrentSuccess) {
     ShardedKVCache cache(1);
     std::atomic<int> factory_calls {0};
     std::promise<void> failed_factory_entered;
     std::promise<void> release_failed_factory;
     auto failed_factory_entered_future = failed_factory_entered.get_future();
     auto release_failed_factory_future = release_failed_factory.get_future().share();
+    std::promise<void> second_completed;
+    auto second_completed_future = second_completed.get_future();
     bool first_cache_hit = true;
     bool second_cache_hit = true;
     std::shared_ptr<int> second_value;
@@ -132,17 +193,41 @@ TEST(KVCacheTest, FailedFactoryDoesNotPoisonEntry) {
                     return std::make_shared<int>(9);
                 },
                 &second_cache_hit);
+        second_completed.set_value();
     });
 
+    bool second_completed_before_failure =
+            second_completed_future.wait_for(std::chrono::seconds(5)) == std::future_status::ready;
     release_failed_factory.set_value();
     first.join();
     second.join();
 
+    EXPECT_TRUE(second_completed_before_failure);
     EXPECT_EQ(factory_calls.load(), 2);
     EXPECT_FALSE(first_cache_hit);
     EXPECT_FALSE(second_cache_hit);
     ASSERT_NE(second_value, nullptr);
     EXPECT_EQ(*second_value, 9);
+    EXPECT_EQ(cache.get<int>("retry",
+                             []() -> std::shared_ptr<int> {
+                                 ADD_FAILURE() << "failed factory discarded the published value";
+                                 return nullptr;
+                             }),
+              second_value);
+}
+
+TEST(KVCacheTest, FailedFactoryCanBeRetried) {
+    ShardedKVCache cache(1);
+    bool cache_hit = true;
+    EXPECT_EQ(cache.get<int>(
+                      "retry", []() -> std::shared_ptr<int> { return nullptr; }, &cache_hit),
+              nullptr);
+    EXPECT_FALSE(cache_hit);
+    auto value = cache.get<int>(
+            "retry", []() { return std::make_shared<int>(9); }, &cache_hit);
+    EXPECT_FALSE(cache_hit);
+    ASSERT_NE(value, nullptr);
+    EXPECT_EQ(*value, 9);
 }
 
 TEST(KVCacheTest, SameStringKeyIsIsolatedByValueType) {
