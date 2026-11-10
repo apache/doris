@@ -84,6 +84,7 @@ public class ReorderJoin extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
         return logicalFilter(subTree(LogicalJoin.class, LogicalFilter.class))
+            .when(filter -> filter.child() instanceof LogicalJoin)
             .whenNot(filter -> filter.child() instanceof LogicalJoin
                     && ((((LogicalJoin<?, ?>) filter.child()).isMarkJoin())
                         || ((LogicalJoin<?, ?>) filter.child()).getJoinType().isAsofJoin()))
@@ -134,9 +135,10 @@ public class ReorderJoin extends OneRewriteRuleFactory {
      * --> {@link MultiJoin}
      */
     public Plan joinToMultiJoin(Plan plan, Map<Plan, DistributeHint> planToHintType) {
-        // subtree can't specify the end of Pattern. so end can be GroupPlan or Filter
+        // A top-down retry can reach child filters before MergeFilters has merged them.
+        // Preserve filters without a direct join child as join-cluster boundaries.
         if (nonJoinAndNonFilter(plan)
-                || (plan instanceof LogicalFilter && nonJoinAndNonFilter(plan.child(0)))) {
+                || (plan instanceof LogicalFilter && !(plan.child(0) instanceof LogicalJoin))) {
             return plan;
         }
 
@@ -146,7 +148,6 @@ public class ReorderJoin extends OneRewriteRuleFactory {
         List<Expression> notInnerOtherJoinConditions = Lists.newArrayList();
 
         LogicalJoin<?, ?> join;
-        // Implicit rely on {rule: MergeFilters}, so don't exist filter--filter--join.
         if (plan instanceof LogicalFilter) {
             LogicalFilter<?> filter = (LogicalFilter<?>) plan;
             for (Expression conjunct : filter.getConjuncts()) {

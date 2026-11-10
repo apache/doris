@@ -19,9 +19,16 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.jobs.executor.Rewriter;
+import org.apache.doris.nereids.rules.RuleFactory;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.IsNull;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Random;
 import org.apache.doris.nereids.trees.plans.JoinType;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.LogicalPlanBuilder;
@@ -32,9 +39,13 @@ import org.apache.doris.nereids.util.PlanConstructor;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 class ReorderJoinTest implements MemoPatternMatchSupported {
 
@@ -42,6 +53,96 @@ class ReorderJoinTest implements MemoPatternMatchSupported {
     private final LogicalOlapScan scan2 = PlanConstructor.newLogicalOlapScan(1, "t2", 0);
     private final LogicalOlapScan scan3 = PlanConstructor.newLogicalOlapScan(2, "t3", 0);
     private final LogicalOlapScan scan4 = PlanConstructor.newLogicalOlapScan(3, "t4", 0);
+
+    @Test
+    public void testConsecutiveFiltersAtRoot() {
+        LogicalPlan plan = new LogicalPlanBuilder(scan1)
+                .join(scan2, JoinType.LEFT_OUTER_JOIN, Pair.of(0, 0))
+                .filter(new IsNull(scan2.getOutput().get(0)))
+                .filter(new IsNull(scan1.getOutput().get(0)))
+                .build();
+
+        applyReorderJoinBatch(plan, new ReorderJoin())
+                .matchesFromRoot(logicalFilter(logicalFilter(logicalJoin())));
+    }
+
+    @Test
+    public void testConsecutiveFiltersAreJoinClusterBoundary() {
+        for (JoinType joinType : ImmutableList.of(JoinType.INNER_JOIN, JoinType.CROSS_JOIN,
+                JoinType.LEFT_OUTER_JOIN, JoinType.RIGHT_OUTER_JOIN, JoinType.FULL_OUTER_JOIN)) {
+            for (Expression predicate : ImmutableList.of(new IsNull(scan2.getOutput().get(0)),
+                    new EqualTo(scan2.getOutput().get(0), new Random()))) {
+                LogicalPlan boundary = new LogicalPlanBuilder(scan1)
+                        .join(scan2, joinType, Pair.of(0, 0))
+                        .filter(predicate)
+                        .filter(new IsNull(scan1.getOutput().get(0)))
+                        .build();
+                LogicalPlan plan = new LogicalPlanBuilder(boundary)
+                        .join(scan3, JoinType.LEFT_OUTER_JOIN, Pair.of(0, 0))
+                        .build();
+                ReorderJoin reorderJoin = new ReorderJoin();
+                Assertions.assertSame(boundary, reorderJoin.joinToMultiJoin(boundary, new HashMap<>()));
+                MultiJoin multiJoin = (MultiJoin) reorderJoin.joinToMultiJoin(plan, new HashMap<>());
+                Assertions.assertSame(boundary, multiJoin.child(0));
+            }
+        }
+    }
+
+    @Test
+    public void testRepeatedReorderWithGeneratedConsecutiveFilters() {
+        LogicalPlan plan = nestedLeftJoinWithNullFilters();
+        ReorderJoin reorderJoin = new ReorderJoin();
+        Map<Plan, DistributeHint> hints = new HashMap<>();
+        MultiJoin multiJoin = (MultiJoin) reorderJoin.joinToMultiJoin(plan, hints);
+        Plan first = reorderJoin.multiJoinToJoin(multiJoin, hints);
+        Assertions.assertInstanceOf(LogicalFilter.class, first.child(0).child(0));
+        Assertions.assertInstanceOf(LogicalFilter.class, first.child(0).child(0).child(0));
+
+        hints.clear();
+        MultiJoin repeatedMultiJoin = (MultiJoin) reorderJoin.joinToMultiJoin(first, hints);
+        Assertions.assertEquals(first, reorderJoin.multiJoinToJoin(repeatedMultiJoin, hints));
+    }
+
+    @Test
+    public void testTopDownBatchWithGeneratedConsecutiveFilters() {
+        LogicalPlan plan = nestedLeftJoinWithNullFilters();
+        // Use the production top-down batch: parent retries happen before child filters are merged.
+        PlanChecker checker = applyReorderJoinBatch(plan,
+                new MergeFilters(), new ReorderJoin(), new PushFilterInsideJoin(),
+                new FindHashConditionForJoin(), new ConvertInnerOrCrossJoin(),
+                new EliminateNullAwareLeftAntiJoin());
+        Assertions.assertFalse(checker.getPlan().anyMatch(node -> node instanceof LogicalFilter
+                && node.child(0) instanceof LogicalFilter));
+        Assertions.assertEquals(plan.getOutput(), checker.getPlan().getOutput());
+    }
+
+    @Test
+    public void testTopDownBatchWithoutMergeFilters() {
+        LogicalPlan plan = nestedLeftJoinWithNullFilters();
+        PlanChecker checker = applyReorderJoinBatch(plan,
+                new ReorderJoin(), new PushFilterInsideJoin(), new FindHashConditionForJoin(),
+                new ConvertInnerOrCrossJoin(), new EliminateNullAwareLeftAntiJoin());
+        checker.matchesFromRoot(logicalFilter(logicalJoin(
+                logicalFilter(logicalFilter(logicalJoin())), logicalOlapScan())));
+        Assertions.assertEquals(plan.getOutput(), checker.getPlan().getOutput());
+    }
+
+    private PlanChecker applyReorderJoinBatch(LogicalPlan plan, RuleFactory... rules) {
+        CascadesContext context = MemoTestUtils.createCascadesContext(plan);
+        // PlanChecker.applyTopDown also converts outer joins to anti joins after the requested batch.
+        Rewriter.getCteChildrenRewriter(context, ImmutableList.of(Rewriter.topDown(rules)), false).execute();
+        MemoTestUtils.initMemoAndValidState(context);
+        return PlanChecker.from(context);
+    }
+
+    private LogicalPlan nestedLeftJoinWithNullFilters() {
+        return new LogicalPlanBuilder(scan1)
+                .join(scan2, JoinType.LEFT_OUTER_JOIN, Pair.of(0, 0))
+                .filter(new IsNull(scan2.getOutput().get(0)))
+                .join(scan3, JoinType.LEFT_OUTER_JOIN, Pair.of(0, 0))
+                .filter(ImmutableSet.of(new IsNull(scan1.getOutput().get(0)), new IsNull(scan3.getOutput().get(0))))
+                .build();
+    }
 
     @Test
     public void testLeftOuterJoin() {
