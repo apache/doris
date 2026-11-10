@@ -25,9 +25,7 @@
 
 #include <sstream>
 #include <tuple>
-#include <type_traits>
 #include <utility>
-#include <variant>
 
 #include "common/config.h"
 #include "common/status.h"
@@ -458,29 +456,6 @@ Status check_after_upload(ObjStorageClient* client, const ObjStorageResponse& up
     return Status::OK();
 }
 
-// A pending Complete can keep its credentials, timeouts and S3 addressing style.
-// Compare the remaining fields so a resource rebind still uses the new client.
-static bool can_keep_multipart_client(const ObjClientConfig& original,
-                                      const ObjClientConfig& current) {
-    if (original.backend.index() != current.backend.index()) {
-        return false;
-    }
-    auto comparable = current;
-    comparable.connection.request_timeout_ms = original.connection.request_timeout_ms;
-    comparable.connection.connect_timeout_ms = original.connection.connect_timeout_ms;
-    std::visit(
-            [&](auto& backend) {
-                using Backend = std::decay_t<decltype(backend)>;
-                const auto& original_backend = std::get<Backend>(original.backend);
-                backend.auth = original_backend.auth;
-                if constexpr (std::is_same_v<Backend, S3ClientConfig>) {
-                    backend.use_virtual_addressing = original_backend.use_virtual_addressing;
-                }
-            },
-            comparable.backend);
-    return comparable == original;
-}
-
 Status ObjStorageFileWriter::_complete() {
     if (_failed) {
         _wait_until_finish("early quit");
@@ -526,16 +501,14 @@ Status ObjStorageFileWriter::_complete() {
     LOG(INFO) << "complete_multipart_upload " << _obj_storage_path_opts.path.native()
               << " size=" << _bytes_appended << " number_parts=" << _completed_parts.size()
               << " s3_write_buffer_size=" << config::s3_write_buffer_size;
-    // After draining callbacks, check the live holder even though we kept the original client.
-    auto current = _obj_client->state();
+    const auto current = _obj_client->state();
     if (!current->client) {
         return Status::InternalError<false>("invalid obj storage client");
     }
-    if (before_wait != current && before_wait->client &&
-        can_keep_multipart_client(before_wait->config, current->config)) {
-        current = before_wait;
-    }
-    const auto& client = current->client;
+    // Keep the pre-wait client unless the resource was rebound to a different backend type.
+    const auto& client = before_wait->config.backend.index() == current->config.backend.index()
+                                 ? before_wait->client
+                                 : current->client;
     auto resp =
             client->complete_multipart_upload(_obj_storage_path_opts, _upload_id, _completed_parts);
     if (resp.status.code != ErrorCode::OK) {
