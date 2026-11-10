@@ -47,6 +47,7 @@ suite("test_compaction_variant_with_sparse_limit", "nonConcurrent") {
             max_subcolumns_count = 0
         }
         sql """ set default_variant_enable_doc_mode = false """
+        sql """ set default_variant_subcolumn_extraction_min_rows = 0 """
         def create_table = { tableName, buckets="auto", key_type="DUPLICATE" ->
             sql "DROP TABLE IF EXISTS ${tableName}"
             def var_def = "variant <properties(\"variant_max_subcolumns_count\" = \"${max_subcolumns_count}\", \"variant_max_sparse_column_statistics_size\" = \"${max_sparse_column_statistics_size}\")>"

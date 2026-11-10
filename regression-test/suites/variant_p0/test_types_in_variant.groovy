@@ -33,6 +33,7 @@ suite("regression_test_variant_types", "var_view,nonConcurrent") {
     }
 
     sql " set default_variant_enable_doc_mode = false "
+    sql " set default_variant_subcolumn_extraction_min_rows = 0 "
     sql """ set default_variant_enable_typed_paths_to_sparse = false """
     sql """ set default_variant_max_sparse_column_statistics_size = 10 """
     sql """ set default_variant_sparse_hash_shard_count = 10 """

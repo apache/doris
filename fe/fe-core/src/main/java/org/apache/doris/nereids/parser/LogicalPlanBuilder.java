@@ -5514,8 +5514,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
         if (!properties.isEmpty()) {
             throw new NotSupportedException("only support for "
-                    + PropertyAnalyzer.PROPERTIES_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE
-                    + " and " + PropertyAnalyzer.PROPERTIES_VARIANT_MAX_SUBCOLUMNS_COUNT
+                    + PropertyAnalyzer.PROPERTIES_VARIANT_MAX_SUBCOLUMNS_COUNT
                     + " and " + PropertyAnalyzer.PROPERTIES_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE
                     + " and " + PropertyAnalyzer.PROPERTIES_VARIANT_SPARSE_HASH_SHARD_COUNT
                     + " and " + PropertyAnalyzer.PROPERTIES_VARIANT_ENABLE_DOC_MODE

@@ -24,6 +24,7 @@ suite("test_bm25_score_variant", "p0") {
     sql """ set enable_segment_limit_pushdown = true """
     sql """ set enable_match_without_inverted_index = false """
     sql """ set default_variant_enable_typed_paths_to_sparse = false """
+    sql """ set default_variant_subcolumn_extraction_min_rows = 0 """
     sql """ set default_variant_enable_doc_mode = false """
 
     // A1: field_pattern exact name (MATCH_NAME)

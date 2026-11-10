@@ -3851,12 +3851,12 @@ public class SessionVariable implements Serializable, Writable {
         this.useV3StorageFormat = random.nextBoolean();
         this.defaultVariantEnableDocMode = random.nextBoolean();
         boolean zeroOrOne = random.nextBoolean();
+        // the row threshold applies with and without doc mode
         this.defaultVariantSubcolumnExtractionMinRows = zeroOrOne ? 0 : random.nextInt(20);
         if (this.defaultVariantEnableDocMode) {
             this.defaultEnableTypedPathsToSparse = false;
         } else {
-            // the row threshold is fuzzed with doc mode only, as before it applied without doc mode too
-            this.defaultVariantSubcolumnExtractionMinRows = 0L;
+            this.defaultEnableTypedPathsToSparse = random.nextBoolean();
         }
         int randomInt = random.nextInt(4);
         if (randomInt % 2 == 0) {

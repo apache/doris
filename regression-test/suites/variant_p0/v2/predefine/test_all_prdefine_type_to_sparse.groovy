@@ -20,6 +20,7 @@ suite("test_all_prdefine_type_to_sparse", "p0,nonConcurrent") {
 
     sql """ set describe_extend_variant_column = true """
     sql """ set default_variant_enable_doc_mode = false """
+    sql """ set default_variant_subcolumn_extraction_min_rows = 0 """
 
     def tableName = "test_all_prdefine_type_to_sparse"
     sql "DROP TABLE IF EXISTS ${tableName}"
