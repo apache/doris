@@ -2,6 +2,11 @@
 
 This file contains version of the third-party dependency libraries in the build-env image. The docker build-env image is apache/doris, and the tag is `build-env-${version}`
 
+## 20261110
+
+- Added Alibaba Cloud OSS C++ SDK V2 0.2.0 for BE and Recycler. To update an existing
+  third-party installation, run `thirdparty/build-thirdparty.sh oss_sdk`.
+
 ## 20260921
 
 - Added: google-cloud-cpp 2.45.0 for OAuth2 authentication. Build static auth/common

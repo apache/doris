@@ -804,6 +804,17 @@ TEST_F(S3ClientFactoryTest, ConvertPropertiesToS3ConfProviderTypeMatrix) {
     }
 }
 
+TEST_F(S3ClientFactoryTest, ConvertPropertiesPreservesOssProvider) {
+    S3URI uri("s3://test-bucket/key");
+    ASSERT_TRUE(uri.parse().ok());
+    std::map<std::string, std::string> properties {{"provider", "oss"},
+                                                   {"AWS_ENDPOINT", "oss-cn-hangzhou.aliyuncs.com"},
+                                                   {"AWS_REGION", "cn-hangzhou"}};
+    S3Conf conf;
+    ASSERT_TRUE(S3ClientFactory::convert_properties_to_s3_conf(properties, uri, &conf).ok());
+    EXPECT_EQ(conf.client_conf.provider, io::ObjStorageProvider::OSS);
+}
+
 TEST_F(S3ClientFactoryTest, ConvertPropertiesToS3ConfGcpCredentialModes) {
     S3URI s3_uri("s3://test-bucket/test-prefix");
     ASSERT_TRUE(s3_uri.parse().ok());

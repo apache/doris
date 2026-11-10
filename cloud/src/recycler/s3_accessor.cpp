@@ -50,6 +50,7 @@
 #include "cpp/aws_logger.h"
 #include "cpp/obj-client/auth/obj_credential.h"
 #include "cpp/obj-client/auth/obj_s3_client_factory.h"
+#include "cpp/obj-client/oss_obj_storage_client.h"
 #include "cpp/obj-client/rate_limited_obj_storage_client.h"
 #include "cpp/obj-client/s3_obj_storage_client.h"
 #include "cpp/obj_retry_strategy.h"
@@ -255,6 +256,8 @@ std::optional<S3Conf> S3Conf::from_obj_store_info(const ObjectStoreInfoPB& obj_i
 
     switch (obj_info.provider()) {
     case ObjectStoreInfoPB_Provider_OSS:
+        s3_conf.provider = S3Conf::OSS;
+        break;
     case ObjectStoreInfoPB_Provider_S3:
     case ObjectStoreInfoPB_Provider_COS:
     case ObjectStoreInfoPB_Provider_OBS:
@@ -474,22 +477,29 @@ int S3Accessor::init() {
             LOG(WARNING) << "failed to create AWS credential provider: " << credentials.error;
             return -1;
         }
-        auto s3_client = doris::make_s3_client(
-                conf_.credential,
-                doris::S3ClientBuildContext {
-                        .fallback_provider = std::move(credentials.provider),
-                        .config = std::move(aws_config),
-                        .payload_signing_policy =
-                                Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never,
-                        .use_virtual_addressing = conf_.use_virtual_addressing,
-                        .ca_cert_path = _ca_cert_file_path,
-                });
-        auto client = std::make_shared<S3ObjStorageClient>(std::move(s3_client),
-                                                           ObjStorageEndpointInfo {
-                                                                   .endpoint = conf_.endpoint,
-                                                                   .ak = conf_.ak,
-                                                                   .sk = conf_.sk,
-                                                           });
+        std::shared_ptr<ObjStorageClient> client;
+        if (conf_.provider == S3Conf::OSS && config::enable_native_oss_sdk) {
+            client = std::make_shared<OssObjStorageClient>(
+                    aws_config, std::move(credentials.provider), conf_.use_virtual_addressing,
+                    config::max_s3_client_retry);
+        } else {
+            auto s3_client = doris::make_s3_client(
+                    conf_.credential,
+                    doris::S3ClientBuildContext {
+                            .fallback_provider = std::move(credentials.provider),
+                            .config = std::move(aws_config),
+                            .payload_signing_policy =
+                                    Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never,
+                            .use_virtual_addressing = conf_.use_virtual_addressing,
+                            .ca_cert_path = _ca_cert_file_path,
+                    });
+            client = std::make_shared<S3ObjStorageClient>(std::move(s3_client),
+                                                          ObjStorageEndpointInfo {
+                                                                  .endpoint = conf_.endpoint,
+                                                                  .ak = conf_.ak,
+                                                                  .sk = conf_.sk,
+                                                          });
+        }
         obj_client_ = std::make_shared<RateLimitedObjStorageClient>(
                 std::move(client), std::make_shared<RecyclerObjStorageRateLimitPolicy>());
         return 0;

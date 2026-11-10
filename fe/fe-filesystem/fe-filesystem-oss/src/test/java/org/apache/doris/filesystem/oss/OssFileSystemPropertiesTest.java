@@ -150,7 +150,7 @@ class OssFileSystemPropertiesTest {
     }
 
     @Test
-    void toBackendProperties_returnsOnlyAwsCompatibleKeysForBeAdapters() {
+    void toBackendProperties_preservesOssProviderAndCompatibleConnectionSettings() {
         OssFileSystemProperties properties = OssFileSystemProperties.of(Map.of(
                 "oss.endpoint", "https://oss-cn-hangzhou.aliyuncs.com",
                 "oss.access_key", "oss-ak",
@@ -163,6 +163,7 @@ class OssFileSystemPropertiesTest {
 
         Assertions.assertEquals(BackendStorageKind.S3_COMPATIBLE, backend.backendKind());
         Assertions.assertEquals("https://oss-cn-hangzhou.aliyuncs.com", backendMap.get("AWS_ENDPOINT"));
+        Assertions.assertEquals("OSS", backendMap.get("provider"));
         Assertions.assertEquals("cn-hangzhou", backendMap.get("AWS_REGION"));
         Assertions.assertEquals("oss-ak", backendMap.get("AWS_ACCESS_KEY"));
         Assertions.assertEquals("oss-sk", backendMap.get("AWS_SECRET_KEY"));

@@ -1851,6 +1851,8 @@ DECLARE_mInt64(s3_get_bytes_per_second_max);
 DECLARE_mInt64(s3_put_bytes_per_second_max);
 // Override for cores used to derive effective limits: a non-positive value means auto-detect.
 DECLARE_mInt32(s3_rate_limiter_cpu_cores_override);
+// Use the OSS V2 request signer and transport for explicitly identified OSS storage.
+DECLARE_Bool(enable_native_oss_sdk);
 // max s3 client retry times
 DECLARE_mInt32(max_s3_client_retry);
 // When meet s3 429 error, the "get" request will

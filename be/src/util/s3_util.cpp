@@ -55,6 +55,7 @@
 #include "cpp/obj-client/auth/gcp/gcp_token_provider.h"
 #include "cpp/obj-client/auth/obj_credential.h"
 #include "cpp/obj-client/auth/obj_s3_client_factory.h"
+#include "cpp/obj-client/oss_obj_storage_client.h"
 #include "cpp/obj-client/rate_limited_obj_storage_client.h"
 #include "cpp/obj-client/s3_obj_storage_client.h"
 #include "cpp/obj_retry_strategy.h"
@@ -435,6 +436,11 @@ Result<std::shared_ptr<io::ObjStorageClient>> S3ClientFactory::_create_s3_client
         return ResultError(Status::InvalidArgument("failed to create AWS credential provider: {}",
                                                    credentials.error));
     }
+    if (s3_conf.provider == io::ObjStorageProvider::OSS && config::enable_native_oss_sdk) {
+        return std::make_shared<OssObjStorageClient>(aws_config, std::move(credentials.provider),
+                                                     s3_conf.use_virtual_addressing,
+                                                     config::max_s3_client_retry);
+    }
     auto new_client = make_s3_client(
             s3_conf.credential,
             S3ClientBuildContext {
@@ -529,6 +535,8 @@ Status S3ClientFactory::convert_properties_to_s3_conf(
         // S3 Provider properties should be case insensitive.
         if (0 == strcasecmp(it->second.c_str(), AZURE_PROVIDER_STRING)) {
             s3_conf->client_conf.provider = io::ObjStorageProvider::AZURE;
+        } else if (0 == strcasecmp(it->second.c_str(), "OSS")) {
+            s3_conf->client_conf.provider = io::ObjStorageProvider::OSS;
         } else if (0 == strcasecmp(it->second.c_str(), GCP_PROVIDER_STRING)) {
             s3_conf->client_conf.provider = io::ObjStorageProvider::GCP;
         }

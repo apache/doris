@@ -394,6 +394,12 @@ BOOTSTRAP_TABLE_CSS_NAME="bootstrap-table.min.css"
 BOOTSTRAP_TABLE_CSS_FILE="bootstrap-table.min.css"
 BOOTSTRAP_TABLE_CSS_MD5SUM="23389d4456da412e36bae30c469a766a"
 
+# Alibaba Cloud OSS C++ SDK V2
+OSS_SDK_DOWNLOAD="https://github.com/aliyun/alibabacloud-oss-cpp-sdk-v2/archive/refs/tags/0.2.0.tar.gz"
+OSS_SDK_NAME="alibabacloud-oss-cpp-sdk-v2-0.2.0.tar.gz"
+OSS_SDK_SOURCE="alibabacloud-oss-cpp-sdk-v2-0.2.0"
+OSS_SDK_MD5SUM="56e4c251034670db38e29deff27c0aa3"
+
 # aws sdk
 AWS_SDK_DOWNLOAD="https://github.com/aws/aws-sdk-cpp/archive/refs/tags/1.11.221.tar.gz"
 AWS_SDK_NAME="aws-sdk-cpp-1.11.221.tar.gz"
@@ -691,6 +697,7 @@ export TP_ARCHIVES=(
     'BOOTSTRAP_TABLE_JS'
     'BOOTSTRAP_TABLE_CSS'
     'TSAN_HEADER'
+    'OSS_SDK'
     'AWS_SDK'
     'LZMA'
     'XML2'
