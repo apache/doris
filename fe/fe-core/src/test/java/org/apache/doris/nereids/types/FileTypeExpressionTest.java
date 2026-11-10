@@ -68,6 +68,7 @@ import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.utframe.TestWithFeService;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -77,7 +78,15 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.Locale;
 
-public class FileTypeExpressionTest {
+public class FileTypeExpressionTest extends TestWithFeService {
+    @Override
+    protected void runBeforeAll() throws Exception {
+        executeSql("CREATE RESOURCE 'file_expr' PROPERTIES("
+                + "'type'='s3', 's3.endpoint'='http://127.0.0.1:1', 's3.region'='us-east-1', "
+                + "'s3.bucket'='file-test', 's3.access_key'='fake', 's3.secret_key'='fake', "
+                + "'s3_validity_check'='false')");
+    }
+
     private DataType type(String sql) {
         return DataType.convertFromString(sql);
     }
@@ -134,20 +143,20 @@ public class FileTypeExpressionTest {
             }
             assertAnalysisError(expectedMessage,
                     () -> PlanChecker.from(MemoTestUtils.createConnectContext())
-                    .analyze("select " + expression + " from (select 1 id, cast(null as file) f, "
-                            + "cast(null as array<file>) files) t"), expression);
+                    .analyze("select " + expression + " from (select 1 id, to_file('file_expr', null) f, "
+                            + "array(to_file('file_expr', null)) files) t"), expression);
         }
         for (String expression : Arrays.asList("first_value(f) over(order by id)", "last_value(f) over(order by id)",
                 "nth_value(f, 1) over(order by id)", "array_sortby(files, array(id))")) {
             Assertions.assertDoesNotThrow(() -> PlanChecker.from(MemoTestUtils.createConnectContext())
-                    .analyze("select " + expression + " from (select 1 id, cast(null as file) f, "
-                            + "cast(null as array<file>) files) t"), expression);
+                    .analyze("select " + expression + " from (select 1 id, to_file('file_expr', null) f, "
+                            + "array(to_file('file_expr', null)) files) t"), expression);
         }
     }
 
     @Test
     public void testHigherOrderFunctionsUseNativeSignatures() {
-        String from = " from (select 1 id, cast(null as file) f, cast(null as array<file>) files) t";
+        String from = " from (select 1 id, to_file('file_expr', null) f, array(to_file('file_expr', null)) files) t";
         for (String expression : Arrays.asList("array_map(x -> x, files)",
                 "array_map(x -> element_at(x,'size'), files)",
                 "array_filter(x -> element_at(x,'size') > 0, files)",
@@ -209,8 +218,8 @@ public class FileTypeExpressionTest {
 
     @Test
     public void testToJsonAcceptsFile() {
-        for (String value : Arrays.asList("cast(null as file)", "array(cast(null as file))",
-                "named_struct('f', cast(null as file))", "map('f', cast(null as file))")) {
+        for (String value : Arrays.asList("to_file('file_expr', null)", "array(to_file('file_expr', null))",
+                "named_struct('f', to_file('file_expr', null))", "map('f', to_file('file_expr', null))")) {
             Plan plan = PlanChecker.from(MemoTestUtils.createConnectContext())
                     .analyze("select to_json(" + value + ")").getPlan();
             Assertions.assertEquals(JsonType.INSTANCE, plan.getOutput().get(0).getDataType());
@@ -243,8 +252,6 @@ public class FileTypeExpressionTest {
                 DataType value = type(source);
                 Assertions.assertFalse(CheckCast.check(value, FileType.INSTANCE, strict), source);
                 Assertions.assertFalse(CheckCast.check(FileType.INSTANCE, value, strict), source);
-                Assertions.assertTrue(TypeCoercionUtils.implicitCast(value, FileType.INSTANCE).isPresent());
-                Assertions.assertTrue(TypeCoercionUtils.implicitCast(FileType.INSTANCE, value).isPresent());
             }
             for (String source : Arrays.asList("STRING", "JSON", "VARIANT", "INT", "STRUCT<uri:STRING>",
                     "STRUCT<" + metadata + ">",
@@ -289,9 +296,9 @@ public class FileTypeExpressionTest {
     }
 
     @Test
-    public void testNestedFileCastsRejectStringAndWholeVariantContainers() {
+    public void testFileCastsRejectNullIdentityAndWholeContainers() {
         for (boolean strict : Arrays.asList(true, false)) {
-            for (String container : Arrays.asList("ARRAY<FILE>", "MAP<STRING,FILE>", "STRUCT<f:FILE>",
+            for (String container : Arrays.asList("FILE", "ARRAY<FILE>", "MAP<STRING,FILE>", "STRUCT<f:FILE>",
                     "ARRAY<STRUCT<f:FILE>>", "STRUCT<f:ARRAY<FILE>>", "MAP<STRING,ARRAY<FILE>>")) {
                 DataType nested = type(container);
                 for (String source : Arrays.asList("STRING", "VARCHAR(20)", "CHAR(20)", "VARIANT")) {
@@ -301,8 +308,8 @@ public class FileTypeExpressionTest {
                         container + " -> VARIANT");
                 Assertions.assertFalse(CheckCast.check(nested, StringType.INSTANCE, strict),
                         container + " -> STRING");
-                Assertions.assertTrue(CheckCast.check(NullType.INSTANCE, nested, strict), "NULL -> " + container);
-                Assertions.assertTrue(CheckCast.check(nested, nested, strict), container);
+                Assertions.assertFalse(CheckCast.check(NullType.INSTANCE, nested, strict), "NULL -> " + container);
+                Assertions.assertFalse(CheckCast.check(nested, nested, strict), container);
             }
             for (String wrapper : Arrays.asList("ARRAY<%s>", "MAP<STRING,%s>", "STRUCT<f:%s>")) {
                 for (String leaf : Arrays.asList("STRING", "VARIANT")) {
@@ -315,6 +322,34 @@ public class FileTypeExpressionTest {
                         type(String.format(wrapper, "VARIANT")), strict), wrapper);
             }
             Assertions.assertTrue(CheckCast.check(VariantType.INSTANCE, type("ARRAY<INT>"), strict));
+        }
+    }
+
+    @Test
+    public void testSqlRejectsNullAndIdentityFileCasts() {
+        for (String cast : Arrays.asList("cast", "try_cast")) {
+            for (String[] value : Arrays.asList(
+                    new String[] {"FILE", "to_file('file_expr', null)"},
+                    new String[] {"ARRAY<FILE>", "array(to_file('file_expr', null))"},
+                    new String[] {"STRUCT<f:FILE>", "named_struct('f', to_file('file_expr', null))"},
+                    new String[] {"MAP<STRING,FILE>", "map('f', to_file('file_expr', null))"})) {
+                for (String input : Arrays.asList("null", value[1])) {
+                    String sql = "select " + cast + "(" + input + " as " + value[0] + ")";
+                    assertAnalysisError("can not cast", () -> PlanChecker.from(connectContext).analyze(sql), sql);
+                }
+            }
+        }
+    }
+
+    @Test
+    public void testFileContainersRejectChangesToOtherFields() {
+        for (boolean strict : Arrays.asList(true, false)) {
+            for (String wrapper : Arrays.asList("%s", "ARRAY<%s>", "MAP<STRING,%s>")) {
+                DataType source = type(String.format(wrapper, "STRUCT<f:FILE,n:INT>"));
+                DataType target = type(String.format(wrapper, "STRUCT<f:FILE,n:BIGINT>"));
+                Assertions.assertFalse(CheckCast.check(source, target, strict),
+                        source.toSql() + " -> " + target.toSql());
+            }
         }
     }
 
@@ -344,8 +379,9 @@ public class FileTypeExpressionTest {
 
     @Test
     public void testSqlFileValuePropagationAndContainerConstruction() {
-        String from = " from (select 1 id, cast(null as file) f, cast(null as array<file>) files, "
-                + "cast(null as struct<f:file>) holder, cast(null as map<string,file>) lookup) t";
+        String from = " from (select 1 id, to_file('file_expr', null) f, array(to_file('file_expr', null)) files, "
+                + "named_struct('f', to_file('file_expr', null)) holder, "
+                + "map('f', to_file('file_expr', null)) lookup) t";
         for (String expression : Arrays.asList("array(f, null)", "struct(f)", "named_struct('asset', f)",
                 "map('asset', f)", "array(holder, null)", "map('asset', files)",
                 "reverse(files)", "array_slice(files, 1, 1)", "array_concat(files, files)",
@@ -367,8 +403,8 @@ public class FileTypeExpressionTest {
                     () -> PlanChecker.from(MemoTestUtils.createConnectContext())
                     .analyze("select " + expression + from), expression);
         }
-        String file = "cast(null as file)";
-        for (String expression : Arrays.asList("coalesce(cast(null as file), " + file + ")",
+        String file = "to_file('file_expr', null)";
+        for (String expression : Arrays.asList("coalesce(to_file('file_expr', null), " + file + ")",
                 "if(true, " + file + ", null)", "ifnull(null, " + file + ")",
                 "fl_get_binary(element_at(array(" + file + ", null), 1))",
                 "fl_get_binary(element_at(named_struct('asset', " + file + "), 'asset'))",
@@ -442,7 +478,8 @@ public class FileTypeExpressionTest {
                     TypeCoercionUtils.processBoundFunction(explode).getDataType());
         }
         SlotReference struct = new SlotReference("s", FileType.INSTANCE.publicStructType());
-        Expression accessed = TypeCoercionUtils.processBoundFunction(new ElementAt(struct, new StringLiteral("INLINE")));
+        Expression accessed = TypeCoercionUtils.processBoundFunction(
+                new ElementAt(struct, new StringLiteral("INLINE")));
         Assertions.assertTrue(accessed instanceof ElementAt);
         Assertions.assertSame(struct, accessed.child(0));
         Assertions.assertEquals(VarBinaryType.INSTANCE, accessed.getDataType());
@@ -497,12 +534,13 @@ public class FileTypeExpressionTest {
 
     @Test
     public void testGenericAggregateSqlAdmission() {
-        for (String sqlType : Arrays.asList("FILE", "ARRAY<FILE>", "STRUCT<f:FILE>", "MAP<STRING,FILE>")) {
-            String input = " from (select cast(null as " + sqlType + ") f) t";
+        for (String value : Arrays.asList("to_file('file_expr', null)", "array(to_file('file_expr', null))",
+                "named_struct('f', to_file('file_expr', null))", "map('f', to_file('file_expr', null))")) {
+            String input = " from (select " + value + " f) t";
             for (String aggregate : Arrays.asList("count(f)", "count(*)", "any_value(f)", "array_agg(f)",
                     "collect_list(f)", "group_array(f)", "min_by(f, 1)", "max_by(f, 1)", "map_agg(1, f)")) {
                 Assertions.assertDoesNotThrow(() -> PlanChecker.from(MemoTestUtils.createConnectContext())
-                        .analyze("select " + aggregate + input), aggregate + " " + sqlType);
+                        .analyze("select " + aggregate + input), aggregate + " " + value);
             }
         }
     }
@@ -565,22 +603,21 @@ public class FileTypeExpressionTest {
     @Test
     public void testSqlValueTransportAndExplodeAliases() {
         for (String sql : Arrays.asList(
-                "select element_at(cast(null as file), 'uri')",
-                "select fl_get_binary(cast(null as file))",
+                "select element_at(to_file('file_expr', null), 'uri')",
+                "select fl_get_binary(to_file('file_expr', null))",
                 "select fl_get_binary(null)",
-                "select element_at(cast(null as file), 'SIZE')",
-                "select cast(null as file) union all select null",
-                "select cast(null as array<file>) union all "
-                        + "select array(cast(null as file))",
+                "select element_at(to_file('file_expr', null), 'SIZE')",
+                "select array(to_file('file_expr', null)) union all "
+                        + "select array(to_file('file_expr', null))",
                 "select count(f), count(*) "
-                        + "from (select cast(null as file) f) t",
-                "select any_value(distinct f) from (select cast(null as file) f) t",
-                "select element_at(f, 'uri'), count(*) from (select cast(null as file) f) t "
+                        + "from (select to_file('file_expr', null) f) t",
+                "select any_value(distinct f) from (select to_file('file_expr', null) f) t",
+                "select element_at(f, 'uri'), count(*) from (select to_file('file_expr', null) f) t "
                         + "group by element_at(f, 'uri')",
-                "select distinct element_at(f, 'uri') from (select cast(null as file) f) t",
-                "select u, o, s, c, h, b from (select cast(null as file) f) t "
+                "select distinct element_at(f, 'uri') from (select to_file('file_expr', null) f) t",
+                "select u, o, s, c, h, b from (select to_file('file_expr', null) f) t "
                         + "lateral view explode_file(f) e as u, o, s, c, h, b",
-                "select u, o, s, c, h, b from (select cast(null as file) f) t "
+                "select u, o, s, c, h, b from (select to_file('file_expr', null) f) t "
                         + "lateral view explode_file_outer(f) e as u, o, s, c, h, b")) {
             Assertions.assertDoesNotThrow(
                     () -> PlanChecker.from(MemoTestUtils.createConnectContext()).analyze(sql), sql);
@@ -591,7 +628,7 @@ public class FileTypeExpressionTest {
     public void testInlineAndExplodeSqlOutputSchema() {
         Plan getters = PlanChecker.from(MemoTestUtils.createConnectContext()).analyze(
                 "select fl_get_binary(f), FL_GET_BINARY(f) "
-                        + "from (select cast(null as file) f) t").getPlan();
+                        + "from (select to_file('file_expr', null) f) t").getPlan();
         Assertions.assertEquals(2, getters.getOutput().size());
         getters.getOutput().forEach(output -> {
             Assertions.assertEquals(VarBinaryType.INSTANCE, output.getDataType());
@@ -599,7 +636,7 @@ public class FileTypeExpressionTest {
         });
         for (String function : Arrays.asList("explode_file", "explode_file_outer")) {
             Plan expanded = PlanChecker.from(MemoTestUtils.createConnectContext()).analyze(
-                    "select u, o, s, c, h, b from (select cast(null as file) f) t lateral view "
+                    "select u, o, s, c, h, b from (select to_file('file_expr', null) f) t lateral view "
                             + function + "(f) e as u, o, s, c, h, b").getPlan();
             Assertions.assertEquals(6, expanded.getOutput().size());
             Assertions.assertEquals(VarBinaryType.INSTANCE, expanded.getOutput().get(5).getDataType());
@@ -608,17 +645,9 @@ public class FileTypeExpressionTest {
     }
 
     @Test
-    public void testUnionUsesExplicitFileTargets() {
-        for (String sql : Arrays.asList(
-                "select cast(null as file) union all select null",
-                "select null union all select cast(null as file) union all select null")) {
-            Plan plan = PlanChecker.from(MemoTestUtils.createConnectContext()).analyze(sql).getPlan();
-            Assertions.assertEquals(FileType.INSTANCE, plan.getOutput().get(0).getDataType());
-        }
-        Assertions.assertDoesNotThrow(() -> PlanChecker.from(MemoTestUtils.createConnectContext())
-                .analyze("select 1 union all select 2.5 union all select null union all select 3"));
+    public void testUnionRejectsFileAndStruct() {
         assertAnalysisError("Can not find compatible type", () -> PlanChecker.from(MemoTestUtils.createConnectContext())
-                .analyze("select cast(null as file) union all select named_struct('uri', 'urn:x', 'offset', "
+                .analyze("select to_file('file_expr', null) union all select named_struct('uri', 'urn:x', 'offset', "
                         + "cast(0 as bigint), 'size', cast(0 as bigint), 'content_type', '', 'checksum', '', "
                         + "'inline', null)"));
     }
@@ -626,18 +655,19 @@ public class FileTypeExpressionTest {
     @Test
     public void testSqlOperatorRejections() {
         for (String sql : Arrays.asList(
-                "select cast(null as file) = cast(null as file)",
-                "select cast(null as struct<f:file>) in (cast(null as struct<f:file>))",
-                "select f from (select cast(null as file) f) t order by f",
-                "select f from (select cast(null as file) f) t group by f",
-                "select distinct f from (select cast(null as file) f) t",
-                "select distinct f from (select cast(null as struct<f:file>) f) t",
-                "select cast(null as file) union select cast(null as file)",
-                "select cast(null as file) intersect select cast(null as file)",
-                "select min(cast(null as file))",
-                "select element_at(cast(null as file), 'missing')",
-                "select u from (select cast(null as file) f) t lateral view explode_file(f) e as u, o, s, c, h",
-                "select u from (select cast(null as file) f) t "
+                "select to_file('file_expr', null) = to_file('file_expr', null)",
+                "select named_struct('f', to_file('file_expr', null)) "
+                        + "in (named_struct('f', to_file('file_expr', null)))",
+                "select f from (select to_file('file_expr', null) f) t order by f",
+                "select f from (select to_file('file_expr', null) f) t group by f",
+                "select distinct f from (select to_file('file_expr', null) f) t",
+                "select distinct f from (select named_struct('f', to_file('file_expr', null)) f) t",
+                "select to_file('file_expr', null) union select to_file('file_expr', null)",
+                "select to_file('file_expr', null) intersect select to_file('file_expr', null)",
+                "select min(to_file('file_expr', null))",
+                "select element_at(to_file('file_expr', null), 'missing')",
+                "select u from (select to_file('file_expr', null) f) t lateral view explode_file(f) e as u, o, s, c, h",
+                "select u from (select to_file('file_expr', null) f) t "
                         + "lateral view explode_file_outer(f) e as u, o, s, c, h")) {
             String expectedMessage = "does not support FILE";
             if (sql.contains("lateral view")) {
@@ -661,6 +691,6 @@ public class FileTypeExpressionTest {
                         + "from (select 1 v) t"));
         Assertions.assertDoesNotThrow(() -> PlanChecker.from(MemoTestUtils.createConnectContext()).analyze(
                 "select last_value(f) over(order by id rows between unbounded preceding and current row) "
-                        + "from (select 1 id, cast(null as file) f) t"));
+                        + "from (select 1 id, to_file('file_expr', null) f) t"));
     }
 }
