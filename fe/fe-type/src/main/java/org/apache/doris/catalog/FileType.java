@@ -37,9 +37,8 @@ import java.util.Locale;
  */
 public final class FileType extends Type {
     public static final int FIELD_COUNT = 6;
-    // JSON strings can expand sixfold; inline uses padded Base64. MySQL column_length is uint32.
-    public static final long JSON_DISPLAY_LENGTH = Math.min(0xffff_ffffL,
-            6L * (65533 + 1024 + 1024) + 128 + 4L * ((ScalarType.MAX_VARBINARY_LENGTH + 2L) / 3));
+    // MySQL column_length is uint32.
+    public static final long JSON_DISPLAY_LENGTH = 0xffff_ffffL;
 
     @SerializedName("fields")
     private List<StructField> fields;
@@ -55,11 +54,11 @@ public final class FileType extends Type {
 
     private static List<StructField> canonicalFields() {
         return ImmutableList.of(
-                new StructField("uri", ScalarType.createVarcharType(65533)),
+                new StructField("uri", ScalarType.createStringType()),
                 new StructField("offset", Type.BIGINT),
                 new StructField("size", Type.BIGINT),
-                new StructField("content_type", ScalarType.createVarcharType(1024)),
-                new StructField("checksum", ScalarType.createVarcharType(1024)),
+                new StructField("content_type", ScalarType.createStringType()),
+                new StructField("checksum", ScalarType.createStringType()),
                 new StructField("inline", ScalarType.createVarbinaryType(ScalarType.MAX_VARBINARY_LENGTH)));
     }
 

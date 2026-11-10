@@ -27,6 +27,7 @@ import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.persist.gson.GsonUtilsCatalog;
+import org.apache.doris.thrift.TPrimitiveType;
 import org.apache.doris.thrift.TTypeDesc;
 
 import org.junit.jupiter.api.Assertions;
@@ -63,8 +64,8 @@ public class FileTypeTest {
         Column column = new Column("f", catalog, true);
         Assertions.assertEquals(Arrays.asList("uri", "offset", "size", "content_type", "checksum", "inline"),
                 column.getChildren().stream().map(Column::getName).collect(Collectors.toList()));
-        Assertions.assertEquals(Arrays.asList("varchar(65533)", "bigint", "bigint", "varchar(1024)",
-                        "varchar(1024)"), column.getChildren().subList(0, 5).stream()
+        Assertions.assertEquals(Arrays.asList("text", "bigint", "bigint", "text", "text"),
+                column.getChildren().subList(0, 5).stream()
                 .map(child -> child.getType().toSql()).collect(Collectors.toList()));
         Assertions.assertEquals("VARBINARY", column.getChildren().get(5).getDataType().name());
         Assertions.assertTrue(column.getChildren().stream().allMatch(Column::isAllowNull));
@@ -110,7 +111,7 @@ public class FileTypeTest {
         badNullable.getTypes().get(0).getStructFields().get(0).setContainsNull(false);
         Assertions.assertThrows(Exception.class, () -> Type.fromThrift(badNullable));
         TTypeDesc badType = wire.deepCopy();
-        badType.getTypes().get(1).getScalarType().setLen(1024);
+        badType.getTypes().get(1).getScalarType().setType(TPrimitiveType.BIGINT);
         Assertions.assertThrows(Exception.class, () -> Type.fromThrift(badType));
         TTypeDesc missingChild = wire.deepCopy();
         missingChild.getTypes().remove(6);
@@ -164,7 +165,7 @@ public class FileTypeTest {
     @Test
     public void testMysqlMetadata() throws Exception {
         Assertions.assertEquals(MysqlColType.MYSQL_TYPE_STRING, PrimitiveType.FILE.toMysqlType());
-        Assertions.assertTrue(Type.FILE.getColumnSize() >= 6 * (65533 + 1024 + 1024) + 100);
+        Assertions.assertEquals(Integer.MAX_VALUE, Type.FILE.getColumnSize());
         Assertions.assertEquals(Type.FILE.getColumnSize().intValue(), Type.FILE.getColumnStringRepSize());
         MysqlSerializer serializer = MysqlSerializer.newInstance();
         serializer.writeField("f", Type.FILE);

@@ -596,8 +596,8 @@ DataTypePtr DataTypeFactory::create_data_type(const std::vector<TTypeNode>& type
         }
         if (node.type == TTypeNodeType::FILE) {
             constexpr TPrimitiveType::type child_types[] = {
-                    TPrimitiveType::VARCHAR, TPrimitiveType::BIGINT,  TPrimitiveType::BIGINT,
-                    TPrimitiveType::VARCHAR, TPrimitiveType::VARCHAR, TPrimitiveType::VARBINARY};
+                    TPrimitiveType::STRING, TPrimitiveType::BIGINT, TPrimitiveType::BIGINT,
+                    TPrimitiveType::STRING, TPrimitiveType::STRING, TPrimitiveType::VARBINARY};
             for (size_t i = 0; i < DataTypeFile::FIELD_COUNT; ++i) {
                 const auto& child = types[*idx + i + 1];
                 if (child.type != TTypeNodeType::SCALAR || !child.__isset.scalar_type ||
@@ -735,8 +735,8 @@ DataTypePtr DataTypeFactory::create_data_type(
         }
         if (node.type() == TTypeNodeType::FILE) {
             constexpr TPrimitiveType::type child_types[] = {
-                    TPrimitiveType::VARCHAR, TPrimitiveType::BIGINT,  TPrimitiveType::BIGINT,
-                    TPrimitiveType::VARCHAR, TPrimitiveType::VARCHAR, TPrimitiveType::VARBINARY};
+                    TPrimitiveType::STRING, TPrimitiveType::BIGINT, TPrimitiveType::BIGINT,
+                    TPrimitiveType::STRING, TPrimitiveType::STRING, TPrimitiveType::VARBINARY};
             for (int i = 0; i < DataTypeFile::FIELD_COUNT; ++i) {
                 const auto& child = types.Get(*idx + i + 1);
                 if (child.type() != TTypeNodeType::SCALAR || !child.has_scalar_type() ||
