@@ -27,6 +27,12 @@ If any helper check fails, a task that needs the mapping keeps DENSE. Selection 
 
 The generic encoding is delta-varint64 followed by one Zstd level-1 attempt. EMPTY and LINEAR omit redundant values; RAW64 bounds the final payload size. Each nonempty block owns a separately allocated payload of exactly its encoded length; EMPTY and full LINEAR allocate none. Doris allocator tracking and jemalloc handle these allocations without an application-level arena. Each 40-byte directory entry includes the owning pointer and allocation length. The map also has one builder per opened source and one shared encoder workspace. `finalize()` releases builders/encoder before consumers start and derives destination positions from actual output segment row counts.
 
+## Production compaction storage size
+
+The compaction RuntimeProfile reports `RowIdConversionStorage` after merging rows and, for COMPRESSED, after `finalize()` releases its builders and encoder. It includes a readable byte size and the exact byte count from `RowIdConversion::memory_usage()`.
+
+This is retained storage: the concrete storage object and allocated backing arrays; COMPRESSED includes all block directories, payloads, storage metadata and destination prefixes. Source-identity indexes, visibility sets, consumer cursor/workspace memory and allocator rounding/fragmentation are outside this count. It is separate from the whole compaction tracker peak and BE RSS. A DENSE row-pair-array estimate is physical input rows times eight bytes, including deleted/filtered source positions.
+
 ## Run
 
 From the Doris checkout:
