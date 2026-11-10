@@ -29,6 +29,7 @@
 #include <vector>
 
 #include "common/cast_set.h"
+#include "common/config.h"
 #include "core/assert_cast.h"
 #include "core/block/column_with_type_and_name.h"
 #include "core/column/column.h"
@@ -54,6 +55,7 @@
 #include "storage/segment/test_segment_writer.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/tablet/tablet_schema_helper.h"
+#include "util/defer_op.h"
 
 namespace doris {
 using namespace ErrorCode;
@@ -1094,6 +1096,47 @@ TEST(VGenericIteratorsTest, MergeNextBatchHonorsTheRowLimit) {
     }
     EXPECT_TRUE(st.is<END_OF_FILE>());
     EXPECT_EQ(block.rows(), 0);
+    ASSERT_EQ(keys.size(), 600);
+    EXPECT_TRUE(std::ranges::is_sorted(keys));
+}
+
+// With a byte budget, the row limit of an output Block is the budget divided by the average row
+// size of the children's Blocks: the rows of the test schema take 17 bytes (a nullable SMALLINT,
+// INT and BIGINT), so a 170-byte budget gives Blocks of 10 rows.
+TEST(VGenericIteratorsTest, MergeNextBatchKeepsToTheByteBudget) {
+    const bool adaptive_batch_size = config::enable_adaptive_batch_size;
+    config::enable_adaptive_batch_size = true;
+    Defer restore {[&]() { config::enable_adaptive_batch_size = adaptive_batch_size; }};
+    auto schema = create_schema();
+    auto output_schema = std::make_shared<ReadSchema>(schema);
+    std::vector<RowwiseIteratorUPtr> inputs;
+    inputs.push_back(new_auto_increment_iterator(schema, 100));
+    inputs.push_back(new_auto_increment_iterator(schema, 200));
+    inputs.push_back(new_auto_increment_iterator(schema, 300));
+    auto iter = new_heap_merge_iterator(std::move(inputs), output_schema,
+                                        whole_key_decision(schema, -1, false, false));
+    OlapReaderStatistics stats;
+    StorageReadOptions opts(stats);
+    opts.preferred_block_size_bytes = 170;
+    ASSERT_TRUE(iter->init(opts).ok());
+
+    std::vector<int64_t> keys;
+    Block block;
+    create_block(schema, block);
+    Status st;
+    while (true) {
+        block.clear_column_data();
+        st = iter->next_batch(&block);
+        if (!st.ok()) {
+            break;
+        }
+        EXPECT_EQ(block.rows(), 10);
+        EXPECT_LE(block.bytes(), 170);
+        for (size_t i = 0; i < block.rows(); ++i) {
+            keys.push_back(key_at(block, i));
+        }
+    }
+    EXPECT_TRUE(st.is<END_OF_FILE>());
     ASSERT_EQ(keys.size(), 600);
     EXPECT_TRUE(std::ranges::is_sorted(keys));
 }

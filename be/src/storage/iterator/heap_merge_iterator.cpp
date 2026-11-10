@@ -67,13 +67,7 @@ Status VHeapMergeIterator::init(const StorageReadOptions& opts) {
         RETURN_IF_ERROR(_validate_compare_contract(*child.block));
         _heap.push_back(cast_set<uint32_t>(index));
     }
-    if (_heap.empty()) {
-        return Status::OK();
-    }
     std::ranges::make_heap(_heap, _heap_order());
-    std::ranges::pop_heap(_heap, _heap_order());
-    _lead = _heap.back();
-    _heap.pop_back();
     return Status::OK();
 }
 
@@ -126,22 +120,22 @@ Status VHeapMergeIterator::_fill(Child& child, bool* exhausted) {
     DCHECK_EQ(child.block->columns(), _read_schema->num_block_columns());
     child.pos = 0;
     child.rows = child.block->rows();
+    child.bytes = child.block->bytes();
     *exhausted = false;
     return Status::OK();
 }
 
-bool VHeapMergeIterator::_less(uint32_t a, uint32_t b) const {
-    const Child& a_child = _children[a];
+bool VHeapMergeIterator::_less(uint32_t a, size_t a_pos, uint32_t b) const {
+    const Block& a_block = *_children[a].block;
     const Child& b_child = _children[b];
-    const Block& a_block = *a_child.block;
     const Block& b_block = *b_child.block;
     const int keys =
-            a_block.compare_at(a_child.pos, b_child.pos, &_decision.compare_ordinals, b_block, -1);
+            a_block.compare_at(a_pos, b_child.pos, &_decision.compare_ordinals, b_block, -1);
     if (keys != 0) {
         return _decision.reverse ? keys > 0 : keys < 0;
     }
     if (_decision.sequence_ordinal != -1) {
-        const int sequence = a_block.compare_column_at(a_child.pos, b_child.pos,
+        const int sequence = a_block.compare_column_at(a_pos, b_child.pos,
                                                        _decision.sequence_ordinal, b_block, -1);
         if (sequence != 0) {
             return _decision.small_sequence_first ? sequence < 0 : sequence > 0;
@@ -151,97 +145,74 @@ bool VHeapMergeIterator::_less(uint32_t a, uint32_t b) const {
     return _decision.older_first ? a < b : a > b;
 }
 
-Status VHeapMergeIterator::_take_lead_row(MutableColumns& columns) {
-    const uint32_t lead = *_lead;
-    const size_t pos = _children[lead].pos;
-    if (!_taken.empty() && _taken.back().child == lead &&
-        _taken.back().pos + _taken.back().rows == pos) {
-        ++_taken.back().rows;
-    } else {
-        _taken.push_back({.child = lead, .pos = pos, .rows = 1});
+size_t VHeapMergeIterator::_max_rows() const {
+    if (!config::enable_adaptive_batch_size || _preferred_block_size_bytes == 0) {
+        return _block_row_max;
     }
-    return _advance_lead(columns);
+    size_t bytes = 0;
+    size_t rows = 0;
+    for (uint32_t index : _heap) {
+        bytes += _children[index].bytes;
+        rows += _children[index].rows;
+    }
+    const size_t row_bytes = std::max<size_t>(1, bytes / rows);
+    return std::clamp<size_t>(_preferred_block_size_bytes / row_bytes, 1, _block_row_max);
 }
 
-Status VHeapMergeIterator::_advance_lead(MutableColumns& columns) {
-    Child& lead = _children[*_lead];
-    ++lead.pos;
-    if (lead.pos == lead.rows) {
-        // _fill() refills this Block, which the taken rows may point into.
-        RETURN_IF_CATCH_EXCEPTION(_copy_taken(columns));
-        bool exhausted = false;
-        RETURN_IF_ERROR(_fill(lead, &exhausted));
-        if (exhausted) {
-            // The child is done: release its segment and its Block now, not at the end of the
-            // merge.
-            lead.iter.reset();
-            lead.block.reset();
-            if (_heap.empty()) {
-                _lead.reset();
-                return Status::OK();
-            }
-            std::ranges::pop_heap(_heap, _heap_order());
-            _lead = _heap.back();
-            _heap.pop_back();
-            return Status::OK();
-        }
-    }
-    if (_heap.empty() || _less(*_lead, _heap.front())) {
-        return Status::OK();
-    }
-    // The heap's top goes first now: it becomes the lead, and the lead goes into the heap.
-    const uint32_t previous_lead = *_lead;
-    std::ranges::pop_heap(_heap, _heap_order());
-    _lead = _heap.back();
-    _heap.back() = previous_lead;
-    std::ranges::push_heap(_heap, _heap_order());
-    return Status::OK();
-}
-
-void VHeapMergeIterator::_copy_taken(MutableColumns& columns) {
+void VHeapMergeIterator::_append(MutableColumns& columns, const Child& child, size_t rows) {
     for (size_t ordinal = 0; ordinal < columns.size(); ++ordinal) {
-        IColumn& column = *columns[ordinal];
-        for (const TakenRows& taken : _taken) {
-            const IColumn& source = *_children[taken.child].block->get_by_position(ordinal).column;
-            if (taken.rows == 1) {
-                column.insert_from(source, taken.pos);
-            } else {
-                column.insert_range_from(source, taken.pos, taken.rows);
-            }
+        const IColumn& source = *child.block->get_by_position(ordinal).column;
+        if (rows == 1) {
+            columns[ordinal]->insert_from(source, child.pos);
+        } else {
+            columns[ordinal]->insert_range_from(source, child.pos, rows);
         }
     }
-    _taken.clear();
 }
 
 Status VHeapMergeIterator::next_batch(Block* block) {
     DCHECK(!_eof) << "next_batch() called after EndOfFile";
     DCHECK_EQ(block->columns(), _read_schema->num_block_columns());
-    DCHECK(_taken.empty());
-    // The byte budget of an output Block, 0 without one.
-    const size_t byte_budget = config::enable_adaptive_batch_size ? _preferred_block_size_bytes : 0;
-    size_t rows = 0;
-    size_t rows_at_last_check = 0;
-    {
-        auto columns_guard = block->mutate_columns_scoped();
-        auto& columns = columns_guard.mutable_columns();
-        while (rows < _block_row_max && _lead.has_value()) {
-            RETURN_IF_ERROR(_take_lead_row(columns));
-            ++rows;
-            if (byte_budget > 0 && rows - rows_at_last_check >= BYTE_BUDGET_CHECK_INTERVAL_ROWS) {
-                rows_at_last_check = rows;
-                // The budget measures the copied columns.
-                RETURN_IF_CATCH_EXCEPTION(_copy_taken(columns));
-                if (Block::columns_byte_size(columns) >= byte_budget) {
-                    break;
-                }
-            }
-        }
-        RETURN_IF_CATCH_EXCEPTION(_copy_taken(columns));
-    }
-    if (rows == 0) {
-        DCHECK(!_lead.has_value());
+    if (_heap.empty()) {
         _eof = true;
         return Status::EndOfFile("no more rows to merge");
+    }
+    const size_t max_rows = _max_rows();
+    size_t rows = 0;
+    auto columns_guard = block->mutate_columns_scoped();
+    auto& columns = columns_guard.mutable_columns();
+    while (rows < max_rows && !_heap.empty()) {
+        // The child whose current row goes first moves to the back of `_heap`; the rest stays a
+        // heap, with the child whose row goes next on top.
+        std::ranges::pop_heap(_heap, _heap_order());
+        const uint32_t index = _heap.back();
+        Child& child = _children[index];
+        // Its run: the rows that go before the current row of every other child.
+        const size_t limit = std::min(child.rows - child.pos, max_rows - rows);
+        size_t run = 1;
+        if (_heap.size() == 1) {
+            run = limit;
+        } else {
+            while (run < limit && _less(index, child.pos + run, _heap.front())) {
+                ++run;
+            }
+        }
+        RETURN_IF_CATCH_EXCEPTION(_append(columns, child, run));
+        child.pos += run;
+        rows += run;
+        if (child.pos == child.rows) {
+            bool exhausted = false;
+            RETURN_IF_ERROR(_fill(child, &exhausted));
+            if (exhausted) {
+                // The child is done: release its segment and its Block now, not at the end of the
+                // merge.
+                child.iter.reset();
+                child.block.reset();
+                _heap.pop_back();
+                continue;
+            }
+        }
+        std::ranges::push_heap(_heap, _heap_order());
     }
     return Status::OK();
 }
