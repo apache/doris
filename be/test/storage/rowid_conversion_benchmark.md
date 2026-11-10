@@ -1,8 +1,27 @@
 # Row-id conversion unit tests and benchmark
 
-`enable_compressed_rowid_conversion` defaults to `true`. Eligible compactions use 4096-source-row blocks when their estimated dense row-pair array exceeds `compressed_rowid_conversion_threshold_bytes` (default **67,108,864 bytes / 64 MiB**). The estimate is eight bytes per physical row of the actual data input rowsets, including deleted rows but excluding whole rowsets already removed by changelog TTL. Selection happens once before source registration. Exactly the threshold stays DENSE; zero enables compression for every eligible nonempty mapping, and negative thresholds are rejected. Both settings are dynamic and affect subsequent selections, without changing a mapping already under construction.
+## When compression is selected
 
-Consumers include MoW delete bitmap conversion and SNII postings compaction on both MoW and Duplicate Key tables. CLucene postings compaction, cluster-key tables, sequence-map tables, and the legacy index-compaction debug dump retain DENSE. Tasks needing neither bitmap conversion nor postings compaction allocate no mapping. The implementation does not depend on a maximum segment row count and does not spill to disk. The compaction profile's `RowIdConversion` information field records the selected mode.
+`Compaction::prepare_rowid_conversion()` first checks whether this task needs a mapping. At least one of these must hold: the tablet is UNIQUE_KEYS with merge-on-write enabled; `ctx.snii_indexes_to_do_compaction` is nonempty; or `ctx.columns_to_do_index_compaction` is nonempty. Without a consumer, it does not register a row-id mapping or allocate source-row arrays.
+
+For a task that needs the mapping, `Compaction::should_compress_rowid_conversion()` selects COMPRESSED only when **all** of the following hold:
+
+| Check in the helper | Required value | Reason |
+|---|---|---|
+| `config::enable_compressed_rowid_conversion` | `true` (default) | Enables automatic selection. |
+| `ctx.columns_to_do_index_compaction.empty()` | `true` | Any planned CLucene postings compaction requires the dense matrix. |
+| `config::debug_inverted_index_compaction` | `false` | The legacy debug dump requires the dense matrix. |
+| `_cur_tablet_schema->cluster_key_uids().empty()` | `true` | Cluster-key readers can revisit source rows. |
+| `_cur_tablet_schema->has_seq_map()` | `false` | Sequence-map readers can revisit source rows; this is not a check for any sequence column. |
+| Dense array estimate | Strictly greater than `compressed_rowid_conversion_threshold_bytes` | Avoids codec overhead for small mappings. |
+
+The threshold defaults to **104,857,600 bytes (100 MiB)**. The estimate is `sum(_data_input_rowsets.num_rows()) * sizeof(RowIdConversion::RowIdPair)`, or eight bytes per physical input row, including rows later deleted, merged or filtered. It excludes whole rowsets already removed by changelog TTL, and is unrelated to segment file size, output rows or compressed payload size. The code compares a remaining row budget instead of multiplying/summing large byte counts, avoiding overflow. At the default, **13,107,200 rows stay DENSE; 13,107,201 rows select COMPRESSED** if the other checks pass.
+
+This is a check of the current compaction plan: merely having a CLucene index does not fail it if no CLucene postings compaction is planned. Eligible SNII postings use the separate `snii_indexes_to_do_compaction` field, so Duplicate Key SNII can use compression without MoW. An SNII index rebuilt from raw columns alone does not populate that field and does not itself require a mapping. The helper adds no base-compaction-only, horizontal/vertical or segment-size restriction.
+
+If any helper check fails, a task that needs the mapping keeps DENSE. Selection runs once after output writer/index-plan preparation and before source registration. Exactly the threshold stays DENSE; zero enables compression for every eligible nonempty mapping, and negative thresholds are rejected. Both configuration settings are dynamic and affect subsequent selections, without converting an existing map. The compaction profile's `RowIdConversion` field reports COMPRESSED or DENSE when a mapping is used. The 100 MiB default is a size policy, not a measured production break-even point.
+
+## Representation
 
 `RowIdConversion` composes one concrete DENSE, LAZY_CHUNKED or COMPRESSED storage object using a private `std::variant`. Source identity and visibility tracking stay in the facade; layout-specific allocation, append, lookup and finalization stay in each storage implementation. A single visit surrounds each `add()` batch, so its row loop has no mode checks or virtual calls. Dense source views still expose direct spans for posting access and CLucene's existing matrix API is preserved.
 
