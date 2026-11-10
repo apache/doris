@@ -21,6 +21,7 @@ import org.apache.doris.analysis.CompoundPredicate.Operator;
 import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.authorization.AccessAction;
+import org.apache.doris.authorization.AccessContext;
 import org.apache.doris.authorization.AccessRequirement;
 import org.apache.doris.authorization.ActionMatch;
 import org.apache.doris.authorization.AuthorizedSubject;
@@ -259,6 +260,14 @@ public final class AccessTranslation {
         return subject.isDomain()
                 ? UserIdentity.createAnalyzedUserIdentWithDomain(subject.getUser(), subject.getHost())
                 : UserIdentity.createAnalyzedUserIdentWithIp(subject.getUser(), subject.getHost());
+    }
+
+    /** Restore session roles without changing the account-only plugin API. */
+    public static UserIdentity userIdentityOf(AuthorizedSubject subject, AccessContext context) {
+        if (context instanceof UserIdentityAccessContext) {
+            return ((UserIdentityAccessContext) context).userIdentityOf(subject);
+        }
+        return userIdentityOf(subject);
     }
 
     /** The resource kind standing for a cloud object of {@code type}. */

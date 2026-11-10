@@ -689,6 +689,8 @@ struct TUserIdentity {
     1: optional string username
     2: optional string host
     3: optional bool is_domain
+    // Session roles supplied by authentication / role mapping, in addition to persistent grants.
+    4: optional set<string> authenticated_roles
 }
 
 struct TColumnGroup {

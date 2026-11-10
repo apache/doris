@@ -95,7 +95,7 @@ public class LegacyAccessControllerPlugin implements AuthorizationPlugin {
     @Override
     public void checkPrivilege(AuthorizedSubject subject, AuthorizedResource resource,
             AccessRequirement requirement, AccessContext context) throws AccessDeniedException {
-        UserIdentity currentUser = AccessTranslation.userIdentityOf(subject);
+        UserIdentity currentUser = AccessTranslation.userIdentityOf(subject, context);
         PrivPredicate wanted = AccessTranslation.privPredicateOf(requirement);
         switch (resource.getKind()) {
             case GLOBAL:
@@ -191,7 +191,7 @@ public class LegacyAccessControllerPlugin implements AuthorizationPlugin {
     public List<RowFilterSpec> getRowFilters(AuthorizedSubject subject, AuthorizedResource.Table table,
             AccessContext context) {
         List<RowFilterSpec> filters = controller.evalRowFilterPolicies(
-                AccessTranslation.userIdentityOf(subject), table.getCatalog(), table.getDatabase(),
+                AccessTranslation.userIdentityOf(subject, context), table.getCatalog(), table.getDatabase(),
                 table.getTable());
         // Through a wildcard so that reading an element compiles to no cast of our own: the checked crossing
         // below has to be what reports a wrong type, not a checkcast javac inserted a frame earlier.
@@ -211,7 +211,7 @@ public class LegacyAccessControllerPlugin implements AuthorizationPlugin {
     @Override
     public Map<String, DataMaskSpec> getDataMasks(AuthorizedSubject subject, AuthorizedResource.Table table,
             Set<String> columns, AccessContext context) {
-        UserIdentity currentUser = AccessTranslation.userIdentityOf(subject);
+        UserIdentity currentUser = AccessTranslation.userIdentityOf(subject, context);
         Map<String, DataMaskSpec> masks = new HashMap<>();
         for (String column : columns) {
             // One question per column, which is what the older interface offers. A source reached over the

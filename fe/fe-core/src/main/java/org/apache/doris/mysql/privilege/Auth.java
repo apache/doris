@@ -299,6 +299,13 @@ public class Auth implements Writable {
     public Set<Role> getRolesByUserWithLdap(UserIdentity userIdentity) {
         Set<Role> roles = Sets.newHashSet();
         Set<String> roleNames = userRoleManager.getRolesByUser(userIdentity);
+        ConnectContext ctx = ConnectContext.get();
+        Set<String> sessionRoles = ctx == null
+                ? userIdentity.getAuthenticatedRoles() : ctx.getAuthenticatedRolesFor(userIdentity);
+        if (!sessionRoles.isEmpty()) {
+            roleNames = Sets.newHashSet(roleNames);
+            roleNames.addAll(sessionRoles);
+        }
         for (String roleName : roleNames) {
             Role role = roleManager.getRole(roleName);
             if (role != null) {
@@ -311,28 +318,24 @@ public class Auth implements Writable {
                 roles.addAll(ldapRoles);
             }
         }
-        ConnectContext ctx = ConnectContext.get();
-        if (ctx != null && userIdentity.equals(ctx.getCurrentUserIdentity())) {
-            for (String roleName : ctx.getAuthenticatedRoles()) {
-                Role role = roleManager.getRole(roleName);
-                if (role != null) {
-                    roles.add(role);
-                }
-            }
-        }
         return roles;
     }
 
     public Set<String> getRoleNamesByUserWithLdap(UserIdentity user, boolean showUserDefaultRole) {
-        Set<Role> rolesByUserWithLdap = getRolesByUserWithLdap(user);
-        Set<String> res = Sets.newHashSetWithExpectedSize(rolesByUserWithLdap.size());
-        for (Role role : rolesByUserWithLdap) {
-            String roleName = role.getRoleName();
-            if (showUserDefaultRole || !roleName.startsWith(RoleManager.DEFAULT_ROLE_PREFIX)) {
-                res.add(roleName);
+        readLock();
+        try {
+            Set<Role> rolesByUserWithLdap = getRolesByUserWithLdap(user);
+            Set<String> res = Sets.newHashSetWithExpectedSize(rolesByUserWithLdap.size());
+            for (Role role : rolesByUserWithLdap) {
+                String roleName = role.getRoleName();
+                if (showUserDefaultRole || !roleName.startsWith(RoleManager.DEFAULT_ROLE_PREFIX)) {
+                    res.add(roleName);
+                }
             }
+            return res;
+        } finally {
+            readUnlock();
         }
-        return res;
     }
 
     public List<UserIdentity> getUserIdentityForLdap(String remoteUser, String remoteHost) {

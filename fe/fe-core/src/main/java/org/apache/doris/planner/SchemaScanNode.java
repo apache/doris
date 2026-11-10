@@ -160,7 +160,7 @@ public class SchemaScanNode extends ScanNode {
         msg.schema_scan_node.setIp(frontendIP);
         msg.schema_scan_node.setPort(frontendPort);
 
-        TUserIdentity tCurrentUser = ConnectContext.get().getCurrentUserIdentity().toThrift();
+        TUserIdentity tCurrentUser = ConnectContext.get().getCurrentUserIdentityForRpc();
         msg.schema_scan_node.setCurrentUserIdent(tCurrentUser);
         msg.schema_scan_node.setFrontendConjuncts(GsonUtils.GSON.toJson(frontendConjuncts));
         setFeAddrList(msg);

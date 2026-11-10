@@ -343,7 +343,7 @@ public class AccessControllerManager {
         // the check that provoked it, because the source answering for instance scope may well be a plugin
         // that looks at the client address, and this question is about the same statement.
         return new LegacyAccessControllerPlugin(name, controller,
-                (subject, requirement, context) -> decide(AccessTranslation.userIdentityOf(subject),
+                (subject, requirement, context) -> decide(AccessTranslation.userIdentityOf(subject, context),
                         AuthorizedResource.global(), requirement, context));
     }
 
@@ -1019,10 +1019,11 @@ public class AccessControllerManager {
     private void ask(UserIdentity subject, AuthorizedResource resource, AccessRequirement requirement,
             AccessContext context) throws AccessDeniedException {
         AuthorizationPlugin controller = controllerOf(resource);
-        AccessContext outer = enterCheck(context);
+        AccessContext identityContext = UserIdentityAccessContext.of(subject, context);
+        AccessContext outer = enterCheck(identityContext);
         try {
             checkInClassLoaderOf(controller, () -> controller.checkPrivilege(
-                    AccessTranslation.subjectOf(subject), resource, requirement, context));
+                    AccessTranslation.subjectOf(subject), resource, requirement, identityContext));
         } finally {
             leaveCheck(outer);
         }
@@ -1324,7 +1325,7 @@ public class AccessControllerManager {
         }
         AuthorizedResource.Table table = AuthorizedResource.table(ctl, db, tbl);
         AuthorizationPlugin controller = controllerOf(table);
-        AccessContext context = ConnectionAccessContext.current();
+        AccessContext context = UserIdentityAccessContext.of(currentUser, ConnectionAccessContext.current());
         AccessContext outer = enterCheck(context);
         try {
             return answered(controller, "the data masks of " + table,
@@ -1343,7 +1344,7 @@ public class AccessControllerManager {
         Objects.requireNonNull(tbl, "require tbl object");
         AuthorizedResource.Table table = AuthorizedResource.table(ctl, db, tbl);
         AuthorizationPlugin controller = controllerOf(table);
-        AccessContext context = ConnectionAccessContext.current();
+        AccessContext context = UserIdentityAccessContext.of(currentUser, ConnectionAccessContext.current());
         AccessContext outer = enterCheck(context);
         try {
             return answered(controller, "the row filters of " + table,
@@ -1362,7 +1363,8 @@ public class AccessControllerManager {
         }
         AuthorizedResource.Table table = AuthorizedResource.table(ctl, db, tbl);
         return new DataPolicyContext(controllerOf(table), AccessTranslation.subjectOf(user), table,
-                columns, ConnectionAccessContext.of(statement.getConnectContext()));
+                columns, UserIdentityAccessContext.of(user,
+                        ConnectionAccessContext.of(statement.getConnectContext())));
     }
 
     public Map<String, DataMaskSpec> evalDataMaskPolicies(DataPolicyContext policy, StatementContext statement) {

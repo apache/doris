@@ -17,6 +17,7 @@
 
 package org.apache.doris.mysql.privilege;
 
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.authorization.AccessContext;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.qe.ConnectContext;
@@ -60,6 +61,14 @@ class ConnectionAccessContext implements AccessContext {
      */
     static AccessContext of(ConnectContext connection) {
         return connection == null ? AccessContext.NONE : new ConnectionAccessContext(connection);
+    }
+
+    UserIdentity userIdentityWithRoles(UserIdentity identity) {
+        if (!identity.equals(connection.getCurrentUserIdentity()) || connection.getAuthenticatedRoles().isEmpty()) {
+            return identity;
+        }
+        return UserIdentity.createAnalyzedUserIdentWithRoles(identity.getUser(), identity.getHost(),
+                identity.isDomain(), connection.getAuthenticatedRolesFor(identity));
     }
 
     @Override

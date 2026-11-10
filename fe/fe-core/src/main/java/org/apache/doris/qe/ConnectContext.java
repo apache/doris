@@ -83,6 +83,7 @@ import org.apache.doris.task.LoadTaskInfo;
 import org.apache.doris.thrift.TResultSinkType;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
+import org.apache.doris.thrift.TUserIdentity;
 import org.apache.doris.transaction.TransactionEntry;
 import org.apache.doris.transaction.TransactionStatus;
 
@@ -724,6 +725,25 @@ public class ConnectContext {
 
     public UserIdentity getCurrentUserIdentity() {
         return currentUserIdentity;
+    }
+
+    /** Snapshot the authenticated session for FE/BE metadata and forwarded statement RPCs. */
+    public TUserIdentity getCurrentUserIdentityForRpc() {
+        return currentUserIdentity.toThrift(getAuthenticatedRolesFor(currentUserIdentity));
+    }
+
+    /** Merge forwarded and local session roles only for the account they belong to. */
+    public Set<String> getAuthenticatedRolesFor(UserIdentity identity) {
+        Set<String> roles = identity.getAuthenticatedRoles();
+        if (!identity.equals(currentUserIdentity) || authenticatedRoles.isEmpty()) {
+            return roles;
+        }
+        if (roles.isEmpty()) {
+            return authenticatedRoles;
+        }
+        Set<String> merged = new HashSet<>(roles);
+        merged.addAll(authenticatedRoles);
+        return merged;
     }
 
     public Principal getAuthenticatedPrincipal() {

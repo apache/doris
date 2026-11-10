@@ -40,7 +40,9 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 // https://dev.mysql.com/doc/refman/8.0/en/account-names.html
 // user name must be literally matched.
@@ -67,6 +69,9 @@ public class UserIdentity implements Writable, GsonPostProcessable {
     private String cipher;
     @SerializedName(value = "subject")
     private String subject;
+
+    // Request-scoped roles carried by trusted internal RPCs. Never persist these as account grants.
+    private transient Set<String> authenticatedRoles = Collections.emptySet();
 
     private boolean isAnalyzed = false;
 
@@ -111,10 +116,23 @@ public class UserIdentity implements Writable, GsonPostProcessable {
     }
 
     public static UserIdentity fromThrift(TUserIdentity tUserIdent) {
-        UserIdentity userIdentity = new UserIdentity(tUserIdent.getUsername(),
-                tUserIdent.getHost(), tUserIdent.is_domain);
+        return createAnalyzedUserIdentWithRoles(tUserIdent.getUsername(), tUserIdent.getHost(), tUserIdent.is_domain,
+                tUserIdent.isSetAuthenticatedRoles() ? tUserIdent.getAuthenticatedRoles() : Collections.emptySet());
+    }
+
+    /** Construct a request-scoped authorization identity without modifying the stored account. */
+    public static UserIdentity createAnalyzedUserIdentWithRoles(String user, String host, boolean isDomain,
+            Set<String> authenticatedRoles) {
+        UserIdentity userIdentity = new UserIdentity(user, host, isDomain);
         userIdentity.setIsAnalyzed();
+        if (!authenticatedRoles.isEmpty()) {
+            userIdentity.authenticatedRoles = Collections.unmodifiableSet(new HashSet<>(authenticatedRoles));
+        }
         return userIdentity;
+    }
+
+    public Set<String> getAuthenticatedRoles() {
+        return authenticatedRoles;
     }
 
     public String getQualifiedUser() {
@@ -298,11 +316,18 @@ public class UserIdentity implements Writable, GsonPostProcessable {
     }
 
     public TUserIdentity toThrift() {
+        return toThrift(authenticatedRoles);
+    }
+
+    public TUserIdentity toThrift(Set<String> sessionRoles) {
         Preconditions.checkState(isAnalyzed);
         TUserIdentity tUserIdent = new TUserIdentity();
         tUserIdent.setHost(host);
         tUserIdent.setUsername(user);
         tUserIdent.setIsDomain(isDomain);
+        if (!sessionRoles.isEmpty()) {
+            tUserIdent.setAuthenticatedRoles(new HashSet<>(sessionRoles));
+        }
         return tUserIdent;
     }
 
