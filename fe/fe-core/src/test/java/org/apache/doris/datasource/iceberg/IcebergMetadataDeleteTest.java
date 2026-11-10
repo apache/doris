@@ -324,6 +324,64 @@ public class IcebergMetadataDeleteTest {
         Assertions.assertEquals(1, dataFilePaths(reload(catalog)).size());
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"property", "schema", "spec"})
+    public void identityChangeAfterStagingFailsWithoutFallbackAndCleansMetadata(String change) throws Exception {
+        InMemoryCatalog catalog = freshCatalog();
+        PartitionSpec spec = PartitionSpec.unpartitioned();
+        Table table = catalog.createTable(TABLE_ID, SCHEMA, spec, props("format-version", "2"));
+        table.newAppend().appendFile(dataFile(spec, "s3://b/db1/t1/a.parquet", 10L)).commit();
+        long snapshotBefore = table.currentSnapshot().snapshotId();
+        TrackingFileIO io = new TrackingFileIO(table.io());
+        Table tracked = tableWithFileIO(table, io);
+        // Exercise catalogs that reclaim artifacts only for the SDK's CleanableFailure contract.
+        Mockito.when(((HasTableOperations) tracked).operations().requireStrictCleanup()).thenReturn(true);
+        AtomicBoolean changed = new AtomicBoolean();
+
+        UserException exception = Assertions.assertThrows(UserException.class,
+                () -> IcebergMetadataDelete.executeOnTable(tracked, table, null, Expressions.alwaysTrue(), () -> {
+                    if (io.hasCreatedFile() && changed.compareAndSet(false, true)) {
+                        Table concurrent = reload(catalog);
+                        switch (change) {
+                            case "property":
+                                concurrent.updateProperties().set("comment", "concurrent update").commit();
+                                break;
+                            case "schema":
+                                concurrent.updateSchema().addColumn("new_col", Types.IntegerType.get()).commit();
+                                break;
+                            case "spec":
+                                concurrent.updateSpec().addField("region").commit();
+                                break;
+                            default:
+                                throw new AssertionError("unknown metadata change: " + change);
+                        }
+                        Assertions.assertEquals(snapshotBefore, concurrent.currentSnapshot().snapshotId());
+                    }
+                    return false;
+                }));
+
+        Assertions.assertTrue(exception.getMessage().contains("retry the statement"));
+        Assertions.assertTrue(changed.get());
+        Assertions.assertFalse(io.createdFiles.isEmpty(), "the identity change must follow real staging");
+        Assertions.assertTrue(io.existingCreatedFiles().isEmpty(), "staged metadata must be reclaimed");
+        Table current = reload(catalog);
+        Assertions.assertEquals(snapshotBefore, current.currentSnapshot().snapshotId());
+        Assertions.assertEquals(Collections.singletonList("s3://b/db1/t1/a.parquet"), dataFilePaths(current));
+        switch (change) {
+            case "property":
+                Assertions.assertEquals("concurrent update", current.properties().get("comment"));
+                break;
+            case "schema":
+                Assertions.assertNotNull(current.schema().findField("new_col"));
+                break;
+            case "spec":
+                Assertions.assertEquals("region", current.spec().fields().get(0).name());
+                break;
+            default:
+                throw new AssertionError("unknown metadata change: " + change);
+        }
+    }
+
     @Test
     public void failedStagingCleansCompletedManifestRewrites() throws Exception {
         InMemoryCatalog catalog = freshCatalog();
@@ -422,25 +480,28 @@ public class IcebergMetadataDeleteTest {
             AtomicBoolean recreated = new AtomicBoolean();
             String replacementPath = warehouse.resolve("replacement.parquet").toString();
 
-            OptionalLong deleted = IcebergMetadataDelete.executeOnTable(
-                    writableTable, statementTable, null, Expressions.alwaysTrue(), () -> {
-                        if (io.hasCreatedFile() && recreated.compareAndSet(false, true)) {
-                            // Replacement completes after physical staging and before the final
-                            // validation. Both generations end at v2, so SDK refresh alone is stale.
-                            Assertions.assertTrue(catalog.dropTable(TABLE_ID, true));
-                            Table replacement = catalog.createTable(
-                                    TABLE_ID, SCHEMA, spec, props("format-version", "2"));
-                            replacement.newAppend().appendFile(dataFile(spec, replacementPath, 5L)).commit();
-                            replacementUuid.set(((HasTableOperations) replacement).operations().current().uuid());
-                            Assertions.assertNotEquals(oldUuid, replacementUuid.get());
-                            Assertions.assertTrue(((HasTableOperations) replacement).operations().current()
-                                    .metadataFileLocation().endsWith("v2.metadata.json"));
-                        }
-                        return false;
-                    });
+            UserException exception = Assertions.assertThrows(UserException.class,
+                    () -> IcebergMetadataDelete.executeOnTable(
+                            writableTable, statementTable, null, Expressions.alwaysTrue(), () -> {
+                                if (io.hasCreatedFile() && recreated.compareAndSet(false, true)) {
+                                    // Replacement completes after staging, before final validation.
+                                    // Both end at v2, so SDK refresh alone is stale.
+                                    Assertions.assertTrue(catalog.dropTable(TABLE_ID, true));
+                                    Table replacement = catalog.createTable(
+                                            TABLE_ID, SCHEMA, spec, props("format-version", "2"));
+                                    replacement.newAppend().appendFile(
+                                            dataFile(spec, replacementPath, 5L)).commit();
+                                    replacementUuid.set(((HasTableOperations) replacement)
+                                            .operations().current().uuid());
+                                    Assertions.assertNotEquals(oldUuid, replacementUuid.get());
+                                    Assertions.assertTrue(((HasTableOperations) replacement).operations().current()
+                                            .metadataFileLocation().endsWith("v2.metadata.json"));
+                                }
+                                return false;
+                            }));
 
             Assertions.assertTrue(recreated.get());
-            Assertions.assertFalse(deleted.isPresent());
+            Assertions.assertTrue(exception.getMessage().contains("retry the statement"));
             Table replacement = catalog.loadTable(TABLE_ID);
             Assertions.assertEquals(replacementUuid.get(),
                     ((HasTableOperations) replacement).operations().current().uuid());
