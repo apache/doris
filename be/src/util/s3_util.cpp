@@ -96,6 +96,38 @@ ObjCredentialProvider to_obj_credential_provider(io::ObjStorageProvider provider
     return ObjCredentialProvider::Unknown;
 }
 
+S3ObjStorageClient::SignedUrlGenerator make_gcs_signed_url_generator(
+        const S3ClientConf& s3_conf, const std::string& ca_cert_file_path) {
+    const auto* gcp_credential = std::get_if<GcpCredentialConfig>(&s3_conf.credential);
+    if (!gcp_credential) {
+        return {}; // GCS HMAC credentials use S3 presigning.
+    }
+    // signBlob is authorized by the source identity, not by the optional
+    // impersonated target identity. Keep one refreshable cloud-platform
+    // token provider for the lifetime of the S3 client.
+    auto signing_caller_credential = *gcp_credential;
+    signing_caller_credential.impersonation_service_account.clear();
+    auto token_provider = std::make_shared<GcpTokenProvider>(
+            signing_caller_credential, ca_cert_file_path, GcpTokenScope::CloudPlatform);
+    return [conf = s3_conf, credential = *gcp_credential, ca_cert_file_path,
+            token_provider = std::move(token_provider)](const ObjStoragePath& path,
+                                                        int64_t expiration_secs) {
+        std::string signed_url;
+        auto status = io::generate_gcs_v4_signed_url({.endpoint = conf.endpoint,
+                                                      .bucket = path.bucket,
+                                                      .key = path.key,
+                                                      .expiration_secs = expiration_secs,
+                                                      .request_timeout_ms = conf.request_timeout_ms,
+                                                      .ca_cert_file_path = ca_cert_file_path},
+                                                     credential, token_provider, &signed_url);
+        if (!status.ok()) {
+            LOG(WARNING) << "failed to generate GCS V4 signed URL: " << status;
+            return std::string {};
+        }
+        return signed_url;
+    };
+}
+
 doris::Status is_s3_conf_valid(const S3ClientConf& conf) {
     if (conf.endpoint.empty()) {
         return Status::InvalidArgument<false>("Invalid s3 conf, empty endpoint");
@@ -281,9 +313,7 @@ Result<std::shared_ptr<io::ObjStorageClient>> S3ClientFactory::create(const S3Cl
         }
     }
 
-    auto client_result = (s3_conf.provider == io::ObjStorageProvider::AZURE)
-                                 ? _create_azure_client(s3_conf)
-                                 : _create_s3_client(s3_conf);
+    auto client_result = _create_provider_client(s3_conf);
     if (!client_result.has_value()) {
         return ResultError(std::move(client_result).error());
     }
@@ -297,6 +327,22 @@ Result<std::shared_ptr<io::ObjStorageClient>> S3ClientFactory::create(const S3Cl
         std::lock_guard l(_lock);
         auto [it, _] = _cache.emplace(s3_conf, std::move(obj_client));
         return it->second;
+    }
+}
+
+Result<std::shared_ptr<io::ObjStorageClient>> S3ClientFactory::_create_provider_client(
+        const S3ClientConf& s3_conf) {
+    switch (s3_conf.provider) {
+    case io::ObjStorageProvider::AZURE:
+        return _create_azure_client(s3_conf);
+    case io::ObjStorageProvider::OSS:
+        return _create_oss_client(s3_conf);
+    case io::ObjStorageProvider::GCP:
+        return _create_s3_client(s3_conf,
+                                 make_gcs_signed_url_generator(s3_conf, _get_ca_cert_file_path()));
+    case io::ObjStorageProvider::AWS:
+    default:
+        return _create_s3_client(s3_conf);
     }
 }
 
@@ -394,12 +440,7 @@ AwsCredentialResult S3ClientFactory::create_aws_credentials_provider(const S3Cli
     });
 }
 
-Result<std::shared_ptr<io::ObjStorageClient>> S3ClientFactory::_create_s3_client(
-        const S3ClientConf& s3_conf) {
-    TEST_SYNC_POINT_RETURN_WITH_VALUE(
-            "s3_client_factory::create",
-            std::make_shared<io::S3ObjStorageClient>(std::make_shared<Aws::S3::S3Client>(),
-                                                     ObjStorageEndpointInfo {}));
+Result<S3ClientBuildContext> S3ClientFactory::_make_s3_client_context(const S3ClientConf& s3_conf) {
     Aws::Client::ClientConfiguration aws_config = S3ClientFactory::getClientConfiguration();
     if (s3_conf.need_override_endpoint) {
         aws_config.endpointOverride = s3_conf.endpoint;
@@ -436,54 +477,37 @@ Result<std::shared_ptr<io::ObjStorageClient>> S3ClientFactory::_create_s3_client
         return ResultError(Status::InvalidArgument("failed to create AWS credential provider: {}",
                                                    credentials.error));
     }
-    if (s3_conf.provider == io::ObjStorageProvider::OSS) {
-        return std::make_shared<OssObjStorageClient>(aws_config, std::move(credentials.provider),
-                                                     s3_conf.use_virtual_addressing,
-                                                     config::max_s3_client_retry);
-    }
-    auto new_client = make_s3_client(
-            s3_conf.credential,
-            S3ClientBuildContext {
-                    .fallback_provider = std::move(credentials.provider),
-                    .config = std::move(aws_config),
-                    .payload_signing_policy =
-                            Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never,
-                    .use_virtual_addressing = s3_conf.use_virtual_addressing,
-                    .ca_cert_path = ca_cert_file_path,
-            });
+    return S3ClientBuildContext {
+            .fallback_provider = std::move(credentials.provider),
+            .config = std::move(aws_config),
+            .payload_signing_policy = Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never,
+            .use_virtual_addressing = s3_conf.use_virtual_addressing,
+            .ca_cert_path = std::move(ca_cert_file_path),
+    };
+}
 
-    std::shared_ptr<GcpTokenProvider> gcs_signing_token_provider;
-    if (const auto* gcp_credential = std::get_if<GcpCredentialConfig>(&s3_conf.credential)) {
-        // signBlob is authorized by the source identity, not by the optional
-        // impersonated target identity. Keep one refreshable cloud-platform
-        // token provider for the lifetime of the S3 client.
-        auto signing_caller_credential = *gcp_credential;
-        signing_caller_credential.impersonation_service_account.clear();
-        gcs_signing_token_provider = std::make_shared<GcpTokenProvider>(
-                signing_caller_credential, ca_cert_file_path, GcpTokenScope::CloudPlatform);
+Result<std::shared_ptr<io::ObjStorageClient>> S3ClientFactory::_create_oss_client(
+        const S3ClientConf& s3_conf) {
+    auto context = _make_s3_client_context(s3_conf);
+    if (!context) {
+        return ResultError(std::move(context).error());
     }
+    return std::make_shared<OssObjStorageClient>(
+            context->config, std::move(context->fallback_provider), context->use_virtual_addressing,
+            config::max_s3_client_retry);
+}
 
-    S3ObjStorageClient::SignedUrlGenerator signed_url_generator;
-    if (const auto* credential = std::get_if<GcpCredentialConfig>(&s3_conf.credential)) {
-        signed_url_generator = [conf = s3_conf, credential = *credential, ca_cert_file_path,
-                                token_provider = std::move(gcs_signing_token_provider)](
-                                       const ObjStoragePath& path, int64_t expiration_secs) {
-            std::string signed_url;
-            auto status =
-                    io::generate_gcs_v4_signed_url({.endpoint = conf.endpoint,
-                                                    .bucket = path.bucket,
-                                                    .key = path.key,
-                                                    .expiration_secs = expiration_secs,
-                                                    .request_timeout_ms = conf.request_timeout_ms,
-                                                    .ca_cert_file_path = ca_cert_file_path},
-                                                   credential, token_provider, &signed_url);
-            if (!status.ok()) {
-                LOG(WARNING) << "failed to generate GCS V4 signed URL: " << status;
-                return std::string {};
-            }
-            return signed_url;
-        };
+Result<std::shared_ptr<io::ObjStorageClient>> S3ClientFactory::_create_s3_client(
+        const S3ClientConf& s3_conf, S3ObjStorageClient::SignedUrlGenerator signed_url_generator) {
+    TEST_SYNC_POINT_RETURN_WITH_VALUE(
+            "s3_client_factory::create",
+            std::make_shared<io::S3ObjStorageClient>(std::make_shared<Aws::S3::S3Client>(),
+                                                     ObjStorageEndpointInfo {}));
+    auto context = _make_s3_client_context(s3_conf);
+    if (!context) {
+        return ResultError(std::move(context).error());
     }
+    auto new_client = make_s3_client(s3_conf.credential, std::move(context).value());
     auto provider_client = std::make_shared<io::S3ObjStorageClient>(
             std::move(new_client),
             ObjStorageEndpointInfo {

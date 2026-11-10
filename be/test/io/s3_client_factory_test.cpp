@@ -820,6 +820,25 @@ TEST_F(S3ClientFactoryTest, OssPropertiesSelectNativeClient) {
     EXPECT_NE(std::dynamic_pointer_cast<OssObjStorageClient>(client.value()), nullptr);
 }
 
+TEST_F(S3ClientFactoryTest, S3CompatibleProvidersPresignWithHmacCredentials) {
+    CloudModeConfigGuard cloud_mode(true);
+    S3ClientConf conf;
+    conf.endpoint = "storage.googleapis.com";
+    conf.region = "us-east-1";
+    conf.ak = "test-access-key";
+    conf.sk = "test-secret-key";
+    for (auto provider :
+         {io::ObjStorageProvider::GCP, io::ObjStorageProvider::AWS, io::ObjStorageProvider::COS}) {
+        SCOPED_TRACE(static_cast<int>(provider));
+        conf.provider = provider;
+        auto client = S3ClientFactory::instance().create(conf);
+        ASSERT_TRUE(client.has_value()) << client.error();
+        auto url =
+                client.value()->generate_presigned_url({.bucket = "test-bucket", .key = "key"}, 60);
+        EXPECT_NE(url.find("X-Amz-Signature="), std::string::npos);
+    }
+}
+
 TEST_F(S3ClientFactoryTest, ConvertPropertiesToS3ConfGcpCredentialModes) {
     S3URI s3_uri("s3://test-bucket/test-prefix");
     ASSERT_TRUE(s3_uri.parse().ok());
