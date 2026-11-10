@@ -234,4 +234,33 @@ if (System.getenv("DORIS_CI_PRISTINE_FRAMEWORK") == "true") {
         "test_uuid_csv_schema",
         "test_uuid_parquet_native"
     ].join(",")
+
+    // Temporary environment exclusions; keep source paths to preserve same-named suites.
+    // See regression-test/pipeline/PRISTINE_FRAMEWORK_EXCLUSIONS.md for scope and re-enable criteria.
+    excludeSuites += "," + [
+        // shared parent database prerequisite
+        "datatype_p0/nested_types/query/test_nested_types_insert_into_with_s3.groovy#test_nested_types_insert_into_with_s3",
+        // shared parent database prerequisite
+        "datatype_p0/nested_types/query/test_nestedtypes_csv_insert_into_with_s3.groovy#test_nestedtypes_csv_insert_into_with_s3",
+        // shared parent database prerequisite
+        "datatype_p0/nested_types/query/test_nestedtypes_json_insert_into_with_s3.groovy#test_nestedtypes_json_insert_into_with_s3",
+        // root SSH/SCP or remote filesystem prerequisite
+        "export_p0/test_export_view.groovy#test_export_view",
+        // sudo/Docker fixture; requires case changes for rootless CI
+        "external_table_p0/kerberos/test_single_hive_kerberos.groovy#test_single_hive_kerberos",
+        // sudo/Docker fixture; requires case changes for rootless CI
+        "external_table_p0/kerberos/test_two_hive_kerberos.groovy#test_two_hive_kerberos",
+        // root SSH/SCP or remote filesystem prerequisite
+        "external_table_p0/tvf/test_parquet_meta_tvf.groovy#test_parquet_meta_tvf",
+        // mysqldump column-statistics compatibility
+        "mysqldump_p0/test_mysqldump.groovy#test_mysqldump",
+        // root SSH/SCP or remote filesystem prerequisite
+        "query_p0/outfile/test_outfile.groovy#test_outfile",
+        // root SSH/SCP or remote filesystem prerequisite
+        "query_p0/outfile/test_outfile_expr.groovy#test_outfile_expr",
+        // root SSH/SCP or remote filesystem prerequisite
+        "query_p0/outfile/test_outfile_parquet.groovy#test_outfile_parquet",
+        // root SSH/SCP or remote filesystem prerequisite
+        "query_p0/test_install_plugin_command.groovy#test_install_plugin_command"
+    ].join(",")
 }

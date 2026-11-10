@@ -129,4 +129,27 @@ if (System.getenv("DORIS_CI_PRISTINE_FRAMEWORK") == "true") {
         "test_uuid_csv_schema",
         "test_uuid_parquet_native"
     ].join(",")
+
+    // Temporary environment exclusions; keep source paths to preserve same-named suites.
+    // See regression-test/pipeline/PRISTINE_FRAMEWORK_EXCLUSIONS.md for scope and re-enable criteria.
+    excludeSuites += "," + [
+        // shared parent database prerequisite
+        "datatype_p0/nested_types/query/test_nested_types_insert_into_with_s3.groovy#test_nested_types_insert_into_with_s3",
+        // shared parent database prerequisite
+        "datatype_p0/nested_types/query/test_nestedtypes_csv_insert_into_with_s3.groovy#test_nestedtypes_csv_insert_into_with_s3",
+        // shared parent database prerequisite
+        "datatype_p0/nested_types/query/test_nestedtypes_json_insert_into_with_s3.groovy#test_nestedtypes_json_insert_into_with_s3",
+        // root SSH/SCP or remote filesystem prerequisite
+        "export_p0/test_export_view.groovy#test_export_view",
+        // mysqldump column-statistics compatibility
+        "mysqldump_p0/test_mysqldump.groovy#test_mysqldump",
+        // root SSH/SCP or remote filesystem prerequisite
+        "query_p0/outfile/test_outfile.groovy#test_outfile",
+        // root SSH/SCP or remote filesystem prerequisite
+        "query_p0/outfile/test_outfile_expr.groovy#test_outfile_expr",
+        // root SSH/SCP or remote filesystem prerequisite
+        "query_p0/outfile/test_outfile_parquet.groovy#test_outfile_parquet",
+        // root SSH/SCP or remote filesystem prerequisite
+        "query_p0/test_install_plugin_command.groovy#test_install_plugin_command"
+    ].join(",")
 }
