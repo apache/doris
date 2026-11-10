@@ -61,6 +61,15 @@ constexpr int LEN_OF_OSS_PRIVATE_SUFFIX = 9; // length of "-internal"
     }
 #endif
 
+Result<std::string> get_key(const Path& full_path) {
+    // FIXME(plat1ko): Check bucket in full path and support relative path
+    auto uri = ObjStorageUri::parse_s3(full_path.native());
+    if (!uri.has_value()) {
+        return ResultError(std::move(uri).error());
+    }
+    return std::move(uri.value().key);
+}
+
 // Removes the first and last '/'.
 std::string normalize_prefix(std::string prefix) {
     if (prefix.empty()) {
@@ -123,21 +132,11 @@ Status S3FileSystem::refresh_vault(const ObjClientConfig& config) {
 S3FileSystem::S3FileSystem(ObjStorageConfig config, std::string id)
         : RemoteFileSystem(config.prefix, std::move(id), FileSystemType::S3),
           _bucket(std::move(config.bucket)),
-          // FIXME(plat1ko): Normalize prefix
           _prefix(normalize_prefix(std::move(config.prefix))),
           _client(std::make_shared<ObjClientHolder>(std::move(config.client))) {}
 
 Status S3FileSystem::init() {
     return _client->init();
-}
-
-Result<std::string> S3FileSystem::_get_key(const Path& full_path) const {
-    // FIXME(plat1ko): Check bucket in full path and support relative path
-    auto uri = ObjStorageUri::parse_s3(full_path.native());
-    if (!uri.has_value()) {
-        return ResultError(std::move(uri).error());
-    }
-    return std::move(uri.value().key);
 }
 
 S3FileSystem::~S3FileSystem() = default;
@@ -146,7 +145,7 @@ Status S3FileSystem::create_file_impl(const Path& file, FileWriterPtr* writer,
                                       const FileWriterOptions* opts) {
     auto client = _client->get();
     CHECK_S3_CLIENT(client);
-    auto key = DORIS_TRY(_get_key(file));
+    auto key = DORIS_TRY(get_key(file));
     *writer = std::make_unique<S3FileWriter>(_client, _bucket, std::move(key), opts);
     return Status::OK();
 }
@@ -154,7 +153,7 @@ Status S3FileSystem::create_file_impl(const Path& file, FileWriterPtr* writer,
 Status S3FileSystem::open_file_internal(const Path& file, FileReaderSPtr* reader,
                                         const FileReaderOptions& opts) {
     TEST_SYNC_POINT_CALLBACK("S3FileSystem::open_file_internal", &file, &opts);
-    auto key = DORIS_TRY(_get_key(file));
+    auto key = DORIS_TRY(get_key(file));
     *reader = DORIS_TRY(S3FileReader::create(_client, _bucket, key, opts.file_size, nullptr));
     return Status::OK();
 }
@@ -167,7 +166,7 @@ Status S3FileSystem::delete_file_impl(const Path& file) {
     auto client = _client->get();
     CHECK_S3_CLIENT(client);
 
-    auto key = DORIS_TRY(_get_key(file));
+    auto key = DORIS_TRY(get_key(file));
 
     auto resp = client->delete_object({.bucket = _bucket, .key = key});
 
@@ -182,7 +181,7 @@ Status S3FileSystem::delete_directory_impl(const Path& dir) {
     auto client = _client->get();
     CHECK_S3_CLIENT(client);
 
-    auto prefix = DORIS_TRY(_get_key(dir));
+    auto prefix = DORIS_TRY(get_key(dir));
     if (!prefix.empty() && prefix.back() != '/') {
         prefix.push_back('/');
     }
@@ -209,7 +208,7 @@ Status S3FileSystem::batch_delete_impl(const std::vector<Path>& remote_files) {
         auto path_begin = path_iter;
         for (; path_iter != remote_files.end() && (path_iter - path_begin < max_delete_batch);
              ++path_iter) {
-            auto key = DORIS_TRY(_get_key(*path_iter));
+            auto key = DORIS_TRY(get_key(*path_iter));
             objects.emplace_back(std::move(key));
         }
         if (objects.empty()) {
@@ -228,7 +227,7 @@ Status S3FileSystem::batch_delete_impl(const std::vector<Path>& remote_files) {
 Status S3FileSystem::exists_impl(const Path& path, bool* res) const {
     auto client = _client->get();
     CHECK_S3_CLIENT(client);
-    auto key = DORIS_TRY(_get_key(path));
+    auto key = DORIS_TRY(get_key(path));
 
     VLOG_DEBUG << "key:" << key << " path:" << path;
 
@@ -247,7 +246,7 @@ Status S3FileSystem::exists_impl(const Path& path, bool* res) const {
 }
 
 Status S3FileSystem::file_size_impl(const Path& file, int64_t* file_size) const {
-    auto key = DORIS_TRY(_get_key(file));
+    auto key = DORIS_TRY(get_key(file));
     *file_size = DORIS_TRY(_client->object_file_size(_bucket, key));
     return Status::OK();
 }
@@ -259,7 +258,7 @@ Status S3FileSystem::list_impl(const Path& dir, bool only_file, std::vector<File
     *exists = true;
     auto client = _client->get();
     CHECK_S3_CLIENT(client);
-    auto prefix = DORIS_TRY(_get_key(dir));
+    auto prefix = DORIS_TRY(get_key(dir));
     if (!prefix.empty() && prefix.back() != '/') {
         prefix.push_back('/');
     }
@@ -289,7 +288,7 @@ Status S3FileSystem::upload_impl(const Path& local_file, const Path& remote_file
     auto client = _client->get();
     CHECK_S3_CLIENT(client);
 
-    auto key = DORIS_TRY(_get_key(remote_file));
+    auto key = DORIS_TRY(get_key(remote_file));
     auto start = std::chrono::steady_clock::now();
     FileWriterPtr obj_writer;
     RETURN_IF_ERROR(create_file_impl(key, &obj_writer, nullptr));
@@ -333,7 +332,7 @@ Status S3FileSystem::batch_upload_impl(const std::vector<Path>& local_files,
         const auto& local_file = local_files[idx];
         const auto& remote_file = remote_files[idx];
         auto& obj_writer = obj_writers[idx];
-        auto key = DORIS_TRY(_get_key(remote_file));
+        auto key = DORIS_TRY(get_key(remote_file));
         LOG(INFO) << "Start to upload " << local_file.native() << " to " << full_s3_path(key);
         RETURN_IF_ERROR(create_file_impl(key, &obj_writer, nullptr));
         FileReaderSPtr local_reader;
@@ -378,7 +377,7 @@ Status S3FileSystem::batch_upload_impl(const std::vector<Path>& local_files,
 Status S3FileSystem::download_impl(const Path& remote_file, const Path& local_file) {
     auto client = _client->get();
     CHECK_S3_CLIENT(client);
-    auto key = DORIS_TRY(_get_key(remote_file));
+    auto key = DORIS_TRY(get_key(remote_file));
     int64_t size;
     RETURN_IF_ERROR(file_size(remote_file, &size));
     std::unique_ptr<char[]> buf = std::make_unique_for_overwrite<char[]>(size);

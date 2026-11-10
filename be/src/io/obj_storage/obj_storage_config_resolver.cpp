@@ -98,9 +98,12 @@ std::string flat_fields_to_string(const FlatClientFields& fields) {
             credential_type_name(fields.credential), fields.is_internal_bucket);
 }
 
-// The rule of FE properties that the typed configuration does not cover: every provider, Azure
-// included, must name a region.
+// Flat FE properties require both fields even on Azure. When both are missing, report
+// the endpoint first, as the flat configuration validator did.
 Status validate_property_rules(const FlatClientFields& fields) {
+    if (fields.endpoint.empty()) {
+        return Status::InvalidArgument<false>("Invalid s3 conf, empty endpoint");
+    }
     if (fields.region.empty()) {
         return Status::InvalidArgument<false>("Invalid s3 conf, empty region");
     }

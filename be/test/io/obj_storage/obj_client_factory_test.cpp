@@ -754,6 +754,25 @@ TEST_F(ObjClientFactoryTest, FactoryValidatesBeforeBuilding) {
     EXPECT_EQ(_s3_builds, 1);
 }
 
+TEST_F(ObjClientFactoryTest, PropertiesReportMissingEndpointBeforeRegion) {
+    auto location = ObjStorageUri::parse_s3("s3://bucket/key");
+    ASSERT_TRUE(location.has_value()) << location.error();
+    for (const char* provider : {"AWS", "Azure"}) {
+        SCOPED_TRACE(provider);
+        std::map<std::string, std::string> props = {{"provider", provider}};
+        auto no_endpoint = ObjStorageConfigResolver::from_properties(props, location.value());
+        ASSERT_FALSE(no_endpoint.has_value());
+        EXPECT_TRUE(no_endpoint.error().is<ErrorCode::INVALID_ARGUMENT>());
+        EXPECT_EQ(no_endpoint.error().msg(), "Invalid s3 conf, empty endpoint");
+
+        props["AWS_ENDPOINT"] = "props.example.com";
+        auto no_region = ObjStorageConfigResolver::from_properties(props, location.value());
+        ASSERT_FALSE(no_region.has_value());
+        EXPECT_TRUE(no_region.error().is<ErrorCode::INVALID_ARGUMENT>());
+        EXPECT_EQ(no_region.error().msg(), "Invalid s3 conf, empty region");
+    }
+}
+
 TEST_F(ObjClientFactoryTest, ResolvesPropertiesAndVaults) {
     auto location = ObjStorageUri::parse_s3("s3://props-bucket/dir/file");
     ASSERT_TRUE(location.has_value()) << location.error();
@@ -794,10 +813,6 @@ TEST_F(ObjClientFactoryTest, ResolvesPropertiesAndVaults) {
     ASSERT_FALSE(gcp_on_azure.has_value());
     EXPECT_NE(gcp_on_azure.error().to_string().find("provider=GCP"), std::string::npos)
             << gcp_on_azure.error();
-
-    // A region is still required for every provider, Azure included.
-    props.erase("AWS_REGION");
-    EXPECT_FALSE(ObjStorageConfigResolver::from_properties(props, location.value()).has_value());
 
     cloud::ObjectStoreInfoPB vault;
     vault.set_endpoint("vault.example.com");

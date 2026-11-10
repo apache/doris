@@ -20,9 +20,6 @@
 #include <cstdint>
 #include <filesystem>
 #include <memory>
-#include <mutex>
-#include <optional>
-#include <shared_mutex>
 #include <string>
 #include <utility>
 #include <vector>
@@ -115,8 +112,6 @@ private:
     S3FileSystem(ObjStorageConfig config, std::string id);
 
     Status init();
-
-    Result<std::string> _get_key(const Path& full_path) const;
 
     // For error msg
     std::string full_s3_path(std::string_view key) const;
