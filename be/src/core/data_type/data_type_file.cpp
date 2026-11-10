@@ -112,11 +112,11 @@ Status validate_file_column(const IColumn& column, const DataTypePtr& type) {
 }
 
 DataTypeFile::DataTypeFile()
-        : _elements {make_nullable(std::make_shared<DataTypeString>(65533, TYPE_VARCHAR)),
+        : _elements {make_nullable(std::make_shared<DataTypeString>()),
                      make_nullable(std::make_shared<DataTypeInt64>()),
                      make_nullable(std::make_shared<DataTypeInt64>()),
-                     make_nullable(std::make_shared<DataTypeString>(1024, TYPE_VARCHAR)),
-                     make_nullable(std::make_shared<DataTypeString>(1024, TYPE_VARCHAR)),
+                     make_nullable(std::make_shared<DataTypeString>()),
+                     make_nullable(std::make_shared<DataTypeString>()),
                      make_nullable(std::make_shared<DataTypeVarbinary>(
                              std::numeric_limits<int32_t>::max()))},
           _names {"uri", "offset", "size", "content_type", "checksum", "inline"} {}
@@ -133,15 +133,8 @@ DataTypeFile::DataTypeFile(const DataTypes& elements, const Strings& names) : Da
         }
         auto child = remove_nullable(elements[i]);
         auto expected = remove_nullable(_elements[i]);
-        // Block metadata erases VARCHAR length/type to STRING. Restore the canonical type here.
-        bool compatible = child->equals(*expected);
-        if (i == 0 || i == 3 || i == 4) {
-            compatible = child->get_primitive_type() == TYPE_STRING ||
-                         (child->get_primitive_type() == TYPE_VARCHAR &&
-                          assert_cast<const DataTypeString&>(*child).len() ==
-                                  assert_cast<const DataTypeString&>(*expected).len());
-        }
-        if (!compatible) {
+        if (child->get_primitive_type() != expected->get_primitive_type() ||
+            !child->equals(*expected)) {
             throw Exception(ErrorCode::INVALID_ARGUMENT, "Invalid FILE child type for {}",
                             _names[i]);
         }

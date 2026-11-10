@@ -220,6 +220,7 @@ import org.apache.doris.statistics.StatisticConstants;
 import org.apache.doris.tablefunction.FileTableValuedFunction;
 import org.apache.doris.tablefunction.HdfsTableValuedFunction;
 import org.apache.doris.tablefunction.HttpTableValuedFunction;
+import org.apache.doris.tablefunction.ListFilesTableValuedFunction;
 import org.apache.doris.tablefunction.LocalTableValuedFunction;
 import org.apache.doris.tablefunction.S3TableValuedFunction;
 import org.apache.doris.tablefunction.TableValuedFunctionIf;
@@ -1161,7 +1162,14 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
         TableValuedFunctionIf catalogFunction = tvfRelation.getFunction().getCatalogFunction();
         SessionVariable sv = ConnectContext.get().getSessionVariable();
-        ScanNode scanNode = catalogFunction.getScanNode(context.nextPlanNodeId(), tupleDescriptor, sv);
+        ScanNode scanNode;
+        if (catalogFunction instanceof ListFilesTableValuedFunction) {
+            ListFilesTableValuedFunction listFiles = (ListFilesTableValuedFunction) catalogFunction;
+            scanNode = listFiles.getScanNode(context.nextPlanNodeId(), tupleDescriptor, sv,
+                    context.getOrRegisterS3Resource(listFiles.getResourceName()));
+        } else {
+            scanNode = catalogFunction.getScanNode(context.nextPlanNodeId(), tupleDescriptor, sv);
+        }
         if (context.getRelationPushAggOp(tvfRelation.getRelationId()) == TPushAggOp.COUNT) {
             scanNode.setPushDownAggNoGrouping(TPushAggOp.COUNT);
             scanNode.setPushDownCountSlotIds(ImmutableList.of());

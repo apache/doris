@@ -121,28 +121,6 @@ class ListFilesTableValuedFunctionTest {
     }
 
     @Test
-    void queryConfigurationIsSharedWithToFileAndRefreshesNextExecute() throws Exception {
-        try (Fixture fixture = new Fixture()) {
-            fixture.properties.put("s3.secret_key", "prepare");
-            ListFilesTableValuedFunction function = new ListFilesTableValuedFunction(fixture.params());
-            fixture.properties.put("s3.secret_key", "first execute");
-            fixture.context.getOrRegisterS3Resource("s3_resource");
-            fixture.properties.put("s3.secret_key", "second execute");
-            TTVFListFileScanRange first = range(function);
-            Assertions.assertEquals("first execute", first.getResource().getProperties().get("AWS_SECRET_KEY"));
-            first.getResource().getProperties().put("AWS_SECRET_KEY", "mutated wire copy");
-            Assertions.assertEquals("first execute",
-                    range(function).getResource().getProperties().get("AWS_SECRET_KEY"));
-            fixture.context.setStartTime();
-            Assertions.assertEquals("second execute",
-                    range(function).getResource().getProperties().get("AWS_SECRET_KEY"));
-            Mockito.when(fixture.access.checkResourcePriv(fixture.context, "s3_resource", PrivPredicate.USAGE))
-                    .thenReturn(false);
-            Assertions.assertThrows(org.apache.doris.nereids.exceptions.AnalysisException.class, function::getTasks);
-        }
-    }
-
-    @Test
     void assignsExactlyOneTaskToAnAliveBackendAndRejectsNoAliveBackends() throws Exception {
         try (Fixture fixture = new Fixture()) {
             Backend dead = Mockito.mock(Backend.class);

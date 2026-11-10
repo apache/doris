@@ -104,7 +104,8 @@ public class DistributionDescriptor {
             for (String columnName : cols) {
                 ColumnDefinition columnDefinition = columnMap.get(columnName);
                 if (columnDefinition.getType().toCatalogDataType().typeContainsFile()) {
-                    throw new AnalysisException("FILE cannot be used in distribution column[" + columnName + "]");
+                    throw new AnalysisException(
+                            "FILE Type should not be used in distribution column[" + columnName + "]");
                 }
                 if (!columnDefinition.isKey()
                         && (keysType == KeysType.UNIQUE_KEYS || keysType == KeysType.AGG_KEYS)) {
