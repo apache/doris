@@ -334,9 +334,6 @@ CONF_Validator(s3_client_http_scheme, [](const std::string& config) -> bool {
     return config == "http" || config == "https";
 });
 
-// Use the native OSS V2 client for OSS storage vaults in the Recycler.
-CONF_Bool(enable_native_oss_sdk, "false");
-
 // Max retry times for object storage request
 CONF_mInt64(max_s3_client_retry, "10");
 

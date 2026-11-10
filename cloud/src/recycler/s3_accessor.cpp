@@ -478,7 +478,7 @@ int S3Accessor::init() {
             return -1;
         }
         std::shared_ptr<ObjStorageClient> client;
-        if (conf_.provider == S3Conf::OSS && config::enable_native_oss_sdk) {
+        if (conf_.provider == S3Conf::OSS) {
             client = std::make_shared<OssObjStorageClient>(
                     aws_config, std::move(credentials.provider), conf_.use_virtual_addressing,
                     config::max_s3_client_retry);

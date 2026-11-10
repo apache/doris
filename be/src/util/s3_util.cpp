@@ -436,7 +436,7 @@ Result<std::shared_ptr<io::ObjStorageClient>> S3ClientFactory::_create_s3_client
         return ResultError(Status::InvalidArgument("failed to create AWS credential provider: {}",
                                                    credentials.error));
     }
-    if (s3_conf.provider == io::ObjStorageProvider::OSS && config::enable_native_oss_sdk) {
+    if (s3_conf.provider == io::ObjStorageProvider::OSS) {
         return std::make_shared<OssObjStorageClient>(aws_config, std::move(credentials.provider),
                                                      s3_conf.use_virtual_addressing,
                                                      config::max_s3_client_retry);

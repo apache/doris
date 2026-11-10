@@ -70,6 +70,7 @@
 #include "cpp/obj-client/auth/gcp/gcp_auth.h"
 #include "cpp/obj-client/auth/gcp/gcp_s3_client.h"
 #include "cpp/obj-client/auth/gcp/gcs_signed_url.h"
+#include "cpp/obj-client/oss_obj_storage_client.h"
 #include "cpp/obj-client/rate_limited_obj_storage_client.h"
 #include "cpp/obj-client/s3_obj_storage_client.h"
 #include "cpp/sync_point.h"
@@ -804,7 +805,8 @@ TEST_F(S3ClientFactoryTest, ConvertPropertiesToS3ConfProviderTypeMatrix) {
     }
 }
 
-TEST_F(S3ClientFactoryTest, ConvertPropertiesPreservesOssProvider) {
+TEST_F(S3ClientFactoryTest, OssPropertiesSelectNativeClient) {
+    CloudModeConfigGuard cloud_mode(true);
     S3URI uri("s3://test-bucket/key");
     ASSERT_TRUE(uri.parse().ok());
     std::map<std::string, std::string> properties {{"provider", "oss"},
@@ -813,6 +815,9 @@ TEST_F(S3ClientFactoryTest, ConvertPropertiesPreservesOssProvider) {
     S3Conf conf;
     ASSERT_TRUE(S3ClientFactory::convert_properties_to_s3_conf(properties, uri, &conf).ok());
     EXPECT_EQ(conf.client_conf.provider, io::ObjStorageProvider::OSS);
+    auto client = S3ClientFactory::instance().create(conf.client_conf);
+    ASSERT_TRUE(client.has_value()) << client.error();
+    EXPECT_NE(std::dynamic_pointer_cast<OssObjStorageClient>(client.value()), nullptr);
 }
 
 TEST_F(S3ClientFactoryTest, ConvertPropertiesToS3ConfGcpCredentialModes) {
