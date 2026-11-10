@@ -227,3 +227,17 @@ hudiHmsPort=19083
 hudiMinioPort=19100
 hudiMinioAccessKey="minio"
 hudiMinioSecretKey="minio123"
+
+// Keep rootless CI exclusions opt-in; other external-test environments are unchanged.
+if (System.getenv("DORIS_CI_PRISTINE_FRAMEWORK") == "true") {
+    // Temporary environment exclusions using the existing suite-name filter.
+    // Re-enable after the rootless execution prerequisites are reviewed and validated.
+    excludeSuites += "," + [
+        // sudo/Docker fixture; requires case changes for rootless CI
+        "test_single_hive_kerberos",
+        // sudo/Docker fixture; requires case changes for rootless CI
+        "test_two_hive_kerberos",
+        // root SSH/SCP or remote filesystem prerequisite
+        "test_parquet_meta_tvf"
+    ].join(",")
+}
