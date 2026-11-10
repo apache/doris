@@ -84,11 +84,6 @@ exit_flag=0
     fi
     if ! check_doris_ready; then exit 1; fi
 
-    # Prepare shared suite prerequisites before starting any regression workers.
-    query_port=$(get_doris_conf_value "${DORIS_HOME}"/fe/conf/fe.conf query_port)
-    mysql -h127.0.0.1 -P"${query_port}" -uroot \
-        < "${teamcity_build_checkoutDir}/regression-test/pipeline/cloud_p0/conf/init.sql" || exit 1
-
     echo "#### 5. set session variables"
     if ! reset_doris_session_variables; then exit 1; fi
     session_variables_file="${teamcity_build_checkoutDir}/regression-test/pipeline/cloud_p0/conf/session_variables.sql"
