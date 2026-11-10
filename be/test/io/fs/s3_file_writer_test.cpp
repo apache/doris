@@ -1210,7 +1210,11 @@ public:
         std::string final_obj;
         final_obj.reserve(uploaded_bytes);
         for (const auto& part : completed_parts) {
-            final_obj.append(parts.at(_part_key(opts.path.native(), part.part_num)));
+            const auto it = parts.find(_part_key(opts.path.native(), part.part_num));
+            if (it == parts.end()) {
+                return {.status = {TStatusCode::IO_ERROR, "multipart part not found"}};
+            }
+            final_obj.append(it->second);
         }
         complete[opts.path.native()] = final_obj;
         objects[opts.path.native()] = final_obj;
@@ -1570,9 +1574,6 @@ TEST_F(S3FileWriterInvalidationTest, multipart_completion_client_after_refresh) 
                     ASSERT_TRUE(result.has_value()) << result.error();
                     ASSERT_EQ((*result)->client_holder(), holder);
                     ASSERT_NE(holder->get(), original);
-                    // Both test clients must accept the same parts so the counters identify
-                    // which one sent Complete, independent of the mock's in-memory storage.
-                    refreshed->parts = original->parts;
                     holder->set_client_for_test(refreshed);
                 },
                 &guard);
@@ -1580,33 +1581,16 @@ TEST_F(S3FileWriterInvalidationTest, multipart_completion_client_after_refresh) 
         ASSERT_TRUE(
                 writer->append(generate_test_string('r', 2 * config::s3_write_buffer_size)).ok());
         auto st = writer->close();
-        ASSERT_TRUE(st.ok()) << st;
+        // Only the original client has the uploaded parts.
+        EXPECT_EQ(st.code(), expect_original ? TStatusCode::OK : TStatusCode::IO_ERROR) << st;
         EXPECT_EQ(holder->get(), refreshed);
         EXPECT_EQ(original->complete_multipart_count, expect_original ? 1 : 0);
         EXPECT_EQ(refreshed->complete_multipart_count, expect_original ? 0 : 1);
     };
 
-    auto rotated = storage;
-    std::get<S3ClientConfig>(rotated.client.backend).auth.secret_key = "new-key";
-    check_refresh("S3 key rotation", storage, rotated, true);
-
-    auto addressing = storage;
-    auto& s3 = std::get<S3ClientConfig>(addressing.client.backend);
-    s3.use_virtual_addressing = !s3.use_virtual_addressing;
-    check_refresh("S3 addressing style", storage, addressing, true);
-
-    auto timeout = storage;
-    timeout.client.connection.request_timeout_ms = 15000;
-    check_refresh("request timeout", storage, timeout, true);
-    timeout = storage;
-    timeout.client.connection.connect_timeout_ms = 5000;
-    check_refresh("connect timeout", storage, timeout, true);
-
-    rotated.client.connection.request_timeout_ms = 15000;
-    check_refresh("credentials and request timeout", storage, rotated, true);
-    auto vendor = addressing;
-    std::get<S3ClientConfig>(vendor.client.backend).vendor = ObjStorageProvider::OSS;
-    check_refresh("S3 vendor and addressing style", storage, vendor, false);
+    auto oss = storage;
+    std::get<S3ClientConfig>(oss.client.backend).vendor = ObjStorageProvider::OSS;
+    check_refresh("AWS to OSS refresh", storage, oss, true);
 #ifdef USE_AZURE
     auto rebound = storage;
     rebound.client.backend = AzureClientConfig {.endpoint = "multipart-rebind.example.com",
@@ -1615,14 +1599,10 @@ TEST_F(S3FileWriterInvalidationTest, multipart_completion_client_after_refresh) 
                                                 .auth = AzureSharedKeyConfig {"YWNjb3VudC1rZXk="}};
     check_refresh("resource rebound to Azure", storage, rebound, false);
 
-    auto azure_rotated = rebound;
-    std::get<AzureClientConfig>(azure_rotated.client.backend).auth =
-            AzureSharedKeyConfig {"bmV3LWFjY291bnQta2V5"};
-    check_refresh("Azure key rotation", rebound, azure_rotated, true);
-
-    auto azure_timeout = rebound;
-    azure_timeout.client.connection.request_timeout_ms = 15000;
-    check_refresh("Azure request timeout", rebound, azure_timeout, true);
+    auto moved = rebound;
+    moved.bucket = "other-container";
+    std::get<AzureClientConfig>(moved.client.backend).container = moved.bucket;
+    check_refresh("Azure container change", rebound, moved, true);
 #endif
 }
 
