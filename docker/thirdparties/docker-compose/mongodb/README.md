@@ -1,6 +1,6 @@
 # MongoDB regression fixture
 
-This optional standalone MongoDB 8.0.20 service supplies deterministic BSON data for the embedded Trino 435 MongoDB connector. It does not require a Trino server. Start it with:
+This optional standalone MongoDB 8.0.20 service supplies deterministic BSON data for the native MongoDB Catalog and the embedded Trino 435 MongoDB connector. Start it with:
 
 ```bash
 CONTAINER_UID=doris-mongodb-test- bash docker/thirdparties/run-thirdparties-docker.sh -c mongodb
@@ -67,3 +67,29 @@ WHERE json_extract_int(payload, '$.n') = 7;
 ```
 
 Automatic schema inference still maps BSON documents to Trino `row` / Doris `STRUCT`. Use an explicit `json` declaration when a field should be read as a whole JSON value. BSON documents use the connector's Extended JSON representation, so embedded ObjectIds appear as `{"$oid":"..."}` objects. For BSON string values declared as `json`, their contents must be valid JSON text; malformed text fails the query. The JSON suite covers both real BSON documents and valid JSON text, plus a malformed-text negative case.
+
+## Native MongoDB Catalog
+
+`02-native-fixtures.js` initializes the separate `doris_mongodb_native` database.
+Its fixture contains validator-based collections, a computed view without `_id`,
+a time-series collection with duplicate timestamps, BSON special values, malformed
+historical values, and a reader granted `find` only on the view. These tests use
+the native FE plugin and C++ reader and need no Trino plugin installation.
+
+Use the same regression configuration above, then run:
+
+```bash
+bash run-regression-test.sh --run -d external_table_p0/mongodb -s test_mongodb_native
+```
+
+The suite covers auto/explicit/document schemas, exact ObjectId and int64 values,
+Decimal128 scales, UTC dates, binary subtypes, nested arrays/structs, canonical
+Extended JSON, missing/null/mismatch handling, SQL filters and LIKE/REGEXP,
+aggregations, joins, windows, multi-batch reads, repeated early termination,
+views, time-series measurements and view-only authorization. Legal tuple/pattern/
+dependency validators verify complete document fallback. A 900,000-container BSON
+fixture exercises scalar projection through whole-document validation; the separate
+`doris_mongodb_pagination` database has 140 empty collections to cross the metadata
+cursor's 128-name batch boundary. Binary displays and
+analysis use `FROM_BINARY`; direct VARBINARY operations keep Doris's existing
+analysis restrictions.

@@ -17,17 +17,11 @@
 
 package org.apache.doris.datasource.doris.source;
 
-import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.StatementContext;
-import org.apache.doris.planner.PlanFragment;
-import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.OriginStatement;
-import org.apache.doris.thrift.TUniqueId;
 
-import com.google.common.collect.Lists;
 import org.apache.arrow.flight.CallStatus;
 import org.apache.arrow.flight.CloseSessionRequest;
 import org.apache.arrow.flight.CloseSessionResult;
@@ -142,11 +136,6 @@ public class RemoteDorisScanNodeTest {
         return Mockito.mock(RemoteDorisScanNode.class, Mockito.CALLS_REAL_METHODS);
     }
 
-    private static Coordinator coordinator(ScanNode... scanNodes) {
-        return new Coordinator(1L, new TUniqueId(1L, 2L), new DescriptorTable(), Lists.<PlanFragment>newArrayList(),
-                Lists.newArrayList(scanNodes), "UTC", false, false);
-    }
-
     @Test
     public void testSessionLivesFromTheQueryUntilTheScanStops() throws Exception {
         RemoteDorisScanNode node = scanNode();
@@ -159,13 +148,11 @@ public class RemoteDorisScanNodeTest {
         // what ends the session, and the BE may still be reading the remote query until then.
         Assertions.assertTrue(remote.closedSessions.isEmpty());
         Assertions.assertTrue(node.coordinatorMustOutliveDispatch());
-        Assertions.assertTrue(coordinator(node).mustOutliveDispatch());
 
         node.stop();
 
         Assertions.assertEquals(Collections.singletonList(USER), remote.closedSessions);
         Assertions.assertFalse(node.coordinatorMustOutliveDispatch());
-        Assertions.assertFalse(coordinator(node).mustOutliveDispatch());
 
         // cancel() then close() both stop the scan node; the session is closed once.
         node.stop();

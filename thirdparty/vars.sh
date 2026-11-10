@@ -228,6 +228,13 @@ LIBRDKAFKA_NAME=librdkafka-2.16.0.tar.gz
 LIBRDKAFKA_SOURCE=librdkafka-2.16.0
 LIBRDKAFKA_MD5SUM="6d2c62921241863d2bc95c58be27af6f"
 
+# MongoDB C Driver (libmongoc and libbson are released and built together).
+# 2.5.8 fixes malformed cursor namespaces and compressed-reply buffer leaks.
+MONGO_C_DRIVER_DOWNLOAD="https://github.com/mongodb/mongo-c-driver/releases/download/2.5.8/mongo-c-driver-2.5.8.tar.gz"
+MONGO_C_DRIVER_NAME=mongo-c-driver-2.5.8.tar.gz
+MONGO_C_DRIVER_SOURCE=mongo-c-driver-2.5.8
+MONGO_C_DRIVER_MD5SUM="e088246c56b3de5c658aff8e00f166ed"
+
 # zstd
 ZSTD_DOWNLOAD="https://github.com/facebook/zstd/releases/download/v1.5.7/zstd-1.5.7.tar.gz"
 ZSTD_NAME=zstd-1.5.7.tar.gz
@@ -660,6 +667,7 @@ export TP_ARCHIVES=(
     'BRPC'
     'ROCKSDB'
     'CYRUS_SASL'
+    'MONGO_C_DRIVER'
     'LIBRDKAFKA'
     'FLATBUFFERS'
     'ARROW'

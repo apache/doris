@@ -340,7 +340,7 @@ public class ProtocolCapabilityWiringTest extends TestWithFeService {
     }
 
     // An executor the way the connect processor builds one: the parsed statement carries the
-    // original text, and the statement context knows it (so a NereidsCoordinator runs the query).
+    // original text, and the statement context knows it (so a Coordinator runs the query).
     private static StmtExecutor executorFor(ConnectContext ctx, String sql) {
         StatementContext statementContext = new StatementContext(ctx, new OriginStatement(sql, 0));
         ctx.setStatementContext(statementContext);

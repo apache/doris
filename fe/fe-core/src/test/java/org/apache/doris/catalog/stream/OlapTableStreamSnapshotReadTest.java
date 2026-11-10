@@ -20,6 +20,7 @@ package org.apache.doris.catalog.stream;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.stream.OlapTableStream.PartitionStreamState;
 import org.apache.doris.common.jmockit.Deencapsulation;
 
 import com.google.common.collect.Lists;
@@ -124,8 +125,9 @@ public class OlapTableStreamSnapshotReadTest {
         Mockito.doReturn(table).when(stream).getBaseTableNullable();
         // The offsets have to be in place before the wrapper is built: it reads them into the map the read of
         // a snapshot is built from.
-        Deencapsulation.setField(stream, "partitionOffset", new HashMap<>(offsets));
-        Deencapsulation.setField(stream, "historicalPartitionTSO", new HashMap<Long, Long>());
+        Map<Long, PartitionStreamState> partitionStates = new HashMap<>();
+        offsets.forEach((pid, offset) -> partitionStates.put(pid, new PartitionStreamState(offset, -1, null)));
+        Deencapsulation.setField(stream, "partitionStates", partitionStates);
         return new Fixture(stream, new OlapTableStreamWrapper(stream, table,
                 Lists.newArrayList(byId.keySet())));
     }

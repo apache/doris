@@ -293,7 +293,7 @@ public class AlterRoutineLoadCommand extends AlterCommand {
             String computeGroup = jobProperties.get(CreateRoutineLoadInfo.COMPUTE_GROUP);
             if (!StringUtil.isEmpty(computeGroup)) {
                 // Validated right here instead of letting a bad name pause the whole job on the next task.
-                // The job's workload group is then checked in this group by KafkaRoutineLoadJob#modifyProperties,
+                // The job's workload group is then checked in this group by RoutineLoadJob#checkAlteredWorkloadGroup,
                 // which also knows the one the job keeps when this ALTER sets none.
                 ComputeGroupBindingUtil.validateDeclaredComputeGroup(ctx, computeGroup);
                 // a combined ALTER converts its new Kafka offsets in this group, see KafkaRoutineLoadJob
@@ -305,21 +305,26 @@ public class AlterRoutineLoadCommand extends AlterCommand {
         if (jobProperties.containsKey(CreateRoutineLoadInfo.WORKLOAD_GROUP)) {
             String workloadGroup = jobProperties.get(CreateRoutineLoadInfo.WORKLOAD_GROUP);
             if (!StringUtil.isEmpty(workloadGroup)) {
-                // NOTE: delay check workload group's existence check when alter routine load job
-                // because we can only get clusterId when alter job.
+                // Checked by RoutineLoadJob#checkAlteredWorkloadGroup, in the compute group of the job and as its
+                // owner, which only the job knows.
                 analyzedJobProperties.put(CreateRoutineLoadInfo.WORKLOAD_GROUP,
                         jobProperties.get(CreateRoutineLoadInfo.WORKLOAD_GROUP));
             }
         }
 
+        // Checked as CREATE checks them, since the job takes its byte from the value the same way
         if (jobProperties.containsKey(CsvFileFormatProperties.PROP_ENCLOSE)) {
-            analyzedJobProperties.put(CsvFileFormatProperties.PROP_ENCLOSE,
-                    jobProperties.get(CsvFileFormatProperties.PROP_ENCLOSE));
+            String enclose = jobProperties.get(CsvFileFormatProperties.PROP_ENCLOSE);
+            CreateRoutineLoadInfo.checkCsvControlValue(CsvFileFormatProperties.PROP_ENCLOSE, enclose);
+            CsvFileFormatProperties.parseEnclose(enclose);
+            analyzedJobProperties.put(CsvFileFormatProperties.PROP_ENCLOSE, enclose);
         }
 
         if (jobProperties.containsKey(CsvFileFormatProperties.PROP_ESCAPE)) {
-            analyzedJobProperties.put(CsvFileFormatProperties.PROP_ESCAPE,
-                    jobProperties.get(CsvFileFormatProperties.PROP_ESCAPE));
+            String escape = jobProperties.get(CsvFileFormatProperties.PROP_ESCAPE);
+            CreateRoutineLoadInfo.checkCsvControlValue(CsvFileFormatProperties.PROP_ESCAPE, escape);
+            CsvFileFormatProperties.parseEscape(escape);
+            analyzedJobProperties.put(CsvFileFormatProperties.PROP_ESCAPE, escape);
         }
 
         if (jobProperties.containsKey(CsvFileFormatProperties.PROP_EMPTY_FIELD_AS_NULL)) {

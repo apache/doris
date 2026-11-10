@@ -28,11 +28,16 @@ GEN_OBJECTS = $(patsubst ${BUILD_DIR}/thrift/%.thrift, ${BUILD_DIR}/gen_cpp/%_ty
 
 all: ${GEN_OBJECTS} ${OBJECTS}
 .PHONY: all
+.DELETE_ON_ERROR:
 
 THRIFT_CPP_ARGS = -I ${CURDIR} -I ${BUILD_DIR}/thrift/ --gen cpp:moveable_types,no_skeleton -out ${BUILD_DIR}/gen_cpp --allow-64bit-consts -strict
 
 ${BUILD_DIR}/gen_cpp:
 	mkdir -p $@
 # handwrite thrift
+${BUILD_DIR}/gen_cpp/PlanNodes_types.cpp: ${CURDIR}/PlanNodes.thrift ${CURDIR}/../script/redact_file_encryption.py | ${BUILD_DIR}/gen_cpp
+	${THRIFT} ${THRIFT_CPP_ARGS} $<
+	python3 ${CURDIR}/../script/redact_file_encryption.py --cpp $@
+
 ${BUILD_DIR}/gen_cpp/%_types.cpp: ${CURDIR}/%.thrift | ${BUILD_DIR}/gen_cpp
 	${THRIFT} ${THRIFT_CPP_ARGS} $<

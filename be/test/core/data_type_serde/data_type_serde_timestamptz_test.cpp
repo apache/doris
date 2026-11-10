@@ -67,7 +67,7 @@ public:
         std::cout << "loading test dataset" << std::endl;
         TimezoneUtils::load_timezones_to_cache();
         cctz::time_zone tz;
-        TimezoneUtils::find_cctz_time_zone("+08:00", tz);
+        ASSERT_TRUE(TimezoneUtils::find_cctz_time_zone("+08:00", tz));
         auto test_func = [&](const MutableColumnPtr& column, const auto& serde,
                              const std::string& data_file_name) {
             MutableColumns columns;
@@ -90,7 +90,7 @@ TEST_F(DataTypeTimeStampTzSerDeTest, serdes) {
     char field_delim = ';';
     option.field_delim = std::string(1, field_delim);
     cctz::time_zone tz;
-    TimezoneUtils::find_cctz_time_zone("+08:00", tz);
+    ASSERT_TRUE(TimezoneUtils::find_cctz_time_zone("+08:00", tz));
     option.timezone = &tz;
     auto test_func = [&](const auto& serde, const auto& source_column) {
         using SerdeType = decltype(serde);
