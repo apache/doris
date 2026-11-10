@@ -21,6 +21,7 @@ import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
+import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.journal.JournalCursor;
 import org.apache.doris.journal.JournalEntity;
 import org.apache.doris.master.MasterImpl;
@@ -123,6 +124,44 @@ class UdfCacheCleanupRecoveryTest {
         env.getFunctionRegistry().dropUdfByDb(DB_NAME);
         loadRecycleBin(previousRecycleBin);
         AgentTaskQueue.clearAllTasks();
+    }
+
+    @Test
+    void systemDatabaseFunctionsAreRetainedBeforeAndAfterCatalogLoad() throws Exception {
+        CatalogMgr original = env.getCatalogMgr();
+        try {
+            assertSystemDatabaseFunctionsAreRetained();
+            ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+            try (DataOutputStream out = new DataOutputStream(bytes)) {
+                new CatalogMgr().write(out);
+            }
+            try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(bytes.toByteArray()))) {
+                env.loadCatalog(in, 0);
+            }
+            Assertions.assertNotSame(original, env.getCatalogMgr());
+            assertSystemDatabaseFunctionsAreRetained();
+        } finally {
+            Field catalogMgr = Env.class.getDeclaredField("catalogMgr");
+            catalogMgr.setAccessible(true);
+            catalogMgr.set(env, original);
+        }
+    }
+
+    private void assertSystemDatabaseFunctionsAreRetained() throws Exception {
+        for (long databaseId : List.of(InfoSchemaDb.DATABASE_ID, MysqlDb.DATABASE_ID)) {
+            Database db = env.getInternalCatalog().getDbNullable(databaseId);
+            Function function = pythonFunction("system_database_evaluate", Type.INT);
+            function.getFunctionName().setDb(db.getFullName());
+            db.replayAddFunction(function);
+            try {
+                report(Set.of(FUNCTION_ID));
+                Assertions.assertNull(queuedTask());
+                Assertions.assertSame(function, env.getFunctionById(FUNCTION_ID));
+            } finally {
+                db.replayDropFunction(new FunctionSearchDesc(function.getFunctionName(), function.getArgs(),
+                        function.hasVarArgs()));
+            }
+        }
     }
 
     @Test
