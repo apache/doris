@@ -197,7 +197,9 @@ void TimestampTzValue::convert_local_to_utc(const cctz::time_zone& local_time_zo
     cctz::civil_second local_cs(dt.year(), dt.month(), dt.day(), dt.hour(), dt.minute(),
                                 dt.second());
     const auto lookup = local_time_zone.lookup(local_cs);
-    cctz::time_point<cctz::seconds> local_tp = cctz::convert(local_cs, local_time_zone);
+    // Match cctz::convert's gap policy without repeating the civil-time lookup.
+    auto local_tp =
+            lookup.kind == cctz::time_zone::civil_lookup::SKIPPED ? lookup.trans : lookup.pre;
 
     if (lookup.kind == cctz::time_zone::civil_lookup::REPEATED) {
         const auto pre_offset = local_time_zone.lookup(lookup.pre).offset;
