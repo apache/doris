@@ -47,7 +47,7 @@ suite("test_mc_write_static_partitions", "p2,external,maxcompute,external_remote
 
     sql """drop database if exists ${db}"""
     sql """create database ${db}"""
-    sql """use ${db}"""
+    retry(10, 1000) { sql """use ${db}""" }
 
     try {
         // Test 1: Single partition column static partition INSERT INTO

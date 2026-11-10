@@ -47,7 +47,7 @@ suite("test_mc_write_partitions", "p2,external,maxcompute,external_remote,extern
 
     sql """drop database if exists ${db}"""
     sql """create database ${db}"""
-    sql """use ${db}"""
+    retry(10, 1000) { sql """use ${db}""" }
 
     try {
         // Inferred MaxCompute engines must not silently ignore transforms or partition bounds.
