@@ -209,10 +209,6 @@ struct RowIdConversion::Storage {
             break;
         }
     }
-    static void* operator new(size_t size) { return Allocator<false>().alloc(size); }
-    static void operator delete(void* pointer, size_t size) {
-        Allocator<false>().free(pointer, size);
-    }
     std::variant<DenseRowIdStorage, LazyRowIdStorage, CompressedRowIdStorage> map;
 };
 
@@ -322,8 +318,8 @@ const RowIdConversion::DenseMap& RowIdConversion::get_rowid_conversion_map() con
 }
 
 size_t RowIdConversion::memory_usage() const {
-    return sizeof(Storage) +
-           std::visit([](const auto& storage) { return storage.memory_usage(); }, _storage->map);
+    // Count tracked backing allocations; fixed-size ownership objects are negligible.
+    return std::visit([](const auto& storage) { return storage.memory_usage(); }, _storage->map);
 }
 
 CompressedRowIdMap::MemoryUsage RowIdConversion::compressed_memory_usage() const {

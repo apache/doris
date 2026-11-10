@@ -31,7 +31,7 @@ The generic encoding is delta-varint64 followed by one Zstd level-1 attempt. EMP
 
 The compaction RuntimeProfile reports `RowIdConversionStorage` after merging rows and, for COMPRESSED, after `finalize()` releases its builders and encoder. It includes a readable byte size and the exact byte count from `RowIdConversion::memory_usage()`.
 
-This is retained storage: the concrete storage object and allocated backing arrays; COMPRESSED includes all block directories, payloads, storage metadata and destination prefixes. Source-identity indexes, visibility sets, consumer cursor/workspace memory and allocator rounding/fragmentation are outside this count. It is separate from the whole compaction tracker peak and BE RSS. A DENSE row-pair-array estimate is physical input rows times eight bytes, including deleted/filtered source positions.
+This is retained storage: allocated backing arrays; COMPRESSED includes all block directories, payloads, storage metadata and destination prefixes. Source-identity indexes, visibility sets, consumer cursor/workspace memory and allocator rounding/fragmentation are outside this count. It is separate from the whole compaction tracker peak and BE RSS. A DENSE row-pair-array estimate is physical input rows times eight bytes, including deleted/filtered source positions.
 
 ## Run
 
@@ -63,7 +63,7 @@ Each `ROWID_BENCH` / `ROWID_LARGE_BENCH` line reports bytes and milliseconds:
 |---|---|
 | `dense_bytes`, `oracle_bytes` | 8 bytes per source row; the dense timing copy and input oracle are outside compressed-map accounting |
 | `directory`, `payload` | Complete directory capacity and used encoded payload for all sources/blocks |
-| `metadata` | Map implementation object and source-container capacity |
+| `metadata` | Source-container capacity; fixed-size implementation objects are excluded |
 | `retained` | Requested owned bytes after finish: directory + separately allocated payloads + metadata |
 | `owned_peak` | Maximum owned sum observed after allocation; excludes transient vector reallocation overlap |
 | `builders_before_finish`, `encoder_before_finish` | Build workspaces before their release; encoder includes bounded CCtx, plain bytes and compression candidate |
@@ -76,7 +76,7 @@ Each `ROWID_BENCH` / `ROWID_LARGE_BENCH` line reports bytes and milliseconds:
 | `random_4096_ms` | 4096 random lookups; unlike ordered streams, this can repeatedly decode blocks |
 | `dense_build_ms`, `dense_sequential_ms` | Copy and direct-scan baseline for the same pre-generated input; not an end-to-end DENSE compaction |
 
-These counters measure the compressed storage kernel and its reader workspaces. They exclude the benchmark's ordinary STL containers, allocator bookkeeping/RSS, the enclosing `RowIdConversion` source index/destination prefix, and other compaction/index/bitmap allocations. The enclosing map's index and prefix use tracked Doris allocators as well, but are exercised separately in the integration unit tests. Payload allocation requests now equal encoded bytes; allocator size-class rounding, fragmentation and bookkeeping remain outside these counters. Directory entries and codec/builder/cursor workspaces still count towards total and peak memory.
+These counters measure the compressed storage kernel and its reader workspaces. They exclude the benchmark's ordinary STL containers, allocator bookkeeping/RSS, the enclosing `RowIdConversion` source index/destination prefix, and other compaction/index/bitmap allocations. The enclosing map's index and prefix use tracked Doris allocators as well, but are exercised separately in the integration unit tests. Payload allocation requests now equal encoded bytes; allocator size-class rounding, fragmentation and bookkeeping remain outside these counters. Directory entries and codec/builder/cursor buffers still count towards total and peak memory. The small map, storage, cursor and codec ownership objects use ordinary `std::make_unique` and are excluded from both these counters and task memory tracking.
 
 ## Single-block performance
 
