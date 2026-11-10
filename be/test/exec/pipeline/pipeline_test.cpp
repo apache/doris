@@ -168,6 +168,64 @@ private:
     const int DUMMY_PORT = config::brpc_port;
 };
 
+TEST_F(PipelineTest, ParallelPrepareTaskThreshold) {
+    auto context = _build_fragment_context();
+    context->_runtime_state = std::move(_runtime_state.back());
+    context->_params.local_params.resize(32);
+    context->_pipelines.emplace_back(std::make_shared<Pipeline>(0, 32, 32));
+
+    // An unset optional threshold preserves the serial path for older requests.
+    _query_options.__isset.parallel_prepare_threshold = false;
+    context->_runtime_state->set_query_options(_query_options);
+    EXPECT_FALSE(context->_should_prepare_tasks_in_parallel());
+    _query_options.__set_parallel_prepare_threshold(32);
+    context->_runtime_state->set_query_options(_query_options);
+    EXPECT_FALSE(context->_should_prepare_tasks_in_parallel());
+
+    // Adding a second pipeline doubles the work without increasing the instance count.
+    context->_pipelines.emplace_back(std::make_shared<Pipeline>(1, 32, 32));
+    EXPECT_TRUE(context->_should_prepare_tasks_in_parallel());
+
+    _query_options.__set_parallel_prepare_threshold(64);
+    context->_runtime_state->set_query_options(_query_options);
+    EXPECT_FALSE(context->_should_prepare_tasks_in_parallel());
+    _query_options.__set_parallel_prepare_threshold(63);
+    context->_runtime_state->set_query_options(_query_options);
+    EXPECT_TRUE(context->_should_prepare_tasks_in_parallel());
+
+    context->_pipelines.back() = std::make_shared<Pipeline>(1, 1, 32);
+    _query_options.__set_parallel_prepare_threshold(32);
+    context->_runtime_state->set_query_options(_query_options);
+    EXPECT_TRUE(context->_should_prepare_tasks_in_parallel());
+    _query_options.__set_parallel_prepare_threshold(33);
+    context->_runtime_state->set_query_options(_query_options);
+    EXPECT_FALSE(context->_should_prepare_tasks_in_parallel());
+
+    // Serial pipelines contribute only their single task, not all 32 local instances.
+    context->_pipelines.clear();
+    context->_pipelines.emplace_back(std::make_shared<Pipeline>(0, 1, 32));
+    context->_pipelines.emplace_back(std::make_shared<Pipeline>(1, 1, 32));
+    _query_options.__set_parallel_prepare_threshold(32);
+    context->_runtime_state->set_query_options(_query_options);
+    EXPECT_FALSE(context->_should_prepare_tasks_in_parallel());
+
+    _query_options.__set_parallel_prepare_threshold(0);
+    context->_runtime_state->set_query_options(_query_options);
+    EXPECT_TRUE(context->_should_prepare_tasks_in_parallel());
+
+    _query_options.__set_parallel_prepare_threshold(-1);
+    context->_runtime_state->set_query_options(_query_options);
+    EXPECT_FALSE(context->_should_prepare_tasks_in_parallel());
+    _query_options.__set_parallel_prepare_threshold(0);
+    context->_runtime_state->set_query_options(_query_options);
+
+    // One local instance cannot distribute its pipelines among instance-preparation jobs.
+    context->_params.local_params.resize(1);
+    EXPECT_FALSE(context->_should_prepare_tasks_in_parallel());
+    context->_params.local_params.clear();
+    EXPECT_FALSE(context->_should_prepare_tasks_in_parallel());
+}
+
 TEST_F(PipelineTest, HAPPY_PATH) {
     // Pipeline(ExchangeOperator(id=0, UNPARTITIONED) -> ExchangeSinkOperatorX(id=1, UNPARTITIONED))
     int parallelism = 1;

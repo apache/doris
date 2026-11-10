@@ -587,6 +587,29 @@ Status PipelineFragmentContext::_build_pipeline_tasks_for_instance(
     return Status::OK();
 }
 
+bool PipelineFragmentContext::_should_prepare_tasks_in_parallel() const {
+    const auto& options = _runtime_state->query_options();
+    const auto num_instances = _params.local_params.size();
+    // Jobs are split by local instance; a singleton has no parallel work. Older requests
+    // without the optional threshold must retain their existing serial preparation path.
+    if (num_instances <= 1 || !options.__isset.parallel_prepare_threshold) {
+        return false;
+    }
+
+    // Local shuffle can split one fragment into several pipelines. For example, 32 local
+    // instances with two 32-task pipelines require preparing 64 tasks, not 32. Comparing only
+    // the instance count with the default threshold of 32 leaves all that work serialized
+    // and can exhaust the fragment RPC deadline for queries with many fragments.
+    size_t num_tasks = 0;
+    for (const auto& pipeline : _pipelines) {
+        // Match _build_pipeline_tasks_for_instance(): serial pipelines only run on instance 0.
+        num_tasks += pipeline->num_tasks() > 1 ? num_instances : 1;
+    }
+    // Preserve the existing unsigned comparison: negative thresholds disable parallel prepare.
+    const auto threshold = static_cast<size_t>(options.parallel_prepare_threshold);
+    return num_tasks > threshold;
+}
+
 Status PipelineFragmentContext::_build_pipeline_tasks(ThreadPool* thread_pool) {
     _total_tasks = 0;
     _closed_tasks = 0;
@@ -598,10 +621,7 @@ Status PipelineFragmentContext::_build_pipeline_tasks(ThreadPool* thread_pool) {
     }
     auto pipeline_id_to_profile = _runtime_state->build_pipeline_profile(_pipelines.size());
 
-    if (target_size > 1 &&
-        (_runtime_state->query_options().__isset.parallel_prepare_threshold &&
-         target_size > _runtime_state->query_options().parallel_prepare_threshold)) {
-        // If instances parallelism is big enough ( > parallel_prepare_threshold), we will prepare all tasks by multi-threads
+    if (_should_prepare_tasks_in_parallel()) {
         std::vector<Status> prepare_status(target_size);
         int submitted_tasks = 0;
         Status submit_status;
