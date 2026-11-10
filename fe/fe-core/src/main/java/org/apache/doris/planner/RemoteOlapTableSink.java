@@ -61,7 +61,9 @@ public class RemoteOlapTableSink extends OlapTableSink {
             if (backend == null) {
                 continue;
             }
-            nodesInfo.addToNodes(new TNodeInfo(backend.getId(), 0, backend.getHost(), backend.getBrpcPort()));
+            TNodeInfo nodeInfo = new TNodeInfo(backend.getId(), 0, backend.getHost(), backend.getBrpcPort());
+            nodeInfo.setIsLoadAvailable(backend.isLoadAvailable());
+            nodesInfo.addToNodes(nodeInfo);
         }
         return nodesInfo;
     }

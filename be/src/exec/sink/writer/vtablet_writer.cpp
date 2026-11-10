@@ -139,6 +139,17 @@ Status IndexChannel::init(RuntimeState* state, const std::vector<TTabletWithPart
         std::vector<std::shared_ptr<VNodeChannel>> channels;
         // For tablet, deal with its' all replica (in some node).
         for (auto& replica_node_id : tablet_locations->node_ids) {
+            const auto* node_info = _parent->_nodes_info->find_node(replica_node_id);
+            if (node_info == nullptr) {
+                return Status::InternalError("unknown node id, id={}", replica_node_id);
+            }
+            if (!node_info->is_load_available) {
+                // The unavailable replica remains in the FE location and consumes the same
+                // failure allowance as an RPC failure, but no channel is opened for it.
+                _mark_as_failed(replica_node_id, node_info->host,
+                                "backend is not available for load", tablet.tablet_id);
+                continue;
+            }
             std::shared_ptr<VNodeChannel> channel;
             auto it = _node_channels.find(replica_node_id);
             // when we prepare for TableSink or incremental open tablet, we need init
@@ -176,6 +187,7 @@ Status IndexChannel::init(RuntimeState* state, const std::vector<TTabletWithPart
             channels.push_back(channel);
             _tablets_by_channel[replica_node_id].insert(tablet.tablet_id);
         }
+        RETURN_IF_ERROR(check_intolerable_failure());
         _channels_by_tablet.emplace(tablet.tablet_id, std::move(channels));
     }
     for (auto& it : _node_channels) {
@@ -220,6 +232,17 @@ void IndexChannel::mark_as_failed(const VNodeChannel* node_channel, const std::s
                         _failed_channels_msgs[tablet_id]);
             }
         }
+    }
+}
+
+void IndexChannel::_mark_as_failed(int64_t node_id, const std::string& host, const std::string& err,
+                                   int64_t tablet_id) {
+    std::lock_guard<std::mutex> l(_fail_lock);
+    _failed_channels[tablet_id].insert(node_id);
+    _failed_channels_msgs.emplace(tablet_id, err + ", host: " + host);
+    if (_failed_channels[tablet_id].size() > _max_failed_replicas(tablet_id)) {
+        _intolerable_failure_status =
+                Status::Error<ErrorCode::INTERNAL_ERROR, false>(_failed_channels_msgs[tablet_id]);
     }
 }
 

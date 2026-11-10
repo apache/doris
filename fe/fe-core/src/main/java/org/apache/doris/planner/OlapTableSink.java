@@ -1363,9 +1363,19 @@ public class OlapTableSink extends DataSink {
             if (backend == null) {
                 continue;
             }
-            nodesInfo.addToNodes(new TNodeInfo(backend.getId(), 0, backend.getHost(), backend.getBrpcPort()));
+            nodesInfo.addToNodes(createLoadNodeInfo(backend));
         }
         return nodesInfo;
+    }
+
+    public static TNodeInfo createLoadNodeInfo(Backend backend) {
+        TNodeInfo nodeInfo = new TNodeInfo(backend.getId(), 0, backend.getHost(), backend.getBrpcPort());
+        // CloudTablet has already resolved its logical replica to one physical BE. Marking that
+        // sole destination unavailable here cannot reroute it and would break graceful restart.
+        if (!Config.isCloudMode()) {
+            nodeInfo.setIsLoadAvailable(backend.isLoadAvailable());
+        }
+        return nodeInfo;
     }
 
     protected TDataSinkType getDataSinkType() {

@@ -589,6 +589,9 @@ private:
 
     int _load_required_replicas_num(int64_t tablet_id);
 
+    void _mark_as_failed(int64_t node_id, const std::string& host, const std::string& err,
+                         int64_t tablet_id);
+
     bool _quorum_success(const std::unordered_set<int64_t>& unfinished_node_channel_ids,
                          const std::unordered_set<int64_t>& need_finish_tablets);
 

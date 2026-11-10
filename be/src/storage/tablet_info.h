@@ -443,6 +443,7 @@ struct NodeInfo {
     int64_t option;
     std::string host;
     int32_t brpc_port;
+    bool is_load_available = true;
 
     NodeInfo() = default;
 
@@ -450,7 +451,8 @@ struct NodeInfo {
             : id(tnode.id),
               option(tnode.option),
               host(tnode.host),
-              brpc_port(tnode.async_internal_port) {}
+              brpc_port(tnode.async_internal_port),
+              is_load_available(!tnode.__isset.is_load_available || tnode.is_load_available) {}
 };
 
 class DorisNodesInfo {

@@ -405,6 +405,8 @@ struct TNodeInfo {
     3: required string host
     // used to transfer data between nodes
     4: required i32 async_internal_port
+    // Absent for old FE and non-load node directories. BE treats absence as available.
+    5: optional bool is_load_available
 }
 
 struct TPaloNodesInfo {
