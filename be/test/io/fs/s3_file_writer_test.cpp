@@ -68,7 +68,6 @@
 #include "storage/index/index_writer.h"
 #include "testutil/mock/obj_storage_client_test_stub.h"
 #include "testutil/obj_storage_test_util.h"
-#include "util/countdown_latch.h"
 #include "util/defer_op.h"
 #include "util/slice.h"
 #include "util/threadpool.h"
@@ -1444,7 +1443,7 @@ std::string get_s3_path(std::string_view path) {
     return std::string("s3://") + s3_fs->bucket() + "/" + s3_fs->prefix() + "/" + std::string(path);
 };
 
-class S3FileWriterInvalidationTest : public S3FileWriterTest {
+class S3FileWriterRefreshTest : public S3FileWriterTest {
 protected:
     void SetUp() override {
         _enable_file_cache = config::enable_file_cache;
@@ -1461,100 +1460,16 @@ protected:
         config::enable_file_cache = _enable_file_cache;
     }
 
-    static void invalidate_at(const std::string& point,
-                              const std::shared_ptr<S3FileWriter>& writer) {
-        std::shared_ptr<ObjClientHolder> holder = writer->_obj_client;
-        SyncPoint::get_instance()->set_call_back(point, [holder](auto&&) {
-            holder->invalidate(Status::InvalidArgument<false>("backend changed"));
-        });
-    }
-
 private:
     bool _enable_file_cache = false;
 };
 
-// The holder is invalidated before the upload task takes the client: the upload fails, and close
-// returns the error after waiting for the task.
-TEST_F(S3FileWriterInvalidationTest, upload_that_has_not_taken_the_client_fails) {
-    auto [mock_client, writer] = create_s3_client("invalidate_before_put_object");
-    invalidate_at("S3FileWriter::_put_object:before_get_client", writer);
-
-    EXPECT_EQ(writer->append(generate_test_string('a', 1024)), Status::OK());
-    EXPECT_FALSE(writer->close().ok());
-    EXPECT_EQ(mock_client->put_object_count, 0);
-}
-
-TEST_F(S3FileWriterInvalidationTest, async_close_waits_for_upload_callbacks_after_invalidation) {
-    auto [mock_client, writer] = create_s3_client("invalidate_before_async_close");
-    CountDownLatch upload_started(1);
-    CountDownLatch release_upload(1);
-    CountDownLatch close_waiting(1);
-    auto* sp = SyncPoint::get_instance();
-    SyncPoint::CallbackGuard upload_guard;
-    SyncPoint::CallbackGuard wait_guard;
-    // Even a failed assertion must release and drain the callback that captures the writer.
-    // In particular, the old early return from _complete() must fail this test without a UAF.
-    Defer drain_upload {[&] {
-        release_upload.count_down();
-        writer->_wait_until_finish("invalidation test cleanup");
-        if (writer->state() == FileWriter::State::ASYNC_CLOSING) {
-            std::ignore = writer->close();
-        }
-    }};
-    sp->set_call_back(
-            "S3FileWriter::_put_object:before_get_client",
-            [&](auto&&) {
-                upload_started.count_down();
-                release_upload.wait();
-            },
-            &upload_guard);
-    sp->set_call_back(
-            "S3FileWriter::_wait_until_finish:before_wait",
-            [&](auto&& args) {
-                if (try_any_cast<std::string_view>(args[0]) == "PutObject") {
-                    close_waiting.count_down();
-                }
-            },
-            &wait_guard);
-
-    ASSERT_TRUE(writer->append(generate_test_string('d', 1024)).ok());
-    writer->_obj_client->invalidate(Status::InvalidArgument<false>("backend changed"));
-    ASSERT_TRUE(writer->close(true).ok());
-    ASSERT_TRUE(upload_started.wait_for(std::chrono::seconds(5)));
-    ASSERT_TRUE(close_waiting.wait_for(std::chrono::seconds(5)));
-    // The async-close future must not become ready while an upload still holds `this`.
-    auto pending = writer->try_finish_close();
-    EXPECT_TRUE(pending.is<ErrorCode::NEED_SEND_AGAIN>()) << pending;
-
-    release_upload.count_down();
-    auto st = writer->close();
-    EXPECT_FALSE(st.ok());
-    EXPECT_NE(st.to_string().find("invalid obj storage client"), std::string::npos) << st;
-    EXPECT_EQ(writer->state(), FileWriter::State::CLOSED);
-    EXPECT_EQ(mock_client->put_object_count, 0);
-}
-
-// The holder is invalidated after all parts finish, before CompleteMultipartUpload is called;
-// close detects the invalidation and never completes the upload.
-TEST_F(S3FileWriterInvalidationTest, multipart_invalidated_after_uploads_is_not_completed) {
-    auto [mock_client, writer] = create_s3_client("invalidate_after_uploads_before_complete");
-    invalidate_at("S3FileWriter::_complete:1", writer);
-
-    EXPECT_EQ(writer->append(generate_test_string('b', config::s3_write_buffer_size * 2)),
-              Status::OK());
-    auto st = writer->close();
-    EXPECT_FALSE(st.ok());
-    EXPECT_NE(st.to_string().find("invalid obj storage client"), std::string::npos) << st;
-    EXPECT_GT(mock_client->upload_part_count, 0);
-    EXPECT_EQ(mock_client->complete_multipart_count, 0);
-}
-
 // Parts have finished when the sync point runs, but the writer has not issued Complete yet.
-TEST_F(S3FileWriterInvalidationTest, multipart_completion_client_after_refresh) {
+TEST_F(S3FileWriterRefreshTest, multipart_completion_client_after_refresh) {
     const auto storage = make_test_s3_storage_config("bucket", "", "multipart-refresh.example.com",
                                                      "us-east-1", "access", "old-key");
     auto check_refresh = [](const char* scenario, const ObjStorageConfig& initial,
-                            const ObjStorageConfig& update, bool expect_original) {
+                            const ObjStorageConfig& update) {
         SCOPED_TRACE(scenario);
         auto fs_result = S3FileSystem::create(initial, "multipart-refresh");
         ASSERT_TRUE(fs_result.has_value()) << fs_result.error();
@@ -1570,9 +1485,8 @@ TEST_F(S3FileWriterInvalidationTest, multipart_completion_client_after_refresh) 
         SyncPoint::get_instance()->set_call_back(
                 "S3FileWriter::_complete:1",
                 [&](auto&&) {
-                    auto result = S3FileSystem::refresh_resource(fs, update);
-                    ASSERT_TRUE(result.has_value()) << result.error();
-                    ASSERT_EQ((*result)->client_holder(), holder);
+                    auto status = holder->reset(update.client);
+                    ASSERT_TRUE(status.ok()) << status;
                     ASSERT_NE(holder->get(), original);
                     holder->set_client_for_test(refreshed);
                 },
@@ -1582,41 +1496,31 @@ TEST_F(S3FileWriterInvalidationTest, multipart_completion_client_after_refresh) 
                 writer->append(generate_test_string('r', 2 * config::s3_write_buffer_size)).ok());
         auto st = writer->close();
         // Only the original client has the uploaded parts.
-        EXPECT_EQ(st.code(), expect_original ? TStatusCode::OK : TStatusCode::IO_ERROR) << st;
+        EXPECT_TRUE(st.ok()) << st;
         EXPECT_EQ(holder->get(), refreshed);
-        EXPECT_EQ(original->complete_multipart_count, expect_original ? 1 : 0);
-        EXPECT_EQ(refreshed->complete_multipart_count, expect_original ? 0 : 1);
+        EXPECT_EQ(original->complete_multipart_count, 1);
+        EXPECT_EQ(refreshed->complete_multipart_count, 0);
     };
 
     auto oss = storage;
     std::get<S3ClientConfig>(oss.client.backend).vendor = ObjStorageProvider::OSS;
-    check_refresh("AWS to OSS refresh", storage, oss, true);
+    check_refresh("AWS to OSS refresh", storage, oss);
 #ifdef USE_AZURE
-    auto rebound = storage;
-    rebound.client.backend = AzureClientConfig {.endpoint = "multipart-rebind.example.com",
-                                                .account = "account",
-                                                .container = storage.bucket,
-                                                .auth = AzureSharedKeyConfig {"YWNjb3VudC1rZXk="}};
-    check_refresh("resource rebound to Azure", storage, rebound, false);
+    LegacyAzureClientFields legacy;
+    legacy.region = "us-east-1";
+    auto azure = storage;
+    azure.client.backend = AzureClientConfig {.endpoint = "multipart-refresh-azure.example.com",
+                                              .account = "account",
+                                              .container = storage.bucket,
+                                              .auth = AzureSharedKeyConfig {"YWNjb3VudC1rZXk="},
+                                              .legacy = std::move(legacy)};
+    check_refresh("resource refreshed to Azure", storage, azure);
 
-    auto moved = rebound;
+    auto moved = azure;
     moved.bucket = "other-container";
     std::get<AzureClientConfig>(moved.client.backend).container = moved.bucket;
-    check_refresh("Azure container change", rebound, moved, true);
+    check_refresh("Azure container change", azure, moved);
 #endif
-}
-
-// A client taken before the holder was invalidated is an accepted boundary: a call in flight
-// cannot be recalled, so this PutObject still reaches the store and close may succeed. Only what
-// comes after it is out of service.
-TEST_F(S3FileWriterInvalidationTest, put_object_that_took_the_client_may_still_finish) {
-    auto [mock_client, writer] = create_s3_client("invalidate_after_get_client");
-    invalidate_at("S3FileWriter::_put_object", writer);
-
-    EXPECT_EQ(writer->append(generate_test_string('c', 1024)), Status::OK());
-    std::ignore = writer->close();
-    EXPECT_EQ(mock_client->put_object_count, 1);
-    EXPECT_EQ(writer->_obj_client->get(), nullptr);
 }
 
 // put object

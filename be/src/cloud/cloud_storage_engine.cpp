@@ -156,8 +156,7 @@ struct VaultCreateFSVisitor {
                   << " check_fs: " << check_fs;
 
         auto fs = DORIS_TRY(io::S3FileSystem::create(s3_conf, id));
-        const auto* s3 = std::get_if<io::S3ClientConfig>(&s3_conf.client.backend);
-        if (check_fs && s3 != nullptr && !s3->auth.role_arn.empty()) {
+        if (check_fs && s3_conf.client.has_role_arn()) {
             bool res = false;
             // just check connectivity, not care object if exist
             auto st = fs->exists("not_exist_object", &res);
@@ -200,7 +199,7 @@ struct RefreshFSVaultVisitor {
         const auto& s3_conf = resolved.value();
         DCHECK_EQ(fs->type(), io::FileSystemType::S3) << id;
         auto s3_fs = std::static_pointer_cast<io::S3FileSystem>(fs);
-        auto st = s3_fs->refresh_vault(s3_conf.client);
+        auto st = s3_fs->client_holder()->reset(s3_conf.client);
         if (!st.ok()) {
             LOG(WARNING) << "failed to update s3 fs, resource_id=" << id << ": " << st;
         }

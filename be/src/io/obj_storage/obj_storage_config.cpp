@@ -19,7 +19,7 @@
 
 #include <fmt/format.h>
 
-#include <type_traits>
+#include <string_view>
 #include <variant>
 
 #include "core/string_ref.h"
@@ -52,6 +52,17 @@ uint64_t hash_backend(const AzureClientConfig& azure) {
     hash_code ^= crc32_hash(azure.endpoint);
     hash_code ^= crc32_hash(azure.container);
     hash_combine_azure_auth(&hash_code, azure.account, azure.auth);
+    if (azure.legacy) {
+        const auto& fields = *azure.legacy;
+        hash_code ^= crc32_hash(fields.region);
+        hash_code ^= fields.need_override_endpoint;
+        hash_code ^= fields.use_virtual_addressing;
+        hash_code ^= crc32_hash(fields.session_token);
+        hash_code ^= static_cast<uint64_t>(fields.provider_type);
+        hash_code ^= crc32_hash(fields.role_arn);
+        hash_code ^= crc32_hash(fields.external_id);
+        hash_combine_credential(&hash_code, fields.credential);
+    }
     return hash_code;
 }
 
@@ -105,43 +116,55 @@ ObjCredentialProvider to_obj_credential_provider(ObjStorageProvider provider) {
     return ObjCredentialProvider::Unknown;
 }
 
-// The rules every client request is checked against before anything is built or looked up;
-// they are the checks the former S3ClientFactory::create applied to the flat configuration.
-Status validate_client_backend(const S3ClientConfig& s3) {
-    if (s3.endpoint.empty()) {
+// Validate the effective flat input, after a refresh has retained its original target.
+Status validate_flat_client(std::string_view endpoint, std::string_view region,
+                            const CredentialConfig& credential,
+                            const ObjCredentialValidationContext& auth) {
+    if (endpoint.empty()) {
         return Status::InvalidArgument<false>("Invalid s3 conf, empty endpoint");
     }
-    if (s3.region.empty()) {
+    if (region.empty()) {
         return Status::InvalidArgument<false>("Invalid s3 conf, empty region");
     }
-    ObjCredentialValidationContext credential_context {
-            .provider = to_obj_credential_provider(s3.vendor),
-            .ak = s3.auth.access_key,
-            .sk = s3.auth.secret_key,
-            .token = s3.auth.session_token,
-            .has_aws_role_arn = !s3.auth.role_arn.empty(),
-            .has_aws_external_id = !s3.auth.external_id.empty(),
-            .has_aws_credential_provider = s3.auth.provider_type != CredProviderType::Default,
-    };
-    if (auto error = validate_obj_credential_config(s3.auth.credential, credential_context);
-        error.has_value()) {
+    if (auto error = validate_obj_credential_config(credential, auth); error.has_value()) {
         return Status::InvalidArgument<false>(*error);
     }
-    if (s3.auth.role_arn.empty()) {
-        // Either both credentials are provided or both are empty (anonymous access)
-        if (!s3.auth.access_key.empty() && s3.auth.secret_key.empty()) {
+    if (!auth.has_aws_role_arn) {
+        if (!auth.ak.empty() && auth.sk.empty()) {
             return Status::InvalidArgument<false>("Invalid s3 conf, empty sk");
         }
-        if (!s3.auth.secret_key.empty() && s3.auth.access_key.empty()) {
+        if (!auth.sk.empty() && auth.ak.empty()) {
             return Status::InvalidArgument<false>("Invalid s3 conf, empty ak");
         }
     }
     return Status::OK();
 }
 
-// Azure has no region, which the flat configuration used to require with a placeholder value
-// ("dummy_region" from FE). The authentication follows the common rules (azure_auth.h).
+Status validate_client_backend(const S3ClientConfig& s3) {
+    return validate_flat_client(
+            s3.endpoint, s3.region, s3.auth.credential,
+            {.provider = to_obj_credential_provider(s3.vendor),
+             .ak = s3.auth.access_key,
+             .sk = s3.auth.secret_key,
+             .token = s3.auth.session_token,
+             .has_aws_role_arn = !s3.auth.role_arn.empty(),
+             .has_aws_external_id = !s3.auth.external_id.empty(),
+             .has_aws_credential_provider = s3.auth.provider_type != CredProviderType::Default});
+}
+
 Status validate_client_backend(const AzureClientConfig& azure) {
+    if (azure.legacy) {
+        const auto& fields = *azure.legacy;
+        return validate_flat_client(
+                azure.endpoint, fields.region, fields.credential,
+                {.provider = ObjCredentialProvider::Azure,
+                 .ak = azure.account,
+                 .sk = azure_auth_account_key(azure.auth),
+                 .token = fields.session_token,
+                 .has_aws_role_arn = !fields.role_arn.empty(),
+                 .has_aws_external_id = !fields.external_id.empty(),
+                 .has_aws_credential_provider = fields.provider_type != CredProviderType::Default});
+    }
     if (azure.endpoint.empty()) {
         return Status::InvalidArgument<false>("Invalid azure conf, empty endpoint");
     }
@@ -151,19 +174,14 @@ Status validate_client_backend(const AzureClientConfig& azure) {
     return Status::OK();
 }
 
-// Keep the storage target and use the refreshed source's cache bucket, as in the flat merge.
-void merge_client_backend(S3ClientConfig& merged, const S3ClientConfig& update) {
-    merged.vendor = update.vendor;
-    merged.cache_bucket = update.cache_bucket;
-    merged.use_virtual_addressing = update.use_virtual_addressing;
-    merged.auth = update.auth;
-}
-
-// The endpoint stays; the account, container and credentials of the refreshed source apply.
-void merge_client_backend(AzureClientConfig& merged, const AzureClientConfig& update) {
-    merged.account = update.account;
-    merged.container = update.container;
-    merged.auth = update.auth;
+// Native Azure requests are opened directly and carry no legacy region or endpoint override.
+template <typename Config, typename Visitor>
+void visit_flat_target(Config& config, Visitor visit) {
+    if (auto* s3 = std::get_if<S3ClientConfig>(&config.backend)) {
+        visit(*s3);
+    } else if (auto& fields = std::get<AzureClientConfig>(config.backend).legacy; fields) {
+        visit(*fields);
+    }
 }
 
 } // namespace
@@ -185,6 +203,14 @@ const std::string& ObjClientConfig::endpoint() const {
     return std::visit([](const auto& b) -> const std::string& { return b.endpoint; }, backend);
 }
 
+bool ObjClientConfig::has_role_arn() const {
+    if (const auto* s3 = std::get_if<S3ClientConfig>(&backend)) {
+        return !s3->auth.role_arn.empty();
+    }
+    const auto& fields = std::get<AzureClientConfig>(backend).legacy;
+    return fields && !fields->role_arn.empty();
+}
+
 std::string ObjClientConfig::to_string() const {
     return fmt::format(
             "({}, max_connections={}, request_timeout_ms={}, connect_timeout_ms={}, usage={})",
@@ -204,24 +230,15 @@ Status validate_obj_client_config(const ObjClientConfig& config) {
                       config.backend);
 }
 
-Result<ObjClientConfig> merge_obj_client_config(const ObjClientConfig& current,
-                                                const ObjClientConfig& update) {
-    if (current.backend.index() != update.backend.index()) {
-        return ResultError(Status::InvalidArgument<false>(
-                "storage backend changed from {} to {}; the storage target cannot be reset in "
-                "place",
-                current.to_string(), update.to_string()));
-    }
-    ObjClientConfig merged = current;
-    merged.connection = update.connection;
-    merged.usage = update.usage;
-    std::visit(
-            [&](auto& backend) {
-                using Backend = std::decay_t<decltype(backend)>;
-                merge_client_backend(backend, std::get<Backend>(update.backend));
-            },
-            merged.backend);
-    return merged;
+ObjClientConfig merge_obj_client_config(const ObjClientConfig& current, ObjClientConfig update) {
+    std::visit([&](auto& backend) { backend.endpoint = current.endpoint(); }, update.backend);
+    visit_flat_target(current, [&](const auto& original) {
+        visit_flat_target(update, [&](auto& next) {
+            next.region = original.region;
+            next.need_override_endpoint = original.need_override_endpoint;
+        });
+    });
+    return update;
 }
 
 } // namespace doris::io

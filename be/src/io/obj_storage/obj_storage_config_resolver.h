@@ -40,14 +40,13 @@ struct ObjStorageUri;
 // The flat sources share one mapping into the backend alternatives: provider AZURE becomes
 // AzureClientConfig, which has always reused ak/sk/bucket as the SharedKey account/key and the
 // container; every other provider becomes S3ClientConfig with that provider as its vendor.
-// Fields the selected backend never read are dropped, e.g. an Azure source's region, token and
-// role_arn. A field the selected backend cannot hold, i.e. a provider-native credential on an
-// Azure source, is rejected with InvalidArgument for every source.
+// Metadata fields are validated when the effective client is built. A resource or vault
+// refresh retains its previous target before validating the update.
 class ObjStorageConfigResolver {
 public:
     // FE properties of a FILE_S3 request (AWS_* keys; provider=azure selects Azure) for the
     // file at `location`, whose bucket becomes the binding's bucket. Validated like before:
-    // the property rules (a region for every provider) and then validate_obj_client_config.
+    // the flat configuration rules, including the region requirement for all providers.
     static Result<ObjStorageConfig> from_properties(
             const std::map<std::string, std::string>& properties, const ObjStorageUri& location);
 

@@ -45,26 +45,6 @@ class S3FileSystem final : public RemoteFileSystem {
 public:
     static Result<std::shared_ptr<S3FileSystem>> create(ObjStorageConfig config, std::string id);
 
-    // Applies a refreshed configuration of the same storage resource to `fs`:
-    //  - The same backend is reset in place (ObjClientHolder::reset), and `fs` is returned.
-    //  - Another backend with the same bucket and prefix rebinds the holder (ObjClientHolder::
-    //    rebind), and `fs` is returned. A rowset resolves its file system once and keeps it, so
-    //    only the existing holder reaches every rowset, including after the change is reverted.
-    //  - Another backend with another bucket or prefix builds a new file system with the same
-    //    id, as the next BE start would build it. FE freezes both under a storage policy, so
-    //    this only happens to a resource that no storage policy references.
-    // FE allows a change of backend through ALTER RESOURCE, but it is not a supported way to move
-    // a resource; this only keeps a BE from silently staying on the old backend.
-    static Result<std::shared_ptr<S3FileSystem>> refresh_resource(std::shared_ptr<S3FileSystem> fs,
-                                                                  ObjStorageConfig config);
-
-    // Applies a refreshed configuration of the storage vault this file system serves. The backend
-    // of a vault cannot be altered, so another backend means that the meta service handed the id
-    // of a dropped vault to a new one. Everything that keeps this file system would then write
-    // into the dropped vault's bucket, so its holder is invalidated (ObjClientHolder::invalidate)
-    // and the error is returned; a BE restart builds the new vault's file system.
-    Status refresh_vault(const ObjClientConfig& config);
-
     ~S3FileSystem() override;
 
     const std::shared_ptr<ObjClientHolder>& client_holder() const { return _client; }
