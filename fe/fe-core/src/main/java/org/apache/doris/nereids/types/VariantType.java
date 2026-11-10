@@ -139,18 +139,11 @@ public class VariantType extends PrimitiveType {
                                     variantDocShardCount, enableNestedGroup, variantSerializeType);
     }
 
-    /**
-     * This type as the type of a new column, which is V2. A count of 0 that extracts every path under V1 (an old
-     * column, or the type of a VARIANT expression) takes the given default count instead, since under V2 it would
-     * extract no dynamic path.
-     */
-    public VariantType forNewColumn(int defaultMaxSubcolumnsCount) {
-        boolean everyPath = variantSerializeType == TVariantSerializeType.V1 && variantMaxSubcolumnsCount == 0
-                && !enableNestedGroup;
-        return new VariantType(predefinedFields, everyPath ? defaultMaxSubcolumnsCount : variantMaxSubcolumnsCount,
-                enableTypedPathsToSparse, variantMaxSparseColumnStatisticsSize, variantSparseHashShardCount,
-                enableVariantDocMode, variantDocMaterializationMinRows, variantDocShardCount, enableNestedGroup,
-                TVariantSerializeType.V2);
+    /** This type with the given serialize type, as a new instance. */
+    public VariantType withSerializeType(TVariantSerializeType serializeType) {
+        return new VariantType(predefinedFields, variantMaxSubcolumnsCount, enableTypedPathsToSparse,
+                variantMaxSparseColumnStatisticsSize, variantSparseHashShardCount, enableVariantDocMode,
+                variantDocMaterializationMinRows, variantDocShardCount, enableNestedGroup, serializeType);
     }
 
     @Override

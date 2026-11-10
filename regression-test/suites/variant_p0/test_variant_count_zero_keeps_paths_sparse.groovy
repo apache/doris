@@ -70,9 +70,8 @@ suite("test_variant_count_zero_keeps_paths_sparse") {
     qt_desc_ctas "DESC test_variant_count_zero_ctas"
     order_qt_read_ctas "SELECT k, zero['a'], typed['t'], added['e'] FROM test_variant_count_zero_ctas"
 
-    // the type of a VARIANT expression has a count of 0 that meant every path, so the column that CTAS
-    // creates from it takes the default count and extracts the paths
-    sql """ set default_variant_max_subcolumns_count = 2048 """
+    // CTAS creates a new column with the count of the query's type: the count of 0 of a VARIANT expression
+    // then extracts no dynamic path
     sql "DROP TABLE IF EXISTS test_variant_count_zero_ctas_expr"
     sql """
         CREATE TABLE test_variant_count_zero_ctas_expr

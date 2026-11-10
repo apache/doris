@@ -57,9 +57,7 @@ typed.t	bigint	Yes	false	\N	NONE
 
 -- !desc_ctas_expr --
 k	tinyint	Yes	true	\N	
-v	variant<PROPERTIES ("variant_max_subcolumns_count" = "2048","variant_max_sparse_column_statistics_size" = "10000","variant_subcolumn_extraction_min_rows" = "0","variant_sparse_hash_shard_count" = "1")>	Yes	false	\N	NONE
-v.a	bigint	Yes	false	\N	NONE
-v.b	text	Yes	false	\N	NONE
+v	variant<PROPERTIES ("variant_max_subcolumns_count" = "0","variant_max_sparse_column_statistics_size" = "10000","variant_subcolumn_extraction_min_rows" = "0","variant_sparse_hash_shard_count" = "1")>	Yes	false	\N	NONE
 
 -- !read_ctas_expr --
 1	{"a":1,"b":"x"}	1

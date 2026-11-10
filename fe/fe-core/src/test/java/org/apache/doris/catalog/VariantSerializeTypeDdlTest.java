@@ -107,20 +107,18 @@ public class VariantSerializeTypeDdlTest extends TestWithFeService {
                 "CREATE TABLE t_ctas DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES ('replication_num'='1') "
                         + "AS SELECT * FROM t_ctas_source");
         Assertions.assertEquals(TVariantSerializeType.V2, type.getVariantSerializeType());
-        // a count of 0 extracts every path under V1 and none under V2, so the new column takes the default count
-        Assertions.assertEquals(connectContext.getSessionVariable().getDefaultVariantMaxSubcolumnsCount(),
-                type.getVariantMaxSubcolumnsCount());
+        // the new column keeps the count, so its 0 extracts no dynamic path
+        Assertions.assertEquals(0, type.getVariantMaxSubcolumnsCount());
     }
 
     @Test
-    public void testCtasOfVariantExpressionTakesDefaultCount() {
-        // the type of a VARIANT expression has a count of 0 under V1: every path
+    public void testCtasOfVariantExpressionKeepsCountZero() {
+        // the type of a VARIANT expression has a count of 0 under V1, and the new column is V2 with that count
         org.apache.doris.nereids.types.VariantType type = ctasVariantType(
                 "CREATE TABLE t_ctas_expr DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES ('replication_num'='1') "
                         + "AS SELECT 1 AS k, parse_to_variant('{\"a\": 1}') AS v");
         Assertions.assertEquals(TVariantSerializeType.V2, type.getVariantSerializeType());
-        Assertions.assertEquals(connectContext.getSessionVariable().getDefaultVariantMaxSubcolumnsCount(),
-                type.getVariantMaxSubcolumnsCount());
+        Assertions.assertEquals(0, type.getVariantMaxSubcolumnsCount());
     }
 
     @Test
