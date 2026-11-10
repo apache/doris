@@ -101,33 +101,24 @@ std::string flat_fields_to_string(const FlatClientFields& fields, bool sse_enabl
             credential_type_name(fields.credential), fields.is_internal_bucket, sse_enabled);
 }
 
-// Flat FE properties require both fields even on Azure. When both are missing, report
-// the endpoint first, as the flat configuration validator did.
-Status validate_property_rules(const FlatClientFields& fields) {
-    if (fields.endpoint.empty()) {
-        return Status::InvalidArgument<false>("Invalid s3 conf, empty endpoint");
-    }
-    if (fields.region.empty()) {
-        return Status::InvalidArgument<false>("Invalid s3 conf, empty region");
-    }
-    return Status::OK();
-}
-
-Result<std::variant<S3ClientConfig, AzureClientConfig>> flat_backend(
-        const FlatClientFields& fields) {
+std::variant<S3ClientConfig, AzureClientConfig> flat_backend(const FlatClientFields& fields) {
     if (fields.provider == ObjStorageProvider::AZURE) {
-        // A provider-native credential only has a field on the S3 backend. Every flat source can
-        // carry one next to provider AZURE, so it is rejected here instead of being dropped.
-        if (auto error = validate_obj_credential_config(fields.credential,
-                                                        {.provider = ObjCredentialProvider::Azure});
-            error.has_value()) {
-            return ResultError(Status::InvalidArgument<false>(*error));
-        }
         return AzureClientConfig {
                 .endpoint = fields.endpoint,
                 .account = fields.ak,
                 .container = fields.bucket,
                 .auth = AzureSharedKeyConfig {.account_key = fields.sk},
+                .legacy =
+                        LegacyAzureClientFields {
+                                .region = fields.region,
+                                .need_override_endpoint = fields.need_override_endpoint,
+                                .use_virtual_addressing = fields.use_virtual_addressing,
+                                .session_token = fields.token,
+                                .provider_type = fields.cred_provider_type,
+                                .role_arn = fields.role_arn,
+                                .external_id = fields.external_id,
+                                .credential = fields.credential,
+                        },
         };
     }
     return S3ClientConfig {
@@ -150,11 +141,7 @@ Result<std::variant<S3ClientConfig, AzureClientConfig>> flat_backend(
     };
 }
 
-Result<ObjClientConfig> flat_client_config(const FlatClientFields& fields) {
-    auto backend = flat_backend(fields);
-    if (!backend.has_value()) {
-        return ResultError(std::move(backend).error());
-    }
+ObjClientConfig flat_client_config(const FlatClientFields& fields) {
     return ObjClientConfig {
             .connection =
                     {
@@ -164,7 +151,7 @@ Result<ObjClientConfig> flat_client_config(const FlatClientFields& fields) {
                     },
             .usage = fields.is_internal_bucket ? ClientUsage::INTERNAL_STORAGE
                                                : ClientUsage::EXTERNAL_ACCESS,
-            .backend = std::move(backend).value(),
+            .backend = flat_backend(fields),
     };
 }
 
@@ -272,16 +259,12 @@ Result<ObjStorageConfig> ObjStorageConfigResolver::from_properties(
         return ResultError(Status::InvalidArgument(*error));
     }
 
-    RETURN_IF_ERROR_RESULT(validate_property_rules(fields));
     auto client = flat_client_config(fields);
-    if (!client.has_value()) {
-        return ResultError(std::move(client).error());
-    }
-    RETURN_IF_ERROR_RESULT(validate_obj_client_config(client.value()));
+    RETURN_IF_ERROR_RESULT(validate_obj_client_config(client));
     return ObjStorageConfig {
             .bucket = location.bucket,
             .prefix = "",
-            .client = std::move(client).value(),
+            .client = std::move(client),
     };
 }
 
@@ -337,14 +320,10 @@ Result<ObjStorageConfig> ObjStorageConfigResolver::from_object_store_info(
         LOG_FATAL("unknown provider type {}, info {}", info.provider(),
                   flat_fields_to_string(fields, info.sse_enabled()));
     }
-    auto client = flat_client_config(fields);
-    if (!client.has_value()) {
-        return ResultError(std::move(client).error());
-    }
     return ObjStorageConfig {
             .bucket = info.bucket(),
             .prefix = info.prefix(),
-            .client = std::move(client).value(),
+            .client = flat_client_config(fields),
             .sse_enabled = info.sse_enabled(),
     };
 }
@@ -410,14 +389,10 @@ Result<ObjStorageConfig> ObjStorageConfigResolver::from_storage_param(
                   flat_fields_to_string(fields, /*sse_enabled=*/false));
         __builtin_unreachable();
     }
-    auto client = flat_client_config(fields);
-    if (!client.has_value()) {
-        return ResultError(std::move(client).error());
-    }
     return ObjStorageConfig {
             .bucket = param.bucket,
             .prefix = param.root_path,
-            .client = std::move(client).value(),
+            .client = flat_client_config(fields),
     };
 }
 

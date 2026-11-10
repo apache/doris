@@ -468,7 +468,8 @@ Status ObjStorageFileWriter::_complete() {
         _wait_until_finish("PutObject");
         return _st;
     }
-    const auto before_wait = _obj_client->state();
+    // Complete the upload with the client observed before waiting for its parts.
+    const auto client = _obj_client->get();
     _wait_until_finish("Complete");
     TEST_SYNC_POINT_CALLBACK("S3FileWriter::_complete:1",
                              std::make_pair(&_failed, &_completed_parts));
@@ -503,14 +504,9 @@ Status ObjStorageFileWriter::_complete() {
     LOG(INFO) << "complete_multipart_upload " << _obj_storage_path_opts.path.native()
               << " size=" << _bytes_appended << " number_parts=" << _completed_parts.size()
               << " s3_write_buffer_size=" << config::s3_write_buffer_size;
-    const auto current = _obj_client->state();
-    if (!current->client) {
+    if (!client) {
         return Status::InternalError<false>("invalid obj storage client");
     }
-    // Keep the pre-wait client unless the resource was rebound to a different backend type.
-    const auto& client = before_wait->config.backend.index() == current->config.backend.index()
-                                 ? before_wait->client
-                                 : current->client;
     auto resp =
             client->complete_multipart_upload(_obj_storage_path_opts, _upload_id, _completed_parts);
     if (resp.status.code != ErrorCode::OK) {
@@ -556,7 +552,6 @@ void ObjStorageFileWriter::_put_object(UploadFileBuffer& buf) {
         buf.set_status(Status::InternalError<false>("try to put closed file"));
         return;
     }
-    TEST_SYNC_POINT("S3FileWriter::_put_object:before_get_client");
     const auto& client = _obj_client->get();
     if (nullptr == client) {
         buf.set_status(Status::InternalError<false>("invalid obj storage client"));

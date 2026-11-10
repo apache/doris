@@ -38,15 +38,13 @@ ObjClientHolder::~ObjClientHolder() = default;
 Status ObjClientHolder::init() {
     auto current = state();
     auto client = DORIS_TRY(ObjClientFactory::instance().get_or_create(current->config));
-    return _publish(current->config, std::move(client));
+    _publish(current->config, std::move(client));
+    return Status::OK();
 }
 
 Status ObjClientHolder::reset(const ObjClientConfig& update) {
     auto current = state();
-    if (current->invalid_reason.has_value()) {
-        return *current->invalid_reason;
-    }
-    auto merged = DORIS_TRY(merge_obj_client_config(current->config, update));
+    auto merged = merge_obj_client_config(current->config, update);
     // Compare full-field equality of the merged config, not hash(): distinct configurations
     // can collide, which would skip a required client rebuild (e.g. a credential update).
     if (merged == current->config) {
@@ -57,52 +55,21 @@ Status ObjClientHolder::reset(const ObjClientConfig& update) {
 
     LOG(WARNING) << "reset object storage client with new config: " << update.to_string();
 
-    return _publish(std::move(merged), std::move(client));
+    _publish(std::move(merged), std::move(client));
+    return Status::OK();
 }
 
-Status ObjClientHolder::rebind(const ObjClientConfig& config) {
-    auto current = state();
-    if (current->invalid_reason.has_value()) {
-        return *current->invalid_reason;
-    }
-    auto client = DORIS_TRY(ObjClientFactory::instance().get_or_create(config));
-    return _publish(config, std::move(client));
-}
-
-void ObjClientHolder::invalidate(Status reason) {
-    // Declared before the lock: after the swap below it holds the replaced state, and possibly
-    // the last reference to its client, which is then released after unlocking.
-    std::shared_ptr<const ObjClientState> next;
-    std::lock_guard lock(_mtx);
-    if (_state->invalid_reason.has_value()) {
-        return;
-    }
-    next = std::make_shared<ObjClientState>(ObjClientState {
-            .config = _state->config,
-            .client = nullptr,
-            .generation = _state->generation + 1,
-            .invalid_reason = std::move(reason),
-    });
-    _state.swap(next);
-}
-
-Status ObjClientHolder::_publish(ObjClientConfig config, std::shared_ptr<ObjStorageClient> client) {
+void ObjClientHolder::_publish(ObjClientConfig config, std::shared_ptr<ObjStorageClient> client) {
     // Declared before the lock: after the swap below it holds the replaced state, and
     // possibly the last reference to its client, which is then released after unlocking.
     std::shared_ptr<const ObjClientState> next;
     std::lock_guard lock(_mtx);
-    // A publish that overlapped invalidate() reports why the holder is out of service, so a
-    // client that was already being built cannot bring it back.
-    if (_state->invalid_reason.has_value()) {
-        return *_state->invalid_reason;
-    }
     next = std::make_shared<ObjClientState>(ObjClientState {
             .config = std::move(config),
             .client = std::move(client),
             .generation = _state->generation + 1,
     });
     _state.swap(next);
-    return Status::OK();
 }
 
 Result<int64_t> ObjClientHolder::object_file_size(const std::string& bucket,

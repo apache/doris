@@ -20,7 +20,6 @@
 #include <cstdint>
 #include <memory>
 #include <mutex>
-#include <optional>
 #include <shared_mutex>
 #include <string>
 #include <string_view>
@@ -38,12 +37,10 @@ namespace doris::io {
 // get() and display_path() each take their own snapshot and give no such guarantee.
 struct ObjClientState {
     ObjClientConfig config;
-    // Null until init() succeeds, and again after invalidate().
+    // Null until init() succeeds.
     std::shared_ptr<ObjStorageClient> client;
-    // Increases by one on every successful publish (init, reset, rebind or invalidate).
+    // Increases by one on every successful publish (init or reset).
     uint64_t generation = 0;
-    // Set by invalidate(), which no later call undoes.
-    std::optional<Status> invalid_reason = std::nullopt;
 };
 
 // In runtime, credentials may be modified, and the original client instance will be replaced.
@@ -71,24 +68,6 @@ public:
     // a mix. The holder cannot tell which caller fetched the newer configuration, so an older
     // one may stay until the next refresh replaces it.
     Status reset(const ObjClientConfig& update);
-
-    // Replaces the state with `config` as it is, without merging, which allows another backend.
-    // Readers keep the holder they resolved once, so moving the holder to another backend while
-    // the bucket and prefix stay reaches all of them (ObjStorageFileSystem::refresh_resource).
-    // The client is built and published like in reset().
-    Status rebind(const ObjClientConfig& config);
-
-    // Takes this holder out of service for the life of the process, because what it points at is
-    // no longer the storage its users think it is. Every user shares the holder, so all of them
-    // fail from now on with their "no client" error: new readers, writers and file system calls,
-    // and the later steps of writers already open. reset(), rebind() and init() return `reason`,
-    // also when they already started building a client, so a refresh that carries an older
-    // configuration cannot bring the client back. Only a BE restart builds a new holder.
-    //
-    // A request that already took the client keeps it and may still succeed; a call already sent
-    // cannot be recalled. The client itself stays valid, since other holders may share it through
-    // the provider cache. The first reason stays if this is called again.
-    void invalidate(Status reason);
 
     std::shared_ptr<const ObjClientState> state() const {
         std::shared_lock lock(_mtx);
@@ -119,8 +98,7 @@ public:
 #endif
 
 private:
-    // Replaces the state with (config, client), unless the holder was invalidated.
-    Status _publish(ObjClientConfig config, std::shared_ptr<ObjStorageClient> client);
+    void _publish(ObjClientConfig config, std::shared_ptr<ObjStorageClient> client);
 
     mutable std::shared_mutex _mtx;
     std::shared_ptr<const ObjClientState> _state;

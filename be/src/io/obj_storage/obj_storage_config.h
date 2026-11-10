@@ -19,6 +19,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <variant>
 
@@ -33,12 +34,8 @@ namespace doris::io {
 // Client configuration of BE native object storage access, split by backend.
 //
 // The flat parameters FE and the storage metadata send (AWS_* properties, TS3StorageParam,
-// ObjectStoreInfoPB) carry every provider in one shape: Azure reuses ak/sk/bucket as
-// account/key/container while region, role_arn and the AWS credential provider type only
-// mean something for S3. This model
-// keeps exactly one backend alternative, so an Azure client cannot depend on an S3-only
-// field and an S3 client cannot depend on an Azure-only one. For example, an Azure conf
-// whose region differs is still the same Azure client, while for S3 it is a new client.
+// ObjectStoreInfoPB) also use S3 fields for Azure. Keep those inputs' validation, cache
+// identity and refresh rules while giving each provider its own SDK parameters.
 //
 // This header is SDK-free on purpose: it is included by both the S3 and Azure client
 // providers and must compile when BUILD_AZURE is off.
@@ -93,6 +90,21 @@ struct S3ClientConfig {
     bool operator==(const S3ClientConfig&) const = default;
 };
 
+// Fields carried by the historical S3-shaped Azure inputs. The Azure SDK ignores them,
+// but the BE uses them for validation, client cache identity and resource/vault refresh.
+struct LegacyAzureClientFields {
+    std::string region;
+    bool need_override_endpoint = true;
+    bool use_virtual_addressing = true;
+    std::string session_token;
+    CredProviderType provider_type = CredProviderType::Default;
+    std::string role_arn;
+    std::string external_id;
+    CredentialConfig credential;
+
+    bool operator==(const LegacyAzureClientFields&) const = default;
+};
+
 // The authentication is the AzureAuthConfig shared with Recycler (common/cpp,
 // azure/azure_auth.h), which owns its methods and their rules; BE only adds the storage target.
 struct AzureClientConfig {
@@ -103,6 +115,8 @@ struct AzureClientConfig {
     // The Azure SDK client is bound to one blob container.
     std::string container;
     AzureAuthConfig auth;
+    // Only the three flat inputs populate these fields. Native Azure has its own rules.
+    std::optional<LegacyAzureClientFields> legacy = std::nullopt;
 
     bool operator==(const AzureClientConfig&) const = default;
 };
@@ -123,6 +137,7 @@ struct ObjClientConfig {
     ObjStorageProvider provider() const;
 
     const std::string& endpoint() const;
+    bool has_role_arn() const;
 
     // Credentials are masked.
     std::string to_string() const;
@@ -147,13 +162,9 @@ struct ObjStorageConfig {
 // it right after conversion (ObjStorageConfigResolver).
 Status validate_obj_client_config(const ObjClientConfig& config);
 
-// Merges a refreshed resource or vault configuration into the one a holder uses. The storage
-// target stays: S3 keeps its endpoint, region and endpoint override, Azure keeps its endpoint.
-// Credentials, connection options, usage, the S3 vendor, cache bucket and addressing, and the
-// Azure account and container come from `update`, as the flat-field merge does.
-// ObjStorageFileSystem::refresh_resource handles backend changes by replacing the file system.
-Result<ObjClientConfig> merge_obj_client_config(const ObjClientConfig& current,
-                                                const ObjClientConfig& update);
+// Resource and vault refresh keep the original endpoint, region and endpoint override,
+// including across a change of backend. The remaining fields come from the update.
+ObjClientConfig merge_obj_client_config(const ObjClientConfig& current, ObjClientConfig update);
 
 struct ObjClientConfigHash {
     size_t operator()(const ObjClientConfig& config) const {

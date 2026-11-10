@@ -19,7 +19,6 @@
 
 #include <fmt/format.h>
 
-#include <mutex>
 #include <utility>
 
 #include "common/config.h"
@@ -80,15 +79,6 @@ Status check_azure_auth_expiry(const AzureAuthConfig& auth, int64_t now_ms) {
     return Status::OK();
 }
 
-// The cache's initial capacity, used until set_cache_capacity() gives it one. set_config writes
-// a new value before validating it and restores the old one when it is invalid, all under this
-// lock; reading under it never sees that transient value, e.g. a rejected 0 that ObjClientCache
-// would treat as a broken invariant.
-size_t read_azure_client_cache_capacity() {
-    std::lock_guard lock(*config::get_mutable_string_config_lock());
-    return static_cast<size_t>(config::azure_client_cache_capacity);
-}
-
 } // namespace
 
 void init_azure_sdk_logging() {
@@ -135,14 +125,8 @@ Result<std::shared_ptr<ObjStorageClient>> AzureClientProvider::get_or_create(
     }
     auto obj_client = apply_rate_limit_policy(std::move(client_result).value(), config.usage);
     // Building can outlast a short-lived SAS; an expired client must not enter the cache.
-    int64_t now_ms = UnixMillis();
-    RETURN_IF_ERROR_RESULT(check_azure_auth_expiry(azure.auth, now_ms));
-    return _cache.publish(config, obj_client, azure_auth_expiry(azure.auth).expires_at_ms, now_ms,
-                          read_azure_client_cache_capacity());
-}
-
-void AzureClientProvider::set_cache_capacity(size_t capacity) {
-    _cache.set_capacity(UnixMillis(), capacity);
+    RETURN_IF_ERROR_RESULT(check_azure_auth_expiry(azure.auth, UnixMillis()));
+    return _cache.publish(config, obj_client);
 }
 
 Result<std::shared_ptr<ObjStorageClient>> AzureClientProvider::_build(

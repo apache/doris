@@ -17,7 +17,6 @@
 
 #pragma once
 
-#include <cstddef>
 #include <memory>
 
 #include "common/status.h"
@@ -38,10 +37,6 @@ public:
     // dispatch and this provider cannot disagree on the alternative.
     Result<std::shared_ptr<ObjStorageClient>> get_or_create(const ObjClientConfig& config,
                                                             const AzureClientConfig& azure);
-
-    // Applies a new azure_client_cache_capacity to the cache at once; a lowered one evicts
-    // clients immediately rather than on the next publish.
-    void set_cache_capacity(size_t capacity);
 
 private:
     Result<std::shared_ptr<ObjStorageClient>> _build(const AzureClientConfig& azure);
