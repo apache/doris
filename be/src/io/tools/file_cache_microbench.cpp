@@ -1807,7 +1807,7 @@ private:
                             std::to_string(client_config.connection.max_connections);
                     props["AWS_REQUEST_TIMEOUT_MS"] =
                             std::to_string(client_config.connection.request_timeout_ms);
-                    props["AWS_CONNECTION_TIMEOUT_MS"] =
+                    props["AWS_CONNECT_TIMEOUT_MS"] =
                             std::to_string(client_config.connection.connect_timeout_ms);
                     props["use_path_style"] = s3_conf.use_virtual_addressing ? "false" : "true";
 
