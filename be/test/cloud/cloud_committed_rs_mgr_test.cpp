@@ -25,6 +25,7 @@
 
 #include "cloud/config.h"
 #include "storage/rowset/rowset_meta.h"
+#include "util/defer_op.h"
 
 namespace doris {
 
@@ -177,6 +178,55 @@ TEST_F(CloudCommittedRSMgrTest, TestMarkAndCheckEmptyRowset) {
     auto [retrieved_meta, retrieved_expiration] = result.value();
     EXPECT_EQ(retrieved_meta, nullptr);
     EXPECT_EQ(retrieved_expiration, txn_expiration);
+}
+
+TEST_F(CloudCommittedRSMgrTest, TestRemoveEmptyRowset) {
+    const int64_t expiration_time = current_time_seconds() + 3600;
+    _mgr->mark_empty_rowset(1000, 2000, expiration_time);
+    _mgr->mark_empty_rowset(1000, 2001, expiration_time);
+    _mgr->mark_empty_rowset(1001, 2000, expiration_time);
+
+    _mgr->remove_committed_rowset(1000, 2000);
+    auto result = _mgr->get_committed_rowset(1000, 2000);
+    ASSERT_FALSE(result.has_value());
+    EXPECT_TRUE(result.error().is<ErrorCode::NOT_FOUND>());
+    EXPECT_TRUE(_mgr->get_committed_rowset(1000, 2001).has_value());
+    EXPECT_TRUE(_mgr->get_committed_rowset(1001, 2000).has_value());
+
+    // Repeated removal is harmless, and a consumed empty marker cannot mask a new entry.
+    _mgr->remove_committed_rowset(1000, 2000);
+    auto rowset_meta = create_rowset_meta(2000, 1000);
+    _mgr->add_committed_rowset(1000, 2000, rowset_meta, expiration_time);
+    _mgr->remove_expired_committed_rowsets();
+    result = _mgr->get_committed_rowset(1000, 2000);
+    ASSERT_TRUE(result.has_value());
+    EXPECT_EQ(result->first, rowset_meta);
+}
+
+TEST_F(CloudCommittedRSMgrTest, TestRefreshExpiration) {
+    const auto original_min_expired_seconds = config::tablet_txn_info_min_expired_seconds;
+    Defer restore_config = [&] {
+        config::tablet_txn_info_min_expired_seconds = original_min_expired_seconds;
+    };
+    config::tablet_txn_info_min_expired_seconds = -100;
+    const int64_t now = current_time_seconds();
+
+    // An old expiration index entry must not remove either kind of refreshed cache entry.
+    auto rowset_meta = create_rowset_meta(2000, 1000);
+    _mgr->add_committed_rowset(1000, 2000, rowset_meta, now - 10);
+    _mgr->mark_empty_rowset(1000, 2001, now - 10);
+    _mgr->add_committed_rowset(1000, 2000, rowset_meta, now + 3600);
+    _mgr->mark_empty_rowset(1000, 2001, now + 3600);
+    _mgr->remove_expired_committed_rowsets();
+
+    auto result = _mgr->get_committed_rowset(1000, 2000);
+    ASSERT_TRUE(result.has_value());
+    EXPECT_EQ(result->first, rowset_meta);
+    EXPECT_EQ(result->second, now + 3600);
+    result = _mgr->get_committed_rowset(1000, 2001);
+    ASSERT_TRUE(result.has_value());
+    EXPECT_EQ(result->first, nullptr);
+    EXPECT_EQ(result->second, now + 3600);
 }
 
 TEST_F(CloudCommittedRSMgrTest, TestEmptyRowsetExpiration) {
