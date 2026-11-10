@@ -443,6 +443,7 @@ struct NodeInfo {
     int64_t option;
     std::string host;
     int32_t brpc_port;
+    bool is_load_available = true;
 
     NodeInfo() = default;
 
@@ -450,7 +451,8 @@ struct NodeInfo {
             : id(tnode.id),
               option(tnode.option),
               host(tnode.host),
-              brpc_port(tnode.async_internal_port) {}
+              brpc_port(tnode.async_internal_port),
+              is_load_available(!tnode.__isset.is_load_available || tnode.is_load_available) {}
 };
 
 class DorisNodesInfo {
@@ -476,6 +478,9 @@ public:
     }
 
     void add_nodes(const std::vector<TNodeInfo>& t_nodes) {
+        // Node information is a per-load snapshot. Do not refresh existing entries from an
+        // incremental partition response after channels or streams may have been opened. A node
+        // first discovered during the load is still added below.
         for (const auto& node : t_nodes) {
             const auto* node_info = find_node(node.id);
             if (node_info == nullptr) {
