@@ -5459,7 +5459,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 ConnectContext.get().getSessionVariable().getDefaultVariantEnableNestedGroup();
 
         try {
-            // validate properties and read deprecated names as the properties that replaced them
+            // validate the combinations of properties
             PropertyAnalyzer.validateVariantProperties(properties);
 
             variantMaxSubcolumnsCount = PropertyAnalyzer

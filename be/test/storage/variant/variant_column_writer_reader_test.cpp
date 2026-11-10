@@ -3456,9 +3456,9 @@ TEST_F(VariantColumnWriterReaderTest, v2_count_zero_typed_paths_to_sparse_keeps_
     }
 }
 
-// A V2 column with count 0 materializes no dynamic path, so the column reader stops at a segment
-// of such a column that holds one: here a segment written as V1, where count 0 materializes `a`, is
-// opened with the column declared V2.
+// A V2 column with count 0 materializes no dynamic path, so opening a segment of such a column that
+// holds one fails: here a segment written as V1, where count 0 materializes `a`, is opened with the
+// column declared V2.
 TEST_F(VariantColumnWriterReaderTest, reader_rejects_dynamic_subcolumn_of_v2_count_zero_column) {
     TabletSchemaPB schema_pb;
     schema_pb.set_keys_type(KeysType::DUP_KEYS);
@@ -3489,15 +3489,10 @@ TEST_F(VariantColumnWriterReaderTest, reader_rejects_dynamic_subcolumn_of_v2_cou
     io::FileReaderSPtr file_reader;
     ASSERT_TRUE(io::global_local_filesystem()->open_file(file_path, &file_reader).ok());
     std::shared_ptr<ColumnReader> column_reader;
-#ifndef NDEBUG
-    EXPECT_DEATH(static_cast<void>(create_variant_root_reader(footer, file_reader, v2_schema,
-                                                              &column_reader)),
-                 "materializes path a");
-#else
-    EXPECT_THROW(static_cast<void>(create_variant_root_reader(footer, file_reader, v2_schema,
-                                                              &column_reader)),
-                 doris::Exception);
-#endif
+    const Status st = create_variant_root_reader(footer, file_reader, v2_schema, &column_reader);
+    EXPECT_TRUE(st.is<ErrorCode::INTERNAL_ERROR>()) << st;
+    EXPECT_NE(st.to_string().find("materializes path a"), std::string::npos) << st;
+    EXPECT_NE(st.to_string().find(file_path), std::string::npos) << st;
 }
 
 TEST_F(VariantColumnWriterReaderTest, v2_root_only_preserves_layout_validation) {

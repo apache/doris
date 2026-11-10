@@ -91,16 +91,47 @@ public class VariantSerializeTypeDdlTest extends TestWithFeService {
         Assertions.assertTrue(table.getColumn("v").getVariantEnableTypedPathsToSparse());
     }
 
-    @Test
-    public void testCtasOfOldColumnCreatesV2() throws Exception {
-        createTableWithOldColumn("t_ctas_source");
-        CreateTableCommand command = (CreateTableCommand) new NereidsParser().parseSingle(
-                "CREATE TABLE t_ctas DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES ('replication_num'='1') "
-                        + "AS SELECT * FROM t_ctas_source");
+    // The variant column that CTAS creates from the query.
+    private org.apache.doris.nereids.types.VariantType ctasVariantType(String sql) {
+        CreateTableCommand command = (CreateTableCommand) new NereidsParser().parseSingle(sql);
         connectContext.setStatementContext(new StatementContext());
         command.validateCreateTableAsSelect(connectContext, command.getCtasQuery().get());
         List<ColumnDefinition> columns = command.getCreateTableInfo().getColumnDefinitions();
-        Assertions.assertEquals(TVariantSerializeType.V2,
-                ((org.apache.doris.nereids.types.VariantType) columns.get(1).getType()).getVariantSerializeType());
+        return (org.apache.doris.nereids.types.VariantType) columns.get(1).getType();
+    }
+
+    @Test
+    public void testCtasOfOldColumnCreatesV2() throws Exception {
+        createTableWithOldColumn("t_ctas_source");
+        org.apache.doris.nereids.types.VariantType type = ctasVariantType(
+                "CREATE TABLE t_ctas DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES ('replication_num'='1') "
+                        + "AS SELECT * FROM t_ctas_source");
+        Assertions.assertEquals(TVariantSerializeType.V2, type.getVariantSerializeType());
+        // a count of 0 extracts every path under V1 and none under V2, so the new column takes the default count
+        Assertions.assertEquals(connectContext.getSessionVariable().getDefaultVariantMaxSubcolumnsCount(),
+                type.getVariantMaxSubcolumnsCount());
+    }
+
+    @Test
+    public void testCtasOfVariantExpressionTakesDefaultCount() {
+        // the type of a VARIANT expression has a count of 0 under V1: every path
+        org.apache.doris.nereids.types.VariantType type = ctasVariantType(
+                "CREATE TABLE t_ctas_expr DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES ('replication_num'='1') "
+                        + "AS SELECT 1 AS k, parse_to_variant('{\"a\": 1}') AS v");
+        Assertions.assertEquals(TVariantSerializeType.V2, type.getVariantSerializeType());
+        Assertions.assertEquals(connectContext.getSessionVariable().getDefaultVariantMaxSubcolumnsCount(),
+                type.getVariantMaxSubcolumnsCount());
+    }
+
+    @Test
+    public void testCtasOfNewColumnKeepsCountZero() throws Exception {
+        createTable("CREATE TABLE variant_serialize_type.t_ctas_new_source (k INT, v " + COUNT_ZERO + ") "
+                + "DUPLICATE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES ('replication_num'='1')");
+        // a count of 0 that a new column states means no dynamic path, and the copy keeps it
+        org.apache.doris.nereids.types.VariantType type = ctasVariantType(
+                "CREATE TABLE t_ctas_new DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES ('replication_num'='1') "
+                        + "AS SELECT * FROM t_ctas_new_source");
+        Assertions.assertEquals(TVariantSerializeType.V2, type.getVariantSerializeType());
+        Assertions.assertEquals(0, type.getVariantMaxSubcolumnsCount());
     }
 }
