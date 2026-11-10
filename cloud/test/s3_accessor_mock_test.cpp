@@ -34,6 +34,7 @@
 #include "cpp/obj-client/s3_obj_storage_client.h"
 #include "cpp/sync_point.h"
 #include "cpp/test/container_credentials_test_util.h"
+#include "meta-service/meta_service_helper.h"
 #include "recycler/s3_accessor.h"
 
 using namespace doris;
@@ -183,16 +184,21 @@ TEST(S3AccessorLocationTest, location_includes_the_credential_identity) {
                                                     .prefix = "/a/b/",
                                                     .role_arn = std::move(role_arn)});
     };
-    auto base = accessor("ak1", "sk1", "");
+    const std::string ak1 = "AKIAIOSFODNN7EXAMPLE";
+    const std::string ak2 = "AKIAI44QH8DHBEXAMPLE";
+    auto base = accessor(ak1, "sk1", "");
     // An S3-compatible gateway may map one bucket name to the buckets of different tenants by the
     // credentials, so another identity is listed again
-    EXPECT_NE(base->location(), accessor("ak2", "sk1", "")->location());
-    EXPECT_NE(base->location(), accessor("ak1", "sk1", "role")->location());
+    EXPECT_NE(base->location(), accessor(ak2, "sk1", "")->location());
+    EXPECT_NE(base->location(), accessor(ak1, "sk1", "role")->location());
     // The secret key is not part of the location, it identifies no namespace of its own
-    EXPECT_EQ(base->location(), accessor("ak1", "sk2", "")->location());
+    EXPECT_EQ(base->location(), accessor(ak1, "sk2", "")->location());
     EXPECT_EQ(base->location().find("sk1"), std::string::npos);
+    // The ak is hidden as in logs
+    EXPECT_EQ(base->location().find(ak1), std::string::npos);
+    EXPECT_NE(base->location().find(hide_access_key(ak1)), std::string::npos);
     // The root ignores the credentials
-    EXPECT_EQ(base->root(), accessor("ak2", "sk2", "role")->root());
+    EXPECT_EQ(base->root(), accessor(ak2, "sk2", "role")->root());
     EXPECT_EQ(base->root(), (StorageRoot {.container = "bucket", .prefix = "a/b"}));
 }
 
