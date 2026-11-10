@@ -2241,7 +2241,7 @@ protected:
     ReadProfile _profile;
     // Parsed from row-position based delete files, including position delete and deletion vector.
     DeleteRows* _delete_rows = nullptr;
-    DeletionVector* _deletion_vector = nullptr;
+    std::shared_ptr<DeletionVector> _deletion_vector;
     TFileScanRangeParams* _scan_params;
     std::shared_ptr<io::IOContext> _io_ctx;
     RuntimeState* _runtime_state;

@@ -2164,17 +2164,17 @@ Status IcebergTableReader::_convert_equality_delete_filter(const EqualityDeleteF
     }
     Status convert_status = Status::OK();
     bool cache_hit = false;
-    auto* cached_filter = _split_cache->get<EqualityDeleteFilter>(
+    auto cached_filter = _split_cache->get<EqualityDeleteFilter>(
             cache_key.str(),
-            [&]() -> EqualityDeleteFilter* {
-                auto converted = std::make_unique<EqualityDeleteFilter>();
+            [&]() -> std::shared_ptr<EqualityDeleteFilter> {
+                auto converted = std::make_shared<EqualityDeleteFilter>();
                 convert_status = _build_converted_equality_delete_filter(filter, comparison_types,
                                                                          converted.get());
                 if (!convert_status.ok()) {
                     return nullptr;
                 }
                 converted->cache_key = cache_key.str();
-                return converted.release();
+                return converted;
             },
             &cache_hit);
     RETURN_IF_ERROR(convert_status);
@@ -2323,23 +2323,22 @@ Status IcebergTableReader::_init_position_delete_rows(
         // A position delete file normally references many data files. Cache the complete
         // path-to-position map once; caching only the current data file would still rescan the
         // shared delete file for every subsequent split.
-        auto* rows_by_data_file =
-                _split_cache->get<PositionDeleteRowsCollector::PositionDeleteFile>(
-                        _delete_file_cache_key("iceberg_v2_position_delete_", delete_file.path),
-                        [&]() -> PositionDeleteRowsCollector::PositionDeleteFile* {
-                            auto result = std::make_unique<
-                                    PositionDeleteRowsCollector::PositionDeleteFile>();
-                            PositionDeleteRowsCollector collector(result.get());
-                            read_status = _read_position_delete_file(
-                                    delete_file, delete_scan_params, &delete_io_ctx, &collector);
-                            if (!read_status.ok()) {
-                                return nullptr;
-                            }
-                            for (auto& [_, rows] : *result) {
-                                std::ranges::sort(rows);
-                            }
-                            return result.release();
-                        });
+        auto rows_by_data_file = _split_cache->get<PositionDeleteRowsCollector::PositionDeleteFile>(
+                _delete_file_cache_key("iceberg_v2_position_delete_", delete_file.path),
+                [&]() -> std::shared_ptr<PositionDeleteRowsCollector::PositionDeleteFile> {
+                    auto result =
+                            std::make_shared<PositionDeleteRowsCollector::PositionDeleteFile>();
+                    PositionDeleteRowsCollector collector(result.get());
+                    read_status = _read_position_delete_file(delete_file, delete_scan_params,
+                                                             &delete_io_ctx, &collector);
+                    if (!read_status.ok()) {
+                        return nullptr;
+                    }
+                    for (auto& [_, rows] : *result) {
+                        std::ranges::sort(rows);
+                    }
+                    return result;
+                });
         RETURN_IF_ERROR(read_status);
         DORIS_CHECK(rows_by_data_file != nullptr);
         const auto rows_it = rows_by_data_file->find(_data_file_path());
@@ -2534,17 +2533,17 @@ Status IcebergTableReader::_read_equality_delete_file(const TIcebergDeleteFileDe
     // Include the ordered equality ids in the key because the same physical delete file can be
     // projected with different key layouts. The cached block, key metadata, and contiguous index
     // are immutable after construction and therefore safe to share across split-local predicates.
-    auto* cached_filter = _split_cache->get<EqualityDeleteFilter>(
+    auto cached_filter = _split_cache->get<EqualityDeleteFilter>(
             cache_key.str(),
-            [&]() -> EqualityDeleteFilter* {
-                auto result = std::make_unique<EqualityDeleteFilter>();
+            [&]() -> std::shared_ptr<EqualityDeleteFilter> {
+                auto result = std::make_shared<EqualityDeleteFilter>();
                 read_status = _load_equality_delete_file(delete_file, scan_params, delete_io_ctx,
                                                          result.get());
                 if (!read_status.ok()) {
                     return nullptr;
                 }
                 result->cache_key = cache_key.str();
-                return result.release();
+                return result;
             },
             &cache_hit);
     RETURN_IF_ERROR(read_status);
