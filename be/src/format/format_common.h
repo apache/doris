@@ -64,6 +64,9 @@ struct DecimalScaleParams {
  *
  * Stores objects by key and value type. get() returns shared ownership of the cached
  * value, invoking the creator on a miss. A null result is not cached and can be retried.
+ * Concurrent misses create independently without holding cache locks; the first value
+ * published wins. cache_hit is true when returning an already published value, including
+ * when another caller publishes while this caller is creating its own value.
  *
  * erase() and cache destruction release only the cache's ownership. For example, a
  * value returned by get() remains alive after erase() until its last caller releases it.
@@ -102,21 +105,42 @@ public:
     std::shared_ptr<T> get(const KType& key, const std::function<std::shared_ptr<T>()>& create_func,
                            bool* cache_hit = nullptr) {
         std::shared_ptr<Entry> entry = _get_or_create_entry<T>(key);
-        std::lock_guard<std::mutex> entry_lock(entry->_lock);
+        {
+            std::lock_guard<std::mutex> entry_lock(entry->_lock);
+            if (entry->_value != nullptr) {
+                if (cache_hit != nullptr) {
+                    *cache_hit = true;
+                }
+                return std::static_pointer_cast<T>(entry->_value);
+            }
+        }
         if (cache_hit != nullptr) {
-            *cache_hit = entry->_value != nullptr;
+            *cache_hit = false;
         }
-        // A failed factory leaves the value empty so a later caller can retry.
-        if (entry->_value == nullptr) {
-            entry->_value = create_func();
+        // A stalled I/O in one factory must not prevent another caller from loading the same key.
+        auto value = create_func();
+        // Preserve this caller's factory failure even if another caller has since published a value.
+        if (value == nullptr) {
+            return nullptr;
         }
-        return std::static_pointer_cast<T>(entry->_value);
+        // Declared after value so a losing candidate is destroyed after unlocking, even if its
+        // destructor calls back into this cache.
+        std::lock_guard<std::mutex> entry_lock(entry->_lock);
+        // Another caller may have finished its I/O first. Reuse its value instead of replacing it.
+        if (entry->_value != nullptr) {
+            if (cache_hit != nullptr) {
+                *cache_hit = true;
+            }
+            return std::static_pointer_cast<T>(entry->_value);
+        }
+        entry->_value = value;
+        return value;
     }
 
 private:
     struct Entry {
-        // The shard lock only protects the map. Factory calls hold this entry lock, so an
-        // unrelated key can keep loading while another key is doing remote I/O.
+        // The shard lock protects the map; this lock only protects value lookup and publication.
+        // Factories run without either lock, including concurrent loads of the same key.
         std::mutex _lock;
         std::shared_ptr<void> _value;
     };
