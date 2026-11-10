@@ -674,7 +674,7 @@ Status KinesisDataConsumer::init(std::shared_ptr<StreamLoadContext> ctx) {
 }
 
 Status KinesisDataConsumer::_create_kinesis_client(std::shared_ptr<StreamLoadContext> ctx) {
-    // Reuse S3ClientFactory's credential provider logic
+    // Reuse AwsSdkManager's credential provider logic
     // This supports all AWS authentication methods:
     // - Simple AK/SK
     // - IAM instance profile (EC2)
@@ -713,7 +713,7 @@ Status KinesisDataConsumer::_create_kinesis_client(std::shared_ptr<StreamLoadCon
     }
 
     // Create AWS ClientConfiguration
-    Aws::Client::ClientConfiguration aws_config = S3ClientFactory::getClientConfiguration();
+    Aws::Client::ClientConfiguration aws_config = AwsSdkManager::getClientConfiguration();
     aws_config.region = _region;
 
     if (!_endpoint.empty()) {
@@ -752,7 +752,7 @@ Status KinesisDataConsumer::_create_kinesis_client(std::shared_ptr<StreamLoadCon
     }
 
     // Create credentials provider (reuses S3 infrastructure)
-    auto credentials = S3ClientFactory::instance().create_aws_credentials_provider(auth);
+    auto credentials = AwsSdkManager::instance().create_aws_credentials_provider(auth);
     if (!credentials) {
         return Status::InvalidArgument("Failed to create AWS credential provider: {}",
                                        credentials.error);

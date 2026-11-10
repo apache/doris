@@ -64,7 +64,7 @@ Aws::S3::Model::GetObjectOutcome successful_read(const Aws::S3::Model::GetObject
 
 class S3FileReaderTest : public testing::Test {
 protected:
-    static void SetUpTestSuite() { S3ClientFactory::instance(); }
+    static void SetUpTestSuite() { AwsSdkManager::instance(); }
 };
 
 TEST_F(S3FileReaderTest, ConcurrentReadsCollectAllStatistics) {

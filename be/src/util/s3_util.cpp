@@ -20,9 +20,6 @@
 #include <aws/core/utils/logging/LogLevel.h>
 #include <aws/core/utils/logging/LogSystemInterface.h>
 
-#ifdef USE_AZURE
-#include <azure/core/diagnostics/logger.hpp>
-#endif
 #include <memory>
 #include <utility>
 
@@ -30,12 +27,12 @@
 #include "common/logging.h"
 #include "cpp/aws_logger.h"
 #include "cpp/obj-client/auth/aws_credential_factory.h"
+#include "io/obj_storage/obj_client_ca.h"
 #include "io/obj_storage/obj_storage_config.h"
-#include "util/string_util.h"
 
 namespace doris {
 
-S3ClientFactory::S3ClientFactory() {
+AwsSdkManager::AwsSdkManager() {
     _aws_options = Aws::SDKOptions {};
     auto logLevel = static_cast<Aws::Utils::Logging::LogLevel>(config::aws_log_level);
     _aws_options.loggingOptions.logLevel = logLevel;
@@ -43,56 +40,21 @@ S3ClientFactory::S3ClientFactory() {
         return std::make_shared<DorisAWSLogger>(logLevel);
     };
     Aws::InitAPI(_aws_options);
-    _get_ca_cert_file_path();
-
-#ifdef USE_AZURE
-    auto azureLogLevel =
-            static_cast<Azure::Core::Diagnostics::Logger::Level>(config::azure_log_level);
-    Azure::Core::Diagnostics::Logger::SetLevel(azureLogLevel);
-    Azure::Core::Diagnostics::Logger::SetListener(
-            [&](Azure::Core::Diagnostics::Logger::Level level, const std::string& message) {
-                switch (level) {
-                case Azure::Core::Diagnostics::Logger::Level::Verbose:
-                    LOG(INFO) << message;
-                    break;
-                case Azure::Core::Diagnostics::Logger::Level::Informational:
-                    LOG(INFO) << message;
-                    break;
-                case Azure::Core::Diagnostics::Logger::Level::Warning:
-                    LOG(WARNING) << message;
-                    break;
-                case Azure::Core::Diagnostics::Logger::Level::Error:
-                    LOG(ERROR) << message;
-                    break;
-                default:
-                    LOG(WARNING) << "Unknown level: " << static_cast<int>(level)
-                                 << ", message: " << message;
-                    break;
-                }
-            });
-#endif
+    io::obj_client_ca_cert_file_path();
 }
 
-S3ClientFactory::~S3ClientFactory() {
+AwsSdkManager::~AwsSdkManager() {
     Aws::ShutdownAPI(_aws_options);
 }
 
-S3ClientFactory& S3ClientFactory::instance() {
-    static S3ClientFactory ret;
+AwsSdkManager& AwsSdkManager::instance() {
+    static AwsSdkManager ret;
     return ret;
 }
 
-std::string S3ClientFactory::_get_ca_cert_file_path() {
-    std::lock_guard lock(_ca_cert_lock);
-    if (_ca_cert_file_path.empty()) {
-        _ca_cert_file_path = get_valid_ca_cert_path(doris::split(config::ca_cert_file_paths, ";"));
-    }
-    return _ca_cert_file_path;
-}
-
-AwsCredentialResult S3ClientFactory::create_aws_credentials_provider(const io::S3AuthConfig& auth) {
-    auto sts_config = S3ClientFactory::getClientConfiguration();
-    auto ca_cert_file_path = _get_ca_cert_file_path();
+AwsCredentialResult AwsSdkManager::create_aws_credentials_provider(const io::S3AuthConfig& auth) {
+    auto sts_config = AwsSdkManager::getClientConfiguration();
+    auto ca_cert_file_path = io::obj_client_ca_cert_file_path();
     if (!ca_cert_file_path.empty()) {
         sts_config.caFile = ca_cert_file_path;
     }

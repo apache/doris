@@ -23,9 +23,6 @@
 #include <bvar/bvar.h>
 #include <fmt/format.h>
 #include <gen_cpp/AgentService_types.h>
-#ifdef BE_TEST
-#include <gtest/gtest_prod.h>
-#endif
 
 #include <functional>
 #include <map>
@@ -60,11 +57,11 @@ std::string hide_access_key(const std::string& ak);
 
 // Owns the AWS SDK lifetime and the AWS helpers shared by object storage clients and other AWS
 // users (e.g. Kinesis). Object storage clients themselves come from io::ObjClientFactory.
-class S3ClientFactory {
+class AwsSdkManager {
 public:
-    ~S3ClientFactory();
+    ~AwsSdkManager();
 
-    static S3ClientFactory& instance();
+    static AwsSdkManager& instance();
 
     static Aws::Client::ClientConfiguration& getClientConfiguration() {
         // The default constructor of ClientConfiguration will do some http call
@@ -79,20 +76,10 @@ public:
 
     AwsCredentialResult create_aws_credentials_provider(const io::S3AuthConfig& auth);
 
-    // The first valid path of config::ca_cert_file_paths, resolved lazily and cached; empty
-    // when none is valid yet, in which case the next call resolves it again.
-    std::string ca_cert_file_path() { return _get_ca_cert_file_path(); }
-
 private:
-#ifdef BE_TEST
-    FRIEND_TEST(S3ClientFactoryTest, RefreshCaCertForCredentialsProvider);
-#endif
-    std::string _get_ca_cert_file_path();
-    S3ClientFactory();
+    AwsSdkManager();
 
     Aws::SDKOptions _aws_options;
-    std::mutex _ca_cert_lock;
-    std::string _ca_cert_file_path;
 };
 
 } // end namespace doris
