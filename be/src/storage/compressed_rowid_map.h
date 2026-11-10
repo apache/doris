@@ -33,7 +33,6 @@ class RowIdConversion;
 class CompressedRowIdMap {
 public:
     static constexpr uint32_t BLOCK_ROWS = 4096;
-    static constexpr size_t PAGE_BYTES = 1 << 20;
     static constexpr uint64_t MISSING = UINT64_MAX;
 
     class Cursor {
@@ -69,14 +68,12 @@ public:
     struct MemoryUsage {
         size_t directory_bytes = 0;
         size_t payload_bytes = 0;
-        size_t arena_capacity = 0;
         size_t metadata_bytes = 0;
         size_t builder_bytes = 0;
         size_t encoder_bytes = 0;
         size_t peak_bytes = 0;
         size_t allocated_bytes() const {
-            return directory_bytes + arena_capacity + metadata_bytes + builder_bytes +
-                   encoder_bytes;
+            return directory_bytes + payload_bytes + metadata_bytes + builder_bytes + encoder_bytes;
         }
     };
 
@@ -94,18 +91,28 @@ private:
     enum class Flag : uint8_t { BITMAP = 1, ZSTD = 2 };
     static constexpr uint8_t flag_bits(Flag flag) { return static_cast<uint8_t>(flag); }
 
+    // Keep the allocation length independent of codec metadata, so a malformed
+    // payload_bytes cannot change the size used for bounds checking or tracked free.
+    // The out-of-line deleter keeps allocator headers out of this public header.
+    struct PayloadDeleter {
+        size_t bytes = 0;
+        void operator()(uint8_t* data) const noexcept;
+    };
+    using Payload = std::unique_ptr<uint8_t[], PayloadDeleter>;
+
     // Process-local layout, not a persistent/wire format. Each source has a directory:
     //
-    // source row r --> blocks[r / BLOCK_ROWS] --> arena payload at meta.offset
-    //                  (one 32-byte entry)       (never crosses a 1 MiB page)
+    // source row r --> blocks[r / BLOCK_ROWS] --> separately owned payload bytes
+    //                  (one 40-byte entry)       (allocate exactly payload_bytes)
     //
     // BlockMeta field widths in bytes, in declaration order:
     // +----------+---------+-----------+---------+--------+--------+--------+---------+------------+
-    // | offset:8 | first:8 | payload:4 | plain:4 | rows:2 | live:2 | kind:1 | flags:1 | reserved:2 |
+    // | owner:16 | first:8 | payload:4 | plain:4 | rows:2 | live:2 | kind:1 | flags:1 | reserved:2 |
     // +----------+---------+-----------+---------+--------+--------+--------+---------+------------+
-    // offset is page_index * PAGE_BYTES + in_page_offset; first is the first live global
-    // target ordinal. rows counts physical source rows; live counts mapped rows. payload
-    // and plain denote payload_bytes (stored) and plain_bytes (before optional Zstd).
+    // owner contains a pointer and its allocation length; its internal field order is
+    // not a byte format. first is the first live global target ordinal. rows counts
+    // physical source rows; live counts mapped rows. payload and plain denote
+    // payload_bytes (stored) and plain_bytes (before optional Zstd).
     //
     // Uncompressed payload by kind (N = rows, L = live, G = live target sequence):
     //   EMPTY   []                                  all N source rows are missing
@@ -122,7 +129,7 @@ private:
     // first stays in BlockMeta, never in the varint stream or the Zstd frame.
 
     struct BlockMeta {
-        uint64_t offset = 0;
+        Payload payload {nullptr, PayloadDeleter {}};
         uint64_t first = 0;
         uint32_t payload_bytes = 0;
         uint32_t plain_bytes = 0;
@@ -132,7 +139,7 @@ private:
         uint8_t flags = 0;
         uint16_t reserved = 0;
     };
-    static_assert(sizeof(BlockMeta) == 32);
+    static_assert(sizeof(BlockMeta) == 40);
     struct Impl;
     std::unique_ptr<Impl> _impl;
 
