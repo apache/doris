@@ -34,6 +34,7 @@
 #include <azure/core/http/curl_transport.hpp>
 #include <azure/storage/blobs/blob_container_client.hpp>
 #endif
+#include <charconv>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -61,9 +62,7 @@
 #include "cpp/obj_retry_strategy.h"
 #include "cpp/sync_point.h"
 #include "cpp/util.h"
-#include "exec/scan/scanner_scheduler.h"
 #include "io/fs/gcs_signed_url_provider.h"
-#include "runtime/exec_env.h"
 #include "util/s3_rate_limiter_manager.h"
 #include "util/s3_uri.h"
 
