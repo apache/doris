@@ -85,17 +85,17 @@ bool flat_to_int(std::string_view str, int& res) {
     return ec == std::errc {};
 }
 
-std::string flat_fields_to_string(const FlatClientFields& fields) {
+std::string flat_fields_to_string(const FlatClientFields& fields, bool sse_enabled) {
     return fmt::format(
             "(ak={}, token={}, endpoint={}, region={}, bucket={}, max_connections={}, "
             "request_timeout_ms={}, connect_timeout_ms={}, use_virtual_addressing={}, "
             "cred_provider_type={},role_arn={}, external_id={}, credential_type={}, "
-            "is_internal_bucket={}",
+            "is_internal_bucket={}, sse_enabled={})",
             hide_access_key(fields.ak), fields.token.empty() ? "" : "******", fields.endpoint,
             fields.region, fields.bucket, fields.max_connections, fields.request_timeout_ms,
             fields.connect_timeout_ms, fields.use_virtual_addressing,
             static_cast<int>(fields.cred_provider_type), fields.role_arn, fields.external_id,
-            credential_type_name(fields.credential), fields.is_internal_bucket);
+            credential_type_name(fields.credential), fields.is_internal_bucket, sse_enabled);
 }
 
 // Flat FE properties require both fields even on Azure. When both are missing, report
@@ -332,7 +332,7 @@ Result<ObjStorageConfig> ObjStorageConfigResolver::from_object_store_info(
     default:
         __builtin_unreachable();
         LOG_FATAL("unknown provider type {}, info {}", info.provider(),
-                  flat_fields_to_string(fields));
+                  flat_fields_to_string(fields, info.sse_enabled()));
     }
     auto client = flat_client_config(fields);
     if (!client.has_value()) {
@@ -342,6 +342,7 @@ Result<ObjStorageConfig> ObjStorageConfigResolver::from_object_store_info(
             .bucket = info.bucket(),
             .prefix = info.prefix(),
             .client = std::move(client).value(),
+            .sse_enabled = info.sse_enabled(),
     };
 }
 
@@ -374,7 +375,7 @@ Result<ObjStorageConfig> ObjStorageConfigResolver::from_storage_param(
     switch (param.provider) {
     case TObjStorageType::UNKNOWN:
         LOG_INFO("Receive one legal storage resource, set provider type to aws, param detail {}",
-                 flat_fields_to_string(fields));
+                 flat_fields_to_string(fields, /*sse_enabled=*/false));
         fields.provider = ObjStorageProvider::AWS;
         break;
     case TObjStorageType::AWS:
@@ -403,7 +404,7 @@ Result<ObjStorageConfig> ObjStorageConfigResolver::from_storage_param(
         break;
     default:
         LOG_FATAL("unknown provider type {}, info {}", param.provider,
-                  flat_fields_to_string(fields));
+                  flat_fields_to_string(fields, /*sse_enabled=*/false));
         __builtin_unreachable();
     }
     auto client = flat_client_config(fields);
