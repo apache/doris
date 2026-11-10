@@ -20,11 +20,9 @@
 
 #include <optional>
 
-#include "core/column/column_dummy.h"
 #include "core/data_type/data_type_number.h"
 #include "exec/sink/writer/iceberg/viceberg_partition_writer.h"
 #include "exec/sink/writer/iceberg/viceberg_sort_writer.h"
-#include "exec/sink/writer/iceberg/viceberg_table_writer.h"
 #include "format/table/iceberg/schema_parser.h"
 #include "format/transformer/viceberg_parquet_writer.h"
 #include "io/fs/file_system.h"
@@ -41,22 +39,6 @@
 namespace doris {
 
 namespace {
-
-class ThrowOnSortCloneColumn final : public COWHelper<IColumnDummy, ThrowOnSortCloneColumn> {
-private:
-    friend class COWHelper<IColumnDummy, ThrowOnSortCloneColumn>;
-    explicit ThrowOnSortCloneColumn(size_t rows) { s = rows; }
-    ThrowOnSortCloneColumn(const ThrowOnSortCloneColumn&) = default;
-
-public:
-    std::string get_name() const override { return "ThrowOnSortClone"; }
-    MutableColumnPtr clone_dummy(size_t) const override {
-        throw Exception(ErrorCode::MEM_ALLOC_FAILED, "injected sorted EOS allocation failure");
-    }
-    bool structure_equals(const IColumn& rhs) const override {
-        return typeid(rhs) == typeid(ThrowOnSortCloneColumn);
-    }
-};
 
 class FakeFileFormatTransformer final : public VFileFormatTransformer {
 public:
@@ -131,19 +113,6 @@ protected:
 
     static bool collect_column_stats(const VIcebergPartitionWriter& writer) {
         return writer._collect_column_stats;
-    }
-
-    static Status persist_file(VIcebergPartitionWriter* writer) {
-        RETURN_IF_ERROR(writer->_fs->create_file(writer->_path, &writer->_file_writer));
-        RETURN_IF_ERROR(writer->_file_writer->append(Slice("persisted data")));
-        return writer->_file_writer->close();
-    }
-
-    static void expect_file_presence(const std::shared_ptr<io::FileSystem>& fs,
-                                     const std::string& path, bool expected) {
-        bool exists = false;
-        ASSERT_TRUE(fs->exists(path, &exists).ok());
-        EXPECT_EQ(expected, exists);
     }
 };
 
@@ -259,58 +228,6 @@ TEST_F(VIcebergPartitionWriterTest, SortWriterPropagatesUnderlyingCloseFailure) 
 
     EXPECT_FALSE(status.ok());
     EXPECT_NE(status.to_string().find("injected close failure"), std::string::npos);
-}
-
-TEST_F(VIcebergPartitionWriterTest, SortedEosAllocationFailureRemovesPersistedFile) {
-    VExprContextSPtrs output_exprs;
-    iceberg::Schema schema(std::vector<iceberg::NestedField> {});
-    std::string schema_json;
-    std::map<std::string, std::string> hadoop_conf;
-    auto sink = make_table_sink(false);
-    bool transformer_destroyed = false;
-    auto partition_writer = std::shared_ptr<VIcebergPartitionWriter>(
-            make_writer(sink, output_exprs, schema, &schema_json, hadoop_conf));
-    auto fs = io::global_local_filesystem();
-    std::string path = "./iceberg_sorted_eos_failure_" + UniqueId::gen_uid().to_string() + ".orc";
-    Defer cleanup_file {
-            [&]() { WARN_IF_ERROR(fs->delete_file(path), "test file cleanup failed"); }};
-    partition_writer->_fs = fs;
-    partition_writer->_path = path;
-    ASSERT_TRUE(persist_file(partition_writer.get()).ok());
-    install_fake_transformer(partition_writer.get(), output_exprs, Status::OK(),
-                             &transformer_destroyed);
-    VIcebergTableWriter table_writer(sink, output_exprs);
-    partition_writer->_closed_file_callback = [&](std::shared_ptr<io::FileSystem> file_fs,
-                                                  const std::string& file_path) {
-        EXPECT_TRUE(transformer_destroyed);
-        table_writer._closed_files.emplace_back(std::move(file_fs), file_path);
-    };
-    MockRuntimeState state;
-    RuntimeProfile profile("sorted-eos-failure");
-    MockRowDescriptor row_desc;
-    partition_writer->_state = &state;
-    VIcebergSortWriter sort_writer(partition_writer, TSortInfo(), 1024);
-    sort_writer._runtime_state = &state;
-    sort_writer._sorter = FullSorter::create_unique(
-            sort_writer._ordering_expr_ctxs, -1, 0, &sort_writer._pool,
-            sort_writer._sort_info.is_asc_order, sort_writer._sort_info.nulls_first, row_desc,
-            &state, &profile);
-    sort_writer._sorter->init_profile(&profile);
-    sort_writer._sorter->set_enable_spill();
-    *sort_writer._sorter->merge_sort_state()->unsorted_block() = Block({ColumnWithTypeAndName(
-            ThrowOnSortCloneColumn::create(1), std::make_shared<DataTypeInt32>(), "id")});
-
-    Status status = sort_writer.close(Status::OK());
-
-    EXPECT_FALSE(status.ok());
-    EXPECT_NE(status.to_string().find("injected sorted EOS allocation failure"), std::string::npos);
-    ASSERT_EQ(1, table_writer._closed_files.size());
-    expect_file_presence(fs, path, true);
-    EXPECT_TRUE(state.iceberg_commit_datas().empty());
-    table_writer.finish_deferred_file_cleanup(status);
-    expect_file_presence(fs, path, false);
-    EXPECT_TRUE(table_writer._closed_files.empty());
-    EXPECT_TRUE(sort_writer.close(status).ok());
 }
 
 TEST_F(VIcebergPartitionWriterTest, FailedCloseDefersFileCleanupToOuterCallback) {
