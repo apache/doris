@@ -230,14 +230,14 @@ hudiMinioSecretKey="minio123"
 
 // Keep rootless CI exclusions opt-in; other external-test environments are unchanged.
 if (System.getenv("DORIS_CI_PRISTINE_FRAMEWORK") == "true") {
-    // Temporary environment exclusions; keep source paths to preserve same-named suites.
-    // See regression-test/pipeline/PRISTINE_FRAMEWORK_EXCLUSIONS.md for scope and re-enable criteria.
+    // Temporary environment exclusions using the existing suite-name filter.
+    // Re-enable after the rootless execution prerequisites are reviewed and validated.
     excludeSuites += "," + [
         // sudo/Docker fixture; requires case changes for rootless CI
-        "external_table_p0/kerberos/test_single_hive_kerberos.groovy#test_single_hive_kerberos",
+        "test_single_hive_kerberos",
         // sudo/Docker fixture; requires case changes for rootless CI
-        "external_table_p0/kerberos/test_two_hive_kerberos.groovy#test_two_hive_kerberos",
+        "test_two_hive_kerberos",
         // root SSH/SCP or remote filesystem prerequisite
-        "external_table_p0/tvf/test_parquet_meta_tvf.groovy#test_parquet_meta_tvf"
+        "test_parquet_meta_tvf"
     ].join(",")
 }

@@ -162,9 +162,12 @@ enableTrinoConnectorTest = false
 // Temporary exclusions for CI using the unmodified framework with rootless containers and STS.
 // These suites failed in migration adapters; this does not establish an upstream framework bug.
 // Re-enable after the relevant framework compatibility fixes are reviewed and validated upstream.
+// Historical injected-adapter failures below are not evidence of original-framework defects.
 if (System.getenv("DORIS_CI_PRISTINE_FRAMEWORK") == "true") {
     excludeSuites += "," + [
+        // Historical injected repository adapter rejected the runtime bucket; not a proven upstream framework defect.
         "test_backup_cancelled",
+        // Historical injected repository adapter rejected the runtime bucket; not a proven upstream framework defect.
         "test_backup_restore_atomic_with_alter"
     ].join(",")
 }

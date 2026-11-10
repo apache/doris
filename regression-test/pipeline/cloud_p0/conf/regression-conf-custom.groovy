@@ -117,39 +117,52 @@ pythonUdfRuntimeVersion = "3.12.11"
 // Temporary exclusions for CI using the unmodified framework with rootless containers and STS.
 // These suites failed in migration adapters; this does not establish an upstream framework bug.
 // Re-enable after the relevant framework compatibility fixes are reviewed and validated upstream.
+// Historical injected-adapter failures below are not evidence of original-framework defects.
 if (System.getenv("DORIS_CI_PRISTINE_FRAMEWORK") == "true") {
     excludeSuites += "," + [
+        // Historical injected OUTFILE rewriter rejected two statement terminators; original framework cause not established.
         "dml_into_outfile",
+        // Historical local-rootless BE filesystem adapter failure; exact rejected path/operation remains unresolved.
         "test_export_basic",
+        // Historical local-rootless BE filesystem adapter failure; exact rejected path/operation remains unresolved.
         "test_export_csv",
+        // Historical local-rootless BE filesystem adapter failure; exact rejected path/operation remains unresolved.
         "test_export_empty_table",
+        // Historical local-rootless BE filesystem adapter failure; exact rejected path/operation remains unresolved.
         "test_export_table_with_label_retry",
+        // Historical local-rootless BE filesystem adapter failure; exact rejected path/operation remains unresolved.
         "test_nereids_show_export",
+        // Historical CREATE REPOSITORY used public-bucket ANONYMOUS SQL while migration backup routing was disabled.
         "test_temp_table",
+        // Historical injected TVF rewriter left repeated-TVF SQL using original public locations; original framework cause not established.
         "test_uuid_csv_schema",
+        // Historical injected TVF rewriter left repeated-TVF SQL using original public locations; original framework cause not established.
         "test_uuid_parquet_native"
     ].join(",")
 
-    // Temporary environment exclusions; keep source paths to preserve same-named suites.
-    // See regression-test/pipeline/PRISTINE_FRAMEWORK_EXCLUSIONS.md for scope and re-enable criteria.
+    // Temporary environment exclusions using the existing suite-name filter.
+    // Name-only filtering also excludes the three same-named export outfile suites.
+    // Collateral sources: export_p0/test_outfile.groovy, export_p0/test_outfile_expr.groovy,
+    // and export_p0/outfile/parquet/test_outfile_parquet.groovy. No whole directory is excluded.
+    // The two independent-provider credential cases already have the p2 group in master.
     excludeSuites += "," + [
         // shared parent database prerequisite
-        "datatype_p0/nested_types/query/test_nested_types_insert_into_with_s3.groovy#test_nested_types_insert_into_with_s3",
+        "test_nested_types_insert_into_with_s3",
         // shared parent database prerequisite
-        "datatype_p0/nested_types/query/test_nestedtypes_csv_insert_into_with_s3.groovy#test_nestedtypes_csv_insert_into_with_s3",
+        "test_nestedtypes_csv_insert_into_with_s3",
         // shared parent database prerequisite
-        "datatype_p0/nested_types/query/test_nestedtypes_json_insert_into_with_s3.groovy#test_nestedtypes_json_insert_into_with_s3",
+        "test_nestedtypes_json_insert_into_with_s3",
         // root SSH/SCP or remote filesystem prerequisite
-        "export_p0/test_export_view.groovy#test_export_view",
+        "test_export_view",
         // mysqldump column-statistics compatibility
-        "mysqldump_p0/test_mysqldump.groovy#test_mysqldump",
+        "test_mysqldump",
         // root SSH/SCP or remote filesystem prerequisite
-        "query_p0/outfile/test_outfile.groovy#test_outfile",
+        "test_outfile",
         // root SSH/SCP or remote filesystem prerequisite
-        "query_p0/outfile/test_outfile_expr.groovy#test_outfile_expr",
+        "test_outfile_expr",
         // root SSH/SCP or remote filesystem prerequisite
-        "query_p0/outfile/test_outfile_parquet.groovy#test_outfile_parquet",
+        "test_outfile_parquet",
         // root SSH/SCP or remote filesystem prerequisite
-        "query_p0/test_install_plugin_command.groovy#test_install_plugin_command"
+        "test_install_plugin_command"
     ].join(",")
 }

@@ -258,11 +258,10 @@ class RegressionTest {
     }
 
     static void runScript(Config config, ScriptSource source, Recorder recorder, GroupExecType grpExecType) {
-        def file = source.getFile()
-        def sourcePath = suiteSourcePath(config, file)
         def suiteFilter = { String suiteName, String groupName ->
-            canRun(config, suiteName, groupName, grpExecType, sourcePath)
+            canRun(config, suiteName, groupName, grpExecType)
         }
+        def file = source.getFile()
         int failureLimit = Integer.valueOf(config.otherConfigs.getOrDefault("max_failure_num", "-1").toString());
         if (Recorder.isFailureExceedLimit(failureLimit)) {
             // too much failure, skip all following suits
@@ -375,13 +374,7 @@ class RegressionTest {
         return recorder
     }
 
-    static String suiteSourcePath(Config config, File file) {
-        return new File(config.suitePath).toPath().toAbsolutePath().normalize()
-                .relativize(file.toPath().toAbsolutePath().normalize())
-                .toString().replace(File.separatorChar, '/' as char)
-    }
-
-    static boolean filterSuites(Config config, String suiteName, String sourcePath = null) {
+    static boolean filterSuites(Config config, String suiteName) {
         if (config.suiteWildcard.isEmpty() && config.excludeSuiteWildcard.isEmpty()) {
             return true
         }
@@ -390,11 +383,8 @@ class RegressionTest {
                 }) {
             return false
         }
-        // A source-qualified exclusion avoids excluding an unrelated suite with the same name.
-        String qualifiedName = sourcePath == null ? null : sourcePath.replace('\\', '/') + '#' + suiteName
         if (!config.excludeSuiteWildcard.isEmpty() && config.excludeSuiteWildcard.any {
-                    pattern -> Wildcard.match(suiteName, pattern)
-                            || (qualifiedName != null && pattern.contains('#') && Wildcard.match(qualifiedName, pattern))
+                    excludeSuiteWildcard -> Wildcard.match(suiteName, excludeSuiteWildcard)
                 }) {
             return false
         }
@@ -415,10 +405,8 @@ class RegressionTest {
         return true
     }
 
-    static boolean canRun(Config config, String suiteName, String group, GroupExecType grpExecType,
-                          String sourcePath = null) {
-        return getGroupExecType(group) == grpExecType && filterGroups(config, group)
-                && filterSuites(config, suiteName, sourcePath)
+    static boolean canRun(Config config, String suiteName, String group, GroupExecType grpExecType) {
+        return getGroupExecType(group) == grpExecType && filterGroups(config, group) && filterSuites(config, suiteName)
     }
 
     static GroupExecType getGroupExecType(String group) {
