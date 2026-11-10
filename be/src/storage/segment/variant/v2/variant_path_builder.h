@@ -17,8 +17,6 @@
 
 #pragma once
 
-#include <gen_cpp/olap_file.pb.h>
-
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -112,12 +110,14 @@ struct VariantPathSelection {
     DorisVector<size_t> sparse;
 };
 
+struct VariantShredderOptions;
+
 // Typed paths are fixed unless typed_paths_to_sparse is enabled. Dynamic paths are ordered by the
-// authoritative non-null-count/depth/path rule before the materialization budget is applied.
+// authoritative non-null-count/depth/path rule before the materialization budget is applied: none
+// in a data file below the row threshold, otherwise up to max_subcolumns_count, where 0 means every
+// path under V1 and none under V2.
 VariantPathSelection select_variant_paths(std::span<const VariantPathSelectionCandidate> candidates,
-                                          size_t max_dynamic_materialized_paths,
-                                          bool typed_paths_to_sparse,
-                                          VariantSerializeTypePB serialize_type);
+                                          size_t rows, const VariantShredderOptions& options);
 
 // Least common type for a variant path. Used to merge types inferred by independent value chunks.
 DataTypePtr variant_path_least_common_type(const DataTypePtr& left, const DataTypePtr& right);

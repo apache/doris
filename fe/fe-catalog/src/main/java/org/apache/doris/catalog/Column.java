@@ -829,11 +829,12 @@ public class Column implements GsonPostProcessable {
             if (this.getVariantDocShardCount() != other.getVariantDocShardCount()) {
                 throw new DdlException("Can not change variant doc snapshot shard count");
             }
-            // without doc mode a V1 column ignores the row threshold, so it cannot take one
+            // Without doc mode a column of an older version with a count of 0 extracts every path, which a row
+            // threshold would break in compaction, so it takes none.
             if (!this.getVariantEnableDocMode() && this.getVariantSerializeType() == TVariantSerializeType.V1
-                    && other.getvariantDocMaterializationMinRows() != 0) {
-                throw new DdlException("Can not set variant_subcolumn_extraction_min_rows on a column created "
-                        + "before it applied without doc mode");
+                    && this.getVariantMaxSubcolumnsCount() == 0 && other.getvariantDocMaterializationMinRows() != 0) {
+                throw new DdlException("Can not set variant_subcolumn_extraction_min_rows on a column of an older "
+                        + "version whose variant_max_subcolumns_count is 0");
             }
             if (this.getVariantEnableNestedGroup() != other.getVariantEnableNestedGroup()) {
                 throw new DdlException("Can not change variant enable nested group");

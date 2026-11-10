@@ -590,12 +590,7 @@ struct VariantShredder::Impl {
         DorisVector<size_t> all(candidate_builders.size());
         std::iota(all.begin(), all.end(), 0);
         RETURN_IF_ERROR(convert_typed_candidates(all, candidate_builders, storage_types));
-        // A segment below the row threshold extracts no dynamic path yet, which is what a count of 0
-        // means under V2. Only a V2 column has a threshold here: without doc mode a V1 column keeps 0.
-        const bool below_min_rows = rows < options.doc_materialization_min_rows;
-        const VariantPathSelection selection =
-                select_variant_paths(candidates, below_min_rows ? 0 : options.max_subcolumns_count,
-                                     options.typed_paths_to_sparse, options.serialize_type);
+        const VariantPathSelection selection = select_variant_paths(candidates, rows, options);
         publish_root(result);
         RETURN_IF_ERROR(publish_materialized(selection, candidate_builders, result));
         RETURN_IF_ERROR(publish_sparse(selection, candidate_builders, result));
@@ -625,10 +620,7 @@ struct VariantShredder::Impl {
             } else {
                 // this shredder holds the whole document: typed paths and the top dynamic paths
                 selection.materialized =
-                        select_variant_paths(candidates, options.max_subcolumns_count,
-                                             /*typed_paths_to_sparse=*/false,
-                                             options.serialize_type)
-                                .materialized;
+                        select_variant_paths(candidates, rows, options).materialized;
             }
             RETURN_IF_ERROR(convert_typed_candidates(selection.materialized, candidate_builders,
                                                      storage_types));

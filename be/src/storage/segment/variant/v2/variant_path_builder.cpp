@@ -56,6 +56,7 @@
 #include "core/value/vdatetime_value.h"
 #include "exec/common/variant_util.h"
 #include "exprs/function/parse/variant_jsonb_parse.h"
+#include "storage/segment/variant/v2/variant_shredder.h"
 #include "util/jsonb_document.h"
 #include "util/jsonb_writer.h"
 
@@ -1398,9 +1399,7 @@ Status VariantPathBuilder::write_sparse_cell(size_t value_index, ColumnString::C
 }
 
 VariantPathSelection select_variant_paths(std::span<const VariantPathSelectionCandidate> candidates,
-                                          size_t max_dynamic_materialized_paths,
-                                          bool typed_paths_to_sparse,
-                                          VariantSerializeTypePB serialize_type) {
+                                          size_t rows, const VariantShredderOptions& options) {
     struct DynamicCandidate {
         size_t index = 0;
         uint32_t non_null_rows = 0;
@@ -1412,7 +1411,7 @@ VariantPathSelection select_variant_paths(std::span<const VariantPathSelectionCa
     for (size_t index = 0; index < candidates.size(); ++index) {
         const VariantPathSelectionCandidate& candidate = candidates[index];
         DORIS_CHECK(candidate.builder != nullptr);
-        if (candidate.is_typed_path && !typed_paths_to_sparse) {
+        if (candidate.is_typed_path && !options.typed_paths_to_sparse) {
             result.materialized.push_back(index);
         } else if (candidate.builder->non_null_rows() == 0) {
             continue;
@@ -1434,11 +1433,15 @@ VariantPathSelection select_variant_paths(std::span<const VariantPathSelectionCa
         return left_path.get_path() > right_path.get_path();
     });
 
-    size_t selected_dynamic = std::min(max_dynamic_materialized_paths, dynamic.size());
-    // A count of 0 materializes every dynamic path under V1 and none under V2.
-    if (max_dynamic_materialized_paths == 0 &&
-        serialize_type == VariantSerializeTypePB::VARIANT_SERIALIZE_V1) {
-        selected_dynamic = dynamic.size();
+    // A data file below the row threshold materializes no dynamic path yet.
+    size_t selected_dynamic = 0;
+    if (rows >= options.doc_materialization_min_rows) {
+        selected_dynamic = std::min(options.max_subcolumns_count, dynamic.size());
+        // A count of 0 materializes every dynamic path under V1 and none under V2.
+        if (options.max_subcolumns_count == 0 &&
+            options.serialize_type == VariantSerializeTypePB::VARIANT_SERIALIZE_V1) {
+            selected_dynamic = dynamic.size();
+        }
     }
     for (size_t index = 0; index < dynamic.size(); ++index) {
         (index < selected_dynamic ? result.materialized : result.sparse)

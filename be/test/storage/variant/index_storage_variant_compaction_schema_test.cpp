@@ -315,10 +315,10 @@ std::vector<MatrixCase> all_cases() {
                 for (bool to_sparse : {false, true}) {
                     for (int32_t shards : {0, 2}) {
                         // 10 defers 7-row writes until compaction merges 14 rows, 100 both;
-                        // without doc mode only a V2 column has a threshold
+                        // without doc mode a V1 column with a count of 0 has no threshold
                         for (int64_t min_rows : {0, 10, 100}) {
                             if (serialize_type == VariantSerializeTypePB::VARIANT_SERIALIZE_V1 &&
-                                min_rows != 0) {
+                                count == 0 && min_rows != 0) {
                                 continue;
                             }
                             cases.push_back({.layout = Layout::ORDINARY,

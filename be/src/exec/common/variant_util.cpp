@@ -202,8 +202,8 @@ void choose_doc_compaction_subpaths(const TabletSchema& target, const TabletColu
                                         paths_set_info);
 }
 
-// The subpaths of a column without doc mode. Below the row threshold (only V2 columns have one)
-// every path goes to the sparse column, also subcolumns that inputs already extracted.
+// The subpaths of a column without doc mode. Below the row threshold (a V1 column with a count of 0
+// has none) every path goes to the sparse column, also subcolumns that inputs already extracted.
 void choose_sparse_compaction_subpaths(const TabletColumn& column, int64_t input_rows,
                                        const PathToNoneNullValues& path_stats,
                                        VariantCompactionPaths& paths_set_info) {
@@ -1306,6 +1306,10 @@ Status VariantCompactionUtil::get_extended_compaction_schema(
             get_compaction_subcolumns_from_data_types(paths_set_info, column, target,
                                                       extended_info.path_to_data_types,
                                                       output_schema);
+        } else {
+            // under V2 it means no subcolumn: every dynamic path stays sparse, and a path chosen to
+            // be extracted would be dropped from the sparse column with no subcolumn to hold it
+            DORIS_CHECK(paths_set_info.sub_path_set.empty());
         }
 
         // append sparse column(s)

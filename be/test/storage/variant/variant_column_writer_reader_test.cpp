@@ -927,32 +927,53 @@ TEST(VariantPathBuilderTest, SelectsMaterializedAndSparsePathsInStableOrder) {
             {false, {"a", "b.c", "typed"}, {"a.c", "z"}},
             {true, {"a", "b.c"}, {"a.c", "z"}},
     };
+    const auto select = [&](size_t count, bool typed_paths_to_sparse,
+                            VariantSerializeTypePB serialize_type, size_t min_rows) {
+        segment_v2::VariantShredderOptions options;
+        options.max_subcolumns_count = count;
+        options.typed_paths_to_sparse = typed_paths_to_sparse;
+        options.serialize_type = serialize_type;
+        options.doc_materialization_min_rows = min_rows;
+        // the candidates come from a data file of 10 rows
+        return segment_v2::select_variant_paths(candidates, 10, options);
+    };
     for (const auto& test_case : cases) {
         SCOPED_TRACE(testing::Message()
                      << "typed_paths_to_sparse=" << test_case.typed_paths_to_sparse);
-        const auto selection =
-                segment_v2::select_variant_paths(candidates, 2, test_case.typed_paths_to_sparse,
-                                                 VariantSerializeTypePB::VARIANT_SERIALIZE_V1);
+        const auto selection = select(2, test_case.typed_paths_to_sparse,
+                                      VariantSerializeTypePB::VARIANT_SERIALIZE_V1, 0);
         EXPECT_EQ(selected_paths(selection.materialized), test_case.materialized);
         EXPECT_EQ(selected_paths(selection.sparse), test_case.sparse);
     }
     // A count of 0 materializes every dynamic path under V1 and none under V2; typed paths stay.
-    const auto v1_zero = segment_v2::select_variant_paths(
-            candidates, 0, false, VariantSerializeTypePB::VARIANT_SERIALIZE_V1);
+    const auto v1_zero = select(0, false, VariantSerializeTypePB::VARIANT_SERIALIZE_V1, 0);
     EXPECT_EQ(selected_paths(v1_zero.materialized),
               (std::vector<std::string> {"a", "a.c", "b.c", "typed", "z"}));
     EXPECT_TRUE(v1_zero.sparse.empty());
-    const auto v2_zero = segment_v2::select_variant_paths(
-            candidates, 0, false, VariantSerializeTypePB::VARIANT_SERIALIZE_V2);
+    const auto v2_zero = select(0, false, VariantSerializeTypePB::VARIANT_SERIALIZE_V2, 0);
     EXPECT_EQ(selected_paths(v2_zero.materialized), (std::vector<std::string> {"typed"}));
     EXPECT_EQ(selected_paths(v2_zero.sparse), (std::vector<std::string> {"a", "a.c", "b.c", "z"}));
     // with typed_paths_to_sparse the typed path is not materialized either; this one has no row, so
     // it is not stored at all
-    const auto v2_zero_typed_to_sparse = segment_v2::select_variant_paths(
-            candidates, 0, true, VariantSerializeTypePB::VARIANT_SERIALIZE_V2);
+    const auto v2_zero_typed_to_sparse =
+            select(0, true, VariantSerializeTypePB::VARIANT_SERIALIZE_V2, 0);
     EXPECT_TRUE(v2_zero_typed_to_sparse.materialized.empty());
     EXPECT_EQ(selected_paths(v2_zero_typed_to_sparse.sparse),
               (std::vector<std::string> {"a", "a.c", "b.c", "z"}));
+    // Below the row threshold no dynamic path is materialized under either serialize type; typed
+    // paths stay. At the threshold the count applies again.
+    for (const auto serialize_type : {VariantSerializeTypePB::VARIANT_SERIALIZE_V1,
+                                      VariantSerializeTypePB::VARIANT_SERIALIZE_V2}) {
+        SCOPED_TRACE(testing::Message() << "serialize_type=" << serialize_type);
+        const auto below = select(2, false, serialize_type, 11);
+        EXPECT_EQ(selected_paths(below.materialized), (std::vector<std::string> {"typed"}));
+        EXPECT_EQ(selected_paths(below.sparse),
+                  (std::vector<std::string> {"a", "a.c", "b.c", "z"}));
+        const auto at = select(2, false, serialize_type, 10);
+        EXPECT_EQ(selected_paths(at.materialized),
+                  (std::vector<std::string> {"a", "b.c", "typed"}));
+        EXPECT_EQ(selected_paths(at.sparse), (std::vector<std::string> {"a.c", "z"}));
+    }
 }
 
 TEST(VariantPathBuilderTest, ShredderReusesCanonicalPathsAcrossAppends) {
@@ -1008,7 +1029,7 @@ TEST(VariantShredderTest, SparseRowsUseByteOrderWithoutChangingStatisticsSelecti
             options.sparse_bucket_count = buckets;
             options.max_sparse_column_statistics_size = 1;
             options.doc_bucket_count = buckets;
-            // the default V1 column has no row threshold without doc mode
+            // the threshold is the doc layout's here; the ordinary layout keeps none
             options.doc_materialization_min_rows =
                     layout == segment_v2::VariantShredderPhysicalLayout::DOC ? 4 : 0;
             segment_v2::VariantShredder shredder(options);
@@ -1229,7 +1250,7 @@ TEST(VariantShredderTest, ChunkedBinaryTransposeMatchesSingleChunkForOrdinaryAnd
         SCOPED_TRACE(physical_layout == segment_v2::VariantShredderPhysicalLayout::ORDINARY
                              ? "ordinary"
                              : "doc");
-        // the default V1 column has no row threshold without doc mode
+        // the threshold is the doc layout's here; the ordinary layout keeps none
         const segment_v2::VariantShredderOptions options {
                 .physical_layout = physical_layout,
                 .max_subcolumns_count = 1,

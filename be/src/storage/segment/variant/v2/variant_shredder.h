@@ -55,7 +55,8 @@ struct VariantShredderOptions {
             BeConsts::DEFAULT_VARIANT_MAX_SPARSE_COLUMN_STATS_SIZE;
     uint32_t doc_bucket_count = 1;
     // variant_subcolumn_extraction_min_rows: a segment with fewer rows extracts no dynamic path
-    // (the doc layout no typed path either). Without doc mode a V1 column keeps it 0.
+    // (the doc layout no typed path either). Without doc mode a V1 column with a count of 0 keeps
+    // it 0.
     size_t doc_materialization_min_rows = 0;
     // Doc layout in compaction: the dynamic paths compaction chose for all doc buckets. Unset
     // chooses by max_subcolumns_count.

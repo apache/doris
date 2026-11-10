@@ -227,11 +227,16 @@ public class ColumnTest {
                 false, TVariantSerializeType.V2), false, null, true, null, "");
         ordinary.checkSchemaChangeAllowed(new Column("v", new VariantType(new ArrayList<>(), 2048, false, 10000, 2,
                 false, 100L, 0, false, TVariantSerializeType.V2), false, null, true, null, ""));
-        // without doc mode a column of an older version ignores the threshold, so it cannot take one
+        // a column of an older version with a count above 0 behaves as a new one and takes a threshold too
         Column oldOrdinary = new Column("v", new VariantType(new ArrayList<>(), 2048, false, 10000, 2, false, 0L, 0,
                 false, TVariantSerializeType.V1), false, null, true, null, "");
-        Assertions.assertThrows(DdlException.class, () -> oldOrdinary.checkSchemaChangeAllowed(new Column("v",
-                new VariantType(new ArrayList<>(), 2048, false, 10000, 2, false, 100L, 0, false,
+        oldOrdinary.checkSchemaChangeAllowed(new Column("v", new VariantType(new ArrayList<>(), 2048, false, 10000, 2,
+                false, 100L, 0, false, TVariantSerializeType.V2), false, null, true, null, ""));
+        // without doc mode a count of 0 on a column of an older version extracts every path, so it takes none
+        Column oldCountZero = new Column("v", new VariantType(new ArrayList<>(), 0, false, 10000, 2, false, 0L, 0,
+                false, TVariantSerializeType.V1), false, null, true, null, "");
+        Assertions.assertThrows(DdlException.class, () -> oldCountZero.checkSchemaChangeAllowed(new Column("v",
+                new VariantType(new ArrayList<>(), 0, false, 10000, 2, false, 100L, 0, false,
                         TVariantSerializeType.V2), false, null, true, null, "")));
 
         // a doc column can change it, also one of an older version
