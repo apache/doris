@@ -494,7 +494,7 @@ Status GroupCommitTable::_create_group_commit_load(
         request.__set_load_sql(ss.str());
         request.__set_loadId(tload_id);
         request.__set_label(label);
-        request.__set_token("group_commit"); // this is a fake, fe not check it now
+        request.__set_token(_exec_env->cluster_info()->curr_auth_token);
         request.__set_max_filter_ratio(1.0);
         request.__set_strictMode(false);
         request.__set_partial_update(false);
@@ -608,8 +608,6 @@ Status GroupCommitTable::_finish_group_commit_load(int64_t db_id, int64_t table_
         });
         // commit txn
         TLoadTxnCommitRequest request;
-        // deprecated and should be removed in 3.1, use token instead
-        request.__set_auth_code(0);
         request.__set_token(_exec_env->cluster_info()->curr_auth_token);
         request.__set_db_id(db_id);
         request.__set_table_id(table_id);
@@ -661,8 +659,6 @@ Status GroupCommitTable::_finish_group_commit_load(int64_t db_id, int64_t table_
     } else {
         // abort txn
         TLoadTxnRollbackRequest request;
-        // deprecated and should be removed in 3.1, use token instead
-        request.__set_auth_code(0);
         request.__set_token(_exec_env->cluster_info()->curr_auth_token);
         request.__set_db_id(db_id);
         request.__set_txnId(txn_id);

@@ -1480,9 +1480,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     }
 
     private TLoadTxnBeginResult loadTxnBeginImpl(TLoadTxnBeginRequest request, String clientIp) throws UserException {
-        if (request.isSetAuthCode()) {
-            // TODO: deprecated, removed in 3.1, use token instead.
-        } else if (Strings.isNullOrEmpty(request.getToken())) {
+        if (Strings.isNullOrEmpty(request.getToken())) {
             checkSingleTablePasswordAndPrivs(request.getUser(), request.getPasswd(), request.getDb(),
                     request.getTbl(), request.getUserIp(), PrivPredicate.LOAD,
                     toForwardedCertificateInfo(request.getCertBasedAuth()));
@@ -1751,9 +1749,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     }
 
     private void loadTxnPreCommitImpl(TLoadTxnCommitRequest request) throws UserException {
-        if (request.isSetAuthCode()) {
-            // TODO: deprecated, removed in 3.1, use token instead.
-        } else if (request.isSetToken()) {
+        if (request.isSetToken()) {
             if (!checkToken(request.getToken())) {
                 throw new AuthenticationException("Invalid token");
             }
@@ -1941,9 +1937,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     // return true if commit success and publish success, return false if publish
     // timeout
     private boolean loadTxnCommitImpl(TLoadTxnCommitRequest request) throws UserException {
-        if (request.isSetAuthCode()) {
-            // TODO: deprecated, removed in 3.1, use token instead.
-        } else if (request.isSetToken()) {
+        if (request.isSetToken()) {
             checkTokenOrThrow(request.getToken());
         } else {
             if (CollectionUtils.isNotEmpty(request.getTbls())) {
@@ -2080,9 +2074,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         List<Table> tableList = db.getTablesOnIdOrderOrThrowException(tableIdList);
 
         // Step 3: check auth
-        if (request.isSetAuthCode()) {
-            // TODO: deprecated, removed in 3.1, use token instead.
-        } else if (request.isSetToken()) {
+        if (request.isSetToken()) {
             checkTokenOrThrow(request.getToken());
         } else {
             List<String> tables = tableList.stream().map(Table::getName).collect(Collectors.toList());
@@ -2166,9 +2158,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     }
 
     private void loadTxnRollbackImpl(TLoadTxnRollbackRequest request) throws UserException {
-        if (request.isSetAuthCode()) {
-            // TODO: deprecated, removed in 3.1, use token instead.
-        } else if (request.isSetToken()) {
+        if (request.isSetToken()) {
             checkTokenOrThrow(request.getToken());
         } else {
             // multi table load
@@ -2285,9 +2275,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         List<Table> tableList = db.getTablesOnIdOrderOrThrowException(tableIdList);
 
         // Step 3: check auth
-        if (request.isSetAuthCode()) {
-            // TODO: deprecated, removed in 3.1, use token instead.
-        } else if (request.isSetToken()) {
+        if (request.isSetToken()) {
             checkTokenOrThrow(request.getToken());
         } else {
             List<String> tables = tableList.stream().map(Table::getName).collect(Collectors.toList());
@@ -2996,9 +2984,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             return;
         }
 
-        if (request.isSetAuthCode()) {
-            // TODO: deprecated, removed in 3.1, use token instead.
-        } else if (Strings.isNullOrEmpty(request.getToken())) {
+        if (Strings.isNullOrEmpty(request.getToken())) {
             checkSingleTablePasswordAndPrivs(request.getUser(), request.getPasswd(), request.getDb(),
                     request.getTbl(), request.getUserIp(), PrivPredicate.LOAD,
                     toForwardedCertificateInfo(request.getCertBasedAuth()));
@@ -3080,7 +3066,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TStatus status = new TStatus(TStatusCode.OK);
         result.setStatus(status);
 
-        StreamLoadHandler streamLoadHandler = new StreamLoadHandler(request, null, result, clientAddr);
+        StreamLoadHandler streamLoadHandler = new StreamLoadHandler(request, null, result);
 
         try {
             checkGroupCommitStreamLoadAuth(request);
@@ -3152,8 +3138,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         List planFragmentParamsList = new ArrayList<>();
         multiTableFragmentInstanceIdIndexMap.putIfAbsent(request.getTxnId(), new AtomicInteger(1));
         AtomicInteger index = multiTableFragmentInstanceIdIndexMap.get(request.getTxnId());
-        StreamLoadHandler streamLoadHandler = new StreamLoadHandler(request, index, null,
-                                                                    getClientAddrAsString());
+        StreamLoadHandler streamLoadHandler = new StreamLoadHandler(request, index, null);
         try {
             streamLoadHandler.generatePlan();
             planFragmentParamsList.addAll(streamLoadHandler.getFragmentParams());
@@ -3243,12 +3228,12 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
         ConnectContext ctx = ConnectContext.get();
 
-        if (request.isSetAuthCode()) {
-            // TODO: deprecated, removed in 3.1, use token instead.
-        } else if (Strings.isNullOrEmpty(request.getToken())) {
+        if (Strings.isNullOrEmpty(request.getToken())) {
             checkSingleTablePasswordAndPrivs(request.getUser(), request.getPasswd(), request.getDb(),
                     request.getTbl(),
                     request.getUserIp(), PrivPredicate.LOAD);
+        } else {
+            checkTokenOrThrow(request.getToken());
         }
         if (request.isSetMemtableOnSinkNode()) {
             ctx.getSessionVariable().enableMemtableOnSinkNode = request.isMemtableOnSinkNode();

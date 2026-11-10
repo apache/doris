@@ -78,20 +78,18 @@ public class StreamLoadHandler {
     private Boolean isMultiTableRequest;
     private AtomicInteger multiTableFragmentInstanceIdIndex;
     private TStreamLoadPutResult result;
-    private String clientAddr;
     private Database db;
     private List<OlapTable> tables = Lists.newArrayList();
     private long timeoutMs;
     private List fragmentParams = Lists.newArrayList();
 
     public StreamLoadHandler(TStreamLoadPutRequest request, AtomicInteger indexId,
-            TStreamLoadPutResult result, String clientAddr) {
+            TStreamLoadPutResult result) {
         this.request = request;
         this.timeoutMs = request.isSetThriftRpcTimeoutMs() ? request.getThriftRpcTimeoutMs() : 5000;
         this.isMultiTableRequest = indexId != null;
         this.multiTableFragmentInstanceIdIndex = indexId;
         this.result = result;
-        this.clientAddr = clientAddr;
     }
 
     /**
@@ -138,9 +136,9 @@ public class StreamLoadHandler {
             return;
         }
 
-        ctx.setRemoteIP(request.isSetAuthCode() ? clientAddr : request.getUserIp());
+        ctx.setRemoteIP(request.getUserIp());
         String userName = request.getUser();
-        if (!request.isSetToken() && !request.isSetAuthCode() && !Strings.isNullOrEmpty(userName)) {
+        if (!request.isSetToken() && !Strings.isNullOrEmpty(userName)) {
             ctx.setCurrentUserIdentity(resolveCloudLoadUserIdentity(userName));
         }
         if (request.isSetBackendId()) {
@@ -148,9 +146,9 @@ public class StreamLoadHandler {
             Backend backend = Env.getCurrentSystemInfo().getBackend(backendId);
             Preconditions.checkNotNull(backend);
             String computeGroup = backend.getCloudClusterName();
-            // Token/auth-code and user-less internal loads keep their existing trusted path. Regular
+            // Token and user-less internal loads keep their existing trusted path. Regular
             // stream loads must still validate compute group privilege, existence, and status.
-            if (request.isSetToken() || request.isSetAuthCode() || Strings.isNullOrEmpty(userName)) {
+            if (request.isSetToken() || Strings.isNullOrEmpty(userName)) {
                 ctx.setCloudCluster(computeGroup);
             } else {
                 ((CloudEnv) Env.getCurrentEnv()).changeCloudCluster(computeGroup, ctx);

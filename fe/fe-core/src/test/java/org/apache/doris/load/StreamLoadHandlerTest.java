@@ -99,7 +99,7 @@ public class StreamLoadHandlerTest {
         request.setDb("db");
         request.setTbl("tbl");
         request.setThriftRpcTimeoutMs(1);
-        StreamLoadHandler handler = new StreamLoadHandler(request, null, new TStreamLoadPutResult(), "127.0.0.1");
+        StreamLoadHandler handler = new StreamLoadHandler(request, null, new TStreamLoadPutResult());
         try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
             mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
             Deencapsulation.invoke(handler, "setDbAndTable");
@@ -139,7 +139,7 @@ public class StreamLoadHandlerTest {
         request.setDb("db");
         request.setTbl("tbl");
         TStreamLoadPutResult result = new TStreamLoadPutResult();
-        StreamLoadHandler handler = new StreamLoadHandler(request, null, result, "127.0.0.1");
+        StreamLoadHandler handler = new StreamLoadHandler(request, null, result);
         ExecutorService executor = Executors.newSingleThreadExecutor();
         Future<?> schemaChange = executor.submit(() -> {
             table.writeLock();
@@ -197,7 +197,7 @@ public class StreamLoadHandlerTest {
         Database database = new Database(17, "db");
         TStreamLoadPutRequest request = new TStreamLoadPutRequest();
         TStreamLoadPutResult result = new TStreamLoadPutResult();
-        StreamLoadHandler handler = new StreamLoadHandler(request, null, result, "127.0.0.1");
+        StreamLoadHandler handler = new StreamLoadHandler(request, null, result);
         Deencapsulation.setField(handler, "db", database);
         OlapTable first = Mockito.spy(new OlapTable());
         Mockito.doReturn(41L).when(first).getId();
@@ -215,7 +215,7 @@ public class StreamLoadHandlerTest {
     @Test
     public void testPlanningWithoutResponseDoesNotReadExtraSchemaMetadata() throws Exception {
         TStreamLoadPutRequest request = new TStreamLoadPutRequest();
-        StreamLoadHandler handler = new StreamLoadHandler(request, null, null, "127.0.0.1");
+        StreamLoadHandler handler = new StreamLoadHandler(request, null, null);
         OlapTable table = Mockito.spy(new OlapTable());
         generateMetadataPlan(handler, table, request);
         Mockito.verify(table, Mockito.never()).getBaseSchemaVersion();
@@ -259,7 +259,7 @@ public class StreamLoadHandlerTest {
             ConnectContext.remove();
 
             StreamLoadHandler handler = new StreamLoadHandler(
-                    request, null, new TStreamLoadPutResult(), "127.0.0.1");
+                    request, null, new TStreamLoadPutResult());
             handler.setCloudCluster();
 
             Assertions.assertEquals("backend_compute_group",
@@ -301,6 +301,7 @@ public class StreamLoadHandlerTest {
         request.setPasswd("test_password");
         request.setBackendId(backend.getId());
         request.setCloudCluster("header_compute_group");
+        request.setAuthCode(0);
         request.setGroupCommitMode("sync_mode");
 
         try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
@@ -310,7 +311,7 @@ public class StreamLoadHandlerTest {
             ConnectContext.remove();
 
             StreamLoadHandler handler = new StreamLoadHandler(
-                    request, null, new TStreamLoadPutResult(), "127.0.0.1");
+                    request, null, new TStreamLoadPutResult());
             try {
                 handler.setCloudCluster();
                 Assertions.fail("group commit should validate compute group privilege");
@@ -333,7 +334,7 @@ public class StreamLoadHandlerTest {
         TStreamLoadPutRequest request = new TStreamLoadPutRequest();
         request.setBackendId(20L);
         StreamLoadHandler handler = new StreamLoadHandler(
-                request, null, new TStreamLoadPutResult(), "127.0.0.1");
+                request, null, new TStreamLoadPutResult());
 
         TPipelineFragmentParams params = buildStreamLoadParams(createSingleBucketSink());
         handler.assignAdaptiveRandomBucket(params);
@@ -351,7 +352,7 @@ public class StreamLoadHandlerTest {
         TStreamLoadPutRequest request = new TStreamLoadPutRequest();
         request.setBackendId(10L);
         StreamLoadHandler handler = new StreamLoadHandler(
-                request, null, new TStreamLoadPutResult(), "127.0.0.1");
+                request, null, new TStreamLoadPutResult());
 
         TPipelineFragmentParams params = buildStreamLoadParams(createSingleBucketSink());
         handler.assignAdaptiveRandomBucket(params);
@@ -369,7 +370,7 @@ public class StreamLoadHandlerTest {
         request.setDb("test_db");
         request.setTbl("test_tbl");
         StreamLoadHandler handler = new StreamLoadHandler(
-                request, null, new TStreamLoadPutResult(), "127.0.0.1");
+                request, null, new TStreamLoadPutResult());
 
         TPipelineFragmentParams params = buildStreamLoadParams(createSingleBucketSink());
         handler.assignAdaptiveRandomBucket(params);
@@ -388,7 +389,7 @@ public class StreamLoadHandlerTest {
         TStreamLoadPutRequest request = new TStreamLoadPutRequest();
         request.setBackendId(20L);
         StreamLoadHandler handler = new StreamLoadHandler(
-                request, null, new TStreamLoadPutResult(), "127.0.0.1");
+                request, null, new TStreamLoadPutResult());
 
         TOlapTableSink sink = createSingleBucketSink();
         sink.getPartition().getPartitions().get(0).unsetLoadTabletIdx();
@@ -405,7 +406,7 @@ public class StreamLoadHandlerTest {
         TStreamLoadPutRequest request = new TStreamLoadPutRequest();
         request.setBackendId(20L);
         StreamLoadHandler handler = new StreamLoadHandler(
-                request, null, new TStreamLoadPutResult(), "127.0.0.1");
+                request, null, new TStreamLoadPutResult());
 
         TOlapTableSink sink = createSingleBucketSink();
         sink.getPartition().setPartitionsIsFake(true);
@@ -422,7 +423,7 @@ public class StreamLoadHandlerTest {
         TStreamLoadPutRequest request = new TStreamLoadPutRequest();
         request.setBackendId(20L);
         StreamLoadHandler handler = new StreamLoadHandler(
-                request, null, new TStreamLoadPutResult(), "127.0.0.1");
+                request, null, new TStreamLoadPutResult());
 
         TPipelineFragmentParams params = new TPipelineFragmentParams();
         TPlanFragment fragment = new TPlanFragment();

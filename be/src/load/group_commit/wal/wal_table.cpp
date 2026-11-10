@@ -22,6 +22,7 @@
 
 #include "io/fs/local_file_system.h"
 #include "io/fs/stream_load_pipe.h"
+#include "load/group_commit/wal/wal_file_reader.h"
 #include "load/group_commit/wal/wal_manager.h"
 #include "runtime/cluster_info.h"
 #include "runtime/fragment_mgr.h"
@@ -179,9 +180,6 @@ bool WalTable::_need_replay(std::shared_ptr<WalInfo> wal_info) {
 
 Status WalTable::_try_abort_txn(int64_t db_id, std::string& label) {
     TLoadTxnRollbackRequest request;
-    // this is a fake, fe not check it now
-    // should be removed in 3.1, use token instead
-    request.__set_auth_code(0);
     request.__set_token(_exec_env->cluster_info()->curr_auth_token);
     request.__set_db_id(db_id);
     request.__set_label(label);
@@ -276,8 +274,6 @@ Status WalTable::_handle_stream_load(int64_t wal_id, const std::string& wal,
         // wait stream load finish
         RETURN_IF_ERROR(ctx->load_status_future.get());
         if (ctx->status.ok()) {
-            // deprecated and should be removed in 3.1, use token instead.
-            ctx->auth.auth_code = wal_id;
             st = _exec_env->stream_load_executor()->commit_txn(ctx.get());
         } else {
             st = ctx->status;
