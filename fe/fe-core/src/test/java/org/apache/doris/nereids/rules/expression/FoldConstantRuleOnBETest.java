@@ -106,12 +106,16 @@ class FoldConstantRuleOnBETest extends ExpressionRewriteTestHelper {
     }
 
     @Test
-    void testFileNullCastsUseNativeLiteralFolding() {
+    void testFileNullAndIdentityCastsRemainForTypeChecking() {
         for (DataType type : ImmutableList.of(FileType.INSTANCE, ArrayType.of(FileType.INSTANCE),
                 MapType.of(StringType.INSTANCE, FileType.INSTANCE),
                 new StructType(ImmutableList.of(new StructField("f", FileType.INSTANCE, true, ""))))) {
-            Assertions.assertEquals(new NullLiteral(type), FoldConstantRuleOnFE.VISITOR_INSTANCE.rewrite(
-                    new Cast(new NullLiteral(), type), context));
+            for (Cast cast : ImmutableList.of(new Cast(new NullLiteral(), type),
+                    new Cast(new NullLiteral(type), type))) {
+                Assertions.assertFalse(CheckCast.check(cast.child().getDataType(), type, false));
+                Assertions.assertSame(cast, FoldConstantRuleOnFE.VISITOR_INSTANCE.rewrite(cast, context));
+                Assertions.assertTrue(collectConstants(cast).isEmpty());
+            }
         }
         ArrayType fileArray = ArrayType.of(FileType.INSTANCE);
         Cast arrayCast = new Cast(new ArrayLiteral(ImmutableList.of(new NullLiteral())), fileArray);

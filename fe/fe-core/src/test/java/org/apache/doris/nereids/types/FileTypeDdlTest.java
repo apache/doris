@@ -52,6 +52,7 @@ import org.junit.jupiter.api.Test;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.Map;
 import java.util.Optional;
 
 public class FileTypeDdlTest extends TestWithFeService {
@@ -61,6 +62,10 @@ public class FileTypeDdlTest extends TestWithFeService {
         connectContext.setDatabase("file_agg_state_ddl");
         createTable("CREATE TABLE ddl_base (id INT) DUPLICATE KEY(id) "
                 + "DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES('replication_num'='1')");
+        executeSql("CREATE RESOURCE 'file_ddl' PROPERTIES("
+                + "'type'='s3', 's3.endpoint'='http://127.0.0.1:1', 's3.region'='us-east-1', "
+                + "'s3.bucket'='file-test', 's3.access_key'='fake', 's3.secret_key'='fake', "
+                + "'s3_validity_check'='false')");
     }
 
     private ColumnDefinition column(String sql, boolean key, AggregateType agg, Optional<DefaultValue> value) {
@@ -90,13 +95,17 @@ public class FileTypeDdlTest extends TestWithFeService {
 
     @Test
     public void testCreateTableAndCtasRejectFileColumns() {
-        for (String sqlType : Arrays.asList("FILE", "ARRAY<FILE>", "STRUCT<f:FILE>", "MAP<STRING,FILE>")) {
+        String file = "to_file('file_ddl', null)";
+        for (Map.Entry<String, String> value : Map.of(
+                "FILE", file, "ARRAY<FILE>", "array(" + file + ")",
+                "STRUCT<f:FILE>", "named_struct('f', " + file + ")",
+                "MAP<STRING,FILE>", "map('f', " + file + ")").entrySet()) {
+            String sqlType = value.getKey();
             for (String ddl : Arrays.asList(
                     "CREATE TABLE ddl_file (id INT, f " + sqlType + ") DUPLICATE KEY(id) "
                             + "DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES('replication_num'='1')",
                     "CREATE TABLE ddl_ctas DISTRIBUTED BY HASH(id) BUCKETS 1 "
-                            + "PROPERTIES('replication_num'='1') AS SELECT 1 AS id, CAST(NULL AS "
-                            + sqlType + ") AS f")) {
+                            + "PROPERTIES('replication_num'='1') AS SELECT 1 AS id, " + value.getValue() + " AS f")) {
                 Exception error = Assertions.assertThrows(Exception.class, () -> createTable(ddl));
                 Assertions.assertTrue(error.getMessage().contains(
                         "FILE columns are not supported in internal tables"), error.getMessage());
