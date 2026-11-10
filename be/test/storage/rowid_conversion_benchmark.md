@@ -53,6 +53,10 @@ Each `ROWID_BENCH` / `ROWID_LARGE_BENCH` line reports bytes and milliseconds:
 
 These counters measure the compressed storage kernel and its reader workspaces. They exclude the benchmark's ordinary STL containers, allocator bookkeeping/RSS, the enclosing `RowIdConversion` source index/destination prefix, and other compaction/index/bitmap allocations. The enclosing map's index and prefix use tracked Doris allocators as well, but are exercised separately in the integration unit tests. Payload allocation requests now equal encoded bytes; allocator size-class rounding, fragmentation and bookkeeping remain outside these counters. Directory entries and codec/builder/cursor workspaces still count towards total and peak memory.
 
+## Single-block performance
+
+Steady-state 4096-row encoding and decoding costs are measured with Google Benchmark under `be/benchmark`, separate from the correctness and whole-map accounting UTs above. See [the benchmark guide](../../benchmark/rowid_conversion_benchmark.md) for Release build commands, distributions and timing boundaries.
+
 ## Correctness coverage and remaining validation
 
 `CompressedRowIdMapTest` covers all four representations, deletion holes, skipped blocks, tails, wide ordinals/gaps, independently owned payloads across source-container growth, independent source caches, backward seeks, malformed metadata/payload, allocation failure and balanced memory accounting. A separate billion-row EMPTY-source case checks the complete block directory without allocating or iterating a billion dense entries; it is not a billion-row compression benchmark.
