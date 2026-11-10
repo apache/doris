@@ -29,6 +29,14 @@ suite("consecutive_filters") {
     sql "insert into reorder_filter_b values (null,20),(1,21),(1,22),(3,23)"
     sql "insert into reorder_filter_c values (null,30),(1,31),(2,32),(4,33)"
 
+    // Leave filter pushdown to ReorderJoin so its retry sees consecutive filters.
+    // RAND() >= 0 keeps a volatile conjunct while producing a deterministic result.
+    order_qt_volatile_retry """
+        select /*+ SET_VAR(disable_nereids_rules='PUSH_DOWN_FILTER_THROUGH_JOIN') */ a.k, b.k
+        from reorder_filter_a a left join reorder_filter_b b on a.k = b.k
+        where a.k is null and b.k is null and rand() >= 0
+    """
+
     order_qt_left """
         with ab as (
             select a.k as ak, a.v as av, b.k as bk, b.v as bv
