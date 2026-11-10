@@ -510,6 +510,15 @@ Status Compaction::execute_merge_input_rowsets(MergeInputRowsetsContext* context
                 RETURN_IF_ERROR(_output_rs_writer->get_segment_num_rows(&destination_rows));
                 RETURN_IF_ERROR(_stats.rowid_conversion->finalize(destination_rows));
             }
+            if (_stats.rowid_conversion != nullptr) {
+                // Finalized storage excludes compression builders/workspaces, source identity
+                // indexes, visibility sets, consumer cursors and allocator overhead.
+                size_t storage_bytes = _stats.rowid_conversion->memory_usage();
+                _profile->add_info_string(
+                        "RowIdConversionStorage",
+                        fmt::format("{} ({} bytes)", PrettyPrinter::print_bytes(storage_bytes),
+                                    storage_bytes));
+            }
             // 2. Merge the remaining inverted index files of the string type
             RETURN_IF_ERROR(do_inverted_index_compaction());
         }
