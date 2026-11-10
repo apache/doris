@@ -23,9 +23,6 @@
 #include <bvar/bvar.h>
 #include <fmt/format.h>
 #include <gen_cpp/AgentService_types.h>
-#ifdef BE_TEST
-#include <gtest/gtest_prod.h>
-#endif
 
 #include <functional>
 #include <map>
@@ -79,20 +76,10 @@ public:
 
     AwsCredentialResult create_aws_credentials_provider(const io::S3AuthConfig& auth);
 
-    // The first valid path of config::ca_cert_file_paths, resolved lazily and cached; empty
-    // when none is valid yet, in which case the next call resolves it again.
-    std::string ca_cert_file_path() { return _get_ca_cert_file_path(); }
-
 private:
-#ifdef BE_TEST
-    FRIEND_TEST(S3ClientFactoryTest, RefreshCaCertForCredentialsProvider);
-#endif
-    std::string _get_ca_cert_file_path();
     AwsSdkManager();
 
     Aws::SDKOptions _aws_options;
-    std::mutex _ca_cert_lock;
-    std::string _ca_cert_file_path;
 };
 
 } // end namespace doris

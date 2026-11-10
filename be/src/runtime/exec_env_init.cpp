@@ -67,6 +67,7 @@
 #include "io/fs/hdfs_file_writer.h"
 #include "io/fs/local_file_reader.h"
 #include "io/fs/read_io_trace.h"
+#include "io/obj_storage/obj_client_factory.h"
 #include "load/channel/load_channel_mgr.h"
 #include "load/channel/load_stream_mgr.h"
 #include "load/group_commit/group_commit_mgr.h"
@@ -506,8 +507,9 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
 
     init_simdjson_parser();
 
-    // Make aws-sdk-cpp InitAPI and ShutdownAPI called in the same thread
-    AwsSdkManager::instance();
+    // Initialize the object storage SDKs: AWS InitAPI, so that ShutdownAPI runs in the same
+    // thread, and the Azure SDK log.
+    io::ObjClientFactory::instance();
     return Status::OK();
 }
 

@@ -77,6 +77,7 @@
 #include "cpp/sync_point.h"
 #include "io/fs/err_utils.h"
 #include "io/fs/obj_storage_file_system.h"
+#include "io/obj_storage/obj_client_ca.h"
 #include "io/obj_storage/obj_client_factory.h"
 #include "io/obj_storage/obj_client_holder.h"
 #include "io/obj_storage/obj_storage_config_resolver.h"
@@ -717,11 +718,7 @@ TEST_F(S3ClientFactoryTest, AwsCredentialsProvider) {
 TEST_F(S3ClientFactoryTest, RefreshCaCertForCredentialsProvider) {
     auto& factory = AwsSdkManager::instance();
     auto old_ca_cert_file_paths = config::ca_cert_file_paths;
-    std::string old_ca_cert_file_path;
-    {
-        std::lock_guard lock(factory._ca_cert_lock);
-        old_ca_cert_file_path = std::exchange(factory._ca_cert_file_path, "");
-    }
+    std::string old_ca_cert_file_path = io::exchange_obj_client_ca_cert_file_path_for_test("");
 
     auto ca_cert_file_path = std::filesystem::temp_directory_path() /
                              ("doris_s3_client_factory_ca_" + std::to_string(getpid()) + ".pem");
@@ -739,12 +736,8 @@ TEST_F(S3ClientFactoryTest, RefreshCaCertForCredentialsProvider) {
     }
     auto provider_with_ca = factory.create_aws_credentials_provider(role_conf).provider;
 
-    std::string refreshed_ca_cert_file_path;
-    {
-        std::lock_guard lock(factory._ca_cert_lock);
-        refreshed_ca_cert_file_path = factory._ca_cert_file_path;
-        factory._ca_cert_file_path = std::move(old_ca_cert_file_path);
-    }
+    std::string refreshed_ca_cert_file_path =
+            io::exchange_obj_client_ca_cert_file_path_for_test(std::move(old_ca_cert_file_path));
     config::ca_cert_file_paths = std::move(old_ca_cert_file_paths);
     std::filesystem::remove(ca_cert_file_path);
 

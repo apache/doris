@@ -32,6 +32,7 @@
 #include "cpp/obj_retry_strategy.h"
 #include "cpp/sync_point.h"
 #include "io/fs/gcs_signed_url_provider.h"
+#include "io/obj_storage/obj_client_ca.h"
 #include "io/obj_storage/obj_client_rate_limit.h"
 #include "util/s3_util.h"
 
@@ -63,7 +64,7 @@ Result<std::shared_ptr<ObjStorageClient>> S3ClientProvider::_build(
     }
     aws_config.region = s3.region;
 
-    auto ca_cert_file_path = AwsSdkManager::instance().ca_cert_file_path();
+    auto ca_cert_file_path = obj_client_ca_cert_file_path();
     if (!ca_cert_file_path.empty()) {
         aws_config.caFile = ca_cert_file_path;
     }

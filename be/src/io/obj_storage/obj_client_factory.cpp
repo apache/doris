@@ -29,6 +29,7 @@ ObjClientFactory::ObjClientFactory() {
     // local statics are destroyed in reverse order of construction, so the cached AWS
     // clients held by the providers are released before AwsSdkManager shuts the SDK down.
     AwsSdkManager::instance();
+    init_azure_sdk_logging();
 }
 
 ObjClientFactory& ObjClientFactory::instance() {

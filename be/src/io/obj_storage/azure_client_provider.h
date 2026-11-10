@@ -26,6 +26,10 @@
 
 namespace doris::io {
 
+// Routes the Azure SDK log to the BE log at config::azure_log_level. ObjClientFactory calls it
+// once on construction, which ExecEnv triggers at BE startup. Does nothing with BUILD_AZURE off.
+void init_azure_sdk_logging();
+
 // Builds, caches and reuses Azure Blob SDK clients. The header is SDK-free so that the
 // factory compiles with BUILD_AZURE off; _build reports NotSupported in that case.
 class AzureClientProvider {

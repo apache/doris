@@ -24,10 +24,12 @@
 
 #include "common/config.h"
 #include "common/logging.h"
+#include "io/obj_storage/obj_client_ca.h"
 #include "io/obj_storage/obj_client_rate_limit.h"
 #include "util/time.h"
 
 #ifdef USE_AZURE
+#include <azure/core/diagnostics/logger.hpp>
 #include <azure/core/http/curl_transport.hpp>
 #include <azure/storage/blobs/blob_container_client.hpp>
 #include <cstdlib>
@@ -38,7 +40,6 @@
 #include "cpp/obj-client/azure_obj_storage_client.h"
 #include "cpp/obj_retry_strategy.h"
 #include "cpp/util.h"
-#include "util/s3_util.h"
 #endif
 
 namespace doris::io {
@@ -90,6 +91,35 @@ size_t read_azure_client_cache_capacity() {
 
 } // namespace
 
+void init_azure_sdk_logging() {
+#ifdef USE_AZURE
+    auto azureLogLevel =
+            static_cast<Azure::Core::Diagnostics::Logger::Level>(config::azure_log_level);
+    Azure::Core::Diagnostics::Logger::SetLevel(azureLogLevel);
+    Azure::Core::Diagnostics::Logger::SetListener(
+            [&](Azure::Core::Diagnostics::Logger::Level level, const std::string& message) {
+                switch (level) {
+                case Azure::Core::Diagnostics::Logger::Level::Verbose:
+                    LOG(INFO) << message;
+                    break;
+                case Azure::Core::Diagnostics::Logger::Level::Informational:
+                    LOG(INFO) << message;
+                    break;
+                case Azure::Core::Diagnostics::Logger::Level::Warning:
+                    LOG(WARNING) << message;
+                    break;
+                case Azure::Core::Diagnostics::Logger::Level::Error:
+                    LOG(ERROR) << message;
+                    break;
+                default:
+                    LOG(WARNING) << "Unknown level: " << static_cast<int>(level)
+                                 << ", message: " << message;
+                    break;
+                }
+            });
+#endif
+}
+
 Result<std::shared_ptr<ObjStorageClient>> AzureClientProvider::get_or_create(
         const ObjClientConfig& config, const AzureClientConfig& azure) {
     // Checked before the cache lookup so that a cached client never outlives its SAS: every
@@ -127,7 +157,7 @@ Result<std::shared_ptr<ObjStorageClient>> AzureClientProvider::_build(
     options.Retry.StatusCodes.insert(Azure::Core::Http::HttpStatusCode::TooManyRequests);
     options.Retry.MaxRetries = config::max_s3_client_retry;
     options.PerRetryPolicies.emplace_back(std::make_unique<AzureRetryRecordPolicy>());
-    auto ca_cert_file_path = AwsSdkManager::instance().ca_cert_file_path();
+    auto ca_cert_file_path = obj_client_ca_cert_file_path();
     if (!ca_cert_file_path.empty()) {
         Azure::Core::Http::CurlTransportOptions curl_options;
         curl_options.CAInfo = ca_cert_file_path;
