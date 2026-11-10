@@ -26,6 +26,7 @@
 
 #include "common/config.h"
 #include "io/file_factory.h"
+#include "io/fs/file_reader.h"
 #include "io/fs/file_system.h"
 #include "io/fs/obj_storage_file_system.h"
 #include "io/fs/obj_storage_file_writer.h"
@@ -96,14 +97,17 @@ TEST(AzureTypedAccessTest, CreateFsTakesContainerAndKeysFromNativeLocations) {
     ASSERT_TRUE(std::holds_alternative<AzureClientConfig>(backend));
     EXPECT_EQ(std::get<AzureClientConfig>(backend).container, "c1");
 
-    // Every location form of the same file resolves to the same key.
+    // A known size lets us open the reader without sending a storage request.
+    FileReaderOptions options;
+    options.file_size = 1;
     for (const auto* path :
          {"abfss://c1@acct.dfs.core.windows.net/db/t/f.parquet",
           "wasbs://c1@acct.blob.core.windows.net/db/t/f.parquet",
           "https://acct.blob.core.windows.net/c1/db/t/f.parquet", "s3://c1/db/t/f.parquet"}) {
-        auto key = s3_fs->_get_key(Path(path));
-        ASSERT_TRUE(key.has_value()) << path << ": " << key.error();
-        EXPECT_EQ(key.value(), "db/t/f.parquet") << path;
+        FileReaderSPtr reader;
+        auto st = s3_fs->open_file(path, &reader, &options);
+        ASSERT_TRUE(st.ok()) << path << ": " << st;
+        EXPECT_EQ(reader->path().native(), "s3://c1/db/t/f.parquet") << path;
     }
 #else
     EXPECT_FALSE(fs.has_value());
