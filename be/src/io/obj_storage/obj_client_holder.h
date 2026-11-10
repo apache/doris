@@ -64,21 +64,18 @@ public:
     // the client if the result differs. This method is threadsafe. Resource and Storage Vault
     // refreshes are the callers.
     //
-    // The new client is built outside the lock and published only if no other reset or
-    // init published in between. Otherwise the update is rejected with Aborted rather than
-    // applied on top of a state it was not merged with, so overlapping resets cannot both
-    // win; the caller keeps the current state and retries with its next refresh.
-    //
-    // This detects overlap, not freshness: the holder cannot tell which caller fetched the
-    // newer configuration. A reset that starts after another one published still wins with
-    // whatever it carries, and of two overlapping resets the first to publish wins. Either
-    // way an older configuration may stay until the next refresh replaces it.
+    // The new client is built outside the lock. Of two overlapping resets the last to publish
+    // wins, as before the state became immutable. The merge keeps only the storage target,
+    // which no reset changes, so the winner carries its whole update whichever state it was
+    // merged with. For example, reset(sk1) and reset(sk2) that overlap leave sk1 or sk2, never
+    // a mix. The holder cannot tell which caller fetched the newer configuration, so an older
+    // one may stay until the next refresh replaces it.
     Status reset(const ObjClientConfig& update);
 
     // Replaces the state with `config` as it is, without merging, which allows another backend.
     // Readers keep the holder they resolved once, so moving the holder to another backend while
     // the bucket and prefix stay reaches all of them (ObjStorageFileSystem::refresh_resource).
-    // The client is built and published like in reset(), with the same overlap check.
+    // The client is built and published like in reset().
     Status rebind(const ObjClientConfig& config);
 
     // Takes this holder out of service for the life of the process, because what it points at is
@@ -122,9 +119,8 @@ public:
 #endif
 
 private:
-    // Replaces the state with (config, client) if `expected` is still current.
-    Status _publish(const std::shared_ptr<const ObjClientState>& expected, ObjClientConfig config,
-                    std::shared_ptr<ObjStorageClient> client);
+    // Replaces the state with (config, client), unless the holder was invalidated.
+    Status _publish(ObjClientConfig config, std::shared_ptr<ObjStorageClient> client);
 
     mutable std::shared_mutex _mtx;
     std::shared_ptr<const ObjClientState> _state;
