@@ -174,7 +174,7 @@ TEST_F(PipelineTest, ParallelPrepareTaskThreshold) {
     context->_params.local_params.resize(32);
     context->_pipelines.emplace_back(std::make_shared<Pipeline>(0, 32, 32));
 
-    // An unset optional threshold preserves the serial path for older requests.
+    // An explicitly unset threshold presence flag preserves the serial path.
     _query_options.__isset.parallel_prepare_threshold = false;
     context->_runtime_state->set_query_options(_query_options);
     EXPECT_FALSE(context->_should_prepare_tasks_in_parallel());

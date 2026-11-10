@@ -1819,8 +1819,9 @@ public class SessionVariable implements Serializable, Writable {
     public boolean trimTailingSpacesForExternalTableQuery = false;
 
     @VarAttrDef.VarAttr(name = PARALLEL_PREPARE_THRESHOLD, needForward = true, fuzzy = true,
-            description = "Prepare local instances in parallel when the fragment's pipeline task count "
-                    + "exceeds this threshold.")
+            description = "Prepare local instances in parallel when there is more than one local instance "
+                    + "and the fragment's pipeline task count exceeds this threshold. "
+                    + "Negative values disable parallel preparation.")
     public int parallelPrepareThreshold = 32;
 
     @VarAttrDef.VarAttr(name = READ_HIVE_JSON_IN_ONE_COLUMN,

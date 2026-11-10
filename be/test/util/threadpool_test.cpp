@@ -43,6 +43,7 @@
 #include "absl/strings/substitute.h"
 #include "common/logging.h"
 #include "common/status.h"
+#include "cpp/sync_point.h"
 #include "gtest/gtest.h"
 #include "util/barrier.h"
 #include "util/countdown_latch.h"
@@ -82,6 +83,206 @@ public:
 protected:
     std::unique_ptr<ThreadPool> _pool;
 };
+
+class ThreadPoolCreationFailureTest : public ThreadPoolTest {
+public:
+    void SetUp() override {
+        ThreadPoolTest::SetUp();
+        SyncPoint::get_instance()->enable_processing();
+    }
+
+    void TearDown() override {
+        _pool->shutdown();
+        SyncPoint::get_instance()->clear_call_back("ThreadPool::create_thread");
+        SyncPoint::get_instance()->clear_call_back("ThreadPool::dispatch_thread.idle");
+        SyncPoint::get_instance()->clear_call_back("ThreadPool::dispatch_thread.exit");
+        SyncPoint::get_instance()->disable_processing();
+    }
+};
+
+TEST_F(ThreadPoolCreationFailureTest, RejectedTaskIsNotRunAfterRecovery) {
+    ASSERT_TRUE(rebuild_pool_with_min_max(0, 1).ok());
+    auto rejected_runs = std::make_shared<std::atomic<int>>(0);
+    auto token = _pool->new_token(ThreadPool::ExecutionMode::SERIAL);
+    auto fail = [&, target_pool = _pool.get()](auto&& args) {
+        auto* params = try_any_cast<std::pair<ThreadPool*, Status>*>(args[0]);
+        if (params->first == target_pool) {
+            params->second = Status::RuntimeError("injected worker creation failure");
+        }
+    };
+    SyncPoint::get_instance()->set_call_back("ThreadPool::create_thread", fail);
+    EXPECT_FALSE(token->submit_func([rejected_runs] { ++*rejected_runs; }).ok());
+    EXPECT_EQ(0, _pool->get_queue_size());
+    EXPECT_EQ(0, _pool->num_threads());
+    EXPECT_EQ(ThreadPoolToken::State::IDLE, token->state());
+    EXPECT_EQ(0, token->_num_submitted_tasks);
+    EXPECT_EQ(0, token->_num_unsubmitted_tasks);
+
+    SyncPoint::get_instance()->clear_call_back("ThreadPool::create_thread");
+    auto sentinel_runs = std::make_shared<std::atomic<int>>(0);
+    ASSERT_TRUE(token->submit_func([sentinel_runs] { ++*sentinel_runs; }).ok());
+    EXPECT_TRUE(_pool->wait_for(std::chrono::seconds(5)));
+    token->shutdown();
+    EXPECT_EQ(0, rejected_runs->load());
+    EXPECT_EQ(1, sentinel_runs->load());
+}
+
+TEST_F(ThreadPoolCreationFailureTest, OverlappingBootstrapFailureAndSubmission) {
+    ASSERT_TRUE(rebuild_pool_with_min_max(0, 1).ok());
+    CountDownLatch creating(1), release_creation(1), second_started(1);
+    auto rejected_runs = std::make_shared<std::atomic<int>>(0);
+    auto accepted_runs = std::make_shared<std::atomic<int>>(0);
+    std::atomic<int> attempts = 0;
+    Status first_status, second_status;
+    std::thread first, second;
+    Defer cleanup = [&] {
+        release_creation.count_down();
+        if (first.joinable()) {
+            first.join();
+        }
+        if (second.joinable()) {
+            second.join();
+        }
+        _pool->shutdown();
+    };
+    auto fail_first = [&, target_pool = _pool.get()](auto&& args) {
+        auto* params = try_any_cast<std::pair<ThreadPool*, Status>*>(args[0]);
+        if (params->first == target_pool && ++attempts == 1) {
+            creating.count_down();
+            release_creation.wait();
+            params->second = Status::RuntimeError("injected bootstrap failure");
+        }
+    };
+    SyncPoint::get_instance()->set_call_back("ThreadPool::create_thread", fail_first);
+    first = std::thread(
+            [&] { first_status = _pool->submit_func([rejected_runs] { ++*rejected_runs; }); });
+    ASSERT_TRUE(creating.wait_for(std::chrono::seconds(5)));
+    second = std::thread([&] {
+        second_started.count_down();
+        second_status = _pool->submit_func([accepted_runs] { ++*accepted_runs; });
+    });
+    ASSERT_TRUE(second_started.wait_for(std::chrono::seconds(5)));
+    release_creation.count_down();
+    first.join();
+    second.join();
+    EXPECT_FALSE(first_status.ok());
+    EXPECT_TRUE(second_status.ok());
+    EXPECT_TRUE(_pool->wait_for(std::chrono::seconds(5)));
+    EXPECT_EQ(2, attempts.load());
+    EXPECT_EQ(0, rejected_runs->load());
+    EXPECT_EQ(1, accepted_runs->load());
+}
+
+TEST_F(ThreadPoolCreationFailureTest, GrowthFailureKeepsAcceptedTasksAndLastWorker) {
+    ASSERT_TRUE(rebuild_pool_with_builder(ThreadPoolBuilder(kDefaultPoolName)
+                                                  .set_min_threads(0)
+                                                  .set_max_threads(2)
+                                                  .set_idle_timeout(std::chrono::milliseconds(1)))
+                        .ok());
+    CountDownLatch running(1), release_task(1), creating(1), release_creation(1), idled_twice(2);
+    std::atomic<int> accepted_runs = 0;
+    Status submit_status;
+    std::thread submitter;
+    Defer cleanup = [&] {
+        release_task.count_down();
+        release_creation.count_down();
+        if (submitter.joinable()) {
+            submitter.join();
+        }
+        _pool->shutdown();
+    };
+    ASSERT_TRUE(_pool->submit_func([&] {
+                         running.count_down();
+                         release_task.wait();
+                     }).ok());
+    ASSERT_TRUE(running.wait_for(std::chrono::seconds(5)));
+    auto fail_growth = [&, target_pool = _pool.get()](auto&& args) {
+        auto* params = try_any_cast<std::pair<ThreadPool*, Status>*>(args[0]);
+        if (params->first == target_pool) {
+            creating.count_down();
+            release_creation.wait();
+            params->second = Status::RuntimeError("injected growth failure");
+        }
+    };
+    auto idle = [&, target_pool = _pool.get()](auto&& args) {
+        auto* pool = try_any_cast<ThreadPool*>(args[0]);
+        if (pool == target_pool) {
+            idled_twice.count_down();
+        }
+    };
+    SyncPoint::get_instance()->set_call_back("ThreadPool::create_thread", fail_growth);
+    SyncPoint::get_instance()->set_call_back("ThreadPool::dispatch_thread.idle", idle);
+    submitter = std::thread([&] { submit_status = _pool->submit_func([&] { ++accepted_runs; }); });
+    ASSERT_TRUE(creating.wait_for(std::chrono::seconds(5)));
+    // Pending starts must not evict the last live worker after a concurrent shrink.
+    ASSERT_TRUE(_pool->set_max_threads(1).ok());
+    release_task.count_down();
+    ASSERT_TRUE(idled_twice.wait_for(std::chrono::seconds(5)));
+    EXPECT_EQ(2, _pool->num_threads()); // One live worker plus the unconfirmed start.
+    EXPECT_EQ(1, accepted_runs.load());
+    release_creation.count_down();
+    submitter.join();
+    EXPECT_TRUE(submit_status.ok());
+    EXPECT_TRUE(_pool->wait_for(std::chrono::seconds(5)));
+    EXPECT_EQ(1, accepted_runs.load());
+}
+
+TEST_F(ThreadPoolCreationFailureTest, ShutdownWaitsForFailedPendingStart) {
+    ASSERT_TRUE(rebuild_pool_with_min_max(0, 2).ok());
+    CountDownLatch running(1), release_task(1), creating(1), release_creation(1), worker_exited(1),
+            shutdown_done(1);
+    Status submit_status;
+    std::thread submitter, shutdown;
+    Defer cleanup = [&] {
+        release_task.count_down();
+        release_creation.count_down();
+        if (submitter.joinable()) {
+            submitter.join();
+        }
+        _pool->_no_threads_cond.notify_all();
+        if (shutdown.joinable()) {
+            shutdown.join();
+        }
+        _pool->shutdown();
+    };
+    ASSERT_TRUE(_pool->submit_func([&] {
+                         running.count_down();
+                         release_task.wait();
+                     }).ok());
+    ASSERT_TRUE(running.wait_for(std::chrono::seconds(5)));
+    auto fail_growth = [&, target_pool = _pool.get()](auto&& args) {
+        auto* params = try_any_cast<std::pair<ThreadPool*, Status>*>(args[0]);
+        if (params->first == target_pool) {
+            creating.count_down();
+            release_creation.wait();
+            params->second = Status::RuntimeError("injected growth failure");
+        }
+    };
+    auto exited = [&, target_pool = _pool.get()](auto&& args) {
+        auto* pool = try_any_cast<ThreadPool*>(args[0]);
+        if (pool == target_pool) {
+            worker_exited.count_down();
+        }
+    };
+    SyncPoint::get_instance()->set_call_back("ThreadPool::create_thread", fail_growth);
+    SyncPoint::get_instance()->set_call_back("ThreadPool::dispatch_thread.exit", exited);
+    submitter = std::thread([&] { submit_status = _pool->submit_func([] {}); });
+    ASSERT_TRUE(creating.wait_for(std::chrono::seconds(5)));
+    shutdown = std::thread([&] {
+        _pool->shutdown();
+        shutdown_done.count_down();
+    });
+    release_task.count_down();
+    ASSERT_TRUE(worker_exited.wait_for(std::chrono::seconds(5)));
+    EXPECT_EQ(1, _pool->num_threads()); // Only the unconfirmed start remains.
+    release_creation.count_down();
+    submitter.join();
+    ASSERT_TRUE(shutdown_done.wait_for(std::chrono::seconds(5)));
+    shutdown.join();
+    EXPECT_TRUE(submit_status.ok());
+    EXPECT_EQ(0, _pool->num_threads());
+    EXPECT_EQ(0, _pool->get_queue_size());
+}
 
 TEST_F(ThreadPoolTest, TestNoTaskOpenClose) {
     EXPECT_TRUE(rebuild_pool_with_min_max(4, 4).ok());

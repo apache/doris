@@ -194,7 +194,7 @@ public:
     //       require an explicit "abort" notification to exit from the run loop.
     void shutdown();
 
-    // Submits a Runnable class.
+    // Submits a Runnable class. A non-OK status guarantees it will not be run by this pool.
     Status submit(std::shared_ptr<Runnable> r);
 
     // Submits a function bound using std::bind(&FuncName, args...).
@@ -304,8 +304,9 @@ private:
 
     // Create new thread.
     //
-    // REQUIRES: caller has incremented '_num_threads_pending_start' ahead of this call.
-    // NOTE: For performance reasons, _lock should not be held.
+    // The caller accounts for successful starts in '_num_threads_pending_start' under _lock.
+    // Pool growth reserves the pending start before unlocking; bootstrap holds _lock until
+    // creation succeeds so that no submitter can depend on an unconfirmed first worker.
     Status create_thread();
 
     // Aborts if the current thread is a member of this thread pool.

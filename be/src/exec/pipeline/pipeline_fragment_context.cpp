@@ -590,8 +590,8 @@ Status PipelineFragmentContext::_build_pipeline_tasks_for_instance(
 bool PipelineFragmentContext::_should_prepare_tasks_in_parallel() const {
     const auto& options = _runtime_state->query_options();
     const auto num_instances = _params.local_params.size();
-    // Jobs are split by local instance; a singleton has no parallel work. Older requests
-    // without the optional threshold must retain their existing serial preparation path.
+    // Jobs are split by local instance; a singleton has no parallel work. An explicitly unset
+    // threshold presence flag must retain the existing serial preparation path.
     if (num_instances <= 1 || !options.__isset.parallel_prepare_threshold) {
         return false;
     }

@@ -36,6 +36,10 @@
 #include "util/stopwatch.hpp"
 #include "util/thread.h"
 
+#ifdef BE_TEST
+#include "cpp/sync_point.h"
+#endif
+
 namespace doris {
 // The name of these varialbs will be useds as metric name in prometheus.
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(thread_pool_active_threads, MetricUnit::NOUNIT);
@@ -449,6 +453,14 @@ Status ThreadPool::do_submit(std::shared_ptr<Runnable> r, ThreadPoolToken* token
                 _max_queue_size);
     }
 
+    // Bootstrap before accepting the task. Hold the lock so another submitter cannot
+    // rely on a worker whose creation may still fail. Existing workers can continue
+    // processing tasks during subsequent (unlocked) pool growth below.
+    if (_num_threads + _num_threads_pending_start == 0 && _max_threads > 0) {
+        RETURN_IF_ERROR(create_thread());
+        ++_num_threads_pending_start;
+    }
+
     // Should we create another thread?
 
     // We assume that each current inactive thread will grab one item from the
@@ -521,11 +533,11 @@ Status ThreadPool::do_submit(std::shared_ptr<Runnable> r, ThreadPoolToken* token
             l.lock();
             _num_threads_pending_start--;
             if (_num_threads + _num_threads_pending_start == 0) {
-                // If we have no threads, we can't do any work.
-                return status;
+                // Shutdown may have released the last worker while creation was pending.
+                _no_threads_cond.notify_all();
             }
-            // If we failed to create a thread, but there are still some other
-            // worker threads, log a warning message and continue.
+            // The task has already been accepted (and may even have run). A growth
+            // failure must not report it as rejected.
             LOG(WARNING) << "Thread pool " << _name
                          << " failed to create thread: " << status.to_string();
         }
@@ -563,11 +575,16 @@ void ThreadPool::dispatch_thread() {
             break;
         }
 
-        if (_num_threads + _num_threads_pending_start > _max_threads) {
+        // Pending starts may fail; enforce a reduced limit using live workers only.
+        // E.g. with one live worker, one pending start and max=1, retain the live worker.
+        if (_num_threads > _max_threads) {
             break;
         }
 
         if (_queue.empty()) {
+#ifdef BE_TEST
+            TEST_SYNC_POINT_CALLBACK("ThreadPool::dispatch_thread.idle", this);
+#endif
             // There's no work to do, let's go idle.
             //
             // Note: if FIFO behavior is desired, it's as simple as changing this to push_back().
@@ -587,7 +604,10 @@ void ThreadPool::dispatch_thread() {
                 // brief period during which another thread may actually grab the internal mutex
                 // protecting the state, signal, and release again before we get the mutex. So,
                 // we'll recheck the empty queue case regardless.
-                if (_queue.empty() && _num_threads + _num_threads_pending_start > _min_threads) {
+                // Keep the last live worker until all unlocked creation attempts finish:
+                // a pending attempt may fail after submitters have accepted more work.
+                if (_queue.empty() && _num_threads > _min_threads &&
+                    (_num_threads > 1 || _num_threads_pending_start == 0)) {
                     VLOG_NOTICE << "Releasing worker thread from pool " << _name << " after "
                                 << std::chrono::duration_cast<std::chrono::milliseconds>(
                                            _idle_timeout)
@@ -676,6 +696,9 @@ void ThreadPool::dispatch_thread() {
 
     CHECK_EQ(_threads.erase(Thread::current_thread()), 1);
     _num_threads--;
+#ifdef BE_TEST
+    TEST_SYNC_POINT_CALLBACK("ThreadPool::dispatch_thread.exit", this);
+#endif
     if (_num_threads + _num_threads_pending_start == 0) {
         _no_threads_cond.notify_all();
 
@@ -687,6 +710,11 @@ void ThreadPool::dispatch_thread() {
 }
 
 Status ThreadPool::create_thread() {
+#ifdef BE_TEST
+    std::pair<ThreadPool*, Status> args {this, Status::OK()};
+    TEST_SYNC_POINT_CALLBACK("ThreadPool::create_thread", &args);
+    RETURN_IF_ERROR(args.second);
+#endif
     return Thread::create("thread pool", absl::Substitute("$0 [worker]", _name),
                           &ThreadPool::dispatch_thread, this, nullptr);
 }
