@@ -5234,13 +5234,12 @@ protected:
     InstanceChecker checker {txn_kv, instance_id};
 };
 
-// Puts the data objects of `from` into `to` under `prefix`, as storage seen by both vaults
-static void copy_data_objects(StorageVaultAccessor* from, StorageVaultAccessor* to,
-                              const std::string& prefix = "") {
+// Puts the data objects of `from` into `to`, as storage seen by both vaults
+static void copy_data_objects(StorageVaultAccessor* from, StorageVaultAccessor* to) {
     std::unique_ptr<ListIterator> list_iter;
     ASSERT_EQ(from->list_directory("data", &list_iter), 0);
     for (auto file = list_iter->next(); file.has_value(); file = list_iter->next()) {
-        ASSERT_EQ(to->put_file(prefix + file->path, ""), 0);
+        ASSERT_EQ(to->put_file(file->path, ""), 0);
     }
 }
 
@@ -5279,27 +5278,6 @@ TEST_F(InvertedCheckTest, same_location_once) {
         create_committed_rowset(txn_kv.get(), accessor.get(), "vault1", t, 0, t * 2, 1, 0);
     }
     ASSERT_EQ(accessor->put_file(segment_path(10030, next_rowset_id(), 0), ""), 0);
-    ASSERT_EQ(checker.do_inverted_check(), 1);
-    ASSERT_EQ(num_scanned(), 11);
-    ASSERT_EQ(num_leaks(), 1);
-}
-
-TEST_F(InvertedCheckTest, nested_vault) {
-    // The prefix of the child vault is inside the data directory of the parent vault, so the parent
-    // also lists the child objects, under data/data/
-    auto parent = add_vault("parent", StorageRoot {.container = "bucket", .prefix = "root"});
-    auto child = add_vault("child", StorageRoot {.container = "bucket", .prefix = "root/data"});
-    for (int t = 10001; t <= 10005; ++t) {
-        create_committed_rowset(txn_kv.get(), parent.get(), "parent", t, 0, t * 2, 1, 0);
-    }
-    for (int t = 10011; t <= 10015; ++t) {
-        create_committed_rowset(txn_kv.get(), child.get(), "child", t, 0, t * 2, 1, 0);
-    }
-    auto leak = segment_path(10030, next_rowset_id(), 0);
-    ASSERT_EQ(child->put_file(leak, ""), 0);
-    copy_data_objects(child.get(), parent.get(), "data/");
-
-    // The child objects are only checked as objects of the child vault
     ASSERT_EQ(checker.do_inverted_check(), 1);
     ASSERT_EQ(num_scanned(), 11);
     ASSERT_EQ(num_leaks(), 1);

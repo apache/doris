@@ -1074,18 +1074,6 @@ int InstanceChecker::do_inverted_check() {
             continue;
         }
         const StorageRoot& root = accessor->root();
-        // Another vault root may be nested in the listed data, e.g. prefix "root/data" in "root"
-        // is listed here as data/data/...: skip it, it is checked when its own vault is listed
-        std::string listed_dir = root.prefix.empty() ? "data/" : root.prefix + "/data/";
-        std::vector<std::string> nested_dirs;
-        for (auto& [_, other] : accessor_map_) {
-            const StorageRoot& other_root = other->root();
-            std::string other_dir = other_root.prefix + "/data/";
-            if (other_root.container == root.container && other_root.prefix != root.prefix &&
-                other_dir.starts_with(listed_dir)) {
-                nested_dirs.push_back("data/" + other_dir.substr(listed_dir.size()));
-            }
-        }
         std::unique_ptr<ListIterator> list_iter;
         // A vault that fails to list does not stop the check of the others
         int ret = accessor->list_directory("data", &list_iter);
@@ -1104,10 +1092,6 @@ int InstanceChecker::do_inverted_check() {
             const auto& path = file->path;
             if (path == "data/packed_file" || path.starts_with("data/packed_file/")) {
                 continue; // packed_file has dedicated check logic
-            }
-            if (std::ranges::any_of(nested_dirs,
-                                    [&](const auto& dir) { return path.starts_with(dir); })) {
-                continue; // checked when the vault of the nested root is listed
             }
             ++num_scanned;
             int ret = check_segment_file(path, root);
