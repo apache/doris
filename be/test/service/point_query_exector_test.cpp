@@ -550,7 +550,7 @@ protected:
         EXPECT_TRUE(io::global_local_filesystem()->delete_directory(kTestDir).ok());
     }
 
-    Status create_tablet() {
+    Status create_tablet(bool partial_row_store = false) {
         TabletMetaPB meta_pb;
         meta_pb.set_tablet_id(987654);
         meta_pb.set_enable_unique_key_merge_on_write(true);
@@ -562,6 +562,10 @@ protected:
         schema_pb->set_next_column_unique_id(5);
         schema_pb->set_delete_sign_idx(3);
         schema_pb->set_store_row_column(true);
+        if (partial_row_store) {
+            schema_pb->add_row_store_column_unique_ids(0);
+            schema_pb->add_row_store_column_unique_ids(1);
+        }
         auto add_column = [&](int uid, const std::string& name, const std::string& type, int length,
                               bool nullable) {
             auto* column = schema_pb->add_column();
@@ -691,6 +695,7 @@ protected:
             output_exprs.push_back(expr);
         }
         TQueryOptions options;
+        options.__set_enable_short_circuit_query_access_column_store(true);
         executor->_tablet = _tablet;
         executor->_reusable = std::make_shared<Reusable>();
         RETURN_IF_ERROR(executor->_reusable->init(descriptor, output_exprs, options,
@@ -833,6 +838,32 @@ TEST_P(PointQuerySegmentReuseTest, LookupUpAndRowCacheHit) {
             }
         }
         evict_segments();
+    }
+}
+
+// NOLINTNEXTLINE(readability-function-cognitive-complexity): compare both executions with the same expected rows and cache metrics.
+TEST_P(PointQuerySegmentReuseTest, PartialRowStoreDoesNotUseRowCache) {
+    ASSERT_EQ(Status::OK(), create_tablet(true));
+    ASSERT_FALSE(_tablet->tablet_schema()->has_row_store_for_all_columns());
+    config::disable_storage_row_cache = false;
+    // v2 (including SQL NULL) and the delete sign must come from the column store.
+    const std::vector<std::string> expected_rows {"\00230\003300\0043000", "\00210\003100\0041000",
+                                                  "\00240\003400\0044000", "\00211\003110\373"};
+    for (int run = 0; run < 2; ++run) {
+        PointQueryExecutor executor;
+        PTabletKeyLookupResponse response;
+        ASSERT_EQ(Status::OK(), prepare_executor(&executor, {30, 10, 40, 11}));
+        executor._response = &response;
+        ASSERT_EQ(Status::OK(), executor.lookup_up());
+        EXPECT_FALSE(response.empty_batch());
+        TResultBatch batch;
+        auto length = static_cast<uint32_t>(response.row_batch().size());
+        ASSERT_TRUE(deserialize_thrift_msg(
+                            reinterpret_cast<const uint8_t*>(response.row_batch().data()), &length,
+                            false, &batch)
+                            .ok());
+        EXPECT_EQ(batch.rows, expected_rows);
+        EXPECT_EQ(executor._profile_metrics.row_cache_hits, 0);
     }
 }
 

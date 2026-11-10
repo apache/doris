@@ -498,6 +498,14 @@ Status PointQueryExecutor::_init_keys(const PTabletKeyLookupRequest* request) {
     return Status::OK();
 }
 
+bool PointQueryExecutor::_use_row_cache() const {
+    // RowCache holds the hidden row-store value. With row_store_columns="id,v", a hit
+    // cannot supply the other columns or the delete sign, and the write path only
+    // invalidates full-row entries (MowKeyProbe::maybe_invalidate_row_cache).
+    return !config::disable_storage_row_cache &&
+           _tablet->tablet_schema()->has_row_store_for_all_columns();
+}
+
 Status PointQueryExecutor::_lookup_row_key() {
     SCOPED_TIMER(&_profile_metrics.lookup_key_ns);
     // 2. lookup row location
@@ -518,9 +526,10 @@ Status PointQueryExecutor::_lookup_row_key() {
     io_ctx.file_cache_stats = &_profile_metrics.read_stats.file_cache_stats;
     io_ctx.remote_scan_cache_write_limiter = _remote_scan_cache_write_limiter.get();
     std::vector<std::unique_ptr<SegmentCacheHandle>> segment_caches(specified_rowsets.size());
+    const bool use_row_cache = _use_row_cache();
     for (size_t i = 0; i < _row_read_ctxs.size(); ++i) {
         RowLocation location;
-        if (!config::disable_storage_row_cache) {
+        if (use_row_cache) {
             RowCache::CacheHandle cache_handle;
             auto hit_cache = RowCache::instance()->lookup(
                     {_tablet->tablet_id(), _row_read_ctxs[i]._primary_key}, &cache_handle);
@@ -554,6 +563,7 @@ Status PointQueryExecutor::_lookup_row_key() {
 Status PointQueryExecutor::_lookup_row_data() {
     // 3. get values
     SCOPED_TIMER(&_profile_metrics.lookup_data_ns);
+    const bool use_row_cache = _use_row_cache();
     std::shared_ptr<io::FileRangeReadContext> read_ahead_context;
     if (segment_v2::SegmentReadAhead::enabled()) {
         auto* scheduler = ExecEnv::GetInstance()->file_range_read_scheduler();
@@ -579,7 +589,6 @@ Status PointQueryExecutor::_lookup_row_data() {
             std::string value;
             // fill block by row store
             if (_reusable->rs_column_uid() != -1) {
-                bool use_row_cache = !config::disable_storage_row_cache;
                 io::IOContext io_ctx;
                 io_ctx.reader_type = ReaderType::READER_QUERY;
                 io_ctx.file_cache_stats = &_profile_metrics.read_stats.file_cache_stats;

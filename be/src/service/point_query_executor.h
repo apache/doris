@@ -310,6 +310,8 @@ public:
 private:
     Status _init_keys(const PTabletKeyLookupRequest* request);
 
+    bool _use_row_cache() const;
+
     Status _lookup_row_key();
 
     Status _lookup_row_data();
