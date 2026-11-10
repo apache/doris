@@ -786,7 +786,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
 
     @Override
     public Expr visitToFile(ToFile toFile, PlanTranslatorContext context) {
-        context.getConnectContext().getOrRegisterS3Resource(toFile.getResourceName());
+        context.getOrRegisterS3Resource(toFile.getResourceName());
         return visitScalarFunction(toFile, context);
     }
 

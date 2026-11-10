@@ -90,6 +90,7 @@ import org.apache.doris.qe.cache.CacheAnalyzer;
 import org.apache.doris.statistics.query.QueryStatsRecorder;
 import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.thrift.TQueryCacheParam;
+import org.apache.doris.thrift.TS3Resource;
 import org.apache.doris.tso.MasterTsoProvider;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -1254,6 +1255,10 @@ public class NereidsPlanner extends Planner {
 
     public StatementContext getStatementContext() {
         return statementContext;
+    }
+
+    public Map<String, TS3Resource> getS3Resources() {
+        return planTranslatorContext.getS3Resources();
     }
 
     public static PhysicalProperties buildInitRequireProperties() {
