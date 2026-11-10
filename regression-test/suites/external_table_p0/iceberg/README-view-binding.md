@@ -1,5 +1,11 @@
 # Iceberg REST view binding regression
 
+`test_iceberg_view_query_p0` runs when `enableIcebergTest=true`. It reads the
+persistent Spark views prepared by the Iceberg Docker fixture's `run14.sql`
+through the REST catalog and preserves those shared views for repeated runs.
+It uses the public Docker fixture credentials by default; the optional
+`iceberg_view_access_key` and `iceberg_view_secret_key` settings override them.
+
 `test_iceberg_rest_view_binding` requires the Iceberg Docker environment with
 a view-capable REST catalog and a Spark Iceberg connection. It creates its own
 namespaces, views, base tables, and local CTAS tables, and keeps them for debugging.
