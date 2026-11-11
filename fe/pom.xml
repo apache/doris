@@ -233,11 +233,16 @@ under the License.
     <properties>
         <doris.hive.catalog.shade.version>3.1.3</doris.hive.catalog.shade.version>
         <!-- iceberg 1.9.1 depends avro on 1.12 -->
-        <avro.version>1.12.1</avro.version>
+        <avro.version>1.12.2</avro.version>
         <!-- Disable file-controlled KMS URLs by default (CVE-2026-73334). -->
         <parquet.version>1.18.1</parquet.version>
         <spark.version>3.4.3</spark.version>
-        <hudi.version>1.0.2</hudi.version>
+        <hudi.version>1.1.2</hudi.version>
+        <hive-apache.version>3.1.2-23</hive-apache.version>
+        <jjwt.version>0.13.0</jjwt.version>
+        <jsch.version>2.28.8</jsch.version>
+        <commons-daemon.version>1.6.1</commons-daemon.version>
+        <lance-namespace.version>0.13.0</lance-namespace.version>
         <obs.dependency.scope>compile</obs.dependency.scope>
         <cos.dependency.scope>compile</cos.dependency.scope>
         <qcloud-java-sdk.version>2.0.1</qcloud-java-sdk.version>
@@ -245,7 +250,6 @@ under the License.
         <cos-api.version>5.6.269</cos-api.version>
         <tencentcloud-sdk-java-sts.version>3.1.678</tencentcloud-sdk-java-sts.version>
         <huaweicloud-sdk-iam.version>3.1.20</huaweicloud-sdk-iam.version>
-        <esdk-obs.version>3.21.11</esdk-obs.version>
         <huaweiobs.version>3.1.1-hw-46</huaweiobs.version>
         <!--suppress UnresolvedMavenProperty -->
         <doris.thirdparty>${fe.dir}/../thirdparty</doris.thirdparty>
@@ -289,7 +293,7 @@ under the License.
         <log4j2.version>2.25.5</log4j2.version>
         <log4j-1.2.version>2.25.5</log4j-1.2.version>
         <mqtt.version>1.2.5</mqtt.version>
-        <jersey-apache-connector.version>3.1.11</jersey-apache-connector.version>
+        <jersey-apache-connector.version>3.1.12</jersey-apache-connector.version>
         <slf4j.version>2.0.17</slf4j.version>
         <metrics-core.version>4.0.2</metrics-core.version>
         <resilience4j.version>2.4.0</resilience4j.version>
@@ -297,7 +301,10 @@ under the License.
         <netty-all.version>4.2.18.Final</netty-all.version>
         <!-- OpenTelemetry versions before 1.62.0 allow unbounded allocation while parsing W3C
              baggage (CVE-2026-45292); align the complete OpenTelemetry graph on the fixed BOM. -->
-        <opentelemetry.version>1.62.0</opentelemetry.version>
+        <opentelemetry.version>1.67.0</opentelemetry.version>
+        <opentelemetry-semconv.version>1.45.0</opentelemetry-semconv.version>
+        <kotlin.version>2.4.21</kotlin.version>
+        <hk2.version>4.0.3</hk2.version>
         <!--The dependence of transitive dependence cannot be ruled out, only Saving the nation through twisted ways.-->
         <netty-3-test.version>3.10.6.Final</netty-3-test.version>
         <objenesis.version>2.1</objenesis.version>
@@ -307,11 +314,11 @@ under the License.
         <!-- NOTE: Using grpc-java whose version is newer than 1.34.0 will break the build on CentOS 6 due to the obsolete GLIBC -->
         <grpc-java.version>1.34.0</grpc-java.version>
         <!--Need to ensure that the version is the same as in arrow/java/pom.xml or compatible with it.-->
-        <grpc.version>1.75.0</grpc.version>
+        <grpc.version>1.85.1</grpc.version>
         <check.freamework.version>3.53.0</check.freamework.version>
         <!-- FE-only Arrow 19 startup POC: align protobuf runtime with Arrow Java 19's protobuf BOM. -->
-        <protobuf.version>4.33.4</protobuf.version>
-        <cel.version>0.12.0</cel.version>
+        <protobuf.version>4.36.2</protobuf.version>
+        <cel.version>0.15.0</cel.version>
         <!-- we use protoc-jar-maven-plugin to generate protobuf generated code -->
         <!-- see https://repo.maven.apache.org/maven2/com/google/protobuf/protoc/ to get correct version -->
         <protoc.artifact.version>3.24.3</protoc.artifact.version>
@@ -364,8 +371,8 @@ under the License.
         <lombok.version>1.18.24</lombok.version>
         <tree-printer.version>1.2</tree-printer.version>
         <hamcrest.version>2.1</hamcrest.version>
-        <httpclient.version>4.5.13</httpclient.version>
-        <httpcore.version>4.4.15</httpcore.version>
+        <httpclient.version>4.5.14</httpclient.version>
+        <httpcore.version>4.4.16</httpcore.version>
         <!-- HttpClient 5.5.2 can leak pooled connections on decode errors (CVE-2026-64607),
              and HttpCore 5.3.6 is affected by HTTP/1 and HTTP/2 memory-exhaustion issues
              (CVE-2026-54399 and CVE-2026-54428). Use their fixed maintenance releases. -->
@@ -376,17 +383,17 @@ under the License.
         <postgresql.version>42.7.13</postgresql.version>
         <hadoop.version>3.4.2</hadoop.version>
         <re2j.version>1.8</re2j.version>
-        <hadoop.thirdparty.guava.version>1.2.0</hadoop.thirdparty.guava.version>
-        <hadoop.thirdparty.protobuf_3_25.version>1.5.0</hadoop.thirdparty.protobuf_3_25.version>
-        <hbase.version>2.6.6</hbase.version>
+        <hadoop.thirdparty.guava.version>1.6.0</hadoop.thirdparty.guava.version>
+        <hadoop.thirdparty.protobuf_3_25.version>1.6.0</hadoop.thirdparty.protobuf_3_25.version>
+        <hbase.version>2.6.7</hbase.version>
         <jline.version>3.30.14</jline.version>
         <hbase-shaded-gson.version>4.1.7</hbase-shaded-gson.version>
         <antlr4.version>4.13.1</antlr4.version>
-        <joda.version>2.8.1</joda.version>
+        <joda.version>2.15.1</joda.version>
         <project.scm.id>github</project.scm.id>
         <!-- Boot 3.5 and Framework 6.2 have ended OSS support. Boot 4.1 manages the
              supported Spring LDAP and Spring Data generations. -->
-        <spring.version>4.1.1</spring.version>
+        <spring.version>4.1.2</spring.version>
         <!-- 7.0.9 provides OSS fixes for the August 2026 advisories, including
              CVE-2026-47883, CVE-2026-47889, and CVE-2026-47890. -->
         <spring-framework.version>7.0.9</spring-framework.version>
@@ -399,7 +406,11 @@ under the License.
              CVE-2025-14813, CVE-2026-0636, CVE-2026-3505, CVE-2026-5588, and CVE-2026-5598. -->
         <bcprov-jdk18on.version>1.84</bcprov-jdk18on.version>
         <woodstox.version>6.5.1</woodstox.version>
-        <kerby.version>2.0.3</kerby.version>
+        <stax2-api.version>4.3.2</stax2-api.version>
+        <xz.version>1.12</xz.version>
+        <aliyun-java-auth.version>0.4.2</aliyun-java-auth.version>
+        <ofs-sdk-definition.version>1.0.5</ofs-sdk-definition.version>
+        <kerby.version>2.1.2</kerby.version>
         <jettison.version>1.5.4</jettison.version>
         <!-- Spring Framework 7 uses the Servlet 6.1 / Jetty EE11 baseline. -->
         <jetty.version>12.1.14</jetty.version>
@@ -435,9 +446,9 @@ under the License.
         <jakarta.annotation-api.version>2.1.1</jakarta.annotation-api.version>
         <asm.version>9.4</asm.version>
         <airlift.concurrent.version>202</airlift.concurrent.version>
-        <azure.sdk.version>1.3.7</azure.sdk.version>
+        <azure.sdk.version>1.3.9</azure.sdk.version>
         <azure.sdk.batch.version>12.22.0</azure.sdk.batch.version>
-        <msal4j.version>1.25.0</msal4j.version>
+        <msal4j.version>1.26.0</msal4j.version>
         <azure.keyvault.core.version>1.2.6</azure.keyvault.core.version>
         <semver4j.version>5.3.0</semver4j.version>
         <aliyun-sdk-oss.version>3.15.0</aliyun-sdk-oss.version>
@@ -483,6 +494,102 @@ under the License.
     </profiles>
     <dependencyManagement>
         <dependencies>
+            <dependency>
+                <groupId>commons-daemon</groupId>
+                <artifactId>commons-daemon</artifactId>
+                <version>${commons-daemon.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.github.mwiede</groupId>
+                <artifactId>jsch</artifactId>
+                <version>${jsch.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.jsonwebtoken</groupId>
+                <artifactId>jjwt-api</artifactId>
+                <version>${jjwt.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.jsonwebtoken</groupId>
+                <artifactId>jjwt-impl</artifactId>
+                <version>${jjwt.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.jsonwebtoken</groupId>
+                <artifactId>jjwt-jackson</artifactId>
+                <version>${jjwt.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.lance</groupId>
+                <artifactId>lance-namespace-core</artifactId>
+                <version>${lance-namespace.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.lance</groupId>
+                <artifactId>lance-namespace-apache-client</artifactId>
+                <version>${lance-namespace.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.trino.hive</groupId>
+                <artifactId>hive-apache</artifactId>
+                <version>${hive-apache.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.jetbrains.kotlin</groupId>
+                <artifactId>kotlin-bom</artifactId>
+                <version>${kotlin.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <dependency>
+                <groupId>org.glassfish.hk2</groupId>
+                <artifactId>hk2-bom</artifactId>
+                <version>${hk2.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <dependency>
+                <groupId>io.opentelemetry.semconv</groupId>
+                <artifactId>opentelemetry-semconv</artifactId>
+                <version>${opentelemetry-semconv.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.codehaus.woodstox</groupId>
+                <artifactId>stax2-api</artifactId>
+                <version>${stax2-api.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.tukaani</groupId>
+                <artifactId>xz</artifactId>
+                <version>${xz.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.aliyun</groupId>
+                <artifactId>aliyun-java-auth</artifactId>
+                <version>${aliyun-java-auth.version}</version>
+                <exclusions>
+                    <!-- Use the unshaded transport so the shared HTTP client versions apply. -->
+                    <exclusion>
+                        <groupId>com.aliyun</groupId>
+                        <artifactId>aliyun-http-apache</artifactId>
+                    </exclusion>
+                </exclusions>
+            </dependency>
+            <dependency>
+                <groupId>com.aliyun</groupId>
+                <artifactId>aliyun-http-apache</artifactId>
+                <version>${aliyun-java-auth.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.aliyun</groupId>
+                <artifactId>aliyun-java-core</artifactId>
+                <version>${aliyun-java-auth.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.qcloud</groupId>
+                <artifactId>ofs-sdk-definition</artifactId>
+                <version>${ofs-sdk-definition.version}</version>
+            </dependency>
             <dependency>
                 <groupId>io.netty</groupId>
                 <artifactId>netty-bom</artifactId>
@@ -863,13 +970,10 @@ under the License.
             </dependency>
             <dependency>
                 <groupId>org.apache.kerby</groupId>
-                <artifactId>kerb-simplekdc</artifactId>
+                <artifactId>kerby-bom</artifactId>
                 <version>${kerby.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>org.apache.kerby</groupId>
-                <artifactId>kerb-core</artifactId>
-                <version>${kerby.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
             </dependency>
             <!-- anyway to avoid declare zookeeper again -->
             <dependency>
@@ -1400,6 +1504,11 @@ under the License.
                 <artifactId>hadoop-common</artifactId>
                 <version>${hadoop.version}</version>
                 <exclusions>
+                    <!-- Use the maintained JSch implementation supplied by FE/common Hadoop deps. -->
+                    <exclusion>
+                        <groupId>com.jcraft</groupId>
+                        <artifactId>jsch</artifactId>
+                    </exclusion>
                     <exclusion>
                         <groupId>jdk.tools</groupId>
                         <artifactId>jdk.tools</artifactId>
@@ -2066,20 +2175,33 @@ under the License.
                     </exclusion>
                 </exclusions>
             </dependency>
+            <!-- Doris supplies OSS credentials explicitly and does not load ini4j profiles. -->
+            <dependency>
+                <groupId>com.aliyun.oss</groupId>
+                <artifactId>aliyun-sdk-oss</artifactId>
+                <version>${aliyun-sdk-oss.version}</version>
+                <exclusions>
+                    <exclusion>
+                        <groupId>org.ini4j</groupId>
+                        <artifactId>ini4j</artifactId>
+                    </exclusion>
+                </exclusions>
+            </dependency>
             <!-- tencent cloud sts -->
             <dependency>
                 <groupId>com.tencentcloudapi</groupId>
                 <artifactId>tencentcloud-sdk-java-sts</artifactId>
                 <version>${tencentcloud-sdk-java-sts.version}</version>
                 <scope>${cos.dependency.scope}</scope>
+                <exclusions>
+                    <!-- CosRemote passes Credential explicitly, bypassing profile file loading. -->
+                    <exclusion>
+                        <groupId>org.ini4j</groupId>
+                        <artifactId>ini4j</artifactId>
+                    </exclusion>
+                </exclusions>
             </dependency>
-            <!--Huawei OBS-->
-            <dependency>
-                <groupId>com.huaweicloud</groupId>
-                <artifactId>esdk-obs-java-bundle</artifactId>
-                <version>${esdk-obs.version}</version>
-                <scope>${obs.dependency.scope}</scope>
-            </dependency>
+            <!-- Hadoop's OBS connector already embeds the SDK used by ObsRemote. -->
             <dependency>
                 <groupId>com.huaweicloud</groupId>
                 <artifactId>hadoop-huaweicloud</artifactId>
