@@ -28,7 +28,6 @@
 #include "common/status.h"
 #include "exec/spill/spill_data_dir.h"
 #include "exec/spill/spill_file.h"
-#include "io/fs/file_reader_writer_fwd.h"
 #include "util/stopwatch.hpp"
 #include "util/threadpool.h"
 
@@ -128,8 +127,7 @@ public:
     void queue_spill_directory_deletion(SpillDataDir* data_dir, io::FileSystemSPtr fs,
                                         std::string dir, int64_t charged_bytes,
                                         int64_t persisted_bytes, std::string query_id,
-                                        std::vector<std::string> file_log_contexts = {},
-                                        io::FileWriterPtr unfinished_writer = nullptr);
+                                        std::vector<std::string> file_log_contexts = {});
 
     void gc(int32_t max_work_time_ms);
 
@@ -171,9 +169,6 @@ private:
         int64_t persisted_bytes {0};
         // Per-file identities/sizes survive directory merging, until successful deletion.
         std::vector<std::string> file_log_contexts;
-        // GC drains detached writers before deleting their prefixes. No query context or
-        // RuntimeProfile is retained; upload callbacks reference only these I/O writers.
-        std::vector<io::FileWriterPtr> unfinished_writers = {};
     };
 
     struct SpillGcStats {
@@ -188,7 +183,7 @@ private:
     Status _init_spill_store_map();
     Status _init_local_spill_directories();
     void _spill_gc_thread_callback();
-    Status _try_delete_spill_directory(PendingSpillDirectory& pending_directory);
+    Status _try_delete_spill_directory(const PendingSpillDirectory& pending_directory);
     /// Process queued deletions within the GC work budget, retaining failures for retry.
     void _retry_pending_spill_directories(const MonotonicStopWatch& watch,
                                           int64_t max_work_time_ns);

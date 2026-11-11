@@ -82,16 +82,22 @@ SpillFileWriter::~SpillFileWriter() {
     }
 }
 
-io::FileWriterPtr SpillFileWriter::_discard(SpillFile* spill_file) {
+void SpillFileWriter::_discard(SpillFile* spill_file) {
     DCHECK_EQ(spill_file->_active_writer, this);
     LOG(INFO) << "[spill][discard] " << spill_file->_log_context()
               << ", reason=file_gc_before_close, status=OK";
     spill_file->_active_writer = nullptr;
     _closed = true;
-    auto writer = std::move(_file_writer);
+    if (!_file_writer) {
+        return;
+    }
+    // Drop the part without a footer or close(). Destruction waits for in-flight uploads
+    // without publishing the object, before queuing the SpillFile's prefix for deletion.
+    // Incomplete multipart uploads are left to the bucket lifecycle rule.
+    std::unique_ptr<io::FileWriter> writer = std::move(_file_writer);
+    writer.reset();
     _on_part_closed(nullptr, /*closed=*/false, /*close_ns=*/0);
     _advance_part();
-    return writer;
 }
 
 Status SpillFileWriter::_open_next_part(const std::shared_ptr<SpillFile>& spill_file) {

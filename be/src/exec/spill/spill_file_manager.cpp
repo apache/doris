@@ -39,10 +39,8 @@
 #include "exec/spill/remote_spill_data_dir.h"
 #include "exec/spill/spill_file.h"
 #include "io/fs/file_system.h"
-#include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/query_context.h"
-#include "runtime/thread_context.h"
 #include "storage/options.h"
 #include "util/debug_points.h"
 #include "util/pretty_printer.h"
@@ -330,7 +328,6 @@ size_t SpillFileManager::pending_delete_dir_count() {
 
 // Retry failed query-directory deletions and clean up stale spill files.
 void SpillFileManager::_spill_gc_thread_callback() {
-    SCOPED_INIT_THREAD_CONTEXT();
     while (!_stop_background_threads_latch.wait_for(
             std::chrono::milliseconds(config::spill_gc_interval_ms))) {
         gc(config::spill_gc_work_time_ms);
@@ -519,20 +516,15 @@ void SpillFileManager::delete_query_spill_directory(const std::string& query_id,
 void SpillFileManager::queue_spill_directory_deletion(SpillDataDir* data_dir, io::FileSystemSPtr fs,
                                                       std::string dir, int64_t charged_bytes,
                                                       int64_t persisted_bytes, std::string query_id,
-                                                      std::vector<std::string> file_log_contexts,
-                                                      io::FileWriterPtr unfinished_writer) {
-    PendingSpillDirectory pending_directory {.failed_count = 0,
-                                             .dir = std::move(dir),
-                                             .query_id = std::move(query_id),
-                                             .data_dir = data_dir,
-                                             .fs = std::move(fs),
-                                             .charged_bytes = charged_bytes,
-                                             .persisted_bytes = persisted_bytes,
-                                             .file_log_contexts = std::move(file_log_contexts)};
-    if (unfinished_writer) {
-        pending_directory.unfinished_writers.emplace_back(std::move(unfinished_writer));
-    }
-    _add_pending_directory(std::move(pending_directory));
+                                                      std::vector<std::string> file_log_contexts) {
+    _add_pending_directory({.failed_count = 0,
+                            .dir = std::move(dir),
+                            .query_id = std::move(query_id),
+                            .data_dir = data_dir,
+                            .fs = std::move(fs),
+                            .charged_bytes = charged_bytes,
+                            .persisted_bytes = persisted_bytes,
+                            .file_log_contexts = std::move(file_log_contexts)});
 }
 
 void SpillFileManager::_add_pending_directory(PendingSpillDirectory pending_directory) {
@@ -545,10 +537,6 @@ void SpillFileManager::_add_pending_directory(PendingSpillDirectory pending_dire
         if (pending.data_dir == pending_directory.data_dir && pending.fs == pending_directory.fs &&
             (pending.dir == pending_directory.dir ||
              is_under(pending_directory.dir, pending.dir))) {
-            pending.unfinished_writers.insert(
-                    pending.unfinished_writers.end(),
-                    std::make_move_iterator(pending_directory.unfinished_writers.begin()),
-                    std::make_move_iterator(pending_directory.unfinished_writers.end()));
             // Deleting the pending ancestor deletes these objects too.
             pending.charged_bytes += pending_directory.charged_bytes;
             pending.persisted_bytes += pending_directory.persisted_bytes;
@@ -559,13 +547,9 @@ void SpillFileManager::_add_pending_directory(PendingSpillDirectory pending_dire
             return;
         }
     }
-    std::erase_if(_pending_spill_directories, [&](PendingSpillDirectory& pending) {
+    std::erase_if(_pending_spill_directories, [&](const PendingSpillDirectory& pending) {
         if (pending.data_dir == pending_directory.data_dir && pending.fs == pending_directory.fs &&
             is_under(pending.dir, pending_directory.dir)) {
-            pending_directory.unfinished_writers.insert(
-                    pending_directory.unfinished_writers.end(),
-                    std::make_move_iterator(pending.unfinished_writers.begin()),
-                    std::make_move_iterator(pending.unfinished_writers.end()));
             pending_directory.charged_bytes += pending.charged_bytes;
             pending_directory.persisted_bytes += pending.persisted_bytes;
             pending_directory.file_log_contexts.insert(pending_directory.file_log_contexts.end(),
@@ -578,10 +562,8 @@ void SpillFileManager::_add_pending_directory(PendingSpillDirectory pending_dire
     _pending_spill_directories.emplace_back(std::move(pending_directory));
 }
 
-Status SpillFileManager::_try_delete_spill_directory(PendingSpillDirectory& pending_directory) {
-    // Writer destructors drain upload callbacks. This must precede deleting the prefix and
-    // must run outside the queue lock and off the query teardown thread.
-    pending_directory.unfinished_writers.clear();
+Status SpillFileManager::_try_delete_spill_directory(
+        const PendingSpillDirectory& pending_directory) {
     {
         std::lock_guard lock(_pending_spill_directories_mutex);
         if (_external_spill_directory_leases.contains(pending_directory.dir)) {
