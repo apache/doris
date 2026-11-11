@@ -19,6 +19,7 @@
 
 #include <fnmatch.h>
 
+#include <algorithm>
 #include <cstddef>
 #include <utility>
 
@@ -28,7 +29,10 @@
 namespace doris {
 
 VariantTemplatePaths::VariantTemplatePaths(std::vector<VariantTemplatePath> paths)
-        : _paths(std::move(paths)) {}
+        : _paths(std::move(paths)),
+          _reads_decimal_text(std::any_of(
+                  _paths.begin(), _paths.end(),
+                  [](const VariantTemplatePath& field) { return is_decimalv3(field.type); })) {}
 
 VariantNumberRead VariantTemplatePaths::number_read(const std::string& path) const {
     if (path.empty()) {

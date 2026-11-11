@@ -144,6 +144,18 @@ std::string variant_json_at(const ColumnPtr& output, size_t row) {
     return writer.value;
 }
 
+// The row's encoded metadata and value, to compare two reads byte for byte.
+std::pair<std::string, std::string> variant_bytes_at(const ColumnPtr& output, size_t row) {
+    const IColumn* physical = &physical_column(output, &row);
+    if (const auto* nullable = check_and_get_column<ColumnNullable>(physical)) {
+        DORIS_CHECK(!nullable->is_null_at(row));
+        physical = &nullable->get_nested_column();
+    }
+    const VariantRef value = assert_cast<const ColumnVariantV2&>(*physical).get_value_ref(row);
+    return {std::string(value.metadata.data, value.metadata.size),
+            std::string(value.value.data, value.value.size)};
+}
+
 std::string nested_array_json(uint32_t depth) {
     std::string json(depth, '[');
     json.push_back('0');
@@ -484,6 +496,71 @@ TEST(FunctionVariantParseTest, LargeIntTemplatePathsReadAnIntegerBeyond64BitsFro
             EXPECT_EQ(cases[row].second, variant_json_at(result.output, row))
                     << name << ": " << cases[row].first;
         }
+    }
+}
+
+TEST(FunctionVariantParseTest, ALargeIntOnlyTemplateLeavesWhatTheDomParserReadsAsItWas) {
+    const DataTypePtr string_type = std::make_shared<DataTypeString>();
+    // No DECIMAL field: the DOM parser goes first and the text read gets only a document it
+    // rejects, so a document the DOM parser reads comes out as it does without a template.
+    auto paths = std::make_shared<const VariantTemplatePaths>(std::vector<VariantTemplatePath> {
+            {.pattern = "id", .is_glob = false, .type = TYPE_LARGEINT},
+            {.pattern = "ids", .is_glob = false, .type = TYPE_LARGEINT},
+            {.pattern = "a.*", .is_glob = true, .type = TYPE_LARGEINT}});
+    ASSERT_FALSE(paths->reads_decimal_text());
+    const std::vector<std::string> readable = {
+            R"({"id":1,"ids":[1,-2,3],"name":"x"})",
+            // 2^63 and -2^63: a uint64 and an int64
+            R"({"id":9223372036854775808,"ids":[-9223372036854775808]})",
+            // doubles on the declared paths stay doubles
+            R"({"id":1.5,"ids":[2.5,1e3],"a":{"b":0.1}})",
+            R"({"a":{"b":1,"c":[{"d":2}]},"other":null,"t":true})",
+            R"([1,2.5,"s",{"id":3}])",
+            R"("text")",
+            "42",
+    };
+    const ExecutionResult plain =
+            execute_parse("parse_to_variant", make_strings(readable), string_type, readable.size());
+    ASSERT_TRUE(plain.status.ok()) << plain.status.to_string();
+    const ExecutionResult typed =
+            execute_parse("parse_to_variant", make_strings(readable), string_type, readable.size(),
+                          std::make_shared<DataTypeVariantV2>(0, false, paths));
+    ASSERT_TRUE(typed.status.ok()) << typed.status.to_string();
+    for (size_t row = 0; row < readable.size(); ++row) {
+        EXPECT_EQ(variant_json_at(plain.output, row), variant_json_at(typed.output, row))
+                << readable[row];
+        EXPECT_EQ(variant_bytes_at(plain.output, row), variant_bytes_at(typed.output, row))
+                << readable[row];
+    }
+
+    // One encoder alternating the two reads: a document only the text read takes, one neither
+    // takes (NULL from try_parse_to_variant, its partial row rolled back) and one the DOM parser
+    // reads, each followed by the others.
+    const std::vector<std::pair<std::string, std::optional<std::string>>> mixed = {
+            {R"({"id":1})", R"({"id":1})"},
+            {R"({"id":18446744073709551616})", R"({"id":18446744073709551616})"},
+            {R"({"id":2.5})", R"({"id":2.5})"},
+            {R"({"id":18446744073709551616,"other":18446744073709551616})", std::nullopt},
+            {R"({"ids":[1,170141183460469231731687303715884105727]})",
+             R"({"ids":[1,"170141183460469231731687303715884105727"]})"},
+            {R"({"x":"s"})", R"({"x":"s"})"},
+            {R"({"a":{"b":-18446744073709551616}})", R"({"a":{"b":-18446744073709551616}})"},
+    };
+    std::vector<std::string> documents;
+    for (const auto& document_and_rendering : mixed) {
+        documents.push_back(document_and_rendering.first);
+    }
+    const ExecutionResult result = execute_parse(
+            "try_parse_to_variant", make_strings(documents), string_type, documents.size(),
+            make_nullable(std::make_shared<DataTypeVariantV2>(0, false, paths)));
+    ASSERT_TRUE(result.status.ok()) << result.status.to_string();
+    for (size_t row = 0; row < mixed.size(); ++row) {
+        if (!mixed[row].second.has_value()) {
+            EXPECT_TRUE(is_sql_null_at(result.output, row)) << mixed[row].first;
+            continue;
+        }
+        ASSERT_FALSE(is_sql_null_at(result.output, row)) << mixed[row].first;
+        EXPECT_EQ(*mixed[row].second, variant_json_at(result.output, row)) << mixed[row].first;
     }
 }
 

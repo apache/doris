@@ -47,10 +47,11 @@ struct JsonToVariantOptions {
     // parser cannot read back, such as an integer beyond 64 bits, then keeps its text.
     bool throw_on_invalid_json = true;
     // The destination VARIANT's Schema Template, sent when it declares a DECIMAL or LARGEINT path
-    // (nullptr or empty: none). With it, a document is read with simdjson's ondemand parser: a
-    // JSON number on a DECIMAL path is parsed from its text into a decimal instead of through a
-    // binary64, and an integer beyond 64 bits on a LARGEINT path is read exactly from its text
-    // instead of failing the document.
+    // (nullptr or empty: none). With it, simdjson's ondemand parser reads a document from its
+    // text: a JSON number on a DECIMAL path is parsed into a decimal instead of through a
+    // binary64, and an integer beyond 64 bits on a LARGEINT path is read exactly instead of
+    // failing the document. A template with a DECIMAL field has every document read that way; one
+    // without has the DOM parser go first and only a document that parser rejects read that way.
     VariantTemplatePathsPtr template_paths = nullptr;
 
     // Takes a value snapshot. Later changes to mutable config do not affect an encoder.

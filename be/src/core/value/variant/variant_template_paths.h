@@ -57,6 +57,12 @@ public:
     bool empty() const noexcept { return _paths.empty(); }
     const std::vector<VariantTemplatePath>& paths() const noexcept { return _paths; }
 
+    // Whether any field is a DECIMAL, so that some path may answer DECIMAL_TEXT. Without one no
+    // fraction or exponent is read from its text, and a document the DOM parser reads is read the
+    // same way with the template as without it: only an integer beyond 64 bits, which fails the
+    // DOM parser, still needs the text. True even when an earlier field shadows every DECIMAL one.
+    bool reads_decimal_text() const noexcept { return _reads_decimal_text; }
+
     // The read the FIRST template field matching `path` (the object keys from the root joined by
     // '.') asks for; NATIVE when none matches. First match is the rule the shredder applies to
     // typed paths (variant_util.cpp walks the template in declaration order, strcmp for
@@ -67,6 +73,7 @@ public:
 
 private:
     std::vector<VariantTemplatePath> _paths;
+    bool _reads_decimal_text = false;
 };
 
 using VariantTemplatePathsPtr = std::shared_ptr<const VariantTemplatePaths>;

@@ -627,6 +627,44 @@ TEST(DataTypeVariantV2SerdeInputTest, LargeIntTemplatePathsReadIntegersBeyond64B
     EXPECT_EQ(R"({"id":"340282366920938463463374607431768211456"})", json_at(serde, *column, 9));
 }
 
+TEST(DataTypeVariantV2SerdeInputTest,
+     ALargeIntOnlyTemplateKeepsTheLenientVerdictAfterTheDomParser) {
+    DataTypeVariantV2SerDe serde(
+            1, template_of({{.pattern = "id", .is_glob = false, .type = TYPE_LARGEINT}}));
+    auto column = ColumnVariantV2::create();
+    // The DOM parser goes first under a template without a DECIMAL field. It rejects the integer
+    // beyond 64 bits, then the text read meets the duplicate key or the over-deep array before it:
+    // the lenient serde keeps the text, as it does without a template.
+    ASSERT_TRUE(deserialize_json(serde, *column, R"({"o":{"a":1,"a":2},"id":18446744073709551616})")
+                        .ok());
+    EXPECT_EQ('"', json_at(serde, *column, 0).front());
+    const std::string deep_then_big = R"({"d":)" + std::string(130, '[') + "0" +
+                                      std::string(130, ']') + R"(,"id":18446744073709551616})";
+    ASSERT_TRUE(deserialize_json(serde, *column, deep_then_big).ok());
+    EXPECT_EQ('"', json_at(serde, *column, 1).front());
+    // A duplicate key in a document the DOM parser reads fails as it always did.
+    EXPECT_FALSE(deserialize_json(serde, *column, R"({"o":{"a":1,"a":2},"id":1})").ok());
+
+    // One vector call alternating the two reads and the kept text.
+    std::vector<std::string> texts {
+            R"({"id":1})", R"({"id":18446744073709551616})", R"({"id":"s"})",
+            R"({"o":{"a":1,"a":2},"id":18446744073709551617})", R"({"id":-18446744073709551616})"};
+    std::vector<Slice> slices;
+    for (const std::string& text : texts) {
+        slices.emplace_back(text.data(), text.size());
+    }
+    uint64_t deserialized = 0;
+    DataTypeSerDe::FormatOptions options;
+    ASSERT_TRUE(serde.deserialize_column_from_json_vector(*column, slices, &deserialized, options)
+                        .ok());
+    EXPECT_EQ(texts.size(), deserialized);
+    EXPECT_EQ(R"({"id":1})", json_at(serde, *column, 2));
+    EXPECT_EQ(R"({"id":18446744073709551616})", json_at(serde, *column, 3));
+    EXPECT_EQ(R"({"id":"s"})", json_at(serde, *column, 4));
+    EXPECT_EQ('"', json_at(serde, *column, 5).front());
+    EXPECT_EQ(R"({"id":-18446744073709551616})", json_at(serde, *column, 6));
+}
+
 TEST(DataTypeVariantV2SerdeInputTest, AnIntegerBeyond64BitsOffALargeIntPathKeepsTheLenientVerdict) {
     DataTypeVariantV2SerDe serde(
             1, template_of({{.pattern = "id", .is_glob = false, .type = TYPE_LARGEINT},

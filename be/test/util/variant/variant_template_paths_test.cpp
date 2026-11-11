@@ -121,6 +121,35 @@ TEST(VariantTemplatePathsTest, TheFieldsTypeSelectsTheRead) {
     EXPECT_EQ(VariantNumberRead::NATIVE, paths.number_read("id.low"));
 }
 
+TEST(VariantTemplatePathsTest, ReadsDecimalTextOnlyWithADecimalField) {
+    // Without a DECIMAL field the encoder lets the DOM parser go first (add_json_row).
+    EXPECT_FALSE(paths_of({}).reads_decimal_text());
+    EXPECT_FALSE(paths_of({{.pattern = "id", .is_glob = false, .type = TYPE_LARGEINT},
+                           {.pattern = "ids_*", .is_glob = true, .type = TYPE_LARGEINT}})
+                         .reads_decimal_text());
+    EXPECT_FALSE(paths_of({{.pattern = "n", .is_glob = false, .type = TYPE_BIGINT},
+                           {.pattern = "s", .is_glob = false, .type = TYPE_STRING},
+                           {.pattern = "f", .is_glob = false, .type = TYPE_DOUBLE},
+                           {.pattern = "unset", .is_glob = false, .type = INVALID_TYPE}})
+                         .reads_decimal_text());
+    for (const PrimitiveType type :
+         {TYPE_DECIMAL32, TYPE_DECIMAL64, TYPE_DECIMAL128I, TYPE_DECIMAL256}) {
+        EXPECT_TRUE(paths_of({{.pattern = "amount", .is_glob = false, .type = type}})
+                            .reads_decimal_text())
+                << static_cast<int>(type);
+    }
+    EXPECT_TRUE(paths_of({{.pattern = "id", .is_glob = false, .type = TYPE_LARGEINT},
+                          {.pattern = "amount*", .is_glob = true, .type = TYPE_DECIMAL64}})
+                        .reads_decimal_text());
+    // The bit sums up the declared types, not the paths that reach them: a DECIMAL field that an
+    // earlier field shadows on every path still counts, and the match still answers NATIVE.
+    const VariantTemplatePaths shadowed =
+            paths_of({{.pattern = "*", .is_glob = true, .type = TYPE_STRING},
+                      {.pattern = "amount", .is_glob = false, .type = TYPE_DECIMAL64}});
+    EXPECT_TRUE(shadowed.reads_decimal_text());
+    EXPECT_EQ(VariantNumberRead::NATIVE, shadowed.number_read("amount"));
+}
+
 TEST(VariantTemplatePathsTest, TheFirstMatchingTemplateFieldDecidesLikeTheShredder) {
     // 'amount*':string is declared before 'amount':decimal: the shredder types "amount" as a
     // STRING, so the parser must not read it as a decimal either.

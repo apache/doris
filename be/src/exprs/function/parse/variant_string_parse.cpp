@@ -187,9 +187,10 @@ private:
 // The ondemand twin of JsonTreeCollector for a destination whose Schema Template rides with its
 // type (it declares a DECIMAL or LARGEINT path): it sees each number's text, so a number on a
 // DECIMAL path becomes an exact decimal and an integer beyond 64 bits on a LARGEINT path an exact
-// 128-bit integer. Any simdjson error makes the collect return false and the caller hands the text
-// to the DOM parser, whose verdict is the documented one. Builder exceptions (depth, key length,
-// duplicate keys) propagate as they do there.
+// 128-bit integer. It reads every document of a template with a DECIMAL field, and of any other
+// only a document the DOM parser rejects (add_json_row). Any simdjson error makes the collect
+// return false and the caller gives the text the DOM parser's verdict, the documented one. Builder
+// exceptions (depth, key length, duplicate keys) propagate as they do there.
 class OndemandTreeCollector {
 public:
     OndemandTreeCollector(VariantBatchBuilder::Row& builder, const JsonToVariantOptions& options)
@@ -250,8 +251,9 @@ private:
     }
 
     // Only a number that may be read from its text pays for the match (a glob is an fnmatch per
-    // template field): an int64 / uint64 is stored as it is. Under an object that is an array
-    // element nothing is on a declared path (collect_object).
+    // template field): an int64 / uint64 is stored as it is, and so is a double when no field is a
+    // DECIMAL. Under an object that is an array element nothing is on a declared path
+    // (collect_object).
     VariantNumberRead number_read() const {
         return _unmatched == 0 ? _paths.number_read(_path) : VariantNumberRead::NATIVE;
     }
@@ -269,7 +271,7 @@ private:
                 _builder.add_largeint(static_cast<__int128>(number.get_uint64()));
                 return true;
             case simdjson::ondemand::number_type::floating_point_number:
-                mode = number_read();
+                mode = _paths.reads_decimal_text() ? number_read() : VariantNumberRead::NATIVE;
                 if (mode != VariantNumberRead::DECIMAL_TEXT) {
                     // also on a LARGEINT path: a fraction or an exponent is not an integer as
                     // written, so the double is kept and the template's cast decides
@@ -327,7 +329,8 @@ private:
     // An integer beyond 64 bits on a LARGEINT path, read exactly instead of failing the document.
     // The builder stores a value up to 10^38 - 1 as a scale-0 decimal16 and a larger one as its
     // digits (add_largeint), and the template's cast to LARGEINT takes either. An integer no
-    // LARGEINT holds keeps its text, as a decimal beyond 38 digits does, and that cast decides.
+    // LARGEINT holds keeps its text, as a decimal beyond 38 digits does, and that cast decides
+    // (NULL). A doc-mode document column is written before the cast and keeps either as read.
     bool collect_largeint_text(std::string_view token) {
         __int128 integer = 0;
         switch (parse_json_integer_as_largeint(token, integer)) {
@@ -631,37 +634,25 @@ struct JsonStringToVariantEncoder::Impl {
             throw Exception(ErrorCode::INVALID_ARGUMENT,
                             "Variant JSON input has a null data pointer");
         }
-        if (json.size != 0 && options.template_paths != nullptr &&
-            !options.template_paths->empty()) {
-            auto row = builder.begin_row();
-            bool collected = false;
-            if (options.throw_on_invalid_json) {
-                collected = collect_with_template_paths(row, json);
-            } else {
-                // The lenient serde keeps a document the DOM parser rejects as a string row, and
-                // the DOM parser reads the whole text before any depth or key check runs. The
-                // ondemand pass checks as it reads, so on a document whose prefix is over-deep or
-                // duplicate-keyed AND whose tail is malformed, {"o":{"a":1,"a":2},"k":x}, it would
-                // throw where the DOM path stored the text. Let the DOM parser give the verdict: a
-                // well-formed document meets the same check there and fails as it always did.
-                try {
-                    collected = collect_with_template_paths(row, json);
-                } catch (const Exception& exception) {
-                    if (exception.code() != ErrorCode::INVALID_ARGUMENT) {
-                        throw;
-                    }
-                }
-            }
-            if (collected) {
-                row.finish();
-                return;
-            }
-            // `row` ends here and rolls its partial content back; the DOM parser below gives the
-            // text the verdict it has today.
+        const bool has_template = json.size != 0 && options.template_paths != nullptr &&
+                                  !options.template_paths->empty();
+        // The DOM parser reads a fraction into a binary64 without complaint, so under a template
+        // with a DECIMAL field every document is read from its text first. Under one without
+        // (LARGEINT fields only) the two reads differ only on an integer beyond 64 bits, which
+        // fails the DOM parser: that parser goes first, and the text read gets what it rejects.
+        if (has_template && options.template_paths->reads_decimal_text() &&
+            add_row_with_template_paths(json)) {
+            return;
         }
-        auto row = builder.begin_row();
         SimdJSONParser::Element root;
-        if (json.size == 0 || !parser.parse(json.data, json.size, root)) {
+        const bool parsed = json.size != 0 && parser.parse(json.data, json.size, root);
+        if (!parsed && has_template && !options.template_paths->reads_decimal_text() &&
+            add_row_with_template_paths(json)) {
+            return;
+        }
+        // The DOM parser's verdict, the one the text has without a template.
+        auto row = builder.begin_row();
+        if (!parsed) {
             if (options.throw_on_invalid_json) {
                 throw Exception(ErrorCode::INVALID_ARGUMENT, "Failed to parse JSON as Variant");
             }
@@ -671,6 +662,36 @@ struct JsonStringToVariantEncoder::Impl {
         }
         JsonTreeCollector(row, options).collect(root, 0);
         row.finish();
+    }
+
+    // Adds the document as the ondemand pass reads it, or nothing: false means the row it began
+    // was rolled back, and the caller gives the text the DOM parser's verdict.
+    bool add_row_with_template_paths(StringRef json) {
+        auto row = builder.begin_row();
+        bool collected = false;
+        if (options.throw_on_invalid_json) {
+            collected = collect_with_template_paths(row, json);
+        } else {
+            // The lenient serde keeps a document the DOM parser rejects as a string row, and the
+            // DOM parser reads the whole text before any depth or key check runs. The ondemand
+            // pass checks as it reads, so on a document whose prefix is over-deep or
+            // duplicate-keyed AND whose tail is malformed, {"o":{"a":1,"a":2},"k":x}, it would
+            // throw where the DOM path stored the text. Let the DOM parser give the verdict: a
+            // well-formed document meets the same check there and fails as it always did.
+            try {
+                collected = collect_with_template_paths(row, json);
+            } catch (const Exception& exception) {
+                if (exception.code() != ErrorCode::INVALID_ARGUMENT) {
+                    throw;
+                }
+            }
+        }
+        if (!collected) {
+            // `row` ends here and rolls its partial content back
+            return false;
+        }
+        row.finish();
+        return true;
     }
 
     // A root object or array read with the ondemand parser; false on any simdjson error, and for a
