@@ -37,7 +37,9 @@ SpillS3FileWriter::SpillS3FileWriter(const std::shared_ptr<SpillFile>& spill_fil
                                      SpillDataDir* data_dir, io::FileSystemSPtr fs,
                                      std::string spill_dir)
         : SpillFileWriter(spill_file, state, profile, data_dir, std::move(fs),
-                          std::move(spill_dir)) {
+                          std::move(spill_dir)),
+          _inflight_upload_bytes(
+                  ExecEnv::GetInstance()->spill_file_mgr()->inflight_upload_bytes()) {
     RuntimeProfile* custom_profile = profile->get_child("CustomCounters");
     _remote_upload_bytes = custom_profile->get_counter(profile::SPILL_REMOTE_UPLOAD_BYTES);
     _remote_upload_timer = custom_profile->get_counter(profile::SPILL_REMOTE_UPLOAD_TIME);
@@ -54,13 +56,8 @@ SpillS3FileWriter::~SpillS3FileWriter() {
     }
 }
 
-const std::shared_ptr<std::atomic<int64_t>>& SpillS3FileWriter::_inflight_upload_bytes() {
-    static const auto bytes = std::make_shared<std::atomic<int64_t>>(0);
-    return bytes;
-}
-
 void SpillS3FileWriter::_configure_file_writer_options(io::FileWriterOptions* options) {
-    options->inflight_upload_bytes = _inflight_upload_bytes();
+    options->inflight_upload_bytes = _inflight_upload_bytes;
 }
 
 Status SpillS3FileWriter::_wait_for_upload_capacity() {
@@ -73,8 +70,8 @@ Status SpillS3FileWriter::_wait_for_upload_capacity() {
     }
     // Only submitted spill uploads count. Unrelated loads on the shared S3 pool must not
     // throttle spill, and idle partial buffers must not prevent active writers making progress.
-    auto queue_full = []() {
-        return _inflight_upload_bytes()->load(std::memory_order_relaxed) >=
+    auto queue_full = [this]() {
+        return _inflight_upload_bytes->load(std::memory_order_relaxed) >=
                config::spill_s3_max_inflight_upload_bytes;
     };
     if (!queue_full()) {

@@ -22,10 +22,8 @@
 namespace doris::spill_storage_type {
 inline constexpr char LOCAL[] = "local";
 inline constexpr char REMOTE[] = "remote";
-// Keep existing BE configurations valid; new configurations should use REMOTE.
-inline constexpr char S3[] = "s3";
 
 inline constexpr bool is_remote(std::string_view type) {
-    return type == REMOTE || type == S3;
+    return type == REMOTE;
 }
 } // namespace doris::spill_storage_type

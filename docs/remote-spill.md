@@ -15,8 +15,8 @@ spill_s3_storage_vault_id = <object-storage-vault-id>
 ```
 
 Restart the BE after changing these two settings. `spill_storage_type=local` remains the
-default; the existing `s3` value remains an alias of `remote`. The `spill_s3_*` configuration
-names are retained for compatibility. The remote filesystem is the object-storage filesystem
+default. The supported values are `local` and `remote`. The `spill_s3_*` settings configure
+the remote spill implementation. The remote filesystem is the object-storage filesystem
 used by the configured vault, not necessarily AWS. Provider support and credentials come from
 that vault; this setting does not add support for another vault/filesystem type.
 
@@ -43,8 +43,9 @@ Do not remove local spill paths if such writers are used.
   `s3_write_buffer_size` as its part threshold, avoiding mostly empty upload buffers.
   New writers observe changes; a writer keeps its initial threshold.
 - `spill_s3_max_inflight_upload_bytes`: mutable, default 256 MiB. Backpressure counts submitted
-  spill upload buffers, both queued and running. Uploads from unrelated load jobs do not
-  throttle spill merely because they share the S3 upload thread pool. Idle partial buffers
+  spill upload buffers, both queued and running, across writers of the BE's spill manager.
+  Uploads from unrelated load jobs do not throttle spill merely because they share the S3 upload
+  thread pool. Idle partial buffers
   are excluded so they cannot block all writers. This is a soft threshold: concurrent appends
   can overshoot it, and final buffers must still be submitted to finish a part.
 - `spill_s3_read_coalesce_bytes`: mutable, default 8 MiB, further bounded by the query's

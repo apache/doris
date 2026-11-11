@@ -99,7 +99,7 @@ public class ShowDataCommand extends ShowCommand {
                     .build();
 
     // Row of the all-database and entire-warehouse listings that carries the query spill currently
-    // held in object storage (cloud mode, spill_storage_type=s3). Spill is not attributable to a
+    // held in object storage (cloud mode, spill_storage_type=remote). Spill is not attributable to a
     // database; it gets its own row and is included in the total. A user database name has to
     // start with a letter, so this name cannot collide with one.
     private static final String REMOTE_SPILL_ROW_NAME = "__remote_spill__";
