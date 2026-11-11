@@ -232,6 +232,8 @@ public:
 
 class NodeStatusTest : public testing::TestWithParam<bool> {
 protected:
+    static constexpr int64_t initial_node_mtime = 200;
+
     void SetUp() override {
         txn_kv = create_txn_kv();
         resource_mgr = std::make_shared<NodeStatusResourceManager>(txn_kv);
@@ -257,7 +259,7 @@ protected:
                 node->set_heartbeat_port(10000 + node_idx);
                 node->set_status(NodeStatusPB::NODE_STATUS_RUNNING);
                 node->set_ctime(100);
-                node->set_mtime(200);
+                node->set_mtime(initial_node_mtime);
             }
         }
         std::unique_ptr<Transaction> txn;
@@ -284,16 +286,20 @@ protected:
         ASSERT_EQ(resp.status().code(), expected_code) << resp.status().msg();
     }
 
-    void check_nodes(const InstanceInfoPB& expected) {
+    void check_nodes(NodeInfoPB* updated_node = nullptr) {
         InstanceInfoPB persisted;
         get_instance_info(meta_service.get(), &persisted, instance.instance_id());
-        ASSERT_EQ(persisted.clusters_size(), expected.clusters_size());
-        for (int i = 0; i < expected.clusters_size(); ++i) {
-            ASSERT_EQ(persisted.clusters(i).nodes_size(), expected.clusters(i).nodes_size());
-            for (int j = 0; j < expected.clusters(i).nodes_size(); ++j) {
-                const auto& expected_node = expected.clusters(i).nodes(j);
-                EXPECT_EQ(persisted.clusters(i).nodes(j).SerializeAsString(),
-                          expected_node.SerializeAsString());
+        ASSERT_EQ(persisted.clusters_size(), instance.clusters_size());
+        for (int i = 0; i < instance.clusters_size(); ++i) {
+            ASSERT_EQ(persisted.clusters(i).nodes_size(), instance.clusters(i).nodes_size());
+            for (int j = 0; j < instance.clusters(i).nodes_size(); ++j) {
+                const auto& expected_node = instance.clusters(i).nodes(j);
+                const auto& persisted_node = persisted.clusters(i).nodes(j);
+                if (&expected_node == updated_node) {
+                    EXPECT_GT(persisted_node.mtime(), initial_node_mtime);
+                    updated_node->set_mtime(persisted_node.mtime());
+                }
+                EXPECT_EQ(persisted_node.SerializeAsString(), expected_node.SerializeAsString());
                 EXPECT_EQ(get_instance_id(resource_mgr, expected_node.cloud_unique_id()),
                           instance.instance_id());
             }
@@ -308,29 +314,30 @@ protected:
 
 TEST_P(NodeStatusTest, KeepsNodesResolvableAtEveryPublishedUpdate) {
     int refreshes = 0;
+    NodeInfoPB* updated_node = nullptr;
     // Observe a reader immediately after each committed metadata/cache update.
     resource_mgr->after_refresh = [&] {
         ++refreshes;
         EXPECT_EQ(get_instance_id(resource_mgr, "unique_node_0"), instance.instance_id());
-        check_nodes(instance);
+        check_nodes(updated_node);
     };
     for (int node_idx : {0, 1}) {
         for (auto op :
              {AlterClusterRequest::DECOMMISSION_NODE, AlterClusterRequest::NOTIFY_DECOMMISSIONED}) {
             auto req = request_for_node(node_idx);
             req.set_op(op);
-            instance.mutable_clusters(0)->mutable_nodes(node_idx)->set_status(
-                    op == AlterClusterRequest::DECOMMISSION_NODE
-                            ? NodeStatusPB::NODE_STATUS_DECOMMISSIONING
-                            : NodeStatusPB::NODE_STATUS_DECOMMISSIONED);
+            updated_node = instance.mutable_clusters(0)->mutable_nodes(node_idx);
+            updated_node->set_status(op == AlterClusterRequest::DECOMMISSION_NODE
+                                             ? NodeStatusPB::NODE_STATUS_DECOMMISSIONING
+                                             : NodeStatusPB::NODE_STATUS_DECOMMISSIONED);
             int before_refreshes = refreshes;
             alter_node(req, MetaServiceCode::OK);
             EXPECT_EQ(refreshes, before_refreshes + 1);
-            check_nodes(instance);
+            check_nodes();
             // Preserve HTTP requests that identify a cluster by the node rather than its ID.
             req.mutable_cluster()->clear_cluster_id();
             alter_node(req, MetaServiceCode::OK);
-            check_nodes(instance);
+            check_nodes();
         }
     }
     resource_mgr->after_refresh = [] {};
@@ -351,9 +358,10 @@ TEST_P(NodeStatusTest, UpdatesNodesWithoutStoredClusterIdAtomically) {
         resource_mgr->refresh_instance(instance.instance_id(), instance);
 
         int refreshes = 0;
+        auto* updated_node = cluster->mutable_nodes(1);
         resource_mgr->after_refresh = [&] {
             ++refreshes;
-            check_nodes(instance);
+            check_nodes(updated_node);
         };
         for (auto op :
              {AlterClusterRequest::DECOMMISSION_NODE, AlterClusterRequest::NOTIFY_DECOMMISSIONED}) {
@@ -362,14 +370,13 @@ TEST_P(NodeStatusTest, UpdatesNodesWithoutStoredClusterIdAtomically) {
             auto req = request_for_node(1);
             req.mutable_cluster()->clear_cluster_name();
             req.set_op(op);
-            instance.mutable_clusters(0)->mutable_nodes(1)->set_status(
-                    op == AlterClusterRequest::DECOMMISSION_NODE
-                            ? NodeStatusPB::NODE_STATUS_DECOMMISSIONING
-                            : NodeStatusPB::NODE_STATUS_DECOMMISSIONED);
+            updated_node->set_status(op == AlterClusterRequest::DECOMMISSION_NODE
+                                             ? NodeStatusPB::NODE_STATUS_DECOMMISSIONING
+                                             : NodeStatusPB::NODE_STATUS_DECOMMISSIONED);
             int before_refreshes = refreshes;
             alter_node(req, MetaServiceCode::OK);
             EXPECT_EQ(refreshes, before_refreshes + 1);
-            check_nodes(instance);
+            check_nodes();
             InstanceInfoPB persisted;
             get_instance_info(meta_service.get(), &persisted, instance.instance_id());
             EXPECT_EQ(persisted.clusters(0).SerializeAsString(),
@@ -390,21 +397,21 @@ TEST_P(NodeStatusTest, RejectsMissingNodesWithoutPublishingPartialUpdates) {
         req.mutable_cluster()->mutable_nodes(1)->set_heartbeat_port(12345);
         alter_node(req, MetaServiceCode::INVALID_ARGUMENT);
         EXPECT_EQ(refreshes, 0);
-        check_nodes(instance);
+        check_nodes();
 
         req = request_for_node(0);
         req.set_op(op);
         req.mutable_cluster()->mutable_nodes(0)->set_cloud_unique_id("missing_uid");
         alter_node(req, MetaServiceCode::INVALID_ARGUMENT);
         EXPECT_EQ(refreshes, 0);
-        check_nodes(instance);
+        check_nodes();
 
         req = request_for_node(0);
         req.set_op(op);
         req.mutable_cluster()->set_cluster_id("missing_cluster");
         alter_node(req, MetaServiceCode::INVALID_ARGUMENT);
         EXPECT_EQ(refreshes, 0);
-        check_nodes(instance);
+        check_nodes();
     }
     resource_mgr->after_refresh = [] {};
 }

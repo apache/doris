@@ -3314,77 +3314,95 @@ void handle_drop_node(const std::string& instance_id, const AlterClusterRequest*
     msg = resource_mgr->modify_nodes(instance_id, to_add, to_del);
 }
 
+static bool matches_node(const NodeInfoPB& node, const NodeInfoPB& requested) {
+    if (node.cloud_unique_id() != requested.cloud_unique_id() ||
+        node.heartbeat_port() != requested.heartbeat_port()) {
+        return false;
+    }
+    if (node.has_ip() && requested.has_ip()) {
+        return node.ip() == requested.ip();
+    }
+    return node.has_host() && requested.has_host() && node.host() == requested.host();
+}
+
+static std::string resolve_cluster_from_node(ResourceManager& resource_mgr,
+                                             const NodeInfoPB& requested, ClusterPB& cluster) {
+    std::vector<NodeInfo> nodes;
+    auto msg = resource_mgr.get_node(requested.cloud_unique_id(), &nodes);
+    if (!msg.empty()) {
+        return msg;
+    }
+    for (const auto& node : nodes) {
+        if (matches_node(node.node_info, requested)) {
+            cluster.set_cluster_id(node.cluster_id);
+            cluster.set_cluster_name(node.cluster_name);
+            return "";
+        }
+    }
+    return "failed to find node to update: " + requested.ShortDebugString();
+}
+
+static std::string update_cluster_node_statuses(ClusterPB& cluster,
+                                                const ClusterPB& requested_cluster,
+                                                NodeStatusPB status) {
+    const auto mtime = duration_cast<seconds>(system_clock::now().time_since_epoch()).count();
+    auto* nodes = cluster.mutable_nodes();
+    for (const auto& requested : requested_cluster.nodes()) {
+        NodeInfoPB* matched = nullptr;
+        for (auto& node : *nodes) {
+            if (matches_node(node, requested)) {
+                matched = &node;
+                break;
+            }
+        }
+        if (matched == nullptr) {
+            return "failed to find node to update: " + requested.ShortDebugString();
+        }
+        matched->set_status(status);
+        matched->set_mtime(mtime);
+    }
+    return "";
+}
+
 void handle_update_node_status(const std::string& instance_id, const AlterClusterRequest* request,
                                std::shared_ptr<ResourceManager> resource_mgr, NodeStatusPB status,
                                std::string& msg) {
-    resource_mgr->check_cluster_params_valid(request->cluster(), &msg, false, false);
+    const auto& requested_cluster = request->cluster();
+    resource_mgr->check_cluster_params_valid(requested_cluster, &msg, false, false);
     if (!msg.empty()) {
         LOG(WARNING) << msg;
         return;
     }
-    if (request->cluster().nodes().empty()) {
+    if (requested_cluster.nodes().empty()) {
         msg = "no nodes to update";
         return;
     }
 
-    auto matches_node = [](const NodeInfoPB& node, const NodeInfoPB& requested) {
-        if (node.cloud_unique_id() != requested.cloud_unique_id() ||
-            node.heartbeat_port() != requested.heartbeat_port()) {
-            return false;
-        }
-        if (node.has_ip() && requested.has_ip()) {
-            return node.ip() == requested.ip();
-        }
-        return node.has_host() && requested.has_host() && node.host() == requested.host();
-    };
-
     ClusterInfo cluster;
-    cluster.cluster.CopyFrom(request->cluster());
+    cluster.cluster.CopyFrom(requested_cluster);
     if (cluster.cluster.cluster_id().empty()) {
         // Older HTTP callers can identify the cluster through the node alone.
-        std::vector<NodeInfo> nodes;
-        const auto& requested = request->cluster().nodes(0);
-        msg = resource_mgr->get_node(requested.cloud_unique_id(), &nodes);
+        msg = resolve_cluster_from_node(*resource_mgr, requested_cluster.nodes(0), cluster.cluster);
         if (!msg.empty()) {
             return;
         }
-        auto it = std::find_if(nodes.begin(), nodes.end(), [&](const NodeInfo& node) {
-            return matches_node(node.node_info, requested);
-        });
-        if (it == nodes.end()) {
-            msg = "failed to find node to update: " + requested.ShortDebugString();
-            return;
-        }
-        cluster.cluster.set_cluster_id(it->cluster_id);
-        cluster.cluster.set_cluster_name(it->cluster_name);
     }
 
+    const auto& cluster_id = cluster.cluster.cluster_id();
+    const auto& cluster_name = cluster.cluster.cluster_name();
+    // HTTP-created clusters without a stored ID are distinguished by name.
+    auto match_cluster = [&cluster_id, &cluster_name](const ClusterPB& candidate) {
+        return candidate.cluster_id() == cluster_id &&
+               (!cluster_id.empty() || candidate.cluster_name() == cluster_name);
+    };
+    auto update_nodes = [&requested_cluster, status](ClusterPB& current, std::vector<ClusterPB>&) {
+        return update_cluster_node_statuses(current, requested_cluster, status);
+    };
+
     // Publish only the final state: removing and re-adding nodes breaks instance lookup.
-    msg = resource_mgr->update_cluster(
-            instance_id, cluster,
-            [&](const ClusterPB& c) {
-                if (cluster.cluster.cluster_id().empty()) {
-                    // HTTP-created clusters can have a name without a stored ID.
-                    return c.cluster_id().empty() &&
-                           c.cluster_name() == cluster.cluster.cluster_name();
-                }
-                return c.cluster_id() == cluster.cluster.cluster_id();
-            },
-            [&](ClusterPB& c, std::vector<ClusterPB>&) -> std::string {
-                for (const auto& requested : request->cluster().nodes()) {
-                    auto* nodes = c.mutable_nodes();
-                    auto it = std::find_if(
-                            nodes->begin(), nodes->end(),
-                            [&](const NodeInfoPB& node) { return matches_node(node, requested); });
-                    if (it == nodes->end()) {
-                        return "failed to find node to update: " + requested.ShortDebugString();
-                    }
-                    it->set_status(status);
-                }
-                return "";
-            },
-            /*replace_if_existing_empty_target_cluster=*/false,
-            /*allow_cluster_name_fallback=*/true);
+    msg = resource_mgr->update_cluster(instance_id, cluster, match_cluster, update_nodes,
+                                       /*replace_if_existing_empty_target_cluster=*/false,
+                                       /*allow_cluster_name_fallback=*/true);
 }
 
 void handle_rename_cluster(const std::string& instance_id, const ClusterInfo& cluster,

@@ -1044,17 +1044,29 @@ TEST_P(NodeStatusWithoutClusterIdHttpTest, PreservesNamedClusterWithoutStoredId)
     ASSERT_EQ(persisted.clusters_size(), 1);
     ASSERT_TRUE(persisted.clusters(0).cluster_id().empty());
     ASSERT_EQ(persisted.clusters(0).has_cluster_id(), explicit_empty_id);
+
+    // Seed an old timestamp so the refresh is observable even within the same second.
+    constexpr int64_t old_mtime = 200;
+    persisted.mutable_clusters(0)->mutable_nodes(0)->set_mtime(old_mtime);
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(ctx.meta_service_->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    txn->put(instance_key({create_req.instance_id()}), persisted.SerializeAsString());
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
     auto expected = persisted.clusters(0);
 
     const auto* operation = notify_decommissioned ? "notify_decommissioned" : "decommission_node";
     auto [http_status, resp] = ctx.forward<MetaServiceResponseStatus>(operation, req);
     ASSERT_EQ(http_status, 200) << resp.ShortDebugString();
     ASSERT_EQ(resp.code(), MetaServiceCode::OK) << resp.msg();
-    expected.mutable_nodes(0)->set_status(notify_decommissioned
-                                                  ? NodeStatusPB::NODE_STATUS_DECOMMISSIONED
-                                                  : NodeStatusPB::NODE_STATUS_DECOMMISSIONING);
     persisted = ctx.get_instance_info(create_req.instance_id());
     ASSERT_EQ(persisted.clusters_size(), 1);
+    ASSERT_EQ(persisted.clusters(0).nodes_size(), 1);
+    const auto mtime = persisted.clusters(0).nodes(0).mtime();
+    EXPECT_GT(mtime, old_mtime);
+    auto* expected_node = expected.mutable_nodes(0);
+    expected_node->set_mtime(mtime);
+    expected_node->set_status(notify_decommissioned ? NodeStatusPB::NODE_STATUS_DECOMMISSIONED
+                                                    : NodeStatusPB::NODE_STATUS_DECOMMISSIONING);
     EXPECT_EQ(persisted.clusters(0).SerializeAsString(), expected.SerializeAsString());
 }
 
