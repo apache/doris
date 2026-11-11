@@ -27,7 +27,7 @@ services:
   ${CONTAINER_UID}hudi-minio:
     image: doristhirdpartydocker/minio:RELEASE.2025-01-20T14-49-07Z
     container_name: ${CONTAINER_UID}hudi-minio
-    command: server /data --console-address ":${MINIO_CONSOLE_PORT}"
+    command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
@@ -123,9 +123,12 @@ services:
       - ./scripts:/opt/hudi-scripts
       - ./cache:/opt/hudi-cache
     depends_on:
-      - ${CONTAINER_UID}hudi-minio
-      - ${CONTAINER_UID}hudi-minio-mc
-      - ${CONTAINER_UID}hudi-metastore
+      ${CONTAINER_UID}hudi-minio:
+        condition: service_started
+      ${CONTAINER_UID}hudi-minio-mc:
+        condition: service_completed_successfully
+      ${CONTAINER_UID}hudi-metastore:
+        condition: service_started
     command: ["/opt/hudi-scripts/init.sh"]
     ports:
       - "${SPARK_UI_PORT}:8080"
