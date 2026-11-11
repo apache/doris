@@ -78,12 +78,13 @@ suite("test_mongodb_native", "p0,external") {
     order_qt_count "SELECT count(*) FROM typed_records"
     order_qt_empty "SELECT count(*), count(seq) FROM empty_records"
     order_qt_zero_match "SELECT seq FROM typed_records WHERE seq > 100"
-    order_qt_multi_batch "SELECT count(*), min(seq), max(seq), sum(seq) FROM large_records"
-    order_qt_batch_edges "SELECT seq FROM large_records WHERE seq IN (0,126,127,128,1023,1024,1025,2047,2048,2080)"
-    qt_batch_offset "SELECT seq FROM large_records ORDER BY seq LIMIT 5 OFFSET 1022"
+    // The fixture must exceed the source batch: the default batch size can hold all 2,081 rows.
+    order_qt_multi_batch "SELECT /*+ SET_VAR(batch_size=1024) */ count(*), min(seq), max(seq), sum(seq) FROM large_records"
+    order_qt_batch_edges "SELECT /*+ SET_VAR(batch_size=1024) */ seq FROM large_records WHERE seq IN (0,126,127,128,1023,1024,1025,2047,2048,2080)"
+    qt_batch_offset "SELECT /*+ SET_VAR(batch_size=1024) */ seq FROM large_records ORDER BY seq LIMIT 5 OFFSET 1022"
     for (int i = 0; i < 3; ++i) {
-        "qt_repeated_limit_${i}" "SELECT seq FROM large_records ORDER BY seq LIMIT 3"
-        "qt_early_cursor_close_${i}" "SELECT count(*) FROM (SELECT seq FROM large_records LIMIT 1) limited_rows"
+        "qt_repeated_limit_${i}" "SELECT /*+ SET_VAR(batch_size=1024) */ seq FROM large_records ORDER BY seq LIMIT 3"
+        "qt_early_cursor_close_${i}" "SELECT /*+ SET_VAR(batch_size=1024) */ count(*) FROM (SELECT seq FROM large_records LIMIT 1) limited_rows"
     }
     order_qt_after_limits "SELECT count(*) FROM large_records"
     List fallbackValidators = ["tuple_validator", "pattern_validator", "dependency_validator",

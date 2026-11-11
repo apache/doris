@@ -65,7 +65,7 @@ the native FE plugin and C++ reader and need no Trino plugin installation.
 Use the same regression configuration above, then run:
 
 ```bash
-bash run-regression-test.sh --run -d external_table_p0/mongodb -s test_mongodb_native
+bash run-regression-test.sh --run -d external_table_p0/mongodb
 ```
 
 The suite covers auto/explicit/document schemas, exact ObjectId and int64 values,
@@ -79,3 +79,38 @@ fixture exercises scalar projection through whole-document validation; the separ
 cursor's 128-name batch boundary. Binary displays and
 analysis use `FROM_BINARY`; direct VARBINARY operations keep Doris's existing
 analysis restrictions.
+
+`test_mongodb_native_acceptance` also checks authentication failure and recovery
+after credential correction, rejection of unsupported snapshot/range policies,
+local SQL case/NULL semantics over a non-simple-collation view, and materialization
+into an internal table with a two-way result difference. Batch-boundary queries
+explicitly set `batch_size=1024`: the default batch size can hold the entire
+2,081-row fixture without issuing a `getMore`.
+
+### Native cursor fault checks
+
+`verify_native_lifecycle.py` exercises real FE-to-BE scans with MongoDB command
+failpoints. Run it separately against an otherwise idle, disposable copy of this
+fixture started with `mongod --setParameter enableTestCommands=1`. It reserves the
+`mongodb_native_lifecycle` catalog, uses the initialized `doris_mongodb_native`
+data, and requires a MongoDB account allowed to configure failpoints and read
+server status. The supplied URI and Doris credentials come from the environment.
+
+Install `pymongo` and `pymysql` in a test virtual environment, then run:
+
+```bash
+export MONGODB_URI='mongodb://<fixture-user>:<fixture-password>@<fixture-host>:<port>/?authSource=admin'
+export DORIS_FE_HOST='<fe-host>'
+export DORIS_FE_PORT='<mysql-port>'
+export DORIS_FE_USER='<test-user>'
+export DORIS_FE_PASSWORD='<test-password>'
+python3 docker/thirdparties/docker-compose/mongodb/verify_native_lifecycle.py --allow-failpoints
+```
+
+The checks cover EOF, repeated LIMIT, decoding errors, an injected `getMore`
+command error, socket/query timeouts, cancellation after a blocked `getMore` has
+actually started, and concurrent reads. Every scenario checks source-side cursor
+closure and a subsequent successful read. Failpoints target this test's application
+name and are disabled in `finally` blocks. The catalog remains available for
+inspection. This is a focused lifecycle check; the release soak and topology/TLS
+matrices remain separate qualification work.
