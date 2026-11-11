@@ -142,8 +142,13 @@ JsonNumberToDecimal parse_json_number_as_decimal(std::string_view token,
         if (pos >= token.size() || !is_digit(token[pos])) {
             return JsonNumberToDecimal::MALFORMED;
         }
+        // Past this bound the exponent outweighs every fraction digit the token holds and every
+        // digit a decimal holds, so the verdict below no longer depends on its exact value: the
+        // exponent saturates there instead of growing. A fixed cap would not do, since a long
+        // fraction can cancel any fixed exponent: 0.<999 zeros>1e10000 is 10^9000, not 1.
+        const long exponent_bound = static_cast<long>(token.size()) + kMaxDigits;
         for (; pos < token.size() && is_digit(token[pos]); ++pos) {
-            if (exponent < 1000) {
+            if (exponent <= exponent_bound) {
                 exponent = exponent * 10 + (token[pos] - '0');
             }
         }

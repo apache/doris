@@ -58,7 +58,9 @@ struct JsonToVariantOptions {
     static JsonToVariantOptions current_config();
 };
 
-// Reuses one JSON parser and one batch builder. Each add_json() collects into a stack-only row;
+// Reuses one DOM parser, one ondemand parser with a padded copy of the current document, and one
+// batch builder. Each add_json() collects into a stack-only row; with template paths it may begin
+// a row for the ondemand pass, roll it back, and begin another for the DOM parser's verdict.
 // finish_batch() performs pass 2. A failed add_json() is terminal, as is a successful
 // finish_batch(). try_add_json() rolls back invalid input rows and keeps collecting.
 class JsonStringToVariantEncoder {

@@ -456,6 +456,44 @@ TEST(DataTypeVariantV2SerdeInputTest, DecimalTemplatePathsKeepTheLenientVerdictO
     EXPECT_NE(std::string::npos, json_at(serde, *column, 2).find(R"("amount":1.50)"));
 }
 
+TEST(DataTypeVariantV2SerdeInputTest, TemplatePathsReadPrettyPrintedTextAndOneDocumentOnly) {
+    DataTypeVariantV2SerDe serde(
+            1, template_of({{.pattern = "amount", .is_glob = false, .type = TYPE_DECIMAL128I},
+                            {.pattern = "id", .is_glob = false, .type = TYPE_LARGEINT}}));
+    DataTypeVariantV2SerDe plain;
+    auto column = ColumnVariantV2::create();
+    auto plain_column = ColumnVariantV2::create();
+    // simdjson hands over a number's token with the whitespace that follows it: the readers see it
+    // trimmed, so a pretty-printed document is read as exactly as a compact one.
+    ASSERT_TRUE(
+            deserialize_json(serde, *column,
+                             "{\n  \"amount\" : 1.50 ,\n  \"id\" :\t18446744073709551616\r\n}\n")
+                    .ok());
+    const std::string pretty = json_at(serde, *column, 0);
+    EXPECT_NE(std::string::npos, pretty.find(R"("amount":1.50)")) << pretty;
+    EXPECT_NE(std::string::npos, pretty.find(R"("id":18446744073709551616)")) << pretty;
+    // A second value after the document makes the text no JSON document: the ondemand pass stops
+    // after the first, the DOM parser rejects the whole text, and the lenient serde keeps it as a
+    // string row, as it does without a template.
+    size_t row = 1;
+    for (const char* text : {R"({"amount":1.50}{"amount":2.50})", R"({"amount":1.50} })"}) {
+        ASSERT_TRUE(deserialize_json(serde, *column, text).ok()) << text;
+        ASSERT_TRUE(deserialize_json(plain, *plain_column, text).ok()) << text;
+        const std::string json = json_at(serde, *column, row);
+        EXPECT_EQ('"', json.front()) << text << " -> " << json;
+        EXPECT_EQ(json_at(plain, *plain_column, row - 1), json) << text;
+        ++row;
+    }
+    // A long fraction and a five-digit exponent: 0.<999 zeros>1e10000 is 10^9000, which no decimal
+    // holds, so the text is kept for the template's cast to decide instead of being read as 1.
+    ASSERT_TRUE(deserialize_json(serde, *column,
+                                 R"({"amount":0.)" + std::string(999, '0') + R"(1e10000})")
+                        .ok());
+    const std::string long_exponent = json_at(serde, *column, row);
+    EXPECT_NE(std::string::npos, long_exponent.find(R"("amount":"0.000)")) << long_exponent;
+    EXPECT_NE(std::string::npos, long_exponent.find(R"(1e10000")")) << long_exponent;
+}
+
 TEST(DataTypeVariantV2SerdeInputTest, DataTypeHandsItsTemplatePathsToTheSerde) {
     auto paths = std::make_shared<const VariantTemplatePaths>(std::vector<VariantTemplatePath> {
             {.pattern = "amount", .is_glob = false, .type = TYPE_DECIMAL128I}});

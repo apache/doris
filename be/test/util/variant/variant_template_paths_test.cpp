@@ -150,6 +150,15 @@ TEST(VariantTemplatePathsTest, ReadsDecimalTextOnlyWithADecimalField) {
     EXPECT_EQ(VariantNumberRead::NATIVE, shadowed.number_read("amount"));
 }
 
+TEST(VariantTemplatePathsTest, ANumberUnderNoObjectKeyIsOnNoPath) {
+    // An element of a root array has no object key above it, so its path is empty; "*" matches the
+    // empty string under fnmatch, and only the empty-path check keeps such a number native.
+    const VariantTemplatePaths every =
+            paths_of({{.pattern = "*", .is_glob = true, .type = TYPE_DECIMAL128I}});
+    EXPECT_EQ(VariantNumberRead::NATIVE, every.number_read(""));
+    EXPECT_EQ(VariantNumberRead::DECIMAL_TEXT, every.number_read("amount"));
+}
+
 TEST(VariantTemplatePathsTest, TheFirstMatchingTemplateFieldDecidesLikeTheShredder) {
     // 'amount*':string is declared before 'amount':decimal: the shredder types "amount" as a
     // STRING, so the parser must not read it as a decimal either.
@@ -242,6 +251,27 @@ TEST(VariantTemplatePathsTest, DeclinesWhatDoesNotFit) {
     EXPECT_EQ(JsonNumberToDecimal::OUT_OF_RANGE, parse_json_number_as_decimal("1e-40", out));
     EXPECT_EQ(JsonNumberToDecimal::OUT_OF_RANGE, parse_json_number_as_decimal("1e40", out));
     EXPECT_EQ(JsonNumberToDecimal::OUT_OF_RANGE, parse_json_number_as_decimal("1e99999", out));
+}
+
+TEST(VariantTemplatePathsTest, ReadsAnExponentOfAnyLength) {
+    // A long fraction can cancel an exponent of any length, so every digit of it counts.
+    // 0.<10000 zeros>1 is 10^-10001, which 10^10001 brings back to 1, and 0.<9999 zeros>1 to 10.
+    expect_decimal("0." + std::string(10000, '0') + "1e10001", "1", 0, 4);
+    expect_decimal("0." + std::string(9999, '0') + "1e10001", "10", 0, 4);
+    expect_decimal("0e100000", "0", 0, 4);
+    expect_decimal("0e-100000", "0", 38, 16);
+    VariantDecimalText out;
+    // 0.<999 zeros>1e10000 is 10^9000 and 0.<999 zeros>1e-10000 is 10^-11000: no decimal holds
+    // either, so the text is kept for the template's cast to decide.
+    EXPECT_EQ(JsonNumberToDecimal::OUT_OF_RANGE,
+              parse_json_number_as_decimal("0." + std::string(999, '0') + "1e10000", out));
+    EXPECT_EQ(JsonNumberToDecimal::OUT_OF_RANGE,
+              parse_json_number_as_decimal("0." + std::string(999, '0') + "1e-10000", out));
+    // an exponent past every bound stays there however many digits follow
+    EXPECT_EQ(JsonNumberToDecimal::OUT_OF_RANGE,
+              parse_json_number_as_decimal("1e" + std::string(400, '9'), out));
+    EXPECT_EQ(JsonNumberToDecimal::OUT_OF_RANGE,
+              parse_json_number_as_decimal("1e-" + std::string(400, '9'), out));
 }
 
 TEST(VariantTemplatePathsTest, DeclinesMalformedTokens) {
