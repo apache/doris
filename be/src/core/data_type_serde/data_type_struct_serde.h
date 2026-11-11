@@ -19,7 +19,6 @@
 #include <glog/logging.h>
 
 #include <cstdint>
-#include <unordered_map>
 
 #include "common/status.h"
 #include "core/data_type_serde/data_type_serde.h"
@@ -33,7 +32,11 @@ class Arena;
 
 class DataTypeStructSerDe : public DataTypeSerDe {
 public:
-    DataTypeStructSerDe(DataTypeSerDeSPtrs elem_serdes, Strings names, int nesting_level = 1);
+    DataTypeStructSerDe(const DataTypeSerDeSPtrs& _elem_serdes_ptrs, const Strings names,
+                        int nesting_level = 1)
+            : DataTypeSerDe(nesting_level),
+              elem_serdes_ptrs(_elem_serdes_ptrs),
+              elem_names(names) {}
 
     Status decode_bson_value(IColumn& column, const BsonValueView& value,
                              const BsonDecodeContext& context) const override;
@@ -141,6 +144,5 @@ private:
 
     DataTypeSerDeSPtrs elem_serdes_ptrs;
     Strings elem_names;
-    std::unordered_map<std::string, size_t> simdjson_field_positions;
 };
 } // namespace doris

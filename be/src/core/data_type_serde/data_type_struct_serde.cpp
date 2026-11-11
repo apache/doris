@@ -22,6 +22,7 @@
 #include <algorithm>
 #include <cctype>
 #include <ranges>
+#include <unordered_map>
 
 #include "arrow/array/builder_nested.h"
 #include "common/cast_set.h"
@@ -46,18 +47,6 @@
 namespace doris {
 
 class Arena;
-
-DataTypeStructSerDe::DataTypeStructSerDe(DataTypeSerDeSPtrs elem_serdes, Strings names,
-                                         int nesting_level)
-        : DataTypeSerDe(nesting_level),
-          elem_serdes_ptrs(std::move(elem_serdes)),
-          elem_names(std::move(names)) {
-    for (size_t i = 0; i < elem_names.size(); ++i) {
-        auto name = elem_names[i];
-        std::ranges::transform(name, name.begin(), [](unsigned char c) { return std::tolower(c); });
-        simdjson_field_positions.emplace(std::move(name), i);
-    }
-}
 
 namespace {
 
@@ -920,12 +909,18 @@ Status DataTypeStructSerDe::deserialize_one_cell_from_simdjson(
     }
     auto& target = assert_cast<ColumnStruct&>(column);
 
+    std::unordered_map<std::string, size_t> field_positions;
+    for (size_t i = 0; i < elem_names.size(); ++i) {
+        auto name = elem_names[i];
+        std::ranges::transform(name, name.begin(), [](unsigned char c) { return std::tolower(c); });
+        field_positions.emplace(std::move(name), i);
+    }
     std::vector<bool> seen(elem_names.size(), false);
     for (simdjson::ondemand::field member : input.value.get_object()) {
         std::string name(context.decoded_key(member));
         std::ranges::transform(name, name.begin(), [](unsigned char c) { return std::tolower(c); });
-        const auto it = simdjson_field_positions.find(name);
-        if (it == simdjson_field_positions.end()) {
+        const auto it = field_positions.find(name);
+        if (it == field_positions.end()) {
             continue;
         }
         const auto index = it->second;
