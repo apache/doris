@@ -90,4 +90,50 @@ public class HttpURLUtilTest {
             Assert.assertEquals("cluster-token", connection.getRequestProperty(MetaBaseAction.TOKEN));
         }
     }
+
+    @Test
+    public void testBuildInternalFeUrlHttp() {
+        Config.enable_https = false;
+        Config.http_port = 8030;
+
+        String url = HttpURLUtil.buildInternalFeUrl("192.168.1.10", "/put", "version=123&port=8030");
+        Assert.assertEquals("http://192.168.1.10:8030/put?version=123&port=8030", url);
+    }
+
+    @Test
+    public void testBuildInternalFeUrlHttps() {
+        Config.enable_https = true;
+        Config.https_port = 8050;
+
+        String url = HttpURLUtil.buildInternalFeUrl("192.168.1.10", "/put", "version=123&port=8050");
+        Assert.assertEquals("https://192.168.1.10:8050/put?version=123&port=8050", url);
+    }
+
+    @Test
+    public void testBuildInternalFeUrlNoQueryParams() {
+        Config.enable_https = false;
+        Config.http_port = 8030;
+
+        String url = HttpURLUtil.buildInternalFeUrl("192.168.1.10", "/journal_id", null);
+        Assert.assertEquals("http://192.168.1.10:8030/journal_id", url);
+    }
+
+    @Test
+    public void testBuildInternalFeUrlEmptyQueryParams() {
+        Config.enable_https = false;
+        Config.http_port = 8030;
+
+        String url = HttpURLUtil.buildInternalFeUrl("192.168.1.10", "/version", "");
+        Assert.assertEquals("http://192.168.1.10:8030/version", url);
+    }
+
+    @Test
+    public void testBuildInternalFeUrlHttpsWithIPv6() {
+        Config.enable_https = true;
+        Config.https_port = 8050;
+
+        String url = HttpURLUtil.buildInternalFeUrl("fe80::1", "/role", "host=fe80::2&port=9010");
+        Assert.assertTrue(url.startsWith("https://"));
+        Assert.assertTrue(url.contains("/role?host=fe80::2&port=9010"));
+    }
 }
