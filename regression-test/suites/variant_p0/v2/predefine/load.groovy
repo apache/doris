@@ -370,4 +370,216 @@ suite("regression_test_variant_predefine_schema", "p0,nonConcurrent"){
     sql """insert into test_variant_type_not_null values(1, ${variantV2Function}('{"dcm" : 1.1, "db" : 2.2, "dt" : "2021-01-01 00:00:00", "a.b.c" : [1, 2, 3]}'))"""
     qt_variant_type_not_null "select variant_type(var) from test_variant_type_not_null"
 
+    // DECIMAL and big-integer Schema Template paths, read back by sql/q03. A JSON number on a
+    // DECIMAL path is read from its text instead of through a binary64, and an integer beyond 64
+    // bits on a LARGEINT path is read exactly instead of failing the document. Each document is
+    // loaded three ways, which must agree: INSERT ... SELECT parse_to_variant (its id),
+    // INSERT ... SELECT try_parse_to_variant (1000 + id) and Stream Load (2000 + id); a few are
+    // loaded by INSERT ... VALUES as well (3000 + id).
+    sql "DROP TABLE IF EXISTS test_predefine_number_src"
+    sql """
+        CREATE TABLE `test_predefine_number_src` (
+            `id` bigint NOT NULL,
+            `kind` varchar(32) NOT NULL,
+            `j` string NOT NULL
+        ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 1
+        PROPERTIES ( "replication_allocation" = "tag.location.default: 1");
+    """
+    sql "DROP TABLE IF EXISTS test_predefine_decimal"
+    sql """
+        CREATE TABLE `test_predefine_decimal` (
+            `id` bigint NOT NULL,
+            `v` variant<
+                match_name 'd38_0' : decimal(38, 0),
+                match_name 'd38_38' : decimal(38, 38),
+                match_name 'd10_2' : decimal(10, 2),
+                match_name 'prices' : array<decimal(20, 4)>,
+                match_name_glob 'amount*' : string,
+                match_name 'amount' : decimal(10, 2),
+                match_name 'total' : decimal(10, 2),
+                match_name_glob 'total*' : string,
+                match_name 'item.price' : decimal(10, 2),
+                match_name 'lines.price' : decimal(10, 2),
+                properties("variant_max_subcolumns_count" = "6", "variant_enable_typed_paths_to_sparse" = "false")
+            > NULL
+        ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 1
+        PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true");
+    """
+    sql "DROP TABLE IF EXISTS test_predefine_bigint"
+    sql """
+        CREATE TABLE `test_predefine_bigint` (
+            `id` bigint NOT NULL,
+            `v` variant<
+                match_name 'id' : largeint,
+                match_name 'ids' : array<largeint>,
+                match_name 'obj.id' : largeint,
+                match_name 'objs.id' : largeint,
+                match_name_glob 'big_*' : largeint,
+                match_name 'n' : bigint,
+                properties("variant_max_subcolumns_count" = "6", "variant_enable_typed_paths_to_sparse" = "false")
+            > NULL
+        ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 1
+        PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true");
+    """
+
+    // [id, document], grouped by what the declared path receives, so that one load never mixes a
+    // value the declared type holds with one only the template's cast can judge.
+    def numberDocs = [
+        // numbers the declared DECIMAL holds
+        "decimal": [
+            // decimal(38, 0): 38 digits, more than a binary64 or a 64-bit integer carries
+            [1, '{"d38_0":12345678901234567890123456789012345678}'],
+            [2, '{"d38_0":-99999999999999999999999999999999999999}'],
+            // decimal(38, 38): 38 fraction digits
+            [3, '{"d38_38":0.12345678901234567890123456789012345678}'],
+            [4, '{"d38_38":-0.99999999999999999999999999999999999999}'],
+            // decimal(10, 2): as declared, more fraction digits than the scale, exponent forms,
+            // a negative zero and a negative value, an integer
+            [5, '{"d10_2":12345678.99}'],
+            [6, '{"d10_2":1.005}'],
+            [7, '{"d10_2":0.125}'],
+            [8, '{"d10_2":1.5e3}'],
+            [9, '{"d10_2":15E-1}'],
+            [10, '{"d10_2":-0.0}'],
+            [11, '{"d10_2":-1.50}'],
+            [12, '{"d10_2":7}'],
+            // ARRAY<DECIMAL>
+            [18, '{"prices":[1.50,2.5,0.12345,123456789012345.6789]}'],
+            // the first matching field wins: 'amount*':string is declared before
+            // 'amount':decimal, and 'total':decimal before 'total*':string
+            [19, '{"amount":1.50,"amount_due":2.50,"total":1.50,"total_due":2.50}'],
+            // a declared path through objects, and a declared path whose keys sit under an array
+            // element, which no template field reaches
+            [20, '{"item":{"price":1.50}}'],
+            [21, '{"lines":[{"price":1.50},{"price":2.25}]}'],
+            // a number on no declared path, beside one on a declared path
+            [22, '{"other":0.123456789012345678901,"d10_2":0.10}'],
+        ],
+        // what the declared DECIMAL cannot hold as written: the template's cast decides
+        "decimal_cast": [
+            [13, '{"d10_2":"1.50"}'],
+            [14, '{"d10_2":123456789.123}'],
+            [15, '{"d10_2":1e400}'],
+            [16, '{"d38_0":123456789012345678901234567890123456789}'],
+            [17, '{"d38_38":0.1234567890123456789012345678901234567890123}'],
+        ],
+        // integers up to 10^38 - 1 on the LARGEINT and BIGINT paths
+        "bigint": [
+            // the largest int64, then 2^63 and 2^64 - 1, which a uint64 still holds
+            [1, '{"id":9223372036854775807}'],
+            [2, '{"id":9223372036854775808}'],
+            [3, '{"id":18446744073709551615}'],
+            // 2^64 and -2^63 - 1 fit no 64-bit type
+            [4, '{"id":18446744073709551616}'],
+            [5, '{"id":-9223372036854775809}'],
+            [6, '{"id":99999999999999999999999999999999999999}'],
+            // ARRAY<LARGEINT>, a path through objects and a glob
+            [14, '{"ids":[1,18446744073709551616,-9223372036854775809]}'],
+            [16, '{"obj":{"id":18446744073709551616}}'],
+            [17, '{"big_a":18446744073709551616,"big_b":7}'],
+            // the BIGINT path with the largest int64
+            [18, '{"n":9223372036854775807}'],
+            // 2^63 on no declared path is a number the parser reads without the template
+            [20, '{"other":9223372036854775808}'],
+        ],
+        // integers above 10^38 - 1 on the LARGEINT paths: 10^38, 2^127 - 1, -(2^127 - 1), -2^127
+        "bigint_wide": [
+            [7, '{"id":100000000000000000000000000000000000000}'],
+            [8, '{"id":170141183460469231731687303715884105727}'],
+            [9, '{"id":-170141183460469231731687303715884105727}'],
+            [10, '{"id":-170141183460469231731687303715884105728}'],
+            [15, '{"ids":[170141183460469231731687303715884105727]}'],
+        ],
+        // what the declared integer type cannot hold as written: 2^127, a fraction, a string, and
+        // 2^63 on the BIGINT path. The template's cast decides.
+        "bigint_cast": [
+            [11, '{"id":170141183460469231731687303715884105728}'],
+            [12, '{"id":1.5}'],
+            [13, '{"id":"18446744073709551616"}'],
+            [19, '{"n":9223372036854775808}'],
+        ],
+        // An integer beyond 64 bits off the LARGEINT paths: on no declared path, on the BIGINT
+        // path, under an array element, in a nested array. The parser rejects the whole document,
+        // as it does without a template.
+        "bigint_rejected": [
+            [31, '{"other":18446744073709551616}'],
+            [32, '{"other":170141183460469231731687303715884105727}'],
+            [33, '{"n":18446744073709551616}'],
+            [34, '{"objs":[{"id":18446744073709551616}]}'],
+            [35, '{"ids":[[18446744073709551616]]}'],
+        ],
+        // LARGEINT values on both sides of 10^38 - 1 in one load
+        "bigint_mixed": [
+            [41, '{"id":18446744073709551616}'],
+            [42, '{"id":170141183460469231731687303715884105727}'],
+        ],
+    ]
+    numberDocs.each { kind, docs ->
+        def rows = docs.collect { doc -> "(${doc[0]}, '${kind}', '${doc[1]}')" }.join(", ")
+        sql "insert into test_predefine_number_src values ${rows}"
+    }
+
+    def load_number_docs = { table_name, kind, max_filter_ratio ->
+        def json_lines = numberDocs[kind].collect { doc ->
+            "{\"id\":${2000 + doc[0]},\"v\":${doc[1]}}"
+        }.join("\n")
+        streamLoad {
+            table "${table_name}"
+            set 'format', 'json'
+            set 'read_json_by_line', 'true'
+            set 'max_filter_ratio', max_filter_ratio.toString()
+            inputText json_lines
+            time 10000
+
+            check { result, exception, startTime, endTime ->
+                if (exception != null) {
+                    throw exception
+                }
+                logger.info("Stream load ${kind} into ${table_name} result: ${result}".toString())
+                def json = parseJson(result)
+                assertEquals("success", json.Status.toLowerCase())
+            }
+        }
+    }
+
+    ["decimal", "decimal_cast"].each { kind ->
+        sql """insert into test_predefine_decimal
+               select id, parse_to_variant(j) from test_predefine_number_src where kind = '${kind}'"""
+        sql """insert into test_predefine_decimal
+               select id + 1000, try_parse_to_variant(j) from test_predefine_number_src where kind = '${kind}'"""
+        load_number_docs.call("test_predefine_decimal", kind, 0)
+    }
+    sql """insert into test_predefine_decimal values (3003, parse_to_variant('{"d38_38":0.12345678901234567890123456789012345678}'))"""
+    sql """insert into test_predefine_decimal values (3006, parse_to_variant('{"d10_2":1.005}'))"""
+
+    ["bigint", "bigint_wide", "bigint_cast"].each { kind ->
+        sql """insert into test_predefine_bigint
+               select id, parse_to_variant(j) from test_predefine_number_src where kind = '${kind}'"""
+        sql """insert into test_predefine_bigint
+               select id + 1000, try_parse_to_variant(j) from test_predefine_number_src where kind = '${kind}'"""
+        load_number_docs.call("test_predefine_bigint", kind, 0)
+    }
+    sql """insert into test_predefine_bigint values (3004, parse_to_variant('{"id":18446744073709551616}'))"""
+    sql """insert into test_predefine_bigint values (3008, parse_to_variant('{"id":170141183460469231731687303715884105727}'))"""
+    sql """insert into test_predefine_bigint values (3010, parse_to_variant('{"id":-170141183460469231731687303715884105728}'))"""
+    sql """insert into test_predefine_bigint values (3011, parse_to_variant('{"id":170141183460469231731687303715884105728}'))"""
+
+    // The rejected documents: parse_to_variant fails the statement and try_parse_to_variant
+    // loads NULL. Whether Stream Load stores such a row as NULL or filters it is the load's own
+    // rule, so the filter ratio is left open and sql/q03 records which rows arrived.
+    test {
+        sql """insert into test_predefine_bigint
+               select id, parse_to_variant(j) from test_predefine_number_src where kind = 'bigint_rejected'"""
+        exception "Parse json document failed at row"
+    }
+    sql """insert into test_predefine_bigint
+           select id + 1000, try_parse_to_variant(j) from test_predefine_number_src where kind = 'bigint_rejected'"""
+    load_number_docs.call("test_predefine_bigint", "bigint_rejected", 1)
+
+    sql """insert into test_predefine_bigint
+           select id, parse_to_variant(j) from test_predefine_number_src where kind = 'bigint_mixed'"""
+    sql """insert into test_predefine_bigint
+           select id + 1000, try_parse_to_variant(j) from test_predefine_number_src where kind = 'bigint_mixed'"""
+    load_number_docs.call("test_predefine_bigint", "bigint_mixed", 0)
+
 }
