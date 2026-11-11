@@ -165,15 +165,43 @@ inline std::string hide_ak(std::string debug_string) {
     return debug_string;
 }
 
-inline void clear_node_cloud_unique_ids(ClusterPB& cluster) {
+inline constexpr char kMaskedCloudUniqueId[] = "***MASKED***";
+
+inline void mask_cluster_cloud_unique_ids(ClusterPB& cluster) {
     for (auto& node : *cluster.mutable_nodes()) {
-        node.clear_cloud_unique_id();
+        if (node.has_cloud_unique_id()) {
+            node.set_cloud_unique_id(kMaskedCloudUniqueId);
+        }
+    }
+    auto& properties = *cluster.mutable_properties();
+    for (const char* key :
+         {"cloud_unique_id", "cloud_unique_ids", "cloudUniqueId", "cloudUniqueIds"}) {
+        if (auto it = properties.find(key); it != properties.end()) {
+            it->second = kMaskedCloudUniqueId;
+        }
     }
 }
 
 // Keep identifiers used to correlate RPC logs without dumping the message.
 template <class Message>
 std::string rpc_log_ids(const Message& message) {
+    if constexpr (std::is_same_v<Message, GetTabletRequest>) {
+        return fmt::format(" tablet_id={}", message.tablet_id());
+    } else if constexpr (std::is_same_v<Message, GetRowsetRequest>) {
+        return fmt::format(" tablet_id={} start_version={} end_version={}",
+                           message.idx().tablet_id(), message.start_version(),
+                           message.end_version());
+    } else if constexpr (std::is_same_v<Message, GetVersionRequest>) {
+        if (message.batch_mode()) {
+            return fmt::format(" db_ids=[{}] table_ids=[{}] partition_ids=[{}]",
+                               fmt::join(message.db_ids(), ","),
+                               fmt::join(message.table_ids(), ","),
+                               fmt::join(message.partition_ids(), ","));
+        }
+        return fmt::format(" db_id={} table_id={} partition_id={}", message.db_id(),
+                           message.table_id(), message.partition_id());
+    }
+
     std::ostringstream log;
     if constexpr (requires { message.has_instance_id(); }) {
         if (message.has_instance_id()) {
@@ -227,24 +255,6 @@ template <class Request>
 inline constexpr bool is_credential_update_request =
         std::is_same_v<Request, UpdateAkSkRequest> || std::is_same_v<Request, AlterRamUserRequest>;
 
-template <class Request>
-std::string read_rpc_log_ids(const Request& req) {
-    if constexpr (std::is_same_v<Request, GetTabletRequest>) {
-        return fmt::format("tablet_id={}", req.tablet_id());
-    } else if constexpr (std::is_same_v<Request, GetRowsetRequest>) {
-        return fmt::format("tablet_id={} start_version={} end_version={}", req.idx().tablet_id(),
-                           req.start_version(), req.end_version());
-    } else {
-        if (req.batch_mode()) {
-            return fmt::format("db_ids=[{}] table_ids=[{}] partition_ids=[{}]",
-                               fmt::join(req.db_ids(), ","), fmt::join(req.table_ids(), ","),
-                               fmt::join(req.partition_ids(), ","));
-        }
-        return fmt::format("db_id={} table_id={} partition_id={}", req.db_id(), req.table_id(),
-                           req.partition_id());
-    }
-}
-
 template <class Request, class Response>
 void begin_rpc(std::string_view func_name, brpc::Controller* ctrl, const Request* req,
                Response* res) {
@@ -273,7 +283,7 @@ void begin_rpc(std::string_view func_name, brpc::Controller* ctrl, const Request
                          std::is_same_v<Request, GetRowsetRequest> ||
                          std::is_same_v<Request, GetTabletRequest>) {
         VLOG_DEBUG << "begin " << func_name << " remote_caller=" << ctrl->remote_side()
-                   << " original_client_ip=" << req->request_ip() << " " << read_rpc_log_ids(*req);
+                   << " original_client_ip=" << req->request_ip() << rpc_log_ids(*req);
     } else if constexpr (std::is_same_v<Request, RemoveDeleteBitmapRequest>) {
         LOG(INFO) << "begin " << func_name << " remote_caller=" << ctrl->remote_side()
                   << " original_client_ip=" << req->request_ip()
@@ -302,8 +312,10 @@ void begin_rpc(std::string_view func_name, brpc::Controller* ctrl, const Request
                          std::is_same_v<Request, CreateStageRequest> ||
                          std::is_same_v<Request, AlterObjStoreInfoRequest>) {
         Request request_for_log = *req;
-        if constexpr (requires { request_for_log.clear_cloud_unique_id(); }) {
-            request_for_log.clear_cloud_unique_id();
+        if constexpr (requires { request_for_log.has_cloud_unique_id(); }) {
+            if (request_for_log.has_cloud_unique_id()) {
+                request_for_log.set_cloud_unique_id(kMaskedCloudUniqueId);
+            }
         }
         std::string debug_string = encryt_sk(request_for_log.ShortDebugString());
         debug_string = hide_ak(debug_string);
@@ -335,7 +347,7 @@ void finish_rpc(std::string_view func_name, brpc::Controller* ctrl, const Reques
                          std::is_same_v<Response, GetTabletResponse>) {
         LOG_IF(INFO, res->status().code() != MetaServiceCode::OK)
                 << "finish " << func_name << " remote_caller=" << ctrl->remote_side()
-                << " original_client_ip=" << req->request_ip() << " " << read_rpc_log_ids(*req)
+                << " original_client_ip=" << req->request_ip() << rpc_log_ids(*req)
                 << " status=" << res->status().ShortDebugString();
     } else if constexpr (std::is_same_v<Response, GetTabletStatsResponse>) {
         LOG_IF(INFO, res->status().code() != MetaServiceCode::OK)
@@ -363,7 +375,7 @@ void finish_rpc(std::string_view func_name, brpc::Controller* ctrl, const Reques
         if constexpr (std::is_same_v<Response, GetInstanceResponse>) {
             if (response_for_log.has_instance()) {
                 for (auto& cluster : *response_for_log.mutable_instance()->mutable_clusters()) {
-                    clear_node_cloud_unique_ids(cluster);
+                    mask_cluster_cloud_unique_ids(cluster);
                 }
             }
         }

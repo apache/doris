@@ -1836,6 +1836,10 @@ TEST(MetaServiceHttpTest, CloudUniqueIdNotLoggedWithoutDebug) {
             EXPECT_NE(message.find("NORMAL"), std::string::npos) << message;
             EXPECT_NE(message.find("SUSPENDED"), std::string::npos) << message;
             EXPECT_NE(message.find("retained-value"), std::string::npos) << message;
+            EXPECT_NE(message.find(R"("cloud_unique_id":"***MASKED***")"), std::string::npos)
+                    << message;
+            EXPECT_NE(message.find(R"("cloudUniqueId":"***MASKED***")"), std::string::npos)
+                    << message;
             cluster_update_logged = true;
         }
         rpc_logs_cluster |=
@@ -1847,6 +1851,7 @@ TEST(MetaServiceHttpTest, CloudUniqueIdNotLoggedWithoutDebug) {
 }
 
 TEST(MetaServiceHttpTest, AkSkNotLogged) {
+    ScopedLegacyInstanceRpc legacy_instance_rpc;
     HttpContext ctx(true);
     auto* ms = ctx.meta_service_.get();
     const std::string ak = "AK_ID_VALUE_1234567";
