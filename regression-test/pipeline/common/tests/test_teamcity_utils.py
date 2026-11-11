@@ -17,7 +17,6 @@
 # under the License.
 
 """Exercise the existing shell entry points without a network or real credentials."""
-import copy
 import json
 import os
 import re
@@ -50,24 +49,8 @@ if 'vcs-root-entries' in route:
  emit({'vcs-root-entry':[{'vcs-root':{'id':state.get('root','DorisMigrationValidation_ApacheDoris')}}]})
 elif route.startswith('vcs-root-instances'):
  emit({'vcs-root-instance':[{'id':3,'vcs-root-id':'DorisMigrationValidation_ApacheDoris'}]})
-elif '/artifact-dependencies' in route:
- emit({'artifact-dependency':[{'source-buildType':{'id':'Doris_Compile'},'properties':{'property':[{'name':'pathRules','value':'regression/** => packages'}]}}]})
-elif '/artifacts/content/' in route:
- bid=route.split('/')[1].split(':')[1];name=route.split('/artifacts/content/',1)[1]
- emit(state['artifacts'][bid][name])
 elif route.startswith('builds/id:'):
  bid=int(route.split(':')[1].split('?')[0]);emit(next(b for b in rows if b['id']==bid))
-elif route.startswith(('builds?','buildQueue?')):
- if state.get('lookup_failure'): sys.exit(1)
- match=re.search(r'buildType:(?:\(id:)?([A-Za-z_]+)',route)
- if match:rows=[b for b in rows if b['buildTypeId']==match[1]]
- if route.startswith('buildQueue?'):rows=[b for b in rows if b['state']=='queued']
- else:
-  rows=[b for b in rows if b['state']!='queued']
-  if 'running:true' in route:rows=[b for b in rows if b['state']=='running']
-  if 'state:finished' in route:rows=[b for b in rows if b['state']=='finished']
-  if 'status:SUCCESS' in route:rows=[b for b in rows if b['status']=='SUCCESS']
- emit({'build':rows} if rows else {'count':0})
 else: raise AssertionError(route)
 '''
 
@@ -77,18 +60,6 @@ def build(bid=1, lane='Doris_CloudUT', state='running', head=HEAD, params=None):
             'status': 'SUCCESS', 'branchName': 'pull/123',
             'revisions': {'revision': [{'version': head}]},
             'properties': {'property': [{'name': k, 'value': v} for k, v in (params or {}).items()]}}
-
-
-def manifest():
-    return {'source': {'repository': 'apache/doris', 'pr_number': 123, 'pr_head_sha': HEAD,
-                       'target_branch': 'master', 'target_head_sha': 'b' * 40,
-                       'checkout_sha': 'c' * 40, 'modified': False},
-            'producer': {'compiled_in_build': 1, 'packaged_in_build': 1, 'image': 'image'},
-            'trust_class': 'pr-merge', 'expires_at': '2999-01-01T00:00:00Z',
-            'frameworkSource': {'modified': False}, 'tools': {'jdk': '17'},
-            'unchangedTestTree': {'treeSha256': 'd' * 64},
-            'packages': {name: {'sha256': 'e' * 64, 'bytes': 123}
-                         for name in ['binary.tar.gz', 'cases.tar.gz']}}
 
 
 class TeamCityUtilsTests(unittest.TestCase):
@@ -224,7 +195,7 @@ curl(){ python3 "$FIXTURE_ROOT/status_mock.py" "$@"; }
         commands = re.search(r'reg="\^run \(([^)]+)\)', workflow).group(1).split('|')
         self.assertEqual(set(commands), set(mappings) | {'buildall'})
 
-    def parse_comment(self, command, branch='master', permission='write', check=True):
+    def parse_comment(self, command, branch='master', permission='write', check=True, user_id='27881198'):
         workflow = (HELPER.parents[3] / '.github/workflows/comment-to-trigger-teamcity.yml').read_text()
         block = workflow.split('    - name: "Parse PR comment"\n', 1)[1].split('    - name:', 1)[0]
         script = textwrap.dedent(block.split('      run: |\n', 1)[1])
@@ -233,7 +204,7 @@ curl(){ python3 "$FIXTURE_ROOT/status_mock.py" "$@"; }
         output = self.root / 'workflow-output'; output.write_text('')
         prefix = 'curl(){ printf "%s\\n" "$MOCK_GITHUB_RESPONSE"; };\n'
         result = subprocess.run(['bash', '-eo', 'pipefail', '-c', prefix + script], text=True, capture_output=True,
-                                env={**self.env, 'COMMENT_BODY': command, 'COMMENT_USER_ID': '27881198',
+                                env={**self.env, 'COMMENT_BODY': command, 'COMMENT_USER_ID': user_id,
                                      'GITHUB_TOKEN': 'test-github-token', 'GITHUB_OUTPUT': str(output),
                                      'GITHUB_ENV': str(self.root / 'workflow-env'),
                                      'MOCK_GITHUB_RESPONSE': json.dumps({'head': {'sha': HEAD}, 'base': {'ref': branch}, 'permission': permission})})
@@ -250,6 +221,28 @@ curl(){ python3 "$FIXTURE_ROOT/status_mock.py" "$@"; }
         for command in ['run feut-extra', 'please run feut', 'run nonConcurrent', 'run p1', 'run cloud_p1', 'run check_coverage']:
             result, output = self.parse_comment(command, check=False)
             self.assertNotIn('COMMENT_TRIGGER_TYPE=', output)
+
+    def test_skip_buildall_authorization_is_preserved(self):
+        _, output = self.parse_comment('skip buildall')
+        self.assertIn('comment_skip=true', output)
+        _, output = self.parse_comment('skip buildall', user_id='123456', check=False)
+        self.assertNotIn('comment_skip=true', output)
+        _, output = self.parse_comment('skip buildall', branch='branch-4.2', user_id='9208457')
+        self.assertIn('comment_skip=true', output)
+
+    def test_skip_buildall_statuses(self):
+        workflow = (HELPER.parents[3] / '.github/workflows/comment-to-trigger-teamcity.yml').read_text()
+        block = workflow.split('    - name: "Skip buildall"\n', 1)[1]
+        script = textwrap.dedent(block.split('      run: |\n', 1)[1])
+        script = script.replace('source ./regression-test/pipeline/common/teamcity-utils.sh', ':')
+        script = script.replace('${{ steps.parse.outputs.COMMIT_ID_FROM_TRIGGER }}', HEAD)
+        for branch in ['master', 'branch-4.2', 'branch-4.1']:
+            (self.root / 'statuses.json').write_text('[]')
+            self.run_shell(script, env={'TARGET_BRANCH': branch})
+            expected = {'TeamCity/' + lane for lane in ['compile', 'feut', 'beut', 'cloudut', 'p0', 'cloud_p0', 'vault_p0', 'external', 'nonconcurrent']}
+            if branch == 'master': expected.add('TeamCity/performance')
+            self.assertEqual(set(self.skipped_contexts()), expected)
+            self.assertFalse(self.state().get('posts'))
 
     def test_workflow_branch_and_permission_checks(self):
         for branch in ['branch-4.2', 'branch-4.1']:
@@ -282,21 +275,6 @@ teamcity_request --fail https://ci.example
             self.assertNotEqual(result.returncode, 0)
             self.assertFalse(self.state().get('posts'))
 
-    def test_nonconcurrent_uses_server_fanout_parameter(self):
-        self.trigger('nonconcurrent')
-        body = self.state()['posts'][0]
-        self.assertEqual(body['buildType']['id'], 'Doris_Compile')
-        params = {p['name']: p['value'] for p in body['properties']['property']}
-        self.assertEqual(params['regression_targets'], 'nonConcurrent')
-
-    def test_each_regression_keyword_selects_its_pipeline(self):
-        for lane, pipeline in [('p0', 'Doris_P0'), ('cloud_p0', 'Doris_CloudP0'),
-                               ('vault_p0', 'Doris_VaultP0'), ('external', 'Doris_External'),
-                               ('nonconcurrent', 'Doris_NonConcurrent')]:
-            self.with_producer(manifest())
-            self.trigger(lane)
-            self.assertEqual(self.state()['posts'][0]['buildType']['id'], pipeline)
-
     def test_status_token_is_not_traced(self):
         result = self.run_shell('curl(){ return 0; }; set -x; skip_build "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" feut',
                                 mock=False, env={'GITHUB_TOKEN': 'test-github-token'})
@@ -306,6 +284,19 @@ teamcity_request --fail https://ci.example
         result = self.run_shell('curl(){ exit 99; }; teamcity_request https://ci.example', mock=False,
                                 check=False, env={'TEAMCITY_CURRENT_TOKEN': ''})
         self.assertEqual(result.returncode, 1)
+
+    def test_regressions_submit_directly_with_only_pr_parameters(self):
+        for lane, pipeline in [('p0', 'Doris_P0'), ('cloud_p0', 'Doris_CloudP0'),
+                               ('vault_p0', 'Doris_VaultP0'), ('external', 'Doris_External'),
+                               ('nonconcurrent', 'Doris_NonConcurrent')]:
+            self.save({})
+            self.trigger(lane)
+            body = self.state()['posts'][0]
+            self.assertEqual(body['buildType']['id'], pipeline)
+            self.assertEqual({p['name']: p['value'] for p in body['properties']['property']},
+                             {'env.PR_NUMBER': '123', 'env.CI_BRANCH': 'master'})
+            self.assertNotIn('custom-artifact-dependencies', body)
+            self.assertEqual(len(self.state()['posts']), 1)
 
     def test_exact_revision_submission(self):
         self.trigger()
@@ -351,43 +342,6 @@ teamcity_request --fail https://ci.example
         for count in [0, 21, 'abc']:
             self.assertNotEqual(self.trigger(count=count, check=False).returncode, 0)
         self.assertFalse(self.state().get('posts'))
-
-    def test_missing_artifact_triggers_matching_compile(self):
-        self.trigger('p0')
-        body = self.state()['posts'][0]
-        self.assertEqual(body['buildType']['id'], 'Doris_Compile')
-        params = {p['name']: p['value'] for p in body['properties']['property']}
-        self.assertEqual(params['regression_targets'], 'p0')
-
-    def with_producer(self, doc):
-        self.save({'builds': [build(lane='Doris_Compile', state='finished')],
-                   'artifacts': {'1': {'regression/manifest.json': doc}}})
-
-    def test_native_artifact_binding(self):
-        self.with_producer(manifest())
-        self.trigger('p0')
-        body = self.state()['posts'][0]
-        self.assertEqual(body['buildType']['id'], 'Doris_P0')
-        params = {p['name']: p['value'] for p in body['properties']['property']}
-        self.assertEqual(params['env.CI_COMPILE_BUILD_ID'], '1')
-        self.assertEqual(params['env.EXPECTED_SOURCE_SHA'], 'c' * 40)
-        self.assertEqual(params['env.PACKAGE_BUILD_NUMBER'], '1')
-        self.assertEqual(params['env.CI_FANOUT_KEY'], '')
-        dep = body['custom-artifact-dependencies']['artifact-dependency'][0]
-        self.assertEqual({p['name']: p['value'] for p in dep['properties']['property']}['revisionValue'], '1')
-
-    def test_invalid_manifest_not_used(self):
-        for change in [lambda d: d['source'].update(pr_head_sha='f' * 40),
-                       lambda d: d['producer'].update(packaged_in_build=2),
-                       lambda d: d['frameworkSource'].update(modified=True)]:
-            doc = manifest(); change(doc); self.with_producer(doc)
-            self.assertNotEqual(self.trigger('p0', check=False).returncode, 0)
-            self.assertFalse(self.state().get('posts'))
-
-    def test_expired_manifest_causes_recompile(self):
-        doc = manifest(); doc['expires_at'] = '2000-01-01T00:00:00Z'; self.with_producer(doc)
-        self.trigger('p0')
-        self.assertEqual(self.state()['posts'][0]['buildType']['id'], 'Doris_Compile')
 
     def test_removed_lane_has_no_legacy_fallback(self):
         self.assertNotEqual(self.trigger('p1', check=False).returncode, 0)
