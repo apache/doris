@@ -20,9 +20,11 @@
 import copy
 import json
 import os
+import re
 from pathlib import Path
 import subprocess
 import tempfile
+import textwrap
 import unittest
 
 HELPER = Path(__file__).parents[1] / 'teamcity-utils.sh'
@@ -99,8 +101,7 @@ class TeamCityUtilsTests(unittest.TestCase):
         (self.root / 'event.json').write_text(json.dumps({'comment': {
             'id': 45, 'body': 'run cloudut', 'updated_at': '2026-11-11T00:00:00Z'}}))
         self.env = {**os.environ, 'TARGET_BRANCH': 'master', 'TEAMCITY_CURRENT_URL': 'https://ci.example',
-                    'TEAMCITY_CURRENT_TOKEN': 'test-current-token', 'TEAMCITY_LEGACY_USER': 'test-legacy-user',
-                    'TEAMCITY_LEGACY_PASSWORD': 'test-legacy-password', 'FIXTURE_ROOT': str(self.root),
+                    'TEAMCITY_CURRENT_TOKEN': 'test-current-token', 'FIXTURE_ROOT': str(self.root),
                     'GITHUB_EVENT_PATH': str(self.root / 'event.json')}
 
     def save(self, value):
@@ -124,24 +125,89 @@ teamcity_current_pr(){ [[ ${PR_FRESH:-true} == true ]]; }
     def trigger(self, lane='cloudut', count=1, **kwargs):
         return self.run_shell('trigger_or_skip_build true 123 master ' + HEAD + ' ' + lane + ' ' + str(count), **kwargs)
 
-    def test_current_and_legacy_routes(self):
-        for branch in ['master', 'branch-4.2', 'branch-4.1']:
-            result = self.run_shell('echo "$TC_CURRENT ${comment_to_pipeline[compile]} ${conment_to_context[nonConcurrent]}"', env={'TARGET_BRANCH': branch})
-            self.assertEqual(result.stdout.strip(), 'true Doris_Compile TeamCity/nonconcurrent')
-        result = self.run_shell('echo "$TC_CURRENT ${comment_to_pipeline[compile]}"', env={'TARGET_BRANCH': 'branch-4.0'})
-        self.assertEqual(result.stdout.strip(), 'false Doris_DorisCompile_Compile')
+    def test_keywords_match_required_checks(self):
+        repo = HELPER.parents[3]
+        required = set(re.findall(r'- (TeamCity/\S+)', (repo / '.asf.yaml').read_text()))
+        result = self.run_shell('for lane in "${!comment_to_pipeline[@]}"; do echo "$lane ${conment_to_context[$lane]}"; done')
+        mappings = dict(line.split() for line in result.stdout.splitlines())
+        self.assertEqual(set(mappings.values()), required | {'TeamCity/external', 'TeamCity/performance'})
+        self.assertTrue(all(context == 'TeamCity/' + lane for lane, context in mappings.items()))
+        workflow = (repo / '.github/workflows/comment-to-trigger-teamcity.yml').read_text()
+        commands = re.search(r'reg="\^run \(([^)]+)\)', workflow).group(1).split('|')
+        self.assertEqual(set(commands), set(mappings) | {'buildall'})
+
+    def parse_comment(self, command, branch='master', permission='write', check=True):
+        workflow = (HELPER.parents[3] / '.github/workflows/comment-to-trigger-teamcity.yml').read_text()
+        block = workflow.split('    - name: "Parse PR comment"\n', 1)[1].split('    - name:', 1)[0]
+        script = textwrap.dedent(block.split('      run: |\n', 1)[1])
+        script = script.replace('${{ github.event.issue.pull_request.url }}', 'https://api.github.com/repos/apache/doris/pulls/123')
+        script = script.replace('${{ github.repository }}', 'apache/doris').replace('${{ github.event.comment.user.login }}', 'tester')
+        output = self.root / 'workflow-output'; output.write_text('')
+        prefix = 'curl(){ printf "%s\\n" "$MOCK_GITHUB_RESPONSE"; };\n'
+        result = subprocess.run(['bash', '-eo', 'pipefail', '-c', prefix + script], text=True, capture_output=True,
+                                env={**self.env, 'COMMENT_BODY': command, 'COMMENT_USER_ID': '27881198',
+                                     'GITHUB_TOKEN': 'test-github-token', 'GITHUB_OUTPUT': str(output),
+                                     'GITHUB_ENV': str(self.root / 'workflow-env'),
+                                     'MOCK_GITHUB_RESPONSE': json.dumps({'head': {'sha': HEAD}, 'base': {'ref': branch}, 'permission': permission})})
+        if check:
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        return result, output.read_text()
+
+    def test_workflow_parses_exact_check_keywords(self):
+        for lane in ['compile', 'feut', 'beut', 'cloudut', 'p0', 'cloud_p0', 'vault_p0',
+                     'external', 'nonconcurrent', 'performance', 'buildall']:
+            result, output = self.parse_comment('run ' + lane + ' 2')
+            self.assertIn('COMMENT_TRIGGER_TYPE=' + lane + '\n', output)
+            self.assertIn('COMMENT_REPEAT_TIMES=2\n', output)
+        for command in ['run feut-extra', 'please run feut', 'run nonConcurrent', 'run p1', 'run cloud_p1', 'run check_coverage']:
+            result, output = self.parse_comment(command, check=False)
+            self.assertNotIn('COMMENT_TRIGGER_TYPE=', output)
+
+    def test_workflow_branch_and_permission_checks(self):
+        for branch in ['branch-4.2', 'branch-4.1']:
+            result, _ = self.parse_comment('run performance', branch=branch, check=False)
+            self.assertNotEqual(result.returncode, 0)
+            self.parse_comment('run buildall', branch=branch)
+            self.parse_comment('run feut', branch=branch)
+        for branch, permission in [('branch-4.0', 'write'), ('master', 'read')]:
+            result, _ = self.parse_comment('run feut', branch=branch, permission=permission, check=False)
+            self.assertNotEqual(result.returncode, 0)
 
     def test_credentials_are_not_traced(self):
-        for branch, expected, forbidden in [('master', 'test-current-token', 'test-legacy-password'),
-                                             ('branch-4.0', 'test-legacy-password', 'test-current-token')]:
-            result = self.run_shell('''curl(){ printf '%s\\n' "$@" > "$FIXTURE_ROOT/curl-args"; }
+        result = self.run_shell('''curl(){ printf '%s\\n' "$@" > "$FIXTURE_ROOT/curl-args"; }
 set -x
 teamcity_request --fail https://ci.example
-''', mock=False, env={'TARGET_BRANCH': branch})
-            self.assertNotIn(expected, result.stdout + result.stderr)
-            args = (self.root / 'curl-args').read_text()
-            self.assertIn(expected, args)
-            self.assertNotIn(forbidden, args)
+''', mock=False)
+        self.assertNotIn('test-current-token', result.stdout + result.stderr)
+        args = (self.root / 'curl-args').read_text()
+        self.assertIn('Authorization: Bearer test-current-token', args)
+        self.assertNotIn('--user', args)
+
+    def test_retired_branch_has_no_submission(self):
+        result = self.run_shell('trigger_or_skip_build true 123 branch-4.0 ' + HEAD + ' feut 1', check=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(self.state().get('posts'))
+
+    def test_release_branches_reject_performance(self):
+        for branch in ['branch-4.2', 'branch-4.1']:
+            result = self.run_shell('trigger_or_skip_build true 123 ' + branch + ' ' + HEAD + ' performance 1', check=False)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertFalse(self.state().get('posts'))
+
+    def test_nonconcurrent_uses_server_fanout_parameter(self):
+        self.trigger('nonconcurrent')
+        body = self.state()['posts'][0]
+        self.assertEqual(body['buildType']['id'], 'Doris_Compile')
+        params = {p['name']: p['value'] for p in body['properties']['property']}
+        self.assertEqual(params['regression_targets'], 'nonConcurrent')
+
+    def test_each_regression_keyword_selects_its_pipeline(self):
+        for lane, pipeline in [('p0', 'Doris_P0'), ('cloud_p0', 'Doris_CloudP0'),
+                               ('vault_p0', 'Doris_VaultP0'), ('external', 'Doris_External'),
+                               ('nonconcurrent', 'Doris_NonConcurrent')]:
+            self.with_producer(manifest())
+            self.trigger(lane)
+            self.assertEqual(self.state()['posts'][0]['buildType']['id'], pipeline)
 
     def test_status_token_is_not_traced(self):
         result = self.run_shell('curl(){ return 0; }; set -x; skip_build "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" feut',

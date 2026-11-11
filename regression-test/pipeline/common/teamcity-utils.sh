@@ -18,99 +18,31 @@
 
 #!/bin/bash
 
-# PR的目标分支
-# 到
-# 可以跑的流水线
-# 的映射
-# 控制哪些分支可以跑哪些流水线
-declare -A targetBranch_to_pipelines
-targetBranch_to_pipelines=(
-    ['master']='feut beut cloudut compile p0 p1 external performance cloud_p0 cloud_p1 vault_p0 nonConcurrent check_coverage check_coverage_fe'
-    ['branch-4.2']='feut beut cloudut compile p0 p1 external cloud_p0 cloud_p1 vault_p0 nonConcurrent check_coverage check_coverage_fe'
-    ['branch-4.1']='feut beut cloudut compile p0 p1 external cloud_p0 cloud_p1 vault_p0 nonConcurrent check_coverage check_coverage_fe'
-    ['branch-4.0']='feut beut cloudut compile p0 p1 external cloud_p0 cloud_p1 vault_p0 nonConcurrent check_coverage check_coverage_fe'
-    ['branch-3.1']='feut beut cloudut compile p0 p1 external cloud_p0 cloud_p1 vault_p0 nonConcurrent check_coverage check_coverage_fe'
-    ['branch-3.0']='feut beut cloudut compile p0 p1 external cloud_p0 cloud_p1 vault_p0 nonConcurrent check_coverage'
-    ['branch-2.1']='feut beut compile p0 p1 external'
-    ['branch-2.0']='feut beut compile p0 p1 external'
+# Comment keywords match the suffix of the published TeamCity/<keyword> check.
+# External and Performance are optional and therefore absent from required checks.
+declare -A targetBranch_to_pipelines=(
+    [master]='compile feut beut cloudut p0 cloud_p0 vault_p0 external nonconcurrent performance'
+    [branch-4.2]='compile feut beut cloudut p0 cloud_p0 vault_p0 external nonconcurrent'
+    [branch-4.1]='compile feut beut cloudut p0 cloud_p0 vault_p0 external nonconcurrent'
 )
-
-# github中评论的要触发的流水线名字
-# 到
-# teamcity流水线实际的名称
-# 的映射
-# 新加流水线需要修改这里
-declare -A comment_to_pipeline
-comment_to_pipeline=(
-    ['feut']='Doris_Doris_FeUt'
-    ['beut']='Doris_DorisBeUt_BeUt'
-    ['cloudut']='Doris_DorisCloudUt_CloudUt'
-    ['compile']='Doris_DorisCompile_Compile'
-    ['p0']='Doris_DorisRegression_P0Regression'
-    ['p1']='Doris_DorisRegression_P1Regression'
-    ['external']='Doris_External_Regression'
-    ['performance']='Doris_DorisPerformance_Performance'
-    ['cloud_p0']='Doris_DorisRegression_CloudP0'
-    ['cloud_p1']='Doris_DorisCloudRegression_CloudP1'
-    ['vault_p0']='Doris_DorisCloudRegression_VaultP0'
-    ['nonConcurrent']='Doris_DorisRegression_NonConcurrentRegression'
-    ['check_coverage']='Doris_Coverage_Merge_P0_UT'
+declare -A comment_to_pipeline=(
+    [compile]=Doris_Compile [feut]=Doris_FEUT [beut]=Doris_BEUT
+    [cloudut]=Doris_CloudUT [p0]=Doris_P0 [cloud_p0]=Doris_CloudP0
+    [vault_p0]=Doris_VaultP0 [external]=Doris_External
+    [nonconcurrent]=Doris_NonConcurrent [performance]=Doris_Performance
 )
-
-# github中评论的要触发的流水线名字
-# 到
-# teamcity流水线返回结果给github的名称
-# 的映射
-# 新加流水线需要修改这里
 declare -A conment_to_context
-conment_to_context=(
-    ['compile']='COMPILE (DORIS_COMPILE)'
-    ['feut']='FE UT (Doris FE UT)'
-    ['beut']='BE UT (Doris BE UT)'
-    ['cloudut']='Cloud UT (Doris Cloud UT)'
-    ['p0']='P0 Regression (Doris Regression)'
-    ['p1']='P1 Regression (Doris Regression)'
-    ['external']='External Regression (Doris External Regression)'
-    ['performance']='performance (Doris Performance)'
-    ['cloud_p0']='cloud_p0 (Doris Cloud Regression)'
-    ['cloud_p1']='cloud_p1 (Doris Cloud Regression)'
-    ['vault_p0']='vault_p0 (Doris Cloud Regression)'
-    ['nonConcurrent']='NonConcurrent Regression (nonConcurrent)'
-    ['check_coverage']='check_coverage (Coverage)'
-)
-
-# Retain the existing command API; select the server and names by target branch.
-teamcity_configure() {
-    TC_CURRENT=false
-    TEAMCITY_URL=http://43.132.222.7:8111
-    case "${1:-}" in master|branch-4.2|branch-4.1) TC_CURRENT=true;; *) return 0;; esac
-    TEAMCITY_URL=${TEAMCITY_CURRENT_URL:-}
-    comment_to_pipeline=([compile]=Doris_Compile [feut]=Doris_FEUT [beut]=Doris_BEUT
-        [cloudut]=Doris_CloudUT [p0]=Doris_P0 [cloud_p0]=Doris_CloudP0
-        [vault_p0]=Doris_VaultP0 [external]=Doris_External
-        [nonConcurrent]=Doris_NonConcurrent [performance]=Doris_Performance)
-    conment_to_context=()
-    local lane
-    for lane in "${!comment_to_pipeline[@]}"; do conment_to_context[$lane]="TeamCity/${lane,,}"; done
-    targetBranch_to_pipelines[master]='compile feut beut cloudut p0 cloud_p0 vault_p0 external nonConcurrent performance'
-    targetBranch_to_pipelines[branch-4.2]='compile feut beut cloudut p0 cloud_p0 vault_p0 external nonConcurrent'
-    targetBranch_to_pipelines[branch-4.1]=${targetBranch_to_pipelines[branch-4.2]}
-}
+for lane in "${!comment_to_pipeline[@]}"; do conment_to_context[$lane]="TeamCity/$lane"; done
+unset lane
+TEAMCITY_URL=${TEAMCITY_CURRENT_URL:-}
 
 # Never trace authenticated requests or follow redirects carrying credentials.
 teamcity_request() {
     set +x
-    if [[ ${TC_CURRENT:-false} == true ]]; then
-        [[ ${TEAMCITY_URL:-} =~ ^https://[A-Za-z0-9.-]+(:[0-9]+)?$ && -n ${TEAMCITY_CURRENT_TOKEN:-} ]] || {
-            echo 'Current TeamCity HTTPS URL/token is not configured' >&2; return 1;
-        }
-        curl --header "Authorization: Bearer ${TEAMCITY_CURRENT_TOKEN}" "$@"
-    else
-        [[ -n ${TEAMCITY_LEGACY_USER:-} && -n ${TEAMCITY_LEGACY_PASSWORD:-} ]] || {
-            echo 'Legacy TeamCity credentials are not configured' >&2; return 1;
-        }
-        curl --user "${TEAMCITY_LEGACY_USER}:${TEAMCITY_LEGACY_PASSWORD}" "$@"
-    fi
+    [[ ${TEAMCITY_URL:-} =~ ^https://[A-Za-z0-9.-]+(:[0-9]+)?$ && -n ${TEAMCITY_CURRENT_TOKEN:-} ]] || {
+        echo 'TeamCity HTTPS URL/token is not configured' >&2; return 1;
+    }
+    curl --header "Authorization: Bearer ${TEAMCITY_CURRENT_TOKEN}" "$@"
 }
 
 teamcity_rest() {
@@ -251,9 +183,9 @@ teamcity_current_trigger() (
     set -euo pipefail
     set +x
     umask 077
-    local lane=$1 count=${2:-1} params type rc dependencies=null
+    local lane=$1 count=${2:-1} params type rc dependencies=null regression_lane
     [[ $PULL_REQUEST_NUM =~ ^[1-9][0-9]*$ && $COMMIT_ID_FROM_TRIGGER =~ ^[0-9a-f]{40}$ && $count =~ ^[1-9][0-9]*$ && $count -le 20 ]]
-    [[ " ${targetBranch_to_pipelines[$PULL_REQUEST_TARGET_BRANCH]} " == *" $lane "* ]] || {
+    [[ " ${targetBranch_to_pipelines[$PULL_REQUEST_TARGET_BRANCH]:-} " == *" $lane "* ]] || {
         echo "No current pipeline for $lane on $PULL_REQUEST_TARGET_BRANCH" >&2; exit 1;
     }
     TC_TMP=$(mktemp -d); trap 'rm -rf -- "$TC_TMP"' EXIT
@@ -262,11 +194,14 @@ teamcity_current_trigger() (
     params=$(jq -cn --arg pr "$PULL_REQUEST_NUM" --arg branch "$PULL_REQUEST_TARGET_BRANCH" '{"env.PR_NUMBER":$pr,"env.CI_BRANCH":$branch}')
     type=${comment_to_pipeline[$lane]}
     case $lane in
-        p0|cloud_p0|vault_p0|external|nonConcurrent)
+        p0|cloud_p0|vault_p0|external|nonconcurrent)
+            # The Compile server retains its internal camel-case fanout parameter.
+            regression_lane=$lane
+            [[ $lane != nonconcurrent ]] || regression_lane=nonConcurrent
             rc=0; teamcity_current_producer regression || rc=$?
             if [[ $rc == 3 ]]; then
                 echo "No current verified artifact; Compile will trigger $lane" >&2
-                params=$(jq -c --arg lane "$lane" '.+{regression_targets:$lane,is_debug:"false"}' <<< "$params")
+                params=$(jq -c --arg lane "$regression_lane" '.+{regression_targets:$lane,is_debug:"false"}' <<< "$params")
                 type=Doris_Compile; TC_REQUEST_LANE=compile
             else
                 [[ $rc == 0 ]]
@@ -466,60 +401,6 @@ get_active_builds_of_revision() {
 }
 # get_active_builds_of_revision "$1" "$2" "$3"
 
-cancel_running_build() {
-    local PULL_REQUEST_NUM="${PULL_REQUEST_NUM:-$1}"
-    local COMMENT_TRIGGER_TYPE="${COMMENT_TRIGGER_TYPE:-$2}"
-    if [[ -z "${PULL_REQUEST_NUM}" || -z "${COMMENT_TRIGGER_TYPE}" ]]; then
-        echo "Usage: get_queue_build_of_pr PULL_REQUEST_NUM COMMENT_TRIGGER_TYPE" && return 1
-    fi
-
-    local PIPELINE="${comment_to_pipeline[${COMMENT_TRIGGER_TYPE}]}"
-    local build_ids
-    if ! build_ids=$(get_running_build_of_pr "${PULL_REQUEST_NUM}" "${COMMENT_TRIGGER_TYPE}"); then return 1; fi
-    for id in ${build_ids}; do
-        set +x
-        if teamcity_request -sS --fail --output /dev/null -X POST \
-            -H "Content-Type:application/json" \
-            -H "Accept: application/json" \
-            "${TEAMCITY_URL}/app/rest/builds/id:${id}" \
-            -d '{ "comment": "Canceling this running build before triggering a new one", "readdIntoQueue": false }'; then
-            set +x
-            echo -e "\nINFO: canceled running build(id ${id}) for PR ${PULL_REQUEST_NUM} of pipeline ${PIPELINE}"
-        else
-            set +x
-            echo "WARNING: failed to cancel running build(id ${id}) for PR ${PULL_REQUEST_NUM} of pipeline ${PIPELINE}"
-        fi
-    done
-}
-# cancel_running_build "$1" "$2"
-
-cancel_queue_build() {
-    local PULL_REQUEST_NUM="${PULL_REQUEST_NUM:-$1}"
-    local COMMENT_TRIGGER_TYPE="${COMMENT_TRIGGER_TYPE:-$2}"
-    if [[ -z "${PULL_REQUEST_NUM}" || -z "${COMMENT_TRIGGER_TYPE}" ]]; then
-        echo "Usage: get_queue_build_of_pr PULL_REQUEST_NUM COMMENT_TRIGGER_TYPE" && return 1
-    fi
-
-    local PIPELINE="${comment_to_pipeline[${COMMENT_TRIGGER_TYPE}]}"
-    local build_ids
-    if ! build_ids=$(get_queue_build_of_pr "${PULL_REQUEST_NUM}" "${COMMENT_TRIGGER_TYPE}"); then return 1; fi
-    for id in ${build_ids}; do
-        set +x
-        if teamcity_request -sS --fail --output /dev/null -X POST \
-            -H "Content-Type:application/json" \
-            -H "Accept: application/json" \
-            "${TEAMCITY_URL}/app/rest/buildQueue/id:${id}" \
-            -d '{ "comment": "Canceling this queued build before triggering a new one", "readdIntoQueue": false }'; then
-            set +x
-            echo -e "\nINFO: canceled queue build(id ${id}) for PR ${PULL_REQUEST_NUM} of pipeline ${PIPELINE}"
-        else
-            set +x
-            echo "WARNING: failed to cancel queue build(id ${id}) for PR ${PULL_REQUEST_NUM} of pipeline ${PIPELINE}"
-        fi
-    done
-}
-# cancel_queue_build "$1" "$2"
-
 skip_build() {
     set +x
     # 对于不需要跑teamcity pipeline的PR，直接调用github的接口返回成功
@@ -534,9 +415,9 @@ skip_build() {
     local COMMIT_ID_FROM_TRIGGER="$1"
     local COMMENT_TRIGGER_TYPE="$2"
 
-    if [[ ${TC_CURRENT:-false} == true && -z ${conment_to_context[$COMMENT_TRIGGER_TYPE]:-} ]]; then
-        echo "INFO: No separate current check for ${COMMENT_TRIGGER_TYPE}"
-        return 0
+    if [[ -z ${conment_to_context[$COMMENT_TRIGGER_TYPE]:-} ]]; then
+        echo "ERROR: Unknown TeamCity check ${COMMENT_TRIGGER_TYPE}" >&2
+        return 1
     fi
     local state="${TC_BUILD_STATE:-success}" # 可选值 success failure pending
     local payload="{\"state\":\"${state}\",\"target_url\":\"\",\"description\":\"Skip teamCity build\",\"context\":\"${conment_to_context[${COMMENT_TRIGGER_TYPE}]}\"}"
@@ -568,29 +449,13 @@ trigger_build() {
         echo "Usage: add_build PULL_REQUEST_NUM COMMIT_ID_FROM_TRIGGER COMMENT_TRIGGER_TYPE [COMMENT_REPEAT_TIMES]"
         return 1
     fi
-    if [[ ${TC_CURRENT:-false} == true ]]; then
-        teamcity_current_trigger "$COMMENT_TRIGGER_TYPE" "${COMMENT_REPEAT_TIMES:-1}"
-        return $?
-    fi
-    local PIPELINE="${comment_to_pipeline[${COMMENT_TRIGGER_TYPE}]}"
-    set +x
-    if teamcity_request -sS --fail --output /dev/null -X POST \
-        -H "Content-Type:text/plain" \
-        -H "Accept: application/json" \
-        "${TEAMCITY_URL}/httpAuth/action.html?add2Queue=${PIPELINE}&branchName=pull/${PULL_REQUEST_NUM}&name=env.pr_num_from_trigger&value=${PULL_REQUEST_NUM:-}&name=env.commit_id_from_trigger&value=${COMMIT_ID_FROM_TRIGGER:-}&name=env.repeat_times_from_trigger&value=${COMMENT_REPEAT_TIMES:-1}"; then
-        set +x
-        echo "INFO: Add new build to PIPELINE ${PIPELINE} of PR ${PULL_REQUEST_NUM} with COMMENT_REPEAT_TIMES ${COMMENT_REPEAT_TIMES:-1}"
-    else
-        set +x
-        return 1
-    fi
+    teamcity_current_trigger "$COMMENT_TRIGGER_TYPE" "${COMMENT_REPEAT_TIMES:-1}"
 }
 # trigger_build "$1" "$2" "$3" "$4"
 
 trigger_or_skip_build() {
     set +x
-    # 根据相关文件是否修改，来触发or跳过跑流水线
-    local FILE_CHANGED="$1" # 默认为"true"
+    # Keep the original call signature; explicit commands do not use the file filter.
     local PULL_REQUEST_NUM="${PULL_REQUEST_NUM:-$2}"
     local PULL_REQUEST_TARGET_BRANCH="${PULL_REQUEST_TARGET_BRANCH:-$3}"
     local COMMIT_ID_FROM_TRIGGER="${COMMIT_ID_FROM_TRIGGER:-$4}"
@@ -603,62 +468,8 @@ trigger_or_skip_build() {
         return 1
     fi
 
-    teamcity_configure "$PULL_REQUEST_TARGET_BRANCH"
-    if [[ $TC_CURRENT == true ]]; then
-        # An explicit current comment always runs; preserve all active builds.
-        trigger_build "$PULL_REQUEST_NUM" "$COMMIT_ID_FROM_TRIGGER" "$COMMENT_TRIGGER_TYPE" "${COMMENT_REPEAT_TIMES:-1}"
-        return $?
-    fi
-
-    # 有些分支不需要某些跑流水线，在targetBranch_to_pipelines中的分支，需要判断
-    if [[ "${!targetBranch_to_pipelines[*]}" =~ ${PULL_REQUEST_TARGET_BRANCH} ]]; then
-        if [[ "${targetBranch_to_pipelines[${PULL_REQUEST_TARGET_BRANCH}]}" =~ ${COMMENT_TRIGGER_TYPE} ]]; then
-            echo "INFO: pr ${PULL_REQUEST_NUM} to branch ${PULL_REQUEST_TARGET_BRANCH} need to run ${COMMENT_TRIGGER_TYPE}"
-        else
-            echo "INFO: pr ${PULL_REQUEST_NUM} to branch ${PULL_REQUEST_TARGET_BRANCH} not need to run ${COMMENT_TRIGGER_TYPE}"
-            skip_build "${COMMIT_ID_FROM_TRIGGER}" "${COMMENT_TRIGGER_TYPE}"
-            return 0
-        fi
-    fi
-
-    if [[ "${FILE_CHANGED:-"true"}" == "true" ]]; then
-        local duplicate_build_ids
-        local duplicate_lookup_status=0
-        duplicate_build_ids=$(
-            get_active_builds_of_revision \
-                "${PULL_REQUEST_NUM}" \
-                "${COMMENT_TRIGGER_TYPE}" \
-                "${COMMIT_ID_FROM_TRIGGER}"
-        ) || duplicate_lookup_status=$?
-        if [[ ${duplicate_lookup_status} -eq 0 ]]; then
-            echo "INFO: active build(s) ${duplicate_build_ids//$'\n'/,} already exist for PR ${PULL_REQUEST_NUM}, pipeline ${COMMENT_TRIGGER_TYPE}, revision ${COMMIT_ID_FROM_TRIGGER}; skip duplicate trigger"
-            return 0
-        elif [[ ${duplicate_lookup_status} -ne 1 ]]; then
-            echo "WARNING: duplicate lookup failed for PR ${PULL_REQUEST_NUM}, pipeline ${COMMENT_TRIGGER_TYPE}; continue with the existing trigger flow"
-        fi
-
-        cancel_running_build "${PULL_REQUEST_NUM}" "${COMMENT_TRIGGER_TYPE}"
-        cancel_queue_build "${PULL_REQUEST_NUM}" "${COMMENT_TRIGGER_TYPE}"
-        trigger_build "${PULL_REQUEST_NUM}" "${COMMIT_ID_FROM_TRIGGER}" "${COMMENT_TRIGGER_TYPE}" "${COMMENT_REPEAT_TIMES}"
-    else
-        cancel_running_build "${PULL_REQUEST_NUM}" "${COMMENT_TRIGGER_TYPE}"
-        cancel_queue_build "${PULL_REQUEST_NUM}" "${COMMENT_TRIGGER_TYPE}"
-        skip_build "${COMMIT_ID_FROM_TRIGGER}" "${COMMENT_TRIGGER_TYPE}"
-        if [[ ${COMMENT_TRIGGER_TYPE} == "compile" ]]; then
-            # skip compile 的时候，也把 p0 p1 external cloud_p0 cloud_p1 vault_p0 nonConcurrent check_coverage 都 skip 了
-            skip_build "${COMMIT_ID_FROM_TRIGGER}" "p0"
-            skip_build "${COMMIT_ID_FROM_TRIGGER}" "p1"
-            skip_build "${COMMIT_ID_FROM_TRIGGER}" "external"
-            skip_build "${COMMIT_ID_FROM_TRIGGER}" "cloud_p0"
-            skip_build "${COMMIT_ID_FROM_TRIGGER}" "cloud_p1"
-            skip_build "${COMMIT_ID_FROM_TRIGGER}" "vault_p0"
-            skip_build "${COMMIT_ID_FROM_TRIGGER}" "nonConcurrent"
-            skip_build "${COMMIT_ID_FROM_TRIGGER}" "check_coverage"
-        elif [[ ${COMMENT_TRIGGER_TYPE} == "beut" ]]; then
-            # skip beut 的时候，也把 check_coverage skip 了
-            skip_build "${COMMIT_ID_FROM_TRIGGER}" "check_coverage"
-        fi
-    fi
+    # Explicit comment commands always run; reuse matching active builds.
+    trigger_build "$PULL_REQUEST_NUM" "$COMMIT_ID_FROM_TRIGGER" "$COMMENT_TRIGGER_TYPE" "${COMMENT_REPEAT_TIMES:-1}"
 }
 # trigger_or_skip_build "$1" "$2" "$3" "$4" "$5"
 
@@ -677,5 +488,3 @@ reporting_messages_error() {
     # https://www.jetbrains.com/help/teamcity/service-messages.html#Reporting+Messages+to+Build+Log
     echo "##teamcity[message text='Error Message:' errorDetails='${msg}' status='ERROR']"
 }
-
-teamcity_configure "${TARGET_BRANCH:-${PULL_REQUEST_TARGET_BRANCH:-}}"
