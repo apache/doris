@@ -48,7 +48,6 @@
 #include "runtime/file_scan_profile.h"
 #include "runtime/runtime_state.h"
 #include "util/decompressor.h"
-#include "util/defer_op.h"
 #include "util/slice.h"
 
 namespace doris::format::json {
@@ -1067,17 +1066,9 @@ Status JsonReader::_write_data_to_column(simdjson::ondemand::value& value,
             nullable.insert_default();
         } else {
             auto& nested = nullable.get_nested_column();
-            const auto before = nested.size();
-            bool committed = false;
-            Defer rollback([&] {
-                if (!committed && nested.size() > before) {
-                    nested.pop_back(nested.size() - before);
-                }
-            });
             RETURN_IF_ERROR(serde->deserialize_one_cell_from_simdjson(
                     nested, input, _serde_options, _simdjson_context, column_name));
             nullable.get_null_map_data().push_back(0);
-            committed = true;
         }
     } else {
         RETURN_IF_ERROR(serde->deserialize_one_cell_from_simdjson(

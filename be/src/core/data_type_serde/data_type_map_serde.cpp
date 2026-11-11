@@ -927,20 +927,7 @@ Status DataTypeMapSerDe::deserialize_one_cell_from_simdjson(IColumn& column, Sim
     auto values_owner = target.get_values_ptr()->assert_mutable();
     auto& keys = *keys_owner;
     auto& values = *values_owner;
-    const auto before = keys.size();
-    const auto offsets_before = target.get_offsets().size();
-    bool committed = false;
-    Defer rollback([&] {
-        if (!committed) {
-            if (keys.size() > before) {
-                keys.pop_back(keys.size() - before);
-            }
-            if (values.size() > before) {
-                values.pop_back(values.size() - before);
-            }
-            target.get_offsets().resize(offsets_before);
-        }
-    });
+
     for (simdjson::ondemand::field field : input.value.get_object()) {
         const auto key = context.decoded_key(field);
         Slice slice {key.data(), key.size()};
@@ -948,17 +935,9 @@ Status DataTypeMapSerDe::deserialize_one_cell_from_simdjson(IColumn& column, Sim
         if (keys.is_nullable()) {
             auto& nullable = assert_cast<ColumnNullable&>(keys);
             auto& nested_key = nullable.get_nested_column();
-            const auto key_before = nested_key.size();
-            bool key_committed = false;
-            Defer key_rollback([&] {
-                if (!key_committed && nested_key.size() > key_before) {
-                    nested_key.pop_back(nested_key.size() - key_before);
-                }
-            });
+            nullable.get_null_map_data().push_back(0);
             RETURN_IF_ERROR(key_serde->get_nested_serdes()[0]->deserialize_one_cell_from_json(
                     nested_key, slice, options));
-            nullable.get_null_map_data().push_back(0);
-            key_committed = true;
         } else {
             RETURN_IF_ERROR(key_serde->deserialize_one_cell_from_json(keys, slice, options));
         }
@@ -967,7 +946,6 @@ Status DataTypeMapSerDe::deserialize_one_cell_from_simdjson(IColumn& column, Sim
                                                    column_name + ".value"));
     }
     target.get_offsets().push_back(keys.size());
-    committed = true;
     return Status::OK();
 }
 

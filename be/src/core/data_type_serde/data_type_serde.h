@@ -394,8 +394,8 @@ public:
                                             int64_t end_idx, BufferWritable& bw,
                                             FormatOptions& options) const = 0;
 
-    // Consumes one borrowed value and appends one cell. Complex overrides roll back partial
-    // child writes on failure, including simdjson exceptions. Reader owns row filtering.
+    // Consumes one borrowed value and appends one cell. Errors propagate to the caller;
+    // the reader retains responsibility for handling invalid rows.
     virtual Status deserialize_one_cell_from_simdjson(IColumn& column, SimdJsonValue& value,
                                                       const FormatOptions& options,
                                                       SimdJsonReadContext& context,

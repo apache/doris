@@ -919,18 +919,7 @@ Status DataTypeStructSerDe::deserialize_one_cell_from_simdjson(
                                         column_name);
     }
     auto& target = assert_cast<ColumnStruct&>(column);
-    const auto before = target.size();
-    bool committed = false;
-    Defer rollback([&] {
-        if (!committed) {
-            for (size_t i = 0; i < elem_serdes_ptrs.size(); ++i) {
-                auto& child = target.get_column(i);
-                if (child.size() > before) {
-                    child.pop_back(child.size() - before);
-                }
-            }
-        }
-    });
+
     std::vector<bool> seen(elem_names.size(), false);
     for (simdjson::ondemand::field member : input.value.get_object()) {
         std::string name(context.decoded_key(member));
@@ -962,7 +951,7 @@ Status DataTypeStructSerDe::deserialize_one_cell_from_simdjson(
         }
         child.insert_default();
     }
-    committed = true;
+
     return Status::OK();
 }
 

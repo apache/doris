@@ -857,23 +857,12 @@ Status DataTypeArraySerDe::deserialize_one_cell_from_simdjson(
     }
     auto& target = assert_cast<ColumnArray&>(column);
     auto& data = target.get_data();
-    const auto before = data.size();
-    const auto offsets_before = target.get_offsets().size();
-    bool committed = false;
-    Defer rollback([&] {
-        if (!committed) {
-            if (data.size() > before) {
-                data.pop_back(data.size() - before);
-            }
-            target.get_offsets().resize(offsets_before);
-        }
-    });
+
     for (simdjson::ondemand::value element : input.value.get_array()) {
         RETURN_IF_ERROR(deserialize_simdjson_child(*nested_serde, data, element, options, context,
                                                    column_name + ".element"));
     }
     target.get_offsets().push_back(data.size());
-    committed = true;
     return Status::OK();
 }
 
