@@ -47,6 +47,7 @@
 #include "common/metrics/doris_metrics.h"
 #include "common/multi_version.h"
 #include "common/status.h"
+#include "cpp/sync_point.h"
 #include "cpp/token_bucket_rate_limiter.h"
 #include "exec/exchange/vdata_stream_mgr.h"
 #include "exec/pipeline/task_queue.h"
@@ -878,6 +879,38 @@ void ExecEnv::clear_wal_mgr() {
     this->_wal_manager.reset();
 }
 #endif
+void ExecEnv::_shutdown_object_storage() {
+    // The background manager can submit async closes and report uploads through
+    // the storage engine. Join it before draining its downstream worker pools.
+    if (_packed_file_manager) {
+        _packed_file_manager->stop_background_manager();
+    }
+
+    // A queued whole-file upload can submit a close, and a queued close can
+    // submit an upload buffer. shutdown() discards queued tasks: losing either
+    // callback would leave a writer waiting forever on its future/countdown.
+    // Keep the upload pool alive until all of these producers have drained.
+    for (auto* pool : {_s3_file_system_thread_pool.get(), _lazy_release_obj_pool.get(),
+                       _non_block_close_thread_pool.get(), _s3_file_upload_thread_pool.get()}) {
+        // Offline tools and BE tests initialize only the pools they use.
+        if (pool) {
+            TEST_SYNC_POINT_CALLBACK("ExecEnv::_shutdown_object_storage:before_wait", pool);
+            pool->wait();
+        }
+    }
+
+    // A vault added after startup can be owned only by this singleton. Release
+    // its writers and clients before the worker pools and, later, the AWS SDK.
+    if (_packed_file_manager) {
+        _packed_file_manager->release_resources();
+        _packed_file_manager = nullptr;
+    }
+    SAFE_SHUTDOWN(_s3_file_system_thread_pool);
+    SAFE_SHUTDOWN(_lazy_release_obj_pool);
+    SAFE_SHUTDOWN(_non_block_close_thread_pool);
+    SAFE_SHUTDOWN(_s3_file_upload_thread_pool);
+}
+
 // TODO(zhiqiang): Need refactor all thread pool. Each thread pool must have a Stop method.
 // We need to stop all threads before releasing resource.
 // Keep teardown order visible; SAFE_STOP/SAFE_DELETE macro checks dominate complexity.
@@ -945,11 +978,7 @@ void ExecEnv::destroy() {
 
     // StorageEngine must be destoried before _cache_manager destory.
     SAFE_STOP(_storage_engine);
-    // Storage producers have stopped. Join packed-file work while its engine
-    // and upload pools are still alive; it can still report uploads to MS.
-    if (_packed_file_manager) {
-        _packed_file_manager->stop_background_manager();
-    }
+    _shutdown_object_storage();
     _storage_engine.reset();
 
     if (_runtime_query_statistics_mgr) {
@@ -957,22 +986,11 @@ void ExecEnv::destroy() {
     }
     SAFE_SHUTDOWN(_buffered_reader_prefetch_thread_pool);
     SAFE_SHUTDOWN(_segment_prefetch_thread_pool);
-    SAFE_SHUTDOWN(_s3_file_upload_thread_pool);
-    SAFE_SHUTDOWN(_lazy_release_obj_pool);
-    SAFE_SHUTDOWN(_non_block_close_thread_pool);
-    SAFE_SHUTDOWN(_s3_file_system_thread_pool);
     SAFE_SHUTDOWN(_peer_race_s3_thread_pool);
     io::ReadIOTrace::shutdown();
     SAFE_SHUTDOWN(_send_batch_thread_pool);
     SAFE_SHUTDOWN(_udf_close_workers_thread_pool);
     SAFE_SHUTDOWN(_send_table_stats_thread_pool);
-
-    // The singleton can predate S3ClientFactory when startup has no S3 vaults.
-    // Drop its clients explicitly after uploads drain, before SDK teardown.
-    if (_packed_file_manager) {
-        _packed_file_manager->release_resources();
-        _packed_file_manager = nullptr;
-    }
 
     SAFE_DELETE(_load_channel_mgr);
 

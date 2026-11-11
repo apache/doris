@@ -31,6 +31,10 @@
 #include "io/fs/remote_file_system.h"
 #include "util/s3_util.h"
 
+namespace doris {
+class S3ClientScope;
+}
+
 namespace Aws::S3 {
 class S3Client;
 } // namespace Aws::S3
@@ -47,7 +51,7 @@ public:
     explicit ObjClientHolder(S3ClientConf conf);
     ~ObjClientHolder();
 
-    Status init();
+    Status init(S3ClientScope* scope = nullptr);
 
     // Update s3 conf and reset client if `conf` is different. This method is threadsafe.
     Status reset(const S3ClientConf& conf);

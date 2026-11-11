@@ -33,6 +33,7 @@
 #include "io/fs/file_system.h"
 
 namespace doris {
+class S3ClientScope;
 namespace io {
 class FileSystem;
 class FileWriter;
@@ -42,6 +43,8 @@ struct FileSystemProperties {
     std::map<std::string, std::string> properties;
     THdfsParams hdfs_params;
     std::vector<TNetworkAddress> broker_addresses;
+    // Set by a scan owner to reuse SDK clients between sequential file readers.
+    std::shared_ptr<S3ClientScope> s3_client_scope;
 };
 
 struct FSPropertiesRef {

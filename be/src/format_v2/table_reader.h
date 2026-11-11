@@ -368,6 +368,7 @@ public:
         _remaining_table_level_count = -1;
         _remaining_file_level_count = -1;
         _current_split_uses_metadata_count = false;
+        _system_properties.reset();
         return Status::OK();
     }
 

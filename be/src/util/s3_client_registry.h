@@ -70,4 +70,21 @@ private:
     std::shared_ptr<Impl> _impl;
 };
 
+// Strong owners bounded by an existing scan or expression-block lifetime. For
+// example, 64 sequential files with the same credentials need one SDK client,
+// while completing the scan still releases it without a process-wide cache.
+class S3ClientScope {
+public:
+    S3ClientScope();
+    ~S3ClientScope();
+    S3ClientScope(const S3ClientScope&) = delete;
+    S3ClientScope& operator=(const S3ClientScope&) = delete;
+
+    Result<std::shared_ptr<ObjStorageClient>> get_or_create(const S3ClientConf& conf);
+
+private:
+    struct Impl;
+    std::unique_ptr<Impl> _impl;
+};
+
 } // namespace doris

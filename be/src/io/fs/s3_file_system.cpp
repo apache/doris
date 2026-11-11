@@ -47,6 +47,7 @@
 #include "io/fs/s3_file_writer.h"
 #include "runtime/exec_env.h"
 #include "runtime/thread_context.h"
+#include "util/s3_client_registry.h"
 #include "util/s3_uri.h"
 #include "util/s3_util.h"
 
@@ -75,8 +76,9 @@ ObjClientHolder::ObjClientHolder(S3ClientConf conf) : _conf(std::move(conf)) {}
 
 ObjClientHolder::~ObjClientHolder() = default;
 
-Status ObjClientHolder::init() {
-    _client = DORIS_TRY(S3ClientFactory::instance().create(_conf));
+Status ObjClientHolder::init(S3ClientScope* scope) {
+    _client = DORIS_TRY(scope ? scope->get_or_create(_conf)
+                              : S3ClientFactory::instance().create(_conf));
     return Status::OK();
 }
 
