@@ -898,11 +898,7 @@ std::string ResourceManager::update_cluster(
             std::chrono::duration_cast<std::chrono::seconds>(now_time.time_since_epoch()).count();
     now.set_mtime(time);
     auto cluster_json_for_log = [](ClusterPB cluster) {
-        clear_node_cloud_unique_ids(cluster);
-        for (const char* key :
-             {"cloud_unique_id", "cloud_unique_ids", "cloudUniqueId", "cloudUniqueIds"}) {
-            cluster.mutable_properties()->erase(key);
-        }
+        mask_cluster_cloud_unique_ids(cluster);
         return proto_to_json(cluster);
     };
     LOG(INFO) << "before update cluster original: " << cluster_json_for_log(original)
