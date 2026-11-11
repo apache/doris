@@ -106,13 +106,14 @@ Status RemoteSpillDataDir::ensure_ready(io::FileSystemSPtr* file_fs) {
                                     _vault_id, fs->type());
     }
     if (!ready() || _fs != fs) {
-        _bind_fs_unlocked(fs);
+        _bind_fs_unlocked(fs, lock);
     }
     *file_fs = _fs;
     return Status::OK();
 }
 
-void RemoteSpillDataDir::_bind_fs_unlocked(io::FileSystemSPtr fs) {
+void RemoteSpillDataDir::_bind_fs_unlocked(io::FileSystemSPtr fs,
+                                           const std::lock_guard<std::mutex>& lock) {
     _fs = std::move(fs);
     _ready.store(true, std::memory_order_release);
     LOG(INFO) << fmt::format(

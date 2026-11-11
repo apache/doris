@@ -83,7 +83,8 @@ protected:
                                const std::lock_guard<std::mutex>& lock) override;
 
 private:
-    void _bind_fs_unlocked(io::FileSystemSPtr fs);
+    // Caller holds _init_mutex.
+    void _bind_fs_unlocked(io::FileSystemSPtr fs, const std::lock_guard<std::mutex>& lock);
     std::string _vault_id;
     mutable std::mutex _init_mutex;
     std::atomic<bool> _ready {false};

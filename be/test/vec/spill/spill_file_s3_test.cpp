@@ -528,6 +528,11 @@ protected:
         BackendOptions::set_localhost(_saved_localhost);
     }
 
+    void _bind_fs(RemoteSpillDataDir& store, const io::FileSystemSPtr& fs) {
+        std::lock_guard<std::mutex> lock(store._init_mutex);
+        store._bind_fs_unlocked(fs, lock);
+    }
+
     // Build a manager with one remote store and, optionally, a local root for external writers.
     void _create_manager(bool bind_fs = true, std::string vault_id = "vault-1",
                          std::string local_path = "") {
@@ -537,7 +542,7 @@ protected:
                 store->_vault_id = "test-bound-vault";
             }
             store->_spill_root = fmt::format("spill/{}", kBackendUid);
-            store->_bind_fs_unlocked(_s3_fs);
+            _bind_fs(*store, _s3_fs);
         }
         _data_dir = store.get();
         std::unordered_map<std::string, std::unique_ptr<SpillDataDir>> data_map;
@@ -878,13 +883,13 @@ TEST_F(SpillFileS3Test, RemoteRootsAreOpaqueAndStableAcrossVaultRebinding) {
     BackendOptions::set_localhost("192.0.2.10");
     RemoteSpillDataDir first("vault-1");
     RemoteSpillDataDir second("vault-2");
-    first._bind_fs_unlocked(_s3_fs);
-    second._bind_fs_unlocked(_s3_fs);
+    _bind_fs(first, _s3_fs);
+    _bind_fs(second, _s3_fs);
     const auto root = first.get_spill_data_path();
     EXPECT_NE(root, second.get_spill_data_path());
     EXPECT_TRUE(root.starts_with("spill/"));
     EXPECT_EQ(root.find(BackendOptions::get_localhost()), std::string::npos);
-    first._bind_fs_unlocked(_s3_fs);
+    _bind_fs(first, _s3_fs);
     EXPECT_EQ(first.get_spill_data_path(), root);
 }
 
@@ -953,7 +958,7 @@ TEST_F(SpillFileS3Test, VaultChangeKeepsExistingFilesAndPendingDeletesPinned) {
     second_conf.client_conf.bucket = kBucket;
     auto second_fs_or = io::S3FileSystem::create(second_conf, "spill_s3_second_vault");
     ASSERT_TRUE(second_fs_or.has_value()) << second_fs_or.error();
-    _data_dir->_bind_fs_unlocked(second_fs_or.value());
+    _bind_fs(*_data_dir, second_fs_or.value());
 
     const auto second_block = _random_string_block(rng, 16, 100);
     auto second = _write_blocks("query_rotate/sort-1", {second_block}, &status);
