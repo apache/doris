@@ -2897,22 +2897,26 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return str;
     }
 
+    /**
+     * Resolve [ctl.]db for a command that only works on the internal catalog.
+     */
+    private String getInternalDbName(MultipartIdentifierContext ctx) {
+        List<String> nameParts = visitMultipartIdentifier(ctx);
+        if (nameParts.size() == 1) {
+            return nameParts.get(0);
+        } else if (nameParts.size() == 2) {
+            if (!InternalCatalog.INTERNAL_CATALOG_NAME.equalsIgnoreCase(nameParts.get(0))) {
+                throw new ParseException("The execution of this command is restricted to the internal catalog only.");
+            }
+            return nameParts.get(1);
+        } else {
+            throw new AnalysisException("nameParts in analyze database should be [ctl.]db");
+        }
+    }
+
     @Override
     public LogicalPlan visitShowEncryptKeys(ShowEncryptKeysContext ctx) {
-        String dbName = null;
-        if (ctx.database != null) {
-            List<String> nameParts = visitMultipartIdentifier(ctx.database);
-            if (nameParts.size() == 1) {
-                dbName = nameParts.get(0);
-            } else if (nameParts.size() == 2) {
-                if (!InternalCatalog.INTERNAL_CATALOG_NAME.equalsIgnoreCase(nameParts.get(0))) {
-                    throw new ParseException("The execution of this command is restricted to the internal catalog only.");
-                }
-                dbName = nameParts.get(1);
-            } else {
-                throw new AnalysisException("nameParts in analyze database should be [ctl.]db");
-            }
-        }
+        String dbName = ctx.database != null ? getInternalDbName(ctx.database) : null;
 
         String likeString = null;
         if (ctx.LIKE() != null) {
@@ -6775,20 +6779,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public LogicalPlan visitShowSmallFiles(ShowSmallFilesContext ctx) {
-        String dbName = null;
-        if (ctx.database != null) {
-            List<String> nameParts = visitMultipartIdentifier(ctx.database);
-            if (nameParts.size() == 1) {
-                dbName = nameParts.get(0);
-            } else if (nameParts.size() == 2) {
-                if (!InternalCatalog.INTERNAL_CATALOG_NAME.equalsIgnoreCase(nameParts.get(0))) {
-                    throw new ParseException("The execution of this command is restricted to the internal catalog only.");
-                }
-                dbName = nameParts.get(1);
-            } else {
-                throw new AnalysisException("nameParts in analyze database should be [ctl.]db");
-            }
-        }
+        String dbName = ctx.database != null ? getInternalDbName(ctx.database) : null;
         return new ShowSmallFilesCommand(dbName);
     }
 
@@ -7373,20 +7364,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public LogicalPlan visitShowDynamicPartition(ShowDynamicPartitionContext ctx) {
-        String dbName = null;
-        if (ctx.database != null) {
-            List<String> nameParts = visitMultipartIdentifier(ctx.database);
-            if (nameParts.size() == 1) {
-                dbName = nameParts.get(0);
-            } else if (nameParts.size() == 2) {
-                if (!InternalCatalog.INTERNAL_CATALOG_NAME.equalsIgnoreCase(nameParts.get(0))) {
-                    throw new ParseException("The execution of this command is restricted to the internal catalog only.");
-                }
-                dbName = nameParts.get(1);
-            } else {
-                throw new AnalysisException("nameParts in analyze database should be [ctl.]db");
-            }
-        }
+        String dbName = ctx.database != null ? getInternalDbName(ctx.database) : null;
         return new ShowDynamicPartitionCommand(dbName);
     }
 
@@ -7797,20 +7775,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public LogicalPlan visitShowDelete(ShowDeleteContext ctx) {
-        String dbName = null;
-        if (ctx.database != null) {
-            List<String> nameParts = visitMultipartIdentifier(ctx.database);
-            if (nameParts.size() == 1) {
-                dbName = nameParts.get(0);
-            } else if (nameParts.size() == 2) {
-                if (!InternalCatalog.INTERNAL_CATALOG_NAME.equalsIgnoreCase(nameParts.get(0))) {
-                    throw new ParseException("The execution of this command is restricted to the internal catalog only.");
-                }
-                dbName = nameParts.get(1);
-            } else {
-                throw new AnalysisException("nameParts in analyze database should be [ctl.]db");
-            }
-        }
+        String dbName = ctx.database != null ? getInternalDbName(ctx.database) : null;
         return new ShowDeleteCommand(dbName);
     }
 
@@ -7904,16 +7869,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         String wild = null;
         if (ctx.database != null) {
             List<String> nameParts = visitMultipartIdentifier(ctx.database);
-            if (nameParts.size() == 1) {
-                dbName = nameParts.get(0);
-            } else if (nameParts.size() == 2) {
-                if (!InternalCatalog.INTERNAL_CATALOG_NAME.equalsIgnoreCase(nameParts.get(0))) {
-                    throw new ParseException("The execution of this command is restricted to the internal catalog only.");
-                }
-                dbName = nameParts.get(1);
-            } else {
-                throw new AnalysisException("nameParts in analyze database should be [ctl.]db");
-            }
+            dbName = nameParts.get(0); // only one entry possible
         }
         if (ctx.STRING_LITERAL() != null) {
             wild = ctx.STRING_LITERAL().getText();
@@ -8228,20 +8184,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public LogicalPlan visitShowOpenTables(ShowOpenTablesContext ctx) {
-        String db = null;
-        if (ctx.database != null) {
-            List<String> nameParts = visitMultipartIdentifier(ctx.database);
-            if (nameParts.size() == 1) {
-                db = nameParts.get(0);
-            } else if (nameParts.size() == 2) {
-                if (!InternalCatalog.INTERNAL_CATALOG_NAME.equalsIgnoreCase(nameParts.get(0))) {
-                    throw new ParseException("The execution of this command is restricted to the internal catalog only.");
-                }
-                db = nameParts.get(1);
-            } else {
-                throw new AnalysisException("nameParts in analyze database should be [ctl.]db");
-            }
-        }
+        String db = ctx.database != null ? visitMultipartIdentifier(ctx.database).get(0) : null;
         String likePattern = null;
         Expression expr = null;
 

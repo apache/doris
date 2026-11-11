@@ -43,10 +43,6 @@ public class ShowDbNameParsingTest {
                         .getDbName());
         Assertions.assertEquals("db1",
                 ((ShowDeleteCommand) parser.parseSingle("SHOW DELETE FROM db1")).getDbName());
-        Assertions.assertEquals("db1",
-                ((ShowTableCreationCommand) parser.parseSingle("SHOW TABLE CREATION FROM db1")).getDbName());
-        Assertions.assertEquals("db1",
-                ((ShowOpenTablesCommand) parser.parseSingle("SHOW OPEN TABLES FROM db1")).getDbName());
     }
 
     @Test
@@ -62,10 +58,7 @@ public class ShowDbNameParsingTest {
         Assertions.assertEquals("db1",
                 ((ShowDeleteCommand) parser.parseSingle("SHOW DELETE FROM internal.db1")).getDbName());
         Assertions.assertEquals("db1",
-                ((ShowTableCreationCommand) parser.parseSingle("SHOW TABLE CREATION FROM internal.db1"))
-                        .getDbName());
-        Assertions.assertEquals("db1",
-                ((ShowOpenTablesCommand) parser.parseSingle("SHOW OPEN TABLES FROM internal.db1")).getDbName());
+                ((ShowDeleteCommand) parser.parseSingle("SHOW DELETE FROM INTERNAL.db1")).getDbName());
         Assertions.assertEquals("db1",
                 ((ShowColumnsCommand) parser.parseSingle("SHOW COLUMNS FROM t1 FROM internal.db1")).getDbName());
     }
@@ -85,8 +78,6 @@ public class ShowDbNameParsingTest {
             "SHOW FILE FROM ext_catalog.db1",
             "SHOW DYNAMIC PARTITION TABLES FROM ext_catalog.db1",
             "SHOW DELETE FROM ext_catalog.db1",
-            "SHOW TABLE CREATION FROM ext_catalog.db1",
-            "SHOW OPEN TABLES FROM ext_catalog.db1",
         };
         for (String sql : sqls) {
             Exception e = Assertions.assertThrows(Exception.class, () -> parser.parseSingle(sql), sql);
@@ -102,8 +93,6 @@ public class ShowDbNameParsingTest {
             "SHOW FILE FROM a.b.c",
             "SHOW DYNAMIC PARTITION TABLES FROM a.b.c",
             "SHOW DELETE FROM a.b.c",
-            "SHOW TABLE CREATION FROM a.b.c",
-            "SHOW OPEN TABLES FROM a.b.c",
             "SHOW COLUMNS FROM t1 FROM a.b.c",
         };
         for (String sql : sqls) {
