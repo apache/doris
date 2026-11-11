@@ -79,16 +79,25 @@ conment_to_context=(
     ['check_coverage']='check_coverage (Coverage)'
 )
 
+# Credentials are supplied by the caller; never trace authenticated requests.
+teamcity_request() {
+    set +x
+    if [[ -z "${TEAMCITY_LEGACY_USER:-}" || -z "${TEAMCITY_LEGACY_PASSWORD:-}" ]]; then
+        echo "Legacy TeamCity credentials are not configured" >&2
+        return 1
+    fi
+    curl --user "${TEAMCITY_LEGACY_USER}:${TEAMCITY_LEGACY_PASSWORD}" "$@"
+}
+
 get_commit_id_of_build() {
     # 获取某个build的commit id
     if [[ -z "$1" ]]; then return 1; fi
     local build_id="$1"
     local commit_id
     local ret
-    set -x
+    set +x
     if ret=$(
-        curl -s -X GET \
-            -u OneMoreChance:OneMoreChance \
+        teamcity_request -sS --fail -X GET \
             -H "Content-Type:text/plain" \
             -H "Accept: application/json" \
             "http://43.132.222.7:8111/app/rest/builds/${build_id}"
@@ -113,10 +122,9 @@ get_running_build_of_pr() {
     local PIPELINE="${comment_to_pipeline[${COMMENT_TRIGGER_TYPE}]}"
     local running_builds_list
     local ret
-    set -x
+    set +x
     if ret=$(
-        curl -s -X GET \
-            -u OneMoreChance:OneMoreChance \
+        teamcity_request -sS --fail -X GET \
             -H "Content-Type:text/plain" \
             -H "Accept: application/json" \
             "http://43.132.222.7:8111/app/rest/builds?locator=buildType:${PIPELINE},branch:pull/${PULL_REQUEST_NUM},running:true"
@@ -142,10 +150,9 @@ get_queue_build_of_pr() {
     local PIPELINE="${comment_to_pipeline[${COMMENT_TRIGGER_TYPE}]}"
     local queue_builds_list
     local ret
-    set -x
+    set +x
     if ret=$(
-        curl -s -X GET \
-            -u OneMoreChance:OneMoreChance \
+        teamcity_request -sS --fail -X GET \
             -H "Content-Type:text/plain" \
             -H "Accept: application/json" \
             "http://43.132.222.7:8111/app/rest/buildQueue?locator=buildType:${PIPELINE}"
@@ -216,9 +223,8 @@ cancel_running_build() {
     local build_ids
     if ! build_ids=$(get_running_build_of_pr "${PULL_REQUEST_NUM}" "${COMMENT_TRIGGER_TYPE}"); then return 1; fi
     for id in ${build_ids}; do
-        set -x
-        if curl -s -X POST \
-            -u OneMoreChance:OneMoreChance \
+        set +x
+        if teamcity_request -sS --fail --output /dev/null -X POST \
             -H "Content-Type:application/json" \
             -H "Accept: application/json" \
             "http://43.132.222.7:8111/app/rest/builds/id:${id}" \
@@ -244,9 +250,8 @@ cancel_queue_build() {
     local build_ids
     if ! build_ids=$(get_queue_build_of_pr "${PULL_REQUEST_NUM}" "${COMMENT_TRIGGER_TYPE}"); then return 1; fi
     for id in ${build_ids}; do
-        set -x
-        if curl -s -X POST \
-            -u OneMoreChance:OneMoreChance \
+        set +x
+        if teamcity_request -sS --fail --output /dev/null -X POST \
             -H "Content-Type:application/json" \
             -H "Accept: application/json" \
             "http://43.132.222.7:8111/app/rest/buildQueue/id:${id}" \
@@ -276,7 +281,7 @@ skip_build() {
 
     local state="${TC_BUILD_STATE:-success}" # 可选值 success failure pending
     local payload="{\"state\":\"${state}\",\"target_url\":\"\",\"description\":\"Skip teamCity build\",\"context\":\"${conment_to_context[${COMMENT_TRIGGER_TYPE}]}\"}"
-    set -x
+    set +x
     if curl -L \
         -X POST \
         -H "Accept: application/vnd.github+json" \
@@ -304,9 +309,8 @@ trigger_build() {
         return 1
     fi
     local PIPELINE="${comment_to_pipeline[${COMMENT_TRIGGER_TYPE}]}"
-    set -x
-    if curl -s -X POST \
-        -u OneMoreChance:OneMoreChance \
+    set +x
+    if teamcity_request -sS --fail --output /dev/null -X POST \
         -H "Content-Type:text/plain" \
         -H "Accept: application/json" \
         "http://43.132.222.7:8111/httpAuth/action.html?add2Queue=${PIPELINE}&branchName=pull/${PULL_REQUEST_NUM}&name=env.pr_num_from_trigger&value=${PULL_REQUEST_NUM:-}&name=env.commit_id_from_trigger&value=${COMMIT_ID_FROM_TRIGGER:-}&name=env.repeat_times_from_trigger&value=${COMMENT_REPEAT_TIMES:-1}"; then

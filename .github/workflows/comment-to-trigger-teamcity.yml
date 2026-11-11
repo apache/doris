@@ -27,7 +27,7 @@ permissions:
   statuses: write
 
 jobs:
-  check-comment-if-need-to-trigger-teamcity:
+  route-comment:
 
     # Keep this server-side filter aligned with the supported commands parsed below.
     # A generic "run" match also catches performance reports such as "Total hot run time".
@@ -54,6 +54,67 @@ jobs:
           contains(github.event.comment.body, 'skip check_coverage')
         )
       }}
+
+    runs-on: ubuntu-latest
+    outputs:
+      route: ${{ steps.route.outputs.route }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - id: route
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 regression-test/pipeline/common/teamcity-current.py --phase route
+
+  trigger-current-teamcity:
+    needs: route-comment
+    if: needs.route-comment.outputs.route == 'current'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    concurrency:
+      group: current-teamcity-comment-${{ github.event.issue.number }}
+      cancel-in-progress: false
+    outputs:
+      head: ${{ steps.trigger.outputs.head }}
+      performance_requested: ${{ steps.trigger.outputs.performance_requested }}
+    steps:
+      # issue_comment runs trusted default-branch code, never PR-provided scripts.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - id: trigger
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TEAMCITY_CURRENT_URL: ${{ vars.TEAMCITY_CURRENT_URL }}
+          TEAMCITY_CURRENT_TOKEN: ${{ secrets.TEAMCITY_CURRENT_TOKEN }}
+        run: python3 regression-test/pipeline/common/teamcity-current.py --phase standard
+
+  trigger-current-performance:
+    needs: trigger-current-teamcity
+    if: needs.trigger-current-teamcity.outputs.performance_requested == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 200
+    concurrency:
+      group: current-teamcity-performance-comment-${{ github.event.issue.number }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TEAMCITY_CURRENT_URL: ${{ vars.TEAMCITY_CURRENT_URL }}
+          TEAMCITY_CURRENT_TOKEN: ${{ secrets.TEAMCITY_CURRENT_TOKEN }}
+          EXPECTED_PR_HEAD: ${{ needs.trigger-current-teamcity.outputs.head }}
+        run: python3 regression-test/pipeline/common/teamcity-current.py --phase performance
+
+  check-comment-if-need-to-trigger-teamcity:
+    needs: route-comment
+    if: needs.route-comment.outputs.route == 'legacy'
 
     # Serialize duplicate commands for one PR. The next run then sees the build
     # queued by the previous run and can safely skip an identical PR revision.
@@ -83,6 +144,8 @@ jobs:
     env:
       COMMENT_BODY: ${{ github.event.comment.body }}
       COMMENT_USER_ID: ${{ github.event.comment.user.id }}
+      TEAMCITY_LEGACY_USER: ${{ secrets.TEAMCITY_LEGACY_USER }}
+      TEAMCITY_LEGACY_PASSWORD: ${{ secrets.TEAMCITY_LEGACY_PASSWORD }}
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     steps:
@@ -91,8 +154,8 @@ jobs:
       run: |
         COMMENT_BODY=$(echo "${COMMENT_BODY}" | xargs)
         PULL_REQUEST_NUM="$(echo "${{ github.event.issue.pull_request.url }}" | awk -F/ '{print $NF}')"
-        COMMIT_ID_FROM_TRIGGER="$(curl -s -H "Authorization:Bearer ${{ secrets.GITHUB_TOKEN }}" "https://api.github.com/repos/${{ github.repository }}/pulls/${PULL_REQUEST_NUM}" | jq -r '.head.sha')"
-        TARGET_BRANCH="$(curl -s -H "Authorization:Bearer ${{ secrets.GITHUB_TOKEN }}" "https://api.github.com/repos/${{ github.repository }}/pulls/${PULL_REQUEST_NUM}" | jq -r '.base.ref')"
+        COMMIT_ID_FROM_TRIGGER="$(curl -s -H "Authorization:Bearer ${GITHUB_TOKEN}" "https://api.github.com/repos/${{ github.repository }}/pulls/${PULL_REQUEST_NUM}" | jq -r '.head.sha')"
+        TARGET_BRANCH="$(curl -s -H "Authorization:Bearer ${GITHUB_TOKEN}" "https://api.github.com/repos/${{ github.repository }}/pulls/${PULL_REQUEST_NUM}" | jq -r '.base.ref')"
         if [[ "${COMMENT_BODY}" == *'run buildall'* ||
             "${COMMENT_BODY}" == *'run compile'* ||
             "${COMMENT_BODY}" == *'run beut'* ||
@@ -200,7 +263,7 @@ jobs:
       id: changes
       run: |
         source regression-test/pipeline/common/github-utils.sh
-        set -x
+        set +x
         if _get_pr_changed_files "${{ steps.parse.outputs.PULL_REQUEST_NUM }}"; then
           if file_changed_fe_ut; then
             echo "changed_fe_ut=true" | tee -a "$GITHUB_OUTPUT"
@@ -314,14 +377,14 @@ jobs:
       if: ${{ fromJSON(steps.parse.outputs.comment_skip_coverage) }}
       run: |
         source ./regression-test/pipeline/common/teamcity-utils.sh
-        set -x
+        set +x
         skip_build "${{ steps.parse.outputs.COMMIT_ID_FROM_TRIGGER }}" check_coverage
 
     - name: "Trigger or Skip feut"
       if: ${{ fromJSON(steps.parse.outputs.comment_trigger) && contains(fromJSON('["feut", "buildall"]'), steps.parse.outputs.COMMENT_TRIGGER_TYPE) }}
       run: |
         source ./regression-test/pipeline/common/teamcity-utils.sh
-        set -x
+        set +x
         trigger_or_skip_build \
           "${{ steps.changes.outputs.changed_fe_ut }}" \
           "${{ steps.parse.outputs.PULL_REQUEST_NUM }}" \
@@ -335,7 +398,7 @@ jobs:
       if: ${{ fromJSON(steps.parse.outputs.comment_trigger) && contains(fromJSON('["beut", "buildall"]'), steps.parse.outputs.COMMENT_TRIGGER_TYPE) }}
       run: |
         source ./regression-test/pipeline/common/teamcity-utils.sh
-        set -x
+        set +x
         trigger_or_skip_build \
           "${{ steps.changes.outputs.changed_be_ut }}" \
           "${{ steps.parse.outputs.PULL_REQUEST_NUM }}" \
@@ -348,7 +411,7 @@ jobs:
       if: ${{ fromJSON(steps.parse.outputs.comment_trigger) && contains(fromJSON('["cloudut", "buildall"]'), steps.parse.outputs.COMMENT_TRIGGER_TYPE) }}
       run: |
         source ./regression-test/pipeline/common/teamcity-utils.sh
-        set -x
+        set +x
         trigger_or_skip_build \
           "${{ steps.changes.outputs.changed_cloud_ut }}" \
           "${{ steps.parse.outputs.PULL_REQUEST_NUM }}" \
@@ -361,7 +424,7 @@ jobs:
       if: ${{ fromJSON(steps.parse.outputs.comment_trigger) && contains(fromJSON('["compile", "buildall"]'), steps.parse.outputs.COMMENT_TRIGGER_TYPE) }}
       run: |
         source ./regression-test/pipeline/common/teamcity-utils.sh
-        set -x
+        set +x
         if [[ "${{ steps.changes.outputs.changed_p0 }}" == "true" ]] || [[ "${{ steps.changes.outputs.changed_cloud_p0 }}" == "true" ]]; then
           changed="true"
         else
@@ -382,7 +445,7 @@ jobs:
         if [[ ${{ steps.parse.outputs.COMMENT_TRIGGER_TYPE }} == "buildall" ]]; then
           echo "COMMENT_TRIGGER_TYPE is buildall, trigger compile is enough, compile will trigger p0" && exit
         fi
-        set -x
+        set +x
         trigger_or_skip_build \
           "${{ steps.changes.outputs.changed_p0 }}" \
           "${{ steps.parse.outputs.PULL_REQUEST_NUM }}" \
@@ -399,7 +462,7 @@ jobs:
         if [[ ${{ steps.parse.outputs.COMMENT_TRIGGER_TYPE }} == "buildall" ]]; then
           echo "COMMENT_TRIGGER_TYPE is buildall, trigger compile is enough, compile will trigger p1" && exit
         fi
-        set -x
+        set +x
         trigger_or_skip_build \
           "${{ steps.changes.outputs.changed_p1 }}" \
           "${{ steps.parse.outputs.PULL_REQUEST_NUM }}" \
@@ -415,7 +478,7 @@ jobs:
         if [[ ${{ steps.parse.outputs.COMMENT_TRIGGER_TYPE }} == "buildall" ]]; then
           echo "COMMENT_TRIGGER_TYPE is buildall, trigger compile is enough, compile will trigger external" && exit
         fi
-        set -x
+        set +x
         trigger_or_skip_build \
           "${{ steps.changes.outputs.changed_external }}" \
           "${{ steps.parse.outputs.PULL_REQUEST_NUM }}" \
@@ -431,7 +494,7 @@ jobs:
         if [[ ${{ steps.parse.outputs.COMMENT_TRIGGER_TYPE }} == "buildall" ]]; then
           echo "COMMENT_TRIGGER_TYPE is buildall, trigger compile is enough, compile will trigger cloud_p0" && exit
         fi
-        set -x
+        set +x
         trigger_or_skip_build \
           "${{ steps.changes.outputs.changed_cloud_p0 }}" \
           "${{ steps.parse.outputs.PULL_REQUEST_NUM }}" \
@@ -448,7 +511,7 @@ jobs:
         if [[ ${{ steps.parse.outputs.COMMENT_TRIGGER_TYPE }} == "buildall" ]]; then
           echo "COMMENT_TRIGGER_TYPE is buildall, trigger compile is enough, compile will trigger vault_p0" && exit
         fi
-        set -x
+        set +x
         trigger_or_skip_build \
           "${{ steps.changes.outputs.changed_vault_p0 }}" \
           "${{ steps.parse.outputs.PULL_REQUEST_NUM }}" \
@@ -464,7 +527,7 @@ jobs:
         if [[ ${{ steps.parse.outputs.COMMENT_TRIGGER_TYPE }} == "buildall" ]]; then
           echo "COMMENT_TRIGGER_TYPE is buildall, trigger compile is enough, compile will trigger nonConcurrent" && exit
         fi
-        set -x
+        set +x
         trigger_or_skip_build \
           "${{ steps.changes.outputs.changed_nonConcurrent }}" \
           "${{ steps.parse.outputs.PULL_REQUEST_NUM }}" \
@@ -480,7 +543,7 @@ jobs:
         if [[ ${{ steps.parse.outputs.COMMENT_TRIGGER_TYPE }} == "buildall" ]]; then
           echo "COMMENT_TRIGGER_TYPE is buildall, check_coverage will be triggered after p0,cloud_p0,external,nonConcurrent,beut" && exit
         fi
-        set -x
+        set +x
         trigger_or_skip_build \
           "${{ steps.changes.outputs.need_check_coverage }}" \
           "${{ steps.parse.outputs.PULL_REQUEST_NUM }}" \
@@ -496,7 +559,7 @@ jobs:
         if [[ ${{ steps.parse.outputs.COMMENT_TRIGGER_TYPE }} == "buildall" ]]; then
           echo "COMMENT_TRIGGER_TYPE is buildall, trigger compile is enough, compile will trigger cloud_p1" && exit
         fi
-        set -x
+        set +x
         trigger_or_skip_build \
           "${{ steps.changes.outputs.changed_cloud_p1 }}" \
           "${{ steps.parse.outputs.PULL_REQUEST_NUM }}" \
@@ -509,7 +572,7 @@ jobs:
       if: ${{ fromJSON(steps.parse.outputs.comment_trigger) && contains(fromJSON('["performance", "buildall"]'), steps.parse.outputs.COMMENT_TRIGGER_TYPE) }}
       run: |
         source ./regression-test/pipeline/common/teamcity-utils.sh
-        set -x
+        set +x
         trigger_or_skip_build \
           "${{ steps.changes.outputs.changed_performance }}" \
           "${{ steps.parse.outputs.PULL_REQUEST_NUM }}" \
