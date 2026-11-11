@@ -16,6 +16,8 @@
 // under the License.
 
 suite("or_expansion_right_join", "p0") {
+    // Keep RIGHT joins through RBO: SemiJoinCommute would otherwise normalize them to LEFT joins.
+    sql "SET disable_join_reorder = true"
     sql "DROP TABLE IF EXISTS or_expansion_right_join_l"
     sql "DROP TABLE IF EXISTS or_expansion_right_join_r"
     sql """CREATE TABLE or_expansion_right_join_l (id INT NOT NULL, a INT, b INT)
@@ -45,6 +47,12 @@ suite("or_expansion_right_join", "p0") {
                 contains "VHASH JOIN"
                 notContains "VNESTED LOOP JOIN"
             }
+            explain {
+                sql String.format(query, "/*+ SET_VAR(disable_nereids_rules='OR_EXPANSION') */")
+                contains "${joinType} JOIN"
+                contains "VNESTED LOOP JOIN"
+                notContains "VHASH JOIN"
+            }
             order_qt_enabled String.format(query, "")
             order_qt_disabled String.format(query, "/*+ SET_VAR(disable_nereids_rules='OR_EXPANSION') */")
         }
@@ -57,6 +65,13 @@ suite("or_expansion_right_join", "p0") {
             sql String.format(caseQuery, "")
             contains "VHASH JOIN"
             notContains "VNESTED LOOP JOIN"
+        }
+        explain {
+            sql String.format(caseQuery,
+                    "/*+ SET_VAR(disable_nereids_rules='OR_EXPANSION,JOIN_EXTRACT_OR_FROM_CASE_WHEN') */")
+            contains "${joinType} JOIN"
+            contains "VNESTED LOOP JOIN"
+            notContains "VHASH JOIN"
         }
         order_qt_case_enabled String.format(caseQuery, "")
         order_qt_case_disabled String.format(caseQuery,
