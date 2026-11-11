@@ -42,6 +42,7 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_timestamp_ns.h"
 #include "core/data_type/data_type_variant_v2.h"
+#include "core/data_type_serde/data_type_serde.h"
 #include "exec/sink/writer/iceberg/viceberg_partition_writer.h"
 #include "exec/sink/writer/vhive_partition_writer.h"
 #include "exprs/function/parse/variant_string_parse.h"
@@ -457,6 +458,67 @@ TEST_F(VParquetWriterTest, WritesIcebergPrimitiveAndCollectsMetrics) {
     EXPECT_GT(stats.column_sizes.at(7), 0);
     EXPECT_EQ(std::string("\x01\x00\x00\x00", 4), stats.lower_bounds.at(7));
     EXPECT_EQ(std::string("\x03\x00\x00\x00", 4), stats.upper_bounds.at(7));
+}
+
+// NOLINTNEXTLINE(readability-function-cognitive-complexity): assertions cover the physical schema and decoded rows.
+TEST_F(VParquetWriterTest, WritesUnshreddedParquetVariant) {
+    const auto type = make_nullable(std::make_shared<DataTypeVariantV2>());
+    const auto exprs = MockSlotRef::create_mock_contexts(DataTypes {type});
+    JsonStringToVariantEncoder encoder(
+            {.max_json_key_length = 1024, .throw_on_invalid_json = true});
+    for (std::string_view json : {R"({"a":[true,null,"x"]})", R"({"b":17})", "null", "{}"}) {
+        encoder.add_json({json.data(), json.size()});
+    }
+    auto variants = ColumnVariantV2::create();
+    variants->insert_encoded_batch(encoder.finish_batch());
+    auto nulls = ColumnUInt8::create();
+    nulls->get_data().assign({0, 0, 0, 1});
+    const ColumnPtr column = ColumnNullable::create(std::move(variants), std::move(nulls));
+    Block block;
+    block.insert({column, type, "payload"});
+
+    io::FileWriterPtr file_writer;
+    ASSERT_TRUE(_fs->create_file(_file_path, &file_writer).ok());
+    RuntimeState state;
+    state.set_timezone("UTC");
+    ParquetFileOptions options {.compression_type = TParquetCompressionType::UNCOMPRESSED,
+                                .parquet_version = TParquetVersion::PARQUET_1_0};
+    VParquetWriter writer(&state, file_writer.get(), exprs, {"payload"}, false, options);
+    ASSERT_TRUE(writer.open().ok());
+    const auto write_status = writer.write(block);
+    ASSERT_TRUE(write_status.ok()) << write_status;
+    ASSERT_TRUE(writer.close().ok());
+
+    const auto physical_reader = ::parquet::ParquetFileReader::OpenFile(_file_path, false);
+    const auto* root = physical_reader->metadata()->schema()->group_node();
+    ASSERT_EQ(root->field_count(), 1);
+    const auto& payload = root->field(0);
+    ASSERT_TRUE(payload->logical_type()->is_variant());
+    ASSERT_TRUE(payload->is_group());
+    const auto& wrapper = assert_cast<const ::parquet::schema::GroupNode&>(*payload);
+    ASSERT_EQ(wrapper.field_count(), 2);
+    EXPECT_EQ(wrapper.field(0)->name(), "metadata");
+    EXPECT_EQ(wrapper.field(1)->name(), "value");
+    EXPECT_TRUE(wrapper.field(0)->is_required());
+    EXPECT_TRUE(wrapper.field(1)->is_required());
+
+    const auto input = arrow::io::ReadableFile::Open(_file_path);
+    ASSERT_TRUE(input.ok()) << input.status();
+    auto reader = ::parquet::arrow::OpenFile(*input, arrow::default_memory_pool());
+    ASSERT_TRUE(reader.ok()) << reader.status();
+    const auto table = (*reader)->ReadTable();
+    ASSERT_TRUE(table.ok()) << table.status();
+    const auto& array = (*table)->column(0)->chunk(0);
+    auto decoded = type->create_column();
+    const auto read_status = type->get_serde()->read_column_from_arrow(
+            *decoded, array.get(), 0, array->length(), cctz::utc_time_zone());
+    ASSERT_TRUE(read_status.ok()) << read_status;
+    ASSERT_EQ(decoded->size(), column->size());
+    EXPECT_FALSE(decoded->is_null_at(2));
+    EXPECT_TRUE(decoded->is_null_at(3));
+    for (size_t row = 0; row < column->size(); ++row) {
+        EXPECT_EQ(decoded->compare_at(row, row, *column, -1), 0) << row;
+    }
 }
 
 TEST_F(VParquetWriterTest, WritesIcebergVariantAndCollectsLogicalMetrics) {
