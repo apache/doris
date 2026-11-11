@@ -251,4 +251,49 @@ void S3ClientRegistry::expose_metrics() {
     DORIS_CHECK(_impl->inflight_metric->expose_as("s3_client", "inflight") == 0);
 }
 
+struct S3ClientScope::Impl {
+    using Client = std::shared_ptr<ObjStorageClient>;
+    using Map = std::unordered_map<S3ClientConf, Client, S3ClientConfHash, std::equal_to<>,
+                                   CustomStdAllocator<std::pair<const S3ClientConf, Client>>>;
+
+    Impl() : tracker(thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker_sptr()) {}
+    ~Impl() {
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(tracker);
+        Map().swap(clients);
+    }
+
+    const std::shared_ptr<MemTrackerLimiter> tracker;
+    std::mutex mutex;
+    Map clients;
+};
+
+S3ClientScope::S3ClientScope() : _impl(std::make_unique<Impl>()) {}
+S3ClientScope::~S3ClientScope() = default;
+
+Result<std::shared_ptr<ObjStorageClient>> S3ClientScope::get_or_create(const S3ClientConf& conf) {
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_impl->tracker);
+    {
+        std::lock_guard lock(_impl->mutex);
+        auto it = _impl->clients.find(conf);
+        if (it != _impl->clients.end()) {
+            return it->second;
+        }
+    }
+    // SDK construction and losing-owner destruction run outside the scope lock.
+    // The factory's single-flight registry coordinates overlapping acquisitions.
+    auto result = S3ClientFactory::instance().create(conf);
+    // Invalid configuration or provider construction failure remains retryable.
+    if (!result.has_value()) {
+        return ResultError(std::move(result).error());
+    }
+    auto client = std::move(result).value();
+    std::shared_ptr<ObjStorageClient> winner;
+    {
+        std::lock_guard lock(_impl->mutex);
+        auto [it, _] = _impl->clients.emplace(conf, client);
+        winner = it->second;
+    }
+    return winner;
+}
+
 } // namespace doris

@@ -50,6 +50,7 @@
 #include <gtest/gtest.h>
 #include <unistd.h>
 
+#include <barrier>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -59,6 +60,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -73,12 +75,15 @@
 #include "cpp/obj-client/rate_limited_obj_storage_client.h"
 #include "cpp/obj-client/s3_obj_storage_client.h"
 #include "cpp/sync_point.h"
+#include "io/file_factory.h"
 #include "io/fs/err_utils.h"
 #include "io/fs/s3_file_reader.h"
 #include "io/fs/s3_file_system.h"
 #include "runtime/exec_env.h"
+#include "runtime/thread_context.h"
 #include "testutil/container_credentials_endpoint.h"
 #include "util/defer_op.h"
+#include "util/s3_client_registry.h"
 #include "util/s3_rate_limiter_manager.h"
 #include "util/s3_uri.h"
 #include "util/s3_util.h"
@@ -1445,6 +1450,106 @@ TEST_F(S3ClientFactoryTest, ContainerProviderTypeIsUsableAsStsBaseProvider) {
     ASSERT_FALSE(auth_headers.empty())
             << "the STS base provider never contacted the credentials endpoint";
     EXPECT_EQ(auth_headers.back(), "token-one");
+}
+
+TEST_F(S3ClientFactoryTest, ScopeReusesSequentialFileReadersAndReleasesAtEnd) {
+    auto& factory = S3ClientFactory::instance();
+    const auto before = factory._registry->stats();
+    std::weak_ptr<ObjStorageClient> weak;
+    {
+        io::FileSystemProperties properties;
+        properties.system_type = TFileType::FILE_S3;
+        properties.properties = {{"AWS_ENDPOINT", "http://127.0.0.1:19000"},
+                                 {"AWS_REGION", "us-east-1"},
+                                 {"AWS_ACCESS_KEY", "scope-ak"},
+                                 {"AWS_SECRET_KEY", "scope-sk"}};
+        properties.s3_client_scope = std::make_shared<S3ClientScope>();
+        for (size_t file = 0; file < 64; ++file) {
+            io::FileDescription description;
+            description.path = "s3://scope-bucket/file-" + std::to_string(file);
+            description.file_size = 32;
+            auto result = FileFactory::create_file_reader(properties, description,
+                                                          io::FileReaderOptions::DEFAULT, nullptr);
+            ASSERT_TRUE(result.has_value()) << result.error();
+            const auto& reader = static_cast<const io::S3FileReader&>(*result.value());
+            weak = reader._client->get();
+            EXPECT_EQ(factory._registry->stats().created - before.created, 1);
+        }
+        EXPECT_FALSE(weak.expired());
+        EXPECT_EQ(factory._registry->stats().live - before.live, 1);
+    }
+    EXPECT_TRUE(weak.expired());
+    const auto after = factory._registry->stats();
+    EXPECT_EQ(after.destroyed - before.destroyed, 1);
+    EXPECT_EQ(after.live, before.live);
+    EXPECT_EQ(after.indexed, before.indexed);
+}
+
+TEST_F(S3ClientFactoryTest, ScopeUsesFullIdentityAndOriginalControlBlock) {
+    auto& factory = S3ClientFactory::instance();
+    auto first_conf = make_hash_collision_conf("http://scope-identity.invalid", false);
+    auto second_conf = make_hash_collision_conf("http://scope-identity.invalid", true);
+    ASSERT_EQ(first_conf.get_hash(), second_conf.get_hash());
+    ASSERT_NE(first_conf, second_conf);
+    std::weak_ptr<ObjStorageClient> weak;
+    {
+        S3ClientScope scope;
+        auto first = scope.get_or_create(first_conf).value();
+        auto second = scope.get_or_create(second_conf).value();
+        EXPECT_NE(first, second);
+        auto from_factory = factory.create(first_conf).value();
+        auto from_self = first->shared_from_this();
+        EXPECT_EQ(first, from_factory);
+        EXPECT_FALSE(first.owner_before(from_factory));
+        EXPECT_FALSE(from_factory.owner_before(first));
+        EXPECT_FALSE(first.owner_before(from_self));
+        EXPECT_FALSE(from_self.owner_before(first));
+        weak = first;
+        first.reset();
+        from_factory.reset();
+        from_self.reset();
+        EXPECT_FALSE(weak.expired());
+        auto invalid_conf = first_conf;
+        invalid_conf.region.clear();
+        EXPECT_FALSE(scope.get_or_create(invalid_conf).has_value());
+        EXPECT_EQ(scope.get_or_create(first_conf).value(), weak.lock());
+    }
+    EXPECT_TRUE(weak.expired());
+}
+
+TEST_F(S3ClientFactoryTest, ScopeSharesConcurrentAcquisitionsAndKeepsExternalOwners) {
+    constexpr size_t threads = 8;
+    auto& factory = S3ClientFactory::instance();
+    const auto before = factory._registry->stats();
+    const auto conf = make_factory_conf("http://scope-concurrent.invalid", false);
+    std::vector<std::shared_ptr<ObjStorageClient>> clients(threads);
+    {
+        S3ClientScope scope;
+        std::barrier start(static_cast<ptrdiff_t>(threads));
+        std::vector<std::thread> workers;
+        for (size_t i = 0; i < threads; ++i) {
+            workers.emplace_back([&, i] {
+                SCOPED_INIT_THREAD_CONTEXT();
+                start.arrive_and_wait();
+                auto result = scope.get_or_create(conf);
+                ASSERT_TRUE(result.has_value()) << result.error();
+                clients[i] = std::move(result).value();
+            });
+        }
+        for (auto& worker : workers) {
+            worker.join();
+        }
+        for (const auto& client : clients) {
+            EXPECT_EQ(client, clients.front());
+        }
+        EXPECT_EQ(factory._registry->stats().created - before.created, 1);
+    }
+    EXPECT_EQ(factory._registry->stats().live - before.live, 1);
+    clients.clear();
+    const auto after = factory._registry->stats();
+    EXPECT_EQ(after.destroyed - before.destroyed, 1);
+    EXPECT_EQ(after.live, before.live);
+    EXPECT_EQ(after.indexed, before.indexed);
 }
 
 } // namespace doris

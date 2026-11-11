@@ -32,6 +32,7 @@
 #include "io/object_storage/be_obj_storage_config_parser.h"
 #include "util/defer_op.h"
 #include "util/jsonb_utils.h"
+#include "util/s3_client_registry.h"
 #include "util/s3_uri.h"
 
 namespace doris {
@@ -194,6 +195,9 @@ private:
                                      ColumnUInt8::MutablePtr result_null_map) const {
         auto col_result = ColumnArray::create(
                 ColumnNullable::create(ColumnFloat32::create(), ColumnUInt8::create()));
+        // Keep presigning clients through this block, including AI request batch
+        // boundaries, then release them when expression evaluation finishes.
+        S3ClientScope s3_clients;
         std::vector<MultimodalType> batch_media_types;
         std::vector<std::string> batch_media_content_types;
         std::vector<std::string> batch_media_urls;
@@ -223,7 +227,7 @@ private:
             RETURN_IF_ERROR(_infer_media_type(file_input, content_type, media_type));
 
             std::string media_url;
-            RETURN_IF_ERROR(_resolve_media_url(file_input, ttl_seconds, media_url));
+            RETURN_IF_ERROR(_resolve_media_url(file_input, ttl_seconds, media_url, s3_clients));
 
             if (!batch_media_urls.empty() &&
                 batch_media_urls.size() >= static_cast<size_t>(max_batch_size)) {
@@ -459,7 +463,7 @@ private:
     }
 
     Status _resolve_media_url(const rapidjson::Value& file_input, int64_t ttl_seconds,
-                              std::string& media_url) const {
+                              std::string& media_url, S3ClientScope& s3_clients) const {
         std::string uri;
         RETURN_IF_ERROR(_get_required_string_field(file_input, "uri", uri));
 
