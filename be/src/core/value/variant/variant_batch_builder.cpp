@@ -136,6 +136,8 @@ void append_unsigned(String& output, uint64_t value, uint8_t width) {
 
 template <typename T>
 void release_batch_vector(DorisVector<T>& buffer) noexcept {
+    static_assert(noexcept(DorisVector<T>()));
+    static_assert(noexcept(std::declval<DorisVector<T>&>().swap(buffer)));
     DorisVector<T>().swap(buffer);
 }
 
