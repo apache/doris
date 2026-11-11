@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitors;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.TopN;
 import org.apache.doris.nereids.trees.plans.algebra.Union;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
@@ -37,6 +38,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalOdbcScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalRepeat;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalWindow;
@@ -82,6 +84,8 @@ public class TopnFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownCont
 
     @Override
     public Boolean visit(Plan plan, PushDownContext ctx) {
+        // A bound on a grouping key can exclude whole groups. Stopping at unlisted operators
+        // here would disable existing scan filters below aggregates and their join inputs.
         boolean pushed = false;
         for (Plan child : plan.children()) {
             pushed |= child.accept(this, ctx);
@@ -157,11 +161,29 @@ public class TopnFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownCont
     }
 
     @Override
+    public Boolean visitPhysicalAssertNumRows(
+            PhysicalAssertNumRows<? extends Plan> assertNumRows, PushDownContext ctx) {
+        // Filtering its input can hide a cardinality error or make a scalar subquery
+        // synthesize a NULL row that did not exist before filtering.
+        return false;
+    }
+
+    @Override
     public Boolean visitPhysicalTopN(PhysicalTopN<? extends Plan> topn, PushDownContext ctx) {
         if (topn.equals(ctx.topn)) {
             return topn.child().accept(this, ctx);
         }
         return false;
+    }
+
+    @Override
+    public Boolean visitPhysicalRepeat(PhysicalRepeat<? extends Plan> repeat, PushDownContext ctx) {
+        // Repeat erases grouping keys absent from a grouping set to NULL. Filtering those
+        // keys before Repeat can discard rows that still contribute to the NULL group.
+        if (!repeat.getCommonGroupingSetExpressions().containsAll(ctx.probeExpr.getInputSlots())) {
+            return false;
+        }
+        return repeat.child().accept(this, ctx);
     }
 
     @Override
@@ -261,6 +283,10 @@ public class TopnFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownCont
     }
 
     private boolean supportPhysicalRelations(PhysicalRelation relation) {
+        if (relation instanceof PhysicalOlapScan
+                && ((PhysicalOlapScan) relation).getTable().hasRowTtl()) {
+            return false;
+        }
         return relation instanceof PhysicalOlapScan
                 || relation instanceof PhysicalOdbcScan
                 || relation instanceof PhysicalFileScan

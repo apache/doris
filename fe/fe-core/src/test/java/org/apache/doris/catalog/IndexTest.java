@@ -196,4 +196,15 @@ public class IndexTest {
         Assertions.assertEquals(Integer.valueOf(102), reverseUniqueIds.get(1));
         Assertions.assertEquals(Integer.valueOf(101), reverseUniqueIds.get(2));
     }
+
+    // During a schema change the new schema names a changed column with the shadow prefix; its index still names
+    // the column without it, case-insensitively, and the new tablet metadata must keep the column's unique id.
+    @Test
+    public void testGetColumnUniqueIdsForShadowColumn() {
+        Column shadowColumn = new Column(Column.getShadowName("MiXeD_CaSe"), Type.STRING);
+        shadowColumn.setUniqueId(107);
+        Index index = new Index(12, "shadow_index", List.of("mixed_case"), IndexType.INVERTED, null, null);
+
+        Assertions.assertEquals(List.of(107), index.getColumnUniqueIds(List.of(shadowColumn)));
+    }
 }

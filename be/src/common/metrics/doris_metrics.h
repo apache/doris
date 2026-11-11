@@ -124,6 +124,12 @@ public:
     IntCounter* cumulative_compaction_task_running_total = nullptr;
     IntCounter* cumulative_compaction_task_pending_total = nullptr;
 
+    // The compactions that drop expired changelog rowsets, counted as each of them finishes.
+    IntCounter* changelog_ttl_cleanup_success_total = nullptr;
+    IntCounter* changelog_ttl_cleanup_failed_total = nullptr;
+    // The size of the expired changelog rowsets the successful ones dropped.
+    IntCounter* changelog_ttl_reclaimed_bytes_total = nullptr;
+
     IntCounter* publish_task_request_total = nullptr;
     IntCounter* publish_task_failed_total = nullptr;
 
@@ -181,6 +187,9 @@ public:
     IntGauge* compaction_used_permits = nullptr;
     // permits required by the compaction task which is waiting for permits
     IntGauge* compaction_waitting_permits = nullptr;
+
+    // when a compaction that drops expired changelog rowsets last succeeded, in seconds since the epoch
+    IntGauge* changelog_ttl_last_success_timestamp_seconds = nullptr;
 
     HistogramMetric* tablet_version_num_distribution = nullptr;
 

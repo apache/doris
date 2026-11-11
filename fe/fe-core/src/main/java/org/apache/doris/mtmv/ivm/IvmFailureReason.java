@@ -20,6 +20,11 @@ package org.apache.doris.mtmv.ivm;
 /** Reasons IVM analysis or execution can fail. */
 public enum IvmFailureReason {
     // ATTN(changelog-rename): formerly "BINLOG_BROKEN"
+    /**
+     * The changelog a stream has to read from is outside the retention: changelog.ttl_seconds expired its offset.
+     * A partition refresh still reads the streams at their offsets, so only COMPLETE, the one refresh that resets
+     * the stream baselines, repairs it.
+     */
     CHANGELOG_BROKEN,
     // ATTN(changelog-rename): formerly "BINLOG_NOT_ENABLED"
     CHANGELOG_NOT_ENABLED,
@@ -38,6 +43,10 @@ public enum IvmFailureReason {
     MV_COMMIT_NOT_VISIBLE,
     MV_PARTITION_NOT_FOUND;
 
+    /**
+     * Whether COMPLETE is the only refresh that repairs this failure, so that a refresh allowed to fall back goes
+     * to it directly instead of trying a partition refresh first.
+     */
     public boolean requiresCompleteRefresh() {
         return this == CHANGELOG_BROKEN
                 || this == STREAM_UNSUPPORTED

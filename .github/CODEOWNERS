@@ -22,8 +22,6 @@ fe/fe-core/src/main/java/org/apache/doris/catalog/Env.java @dataroaring @CalvinK
 **/pom.xml @CalvinKirs @morningman
 fe/fe-common/src/main/java/org/apache/doris/common/FeMetaVersion.java @dataroaring @morningman @yiguolei @xiaokang
 fe/fe-core/src/main/java/org/apache/doris/fs @CalvinKirs @924060929
-fe/fe-core/src/main/java/org/apache/doris/fsv2 @CalvinKirs
-be/src/olap/rowset/segment_v2/variant @eldenmoon @csun5285
 be/src/storage/index/inverted/ @airborne12 @eldenmoon @csun5285
 be/src/exprs/function/search/ @airborne12 @eldenmoon @csun5285
 be/src/exprs/function/match.cpp @airborne12 @eldenmoon @csun5285
@@ -32,6 +30,9 @@ be/src/exprs/vsearch.h @airborne12 @eldenmoon @csun5285
 be/src/exprs/vsearch.cpp @airborne12 @eldenmoon @csun5285
 
 be/src/cloud                                                                @liaoxin01 @luwei16 @gavinchou
+be/src/common                                                               @yiguolei @Mryange
+be/src/core                                                                 @yiguolei @Mryange
+be/src/exec/spill                                                           @yiguolei @mrhhsg @HappenLee
 be/src/io                                                                   @liaoxin01 @gavinchou @morningman @Gabriel39
 be/src/io/cache                                                             @liaoxin01 @gavinchou @morningman @Gabriel39
 be/src/io/fs                                                                @liaoxin01 @gavinchou @morningman @Gabriel39

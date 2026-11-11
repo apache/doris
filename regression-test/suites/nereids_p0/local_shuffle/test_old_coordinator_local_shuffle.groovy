@@ -16,16 +16,8 @@
 // under the License.
 
 /**
- * Regression test: old Coordinator + enable_local_shuffle_planner must not hang.
- *
- * When canUseNereidsDistributePlanner=false (e.g. proxyExecute forwarding),
- * FE uses old Coordinator which does not plan local exchange. If
- * enable_local_shuffle_planner=true was passed to BE, BE would skip its own
- * _plan_local_exchange, leaving no LE at all — causing pooling fragments to
- * hang on SHUFFLE_DATA_DEPENDENCY.
- *
- * Fix: old Coordinator forces enableLocalShufflePlanner=false in query options
- * when distributedPlans is null, so BE falls back to native LE planning.
+ * Legacy session settings must not route MERGE or INSERT back to the removed coordinator.
+ * FE-planned local exchange remains enabled regardless of the removed distributed-planner switch.
  */
 suite("test_old_coordinator_local_shuffle") {
 
@@ -63,9 +55,7 @@ suite("test_old_coordinator_local_shuffle") {
     sql "INSERT INTO oc_t0 VALUES (1,1,10),(2,2,20),(3,3,30),(4,4,40),(5,5,50)"
     sql "INSERT INTO oc_t1 VALUES (1,1,100),(2,2,200),(3,3,300),(6,6,600),(7,7,700)"
 
-    // Test 1: old Coordinator + default enable_local_shuffle_planner=true
-    // This simulates the proxyExecute forwarding scenario where
-    // canUseNereidsDistributePlanner=false.
+    // Retain the old setting to cover sessions restored from an earlier release.
     sql "SET enable_nereids_distribute_planner = false"
     sql "SET enable_local_shuffle = true"
     sql "SET ignore_storage_data_distribution = true"
@@ -82,7 +72,7 @@ suite("test_old_coordinator_local_shuffle") {
     assertEquals(7, result.size())
 
     // Test 2: INSERT INTO SELECT with FE-planned LE should not double-insert LE.
-    // NereidsCoordinator has distributedPlans != null, so enableLocalShufflePlanner
+    // Coordinator has distributedPlans != null, so enableLocalShufflePlanner
     // stays true and BE does not add its own LE on top of FE's.
     sql "SET enable_nereids_distribute_planner = true"
     sql "SET enable_local_shuffle_planner = true"

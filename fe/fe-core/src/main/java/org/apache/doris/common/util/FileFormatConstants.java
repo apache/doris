@@ -27,7 +27,6 @@ public class FileFormatConstants {
     public static final String FORMAT_PARQUET = "parquet";
     public static final String FORMAT_ORC = "orc";
     public static final String FORMAT_JSON = "json";
-    public static final String FORMAT_AVRO = "avro";
     public static final String FORMAT_WAL = "wal";
     public static final String FORMAT_ARROW = "arrow";
 

@@ -36,6 +36,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
@@ -130,7 +131,6 @@ import org.apache.doris.qe.HttpStreamParams;
 import org.apache.doris.qe.MasterCatalogExecutor;
 import org.apache.doris.qe.MasterOpExecutor;
 import org.apache.doris.qe.MysqlConnectProcessor;
-import org.apache.doris.qe.NereidsCoordinator;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.SessionVariable;
@@ -362,7 +362,6 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -379,6 +378,7 @@ import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.function.ObjLongConsumer;
 import java.util.stream.Collectors;
 
 // Frontend service used to serve all request for this frontend through
@@ -512,7 +512,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         List<Long> dbIds = Lists.newArrayList();
         List<Long> catalogIds = Lists.newArrayList();
 
-        PatternMatcher matcher = null;
+        PatternMatcher matcher;
         if (params.isSetPattern()) {
             try {
                 matcher = PatternMatcher.createMysqlPattern(params.getPattern(),
@@ -520,6 +520,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             } catch (PatternMatcherException e) {
                 throw new TException("Pattern is in bad format: " + params.getPattern());
             }
+        } else {
+            matcher = null;
         }
 
         Env env = Env.getCurrentEnv();
@@ -533,55 +535,77 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                             catalog -> new TException("Unknown catalog " + catalog)));
         }
 
+        boolean includeDbIds = params.isIncludeDbIds();
         for (CatalogIf catalog : catalogIfs) {
-            Collection<DatabaseIf> dbs = new HashSet<DatabaseIf>();
+            Collection<DatabaseIf> dbs = Collections.emptyList();
+            List<String> names = Collections.emptyList();
             try {
-                dbs = catalog.getAllDbs();
+                if (includeDbIds) {
+                    dbs = catalog.getAllDbs();
+                } else {
+                    // SCHEMATA only needs names; loading every database churns the object cache on large catalogs.
+                    names = catalog.getDbNames();
+                }
             } catch (Exception e) {
                 LOG.warn("failed to get database names for catalog {}", catalog.getName(), e);
                 // Some external catalog may fail to get databases due to wrong connection info.
             }
+            int dbCount = includeDbIds ? dbs.size() : names.size();
             if (LOG.isDebugEnabled()) {
-                LOG.debug("get db size: {}, in catalog: {}", dbs.size(), catalog.getName());
+                LOG.debug("get db size: {}, in catalog: {}", dbCount, catalog.getName());
             }
-            if (dbs.isEmpty() && params.isSetGetNullCatalog() && params.get_null_catalog) {
+            if (dbCount == 0 && params.isSetGetNullCatalog() && params.get_null_catalog) {
                 catalogNames.add(catalog.getName());
                 dbNames.add("NULL");
                 catalogIds.add(catalog.getId());
-                dbIds.add(-1L);
+                if (includeDbIds) {
+                    dbIds.add(-1L);
+                }
                 continue;
             }
-            if (dbs.isEmpty()) {
+            if (dbCount == 0) {
                 continue;
             }
-            UserIdentity currentUser = null;
+            UserIdentity currentUser;
             if (params.isSetCurrentUserIdent()) {
                 currentUser = UserIdentity.fromThrift(params.current_user_ident);
             } else {
                 currentUser = UserIdentity.createAnalyzedUserIdentWithIp(params.user, params.user_ip);
             }
-            for (DatabaseIf db : dbs) {
-                String dbName = db.getFullName();
+            ObjLongConsumer<String> addDatabase = (dbName, dbId) -> {
                 if (!env.getAccessManager()
                         .checkDbPriv(currentUser, catalog.getName(), dbName, PrivPredicate.SHOW)) {
-                    continue;
+                    return;
                 }
 
                 if (matcher != null && !matcher.match(getMysqlTableSchema(catalog.getName(), dbName))) {
-                    continue;
+                    return;
                 }
 
                 catalogNames.add(catalog.getName());
                 dbNames.add(getMysqlTableSchema(catalog.getName(), dbName));
                 catalogIds.add(catalog.getId());
-                dbIds.add(db.getId());
+                if (includeDbIds) {
+                    dbIds.add(dbId);
+                }
+            };
+            if (includeDbIds) {
+                for (DatabaseIf db : dbs) {
+                    addDatabase.accept(db.getFullName(), db.getId());
+                }
+            } else {
+                for (String dbName : names) {
+                    addDatabase.accept(dbName, -1L);
+                }
             }
         }
 
         result.setDbs(dbNames);
         result.setCatalogs(catalogNames);
         result.setCatalogIds(catalogIds);
-        result.setDbIds(dbIds);
+        if (includeDbIds) {
+            result.setDbIds(dbIds);
+        }
         return result;
     }
 
@@ -732,8 +756,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                         // the version needs to be updated.
                         // Otherwise, the version will always be the old value
                         // unless there is a query for the table in the follower node.
+                        // UPDATE_TIME is the only status column that reads the partition versions
+                        // (OlapTable.getUpdateTime() takes the partitions' visible version time), so a
+                        // request that does not need it, such as Flight SQL GetTables asking for names
+                        // and types, does not wait on the meta service.
                         if (!Env.getCurrentEnv().isMaster() && Config.isCloudMode()
-                                && table instanceof OlapTable) {
+                                && table instanceof OlapTable
+                                && needTableStatusColumn(requiredColumns, "UPDATE_TIME")) {
                             OlapTable olapTable = (OlapTable) table;
                             List<CloudPartition> partitions = olapTable.getAllPartitions().stream()
                                     .filter(p -> p instanceof CloudPartition)
@@ -1118,6 +1147,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             List<TScanRangeLocations> locations = splitSource.getNextBatch(request.getMaxNumSplits());
             result.setSplits(locations);
             result.status = new TStatus(TStatusCode.OK);
+            return result;
+        } catch (SplitSource.SplitPendingException e) {
+            // The backend will retry; an empty OK batch would incorrectly mean EOF.
+            result.status = new TStatus(TStatusCode.INCOMPLETE);
             return result;
         } catch (Exception e) {
             LOG.warn("failed to fetch split batch with source id {}", request.getSplitSourceId(), e);
@@ -3197,7 +3230,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             StmtExecutor executor = new StmtExecutor(ctx, originStmt);
             httpStreamParams = executor.generateHttpStreamPlan(ctx.queryId());
 
-            Coordinator coord = new Coordinator(ctx, executor.planner());
+            Coordinator coord = EnvFactory.getInstance().createCoordinator(ctx, executor.planner(), null);
             coord.setLoadMemLimit(request.getExecMemLimit());
             coord.setQueryType(TQueryType.LOAD);
             TableIf table = httpStreamParams.getTable();
@@ -4745,19 +4778,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (request.isSetQueryId()) {
             Coordinator coordinator = QeProcessorImpl.INSTANCE.getCoordinator(request.getQueryId());
             if (coordinator != null) {
-                int instanceNum = 0;
                 // For single-instance imports (like stream load from FE), we don't need cache either
                 // Only multi-instance imports need to ensure consistent tablet replica information
                 // Coordinator may be null for stream load or other BE-initiated loads
-                if (coordinator instanceof NereidsCoordinator) {
-                    NereidsCoordinator nereidsCoordinator = (NereidsCoordinator) coordinator;
-                    instanceNum = nereidsCoordinator.getCoordinatorContext().instanceNum.get();
-                } else {
-                    Map<String, Integer> beToInstancesNum = coordinator.getBeToInstancesNum();
-                    instanceNum = beToInstancesNum.values().stream()
-                            .mapToInt(Integer::intValue)
-                            .sum();
-                }
+                int instanceNum = coordinator.getCoordinatorContext().instanceNum.get();
                 if (instanceNum > 1) {
                     needUseCache = true;
                 }
@@ -4784,6 +4808,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
 
         OlapTable olapTable = (OlapTable) table;
+        if (olapTable.hasRowTtl()) {
+            needUseCache = false;
+        }
         PartitionInfo partitionInfo = olapTable.getPartitionInfo();
         ArrayList<List<TNullableStringLiteral>> partitionValues = new ArrayList<>();
         for (int i = 0; i < request.partitionValues.size(); i++) {
@@ -5071,24 +5098,19 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (request.isSetQueryId()) {
             Coordinator coordinator = QeProcessorImpl.INSTANCE.getCoordinator(request.getQueryId());
             if (coordinator != null) {
-                int instanceNum = 0;
                 // For single-instance imports (like stream load from FE), we don't need cache either
                 // Only multi-instance imports need to ensure consistent tablet replica information
                 // Coordinator may be null for stream load or other BE-initiated loads
-                if (coordinator instanceof NereidsCoordinator) {
-                    NereidsCoordinator nereidsCoordinator = (NereidsCoordinator) coordinator;
-                    instanceNum = nereidsCoordinator.getCoordinatorContext().instanceNum.get();
-                } else {
-                    Map<String, Integer> beToInstancesNum = coordinator.getBeToInstancesNum();
-                    instanceNum = beToInstancesNum.values().stream()
-                            .mapToInt(Integer::intValue)
-                            .sum();
-                }
+                int instanceNum = coordinator.getCoordinatorContext().instanceNum.get();
                 if (instanceNum > 1) {
                     needUseCache = true;
                     txnId = coordinator.getTxnId();
                 }
             }
+        }
+
+        if (olapTable.hasRowTtl()) {
+            needUseCache = false;
         }
 
         if (DebugPointUtil.isEnable("FE.FrontendServiceImpl.replacePartition.DisableCache")) {
@@ -6197,19 +6219,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (coordinator == null) {
             return disabledAdaptiveBucketSinkContext();
         }
-        if (!(coordinator instanceof NereidsCoordinator)) {
-            Optional<Coordinator.AdaptiveRandomBucketSinkContext> context =
-                    coordinator.getAdaptiveRandomBucketSinkContext(tableId);
-            if (context.isPresent()) {
-                return new AdaptiveBucketSinkContext(
-                        true, context.get().getSinkBackendIds(), context.get().getSinkInstanceNum());
-            }
-            return disabledAdaptiveBucketSinkContext();
-        }
         Set<Long> sinkBackendIds = new TreeSet<>();
         int sinkInstanceNum = 0;
         for (PipelineDistributedPlan distributedPlan :
-                ((NereidsCoordinator) coordinator).getCoordinatorContext().distributedPlans) {
+                coordinator.getCoordinatorContext().distributedPlans) {
             if (!(distributedPlan.getFragmentJob().getFragment().getSink() instanceof OlapTableSink)) {
                 continue;
             }

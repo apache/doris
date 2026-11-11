@@ -42,6 +42,7 @@ public final class LambdaBindingSpecs {
 
     public static final LambdaBindingSpec ARRAY_ZIP = LambdaBindingSpecs::bindArrayZip;
     public static final LambdaBindingSpec ARRAY_COMPARATOR = LambdaBindingSpecs::bindArrayComparator;
+    public static final LambdaBindingSpec ARRAY_SORTED_MERGE = LambdaBindingSpecs::bindArraySortedMerge;
     public static final LambdaBindingSpec MAP_ENTRIES = LambdaBindingSpecs::bindMapEntries;
 
     private LambdaBindingSpecs() {
@@ -72,6 +73,32 @@ public final class LambdaBindingSpecs {
         return new ArrayLambdaBinding(lambda, ImmutableList.of(
                 new ArrayItemReference(lambda.getLambdaArgumentName(0), input),
                 new ArrayItemReference(lambda.getLambdaArgumentName(1), input)));
+    }
+
+    /**
+     * Binds the merge lambda's two parameters to the two array inputs; the trailing ascending
+     * flag is not a lambda argument, so it is kept as an extra function child.
+     */
+    private static LambdaBinding bindArraySortedMerge(
+            String functionName, Lambda lambda, List<Expression> inputs) {
+        if (inputs.size() != 3 || lambda.getLambdaArgumentNames().size() != 2) {
+            throw new AnalysisException(String.format(
+                    "%s requires two arrays and an ascending flag: (merge_fn, arr1, arr2, is_asc)",
+                    functionName));
+        }
+        requireArrayInput(inputs.get(0));
+        requireArrayInput(inputs.get(1));
+        if (!inputs.get(2).getDataType().isBooleanType()) {
+            throw new AnalysisException(String.format(
+                    "the ascending flag of %s must be BOOLEAN but is %s",
+                    functionName, inputs.get(2).getDataType().toSql()));
+        }
+        return new ArrayLambdaBinding(
+                lambda,
+                ImmutableList.of(
+                        new ArrayItemReference(lambda.getLambdaArgumentName(0), inputs.get(0)),
+                        new ArrayItemReference(lambda.getLambdaArgumentName(1), inputs.get(1))),
+                ImmutableList.of(inputs.get(2)));
     }
 
     private static LambdaBinding bindMapEntries(
@@ -110,11 +137,18 @@ public final class LambdaBindingSpecs {
     private static final class ArrayLambdaBinding implements LambdaBinding {
         private final Lambda lambda;
         private final List<ArrayItemReference> arguments;
+        private final List<Expression> extraInputs;
         private final List<Slot> analysisSlots;
 
         private ArrayLambdaBinding(Lambda lambda, List<ArrayItemReference> arguments) {
+            this(lambda, arguments, ImmutableList.of());
+        }
+
+        private ArrayLambdaBinding(Lambda lambda, List<ArrayItemReference> arguments,
+                List<Expression> extraInputs) {
             this.lambda = lambda;
             this.arguments = arguments;
+            this.extraInputs = extraInputs;
             this.analysisSlots = arguments.stream()
                     .map(ArrayItemReference::toSlot)
                     .collect(ImmutableList.toImmutableList());
@@ -123,6 +157,11 @@ public final class LambdaBindingSpecs {
         @Override
         public List<Slot> getAnalysisSlots() {
             return analysisSlots;
+        }
+
+        @Override
+        public List<Expression> getExtraInputs() {
+            return extraInputs;
         }
 
         @Override

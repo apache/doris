@@ -42,7 +42,7 @@ suite("alter_ttl_4", "nonConcurrent") {
         def pendingLoads = [] as Set
         def lastState = [:]
         def cacheDifference = [:]
-        def originalQueryCache = sql("select @@enable_sql_cache, @@enable_query_cache")[0].collect { value ->
+        def originalQueryCache = sql("select @@enable_sql_cache, @@enable_query_cache, @@enable_page_cache")[0].collect { value ->
             String setting = value.toString().toLowerCase(Locale.ROOT)
             assertTrue(setting in ["true", "false", "0", "1"], "Unexpected cache setting: ${value}")
             setting
@@ -206,6 +206,8 @@ suite("alter_ttl_4", "nonConcurrent") {
             sql "use @${clusterName}"
             sql "set enable_sql_cache = false"
             sql "set enable_query_cache = false"
+            // Scans of the evicted target must read its files again instead of pages kept in memory.
+            sql "set enable_page_cache = false"
             [(targetTable): initialTtl, (pressureTable): 0L].each { table, ttl ->
                 sql "drop table if exists ${table} force"
                 String ddl = new File("${context.file.parent}/../ddl/customer_ttl.sql").text
@@ -291,14 +293,22 @@ suite("alter_ttl_4", "nonConcurrent") {
             logMetricDelta("Pressure", metricsBeforePressure, metricsAfterPressure)
             assertTrue(!evictedFiles.isEmpty(), "No target cache eviction before pressure limit: " +
                     "imported_rows=${pressureRows}/${maxPressureRows}, metrics=${metricsAfterPressure}")
+            def coverageAfterPressure = coverage(getCache())
 
             assertEquals(dataBaseline, scanTarget())
-            // Re-reading an evicted file may split blocks differently. Compare merged byte ranges.
-            def reloaded = waitForCache("reloaded NORMAL cache coverage", "normal") { blocks ->
-                def current = coverage(blocks)
-                cacheDifference = [missing: missingCoverage(baselineCoverage, current).take(10),
-                                   extra: missingCoverage(current, baselineCoverage).take(10)]
-                current == baselineCoverage
+            // The scan reads the data pages of the evicted files again, but not their footers and
+            // indexes, which stay in memory with the open segments. So the reloaded ranges need not
+            // match what the load cached: require the evicted files to have more cached than right
+            // after the eviction.
+            def cachedBytes = { Map fileRanges ->
+                evictedFiles.keySet().sum(0L) { file -> (fileRanges[file] ?: []).sum(0L) { it[1] - it[0] } }
+            }
+            long bytesAfterPressure = cachedBytes(coverageAfterPressure)
+            def reloaded = waitForCache("reloaded NORMAL cache of evicted files", "normal") { blocks ->
+                long bytesNow = cachedBytes(coverage(blocks))
+                cacheDifference = [evicted_files: evictedFiles.size(),
+                                   cached_bytes_after_pressure: bytesAfterPressure, cached_bytes_now: bytesNow]
+                bytesNow > bytesAfterPressure
             }
             def metricsBeforeExtension = getMetrics()
             long now = sql("select unix_timestamp()")[0][0] as Long
@@ -322,7 +332,8 @@ suite("alter_ttl_4", "nonConcurrent") {
             [targetTable, pressureTable].each { table ->
                 try { sql "drop table if exists ${table} force" } catch (Throwable t) { cleanupErrors.add(t) }
             }
-            [enable_sql_cache: originalQueryCache[0], enable_query_cache: originalQueryCache[1]].each { name, value ->
+            [enable_sql_cache: originalQueryCache[0], enable_query_cache: originalQueryCache[1],
+             enable_page_cache: originalQueryCache[2]].each { name, value ->
                 try { sql "set ${name} = ${value}" } catch (Throwable t) { cleanupErrors.add(t) }
             }
             if (!cleanupErrors.isEmpty()) {

@@ -97,7 +97,8 @@ public class PruneOlapScanPartition implements RewriteRuleFactory {
                             return rewrittenLogicalRelation;
                         }
                         boolean skipPrunePredicate = ctx.connectContext.getSessionVariable().skipPrunePredicate
-                                || ctx.statementContext.isDelete();
+                                || ctx.statementContext.isDelete()
+                                || ctx.statementContext.isShortCircuitQuery();
                         if (!skipPrunePredicate && prunedRes.second.isPresent()) {
                             // Defer the predicate removal to PlanPostProcessor so that materialized-view
                             // rewrite still sees the original predicates. Otherwise, partition predicates
@@ -236,7 +237,7 @@ public class PruneOlapScanPartition implements RewriteRuleFactory {
             if (!selectedPartitions.isEmpty() && !selectedPartitions.contains(partition.getId())) {
                 continue;
             }
-            MaterializedIndex baseIndex = partition.getBaseIndex();
+            MaterializedIndex baseIndex = table.getPartitionIndex(partition, table.getBaseIndexId());
             for (Tablet tablet : baseIndex.getTablets()) {
                 if (manuallySpecifiedTabletIds.contains(tablet.getId())) {
                     selectPartitionIds.add(partition.getId());

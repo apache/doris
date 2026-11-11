@@ -60,6 +60,9 @@ enum class FileFormat {
     JNI,
     ARROW,
     WAL,
+    ES_HTTP,
+    MONGODB,
+    LANCE,
 };
 
 struct FileScanRequest {

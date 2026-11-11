@@ -134,6 +134,10 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
         return desc;
     }
 
+    /** Stop generating split input after a successful LIMIT, retaining fetch endpoints until close. */
+    public void stopSplitGeneration() {
+    }
+
     /**
      * Whether the BE still depends on something this scan node holds on the FE while it is
      * scanning, so that the coordinator - closing it releases what the node holds, through

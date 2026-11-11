@@ -134,7 +134,11 @@ public:
     ~WordDelimiterConcatenation() = default;
 
     void append(const char* text, int32_t offset, int32_t length) {
-        _buffer.append(text, offset, length);
+        // Not _buffer.append(text, offset, length): for a const char* that is the string_view
+        // overload, which measures `text` up to its first NUL. A token holding a NUL then threw
+        // std::out_of_range, which the index writers do not catch: "foo\0bar" with CATENATE_ALL
+        // appends its second part at offset 4 of a view that ends at 3.
+        _buffer.append(text + offset, length);
         auto [source_byte_offsets, source_byte_end_offsets] =
                 _filter.slice_source_byte_offsets(offset, offset + length);
         if (!_source_byte_offsets.empty() && !source_byte_offsets.empty()) {

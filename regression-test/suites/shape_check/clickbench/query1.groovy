@@ -22,7 +22,9 @@ suite("query1") {
     sql 'set enable_nereids_planner=true'
     sql 'set enable_nereids_distribute_planner=false'
     sql 'set enable_fallback_to_original_planner=false'
-    sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
+    // Once the exact row count of hits is cached, REWRITE_SIMPLE_AGG_TO_CONSTANT turns COUNT(*) into a constant
+    // and the shape into a PhysicalOneRowRelation; keep it off so that the shape does not depend on that cache.
+    sql "set disable_nereids_rules='PRUNE_EMPTY_PARTITION,REWRITE_SIMPLE_AGG_TO_CONSTANT'"
     sql 'set topn_opt_limit_threshold = 1024'
     def ckBench = """SELECT COUNT(*) FROM hits"""
     qt_ckbench_shape_1 """

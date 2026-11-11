@@ -267,6 +267,25 @@ public class FederationBackendPolicy {
         ListMultimap<Backend, Split> assignment = ArrayListMultimap.create();
 
         Collections.shuffle(splits, new Random(FIXED_SHUFFLE_SEED));
+        if (backends.size() == 1 && splits.stream().allMatch(Split::isRemotelyAccessible)) {
+            // Every remotely readable split has the same owner. Avoid per-split hashing,
+            // candidate allocation and weight-map updates under the batch assignment lock.
+            // Local-only splits still need the locality checks in the general path below.
+            Backend backend = backends.get(0);
+            boolean alternativesUsed = !isSpreadEnabled();
+            long weight = 0;
+            for (Split split : splits) {
+                weight = Math.addExact(weight, split.getSplitWeight().getRawValue());
+                if (alternativesUsed) {
+                    split.setAlternativeHosts(Collections.emptyList());
+                }
+            }
+            assignment.putAll(backend, splits);
+            if (!splits.isEmpty()) {
+                addAssignedWeight(backend, weight);
+            }
+            return assignment;
+        }
         List<Split> remainingSplits;
         ResettableRandomizedIterator<Backend> randomCandidates = new ResettableRandomizedIterator<>(backends);
 
@@ -329,8 +348,10 @@ public class FederationBackendPolicy {
                                 candidateNodes = candidateCount >= backends.size() ? backends
                                         : consistentHash.getNode(split, candidateCount);
                             } else {
-                                candidateNodes = consistentHash.getNode(
-                                        split, Config.split_assigner_min_consistent_hash_candidate_num);
+                                // The ring cannot find more candidates than eligible physical backends.
+                                candidateNodes = consistentHash.getNode(split,
+                                        Math.min(Config.split_assigner_min_consistent_hash_candidate_num,
+                                                backends.size()));
                             }
                         }
                         break;
@@ -378,6 +399,13 @@ public class FederationBackendPolicy {
      */
     private void equateDistribution(ListMultimap<Backend, Split> assignment) {
         if (assignment.isEmpty()) {
+            return;
+        }
+
+        // Small streaming batches usually keep the accumulated weights within the allowed variance.
+        // Avoid rebuilding both priority queues when their first comparison would already stop redistribution.
+        if (assignedWeightCounts.lastKey() - assignedWeightCounts.firstKey()
+                <= SplitWeight.rawValueForStandardSplitCount(Config.split_assigner_max_split_num_variance)) {
             return;
         }
 

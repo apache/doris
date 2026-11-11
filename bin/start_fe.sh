@@ -346,7 +346,7 @@ add_java_opt_if_missing "--add-opens=java.base/java.util.concurrent.atomic=ALL-U
 add_java_opt_if_missing "--add-opens=java.base/sun.nio.ch=ALL-UNNAMED"
 add_java_opt_if_missing "--add-opens=java.base/sun.nio.cs=ALL-UNNAMED"
 add_java_opt_if_missing "--add-opens=java.base/sun.security.action=ALL-UNNAMED"
-add_java_opt_if_missing "--add-opens=java.base/sun.util.calendar=ALL-UNNAME"
+add_java_opt_if_missing "--add-opens=java.base/sun.util.calendar=ALL-UNNAMED"
 add_java_opt_if_missing "--add-opens=java.security.jgss/sun.security.krb5=ALL-UNNAMED"
 add_java_opt_if_missing "--add-opens=java.management/sun.management=ALL-UNNAMED"
 add_java_opt_if_missing "--add-opens=java.base/jdk.internal.ref=ALL-UNNAMED"

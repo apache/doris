@@ -25,6 +25,7 @@
 
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet.h"
+#include "cloud/config.h"
 #include "common/config.h"
 #include "common/object_pool.h"
 #include "core/block/block.h"
@@ -39,15 +40,82 @@
 #include "runtime/memory/cache_manager.h"
 #include "runtime/runtime_state.h"
 #include "service/point_query_executor.h"
+#include "storage/mow/mow_transform_test_base.h"
 #include "storage/options.h"
 #include "storage/rowset/beta_rowset.h"
 #include "storage/rowset/beta_rowset_writer.h"
 #include "storage/segment/segment_loader.h"
+#include "storage/segment/segment_read_ahead.h"
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet_schema.h"
+#include "util/defer_op.h"
 #include "util/thrift_util.h"
 
 namespace doris {
+
+class PointQueryReadAheadTest : public MowTransformTestBase {};
+
+TEST_F(PointQueryReadAheadTest, RowStoreFallsBackWhenReadAheadSwitchChanges) {
+    auto schema = create_row_store_schema();
+    TabletSharedPtr tablet;
+    auto rowset = write_rowset(schema, 5101, 2, {{1, 11}, {2, 22}}, &tablet);
+    ASSERT_NE(rowset, nullptr);
+    const RowLocation location {rowset->rowset_id(), 0, 1};
+    const std::string key = "key";
+    OlapReaderStatistics expected_stats;
+    std::string expected;
+    ASSERT_TRUE(
+            tablet->lookup_row_data(Slice(key), location, rowset, expected_stats, expected).ok());
+    SegmentCacheHandle segment_cache;
+    ASSERT_TRUE(
+            SegmentLoader::instance()
+                    ->load_segments(std::static_pointer_cast<BetaRowset>(rowset), &segment_cache)
+                    .ok());
+    ASSERT_EQ(segment_cache.get_segments().size(), 1);
+    const auto& segment = segment_cache.get_segments().front();
+
+    const auto old_cloud_unique_id = config::cloud_unique_id;
+    const bool old_read_ahead = config::enable_query_read_ahead;
+    const bool old_async_write = config::enable_async_file_cache_write;
+    auto* sync_point = SyncPoint::get_instance();
+    Defer restore {[&] {
+        sync_point->disable_processing();
+        config::cloud_unique_id = old_cloud_unique_id;
+        config::enable_query_read_ahead = old_read_ahead;
+        config::enable_async_file_cache_write = old_async_write;
+    }};
+    config::cloud_unique_id = "PointQueryReadAheadTest";
+
+    for (int switch_index = 0; switch_index < 2; ++switch_index) {
+        SCOPED_TRACE(switch_index);
+        config::enable_query_read_ahead = true;
+        config::enable_async_file_cache_write = true;
+        ASSERT_TRUE(segment_v2::SegmentReadAhead::enabled());
+        auto context = std::make_shared<io::FileRangeReadContext>(1024 * 1024);
+
+        // Model a switch closing after the request created its context and resolved the segment.
+        // Both the read-ahead and fallback paths must reuse that segment without loading it again.
+        if (switch_index == 0) {
+            config::enable_query_read_ahead = false;
+        } else {
+            config::enable_async_file_cache_write = false;
+        }
+        size_t segment_loads = 0;
+        SyncPoint::CallbackGuard guard;
+        sync_point->set_call_back(
+                "SegmentLoader::load_segments", [&](auto&&) { ++segment_loads; }, &guard);
+        sync_point->enable_processing();
+        OlapReaderStatistics stats;
+        std::string actual;
+        const auto status = tablet->lookup_row_data_with_read_ahead(
+                Slice(key), location, segment, rowset, stats, actual, false, nullptr, context);
+        sync_point->disable_processing();
+        ASSERT_TRUE(status.ok()) << status;
+        EXPECT_EQ(segment_loads, 0);
+        EXPECT_EQ(actual, expected);
+        EXPECT_EQ(context->resident_bytes(), 0);
+    }
+}
 
 // Helper class for setting up Reusable objects to test LookupConnectionCache
 class ReusableTestHelper {

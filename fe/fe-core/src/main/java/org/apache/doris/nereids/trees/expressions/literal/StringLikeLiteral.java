@@ -306,9 +306,6 @@ public abstract class StringLikeLiteral extends Literal implements ComparableLit
                         ? strictMatcher.group("fraction2") : strictMatcher.group("fraction1");
                 tz = strictMatcher.group("tz");
             }
-            if (tz != null && tz.equalsIgnoreCase("CST")) {
-                tz = "+08:00";
-            }
             return getDateTimeLiteral(year, month, date, hour, minute, second, fraction, tz, targetType);
         } else if (!strictCast) {
             Matcher unStrictMatcher = dateUnStrictPattern.matcher(value);
@@ -321,9 +318,6 @@ public abstract class StringLikeLiteral extends Literal implements ComparableLit
                 second = unStrictMatcher.group("second");
                 fraction = unStrictMatcher.group("fraction");
                 tz = unStrictMatcher.group("tz");
-                if (tz != null && tz.equalsIgnoreCase("CST")) {
-                    tz = "+08:00";
-                }
                 return getDateTimeLiteral(year, month, date, hour, minute, second, fraction, tz, targetType);
             }
         }
@@ -342,30 +336,12 @@ public abstract class StringLikeLiteral extends Literal implements ComparableLit
             String second, String fraction, String tz, DataType targetType) {
         String year4 = year2ToYear4(year);
         tz = tz == null ? "" : tz;
-        if ((tz.startsWith("+") || tz.startsWith("-")) && !tz.contains(":")) {
-            if (tz.length() == 2) {
-                tz = String.format("%s0%s:00", tz.charAt(0), tz.charAt(1));
-            } else if (tz.length() == 3) {
-                tz = String.format("%s%s:00", tz.charAt(0), tz.substring(1, 3));
-            } else if (tz.length() == 4) {
-                tz = String.format("%s0%s:%s", tz.charAt(0), tz.charAt(1), tz.substring(2, 4));
-            } else {
-                tz = String.format("%s%s:%s", tz.charAt(0), tz.substring(1, 3), tz.substring(3, 5));
-            }
-        }
         hour = hour == null ? "00" : hour;
         minute = minute == null ? "00" : minute;
         second = second == null ? "00" : second;
         fraction = fraction == null || fraction.equals(".") ? "" : fraction;
         if (fraction.endsWith(".")) {
             fraction = fraction.substring(0, fraction.length() - 1);
-        }
-        if (tz.contains(":")) {
-            int hourOffset = Integer.parseInt(tz.substring(1, tz.indexOf(":")));
-            int minuteOffset = Integer.parseInt(tz.substring(tz.indexOf(":") + 1));
-            if (hourOffset > 14 || hourOffset == 14 && minuteOffset > 0) {
-                throw new CastException("Time zone offset couldn't be larger than 14:00");
-            }
         }
         String format = String.format("%s-%s-%sT%s:%s:%s%s%s", year4, month, date, hour, minute, second, fraction, tz);
         if (targetType.isDateType()) {

@@ -20,6 +20,7 @@ package org.apache.doris.connector.iceberg;
 import org.apache.doris.connector.spi.ConnectorColumn;
 import org.apache.doris.connector.spi.ConnectorDatabaseMetadata;
 import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.ConnectorTableNotFoundException;
 import org.apache.doris.connector.spi.ConnectorTableSchema;
 import org.apache.doris.connector.spi.ConnectorViewDefinition;
 import org.apache.doris.connector.spi.DorisConnectorException;
@@ -41,8 +42,12 @@ import org.apache.iceberg.exceptions.NoSuchTableException;
 import org.apache.iceberg.exceptions.NotFoundException;
 import org.apache.iceberg.inmemory.InMemoryCatalog;
 import org.apache.iceberg.types.Types;
+import org.apache.iceberg.view.BaseView;
 import org.apache.iceberg.view.ImmutableSQLViewRepresentation;
 import org.apache.iceberg.view.ImmutableViewVersion;
+import org.apache.iceberg.view.View;
+import org.apache.iceberg.view.ViewMetadata;
+import org.apache.iceberg.view.ViewOperations;
 import org.apache.iceberg.view.ViewVersion;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -144,6 +149,29 @@ public class IcebergConnectorMetadataTest {
         return builder.build();
     }
 
+    private static View viewWithMetadata(ViewVersion version, Schema schema) {
+        ViewMetadata metadata = ViewMetadata.builder()
+                .setLocation("s3://warehouse/db1/v1")
+                .setCurrentVersion(version, schema)
+                .build();
+        return new BaseView(new ViewOperations() {
+            @Override
+            public ViewMetadata current() {
+                return metadata;
+            }
+
+            @Override
+            public ViewMetadata refresh() {
+                return metadata;
+            }
+
+            @Override
+            public void commit(ViewMetadata base, ViewMetadata updated) {
+                throw new UnsupportedOperationException();
+            }
+        }, "db1.v1");
+    }
+
     // ---------------------------------------------------------------------
     // write capabilities (row-level DML dispatch)
     // ---------------------------------------------------------------------
@@ -167,6 +195,135 @@ public class IcebergConnectorMetadataTest {
         // null / empty -> handle unchanged (full scan), never an empty scope (which would scan nothing).
         Assertions.assertSame(handle, metadata.applyRewriteFileScope(null, handle, null));
         Assertions.assertSame(handle, metadata.applyRewriteFileScope(null, handle, Collections.emptySet()));
+    }
+
+    @Test
+    public void labelsPlanningAfterCachedHandleReportsTypedAbsence() {
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.table = new FakeIcebergTable("t", idNameSchema(), PartitionSpec.unpartitioned(),
+                "s3://bucket/db/t", Collections.emptyMap());
+        IcebergCatalogProperties properties = IcebergCatalogProperties.of(Collections.singletonMap(
+                IcebergCatalogProperties.ICEBERG_CATALOG_TYPE, IcebergCatalogProperties.TYPE_REST));
+        IcebergTableCache cache = new IcebergTableCache(60L, 8);
+        TableIdentifier id = TableIdentifier.of("db", "t");
+        cache.getOrLoad(id, () -> ops.table);
+        IcebergConnectorMetadata metadata = new IcebergConnectorMetadata(ops, properties,
+                new RecordingConnectorContext(), new IcebergLatestSnapshotCache(0L, 1), cache);
+        TestStatementScope scope = new TestStatementScope();
+        ConnectorSession session = new IcebergStatementScopeTest.ScopeSession(1L, "labels", scope);
+        ConnectorTableHandle base = metadata.getTableHandle(session, "db", "t").get();
+        ConnectorTableHandle labels = metadata.getSysTableHandle(session, base, "labels").get();
+        metadata.getTableSchema(session, labels);
+        Assertions.assertTrue(ops.log.isEmpty(), "cached handle and fixed labels schema must not load the base table");
+        cache.invalidate(id);
+        ops.loadTableFailure = new NoSuchTableException("dropped before labels split planning");
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(properties, ignored -> ops,
+                new RecordingConnectorContext(), null, cache);
+        try {
+            ConnectorTableNotFoundException missing = Assertions.assertThrows(ConnectorTableNotFoundException.class,
+                    () -> provider.planScan(session,
+                            org.apache.doris.connector.spi.scan.ConnectorScanRequest.builder(
+                                    labels, Collections.emptyList()).build()));
+            Assertions.assertEquals("db", missing.getDatabaseName());
+            Assertions.assertEquals("t", missing.getTableName());
+            ops.loadTableFailure = new RuntimeException(new NoSuchTableException("wrapped table absence"));
+            Assertions.assertThrows(ConnectorTableNotFoundException.class,
+                    () -> provider.planScan(session,
+                            org.apache.doris.connector.spi.scan.ConnectorScanRequest.builder(
+                                    labels, Collections.emptyList()).build()));
+            RuntimeException missingFile = new org.apache.iceberg.exceptions.NotFoundException("metadata.json");
+            ops.loadTableFailure = missingFile;
+            RuntimeException failure = Assertions.assertThrows(RuntimeException.class,
+                    () -> provider.planScan(session,
+                            org.apache.doris.connector.spi.scan.ConnectorScanRequest.builder(
+                                    labels, Collections.emptyList()).build()));
+            Assertions.assertSame(missingFile, failure, "missing files keep the existing system-scan error contract");
+        } finally {
+            scope.closeAll();
+            cache.invalidateAll();
+        }
+    }
+
+    @Test
+    public void statisticsPreserveTypedAbsenceButDegradeOrdinaryFailures() {
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        IcebergConnectorMetadata metadata = metadataWith(ops);
+        IcebergTableHandle handle = new IcebergTableHandle("db1", "t1");
+        org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot pin =
+                org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot.builder().snapshotId(1L).build();
+        ops.loadTableFailure = new NoSuchTableException("dropped during row-count read");
+        Assertions.assertThrows(ConnectorTableNotFoundException.class,
+                () -> metadata.getTableStatistics(null, handle));
+        Assertions.assertThrows(ConnectorTableNotFoundException.class,
+                () -> metadata.getTableStatistics(null, handle, pin));
+        ops.loadTableFailure = new IllegalStateException("permission denied");
+        Assertions.assertFalse(metadata.getTableStatistics(null, handle).isPresent());
+        Assertions.assertFalse(metadata.getTableStatistics(null, handle, pin).isPresent());
+    }
+
+    @Test
+    public void partitionListingPreservesAbsenceWithAndWithoutDerivedCache() {
+        for (boolean cached : new boolean[] {false, true}) {
+            RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+            org.apache.doris.connector.cache.ConnectorMetadataCache<
+                    List<org.apache.doris.connector.spi.ConnectorPartitionInfo>> cache = cached
+                            ? new org.apache.doris.connector.cache.ConnectorMetadataCache<>(
+                                    "iceberg", "partition_view", Collections.emptyMap()) : null;
+            IcebergConnectorMetadata metadata = new IcebergConnectorMetadata(ops,
+                    IcebergCatalogProperties.of(Collections.emptyMap()), new RecordingConnectorContext(),
+                    new IcebergLatestSnapshotCache(0L, 1), null, null, null, null, cache);
+            ops.loadTableFailure = new NoSuchTableException("dropped during partition read");
+            Assertions.assertThrows(ConnectorTableNotFoundException.class,
+                    () -> metadata.listPartitions(null, new IcebergTableHandle("db1", "t1"), Optional.empty()));
+        }
+    }
+
+    @Test
+    public void partitionNameListingPreservesConfirmedAbsence() {
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        IcebergConnectorMetadata metadata = metadataWith(ops);
+        ops.loadTableFailure = new NoSuchTableException("dropped during partition-name read");
+        Assertions.assertThrows(ConnectorTableNotFoundException.class,
+                () -> metadata.listPartitionNames(null, new IcebergTableHandle("db1", "t1")));
+    }
+
+    @Test
+    public void noTableCacheSnapshotReadCanDiscoverDropAfterHandleResolution() {
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.tableExists = true;
+        IcebergConnectorMetadata metadata = metadataWith(ops);
+        org.apache.doris.connector.spi.handle.ConnectorTableHandle handle =
+                metadata.getTableHandle(null, "db", "t").get();
+        ops.loadTableFailure = new NoSuchTableException("dropped after handle resolution");
+        ConnectorTableNotFoundException missing = Assertions.assertThrows(ConnectorTableNotFoundException.class,
+                () -> metadata.beginQuerySnapshot(null, handle));
+        Assertions.assertEquals("db", missing.getDatabaseName());
+        Assertions.assertEquals("t", missing.getTableName());
+    }
+
+    @Test
+    public void missingViewDefinitionCarriesTheRequestedIdentity() {
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.loadViewFailure = new org.apache.iceberg.exceptions.NoSuchViewException("gone");
+        ConnectorTableNotFoundException missing = Assertions.assertThrows(ConnectorTableNotFoundException.class,
+                () -> metadataWith(ops).getViewDefinition(null, "db", "v"));
+        Assertions.assertEquals("db", missing.getDatabaseName());
+        Assertions.assertEquals("v", missing.getTableName());
+    }
+
+    @Test
+    public void commentMissingTableCarriesItsIdentityButMissingFilesDoNot() {
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.loadTableFailure = new RuntimeException(new NoSuchTableException("gone"));
+        IcebergConnectorMetadata metadata = metadataWith(ops);
+        ConnectorTableNotFoundException missing = Assertions.assertThrows(ConnectorTableNotFoundException.class,
+                () -> metadata.getTableComment(null, "db", "t"));
+        Assertions.assertEquals("db", missing.getDatabaseName());
+        Assertions.assertEquals("t", missing.getTableName());
+        ops.loadTableFailure = new RuntimeException(new java.io.FileNotFoundException("metadata.json"));
+        RuntimeException fileFailure = Assertions.assertThrows(RuntimeException.class,
+                () -> metadata.getTableComment(null, "db", "t"));
+        Assertions.assertFalse(fileFailure instanceof ConnectorTableNotFoundException);
     }
 
     @Test
@@ -612,15 +769,14 @@ public class IcebergConnectorMetadataTest {
         Schema viewSchema = new Schema(
                 Types.NestedField.required(1, "id", Types.IntegerType.get()),
                 Types.NestedField.optional(2, "name", Types.StringType.get()));
-        ops.view = new FakeIcebergViewCatalog.StubView(
+        ops.view = viewWithMetadata(
                 viewVersionWith("Spark", "spark", "SELECT 1"), viewSchema);
 
         ConnectorViewDefinition def = metadataWith(ops).getViewDefinition(null, "db1", "v1");
 
         // WHY (H8): ONE loadView yields the sql/dialect (BindRelation / SHOW CREATE) AND the column schema
-        // (DESC / SHOW COLUMNS / information_schema.columns). The dialect is the summary engine-name LOWERCASED;
-        // the sql is that dialect's representation; the columns are parseSchema(view.schema()). MUTATION:
-        // dropping toLowerCase / wrong representation / not parsing the view schema (empty columns) -> red.
+        // (DESC / SHOW COLUMNS / information_schema.columns). SQL and dialect come from the selected
+        // representation, while columns come from parseSchema(view.schema()).
         Assertions.assertEquals("SELECT 1", def.getSql());
         Assertions.assertEquals("spark", def.getDialect());
         List<ConnectorColumn> cols = def.getColumns();
@@ -644,7 +800,7 @@ public class IcebergConnectorMetadataTest {
         Schema viewSchema = new Schema(
                 Types.NestedField.optional(1, "b", Types.BinaryType.get()),
                 Types.NestedField.optional(2, "ts_tz", Types.TimestampType.withZone()));
-        ops.view = new FakeIcebergViewCatalog.StubView(
+        ops.view = viewWithMetadata(
                 viewVersionWith("spark", "spark", "SELECT 1"), viewSchema);
         Map<String, String> props = new HashMap<>();
         props.put("enable.mapping.varbinary", "true");
@@ -690,26 +846,94 @@ public class IcebergConnectorMetadataTest {
     }
 
     @Test
-    public void getViewDefinitionThrowsWhenEngineNameMissing() {
-        // WHY (moved from the seam test post-H8): the dialect IS the summary engine-name; without it the SQL
-        // representation cannot be selected. MUTATION: dropping the empty-engine-name check -> wrong behavior.
-        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
-        ops.view = new FakeIcebergViewCatalog.StubView(
-                viewVersionWith(null, "spark", "SELECT 1"), idNameSchema());
-        Assertions.assertThrows(RuntimeException.class,
-                () -> metadataWith(ops).getViewDefinition(null, "db1", "v1"));
+    public void getViewDefinitionDoesNotRequireEngineName() {
+        for (String engineName : Arrays.asList(null, "", "Polaris")) {
+            RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+            ops.view = viewWithMetadata(viewVersionWith(engineName, "SpArK", "SELECT 1"), idNameSchema());
+            ops.throwNoSuchTableOnLoadTable = true;
+
+            ConnectorViewDefinition definition = metadataWith(ops).getViewDefinition(null, "db1", "v1");
+
+            Assertions.assertEquals("SELECT 1", definition.getSql());
+            Assertions.assertEquals("spark", definition.getDialect());
+            Assertions.assertEquals(2, definition.getColumns().size());
+            Assertions.assertEquals(Collections.singletonList("loadView:db1.v1"), ops.log);
+        }
     }
 
     @Test
-    public void getViewDefinitionThrowsWhenNoSqlForDialect() {
-        // WHY (moved from the seam test post-H8): engine-name present but no SQL representation for that dialect
-        // -> sqlFor returns null -> must fail loud (mirrors legacy "Cannot get view text"). MUTATION: dropping
-        // the null-sql check -> NPE.
+    public void getViewDefinitionPrefersDorisWhenEngineNameIsMissing() {
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ViewVersion version = ImmutableViewVersion.builder()
+                .from(viewVersionWith(null, "spark", "SELECT 1 AS spark_value"))
+                .addRepresentations(ImmutableSQLViewRepresentation.builder()
+                        .sql("SELECT 1 AS doris_value").dialect("DoRiS").build())
+                .build();
+        ops.view = viewWithMetadata(version, idNameSchema());
+
+        ConnectorViewDefinition definition = metadataWith(ops).getViewDefinition(null, "db1", "v1");
+
+        Assertions.assertEquals("SELECT 1 AS doris_value", definition.getSql());
+        Assertions.assertEquals("doris", definition.getDialect());
+    }
+
+    @Test
+    public void getViewDefinitionKeepsEngineDialectWhenDorisIsAbsent() {
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ViewVersion version = ImmutableViewVersion.builder()
+                .from(viewVersionWith("Trino", "spark", "SELECT 1 AS spark_value"))
+                .addRepresentations(ImmutableSQLViewRepresentation.builder()
+                        .sql("SELECT 1 AS trino_value").dialect("trino").build())
+                .build();
+        ops.view = viewWithMetadata(version, idNameSchema());
+
+        ConnectorViewDefinition definition = metadataWith(ops).getViewDefinition(null, "db1", "v1");
+
+        Assertions.assertEquals("SELECT 1 AS trino_value", definition.getSql());
+        Assertions.assertEquals("trino", definition.getDialect());
+    }
+
+    @Test
+    public void getViewDefinitionKeepsEngineDialectWhenDorisIsAvailable() {
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ViewVersion version = ImmutableViewVersion.builder()
+                .from(viewVersionWith("Spark", "spark", "SELECT 1 AS spark_value"))
+                .addRepresentations(ImmutableSQLViewRepresentation.builder()
+                        .sql("SELECT 1 AS doris_value").dialect("doris").build())
+                .build();
+        ops.view = viewWithMetadata(version, idNameSchema());
+
+        ConnectorViewDefinition definition = metadataWith(ops).getViewDefinition(null, "db1", "v1");
+
+        Assertions.assertEquals("SELECT 1 AS spark_value", definition.getSql());
+        Assertions.assertEquals("spark", definition.getDialect());
+    }
+
+    @Test
+    public void getViewDefinitionUsesFirstSqlWhenEngineNameAndDorisAreAbsent() {
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ViewVersion version = ImmutableViewVersion.builder()
+                .from(viewVersionWith(null, "spark", "SELECT 1 AS spark_value"))
+                .addRepresentations(ImmutableSQLViewRepresentation.builder()
+                        .sql("SELECT 1 AS trino_value").dialect("trino").build())
+                .build();
+        ops.view = viewWithMetadata(version, idNameSchema());
+
+        ConnectorViewDefinition definition = metadataWith(ops).getViewDefinition(null, "db1", "v1");
+
+        Assertions.assertEquals("SELECT 1 AS spark_value", definition.getSql());
+        Assertions.assertEquals("spark", definition.getDialect());
+    }
+
+    @Test
+    public void getViewDefinitionThrowsWhenNoSqlRepresentation() {
         RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
         ops.view = new FakeIcebergViewCatalog.StubView(
                 viewVersionWith("spark", null, null), idNameSchema());
-        Assertions.assertThrows(RuntimeException.class,
+        RuntimeException exception = Assertions.assertThrows(RuntimeException.class,
                 () -> metadataWith(ops).getViewDefinition(null, "db1", "v1"));
+        Assertions.assertTrue(exception.getMessage().contains(
+                "Cannot get SQL representation for Iceberg view 'db1.v1'"), exception.getMessage());
     }
 
     // ---------------------------------------------------------------------

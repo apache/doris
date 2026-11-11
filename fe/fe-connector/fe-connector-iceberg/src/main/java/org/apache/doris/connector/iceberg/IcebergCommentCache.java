@@ -43,8 +43,8 @@ import java.util.function.Supplier;
  * disclosure). Vended-credentials uses a single static catalog identity, so every user loads the same table and
  * sharing a comment is safe.
  *
- * <p><b>No credential gate</b> (unlike {@link IcebergTableCache}, like {@link IcebergPartitionCache} /
- * {@link IcebergFormatCache}): the cached value is a bare comment {@link String} with no {@code FileIO} /
+ * <p><b>No credential gate</b> (unlike {@link IcebergTableCache}, like {@link IcebergPartitionCache}): the cached value
+ * is a bare comment {@link String} with no {@code FileIO} /
  * credential. A comment changes only via external DDL, picked up through the REFRESH invalidate hooks. The
  * connector builds it with the table entry's {@code meta.cache.iceberg.table.(enable|ttl-second|capacity)};
  * {@code enable=false}, {@code ttl-second <= 0} or {@code capacity=0} disables it (read live), so a no-cache

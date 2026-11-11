@@ -32,12 +32,7 @@ public:
 
     void append(uint32_t docid) { bitmap_.add(docid); }
 
-    Status append_sorted(std::span<const uint32_t> docids) override {
-        if (!docids.empty()) {
-            bitmap_.addMany(docids.size(), docids.data());
-        }
-        return Status::OK();
-    }
+    Status append_sorted(std::span<const uint32_t> docids) override;
 
     Status append_range(uint32_t first, uint64_t last_exclusive) override {
         if (last_exclusive > static_cast<uint64_t>(std::numeric_limits<uint32_t>::max()) + 1) {

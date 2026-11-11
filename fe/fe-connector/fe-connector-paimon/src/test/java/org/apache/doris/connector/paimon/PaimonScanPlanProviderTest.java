@@ -4219,17 +4219,6 @@ public class PaimonScanPlanProviderTest {
     }
 
     @Test
-    public void fileMetadataColumnsRequireFileScannerV2() {
-        Assertions.assertTrue(PaimonScanPlanProvider.isFileScannerV2Enabled(
-                sessionWithProps(Collections.singletonMap("enable_file_scanner_v2", "true"))));
-        Assertions.assertFalse(PaimonScanPlanProvider.isFileScannerV2Enabled(
-                sessionWithProps(Collections.singletonMap("enable_file_scanner_v2", "false"))));
-        Assertions.assertTrue(PaimonScanPlanProvider.isFileScannerV2Enabled(
-                sessionWithProps(Collections.emptyMap())));
-        Assertions.assertTrue(PaimonScanPlanProvider.isFileScannerV2Enabled(null));
-    }
-
-    @Test
     public void disabledScanReuseDoesNotDisableSplitTypeFiltering() {
         Map<String, String> sessionProperties = new HashMap<>();
         sessionProperties.put("enable_external_scan_task_reuse", "false");

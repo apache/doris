@@ -27,8 +27,9 @@ suite("test_paimon_jni_reader_guardrails", "p0,external,paimon") {
     String catalogName = "test_paimon_jni_reader_guardrails"
     String physicalCatalogName = "test_paimon_jni_reader_physical_guardrails"
     String dbName = "paimon_jni_guardrails_db"
-    def scannerV2Rows = sql "show variables like 'enable_file_scanner_v2'"
-    String originalScannerV2 = scannerV2Rows[0][1]
+    // Read the deprecated option by its stable name; SHOW VARIABLES prefixes its display name.
+    def scannerV2Rows = sql "SELECT @@enable_file_scanner_v2"
+    String originalScannerV2 = scannerV2Rows[0][0]
 
     def catalogDdl = { String name, String extraProperty ->
         return """

@@ -21,6 +21,7 @@
 
 #include "rapidjson/document.h"
 #include "rapidjson/stringbuffer.h"
+#include "runtime/runtime_state.h"
 #include "util/block_compression.h"
 
 namespace doris {

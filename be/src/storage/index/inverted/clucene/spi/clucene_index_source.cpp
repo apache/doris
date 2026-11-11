@@ -243,6 +243,82 @@ std::span<const float> CluceneIndexSource::norm_lengths() const {
     return BM25Similarity::lucene_norm_lengths();
 }
 
+// The statistics read a field's norms into a buffer of their own, freed after use: asking a reader
+// for its norms makes it keep them, uncharged to the searcher cache, for every segment the
+// statistics visit, scored or not. Reading per segment also avoids the copy of all segments' norms
+// a reader of several segments would keep. A segment without the field's norms reads as zero
+// lengths, as that reader would.
+std::vector<CluceneIndexSource::ReaderPartition> CluceneIndexSource::_norm_partitions() const {
+    if (!_partitions.empty()) {
+        return _partitions;
+    }
+    return {{.reader = _reader.get(), .begin = 0, .end = doc_count()}};
+}
+
+void CluceneIndexSource::_read_norms(const ReaderPartition& partition,
+                                     DorisVector<uint8_t>* norms) const {
+    norms->assign(partition.end - partition.begin, 0);
+    partition.reader->norms(_field.c_str(), norms->data());
+}
+
+Status CluceneIndexSource::sum_norm_lengths(uint64_t* out) {
+    *out = 0;
+    try {
+        if (!_reader->hasNorms(_field.c_str())) {
+            return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
+                    "field {} has no norms", inverted_index::StringHelper::to_string(_field));
+        }
+        const auto lengths = norm_lengths();
+        DorisVector<uint8_t> norms;
+        for (const ReaderPartition& partition : _norm_partitions()) {
+            _read_norms(partition, &norms);
+            for (const uint8_t norm : norms) {
+                *out += static_cast<uint64_t>(lengths[norm]);
+            }
+        }
+    } catch (CLuceneError& e) {
+        return clucene_error_status(e.what());
+    }
+    return Status::OK();
+}
+
+Status CluceneIndexSource::sum_norm_lengths_of(std::span<const uint32_t> docs, uint64_t* out) {
+    *out = 0;
+    if (docs.empty()) {
+        return Status::OK();
+    }
+    try {
+        if (!_reader->hasNorms(_field.c_str())) {
+            return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
+                    "field {} has no norms", inverted_index::StringHelper::to_string(_field));
+        }
+        const auto lengths = norm_lengths();
+        const uint32_t count = doc_count();
+        if (docs.back() >= count) {
+            return Status::Corruption("document {} is beyond the {} documents of the index",
+                                      docs.back(), count);
+        }
+        DorisVector<uint8_t> norms;
+        // `docs` ascend, so each partition's documents are contiguous in them.
+        size_t next = 0;
+        for (const ReaderPartition& partition : _norm_partitions()) {
+            if (next == docs.size()) {
+                break;
+            }
+            if (docs[next] >= partition.end) {
+                continue;
+            }
+            _read_norms(partition, &norms);
+            for (; next < docs.size() && docs[next] < partition.end; ++next) {
+                *out += static_cast<uint64_t>(lengths[norms[docs[next] - partition.begin]]);
+            }
+        }
+    } catch (CLuceneError& e) {
+        return clucene_error_status(e.what());
+    }
+    return Status::OK();
+}
+
 bool CluceneIndexSource::is_live(uint32_t doc) const {
     return !_reader->isDeleted(static_cast<int32_t>(doc));
 }

@@ -23,6 +23,7 @@
 #include <fmt/format.h>
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gen_cpp/Types_types.h>
+#include <gen_cpp/segment_v2.pb.h>
 #include <glog/logging.h>
 
 #include <fstream>
@@ -57,6 +58,19 @@
 #include "util/uid_util.h"
 
 namespace doris {
+
+segment_v2::CompressionTypePB RuntimeState::fragement_transmission_compression_type() const {
+    if (_query_options.__isset.fragment_transmission_compression_codec) {
+        if (_query_options.fragment_transmission_compression_codec == "lz4") {
+            return segment_v2::CompressionTypePB::LZ4;
+        } else if (_query_options.fragment_transmission_compression_codec == "snappy") {
+            return segment_v2::CompressionTypePB::SNAPPY;
+        } else {
+            return segment_v2::CompressionTypePB::NO_COMPRESSION;
+        }
+    }
+    return segment_v2::CompressionTypePB::NO_COMPRESSION;
+}
 
 ExternalFileReportReservation::~ExternalFileReportReservation() {
     if (_state != nullptr) {
@@ -225,7 +239,7 @@ RuntimeState::RuntimeState(const TPlanFragmentExecParams& fragment_exec_params,
           _query_ctx(ctx) {
     Status status =
             init(fragment_exec_params.fragment_instance_id, query_options, query_globals, exec_env);
-    DCHECK(status.ok());
+    DORIS_CHECK(status.ok()) << status;
     _query_mem_tracker = query_mem_tracker;
     DCHECK(_query_mem_tracker != nullptr);
 }
@@ -248,8 +262,8 @@ RuntimeState::RuntimeState(const TUniqueId& instance_id, const TUniqueId& query_
           _num_bytes_load_total(0),
           _num_finished_scan_range(0),
           _query_ctx(ctx) {
-    [[maybe_unused]] auto status = init(instance_id, query_options, query_globals, exec_env);
-    DCHECK(status.ok());
+    Status status = init(instance_id, query_options, query_globals, exec_env);
+    DORIS_CHECK(status.ok()) << status;
     _query_mem_tracker = ctx->query_mem_tracker();
 }
 
@@ -273,7 +287,7 @@ RuntimeState::RuntimeState(const TUniqueId& query_id, int32_t fragment_id,
           _query_ctx(ctx) {
     // TODO: do we really need instance id?
     Status status = init(TUniqueId(), query_options, query_globals, exec_env);
-    DCHECK(status.ok());
+    DORIS_CHECK(status.ok()) << status;
     _query_mem_tracker = ctx->query_mem_tracker();
 }
 
@@ -296,7 +310,7 @@ RuntimeState::RuntimeState(const TUniqueId& query_id, int32_t fragment_id,
           _num_bytes_load_total(0),
           _num_finished_scan_range(0) {
     Status status = init(TUniqueId(), query_options, query_globals, exec_env);
-    DCHECK(status.ok());
+    DORIS_CHECK(status.ok()) << status;
     _query_mem_tracker = query_mem_tracker;
     DCHECK(_query_mem_tracker != nullptr);
 }
@@ -310,7 +324,7 @@ RuntimeState::RuntimeState(const TQueryOptions& query_options, const TQueryGloba
     Status status = init(TUniqueId(), query_options, query_globals, nullptr);
     _exec_env = ExecEnv::GetInstance();
     init_mem_trackers("<unnamed>");
-    DCHECK(status.ok());
+    DORIS_CHECK(status.ok()) << status;
 }
 
 RuntimeState::RuntimeState()
@@ -324,7 +338,7 @@ RuntimeState::RuntimeState()
     _timezone = TimezoneUtils::default_time_zone;
     _timestamp_ms = 0;
     _nano_seconds = 0;
-    TimezoneUtils::find_cctz_time_zone(_timezone, _timezone_obj);
+    DORIS_CHECK(TimezoneUtils::find_cctz_time_zone(_timezone, _timezone_obj));
     _exec_env = ExecEnv::GetInstance();
     init_mem_trackers("<unnamed>");
 }
@@ -382,7 +396,9 @@ Status RuntimeState::init(const TUniqueId& fragment_instance_id, const TQueryOpt
         _timestamp_ms = 0;
         _nano_seconds = 0;
     }
-    TimezoneUtils::find_cctz_time_zone(_timezone, _timezone_obj);
+    if (!TimezoneUtils::find_cctz_time_zone(_timezone, _timezone_obj)) {
+        return Status::InvalidArgument("Invalid timezone: {}", _timezone);
+    }
 
     if (query_globals.__isset.load_zero_tolerance) {
         _load_zero_tolerance = query_globals.load_zero_tolerance;

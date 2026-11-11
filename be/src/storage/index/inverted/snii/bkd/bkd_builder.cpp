@@ -46,13 +46,7 @@ namespace {
 // a column with a handful of points does not hold a page it will never fill.
 constexpr size_t kInitialRecordBufferPoints = 1024;
 
-// The Phase 1 point stream: the builder's own resident run, already sorted in place,
-// handed out in leaf-sized windows. It copies nothing -- every block is a view into
-// the record buffer -- which is why sorting has to be in place (design 6.2): a
-// second buffer would double the bound build_buffer_bytes is supposed to set.
-//
-// Phase 2's k-way merge over spilled runs implements this same interface, so the
-// leaf-cutting loop in write_index() stays untouched.
+// ResidentPointSource exposes the sorted in-memory run in leaf-sized views without copying records.
 class ResidentPointSource final : public PointSource {
 public:
     ResidentPointSource(Slice records, size_t record_size)
@@ -88,10 +82,7 @@ BkdBuilder::BkdBuilder(const BkdBuilderOptions& options)
 
 Status BkdBuilder::create(const BkdBuilderOptions& options, std::unique_ptr<BkdBuilder>* out) {
     DORIS_CHECK(out != nullptr);
-    // Design 6.1: everything the builder needs is settled BEFORE the object exists,
-    // so there is no constructed-but-invalid state for later code to defend against.
-    // These options come from Doris's own writer layer in this same process -- they
-    // are internal invariants, not untrusted bytes, hence DORIS_CHECK (design 8).
+    // Validate builder options before construction because they are internal inputs.
     DORIS_CHECK_GT(options.bytes_per_dim, 0U);
     // INV-2. The membership test for "is this field type indexable at all" belongs to
     // encode_bkd_index_block, which owns the on-disk field_type vocabulary and asserts
@@ -113,24 +104,13 @@ Status BkdBuilder::add(uint32_t doc_id, Slice sortable_value) {
     DORIS_CHECK_EQ(sortable_value.size(), static_cast<size_t>(options_.bytes_per_dim));
 
     if (records_.size() / record_size_ == max_points_) {
-        // The ceiling is a spill trigger, not a refusal (design 6.2). The old
-        // implementation had no offline sort at all and simply grew until the
-        // process died; here the resident footprint stays flat and the excess
-        // goes to a run.
+        // Spill the resident run when the buffer reaches its configured limit.
         RETURN_IF_ERROR(spill_current_run());
     }
     const size_t point_count = records_.size() / record_size_;
     RETURN_IF_ERROR(reserve_points(point_count + 1));
 
-    // doc_count is counted HERE (design 6.1), never pushed in from outside. Doris
-    // appends in ascending row order and an array column repeats one row's doc id
-    // consecutively, so a doc id that differs from the previous one starts a new
-    // document. That ordering is what makes the running counter exact; it is a
-    // per-point property, hence DCHECK.
-    //
-    // "First point ever" is doc_count_ == 0, NOT an empty resident buffer: a
-    // spill empties that buffer mid-stream, and testing it here would restart the
-    // run of equal doc ids and count one document twice.
+    // Count a new document when its ID differs from the previous point's ID. Use doc_count_ to detect the first point because spilling clears the resident buffer.
     DCHECK(doc_count_ == 0 || doc_id >= last_doc_id_);
     if (doc_count_ == 0 || doc_id != last_doc_id_) {
         ++doc_count_;
@@ -139,9 +119,7 @@ Status BkdBuilder::add(uint32_t doc_id, Slice sortable_value) {
 
     records_.insert(records_.end(), sortable_value.data(),
                     sortable_value.data() + sortable_value.size());
-    // BIG-endian doc id tail: the memcmp of the whole record is then exactly
-    // (value, doc_id) order, which is what point_sorter sorts by and what
-    // leaf_codec's "doc ids ascend inside a run" relies on (design 6.2).
+    // A big-endian doc ID makes whole-record byte order match (value, doc_id) order.
     for (uint32_t i = 0; i < kPointDocIdBytes; ++i) {
         records_.push_back(static_cast<uint8_t>(doc_id >> (8 * (kPointDocIdBytes - 1 - i))));
     }
@@ -157,9 +135,7 @@ Status BkdBuilder::finish(io::FileWriter* data_out, ByteSink* index_out, BkdStat
 
     Status status;
     if (run_paths_.empty()) {
-        // FAST PATH: everything stayed resident. One in-place pass over the run.
-        // The whole record is the key, so this single sort establishes
-        // (value, doc_id) order without a separate tie-break (design 6.3).
+        // Sort the resident run in place by (value, doc_id).
         point_sorter::sort(records_.data(), records_.size() / record_size_,
                            static_cast<uint32_t>(record_size_));
         // Scoped so the source -- which is nothing but a view into records_ -- is
@@ -170,9 +146,7 @@ Status BkdBuilder::finish(io::FileWriter* data_out, ByteSink* index_out, BkdStat
         return status;
     }
 
-    // MERGE PATH. The residual becomes one more run rather than a special case, so
-    // the merge sees a uniform set of inputs and the leaf-cutting loop below still
-    // cannot tell the two build modes apart (design 6.2).
+    // Sort the residual run before merging it with the spilled runs.
     status = spill_current_run();
     if (status.ok()) {
         // The resident buffer is dead weight from here on: the merge's own
@@ -345,9 +319,7 @@ Status BkdBuilder::reserve_points(size_t point_count) {
     if (needed <= records_.capacity()) {
         return Status::OK();
     }
-    // Geometric growth, then clamped to the configured ceiling: the buffer must not
-    // overshoot build_buffer_bytes even transiently, or the bound design 6.2 promises
-    // would only hold for the logical size and not for the RSS.
+    // Clamp buffer growth to build_buffer_bytes, including transient capacity.
     size_t target = std::max(needed, records_.capacity() * 2);
     target = std::max(target, kInitialRecordBufferPoints * record_size_);
     target = std::min(target, max_points_ * record_size_);
@@ -386,10 +358,7 @@ Status BkdBuilder::write_index(PointSource* source, io::FileWriter* data_out, By
     uint64_t leaf_offset = 0;
     uint64_t point_count = 0;
 
-    // Design 6.4: cut every points_per_leaf points, let the last leaf keep the
-    // remainder, and do NOT round the leaf count up to a power of two -- an ordered
-    // split array has no complete-binary-tree requirement, so the configured capacity
-    // is the real capacity instead of an upper bound that repeated halving dilutes.
+    // Cut leaves at points_per_leaf points; only the final leaf may be shorter.
     while (true) {
         Slice block;
         RETURN_IF_ERROR(source->next_block(options_.points_per_leaf, &block));
@@ -423,13 +392,13 @@ Status BkdBuilder::write_index(PointSource* source, io::FileWriter* data_out, By
 
     BkdIndexHeader header;
     header.format_version = kFormatVersion;
-    // Phase 1 finishes entirely in RAM, so index_flags::kBuiltWithSpill stays clear.
+    // The resident build does not set kBuiltWithSpill.
     header.flags = 0;
     header.bytes_per_dim = options_.bytes_per_dim;
     header.field_type = options_.field_type;
     header.point_count = point_count;
     header.doc_count = doc_count_;
-    // 0 leaves is the empty index (design 5.3): header only, zero-length bkd_data.
+    // An empty index has a header and no bkd_data.
     header.leaf_count = static_cast<uint32_t>(leaves.size());
     header.points_per_leaf = options_.points_per_leaf;
     encode_bkd_index_block(header, Slice(min_value), Slice(max_value), Slice(split_values), leaves,

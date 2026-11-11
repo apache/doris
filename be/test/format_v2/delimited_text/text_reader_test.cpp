@@ -408,9 +408,9 @@ TEST_F(TextV2ReaderTest, ProfileCountersTrackReadParseDeserializeAndFilter) {
 
     EXPECT_NE(_profile.get_counter("OpenFileTime"), nullptr);
     EXPECT_NE(_profile.get_counter("CreateLineReaderTime"), nullptr);
-    EXPECT_NE(_profile.get_counter("ReadLineTime"), nullptr);
-    EXPECT_NE(_profile.get_counter("SplitLineTime"), nullptr);
-    EXPECT_NE(_profile.get_counter("DeserializeTime"), nullptr);
+    EXPECT_NE(_profile.get_counter("SampledReadLineTime"), nullptr);
+    EXPECT_NE(_profile.get_counter("SampledSplitLineTime"), nullptr);
+    EXPECT_NE(_profile.get_counter("SampledDeserializeTime"), nullptr);
     EXPECT_NE(_profile.get_counter("ConjunctFilterTime"), nullptr);
     EXPECT_NE(_profile.get_counter("DeleteConjunctFilterTime"), nullptr);
     EXPECT_EQ(counter_value(&_profile, "RawLinesRead"), 3);
@@ -422,6 +422,32 @@ TEST_F(TextV2ReaderTest, ProfileCountersTrackReadParseDeserializeAndFilter) {
     EXPECT_EQ(counter_value(&_profile, "EmptyLinesRead"), 1);
     EXPECT_EQ(counter_value(&_profile, "SkippedLines"), 0);
     EXPECT_EQ(counter_value(&_profile, "CellsDeserialized"), 6);
+}
+
+TEST_F(TextV2ReaderTest, HonorsBatchSizeAcrossEmptyAndFilteredBlocks) {
+    auto reader = create_reader(_file_path, &_params, _slots, &_state, &_profile);
+    reader->set_batch_size(1);
+    auto request = std::make_shared<FileScanRequest>();
+    request->local_positions.emplace(LocalColumnId(0), LocalIndex(0));
+    request->conjuncts = {
+            prepared_conjunct(&_state, std::make_shared<NullableIntGreaterThanExpr>(0, 1))};
+    ASSERT_TRUE(reader->open(request).ok());
+    std::vector<ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    for (int batch = 0; batch < 3; ++batch) {
+        auto block = make_block(schema, {0});
+        size_t rows = 0;
+        bool eof = false;
+        ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+        EXPECT_EQ(rows, batch == 1 ? 1 : 0);
+        EXPECT_EQ(eof, batch == 2);
+        if (rows == 1) {
+            EXPECT_EQ(nullable_int_at(*block.get_by_position(0).column, 0), 2);
+        }
+    }
+    EXPECT_EQ(counter_value(&_profile, "RawLinesRead"), 2);
+    EXPECT_EQ(counter_value(&_profile, "CellsDeserialized"), 2);
+    EXPECT_EQ(counter_value(&_profile, "DelimitedRowsFilteredByConjunct"), 1);
 }
 
 TEST_F(TextV2ReaderTest, FormatProfilesKeepDistinctCountersInBothInitializationOrders) {

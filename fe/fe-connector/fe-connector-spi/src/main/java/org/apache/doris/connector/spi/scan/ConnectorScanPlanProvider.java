@@ -223,6 +223,29 @@ public interface ConnectorScanPlanProvider {
     }
 
     /**
+     * Number of partitions assigned to one split-production batch. The batch-mode threshold and
+     * the amount of work in a batch serve different purposes: the former selects the asynchronous
+     * path, while this size bounds each connector request. Connectors with cheap, incremental
+     * partition resolution may choose a smaller size than the legacy read-session batch.
+     */
+    default int partitionBatchSize(ConnectorSession session, int partitionCount, int parallelism) {
+        return 1024;
+    }
+
+    /**
+     * Optionally opens cooperating sources for the complete pruned partition set in {@code request}.
+     * A connector can batch metadata independently of directory work and share the results between
+     * sources. No remote I/O may run here. Each source has one serial reader, may report an asynchronous
+     * dependency through {@link ConnectorSplitSource#isBlocked()}, and must release its shared resources
+     * when all sources close or the scan is cancelled. The engine owns admission and backpressure.
+     * Empty means to use the engine's ordinary partition-batch sources.
+     */
+    default Optional<List<ConnectorSplitSource>> streamPartitionSources(ConnectorSession session,
+            ConnectorScanRequest request, int partitionsPerTask, int maxSources) {
+        return Optional.empty();
+    }
+
+    /**
      * Whether this connector's scan ranges carry meaningful byte lengths
      * ({@link ConnectorScanRange#getLength()}) so the engine can apply {@code TABLESAMPLE} by
      * size-weighted split selection ({@code PluginDrivenScanNode.sampleSplits}). Returning

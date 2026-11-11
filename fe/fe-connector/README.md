@@ -107,6 +107,42 @@ Scan planning follows the same shape: the generic `PluginDrivenScanNode`
 `ConnectorScanPlanProvider` — note the interface lives in fe-connector-spi
 (`spi.scan`), not in fe-core.
 
+**Streaming scans.** `ConnectorScanRequest.getScanContext()` carries the
+scan's cancellation signal and progress counters; partition-batch requests
+share the same context. Check it before advancing file/partition iterators
+and issuing each remote request, including internal pagination. A cancelled
+listing must propagate cancellation instead of caching a partial result.
+The engine closes each split source serially with its reader, drops queued
+ranges on LIMIT/cancellation/error, and joins the statement's producers
+before releasing read transactions and statement metadata. An SDK call that
+cannot be interrupted may finish later; it must not issue another request
+after observing cancellation.
+
+Partitioned connectors may implement `streamPartitionSources` to batch metadata
+independently of directory work. The hook opens a bounded set of cooperating
+sources without remote I/O. A source reports a metadata dependency through
+`isBlocked`; the engine releases its worker until completion. If `hasNext`
+returns false while waiting, retain that dependency, including a completed one,
+until the next read attempt so readiness cannot be mistaken for end of input.
+Use the existing METADATA scheduler for metadata loading and let SPLIT sources
+claim small directory batches; neither stage may wait for child tasks. The
+default hook keeps ordinary partition-batch sources unchanged.
+
+`SET first_split_wait_timeout_ms = 2500` bounds the first split wait, including
+enumeration executor queueing. The default is 30000 ms; values must be positive.
+`SET_VAR` and FE forwarding are supported. Preparation before enumeration is
+still governed by the query timeout. A first-split timeout stops production
+and reports observed partition, file, split, and unfinished-producer counts.
+`fetch_splits_max_wait_time_ms` continues to control subsequent BE fetches.
+
+`split_producer_parallelism` defaults to 0, which preserves the scheduler-derived
+producer count. A positive value caps producers per scan; a whole-scan streaming
+source uses one producer.
+
+**Iceberg encryption.** The [encrypted-read admission contract](docs/iceberg-encryption-read.md)
+defines the default-off configuration, initial scope and backend negotiation
+requirements. Encrypted scan execution remains unavailable at this stage.
+
 **Classloading.** Plugins load child-first, each carrying its own runtime
 closure. Wherever engine code crosses into a plugin — or a bundled library
 resolves classes by name, or a plugin spawns worker threads — the
@@ -119,6 +155,9 @@ concrete loci and the failure modes are listed in `AGENTS.md`.
 tests and embedded use.
 
 ## Reading the API
+
+For the scan task scheduler SPI, admission, cancellation and configuration, see
+[Cooperative external scan scheduling](docs/scan-task-scheduling.md).
 
 This document never lists SPI methods. The truth lives in code, behind four
 mechanisms:

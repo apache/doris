@@ -38,6 +38,7 @@
 #include "util/defer_op.h"
 #include "util/s3_rate_limiter_manager.h"
 #include "util/s3_util.h"
+#include "util/threadpool.h"
 
 namespace doris {
 

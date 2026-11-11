@@ -4973,6 +4973,50 @@ TEST(MetaServiceJobTest, ChangelogTtlCommitChecksCurrentConfiguration) {
     }
 }
 
+TEST(MetaServiceJobTest, RowTtlConfigRejectsOutOfOrderUpdates) {
+    for (bool versioned : {false, true}) {
+        auto service = get_meta_service(!versioned);
+        const std::string instance = "row_ttl_commit";
+        MOCK_GET_INSTANCE_ID(instance);
+        if (versioned) {
+            create_and_refresh_instance(service.get(), instance);
+        }
+        constexpr int64_t table_id = 1, index_id = 2, partition_id = 3, tablet_id = 4;
+        ASSERT_NO_FATAL_FAILURE(
+                create_tablet(service.get(), table_id, index_id, partition_id, tablet_id, false));
+        auto update = [&](int64_t version, int64_t duration) {
+            brpc::Controller controller;
+            UpdateTabletRequest request;
+            auto* meta = request.add_tablet_meta_infos();
+            meta->set_tablet_id(tablet_id);
+            auto* policy = meta->mutable_row_ttl_config();
+            policy->set_duration_us(duration);
+            policy->set_config_version(version);
+            UpdateTabletResponse response;
+            service->update_tablet(&controller, &request, &response, nullptr);
+            if (response.status().code() == MetaServiceCode::OK) {
+                EXPECT_TRUE(response.has_row_ttl_config_version());
+                EXPECT_EQ(version, response.row_ttl_config_version());
+            }
+            return response.status().code();
+        };
+        EXPECT_EQ(MetaServiceCode::OK, update(1, 120));
+        EXPECT_EQ(MetaServiceCode::OK, update(2, 60));
+        EXPECT_EQ(MetaServiceCode::OK, update(2, 60));
+        EXPECT_EQ(MetaServiceCode::INVALID_ARGUMENT, update(1, 120));
+        EXPECT_EQ(MetaServiceCode::INVALID_ARGUMENT, update(2, 61));
+        EXPECT_EQ(MetaServiceCode::INVALID_ARGUMENT, update(3, -1));
+        brpc::Controller controller;
+        GetTabletRequest request;
+        request.set_tablet_id(tablet_id);
+        GetTabletResponse response;
+        service->get_tablet(&controller, &request, &response, nullptr);
+        ASSERT_EQ(MetaServiceCode::OK, response.status().code()) << response.DebugString();
+        EXPECT_EQ(2, response.tablet_meta().row_ttl_config().config_version());
+        EXPECT_EQ(60, response.tablet_meta().row_ttl_config().duration_us());
+    }
+}
+
 TEST(MetaServiceJobTest, ChangelogConfigRejectsOutOfOrderUpdates) {
     for (bool versioned : {false, true}) {
         auto service = get_meta_service(!versioned);

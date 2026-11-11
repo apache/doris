@@ -50,13 +50,13 @@ template <CastModeType Mode, typename IpDataType>
     requires(IsIPType<IpDataType>)
 class CastToImpl<Mode, DataTypeString, IpDataType> : public CastToBase {
 public:
-    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        uint32_t result, size_t /*input_rows_count*/,
-                        const NullMap::value_type* null_map = nullptr) const override {
-        const auto* col_from = assert_cast<const DataTypeString::ColumnType*>(
-                block.get_by_position(arguments[0]).column.get());
+    Status execute_impl(RuntimeState* /*state*/, const ColumnWithTypeAndName& source_column,
+                        ColumnWithTypeAndName& target_column, size_t /*input_rows_count*/,
+                        const NullMap::value_type* parent_null_map = nullptr) const override {
+        const auto* col_from =
+                assert_cast<const DataTypeString::ColumnType*>(source_column.column.get());
 
-        auto to_type = block.get_by_position(result).type;
+        auto to_type = target_column.type;
         auto nested_to_type = remove_nullable(to_type);
         auto serde = nested_to_type->get_serde();
 
@@ -64,13 +64,13 @@ public:
             auto nullable_col_to = create_empty_nullable_column(nested_to_type);
             // may write nulls to nullable_col_to
             RETURN_IF_ERROR(serde->from_string_batch(*col_from, *nullable_col_to, {}));
-            block.get_by_position(result).column = std::move(nullable_col_to);
+            target_column.column = std::move(nullable_col_to);
         } else if constexpr (Mode == CastModeType::StrictMode) {
             MutableColumnPtr column_to = nested_to_type->create_column();
             // WON'T write nulls to the result column, just raise errors. null_map is only used to skip invalid rows
-            RETURN_IF_ERROR(
-                    serde->from_string_strict_mode_batch(*col_from, *column_to, {}, null_map));
-            block.get_by_position(result).column = std::move(column_to);
+            RETURN_IF_ERROR(serde->from_string_strict_mode_batch(*col_from, *column_to, {},
+                                                                 parent_null_map));
+            target_column.column = std::move(column_to);
         } else {
             return Status::InternalError("Unsupported cast mode");
         }
@@ -82,11 +82,11 @@ public:
 template <CastModeType AllMode>
 class CastToImpl<AllMode, DataTypeIPv4, DataTypeIPv6> : public CastToBase {
 public:
-    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        uint32_t result, size_t input_rows_count,
-                        const NullMap::value_type* null_map = nullptr) const override {
-        const auto* col_from = assert_cast<const DataTypeIPv4::ColumnType*>(
-                block.get_by_position(arguments[0]).column.get());
+    Status execute_impl(RuntimeState* /*state*/, const ColumnWithTypeAndName& source_column,
+                        ColumnWithTypeAndName& target_column, size_t /*input_rows_count*/,
+                        const NullMap::value_type* parent_null_map = nullptr) const override {
+        const auto* col_from =
+                assert_cast<const DataTypeIPv4::ColumnType*>(source_column.column.get());
         const auto size = col_from->size();
         auto col_to = DataTypeIPv6::ColumnType::create(size);
         auto& to_data = col_to->get_data();
@@ -95,10 +95,13 @@ public:
         params.is_strict = (AllMode == CastModeType::StrictMode);
 
         for (size_t i = 0; i < size; ++i) {
+            if (parent_null_map != nullptr && parent_null_map[i] != 0) {
+                continue;
+            }
             CastToIPv6::from_ipv4(from_data[i], to_data[i], params);
         }
 
-        block.get_by_position(result).column = std::move(col_to);
+        target_column.column = std::move(col_to);
         return Status::OK();
     }
 };

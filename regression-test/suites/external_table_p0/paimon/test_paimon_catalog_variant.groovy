@@ -375,9 +375,7 @@ suite("test_paimon_catalog_variant", "p0,external,doris,external_docker,external
             sql """drop materialized view if exists ${mvName}"""
         }
 
-        // Native Parquet requires V2 regardless of the session preference, so it remains readable
-        // when the session preference is disabled. A forced JNI scan now has a real Variant carrier;
-        // unlike native Parquet, it cannot override the explicit V2 setting.
+        // The deprecated scanner option must not change native or JNI Variant reads.
         sql """set force_jni_scanner = false"""
         def nativeVariantQuery = "select * from ${catalogName}.test_paimon_spark.variant_smoke order by id"
         def nativeVariantRows = sql(nativeVariantQuery)
@@ -385,10 +383,7 @@ suite("test_paimon_catalog_variant", "p0,external,doris,external_docker,external
         assertEquals(nativeVariantRows, sql(nativeVariantQuery))
 
         sql """set force_jni_scanner = true"""
-        test {
-            sql nativeVariantQuery
-            exception "External VARIANT columns require FileScannerV2"
-        }
+        assertEquals(nativeVariantRows, sql(nativeVariantQuery))
         sql """set enable_file_scanner_v2 = true"""
         assertEquals(nativeVariantRows, sql(nativeVariantQuery))
     }

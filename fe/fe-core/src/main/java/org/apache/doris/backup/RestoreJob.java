@@ -1496,7 +1496,9 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                             localTbl.storagePageSize(), localTbl.getTDEAlgorithm(),
                             localTbl.storageDictPageSize(),
                             localTbl.getColumnSeqMapping(),
-                            localTbl.getVerticalCompactionNumColumnsPerGroup());
+                            localTbl.getVerticalCompactionNumColumnsPerGroup(),
+                            localTbl.getRowTtlConfig(),
+                            localTbl.getRowTtlTimeZoneOffsetSeconds());
                     task.setInvertedIndexFileStorageFormat(localTbl.getInvertedIndexFileStorageFormat());
                     task.setInRestoreMode(true);
                     if (baseTabletRef != null) {
@@ -2252,10 +2254,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
     }
 
     protected void updateOlapTablesVersion(Database db, boolean isReplay) {
-        if (Env.getCurrentEnv().invalidCacheForCloud()) {
-            return;
-        }
-
+        boolean cloudCacheInvalidated = Env.getCurrentEnv().invalidCacheForCloud();
         for (String tableName : jobInfo.backupOlapTableObjects.keySet()) {
             Table tbl = db.getTableNullable(jobInfo.getAliasByOriginNameIfSet(tableName));
             if (tbl == null) {
@@ -2271,8 +2270,11 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                 continue;
             }
             try {
-                long nextVersion = olapTbl.getNextVersion();
-                olapTbl.updateVisibleVersionAndTime(nextVersion, System.currentTimeMillis());
+                if (!cloudCacheInvalidated) {
+                    long nextVersion = olapTbl.getNextVersion();
+                    olapTbl.updateVisibleVersionAndTime(nextVersion, System.currentTimeMillis());
+                }
+                env.onTableChanged(olapTbl);
             } finally {
                 olapTbl.writeUnlock();
             }

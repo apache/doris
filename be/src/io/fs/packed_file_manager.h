@@ -18,7 +18,6 @@
 #pragma once
 
 #include <butil/macros.h>
-#include <gen_cpp/cloud.pb.h>
 #include <glog/logging.h>
 
 #include <atomic>
@@ -39,6 +38,10 @@
 #include "io/fs/packed_slice_location.h"
 #include "io/fs/path.h"
 #include "util/slice.h"
+
+namespace doris::cloud {
+class PackedFileInfoPB;
+}
 
 namespace doris::io {
 

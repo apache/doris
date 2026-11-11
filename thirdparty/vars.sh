@@ -228,6 +228,13 @@ LIBRDKAFKA_NAME=librdkafka-2.16.0.tar.gz
 LIBRDKAFKA_SOURCE=librdkafka-2.16.0
 LIBRDKAFKA_MD5SUM="6d2c62921241863d2bc95c58be27af6f"
 
+# MongoDB C Driver (libmongoc and libbson are released and built together).
+# 2.5.8 fixes malformed cursor namespaces and compressed-reply buffer leaks.
+MONGO_C_DRIVER_DOWNLOAD="https://github.com/mongodb/mongo-c-driver/releases/download/2.5.8/mongo-c-driver-2.5.8.tar.gz"
+MONGO_C_DRIVER_NAME=mongo-c-driver-2.5.8.tar.gz
+MONGO_C_DRIVER_SOURCE=mongo-c-driver-2.5.8
+MONGO_C_DRIVER_MD5SUM="e088246c56b3de5c658aff8e00f166ed"
+
 # zstd
 ZSTD_DOWNLOAD="https://github.com/facebook/zstd/releases/download/v1.5.7/zstd-1.5.7.tar.gz"
 ZSTD_NAME=zstd-1.5.7.tar.gz
@@ -235,10 +242,12 @@ ZSTD_SOURCE=zstd-1.5.7
 ZSTD_MD5SUM="780fc1896922b1bc52a4e90980cdda48"
 
 # brotli
-BROTLI_DOWNLOAD="https://github.com/google/brotli/archive/v1.0.9.tar.gz"
-BROTLI_NAME="brotli-1.0.9.tar.gz"
-BROTLI_SOURCE="brotli-1.0.9"
-BROTLI_MD5SUM="c2274f0c7af8470ad514637c35bcee7d"
+# Arrow builds and BE statically links this decoder, so a system library update
+# cannot replace the vulnerable code fixed in 1.0.10 (CVE-2026-111497).
+BROTLI_DOWNLOAD="https://github.com/google/brotli/archive/v1.0.10.tar.gz"
+BROTLI_NAME="brotli-1.0.10.tar.gz"
+BROTLI_SOURCE="brotli-1.0.10"
+BROTLI_MD5SUM="830ce41562b2ec8cbdfe3f70111db0fa"
 
 # flatbuffers
 FLATBUFFERS_DOWNLOAD="https://github.com/google/flatbuffers/archive/v23.5.26.tar.gz"
@@ -617,17 +626,17 @@ PUGIXML_SOURCE=pugixml-1.15
 PUGIXML_MD5SUM="3b894c29455eb33a40b165c6e2de5895"
 
 # lance-c
-# Includes lance-c #97: resolve index/column name collisions without serializing prewarm.
-LANCE_C_DOWNLOAD="https://codeload.github.com/lance-format/lance-c/tar.gz/4fafcd64525b274b113208390bbcca86bbbc093b"
-LANCE_C_NAME="lance-c-4fafcd64525b274b113208390bbcca86bbbc093b.tar.gz"
-LANCE_C_SOURCE="lance-c-4fafcd64525b274b113208390bbcca86bbbc093b"
-LANCE_C_MD5SUM="65e924fb62137c5dd4d58af3fb33923a"
+# Includes lance-c #98: bounded runtime BTree segment selection with decoded-memory guards.
+LANCE_C_DOWNLOAD="https://codeload.github.com/lance-format/lance-c/tar.gz/a51ab47a9c814a746cb1714c99fad93dd3a188b8"
+LANCE_C_NAME="lance-c-a51ab47a9c814a746cb1714c99fad93dd3a188b8.tar.gz"
+LANCE_C_SOURCE="lance-c-a51ab47a9c814a746cb1714c99fad93dd3a188b8"
+LANCE_C_MD5SUM="d1282cff3d63acfc0450db1f00d6ab6f"
 
 # paimon-rust
-PAIMON_RUST_DOWNLOAD="https://github.com/apache/paimon-rust/archive/refs/tags/v0.4.0-rc1.tar.gz"
-PAIMON_RUST_NAME="paimon-rust-v0.4.0-rc1.tar.gz"
-PAIMON_RUST_SOURCE="paimon-rust-0.4.0-rc1"
-PAIMON_RUST_MD5SUM="23cd0634692108debf77a26ef4dc20a7"
+PAIMON_RUST_DOWNLOAD="https://github.com/apache/paimon-rust/archive/refs/tags/v0.5.0-rc1.tar.gz"
+PAIMON_RUST_NAME="paimon-rust-v0.5.0-rc1.tar.gz"
+PAIMON_RUST_SOURCE="paimon-rust-0.5.0-rc1"
+PAIMON_RUST_MD5SUM="fabf721bb26c6a2c165a00b65f074ac4"
 
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES=(
@@ -658,6 +667,7 @@ export TP_ARCHIVES=(
     'BRPC'
     'ROCKSDB'
     'CYRUS_SASL'
+    'MONGO_C_DRIVER'
     'LIBRDKAFKA'
     'FLATBUFFERS'
     'ARROW'

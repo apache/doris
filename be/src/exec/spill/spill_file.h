@@ -30,6 +30,7 @@ class RuntimeState;
 class Block;
 class SpillDataDir;
 class SpillFileWriter;
+class SpillS3FileWriter;
 class SpillFileReader;
 using SpillFileWriterSPtr = std::shared_ptr<SpillFileWriter>;
 using SpillFileReaderSPtr = std::shared_ptr<SpillFileReader>;
@@ -78,6 +79,7 @@ public:
 
     /// Returns true after the writer has been closed (all data flushed).
     bool ready_for_reading() const { return _ready_for_reading; }
+    bool is_remote() const;
 
     /// Create a SpillFileWriter that automatically manages multi-part rotation.
     /// Only one writer should exist per SpillFile at a time.
@@ -90,6 +92,7 @@ public:
 
 private:
     friend class SpillFileWriter;
+    friend class SpillS3FileWriter;
     friend class SpillFileManager;
 
     /// Called by SpillFileWriter::close() to mark writing as complete.

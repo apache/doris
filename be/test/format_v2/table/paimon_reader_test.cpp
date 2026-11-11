@@ -55,7 +55,7 @@
 #include "exprs/vslot_ref.h"
 #include "format/format_common.h"
 #include "format/table/deletion_vector_reader.h"
-#include "format/table/paimon_reader.h"
+#include "format/table/paimon_deletion_vector.h"
 #include "format_v2/column_data.h"
 #include "format_v2/jni/paimon_jni_reader.h"
 #include "gen_cpp/ExternalTableSchema_types.h"

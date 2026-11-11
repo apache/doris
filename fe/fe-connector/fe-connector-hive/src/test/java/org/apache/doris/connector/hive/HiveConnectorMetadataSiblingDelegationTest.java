@@ -70,6 +70,7 @@ import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BooleanSupplier;
 import java.util.function.Supplier;
 import java.util.regex.Matcher;
@@ -223,6 +224,9 @@ public class HiveConnectorMetadataSiblingDelegationTest {
         elsewhere.put("icebergSiblingMetadata", "the iceberg by-type resolver, driven by HiveConnectorSiblingTest");
         elsewhere.put("hudiSiblingMetadata", "the hudi by-type resolver, the other half of the same pair");
         elsewhere.put("memoizedSiblingMetadata", "the per-session memo behind the two resolvers above");
+        elsewhere.put("delegatedTableSchema",
+                "the body both getTableSchema overloads share, driven through each of them by the"
+                        + " capability-reflection cases here");
         elsewhere.put("getTableHandle",
                 "the pivot that PRODUCES a foreign handle rather than consuming one, so it cannot be driven"
                         + " with the foreignHandle these cases use; covered by HiveConnectorThreeWayRoutingTest");
@@ -512,6 +516,24 @@ public class HiveConnectorMetadataSiblingDelegationTest {
         Assertions.assertTrue(siblingMetadata.calls.isEmpty(), "the sibling must not be forwarded a hive handle");
     }
 
+    /** The pin of a statement that reads an iceberg table: its latest snapshot, with the schema retained. */
+    private static final ConnectorMvccSnapshot PINNED_SNAPSHOT =
+            ConnectorMvccSnapshot.builder().snapshotId(7L).schemaId(3L).retainSchema(true).build();
+
+    /**
+     * The schema each getTableSchema overload returns for the foreign handle, keyed by the overload. fe-core reads
+     * a table's per-table capabilities from the snapshot overload's schema in every statement that pins the table
+     * (explicit time travel, and every read of an iceberg table, whose latest-snapshot pin retains its schema) and
+     * from the latest-schema overload's otherwise, so what a delegated schema inherits must hold for both.
+     */
+    private Map<String, ConnectorTableSchema> schemasFromBothOverloads(HiveConnectorMetadata md) {
+        Map<String, ConnectorTableSchema> schemas = new LinkedHashMap<>();
+        schemas.put("getTableSchema(session, handle)", md.getTableSchema(session, foreignHandle));
+        schemas.put("getTableSchema(session, handle, snapshot)",
+                md.getTableSchema(session, foreignHandle, PINNED_SNAPSHOT));
+        return schemas;
+    }
+
     @Test
     public void foreignHandleSchemaReflectsSiblingScanCapabilitiesAsPerTableMarker() {
         // Option C: fe-core's PluginDrivenExternalTable.hasCapability reads only the CATALOG (hive) connector,
@@ -519,33 +541,70 @@ public class HiveConnectorMetadataSiblingDelegationTest {
         // capabilities onto the delegated schema as a per-table marker, or an iceberg-on-HMS table silently loses
         // auto-analyze / Top-N lazy / nested-column prune / storage predicate pruning (all declared connector-wide).
         // MUTATION: dropping the reflection -> the returned schema carries no marker -> the embedded table drops the
-        // capabilities post-flip -> red here.
+        // capabilities post-flip -> red here. Dropping it from the snapshot overload alone is red too: every
+        // statement reading an iceberg-on-HMS table would then plan without them.
         Set<ConnectorCapability> siblingCaps = EnumSet.of(
                 ConnectorCapability.SUPPORTS_COLUMN_AUTO_ANALYZE,
                 ConnectorCapability.SUPPORTS_TOPN_LAZY_MATERIALIZE,
                 ConnectorCapability.SUPPORTS_NESTED_COLUMN_PRUNE,
                 ConnectorCapability.SUPPORTS_FIELD_ID_ACCESS_PATH,
-                ConnectorCapability.SUPPORTS_STORAGE_PREDICATE_PRUNING);
+                ConnectorCapability.SUPPORTS_STORAGE_PREDICATE_PRUNING,
+                ConnectorCapability.SUPPORTS_WRITE_ONLY_DEFAULTS);
         HiveConnectorMetadata md = new HiveConnectorMetadata(null, HiveTestProperties.minimal(), new FakeConnectorContext(),
                 SUPPLIER_MUST_NOT_BE_USED, SUPPLIER_MUST_NOT_BE_USED,
                 handle -> new SiblingOwner(new CapabilityDeclaringSiblingConnector(siblingCaps),
                         SiblingOwner.ICEBERG_LABEL));
 
-        ConnectorTableSchema schema = md.getTableSchema(session, foreignHandle);
-        Set<ConnectorCapability> reflected = schema.getTableCapabilities();
-        Assertions.assertTrue(reflected.contains(ConnectorCapability.SUPPORTS_COLUMN_AUTO_ANALYZE),
-                "auto-analyze must survive the delegation as a per-table capability");
-        Assertions.assertTrue(reflected.contains(ConnectorCapability.SUPPORTS_TOPN_LAZY_MATERIALIZE),
-                "Top-N lazy must survive the delegation as a per-table capability");
-        Assertions.assertTrue(reflected.contains(ConnectorCapability.SUPPORTS_NESTED_COLUMN_PRUNE),
-                "nested-column prune must survive the delegation as a per-table capability");
-        Assertions.assertTrue(reflected.contains(ConnectorCapability.SUPPORTS_FIELD_ID_ACCESS_PATH),
-                "an iceberg-on-HMS table must inherit the field-id access path capability, or its nested "
-                        + "access paths stay name-based while BE matches them by iceberg field id");
-        Assertions.assertTrue(reflected.contains(ConnectorCapability.SUPPORTS_STORAGE_PREDICATE_PRUNING),
-                "storage predicate pruning must survive the delegation as a per-table capability");
-        Assertions.assertEquals("sibling-generation", schema.getWriteMetadataIdentity(),
-                "capability reflection must not discard the sibling's write-generation fence");
+        for (Map.Entry<String, ConnectorTableSchema> entry : schemasFromBothOverloads(md).entrySet()) {
+            String overload = entry.getKey();
+            ConnectorTableSchema schema = entry.getValue();
+            Set<ConnectorCapability> reflected = schema.getTableCapabilities();
+            Assertions.assertTrue(reflected.contains(ConnectorCapability.SUPPORTS_WRITE_ONLY_DEFAULTS),
+                    overload + ": an iceberg-on-HMS table must inherit write-only defaults, or DEFAULT(column) on "
+                            + "it answers NULL from the read schema");
+            Assertions.assertTrue(reflected.contains(ConnectorCapability.SUPPORTS_COLUMN_AUTO_ANALYZE),
+                    overload + ": auto-analyze must survive the delegation as a per-table capability");
+            Assertions.assertTrue(reflected.contains(ConnectorCapability.SUPPORTS_TOPN_LAZY_MATERIALIZE),
+                    overload + ": Top-N lazy must survive the delegation as a per-table capability");
+            Assertions.assertTrue(reflected.contains(ConnectorCapability.SUPPORTS_NESTED_COLUMN_PRUNE),
+                    overload + ": nested-column prune must survive the delegation as a per-table capability");
+            Assertions.assertTrue(reflected.contains(ConnectorCapability.SUPPORTS_FIELD_ID_ACCESS_PATH),
+                    overload + ": an iceberg-on-HMS table must inherit the field-id access path capability, or "
+                            + "its nested access paths stay name-based while BE matches them by iceberg field id");
+            Assertions.assertTrue(reflected.contains(ConnectorCapability.SUPPORTS_STORAGE_PREDICATE_PRUNING),
+                    overload + ": storage predicate pruning must survive the delegation as a per-table capability");
+            Assertions.assertEquals("sibling-generation", schema.getWriteMetadataIdentity(),
+                    overload + ": capability reflection must not discard the sibling's write-generation fence");
+        }
+    }
+
+    @Test
+    public void snapshotOverloadForwardsThePinAndResolvesTheOwnerOnce() {
+        // The snapshot overload must hand the sibling the statement's own pin (a schema at another snapshot would
+        // describe other columns) and, like the latest-schema overload, resolve the owning sibling once for both
+        // the schema build and the capability read.
+        // MUTATION: asking the sibling for its latest schema instead -> the pin never reaches it -> red; resolving
+        // the owner a second time for the capability read -> red on the count.
+        CapabilityDeclaringSiblingConnector sibling = new CapabilityDeclaringSiblingConnector(
+                EnumSet.of(ConnectorCapability.SUPPORTS_TOPN_LAZY_MATERIALIZE));
+        AtomicInteger resolutions = new AtomicInteger();
+        HiveConnectorMetadata md = new HiveConnectorMetadata(null, HiveTestProperties.minimal(), new FakeConnectorContext(),
+                SUPPLIER_MUST_NOT_BE_USED, SUPPLIER_MUST_NOT_BE_USED,
+                handle -> {
+                    resolutions.incrementAndGet();
+                    return new SiblingOwner(sibling, SiblingOwner.ICEBERG_LABEL);
+                });
+
+        ConnectorTableSchema schema = md.getTableSchema(session, foreignHandle, PINNED_SNAPSHOT);
+
+        Assertions.assertEquals(Collections.singletonList("getTableSchemaAtSnapshot"), sibling.metadata.calls,
+                "the snapshot overload must ask the sibling for its schema at the pin, not its latest schema");
+        Assertions.assertSame(PINNED_SNAPSHOT, sibling.metadata.lastSchemaSnapshot,
+                "the sibling must receive the statement's pin unchanged");
+        Assertions.assertEquals(EnumSet.of(ConnectorCapability.SUPPORTS_TOPN_LAZY_MATERIALIZE),
+                schema.getTableCapabilities(), "the schema at the pin inherits the sibling's capability");
+        Assertions.assertEquals(1, resolutions.get(),
+                "the owning sibling is resolved once for the schema build and the capability read");
     }
 
     @Test
@@ -566,10 +625,9 @@ public class HiveConnectorMetadataSiblingDelegationTest {
                 handle -> new SiblingOwner(new CapabilityDeclaringSiblingConnector(siblingCaps),
                         SiblingOwner.ICEBERG_LABEL));
 
-        ConnectorTableSchema schema = md.getTableSchema(session, foreignHandle);
-        Assertions.assertEquals(EnumSet.of(ConnectorCapability.SUPPORTS_COLUMN_AUTO_ANALYZE),
-                schema.getTableCapabilities(),
-                "only the per-table-resolved subset may be reflected onto a delegated table");
+        schemasFromBothOverloads(md).forEach((overload, schema) -> Assertions.assertEquals(
+                EnumSet.of(ConnectorCapability.SUPPORTS_COLUMN_AUTO_ANALYZE), schema.getTableCapabilities(),
+                overload + ": only the per-table-resolved subset may be reflected onto a delegated table"));
 
         // A NON-empty sibling declaring none of the subset must inherit nothing.
         HiveConnectorMetadata noneInheritable = new HiveConnectorMetadata(null, HiveTestProperties.minimal(),
@@ -577,9 +635,10 @@ public class HiveConnectorMetadataSiblingDelegationTest {
                 handle -> new SiblingOwner(new CapabilityDeclaringSiblingConnector(
                         EnumSet.of(ConnectorCapability.SUPPORTS_VIEW, ConnectorCapability.SUPPORTS_MVCC_SNAPSHOT)),
                         SiblingOwner.ICEBERG_LABEL));
-        Assertions.assertTrue(noneInheritable.getTableSchema(session, foreignHandle)
-                        .getTableCapabilities().isEmpty(),
-                "a sibling declaring only catalog-wide capabilities must contribute no per-table capability");
+        schemasFromBothOverloads(noneInheritable).forEach((overload, schema) -> Assertions.assertTrue(
+                schema.getTableCapabilities().isEmpty(),
+                overload + ": a sibling declaring only catalog-wide capabilities must contribute no per-table "
+                        + "capability"));
     }
 
     @Test
@@ -590,9 +649,9 @@ public class HiveConnectorMetadataSiblingDelegationTest {
         // foreignHandleSchemaReflectsOnlyThePerTableResolvedCapabilitySubset above.
         // MUTATION: dropping the isEmpty() early-return and rebuilding the schema unconditionally -> red here.
         HiveConnectorMetadata md = withSibling(); // RecordingSiblingConnector declares no capabilities
-        ConnectorTableSchema schema = md.getTableSchema(session, foreignHandle);
-        Assertions.assertTrue(schema.getTableCapabilities().isEmpty(),
-                "nothing inherited when the sibling declares no capabilities");
+        schemasFromBothOverloads(md).forEach((overload, schema) -> Assertions.assertTrue(
+                schema.getTableCapabilities().isEmpty(),
+                overload + ": nothing inherited when the sibling declares no capabilities"));
     }
 
     // ============== per-statement sibling-metadata funnel (HMS heterogeneous gateway) ==============
@@ -715,6 +774,7 @@ public class HiveConnectorMetadataSiblingDelegationTest {
     /** A sibling {@link Connector} declaring a fixed capability set; its metadata returns a marker-less schema. */
     private static final class CapabilityDeclaringSiblingConnector implements Connector {
         private final Set<ConnectorCapability> caps;
+        private final RecordingSiblingMetadata metadata = new RecordingSiblingMetadata();
 
         CapabilityDeclaringSiblingConnector(Set<ConnectorCapability> caps) {
             this.caps = caps;
@@ -727,7 +787,7 @@ public class HiveConnectorMetadataSiblingDelegationTest {
 
         @Override
         public ConnectorMetadata getMetadata(ConnectorSession session) {
-            return new RecordingSiblingMetadata();
+            return metadata;
         }
     }
 
@@ -768,6 +828,7 @@ public class HiveConnectorMetadataSiblingDelegationTest {
                 "deleteUsingMetadata"));
 
         final List<String> calls = new ArrayList<>();
+        ConnectorMvccSnapshot lastSchemaSnapshot;
         ConnectorExpression lastDeletePredicate;
         String lastBoundWriteMetadataIdentity;
         BooleanSupplier lastCancellation;
@@ -785,6 +846,7 @@ public class HiveConnectorMetadataSiblingDelegationTest {
         public ConnectorTableSchema getTableSchema(ConnectorSession session, ConnectorTableHandle handle,
                 ConnectorMvccSnapshot snapshot) {
             calls.add("getTableSchemaAtSnapshot");
+            lastSchemaSnapshot = snapshot;
             return new ConnectorTableSchema("sibling", Collections.emptyList(), "iceberg", Collections.emptyMap(),
                     Collections.emptySet(), "sibling-generation");
         }

@@ -27,7 +27,7 @@
 #include "common/status.h"
 #include "storage/cache/page_cache.h"
 #include "storage/segment/options.h"
-#include "storage/types.h" // CppTypeTraits, used by the EncodingTraits base below
+#include "storage/types.h" // StorageTypeTraits, used by the EncodingTraits base below
 #include "util/slice.h"
 
 namespace doris {
@@ -172,8 +172,8 @@ struct TypeEncodingTraits {};
 
 template <FieldType field_type, EncodingTypePB encoding_type>
 struct EncodingTraits : TypeEncodingTraits<field_type, encoding_type,
-                                           typename CppTypeTraits<field_type>::CppType> {
-    using CppType = typename CppTypeTraits<field_type>::CppType;
+                                           typename StorageTypeTraits<field_type>::StorageType> {
+    using CppType = typename StorageTypeTraits<field_type>::StorageType;
     static const FieldType type = field_type;
     static const EncodingTypePB encoding = encoding_type;
 };

@@ -20,10 +20,14 @@ package org.apache.doris.connector.iceberg;
 import org.apache.doris.connector.cache.CacheSpec;
 import org.apache.doris.connector.cache.CatalogMetaCache;
 import org.apache.doris.connector.cache.JvmSizeUtils;
+import org.apache.doris.connector.cache.MetaCacheCleanup;
 
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.apache.iceberg.BaseTable;
+import org.apache.iceberg.ImmutableFieldLabel;
+import org.apache.iceberg.ImmutableLabels;
+import org.apache.iceberg.Labels;
 import org.apache.iceberg.ManifestFile;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
@@ -42,13 +46,16 @@ import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.io.InputFile;
 import org.apache.iceberg.io.LocationProvider;
 import org.apache.iceberg.io.OutputFile;
+import org.apache.iceberg.metrics.LoggingMetricsReporter;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.util.JsonUtil;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayDeque;
 import java.util.Collections;
 import java.util.List;
+import java.util.Queue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -499,6 +506,35 @@ public class IcebergTableCacheTest {
     }
 
     @Test
+    public void snapshotReadTableKeepsCatalogLabels() {
+        // REST catalog labels live only on the loaded BaseTable (not in metadata.json), so the statement view
+        // must carry them over. MUTATION: rebuilding with the 3-arg BaseTable constructor -> Labels.EMPTY -> red.
+        Schema schema = new Schema(Types.NestedField.required(1, "id", Types.IntegerType.get()));
+        TableMetadata metadata = TableMetadata.newTableMetadata(
+                schema, PartitionSpec.unpartitioned(), "file:///tmp/labeled", Collections.emptyMap());
+        Labels labels = ImmutableLabels.builder()
+                .objectLabels(Collections.singletonMap("owner", "team-a"))
+                .addFields(ImmutableFieldLabel.builder()
+                        .fieldId(1)
+                        .labels(Collections.singletonMap("classification", "pii"))
+                        .build())
+                .build();
+        Table table = new BaseTable(new StaticTableOperations(metadata), "labeled",
+                LoggingMetricsReporter.instance(), labels);
+
+        try (CatalogMetaCache owner = CatalogMetaCache.unmanaged()) {
+            IcebergTableCache cache = new IcebergTableCache(
+                    owner, CacheSpec.ofWeight(true, 100L, 1000L, 10L * 1024L * 1024L),
+                    ignored -> () -> { }, new IcebergCatalogResourceTracker());
+            try (IcebergTableCache.TableLease lease = cache.borrow(id(), () -> table)) {
+                BaseTable statement = (BaseTable) lease.snapshotReadTable();
+                Assertions.assertNotSame(table, statement);
+                Assertions.assertEquals(labels, statement.labels());
+            }
+        }
+    }
+
+    @Test
     public void ttlZeroDisablesCachingAlwaysLive() {
         AtomicInteger loads = new AtomicInteger();
         IcebergTableCache c = new IcebergTableCache(0, 1000);
@@ -631,6 +667,76 @@ public class IcebergTableCacheTest {
         Assertions.assertEquals(0, cache.size(), "a post-close publication must not remain cache-owned");
         Assertions.assertEquals(1, tableCleanerCalls.get());
         Assertions.assertEquals(1, catalogCleanerCalls.get());
+    }
+
+    @Test
+    public void refreshInvalidatesBeforeDeferredFileIoCloseAndKeepsNewOwner() {
+        Queue<Runnable> background = new ArrayDeque<>();
+        AtomicInteger oldCloses = new AtomicInteger();
+        AtomicInteger newCloses = new AtomicInteger();
+        IcebergTableCache cache = new IcebergTableCache(100L, 1000,
+                value -> "old".equals(value.name()) ? oldCloses::incrementAndGet : newCloses::incrementAndGet);
+        MetaCacheCleanup.runWithResourceReclaimer((description, cleanup) -> background.add(cleanup), () -> {
+            try {
+                cache.getOrLoad(id(), () -> table("old"));
+                cache.invalidate(id());
+                Assertions.assertFalse(cache.contains(id()), "logical invalidation cannot wait for FileIO close");
+                Assertions.assertEquals(0, oldCloses.get());
+                Assertions.assertEquals(1, background.size());
+                Table replacement = cache.getOrLoad(id(), () -> table("new"));
+                background.remove().run();
+                Assertions.assertEquals(1, oldCloses.get());
+                Assertions.assertEquals(0, newCloses.get());
+                Assertions.assertSame(replacement, cache.getOrLoad(id(), () -> table("unexpected")));
+            } finally {
+                cache.close();
+                while (!background.isEmpty()) {
+                    background.remove().run();
+                }
+            }
+        });
+    }
+
+    @Test
+    public void deferredCloseWaitsForLastBorrowerAndRetainsCatalogLease() {
+        Queue<Runnable> background = new ArrayDeque<>();
+        AtomicInteger tableCloses = new AtomicInteger();
+        AtomicInteger catalogCloses = new AtomicInteger();
+        IcebergCatalogResourceTracker tracker = new IcebergCatalogResourceTracker();
+        IcebergTableCache cache = new IcebergTableCache(100L, 1000,
+                value -> tableCloses::incrementAndGet, tracker);
+        MetaCacheCleanup.runWithResourceReclaimer((description, cleanup) -> background.add(cleanup), () -> {
+            try {
+                IcebergTableCache.TableLease lease = cache.borrow(id(), () -> table("borrowed"));
+                cache.invalidateAll();
+                tracker.close(catalogCloses::incrementAndGet);
+                Assertions.assertTrue(background.isEmpty(), "an active borrower still owns the resource");
+                lease.close();
+                Assertions.assertEquals(1, background.size());
+                Assertions.assertEquals(0, tableCloses.get());
+                Assertions.assertEquals(0, catalogCloses.get(), "retain the dependency until FileIO close finishes");
+                background.remove().run();
+                Assertions.assertEquals(1, tableCloses.get());
+                Assertions.assertEquals(1, catalogCloses.get());
+            } finally {
+                cache.close();
+                while (!background.isEmpty()) {
+                    background.remove().run();
+                }
+            }
+        });
+    }
+
+    @Test
+    public void connectorTableCacheCloseIsIdempotentAfterHostRetiresCacheOwner() {
+        AtomicInteger closes = new AtomicInteger();
+        CatalogMetaCache owner = CatalogMetaCache.unmanaged();
+        IcebergTableCache cache = new IcebergTableCache(owner, CacheSpec.of(true, 100L, 1000L),
+                value -> closes::incrementAndGet, new IcebergCatalogResourceTracker());
+        cache.getOrLoad(id(), () -> table("retired"));
+        owner.close();
+        Assertions.assertDoesNotThrow(cache::close);
+        Assertions.assertEquals(1, closes.get());
     }
 
     @Test

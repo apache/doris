@@ -23,7 +23,8 @@ suite("test_csv_table_properties", "p0,external,hive,external_docker,external_do
     }
 
     def checkV2 = { Closure check ->
-        def originalScannerV2 = sql("SHOW VARIABLES LIKE 'enable_file_scanner_v2'")[0][1]
+        // Read the deprecated option by its stable name; SHOW VARIABLES prefixes its display name.
+        def originalScannerV2 = sql("SELECT @@enable_file_scanner_v2")[0][0]
         try {
             sql "SET enable_file_scanner_v2 = true"
             check()

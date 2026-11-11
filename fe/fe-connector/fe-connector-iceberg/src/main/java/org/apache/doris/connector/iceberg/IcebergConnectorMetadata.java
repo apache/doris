@@ -27,6 +27,7 @@ import org.apache.doris.connector.spi.ConnectorPartitionInfo;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStatementScope;
 import org.apache.doris.connector.spi.ConnectorStorageContext;
+import org.apache.doris.connector.spi.ConnectorTableNotFoundException;
 import org.apache.doris.connector.spi.ConnectorTableSchema;
 import org.apache.doris.connector.spi.ConnectorTableStatistics;
 import org.apache.doris.connector.spi.ConnectorType;
@@ -89,6 +90,7 @@ import org.apache.iceberg.Transaction;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.exceptions.NoSuchNamespaceException;
 import org.apache.iceberg.exceptions.NoSuchTableException;
+import org.apache.iceberg.exceptions.NoSuchViewException;
 import org.apache.iceberg.exceptions.ValidationException;
 import org.apache.iceberg.expressions.Evaluator;
 import org.apache.iceberg.expressions.Expression;
@@ -384,15 +386,8 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
 
     @Override
     public ConnectorViewDefinition getViewDefinition(ConnectorSession session, String dbName, String viewName) {
-        // Mirror viewExists: wrap the remote load in the auth context and normalize EVERY failure into a
-        // RuntimeException (the seam's loadView already fails loud on a non-view catalog with a
-        // DorisConnectorException, which is a RuntimeException and surfaces wrapped here). ONE remote load
-        // yields both the sql/dialect (mirroring legacy IcebergExternalTable.getViewText + getSqlDialect: the
-        // dialect is the view-version summary's "engine-name", the SQL is that dialect's representation) AND
-        // the columns (parseSchema(view.schema()), mirroring legacy IcebergUtils.loadViewSchemaCacheValue — a
-        // view has NO partition columns and NO row-lineage). The sql/dialect/column extraction lives HERE,
-        // not in the SDK-only seam, because parseSchema reads the enable.mapping.* flags that only exist in
-        // this layer's properties (mirrors the table path: seam loadTable -> metadata buildTableSchema).
+        // Resolve SQL and columns in one authenticated view load. Column conversion belongs here because
+        // it uses this catalog's type-mapping flags. A view has no partition or row-lineage columns.
         try {
             return executeAuthenticated(() -> {
                 View icebergView = catalogOps.loadView(dbName, viewName);
@@ -405,21 +400,24 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
                 if (summary == null) {
                     throw new DorisConnectorException(String.format("Cannot get summary for view '%s'", icebergView));
                 }
-                // "engine-name" is the iceberg view-version summary key the writing engine (e.g. spark) records.
                 String engineName = summary.get("engine-name");
-                if (engineName == null || engineName.isEmpty()) {
-                    throw new DorisConnectorException(
-                            String.format("Cannot get engine-name for view '%s'", icebergView));
-                }
-                String dialect = engineName.toLowerCase(Locale.ROOT);
-                SQLViewRepresentation sqlViewRepresentation = icebergView.sqlFor(dialect);
+                // Preserve engine-based SQL selection for existing views. Only a missing/empty engine-name
+                // uses Doris as the preference; Iceberg falls back to the first SQL if it has no match.
+                String preferredDialect = engineName == null || engineName.isEmpty()
+                        ? "doris" : engineName.toLowerCase(Locale.ROOT);
+                SQLViewRepresentation sqlViewRepresentation = icebergView.sqlFor(preferredDialect);
                 if (sqlViewRepresentation == null) {
-                    throw new DorisConnectorException("Cannot get view text from iceberg view");
+                    throw new DorisConnectorException(String.format(
+                            "Cannot get SQL representation for Iceberg view '%s.%s'", dbName, viewName));
                 }
+                String dialect = sqlViewRepresentation.dialect().toLowerCase(Locale.ROOT);
                 List<ConnectorColumn> columns = parseSchema(icebergView.schema());
                 return new ConnectorViewDefinition(sqlViewRepresentation.sql(), dialect, columns);
             });
         } catch (Exception e) {
+            if (ExceptionUtils.getThrowableList(e).stream().anyMatch(NoSuchViewException.class::isInstance)) {
+                throw new ConnectorTableNotFoundException(dbName, viewName, e);
+            }
             throw new RuntimeException("Failed to load view definition, error message is: " + e.getMessage(), e);
         }
     }
@@ -533,6 +531,12 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             // parse ITS schema (e.g. t$snapshots -> committed_at/snapshot_id/...). Mirrors legacy
             // IcebergSysExternalTable.getSysIcebergTable + getOrCreateSchemaCacheValue; the enable.mapping.*
             // flags are threaded by the shared buildTableSchema -> parseSchema (deviation 5).
+            if (IcebergLabelsSysTable.isLabels(iceHandle)) {
+                // $labels is not an iceberg metadata table: its schema is fixed and needs no table load (the
+                // base table's existence was already checked by getTableHandle).
+                return new ConnectorTableSchema(iceHandle.getTableName(),
+                        parseSchema(IcebergLabelsSysTable.SCHEMA), "ICEBERG", Collections.emptyMap());
+            }
             Table sysTable = loadSysTable(session, iceHandle);
             return buildTableSchema(iceHandle.getTableName(), sysTable, sysTable.schema(), false);
         }
@@ -656,7 +660,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             // ADD PARTITION KEY year(ts) then month(ts)) would raise "Multiple entries with same key" and fail
             // the query at plan time. listPartitions() emits its per-partition value tuple over the SAME
             // deduped column sequence, so the two stay index-aligned (the arity checkState in
-            // PluginDrivenMvccExternalTable.toListPartitionItem).
+            // PluginDrivenExternalTable.toListPartitionItem).
             Set<String> partitionColumns = new LinkedHashSet<>();
             for (PartitionField field : table.spec().fields()) {
                 Types.NestedField source = table.schema().findField(field.sourceId());
@@ -773,23 +777,27 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
      * first, so the statement's read metadata and scan planning resolve the same metadata generation;
      * on a scope miss the loader consults the cross-query {@link IcebergTableCache} when enabled (else a direct
      * remote load). The remote loader's exception propagates verbatim (the cache re-throws it unwrapped), so a
-     * caller's own {@code NoSuchTableException} degradation (the partition-view readers) still fires. Callers
+     * caller can preserve confirmed table absence for guarded engine cleanup. Callers
      * needing the auth scope wrap the call in {@code executeAuthenticated} (see {@link #loadTable}). NOT used by
      * the sys-table path ({@link #loadSysTable}), which builds its metadata view from this same scoped base.
      */
     private Table resolveTableForRead(ConnectorSession session, IcebergTableHandle handle) {
+        Table table;
         if (tableCache != null) {
-            return IcebergStatementScope.sharedBorrowedTable(session, handle.getDbName(), handle.getTableName(),
+            table = IcebergStatementScope.sharedBorrowedTable(session, handle.getDbName(), handle.getTableName(),
                     () -> tableCache.borrow(TableIdentifier.of(handle.getDbName(), handle.getTableName()),
                             () -> catalogOps.loadTable(handle.getDbName(), handle.getTableName())),
                     () -> catalogOps.loadTable(handle.getDbName(), handle.getTableName()));
+        } else {
+            table = resourceTracker == null
+                    ? IcebergStatementScope.sharedTable(session, handle.getDbName(), handle.getTableName(),
+                            () -> catalogOps.loadTable(handle.getDbName(), handle.getTableName()))
+                    : IcebergStatementScope.sharedTrackedTable(session, handle.getDbName(), handle.getTableName(),
+                            resourceTracker, () -> catalogOps.loadTable(handle.getDbName(), handle.getTableName()),
+                            value -> IcebergConnector.cachedTableCleanup(value, catalogProps.getFlavor()));
         }
-        return resourceTracker == null
-                ? IcebergStatementScope.sharedTable(session, handle.getDbName(), handle.getTableName(),
-                        () -> catalogOps.loadTable(handle.getDbName(), handle.getTableName()))
-                : IcebergStatementScope.sharedTrackedTable(session, handle.getDbName(), handle.getTableName(),
-                        resourceTracker, () -> catalogOps.loadTable(handle.getDbName(), handle.getTableName()),
-                        table -> IcebergConnector.cachedTableCleanup(table, catalogProps.getFlavor()));
+        IcebergEncryptionRead.check(table, catalogProps, context);
+        return table;
     }
 
     /**
@@ -833,6 +841,9 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         // Mirror getTableSchema: wrap the remote load in the auth context. A sys handle resolves the
         // metadata-table columns (t$snapshots -> committed_at/...) so the generic scan node can look up
         // its pruned sys-table slots by name; a data handle resolves the base table's columns.
+        if (IcebergLabelsSysTable.isLabels(iceHandle)) {
+            return buildColumnHandles(IcebergLabelsSysTable.SCHEMA, false);
+        }
         Table table = iceHandle.isSystemTable() ? loadSysTable(session, iceHandle) : loadTable(session, iceHandle);
         return buildColumnHandles(table.schema(), !iceHandle.isSystemTable());
     }
@@ -894,7 +905,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
      *   <li>{@code rowCount > 0} gate: legacy data-table consumer is {@code rowCount > 0 ? rowCount : UNKNOWN},
      *       but the NEW consumer takes the value whenever {@code >= 0}, so a 0-row table would wrongly report 0.
      *       Collapsing {@code <= 0} to empty pins the "0 -> UNKNOWN" semantics here (matches paimon).</li>
-     *   <li>Any failure degrades to empty (best effort): a statistics miss must never break query planning.</li>
+     *   <li>Ordinary failures degrade to empty; confirmed table absence propagates for guarded engine cleanup.</li>
      * </ul>
      */
     @Override
@@ -907,6 +918,8 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         long rowCount;
         try {
             rowCount = computeRowCount(loadTable(session, iceHandle));
+        } catch (ConnectorTableNotFoundException missing) {
+            throw missing;
         } catch (Exception e) {
             LOG.warn("Failed to compute Iceberg row count for {}.{}",
                     iceHandle.getDbName(), iceHandle.getTableName(), e);
@@ -934,6 +947,8 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         long rowCount;
         try {
             rowCount = computeRowCount(loadTable(session, iceHandle).snapshot(snapshot.getSnapshotId()));
+        } catch (ConnectorTableNotFoundException missing) {
+            throw missing;
         } catch (Exception e) {
             LOG.warn("Failed to compute Iceberg row count at snapshot {} for {}.{}",
                     snapshot.getSnapshotId(), iceHandle.getDbName(), iceHandle.getTableName(), e);
@@ -1919,6 +1934,9 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
      * excluding it here would be a capability regression vs master. Unlike every other entry, its scan takes
      * BE's native reader rather than the JNI serialized-split path (see
      * {@code IcebergScanPlanProvider.doPlanPositionDeletesSystemTableScan}).
+     *
+     * <p>A REST catalog additionally exposes {@code labels} ({@link IcebergLabelsSysTable}), which is not a
+     * {@code MetadataTableType}: its rows are the catalog labels returned with the table load.
      */
     @Override
     public List<String> listSupportedSysTables(ConnectorSession session,
@@ -1926,6 +1944,9 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         List<String> names = new ArrayList<>();
         for (MetadataTableType type : MetadataTableType.values()) {
             names.add(type.name().toLowerCase(Locale.ROOT));
+        }
+        if (supportsLabels()) {
+            names.add(IcebergLabelsSysTable.NAME);
         }
         return Collections.unmodifiableList(names);
     }
@@ -1969,12 +1990,15 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     /**
      * Whether iceberg exposes a system table named {@code sysName} (case-insensitive). Mirrors
      * {@code IcebergSysTable.SUPPORTED_SYS_TABLES}: every {@code MetadataTableType}, {@code POSITION_DELETES}
-     * included (see {@link #listSupportedSysTables}). A {@code null} name is simply not exposed (returns
-     * false, not NPE).
+     * included (see {@link #listSupportedSysTables}), plus {@code labels} for a REST catalog. A {@code null}
+     * name is simply not exposed (returns false, not NPE).
      */
-    private static boolean isSupportedSysTable(String sysName) {
+    private boolean isSupportedSysTable(String sysName) {
         if (sysName == null) {
             return false;
+        }
+        if (IcebergLabelsSysTable.NAME.equalsIgnoreCase(sysName)) {
+            return supportsLabels();
         }
         for (MetadataTableType type : MetadataTableType.values()) {
             if (type.name().equalsIgnoreCase(sysName)) {
@@ -1982,6 +2006,11 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             }
         }
         return false;
+    }
+
+    /** Only a REST catalog returns catalog labels with the table load, so only it exposes {@code $labels}. */
+    private boolean supportsLabels() {
+        return IcebergCatalogProperties.TYPE_REST.equals(catalogProps.getFlavor());
     }
 
     // ========== Write / Transaction (P6.3) ==========
@@ -2576,21 +2605,14 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
      * form — iceberg does not declare {@code SUPPORTS_PARTITION_STATS}). Post-cutover this restores real rows
      * for partitioned tables (master rejected iceberg SHOW PARTITIONS outright, so the SPI default empty list
      * would otherwise return silently zero rows). The remote PARTITIONS scan runs inside the auth context; a
-     * concurrent drop yields an empty list.
+     * concurrent drop preserves confirmed table absence for guarded FE lookup repair.
      */
     @Override
     public List<String> listPartitionNames(ConnectorSession session, ConnectorTableHandle handle) {
         IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
         try {
             return executeAuthenticated(() -> {
-                Table table;
-                try {
-                    table = resolveTableForRead(session, iceHandle);
-                } catch (NoSuchTableException e) {
-                    LOG.warn("Iceberg table not found while listing partitions: {}.{}",
-                            iceHandle.getDbName(), iceHandle.getTableName(), e);
-                    return Collections.<String>emptyList();
-                }
+                Table table = resolveTableForRead(session, iceHandle);
                 return IcebergPartitionUtils.listPartitionNames(table,
                         TableIdentifier.of(iceHandle.getDbName(), iceHandle.getTableName()), partitionCache);
             });
@@ -2638,7 +2660,8 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
      * {@code PluginDrivenExternalTable.getNameToPartitionItems} can populate {@code selectedPartitionNum}
      * (EXPLAIN {@code partition=N/M} + SQL-block-rule {@code partition_num} enforcement). Mirrors
      * {@link #listPartitionNames}: the remote PARTITIONS scan runs inside the auth context; a concurrent drop
-     * yields an empty list. The {@code filter} is ignored (iceberg planScan is predicate-driven; the reported
+     * propagates as typed table absence for guarded engine cleanup. The {@code filter} is ignored
+     * (iceberg planScan is predicate-driven; the reported
      * partition count is display/enforcement metadata only, never the read set). Unpartitioned tables map to
      * the SPI default empty list via {@link IcebergPartitionUtils#listPartitions}.
      */
@@ -2660,14 +2683,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
                 if (listPartitionsViewCache == null || filter.isPresent()) {
                     return listPartitionsUncached(session, iceHandle);
                 }
-                Table table;
-                try {
-                    table = resolveTableForRead(session, iceHandle);
-                } catch (NoSuchTableException e) {
-                    LOG.warn("Iceberg table not found while listing partitions: {}.{}",
-                            iceHandle.getDbName(), iceHandle.getTableName(), e);
-                    return Collections.<ConnectorPartitionInfo>emptyList();
-                }
+                Table table = resolveTableForRead(session, iceHandle);
                 ConnectorTableKey key = new ConnectorTableKey(iceHandle.getDbName(),
                         iceHandle.getTableName(), iceHandle.getSnapshotId(), iceHandle.getSchemaId(),
                         table.spec().specId());
@@ -2683,20 +2699,13 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
 
     /**
      * Builds the derived partition-info list live (no cache-A layer): the same resolveTableForRead + remote
-     * PARTITIONS build the pre-cache code ran, including the concurrent-drop degrade (a {@code NoSuchTableException}
-     * yields an empty list). Extracted so it can serve as cache A's per-miss loader. MUST run inside
+     * PARTITIONS build the pre-cache code ran. Confirmed table absence must reach the caller's guarded cleanup.
+     * Extracted so it can serve as cache A's per-miss loader. MUST run inside
      * {@code context.executeAuthenticated} (the caller wraps it).
      */
     private List<ConnectorPartitionInfo> listPartitionsUncached(
             ConnectorSession session, IcebergTableHandle iceHandle) {
-        Table table;
-        try {
-            table = resolveTableForRead(session, iceHandle);
-        } catch (NoSuchTableException e) {
-            LOG.warn("Iceberg table not found while listing partitions: {}.{}",
-                    iceHandle.getDbName(), iceHandle.getTableName(), e);
-            return Collections.<ConnectorPartitionInfo>emptyList();
-        }
+        Table table = resolveTableForRead(session, iceHandle);
         return listPartitions(table, iceHandle);
     }
 
@@ -2790,6 +2799,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     }
 
     private IcebergLatestSnapshotCache.CachedSnapshot latestSnapshotPin(Table table) {
+        IcebergEncryptionRead.check(table, catalogProps, context);
         Snapshot current = table.currentSnapshot();
         ConnectorMvccPartitionView.Style emptyPartitionStyle = IcebergPartitionUtils.isValidRelatedTable(table)
                 ? ConnectorMvccPartitionView.Style.RANGE

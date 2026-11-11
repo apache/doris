@@ -1215,6 +1215,19 @@ void MetaServiceImpl::update_tablet(::google::protobuf::RpcController* controlle
             tablet_meta.set_is_persistent(tablet_meta_info.is_persistent());
         } else if (tablet_meta_info.has_ttl_seconds()) {
             tablet_meta.set_ttl_seconds(tablet_meta_info.ttl_seconds());
+        } else if (tablet_meta_info.has_row_ttl_config()) {
+            const auto& policy = tablet_meta_info.row_ttl_config();
+            const auto& current = tablet_meta.row_ttl_config();
+            if (policy.duration_us() < 0 || policy.config_version() < current.config_version() ||
+                (policy.config_version() == current.config_version() &&
+                 tablet_meta.has_row_ttl_config() &&
+                 policy.duration_us() != current.duration_us())) {
+                code = MetaServiceCode::INVALID_ARGUMENT;
+                msg = "Invalid or outdated row TTL configuration";
+                return;
+            }
+            *tablet_meta.mutable_row_ttl_config() = policy;
+            response->set_row_ttl_config_version(policy.config_version());
         } else if (tablet_meta_info.has_binlog_config()) {
             const auto& binlog_config = tablet_meta_info.binlog_config();
             if (binlog_config.config_version() < tablet_meta.binlog_config().config_version()) {

@@ -21,6 +21,7 @@
 #include <atomic>
 #include <cstdlib>
 #include <cstring>
+#include <functional>
 #include <iostream>
 #include <memory>
 #include <mutex>
@@ -37,6 +38,7 @@
 #include "storage/index/inverted/snii/encoding/byte_sink.h"
 #include "storage/index/inverted/snii/encoding/byte_source.h"
 #include "storage/index/inverted/snii/encoding/pfor.h"
+#include "storage/index/inverted/snii/format/dict_entry.h"
 #include "storage/index/inverted/snii/format/format_constants.h"
 #include "storage/index/inverted/snii/format/prx_pod.h"
 #include "storage/index/inverted/snii/format/tail_pointer.h"
@@ -44,6 +46,7 @@
 #include "storage/index/inverted/snii/io/file_writer.h"
 #include "storage/index/inverted/snii/reader/dict_block_cache.h"
 #include "storage/index/inverted/snii/reader/logical_index_reader.h"
+#include "storage/index/inverted/snii/reader/snii_index_source.h"
 #include "storage/index/inverted/snii/reader/snii_segment_reader.h"
 #include "storage/index/inverted/snii/snii_query_oracle.h"
 #include "storage/index/inverted/snii/snii_query_test_util.h"
@@ -413,6 +416,244 @@ TEST(SniiSegmentReaderTest, LogicalIndexOpenCachesResidentMetadataAndSmallHeader
     EXPECT_EQ(hits[0].term, "order");
     EXPECT_EQ(hits[1].term, "ordinal");
     EXPECT_EQ(file.read_bytes(), 0);
+}
+
+// Writes `input` and opens it; the caller sets SNII_DICT_RESIDENT_MAX=0 so its DICT blocks are
+// read on demand.
+void open_on_demand_index(const writer::SniiIndexInput& input, MemoryFile* file,
+                          reader::SniiSegmentReader* segment_reader,
+                          reader::LogicalIndexReader* index_reader) {
+    writer::SniiCompoundWriter writer(file);
+    assert_ok(writer.add_logical_index(input));
+    assert_ok(writer.finish());
+    assert_ok(reader::SniiSegmentReader::open(file, segment_reader));
+    assert_ok(segment_reader->open_index(input.index_id, input.index_suffix, index_reader));
+}
+
+// Looks `term` up and returns how many DICT blocks the lookup decoded.
+uint64_t lookup_decodes(const reader::LogicalIndexReader& index_reader, std::string_view term,
+                        bool* found, format::DictEntry* entry = nullptr) {
+    format::DictEntry scratch;
+    uint64_t frq_base = 0;
+    uint64_t prx_base = 0;
+    ::doris::snii::testing::reset_dict_decode_counter();
+    assert_ok(index_reader.lookup(term, found, entry != nullptr ? entry : &scratch, &frq_base,
+                                  &prx_base));
+    return ::doris::snii::testing::dict_decode_counter();
+}
+
+// Serves finished index bytes to concurrent readers; MemoryFile records its reads unguarded.
+class SharedBytesReader final : public doris::snii::io::FileReader {
+public:
+    explicit SharedBytesReader(const std::vector<uint8_t>& bytes) : _bytes(bytes) {}
+
+    Status read_at(uint64_t offset, size_t len, std::vector<uint8_t>* out) override {
+        if (offset > _bytes.size() || len > _bytes.size() - offset) {
+            return Status::Corruption("shared bytes read past eof");
+        }
+        out->assign(_bytes.begin() + static_cast<ptrdiff_t>(offset),
+                    _bytes.begin() + static_cast<ptrdiff_t>(offset + len));
+        return Status::OK();
+    }
+
+    uint64_t size() const override { return _bytes.size(); }
+
+private:
+    const std::vector<uint8_t>& _bytes;
+};
+
+// A reader that keeps term lookups answers a repeated lookup, whether it found the term or not,
+// without reading or decoding the DICT block again, and returns the same entry.
+TEST(SniiTermLookupCacheTest, RepeatedLookupSkipsTheDictBlock) {
+    ScopedEnv on_demand_dict("SNII_DICT_RESIDENT_MAX", "0");
+    // Without a resident filter an absent term reaches its candidate block.
+    ScopedEnv on_demand_bsbf("SNII_BSBF_RESIDENT_MAX", "0");
+    MemoryFile file;
+    reader::SniiSegmentReader segment_reader;
+    reader::LogicalIndexReader index_reader;
+    open_on_demand_index(make_many_term_input(7, "Body", 4096), &file, &segment_reader,
+                         &index_reader);
+    index_reader.enable_term_lookup_cache();
+
+    for (const std::string term : {"term_1002048", "term_1002048x"}) {
+        const bool present = term == "term_1002048";
+        bool found = !present;
+        format::DictEntry first;
+        file.clear_reads();
+        EXPECT_EQ(lookup_decodes(index_reader, term, &found, &first), 1) << term;
+        EXPECT_EQ(found, present) << term;
+        EXPECT_GT(file.read_bytes(), 0) << term;
+
+        bool found_again = !present;
+        format::DictEntry again;
+        file.clear_reads();
+        EXPECT_EQ(lookup_decodes(index_reader, term, &found_again, &again), 0) << term;
+        EXPECT_EQ(found_again, present) << term;
+        EXPECT_EQ(file.read_bytes(), 0) << term;
+        if (present) {
+            EXPECT_EQ(again.term, first.term);
+            EXPECT_EQ(again.df, first.df);
+            EXPECT_EQ(again.kind, first.kind);
+            EXPECT_EQ(again.frq_off_delta, first.frq_off_delta);
+            EXPECT_EQ(again.frq_len, first.frq_len);
+            EXPECT_EQ(again.frq_bytes, first.frq_bytes);
+        }
+    }
+}
+
+// A batch resolves its kept terms without reads and reads only the blocks of the others.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
+TEST(SniiTermLookupCacheTest, BatchLookupReadsOnlyTheBlocksOfTermsNotKept) {
+    ScopedEnv on_demand_dict("SNII_DICT_RESIDENT_MAX", "0");
+    MemoryFile file;
+    reader::SniiSegmentReader segment_reader;
+    reader::LogicalIndexReader index_reader;
+    open_on_demand_index(make_many_term_input(7, "Body", 4096), &file, &segment_reader,
+                         &index_reader);
+    index_reader.enable_term_lookup_cache();
+
+    const std::vector<std::string> terms = {"term_1000100", "term_1001200", "term_1003300"};
+    std::vector<reader::LogicalIndexReader::BatchLookupResult> first;
+    ::doris::snii::testing::reset_dict_decode_counter();
+    assert_ok(index_reader.lookup_batch(terms, &first));
+    EXPECT_EQ(::doris::snii::testing::dict_decode_counter(), terms.size());
+
+    std::vector<reader::LogicalIndexReader::BatchLookupResult> again;
+    ::doris::snii::testing::reset_dict_decode_counter();
+    file.clear_reads();
+    assert_ok(index_reader.lookup_batch(terms, &again));
+    EXPECT_EQ(::doris::snii::testing::dict_decode_counter(), 0);
+    EXPECT_EQ(file.read_bytes(), 0);
+    ASSERT_EQ(again.size(), first.size());
+    for (size_t i = 0; i < terms.size(); ++i) {
+        EXPECT_TRUE(again[i].found) << terms[i];
+        EXPECT_EQ(again[i].entry.term, terms[i]);
+        EXPECT_EQ(again[i].entry.df, first[i].entry.df);
+        EXPECT_EQ(again[i].entry.frq_off_delta, first[i].entry.frq_off_delta);
+        EXPECT_EQ(again[i].frq_base, first[i].frq_base);
+    }
+
+    const std::vector<std::string> mixed = {"term_1000100", "term_1002200", "term_1003300"};
+    std::vector<reader::LogicalIndexReader::BatchLookupResult> mixed_results;
+    ::doris::snii::testing::reset_dict_decode_counter();
+    assert_ok(index_reader.lookup_batch(mixed, &mixed_results));
+    EXPECT_EQ(::doris::snii::testing::dict_decode_counter(), 1);
+    for (size_t i = 0; i < mixed.size(); ++i) {
+        EXPECT_TRUE(mixed_results[i].found) << mixed[i];
+        EXPECT_EQ(mixed_results[i].entry.term, mixed[i]);
+    }
+}
+
+// The cache keeps at most 32 terms, least recently used out first, keeps no term longer than
+// 64 bytes, and memory_usage() reserves its whole footprint when it is enabled.
+TEST(SniiTermLookupCacheTest, KeepsABoundedSetReservedUpFront) {
+    ScopedEnv on_demand_dict("SNII_DICT_RESIDENT_MAX", "0");
+    MemoryFile file;
+    reader::SniiSegmentReader segment_reader;
+    reader::LogicalIndexReader index_reader;
+    writer::SniiIndexInput input = make_many_term_input(7, "Body", 4096);
+    const std::string long_term(65, 'z');
+    input.terms.push_back(make_term(long_term, {{.docid = 4096, .positions = {0}}}));
+    input.doc_count = 4097;
+    open_on_demand_index(input, &file, &segment_reader, &index_reader);
+
+    const size_t without_cache = index_reader.memory_usage();
+    index_reader.enable_term_lookup_cache();
+    const size_t reserved = index_reader.memory_usage();
+    EXPECT_GT(reserved, without_cache);
+
+    bool found = false;
+    for (uint32_t i = 0; i <= 32; ++i) {
+        EXPECT_EQ(lookup_decodes(index_reader, "term_" + std::to_string(1000000 + i * 100), &found),
+                  1);
+        EXPECT_TRUE(found);
+    }
+    // The 33rd term pushed out the first; the latest is still kept.
+    EXPECT_EQ(lookup_decodes(index_reader, "term_1003200", &found), 0);
+    EXPECT_EQ(lookup_decodes(index_reader, "term_1000000", &found), 1);
+
+    EXPECT_EQ(lookup_decodes(index_reader, long_term, &found), 1);
+    EXPECT_TRUE(found);
+    EXPECT_EQ(lookup_decodes(index_reader, long_term, &found), 1);
+    EXPECT_EQ(index_reader.memory_usage(), reserved);
+}
+
+// Without the cache every lookup still reads its block; a resident dictionary never gets one.
+TEST(SniiTermLookupCacheTest, OffByDefaultAndForResidentDictionaries) {
+    bool found = false;
+    {
+        ScopedEnv on_demand_dict("SNII_DICT_RESIDENT_MAX", "0");
+        MemoryFile file;
+        reader::SniiSegmentReader segment_reader;
+        reader::LogicalIndexReader index_reader;
+        open_on_demand_index(make_many_term_input(7, "Body", 4096), &file, &segment_reader,
+                             &index_reader);
+        EXPECT_EQ(lookup_decodes(index_reader, "term_1002048", &found), 1);
+        EXPECT_EQ(lookup_decodes(index_reader, "term_1002048", &found), 1);
+    }
+    ScopedEnv resident_dict("SNII_DICT_RESIDENT_MAX", "1048576");
+    MemoryFile file;
+    reader::SniiSegmentReader segment_reader;
+    reader::LogicalIndexReader index_reader;
+    open_on_demand_index(make_many_term_input(7, "Body", 4096), &file, &segment_reader,
+                         &index_reader);
+    const size_t before = index_reader.memory_usage();
+    index_reader.enable_term_lookup_cache();
+    EXPECT_EQ(index_reader.memory_usage(), before);
+    EXPECT_EQ(lookup_decodes(index_reader, "term_1002048", &found), 0);
+    EXPECT_TRUE(found);
+}
+
+// Queries share one reader: concurrent lookups that keep, find and push out terms all return the
+// entries a reader without the cache returns.
+TEST(SniiTermLookupCacheTest, ConcurrentLookupsReturnTheUncachedEntries) {
+    ScopedEnv on_demand_dict("SNII_DICT_RESIDENT_MAX", "0");
+    MemoryFile file;
+    reader::SniiSegmentReader segment_reader;
+    reader::LogicalIndexReader plain_reader;
+    open_on_demand_index(make_many_term_input(7, "Body", 4096), &file, &segment_reader,
+                         &plain_reader);
+
+    std::vector<std::string> terms;
+    std::vector<format::DictEntry> expected;
+    for (uint32_t i = 0; i < 64; ++i) {
+        terms.push_back("term_" + std::to_string(1000000 + i * 61));
+        bool found = false;
+        expected.emplace_back();
+        lookup_decodes(plain_reader, terms.back(), &found, &expected.back());
+        ASSERT_TRUE(found);
+    }
+
+    SharedBytesReader shared(file.data());
+    reader::SniiSegmentReader shared_segment;
+    reader::LogicalIndexReader cached_reader;
+    assert_ok(reader::SniiSegmentReader::open(&shared, &shared_segment));
+    assert_ok(shared_segment.open_index(7, "Body", &cached_reader));
+    cached_reader.enable_term_lookup_cache();
+
+    std::atomic<int> mismatches {0};
+    std::vector<std::thread> threads;
+    for (int t = 0; t < 8; ++t) {
+        threads.emplace_back([&, t] {
+            for (int i = 0; i < 2000; ++i) {
+                const size_t k = static_cast<size_t>(t * 7 + i) % terms.size();
+                bool found = false;
+                format::DictEntry entry;
+                uint64_t frq_base = 0;
+                uint64_t prx_base = 0;
+                if (!cached_reader.lookup(terms[k], &found, &entry, &frq_base, &prx_base).ok() ||
+                    !found || entry.term != expected[k].term || entry.df != expected[k].df ||
+                    entry.frq_off_delta != expected[k].frq_off_delta ||
+                    entry.frq_bytes != expected[k].frq_bytes) {
+                    ++mismatches;
+                }
+            }
+        });
+    }
+    for (auto& thread : threads) {
+        thread.join();
+    }
+    EXPECT_EQ(mismatches.load(), 0);
 }
 
 TEST(SniiPhraseQueryTest, WindowedPhraseQueryKeepsCorrectCandidateOrdinals) {
@@ -794,6 +1035,74 @@ TEST(SniiRegexpQueryTest, AnchoredPrefixEnumeratesSingleTerm) {
 
     std::vector<uint32_t> docids;
     assert_ok(regexp_query(index_reader, kPattern, &docids));
+    EXPECT_EQ(docids, all_docids_0_to(9000));
+}
+
+// A term test handed to visit_prefix_terms runs on the key alone: the visitor sees exactly the
+// accepted terms, and the dictionary decodes only their bodies.
+TEST(SniiRegexpQueryTest, AcceptKeySkipsBodiesOfRejectedTerms) {
+    MemoryFile file;
+    reader::SniiSegmentReader segment_reader;
+    reader::LogicalIndexReader index_reader;
+    assert_ok(build_reader(&file, &segment_reader, &index_reader));
+
+    auto visit = [&](const std::function<bool(std::string_view)>& accept_key,
+                     std::vector<std::string>* terms, size_t stop_after = 0) {
+        terms->clear();
+        format::reset_dict_entry_counters();
+        assert_ok(index_reader.visit_prefix_terms(
+                "",
+                [&](reader::LogicalIndexReader::PrefixHit&& hit, bool* stop) {
+                    terms->push_back(hit.term);
+                    *stop = stop_after > 0 && terms->size() == stop_after;
+                    return Status::OK();
+                },
+                /*cache=*/nullptr, accept_key));
+        return format::dict_entry_body_decode_count();
+    };
+
+    std::vector<std::string> all;
+    EXPECT_EQ(visit({}, &all), 11U);
+    EXPECT_EQ(all.size(), 11U);
+
+    const auto starts_with_ord = [](std::string_view term) { return term.starts_with("ord"); };
+    std::vector<std::string> accepted;
+    EXPECT_EQ(visit(starts_with_ord, &accepted), 2U);
+    EXPECT_EQ(accepted, (std::vector<std::string> {"order", "ordinal"}));
+
+    const auto none = [](std::string_view) { return false; };
+    std::vector<std::string> rejected;
+    EXPECT_EQ(visit(none, &rejected), 0U);
+    EXPECT_TRUE(rejected.empty());
+
+    // The visitor's stop counts accepted terms only.
+    std::vector<std::string> first;
+    EXPECT_EQ(visit(starts_with_ord, &first, /*stop_after=*/1), 1U);
+    EXPECT_EQ(first, (std::vector<std::string> {"order"}));
+}
+
+// A regexp without a literal prefix enumerates the whole dictionary, but only the terms it
+// matches pay for a body decode.
+TEST(SniiRegexpQueryTest, UnanchoredRegexpDecodesOnlyMatchedBodies) {
+    MemoryFile file;
+    reader::SniiSegmentReader segment_reader;
+    reader::LogicalIndexReader index_reader;
+    assert_ok(build_reader(&file, &segment_reader, &index_reader));
+
+    index_query::TermPattern pattern;
+    assert_ok(index_query::TermPattern::create(index_query::TermPatternKind::kRegexp, "rdin",
+                                               &pattern));
+    ASSERT_EQ(pattern.enumeration_prefix(), "");
+
+    reader::SniiIndexSource source(index_reader);
+    std::vector<std::string> terms;
+    format::reset_dict_entry_counters();
+    assert_ok(source.expand_terms(pattern, 0, &terms));
+    EXPECT_EQ(terms, (std::vector<std::string> {"ordinal"}));
+    EXPECT_EQ(format::dict_entry_body_decode_count(), 1U);
+
+    std::vector<uint32_t> docids;
+    assert_ok(regexp_query(index_reader, "rdin", &docids));
     EXPECT_EQ(docids, all_docids_0_to(9000));
 }
 

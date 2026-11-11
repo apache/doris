@@ -19,18 +19,17 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.proc.BaseProcResult;
+import org.apache.doris.datasource.property.AIResourceProperties;
 import org.apache.doris.datasource.property.constants.AIProperties;
 import org.apache.doris.thrift.TAIResource;
 
 import com.google.common.base.Preconditions;
-import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 
 /**
@@ -55,7 +54,7 @@ import java.util.Map;
 
 public class AIResource extends Resource {
     @SerializedName(value = "properties")
-    private Map<String, String> properties;
+    private volatile Map<String, String> properties;
     @SerializedName(value = "createdByRoot")
     private boolean createdByRoot;
 
@@ -79,10 +78,7 @@ public class AIResource extends Resource {
     @Override
     protected void setProperties(ImmutableMap<String, String> newProperties) throws DdlException {
         Preconditions.checkState(newProperties != null);
-        this.properties = Maps.newHashMap(newProperties);
-
-        AIProperties.requiredAIProperties(properties);
-        AIProperties.optionalAIProperties(this.properties);
+        this.properties = parseProperties(newProperties).toMap();
     }
 
     public String getProperty(String propertyKey) {
@@ -90,28 +86,15 @@ public class AIResource extends Resource {
     }
 
     public boolean hasCompleteGeneralProperties() {
-        return AIProperties.REQUIRED_FIELDS.stream()
-                .allMatch(field -> !Strings.isNullOrEmpty(properties.get(field)))
-                && ("LOCAL".equalsIgnoreCase(properties.get(AIProperties.PROVIDER_TYPE))
-                        || !Strings.isNullOrEmpty(properties.get(AIProperties.API_KEY)));
+        return AIResourceProperties.hasCompleteGeneralProperties(properties);
     }
 
     public boolean hasCompleteEmbedProperties() {
-        return hasCompleteProperties(AIProperties.EMBED_REQUIRED_FIELDS,
-                AIProperties.EMBED_PROVIDER_TYPE, AIProperties.EMBED_API_KEY);
+        return AIResourceProperties.hasCompleteEmbedProperties(properties);
     }
 
     public boolean hasCompleteMultimodalEmbedProperties() {
-        return hasCompleteProperties(AIProperties.MULTIMODAL_EMBED_REQUIRED_FIELDS,
-                AIProperties.MULTIMODAL_EMBED_PROVIDER_TYPE, AIProperties.MULTIMODAL_EMBED_API_KEY);
-    }
-
-    private boolean hasCompleteProperties(List<String> requiredFields,
-            String providerTypeField, String apiKeyField) {
-        return requiredFields.stream()
-                .allMatch(field -> !Strings.isNullOrEmpty(properties.get(field)))
-                && ("LOCAL".equalsIgnoreCase(properties.get(providerTypeField))
-                        || !Strings.isNullOrEmpty(properties.get(apiKeyField)));
+        return AIResourceProperties.hasCompleteMultimodalEmbedProperties(properties);
     }
 
     @Override
@@ -119,20 +102,8 @@ public class AIResource extends Resource {
         writeLock();
         try {
             Map<String, String> changedProperties = new HashMap<>(this.properties);
-            for (Map.Entry<String, String> kv : properties.entrySet()) {
-                replaceIfEffectiveValue(changedProperties, kv.getKey(), kv.getValue());
-                if (kv.getKey().equals(AIProperties.API_KEY)
-                        || kv.getKey().equals(AIProperties.EMBED_API_KEY)
-                        || kv.getKey().equals(AIProperties.MULTIMODAL_EMBED_API_KEY)) {
-                    changedProperties.put(kv.getKey(), kv.getValue());
-                } else if (kv.getKey().equals(AIProperties.EFFORT)
-                        && Strings.isNullOrEmpty(kv.getValue())) {
-                    changedProperties.remove(kv.getKey());
-                }
-            }
-            AIProperties.requiredAIProperties(changedProperties);
-
-            this.properties = changedProperties;
+            changedProperties.putAll(properties);
+            this.properties = parseProperties(changedProperties).toMap();
             ++version;
         } finally {
             writeUnlock();
@@ -163,80 +134,15 @@ public class AIResource extends Resource {
         readUnlock();
     }
 
-    public TAIResource toThrift() throws NumberFormatException {
-        TAIResource tAIResource = new TAIResource();
-        if (properties.containsKey(AIProperties.PROVIDER_TYPE)) {
-            tAIResource.setProviderType(properties.get(AIProperties.PROVIDER_TYPE));
-        }
-        if (properties.containsKey(AIProperties.ENDPOINT)) {
-            tAIResource.setEndpoint(properties.get(AIProperties.ENDPOINT));
-        }
-        if (properties.containsKey(AIProperties.API_KEY)) {
-            tAIResource.setApiKey(properties.get(AIProperties.API_KEY));
-        }
-        if (properties.containsKey(AIProperties.MODEL_NAME)) {
-            tAIResource.setModelName(properties.get(AIProperties.MODEL_NAME));
-        }
-        if (properties.containsKey(AIProperties.EMBED_PROVIDER_TYPE)) {
-            tAIResource.setEmbedProviderType(properties.get(AIProperties.EMBED_PROVIDER_TYPE));
-        }
-        if (properties.containsKey(AIProperties.EMBED_ENDPOINT)) {
-            tAIResource.setEmbedEndpoint(properties.get(AIProperties.EMBED_ENDPOINT));
-        }
-        if (properties.containsKey(AIProperties.EMBED_API_KEY)) {
-            tAIResource.setEmbedApiKey(properties.get(AIProperties.EMBED_API_KEY));
-        }
-        if (properties.containsKey(AIProperties.EMBED_MODEL_NAME)) {
-            tAIResource.setEmbedModelName(properties.get(AIProperties.EMBED_MODEL_NAME));
-        }
-        if (properties.containsKey(AIProperties.MULTIMODAL_EMBED_PROVIDER_TYPE)) {
-            tAIResource.setEmbedMmProviderType(properties.get(AIProperties.MULTIMODAL_EMBED_PROVIDER_TYPE));
-        }
-        if (properties.containsKey(AIProperties.MULTIMODAL_EMBED_ENDPOINT)) {
-            tAIResource.setEmbedMmEndpoint(properties.get(AIProperties.MULTIMODAL_EMBED_ENDPOINT));
-        }
-        if (properties.containsKey(AIProperties.MULTIMODAL_EMBED_API_KEY)) {
-            tAIResource.setEmbedMmApiKey(properties.get(AIProperties.MULTIMODAL_EMBED_API_KEY));
-        }
-        if (properties.containsKey(AIProperties.MULTIMODAL_EMBED_MODEL_NAME)) {
-            tAIResource.setEmbedMmModelName(properties.get(AIProperties.MULTIMODAL_EMBED_MODEL_NAME));
-        }
-        if (!Strings.isNullOrEmpty(properties.get(AIProperties.EFFORT))) {
-            tAIResource.setEffort(properties.get(AIProperties.EFFORT));
-        }
-        tAIResource.setAnthropicVersion(properties.get(AIProperties.ANTHROPIC_VERSION));
+    public TAIResource toThrift() {
+        return AIResourceProperties.of(properties).toThrift();
+    }
 
+    private static AIResourceProperties parseProperties(Map<String, String> properties) throws DdlException {
         try {
-            tAIResource.setTemperature(Double.parseDouble(properties.get(AIProperties.TEMPERATURE)));
-        } catch (NumberFormatException e) {
-            throw new NumberFormatException("Failed to parse temperature: "
-                                            + properties.get(AIProperties.TEMPERATURE));
+            return AIResourceProperties.of(properties);
+        } catch (IllegalArgumentException e) {
+            throw new DdlException(e.getMessage(), e);
         }
-        try {
-            tAIResource.setMaxTokens(Long.parseLong(properties.get(AIProperties.MAX_TOKEN)));
-        } catch (NumberFormatException e) {
-            throw new NumberFormatException("Failed to parse max_token: "
-                                            + properties.get(AIProperties.MAX_TOKEN));
-        }
-        try {
-            tAIResource.setMaxRetries(Integer.parseInt(properties.get(AIProperties.MAX_RETRIES)));
-        } catch (NumberFormatException e) {
-            throw new NumberFormatException("Failed to parse max_retries: "
-                                            + properties.get(AIProperties.MAX_RETRIES));
-        }
-        try {
-            tAIResource.setRetryDelaySecond(Integer.parseInt(properties.get(AIProperties.RETRY_DELAY_SECOND)));
-        } catch (NumberFormatException e) {
-            throw new NumberFormatException("Failed to parse retry_delay_second: "
-                                            + properties.get(AIProperties.RETRY_DELAY_SECOND));
-        }
-        try {
-            tAIResource.setDimensions(Integer.parseInt(properties.get(AIProperties.DIMENSIONS)));
-        } catch (NumberFormatException e) {
-            throw new NumberFormatException("Failed to parse dimensions: "
-                                            + properties.get(AIProperties.DIMENSIONS));
-        }
-
-        return tAIResource;
     }
 }

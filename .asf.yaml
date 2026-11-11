@@ -42,6 +42,8 @@ github:
     merge:   false
     rebase:  false
   protected_branches:
+    # master, branch-4.2 and branch-4.1 use the migrated TeamCity contexts.
+    # External and Performance report results without gating these branches.
     master:
       required_status_checks:
         strict: false
@@ -50,20 +52,18 @@ github:
           - Check for secrets
           - Clang Formatter
           - CheckStyle
-          - P0 Regression (Doris Regression)
-          - NonConcurrent Regression (nonConcurrent)
-          - External Regression (Doris External Regression)
-          - cloud_p0 (Doris Cloud Regression)
-          - vault_p0 (Doris Cloud Regression)
-          - FE UT (Doris FE UT)
-          - BE UT (Doris BE UT)
+          - TeamCity/p0
+          - TeamCity/nonconcurrent
+          - TeamCity/cloud_p0
+          - TeamCity/vault_p0
+          - TeamCity/feut
+          - TeamCity/beut
           - Build Third Party Libraries (Linux)
           - Build Third Party Libraries (macOS)
           - Build Third Party Libraries (macOS-arm64)
-          - COMPILE (DORIS_COMPILE)
+          - TeamCity/compile
           - code-review
-          - Cloud UT (Doris Cloud UT)
-          - performance (Doris Performance)
+          - TeamCity/cloudut
       required_pull_request_reviews:
         dismiss_stale_reviews: true
         require_code_owner_reviews: true
@@ -76,15 +76,14 @@ github:
           - Clang Formatter
           - CheckStyle
           - Build Broker
-          - FE UT (Doris FE UT)
-          - BE UT (Doris BE UT)
-          - Cloud UT (Doris Cloud UT)
-          - COMPILE (DORIS_COMPILE)
-          - P0 Regression (Doris Regression)
-          - NonConcurrent Regression (nonConcurrent)
-          - External Regression (Doris External Regression)
-          - cloud_p0 (Doris Cloud Regression)
-          - vault_p0 (Doris Cloud Regression)
+          - TeamCity/feut
+          - TeamCity/beut
+          - TeamCity/cloudut
+          - TeamCity/compile
+          - TeamCity/p0
+          - TeamCity/nonconcurrent
+          - TeamCity/cloud_p0
+          - TeamCity/vault_p0
       required_pull_request_reviews:
         require_code_owner_reviews: true
         required_approving_review_count: 1
@@ -97,15 +96,14 @@ github:
           - Clang Formatter
           - CheckStyle
           - Build Broker
-          - FE UT (Doris FE UT)
-          - BE UT (Doris BE UT)
-          - Cloud UT (Doris Cloud UT)
-          - COMPILE (DORIS_COMPILE)
-          - P0 Regression (Doris Regression)
-          - NonConcurrent Regression (nonConcurrent)
-          - External Regression (Doris External Regression) 
-          - cloud_p0 (Doris Cloud Regression)
-          - vault_p0 (Doris Cloud Regression)
+          - TeamCity/feut
+          - TeamCity/beut
+          - TeamCity/cloudut
+          - TeamCity/compile
+          - TeamCity/p0
+          - TeamCity/nonconcurrent
+          - TeamCity/cloud_p0
+          - TeamCity/vault_p0
       required_pull_request_reviews:
         require_code_owner_reviews: true
         required_approving_review_count: 1
@@ -215,7 +213,7 @@ github:
     - OIiveirra
     - ixzc
     - feiniaofeiafei
-    - wyxxxcat
+    - lsy3993
     - linrrzqqq
     - Doris-Breakwater
 notifications:
