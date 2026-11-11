@@ -73,6 +73,8 @@ public:
     size_t max_footer_bytes() const { return _max_footer_bytes; }
 
 protected:
+    virtual void _configure_file_writer_options(io::FileWriterOptions* options) {}
+
     /// Preserve the first append failure for the whole part, including its footer.
     virtual Status _append_to_part(const Slice& data);
 
@@ -105,10 +107,11 @@ private:
     void _advance_part();
 
     /// Called by SpillFile::gc() when the SpillFile goes away before this writer was closed
-    /// (e.g. an error unwound the owner of the file first). Drops the current part without
+    /// (e.g. an error unwound the owner of the file first). Detaches the current part without
     /// a footer and without publishing it, and unregisters from the SpillFile, so that nothing
-    /// is charged to or written under a SpillFile that no longer exists.
-    void _discard(SpillFile* spill_file);
+    /// is charged to or written under a SpillFile that no longer exists. GC owns and drains
+    /// the returned writer before deleting the directory.
+    io::FileWriterPtr _discard(SpillFile* spill_file);
 
     /// If current part size >= _max_part_size, close it.
     Status _rotate_if_needed(const std::shared_ptr<SpillFile>& spill_file);

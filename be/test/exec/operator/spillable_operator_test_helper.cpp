@@ -29,6 +29,7 @@
 #include <vector>
 
 #include "exec/operator/spill_counters.h"
+#include "exec/spill/local_spill_data_dir.h"
 #include "io/fs/local_file_system.h"
 #include "testutil/creators.h"
 

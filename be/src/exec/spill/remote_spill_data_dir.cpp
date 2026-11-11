@@ -28,16 +28,16 @@
 #include "common/metrics/metrics.h"
 #include "io/fs/remote_file_system.h"
 #include "runtime/exec_env.h"
-#include "service/backend_options.h"
 #include "storage/olap_define.h"
 #include "storage/storage_policy.h"
 #include "util/pretty_printer.h"
+#include "util/uid_util.h"
 
 namespace doris {
 
 RemoteSpillDataDir::RemoteSpillDataDir(std::string vault_id)
         : SpillDataDir(fmt::format("s3:{}", vault_id.empty() ? "auto" : vault_id),
-                       /*spill_root=*/"",
+                       fmt::format("{}/{}", SPILL_DIR_PREFIX, UniqueId::gen_uid().to_string()),
                        fmt::format("s3:{}", vault_id.empty() ? "auto" : vault_id),
                        /*capacity_bytes=*/0, TStorageMedium::S3),
           _vault_id(std::move(vault_id)) {}
@@ -82,21 +82,19 @@ io::RemoteFileSystemSPtr RemoteSpillDataDir::select_vault_fs(
 
 Status RemoteSpillDataDir::ensure_ready(io::FileSystemSPtr* file_fs) {
     std::lock_guard<std::mutex> lock(_init_mutex);
-    if (_test_binding || (!_vault_id.empty() && ready())) {
+    if (!_vault_id.empty() && ready()) {
         *file_fs = _fs;
         return Status::OK();
     }
     if (!config::is_cloud_mode()) {
         return Status::InternalError("spill to s3 is only supported in cloud mode");
     }
-    const std::string& host = BackendOptions::get_localhost();
-    if (host.empty()) {
-        return Status::InternalError("spill to s3 is not ready: the address of this BE is unknown");
+    // An explicit vault can be resolved without probing the engine's fallback filesystem.
+    io::RemoteFileSystemSPtr latest_fs;
+    if (_vault_id.empty()) {
+        latest_fs = ExecEnv::GetInstance()->storage_engine().to_cloud().latest_fs();
     }
-    std::string endpoint = fmt::format("{}_{}", host, config::heartbeat_service_port);
-    // The vaults are the ones the vault refresh thread of the storage engine already brought in.
-    io::RemoteFileSystemSPtr fs = select_vault_fs(
-            _vault_id, ExecEnv::GetInstance()->storage_engine().to_cloud().latest_fs());
+    io::RemoteFileSystemSPtr fs = select_vault_fs(_vault_id, latest_fs);
     if (fs == nullptr) {
         return Status::InternalError(
                 "spill to s3 is not ready: {}",
@@ -108,25 +106,14 @@ Status RemoteSpillDataDir::ensure_ready(io::FileSystemSPtr* file_fs) {
                                     _vault_id, fs->type());
     }
     if (!ready() || _fs != fs) {
-        _bind_fs_unlocked(fs, std::move(endpoint));
+        _bind_fs_unlocked(fs);
     }
     *file_fs = _fs;
     return Status::OK();
 }
 
-void RemoteSpillDataDir::init_remote_fs(io::FileSystemSPtr fs, std::string endpoint) {
-    std::lock_guard<std::mutex> lock(_init_mutex);
-    _test_binding = true;
-    _bind_fs_unlocked(std::move(fs), std::move(endpoint));
-}
-
-void RemoteSpillDataDir::_bind_fs_unlocked(io::FileSystemSPtr fs, std::string endpoint) {
-    DCHECK(!endpoint.empty());
+void RemoteSpillDataDir::_bind_fs_unlocked(io::FileSystemSPtr fs) {
     _fs = std::move(fs);
-    if (!ready()) {
-        _endpoint = std::move(endpoint);
-        _spill_root = fmt::format("{}/{}", SPILL_DIR_PREFIX, _endpoint);
-    }
     _ready.store(true, std::memory_order_release);
     LOG(INFO) << fmt::format(
             "remote spill store is ready, vault_id={}, fs_id={}, root={}, limit={}",
@@ -168,7 +155,8 @@ Status RemoteSpillDataDir::update_capacity() {
     return Status::OK();
 }
 
-bool RemoteSpillDataDir::_reach_limit_unlocked(int64_t incoming_data_size) {
+bool RemoteSpillDataDir::_reach_limit_unlocked(int64_t incoming_data_size,
+                                               const std::lock_guard<std::mutex>& lock) {
     // 0 means unlimited.
     if (_spill_data_limit_bytes > 0 &&
         _spill_data_bytes + incoming_data_size > _spill_data_limit_bytes) {

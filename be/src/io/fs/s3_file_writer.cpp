@@ -70,6 +70,9 @@ S3FileWriter::S3FileWriter(std::shared_ptr<ObjClientHolder> client, std::string 
     s3_file_being_written << 1;
     Aws::Http::SetCompliantRfc3986Encoding(true);
 
+    if (opts != nullptr) {
+        _inflight_upload_bytes = opts->inflight_upload_bytes;
+    }
     init_cache_builder(opts, _obj_storage_path_opts.path);
 }
 
@@ -220,7 +223,7 @@ Status S3FileWriter::try_finish_close() {
     return _st;
 }
 
-bool S3FileWriter::_complete_part_task_callback(Status s) {
+bool S3FileWriter::_complete_part_task_callback(Status s, int64_t upload_bytes) {
     bool ret = false;
     if (!s.ok()) [[unlikely]] {
         VLOG_NOTICE << "failed at key: " << _obj_storage_path_opts.key
@@ -229,6 +232,9 @@ bool S3FileWriter::_complete_part_task_callback(Status s) {
         _failed = true;
         ret = true;
         _st = std::move(s);
+    }
+    if (_inflight_upload_bytes) {
+        _inflight_upload_bytes->fetch_sub(upload_bytes, std::memory_order_relaxed);
     }
     // After the signal, there is a scenario where the previous invocation of _wait_until_finish
     // returns to the caller, and subsequently, the S3 file writer is destructed.
@@ -244,9 +250,6 @@ Status S3FileWriter::_build_upload_buffer() {
                 _upload_one_part(part_num, buf);
             })
             .set_file_offset(_bytes_appended)
-            .set_sync_after_complete_task([this](auto&& PH1) {
-                return _complete_part_task_callback(std::forward<decltype(PH1)>(PH1));
-            })
             .set_is_cancelled([this]() { return _failed.load(); });
     if (_cache_builder != nullptr) {
         // We would load the data into file cache asynchronously which indicates
@@ -267,15 +270,26 @@ Status S3FileWriter::_build_upload_buffer() {
 }
 
 Status S3FileWriter::_submit_upload_buffer(const std::shared_ptr<FileBuffer>& buf) {
+    // Capture the allocation, not the mutable buffer-size config: an update while the
+    // upload is in flight must not change the charge returned by its completion callback.
+    const auto upload_bytes = static_cast<int64_t>(buf->get_capacaticy());
+    buf->set_completion_callback([this, upload_bytes](Status status) {
+        return _complete_part_task_callback(std::move(status), upload_bytes);
+    });
     _countdown_event.add_count();
+    // Account before submission: both a synchronous submission failure and an asynchronous
+    // completion run _complete_part_task_callback(), which returns this charge exactly once.
+    if (_inflight_upload_bytes) {
+        _inflight_upload_bytes->fetch_add(upload_bytes, std::memory_order_relaxed);
+    }
     DBUG_EXECUTE_IF("S3FileWriter.submit_upload_buffer.inject_error", {
         auto st = Status::IOError("S3FileWriter.submit_upload_buffer.inject_error");
-        _complete_part_task_callback(st);
+        buf->set_status(st);
         return st;
     });
     auto st = FileBuffer::submit(buf);
     if (!st.ok()) [[unlikely]] {
-        _complete_part_task_callback(st);
+        buf->set_status(st);
     }
     return st;
 }

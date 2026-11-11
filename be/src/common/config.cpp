@@ -47,6 +47,7 @@
 #include "cloud/config.h"
 #include "common/config.h"
 #include "common/logging.h"
+#include "common/spill_storage_type.h"
 #include "common/status.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
@@ -1750,16 +1751,16 @@ DEFINE_Validator(spill_storage_limit_bytes, [](int64_t config) -> bool { return 
 DEFINE_mInt32(spill_gc_interval_ms, "2000");             // 2s
 DEFINE_mInt32(spill_gc_work_time_ms, "2000");            // 2s
 DEFINE_mInt64(spill_file_part_size_bytes, "1073741824"); // 1GB
-DEFINE_String(spill_storage_type, "local");
-// s3: cloud mode only; spill is written to the S3 storage vault under
-// spill/{ip}_{port}/{query_id}/, where ip is the address of this BE and port its
-// heartbeat_service_port.
+DEFINE_String(spill_storage_type, doris::spill_storage_type::LOCAL);
+// remote (s3 is a compatibility alias): cloud mode only; spill is written to the S3 storage vault under
+// spill/{backend_uid}/{query_id}/, with a random ID generated once per BE process.
 // The BE deletes the objects of a spill file when the query is done with it. What a BE that
 // crashed left behind is not deleted by Doris: give the bucket a lifecycle rule that expires
 // the keys under <vault prefix>/spill/ and aborts incomplete multipart uploads.
 // Incomplete multipart uploads from failed or cancelled queries also rely on that rule.
 DEFINE_Validator(spill_storage_type, [](const std::string& config) -> bool {
-    return config == "local" || config == "s3";
+    return config == doris::spill_storage_type::LOCAL ||
+           doris::spill_storage_type::is_remote(config);
 });
 DEFINE_String(spill_s3_storage_vault_id, "");
 DEFINE_mInt64(spill_s3_max_inflight_upload_bytes, "268435456"); // 256MB

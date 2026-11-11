@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <atomic>
+#include <cstdint>
 #include <future>
 #include <memory>
 
@@ -44,6 +46,9 @@ struct FileWriterOptions {
     // Because hive committers have best-effort semantics,
     // this shortens the inconsistent time window.
     bool used_by_s3_committer = false;
+    // Optional caller-owned group counter for allocated upload buffers already submitted to
+    // object storage (queued or running). Writers retain shared ownership until callbacks end.
+    std::shared_ptr<std::atomic<int64_t>> inflight_upload_bytes = nullptr;
     bool write_file_cache = false;
     bool allow_adaptive_file_cache_write = true;
     bool is_cold_data = false;

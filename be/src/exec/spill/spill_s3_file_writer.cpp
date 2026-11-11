@@ -29,7 +29,6 @@
 #include "runtime/workload_management/io_context.h"
 #include "util/defer_op.h"
 #include "util/stopwatch.hpp"
-#include "util/threadpool.h"
 
 namespace doris {
 
@@ -55,7 +54,16 @@ SpillS3FileWriter::~SpillS3FileWriter() {
     }
 }
 
-Status SpillS3FileWriter::_wait_for_upload_queue() {
+const std::shared_ptr<std::atomic<int64_t>>& SpillS3FileWriter::_inflight_upload_bytes() {
+    static const auto bytes = std::make_shared<std::atomic<int64_t>>(0);
+    return bytes;
+}
+
+void SpillS3FileWriter::_configure_file_writer_options(io::FileWriterOptions* options) {
+    options->inflight_upload_bytes = _inflight_upload_bytes();
+}
+
+Status SpillS3FileWriter::_wait_for_upload_capacity() {
     auto is_cancelled = [this]() {
         return _resource_ctx != nullptr && _resource_ctx->task_controller()->is_cancelled();
     };
@@ -63,9 +71,10 @@ Status SpillS3FileWriter::_wait_for_upload_queue() {
     if (is_cancelled()) {
         return Status::Cancelled("query cancelled before uploading spill data");
     }
-    auto* upload_pool = ExecEnv::GetInstance()->s3_file_upload_thread_pool();
-    auto queue_full = [upload_pool]() {
-        return static_cast<int64_t>(upload_pool->get_queue_size()) * config::s3_write_buffer_size >=
+    // Only submitted spill uploads count. Unrelated loads on the shared S3 pool must not
+    // throttle spill, and idle partial buffers must not prevent active writers making progress.
+    auto queue_full = []() {
+        return _inflight_upload_bytes()->load(std::memory_order_relaxed) >=
                config::spill_s3_max_inflight_upload_bytes;
     };
     if (!queue_full()) {
@@ -90,7 +99,7 @@ Status SpillS3FileWriter::_append_to_part(const Slice& data) {
     // S3FileWriter splits `data` into upload buffers and queues every full one without waiting,
     // so the queue is checked once per append: `data` is already in memory, and the wait keeps
     // the next append from producing faster than object storage takes the data.
-    _part_append_status = _wait_for_upload_queue();
+    _part_append_status = _wait_for_upload_capacity();
     RETURN_IF_ERROR(_part_append_status);
     MonotonicStopWatch append_watch;
     append_watch.start();

@@ -41,11 +41,13 @@
 #include "cloud/config.h"
 #include "common/config.h"
 #include "common/metrics/metrics.h"
+#include "common/spill_storage_type.h"
 #include "common/status.h"
 #include "core/block/block.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "exec/operator/spill_counters.h"
+#include "exec/spill/local_spill_data_dir.h"
 #include "exec/spill/remote_spill_data_dir.h"
 #include "exec/spill/spill_file.h"
 #include "exec/spill/spill_file_manager.h"
@@ -57,6 +59,7 @@
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/s3_file_system.h"
+#include "io/fs/s3_file_writer.h"
 #include "runtime/exec_env.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_profile.h"
@@ -64,6 +67,7 @@
 #include "runtime/workload_management/io_context.h"
 #include "runtime/workload_management/resource_context.h"
 #include "service/backend_options.h"
+#include "storage/options.h"
 #include "storage/storage_policy.h"
 #include "testutil/column_helper.h"
 #include "testutil/mock/mock_query_context.h"
@@ -397,7 +401,7 @@ private:
 
 constexpr const char* kBucket = "spill-mock-bucket";
 constexpr const char* kVaultPrefix = "spill_s3_test";
-constexpr const char* kEndpoint = "10.0.0.1_9050";
+constexpr const char* kBackendUid = "0123456789abcdef-0123456789abcdef";
 
 } // namespace
 
@@ -529,7 +533,11 @@ protected:
                          std::string local_path = "") {
         auto store = std::make_unique<RemoteSpillDataDir>(std::move(vault_id));
         if (bind_fs) {
-            store->init_remote_fs(_s3_fs, kEndpoint);
+            if (store->_vault_id.empty()) {
+                store->_vault_id = "test-bound-vault";
+            }
+            store->_spill_root = fmt::format("spill/{}", kBackendUid);
+            store->_bind_fs_unlocked(_s3_fs);
         }
         _data_dir = store.get();
         std::unordered_map<std::string, std::unique_ptr<SpillDataDir>> data_map;
@@ -546,6 +554,7 @@ protected:
         ExecEnv::GetInstance()->_spill_file_mgr = _manager;
         auto st = _manager->init();
         ASSERT_TRUE(st.ok()) << st;
+        _manager->stop(); // Tests drive GC explicitly, without timing-dependent background passes.
     }
 
     void _destroy_manager() {
@@ -553,6 +562,7 @@ protected:
             return;
         }
         _manager->stop();
+        _manager->gc(10000);
         SAFE_DELETE(_manager);
         ExecEnv::GetInstance()->_spill_file_mgr = nullptr;
         _data_dir = nullptr;
@@ -587,7 +597,7 @@ protected:
         auto queue_ancestor = [&]() {
             // A directory entry has no logical-file count of its own, but must retain the
             // individual file contexts when it absorbs children (or children join it).
-            _manager->retry_spill_directory_deletion(_data_dir, _s3_fs, query_path, 0, 0, query_id);
+            _manager->queue_spill_directory_deletion(_data_dir, _s3_fs, query_path, 0, 0, query_id);
         };
         if (ancestor_first) {
             queue_ancestor();
@@ -602,7 +612,7 @@ protected:
             _manager->gc(1000);
         }
         _expect_file_counts(created + 2, deleted);
-        EXPECT_EQ(logs.count(google::WARNING, "[spill][delete] query_id=" + query_id + ','), 2);
+        EXPECT_EQ(logs.count(google::WARNING, "[spill][delete] query_id=" + query_id + ','), 0);
         EXPECT_LE(logs.count(google::WARNING, "[spill][delete_retry] query_id=" + query_id + ','),
                   1);
         mock_store().fail_deletes = false;
@@ -619,7 +629,9 @@ protected:
     }
 
     // Vault-prefixed keys of the mock store: {vault}/spill/{ip}_{port}/{query_id}/...
-    static std::string spill_root() { return fmt::format("{}/spill/{}", kVaultPrefix, kEndpoint); }
+    static std::string spill_root() {
+        return fmt::format("{}/spill/{}", kVaultPrefix, kBackendUid);
+    }
 
     // Keys of the objects a query left under the spill root, relative to its query directory.
     static std::vector<std::string> _query_objects(const std::string& query_id) {
@@ -815,6 +827,7 @@ TEST_F(SpillFileS3Test, WriterFactoryUsesS3Subclass) {
     ASSERT_TRUE(writer->close().ok());
     writer.reset();
     spill_file.reset();
+    _manager->gc(10000);
 }
 
 TEST_F(SpillFileS3Test, ReaderFactoryUsesS3Subclass) {
@@ -856,22 +869,23 @@ TEST_F(SpillFileS3Test, ImplicitClosePreservesRemoteAccounting) {
     ASSERT_EQ(_data_dir->get_spill_data_bytes(), object_bytes);
     ASSERT_EQ(_read_all(spill_file), _column_values(block));
     spill_file.reset();
+    _manager->gc(10000);
     ASSERT_EQ(_manager->remote_spill_data_bytes(), 0);
     ASSERT_EQ(_data_dir->get_spill_data_bytes(), 0);
 }
 
-TEST_F(SpillFileS3Test, RemoteStoreLayout) {
-    _create_manager();
-    ASSERT_TRUE(_data_dir->is_remote());
-    ASSERT_TRUE(_data_dir->ready());
-    ASSERT_EQ(_data_dir->storage_medium(), TStorageMedium::S3);
-    ASSERT_EQ(_data_dir->vault_id(), "vault-1");
-    ASSERT_EQ(_data_dir->get_disk_usage(1LL << 40), 0.0);
-    ASSERT_EQ(_data_dir->endpoint(), kEndpoint);
-    ASSERT_EQ(_data_dir->get_spill_data_path(), fmt::format("spill/{}", kEndpoint));
-    ASSERT_EQ(_data_dir->get_spill_data_path("q1"), fmt::format("spill/{}/q1", kEndpoint));
-    ASSERT_EQ(_data_dir->fs().get(), _s3_fs.get());
-    ASSERT_FALSE(_data_dir->reach_capacity_limit(1LL << 40)); // unlimited by default
+TEST_F(SpillFileS3Test, RemoteRootsAreOpaqueAndStableAcrossVaultRebinding) {
+    BackendOptions::set_localhost("192.0.2.10");
+    RemoteSpillDataDir first("vault-1");
+    RemoteSpillDataDir second("vault-2");
+    first._bind_fs_unlocked(_s3_fs);
+    second._bind_fs_unlocked(_s3_fs);
+    const auto root = first.get_spill_data_path();
+    EXPECT_NE(root, second.get_spill_data_path());
+    EXPECT_TRUE(root.starts_with("spill/"));
+    EXPECT_EQ(root.find(BackendOptions::get_localhost()), std::string::npos);
+    first._bind_fs_unlocked(_s3_fs);
+    EXPECT_EQ(first.get_spill_data_path(), root);
 }
 
 // Without spill_s3_storage_vault_id an instance without storage vaults spills to its latest
@@ -939,7 +953,7 @@ TEST_F(SpillFileS3Test, VaultChangeKeepsExistingFilesAndPendingDeletesPinned) {
     second_conf.client_conf.bucket = kBucket;
     auto second_fs_or = io::S3FileSystem::create(second_conf, "spill_s3_second_vault");
     ASSERT_TRUE(second_fs_or.has_value()) << second_fs_or.error();
-    _data_dir->init_remote_fs(second_fs_or.value(), kEndpoint);
+    _data_dir->_bind_fs_unlocked(second_fs_or.value());
 
     const auto second_block = _random_string_block(rng, 16, 100);
     auto second = _write_blocks("query_rotate/sort-1", {second_block}, &status);
@@ -947,16 +961,18 @@ TEST_F(SpillFileS3Test, VaultChangeKeepsExistingFilesAndPendingDeletesPinned) {
     ASSERT_EQ(_read_all(first), first_values);
     ASSERT_EQ(_read_all(second), _values_of({second_block}));
     ASSERT_EQ(mock_store().keys_with_prefix(kBucket, spill_root() + "/query_rotate/").size(), 1);
-    ASSERT_EQ(mock_store()
-                      .keys_with_prefix(kBucket, "spill_s3_second_vault/spill/" +
-                                                         std::string(kEndpoint) + "/query_rotate/")
-                      .size(),
-              1);
+    ASSERT_EQ(
+            mock_store()
+                    .keys_with_prefix(kBucket, "spill_s3_second_vault/spill/" +
+                                                       std::string(kBackendUid) + "/query_rotate/")
+                    .size(),
+            1);
 
     _manager->stop();
     mock_store().fail_deletes = true;
     first.reset();
     second.reset();
+    _manager->gc(10000);
     ASSERT_EQ(_manager->pending_delete_dir_count(), 2);
     ASSERT_GT(_manager->remote_spill_data_bytes(), 0);
     mock_store().fail_deletes = false;
@@ -966,7 +982,7 @@ TEST_F(SpillFileS3Test, VaultChangeKeepsExistingFilesAndPendingDeletesPinned) {
     ASSERT_TRUE(mock_store().keys_with_prefix(kBucket, spill_root() + "/query_rotate/").empty());
     ASSERT_TRUE(mock_store()
                         .keys_with_prefix(kBucket, "spill_s3_second_vault/spill/" +
-                                                           std::string(kEndpoint) +
+                                                           std::string(kBackendUid) +
                                                            "/query_rotate/")
                         .empty());
 }
@@ -986,6 +1002,7 @@ TEST_F(SpillFileS3Test, RemoteBillingExcludesOpenPartReservations) {
     ASSERT_EQ(_manager->remote_spill_data_bytes(), _data_dir->get_spill_data_bytes());
     writer.reset();
     file.reset();
+    _manager->gc(10000);
     ASSERT_EQ(_manager->remote_spill_data_bytes(), 0);
 }
 
@@ -1012,6 +1029,7 @@ TEST_F(SpillFileS3Test, PublishedPartRemainsBillableWhenCloseAndCleanupFail) {
     _manager->stop();
     mock_store().fail_deletes = true;
     file.reset();
+    _manager->gc(10000);
     ASSERT_EQ(_manager->pending_delete_dir_count(), 1);
     ASSERT_EQ(_manager->remote_spill_data_bytes(), object_bytes);
     // After the failed deletion: still there, retried by the GC.
@@ -1121,10 +1139,10 @@ TEST_F(SpillFileS3Test, PendingRemoteDeleteBacklogIsRequeuedInBulk) {
     after_drain_debug_point->execute_limit = 1;
     after_drain_debug_point->callback = std::function<void()>([&]() {
         const std::string spill_path = _data_dir->get_spill_data_path();
-        _manager->retry_spill_directory_deletion(_data_dir, _data_dir->fs(),
+        _manager->queue_spill_directory_deletion(_data_dir, _data_dir->fs(),
                                                  spill_path + "/query_bulk_requeue_5/sort-1", 0, 0,
                                                  "query_bulk_requeue_5");
-        _manager->retry_spill_directory_deletion(_data_dir, _data_dir->fs(),
+        _manager->queue_spill_directory_deletion(_data_dir, _data_dir->fs(),
                                                  spill_path + "/query_bulk_requeue_new/sort-1", 0,
                                                  0, "query_bulk_requeue_new");
     });
@@ -1180,6 +1198,7 @@ TEST_F(SpillFileS3Test, PartialDeleteReconcilesOnlyRemainingObjectBytes) {
     }
     _manager->stop();
     file.reset();
+    _manager->gc(10000);
     ASSERT_EQ(_manager->pending_delete_dir_count(), 1);
     ASSERT_EQ(_manager->remote_spill_data_bytes(), remaining_bytes);
     ASSERT_EQ(
@@ -1249,7 +1268,7 @@ TEST_F(SpillFileS3Test, NotReadyUntilVaultResolved) {
     ASSERT_TRUE(st.to_string().find("only supported in cloud mode") != std::string::npos) << st;
     ASSERT_EQ(spill_file, nullptr);
 
-    // Cloud mode but the address of this BE is not known.
+    // Cloud mode but the configured vault has not been discovered yet.
     auto saved_deploy_mode = config::deploy_mode;
     auto saved_cloud_unique_id = config::cloud_unique_id;
     config::deploy_mode = "cloud";
@@ -1258,7 +1277,8 @@ TEST_F(SpillFileS3Test, NotReadyUntilVaultResolved) {
     config::deploy_mode = saved_deploy_mode;
     config::cloud_unique_id = saved_cloud_unique_id;
     ASSERT_FALSE(st.ok());
-    ASSERT_TRUE(st.to_string().find("address of this BE is unknown") != std::string::npos) << st;
+    ASSERT_TRUE(st.to_string().find("storage vault 'vault-1' not found") != std::string::npos)
+            << st;
     ASSERT_EQ(spill_file, nullptr);
 }
 
@@ -1350,6 +1370,7 @@ TEST_F(SpillFileS3Test, RoundtripAcrossParts) {
 
     // After deleting: nothing is left of the query.
     spill_file.reset();
+    _manager->gc(10000);
     ASSERT_TRUE(_query_objects("query_1").empty());
     ASSERT_EQ(_data_dir->get_spill_data_bytes(), 0);
     ASSERT_EQ(_manager->remote_spill_data_bytes(), 0);
@@ -1377,6 +1398,7 @@ TEST_F(SpillFileS3Test, SmallPartIsOnePutObject) {
         ASSERT_EQ(mock_store().head_requests, check_after_upload ? 1 : 0);
         ASSERT_EQ(_counter(profile::SPILL_REMOTE_UPLOAD_BYTES) - bytes_before, object_bytes);
         spill_file.reset();
+        _manager->gc(10000);
         ASSERT_TRUE(_query_objects("query_small").empty());
         _destroy_manager();
     }
@@ -1637,6 +1659,7 @@ TEST_F(SpillFileS3Test, GcDeletesObjects) {
         ASSERT_GT(_data_dir->get_spill_data_bytes(), 0);
         heads_after_write = mock_store().head_requests;
     }
+    _manager->gc(10000);
     // No exists() probe is needed: the prefix is deleted directly (LIST + DELETE, no HEAD).
     ASSERT_TRUE(mock_store().keys_with_prefix(kBucket, spill_root() + "/query_3/").empty());
     ASSERT_EQ(_data_dir->get_spill_data_bytes(), 0);
@@ -1674,6 +1697,7 @@ TEST_F(SpillFileS3Test, FailedDeletionKeepsCapacityCharged) {
 
     mock_store().fail_deletes = true;
     spill_file.reset();
+    _manager->gc(10000);
     ASSERT_EQ(_query_objects("query_8"), written);
     ASSERT_EQ(_data_dir->get_spill_data_bytes(), charged);
     ASSERT_EQ(_manager->remote_spill_data_bytes(), charged);
@@ -1719,6 +1743,7 @@ TEST_F(SpillFileS3Test, StorageLimitIsEnforced) {
     // Nothing was accounted for the rejected block; the store is still usable. Closing the
     // writer published a part without blocks, deleted with its file.
     spill_file.reset();
+    _manager->gc(10000);
     ASSERT_TRUE(_query_objects("query_5").empty());
     ASSERT_EQ(_data_dir->get_spill_data_bytes(), 0);
 
@@ -1747,7 +1772,7 @@ TEST_F(SpillFileS3Test, TryReserveIsAtomic) {
     }
     ASSERT_EQ(granted.load(), 100);
     ASSERT_EQ(_data_dir->get_spill_data_bytes(), 1000);
-    ASSERT_TRUE(_data_dir->try_reserve(16, /*force=*/true).ok());
+    _data_dir->reserve(16);
     ASSERT_EQ(_data_dir->get_spill_data_bytes(), 1016);
     _data_dir->release(1016);
     ASSERT_EQ(_data_dir->get_spill_data_bytes(), 0);
@@ -1757,11 +1782,11 @@ TEST_F(SpillFileS3Test, TryReserveIsAtomic) {
 // S3 upload queue holds spill_s3_max_inflight_upload_bytes of buffers, and goes on when the
 // queue drains.
 // NOLINTNEXTLINE(readability-function-cognitive-complexity)
-TEST_F(SpillFileS3Test, UploadQueueBoundsWriter) {
+TEST_F(SpillFileS3Test, InflightSpillUploadsBoundWriter) {
     config::spill_s3_max_inflight_upload_bytes = 2 * config::s3_write_buffer_size;
     config::spill_file_part_size_bytes = 1024 * 1024;
     _create_manager();
-    auto* upload_pool = ExecEnv::GetInstance()->s3_file_upload_thread_pool();
+    const auto& inflight = SpillS3FileWriter::_inflight_upload_bytes();
 
     std::mt19937 rng(11);
     std::vector<Block> blocks;
@@ -1773,11 +1798,12 @@ TEST_F(SpillFileS3Test, UploadQueueBoundsWriter) {
     Status write_status;
     SpillFileSPtr spill_file;
     std::atomic<bool> finished {false};
-    std::atomic<int> max_queue {0};
+    std::atomic<int64_t> max_queue {0};
     std::atomic<bool> sampling {true};
     ScopedThread sampler([&]() {
         while (sampling.load()) {
-            max_queue = std::max(max_queue.load(), upload_pool->get_queue_size());
+            max_queue =
+                    std::max(max_queue.load(), (inflight->load() / config::s3_write_buffer_size));
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
     });
@@ -1793,17 +1819,17 @@ TEST_F(SpillFileS3Test, UploadQueueBoundsWriter) {
         _runtime_state->get_query_ctx()->cancel(Status::Cancelled("test teardown"));
     }};
 
-    // The blocked uploads occupy the pool; the writer stalls once two buffers are queued.
-    for (int i = 0; i < 250 && upload_pool->get_queue_size() < 2; ++i) {
+    // The blocked uploads occupy the pool; the writer stalls once two buffers are submitted.
+    for (int i = 0; i < 250 && (inflight->load() / config::s3_write_buffer_size) < 2; ++i) {
         std::this_thread::sleep_for(std::chrono::milliseconds(20));
     }
-    ASSERT_GE(upload_pool->get_queue_size(), 2);
+    ASSERT_GE((inflight->load() / config::s3_write_buffer_size), 2);
     std::this_thread::sleep_for(std::chrono::milliseconds(300));
     ASSERT_FALSE(finished.load());
     // The queue is checked before every block. A block (~12 KB) plus a partly filled pending
     // buffer (< 8 KB) fills at most two 8 KB buffers, so an append that passed the check with
     // one queued buffer leaves at most three.
-    ASSERT_LE(upload_pool->get_queue_size(), 3);
+    ASSERT_LE((inflight->load() / config::s3_write_buffer_size), 3);
 
     mock_store().set_block_uploads(false);
     writer_thread.join();
@@ -1816,6 +1842,7 @@ TEST_F(SpillFileS3Test, UploadQueueBoundsWriter) {
     ASSERT_TRUE(_no_open_multipart_uploads());
     ASSERT_EQ(_read_all(spill_file), _values_of(blocks));
     spill_file.reset();
+    _manager->gc(10000);
     ASSERT_TRUE(_query_objects("query_6").empty());
 }
 
@@ -1906,17 +1933,18 @@ TEST_F(SpillFileS3Test, PendingBuffersDoNotBlockWriters) {
     ASSERT_EQ(_query_objects("query_10"), expected);
     idle_files.clear();
     active_file.reset();
+    _manager->gc(10000);
     ASSERT_TRUE(_query_objects("query_10").empty());
 }
 
 // A writer waiting for the upload queue observes the cancellation of its query; the part is
 // not published and its incomplete multipart upload is left to the bucket lifecycle rule.
 // NOLINTNEXTLINE(readability-function-cognitive-complexity)
-TEST_F(SpillFileS3Test, UploadQueueWaitIsCancellable) {
+TEST_F(SpillFileS3Test, InflightSpillWaitIsCancellable) {
     config::spill_s3_max_inflight_upload_bytes = 2 * config::s3_write_buffer_size;
     config::spill_file_part_size_bytes = 1024 * 1024;
     _create_manager();
-    auto* upload_pool = ExecEnv::GetInstance()->s3_file_upload_thread_pool();
+    const auto& inflight = SpillS3FileWriter::_inflight_upload_bytes();
 
     std::mt19937 rng(13);
     std::vector<Block> blocks;
@@ -1950,10 +1978,10 @@ TEST_F(SpillFileS3Test, UploadQueueWaitIsCancellable) {
         mock_store().set_block_uploads(false);
         _runtime_state->get_query_ctx()->cancel(Status::Cancelled("test teardown"));
     }};
-    for (int i = 0; i < 250 && upload_pool->get_queue_size() < 2; ++i) {
+    for (int i = 0; i < 250 && (inflight->load() / config::s3_write_buffer_size) < 2; ++i) {
         std::this_thread::sleep_for(std::chrono::milliseconds(20));
     }
-    ASSERT_GE(upload_pool->get_queue_size(), 2);
+    ASSERT_GE((inflight->load() / config::s3_write_buffer_size), 2);
     ASSERT_FALSE(writes_done.load());
     // Cancellation is observed through the query's task controller, not the RuntimeState.
     _runtime_state->get_query_ctx()->cancel(Status::Cancelled("test cancel"));
@@ -1974,6 +2002,7 @@ TEST_F(SpillFileS3Test, UploadQueueWaitIsCancellable) {
     ASSERT_EQ(mock_store().complete_multipart_requests, 0);
     writer.reset();
     spill_file.reset();
+    _manager->gc(10000);
     ASSERT_EQ(_data_dir->get_spill_data_bytes(), 0);
 }
 
@@ -2012,6 +2041,7 @@ TEST_F(SpillFileS3Test, CancelledQueryCloseLeavesIncompleteMultipart) {
     ASSERT_FALSE(_no_open_multipart_uploads());
     writer.reset();
     spill_file.reset();
+    _manager->gc(10000);
     ASSERT_EQ(_data_dir->get_spill_data_bytes(), 0);
 }
 
@@ -2037,6 +2067,8 @@ TEST_F(SpillFileS3Test, SpillFileDestroyedBeforeWriterDiscardsPart) {
     ASSERT_GT(_data_dir->get_spill_data_bytes(), 0);
 
     spill_file.reset();
+
+    _manager->gc(10000);
     ASSERT_EQ(mock_store().complete_multipart_requests, 0);
     ASSERT_EQ(_data_dir->get_spill_data_bytes(), 0);
     ASSERT_FALSE(_no_open_multipart_uploads());
@@ -2072,8 +2104,10 @@ TEST_F(SpillFileS3Test, FailedCloseThenSpillFileDestroyed) {
         if (writer_first) {
             writer.reset();
             spill_file.reset();
+            _manager->gc(10000);
         } else {
             spill_file.reset();
+            _manager->gc(10000);
             writer.reset();
         }
         ASSERT_EQ(_data_dir->get_spill_data_bytes(), 0);
@@ -2105,6 +2139,7 @@ TEST_F(SpillFileS3Test, CancelledQueryCloseIssuesNoUpload) {
     ASSERT_TRUE(_query_objects("query_13").empty());
     writer.reset();
     spill_file.reset();
+    _manager->gc(10000);
     ASSERT_EQ(_data_dir->get_spill_data_bytes(), 0);
 }
 
@@ -2129,6 +2164,7 @@ TEST_F(SpillFileS3Test, UploadFailureIsReportedAndReconciled) {
     ASSERT_TRUE(_query_objects("query_8").empty());
     mock_store().fail_uploads = false;
     spill_file.reset();
+    _manager->gc(10000);
     ASSERT_EQ(_manager->remote_spill_data_bytes(), 0);
     ASSERT_EQ(_data_dir->get_spill_data_bytes(), 0);
 }
@@ -2164,6 +2200,7 @@ TEST_F(SpillFileS3Test, FailedRotationDoesNotFinishFile) {
     ASSERT_TRUE(_no_open_multipart_uploads());
     writer.reset();
     spill_file.reset();
+    _manager->gc(10000);
     ASSERT_TRUE(_query_objects("query_18").empty());
     ASSERT_EQ(_data_dir->get_spill_data_bytes(), 0);
     ASSERT_EQ(_manager->remote_spill_data_bytes(), 0);
@@ -2208,6 +2245,7 @@ TEST_F(SpillFileS3Test, LateUploadFailureDrainsPart) {
     ASSERT_FALSE(_no_open_multipart_uploads());
     ASSERT_TRUE(_query_objects("query_11").empty());
     spill_file.reset();
+    _manager->gc(10000);
     ASSERT_EQ(_data_dir->get_spill_data_bytes(), 0);
 }
 
@@ -2232,6 +2270,7 @@ TEST_F(SpillFileS3Test, CreateMultipartFailureIsSafe) {
     ASSERT_GE(mock_store().create_multipart_requests, 1);
     ASSERT_TRUE(_query_objects("query_12").empty());
     spill_file.reset();
+    _manager->gc(10000);
     ASSERT_EQ(_data_dir->get_spill_data_bytes(), 0);
 }
 
@@ -2267,6 +2306,7 @@ TEST_F(SpillFileS3Test, LifecycleLogsCountLogicalFilesNotParts) {
     file->gc();
     file->gc();
     file.reset();
+    _manager->gc(10000);
     writer.reset();
     _expect_file_counts(created + 1, deleted + 1);
     EXPECT_EQ(logs.count(google::INFO, "[spill][delete] query_id=query_lifecycle,"), 1);
@@ -2290,6 +2330,7 @@ TEST_F(SpillFileS3Test, FailedCloseHasWarningLifecycleLog) {
     EXPECT_EQ(_counter(profile::SPILL_REMOTE_UPLOAD_BYTES), 0);
     _expect_file_counts(created + 1, deleted);
     file.reset();
+    _manager->gc(10000);
     _expect_file_counts(created + 1, deleted + 1);
     EXPECT_EQ(logs.count(google::INFO, "[spill][delete] query_id=query_lifecycle_failed,"), 1);
 }
@@ -2339,6 +2380,238 @@ TEST_F(SpillFileS3Test, ManagerMetrics) {
     ASSERT_EQ(_manager->_spill_remote_write_bytes_counter->value(),
               _counter(profile::SPILL_REMOTE_UPLOAD_BYTES));
     ASSERT_EQ(_manager->_entity->get_metric("spill_remote_put_requests"), nullptr);
+}
+
+TEST_F(SpillFileS3Test, UnrelatedUploadTasksDoNotThrottleSpill) {
+    config::spill_s3_max_inflight_upload_bytes = 2 * config::s3_write_buffer_size;
+    _create_manager();
+    auto* pool = ExecEnv::GetInstance()->s3_file_upload_thread_pool();
+    std::mutex mutex;
+    std::condition_variable cv;
+    bool release = false;
+    auto unblock_pool = [&]() {
+        {
+            std::lock_guard lock(mutex);
+            release = true;
+        }
+        cv.notify_all();
+    };
+    Defer unblock {[&]() {
+        unblock_pool();
+        pool->wait();
+    }};
+    for (int i = 0; i < pool->max_threads() + 4; ++i) {
+        ASSERT_TRUE(pool->submit_func([&]() {
+                            std::unique_lock lock(mutex);
+                            cv.wait(lock, [&]() { return release; });
+                        }).ok());
+    }
+    for (int i = 0; i < 500 && pool->get_queue_size() < 2; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    ASSERT_GE(pool->get_queue_size(), 2);
+    SpillFileSPtr file;
+    ASSERT_TRUE(_manager->create_spill_file("unrelated_uploads/sort-1", file).ok());
+    SpillFileWriterSPtr writer;
+    ASSERT_TRUE(file->create_writer(_runtime_state.get(), _profile.get(), writer).ok());
+    std::atomic<bool> finished {false};
+    Status status;
+    ScopedThread writing([&]() {
+        status = writer->write_block(_runtime_state.get(),
+                                     ColumnHelper::create_block<DataTypeInt32>({1}));
+        finished = true;
+    });
+    // Release the pool before joining even if an assertion or the old queue-based limiter fails.
+    Defer release_before_join {[&]() { unblock_pool(); }};
+    for (int i = 0; i < 500 && !finished.load(); ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    EXPECT_TRUE(finished.load()) << "unrelated S3 tasks must not block a buffered spill append";
+    unblock_pool();
+    writing.join();
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_EQ(SpillS3FileWriter::_inflight_upload_bytes()->load(), 0);
+    ASSERT_TRUE(writer->close().ok());
+}
+
+// GTest assertions inflate this metric; keep callback release and thread-join ordering visible.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
+TEST_F(SpillFileS3Test, FileGcDoesNotWaitForUnfinishedUploads) {
+    _create_manager();
+    std::mt19937 rng(188);
+    SpillFileSPtr file;
+    ASSERT_TRUE(_manager->create_spill_file("async_discard/sort-1", file).ok());
+    SpillFileWriterSPtr writer;
+    ASSERT_TRUE(file->create_writer(_runtime_state.get(), _profile.get(), writer).ok());
+    mock_store().set_block_uploads(true);
+    Defer unblock {[&]() { mock_store().set_block_uploads(false); }};
+    ASSERT_TRUE(writer->write_block(_runtime_state.get(), _random_string_block(rng, 64, 200)).ok());
+    const auto charged = _data_dir->get_spill_data_bytes();
+    ASSERT_GT(charged, 0);
+    const auto lists = mock_store().list_requests.load();
+    const auto deletes = mock_store().delete_requests.load();
+    std::atomic<bool> finished {false};
+    ScopedThread destroying([&]() {
+        file.reset();
+        finished = true;
+    });
+    Defer release_before_join {[&]() { mock_store().set_block_uploads(false); }};
+    for (int i = 0; i < 500 && !finished.load(); ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    EXPECT_TRUE(finished.load()) << "file teardown must not wait for upload callbacks";
+    EXPECT_EQ(mock_store().list_requests.load(), lists);
+    EXPECT_EQ(mock_store().delete_requests.load(), deletes);
+    EXPECT_EQ(_data_dir->get_spill_data_bytes(), charged);
+    // Callback accounting must use the submitted buffer's allocation, not a later config.
+    config::s3_write_buffer_size *= 2;
+    mock_store().set_block_uploads(false);
+    destroying.join();
+    _manager->gc(10000);
+    EXPECT_EQ(_data_dir->get_spill_data_bytes(), 0);
+    EXPECT_EQ(SpillS3FileWriter::_inflight_upload_bytes()->load(), 0);
+    EXPECT_EQ(mock_store().complete_multipart_requests.load(), 0);
+    EXPECT_TRUE(_query_objects("async_discard").empty());
+    ASSERT_TRUE(writer->close().ok());
+}
+
+TEST_F(SpillFileS3Test, RemotePartSizeClampsToUploadBuffer) {
+    _create_manager();
+    // Change after manager initialization: each new writer must apply the effective minimum.
+    config::spill_file_part_size_bytes = 1;
+    std::mt19937 rng(189);
+    std::vector<Block> blocks;
+    for (int i = 0; i < 12; ++i) {
+        blocks.push_back(_random_string_block(rng, 16, 100));
+    }
+    Status status;
+    auto file = _write_blocks("minimum_part/sort-1", blocks, &status);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_LT(file->_part_sizes.size(), blocks.size());
+    ASSERT_GT(file->_part_sizes.size(), 1);
+    for (size_t i = 0; i + 1 < file->_part_sizes.size(); ++i) {
+        EXPECT_GE(file->_part_sizes[i], config::s3_write_buffer_size);
+    }
+    EXPECT_EQ(_read_all(file), _values_of(blocks));
+}
+
+TEST_F(SpillFileS3Test, FailedUploadSubmissionReturnsInflightCharge) {
+    _create_manager();
+    const bool saved = config::enable_debug_points;
+    constexpr auto name = "S3FileWriter.submit_upload_buffer.inject_error";
+    Defer restore {[&]() {
+        DebugPoints::instance()->remove(name);
+        config::enable_debug_points = saved;
+    }};
+    config::enable_debug_points = true;
+    DebugPoints::instance()->add(name);
+    std::mt19937 rng(190);
+    Status status;
+    auto file =
+            _write_blocks("failed_submit/sort-1", {_random_string_block(rng, 64, 200)}, &status);
+    EXPECT_FALSE(status.ok());
+    EXPECT_EQ(SpillS3FileWriter::_inflight_upload_bytes()->load(), 0);
+    EXPECT_FALSE(file->ready_for_reading());
+}
+
+// GTest assertions inflate this metric; keep callback release and thread-join ordering visible.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
+TEST_F(SpillFileS3Test, ShutdownCompletesQueuedUploadsBeforeGcDestroysWriter) {
+    _create_manager();
+    auto* env = ExecEnv::GetInstance();
+    auto saved_pool = std::move(env->_s3_file_upload_thread_pool);
+    Defer restore_pool {[&]() { env->set_s3_file_upload_thread_pool(std::move(saved_pool)); }};
+    std::unique_ptr<ThreadPool> pool;
+    ASSERT_TRUE(ThreadPoolBuilder("spill_shutdown_upload")
+                        .set_min_threads(1)
+                        .set_max_threads(1)
+                        .build(&pool)
+                        .ok());
+    env->set_s3_file_upload_thread_pool(std::move(pool));
+    auto* upload_pool = env->s3_file_upload_thread_pool();
+    std::mutex mutex;
+    std::condition_variable cv;
+    bool started = false;
+    bool release = false;
+    auto unblock_pool = [&]() {
+        {
+            std::lock_guard lock(mutex);
+            release = true;
+        }
+        cv.notify_all();
+    };
+    Defer unblock {[&]() {
+        unblock_pool();
+        upload_pool->wait();
+    }};
+    ASSERT_TRUE(upload_pool
+                        ->submit_func([&]() {
+                            std::unique_lock lock(mutex);
+                            started = true;
+                            cv.notify_all();
+                            cv.wait(lock, [&]() { return release; });
+                        })
+                        .ok());
+    {
+        std::unique_lock lock(mutex);
+        ASSERT_TRUE(cv.wait_for(lock, std::chrono::seconds(5), [&]() { return started; }));
+    }
+    SpillFileSPtr file;
+    ASSERT_TRUE(_manager->create_spill_file("shutdown_upload/sort-1", file).ok());
+    SpillFileWriterSPtr writer;
+    ASSERT_TRUE(file->create_writer(_runtime_state.get(), _profile.get(), writer).ok());
+    std::mt19937 rng(191);
+    ASSERT_TRUE(writer->write_block(_runtime_state.get(), _random_string_block(rng, 64, 200)).ok());
+    auto* io_writer = dynamic_cast<io::S3FileWriter*>(writer->_file_writer.get());
+    ASSERT_NE(io_writer, nullptr);
+    file.reset();
+    // A broken dropped-task callback must fail the test rather than hang TearDown(). The
+    // isolated pool has only this writer's uploads, so release precisely its missing signals.
+    Defer finish_dropped_callbacks {[&]() {
+        while (SpillS3FileWriter::_inflight_upload_bytes()->load() > 0) {
+            io_writer->_complete_part_task_callback(Status::Cancelled("test cleanup"),
+                                                    config::s3_write_buffer_size);
+        }
+    }};
+    ASSERT_GT(SpillS3FileWriter::_inflight_upload_bytes()->load(), 0);
+    ScopedThread stopping([&]() { upload_pool->shutdown(); });
+    Defer release_before_join {[&]() { unblock_pool(); }};
+    for (int i = 0; i < 500 && upload_pool->get_queue_size() != 0; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    EXPECT_EQ(upload_pool->get_queue_size(), 0);
+    unblock_pool();
+    stopping.join();
+    EXPECT_EQ(SpillS3FileWriter::_inflight_upload_bytes()->load(), 0);
+    while (SpillS3FileWriter::_inflight_upload_bytes()->load() > 0) {
+        io_writer->_complete_part_task_callback(Status::Cancelled("test cleanup"),
+                                                config::s3_write_buffer_size);
+    }
+    // There are no upload threads left. Destruction must not wait for dropped callbacks.
+    _manager->gc(10000);
+    EXPECT_EQ(_manager->pending_delete_dir_count(), 0);
+    EXPECT_EQ(_data_dir->get_spill_data_bytes(), 0);
+    EXPECT_EQ(mock_store().put_requests.load(), 0);
+    EXPECT_EQ(mock_store().complete_multipart_requests.load(), 0);
+}
+
+TEST_F(SpillFileS3Test, RemoteStorageTypeAndLegacyAliasSelectSameBackend) {
+    const auto saved_type = config::spill_storage_type;
+    Defer restore_type {[&]() { config::spill_storage_type = saved_type; }};
+    config::deploy_mode = "cloud";
+    config::cloud_unique_id = "";
+    for (const auto* type : {spill_storage_type::REMOTE, spill_storage_type::S3}) {
+        config::spill_storage_type = type;
+        _manager = new SpillFileManager(std::vector<StorePath> {});
+        ExecEnv::GetInstance()->_spill_file_mgr = _manager;
+        ASSERT_TRUE(_manager->init().ok());
+        _manager->stop();
+        _data_dir = _manager->_remote_store;
+        ASSERT_NE(_data_dir, nullptr);
+        EXPECT_TRUE(_manager->_local_stores.empty());
+        EXPECT_FALSE(_data_dir->ready()); // Vault binding remains lazy for both names.
+        _destroy_manager();
+    }
 }
 
 } // namespace doris::vectorized

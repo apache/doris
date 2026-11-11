@@ -20,17 +20,11 @@
 #include <fmt/format.h>
 #include <glog/logging.h>
 
-#include <algorithm>
-#include <filesystem>
 #include <utility>
 
-#include "common/config.h"
 #include "common/logging.h"
 #include "common/metrics/doris_metrics.h"
 #include "common/metrics/metrics.h"
-#include "io/fs/local_file_system.h"
-#include "storage/olap_define.h"
-#include "util/parse_util.h"
 #include "util/pretty_printer.h"
 
 namespace doris {
@@ -86,12 +80,12 @@ std::string SpillDataDir::get_spill_data_path(const std::string& query_id) const
 
 bool SpillDataDir::reach_capacity_limit(int64_t incoming_data_size) {
     std::lock_guard<std::mutex> l(_mutex);
-    return _reach_limit_unlocked(incoming_data_size);
+    return _reach_limit_unlocked(incoming_data_size, l);
 }
 
-Status SpillDataDir::try_reserve(int64_t bytes, bool force) {
+Status SpillDataDir::try_reserve(int64_t bytes) {
     std::lock_guard<std::mutex> l(_mutex);
-    if (!force && _reach_limit_unlocked(bytes)) {
+    if (_reach_limit_unlocked(bytes, l)) {
         return Status::Error<ErrorCode::DISK_REACH_CAPACITY_LIMIT>(
                 "spill data total size exceed limit, path: {}, size limit: {}, spill data "
                 "size: {}",
@@ -103,9 +97,17 @@ Status SpillDataDir::try_reserve(int64_t bytes, bool force) {
     return Status::OK();
 }
 
-void SpillDataDir::update_spill_data_usage(int64_t incoming_data_size) {
+void SpillDataDir::reserve(int64_t bytes) {
     std::lock_guard<std::mutex> l(_mutex);
-    _spill_data_bytes += incoming_data_size;
+    _spill_data_bytes += bytes;
+    spill_disk_data_size->set_value(_spill_data_bytes);
+}
+
+void SpillDataDir::release(int64_t bytes) {
+    std::lock_guard<std::mutex> lock(_mutex);
+    DCHECK_GE(bytes, 0);
+    DCHECK_GE(_spill_data_bytes, bytes);
+    _spill_data_bytes -= bytes;
     spill_disk_data_size->set_value(_spill_data_bytes);
 }
 
@@ -119,19 +121,17 @@ int64_t SpillDataDir::get_spill_data_limit() {
     return _spill_data_limit_bytes;
 }
 
-namespace {
-double inode_usage(size_t total, size_t available) {
+double SpillDataDir::_inode_usage(size_t total, size_t available) {
     return total == 0 ? 0 : (double)(total - available) / (double)total;
 }
 
-std::string inode_debug_string(size_t total, size_t available) {
+std::string SpillDataDir::_inode_debug_string(size_t total, size_t available) {
     if (total == 0) {
         return "inodes: unknown";
     }
     return fmt::format("inodes: total: {}, used: {}, available: {}, used pct: {:.2f}%", total,
-                       total - available, available, inode_usage(total, available) * 100);
+                       total - available, available, _inode_usage(total, available) * 100);
 }
-} // namespace
 
 std::string SpillDataDir::debug_string() {
     std::lock_guard<std::mutex> l(_mutex);
@@ -141,153 +141,8 @@ std::string SpillDataDir::debug_string() {
             PrettyPrinter::print_bytes(_spill_data_limit_bytes),
             PrettyPrinter::print_bytes(_spill_data_bytes),
             PrettyPrinter::print_bytes(_available_bytes),
-            inode_debug_string(static_cast<size_t>(spill_disk_inode_total->value()),
-                               static_cast<size_t>(spill_disk_inode_available->value())));
-}
-
-// ── LocalSpillDataDir ──
-
-static bool is_directory_empty(const std::filesystem::path& dir) {
-    // Spill cleanup may delete the directory while the iterator is constructed or advanced. Treat
-    // that race as empty for these presence metrics.
-    try {
-        return std::filesystem::is_directory(dir) &&
-               std::filesystem::directory_iterator(dir) ==
-                       std::filesystem::end(std::filesystem::directory_iterator {});
-    } catch (const std::filesystem::filesystem_error&) {
-        return true;
-    }
-}
-
-LocalSpillDataDir::LocalSpillDataDir(std::string path, int64_t capacity_bytes,
-                                     TStorageMedium::type storage_medium)
-        : SpillDataDir(path, fmt::format("{}/{}", path, SPILL_DIR_PREFIX),
-                       fmt::format("{}/{}", path, SPILL_DIR_PREFIX), capacity_bytes,
-                       storage_medium) {}
-
-Status LocalSpillDataDir::init() {
-    bool exists = false;
-    RETURN_IF_ERROR(io::global_local_filesystem()->exists(_path, &exists));
-    if (!exists) {
-        RETURN_NOT_OK_STATUS_WITH_WARN(Status::IOError("opendir failed, path={}", _path),
-                                       "check file exist failed");
-    }
-    RETURN_IF_ERROR(update_capacity());
-    LOG(INFO) << fmt::format(
-            "spill storage path: {}, capacity: {}, limit: {}, available: "
-            "{}",
-            _path, PrettyPrinter::print_bytes(_disk_capacity_bytes),
-            PrettyPrinter::print_bytes(_spill_data_limit_bytes),
-            PrettyPrinter::print_bytes(_available_bytes));
-    return Status::OK();
-}
-
-io::FileSystemSPtr LocalSpillDataDir::fs() const {
-    return io::global_local_filesystem();
-}
-
-std::string LocalSpillDataDir::get_spill_data_gc_path(const std::string& sub_dir_name) const {
-    auto dir = fmt::format("{}/{}", _path, SPILL_GC_DIR_PREFIX);
-    if (!sub_dir_name.empty()) {
-        dir = fmt::format("{}/{}", dir, sub_dir_name);
-    }
-    return dir;
-}
-
-Status LocalSpillDataDir::update_capacity() {
-    std::lock_guard<std::mutex> l(_mutex);
-    RETURN_IF_ERROR(io::global_local_filesystem()->get_space_info(_path, &_disk_capacity_bytes,
-                                                                  &_available_bytes));
-    spill_disk_capacity->set_value(_disk_capacity_bytes);
-    spill_disk_avail_capacity->set_value(_available_bytes);
-    _update_inode_usage();
-    auto disk_use_max_bytes =
-            (int64_t)(_disk_capacity_bytes * config::storage_flood_stage_usage_percent / 100);
-    bool is_percent = true;
-    _spill_data_limit_bytes = ParseUtil::parse_mem_spec(config::spill_storage_limit, -1,
-                                                        _disk_capacity_bytes, &is_percent);
-    if (_spill_data_limit_bytes <= 0) {
-        spill_disk_limit->set_value(_spill_data_limit_bytes);
-        auto err_msg = fmt::format("Failed to parse spill storage limit from '{}'",
-                                   config::spill_storage_limit);
-        LOG(WARNING) << err_msg;
-        return Status::InvalidArgument(err_msg);
-    }
-    if (is_percent) {
-        _spill_data_limit_bytes = (int64_t)(_spill_data_limit_bytes *
-                                            config::storage_flood_stage_usage_percent / 100);
-    }
-    _spill_data_limit_bytes = std::min(_spill_data_limit_bytes, disk_use_max_bytes);
-    // 0 means no byte limit; spill_storage_limit above always applies.
-    if (config::spill_storage_limit_bytes > 0) {
-        _spill_data_limit_bytes =
-                std::min(_spill_data_limit_bytes, config::spill_storage_limit_bytes);
-    }
-    spill_disk_limit->set_value(_spill_data_limit_bytes);
-
-    std::string spill_root_dir = get_spill_data_path();
-    std::string spill_gc_root_dir = get_spill_data_gc_path();
-    spill_disk_has_spill_data->set_value(is_directory_empty(spill_root_dir) ? 0 : 1);
-    spill_disk_has_spill_gc_data->set_value(is_directory_empty(spill_gc_root_dir) ? 0 : 1);
-
-    return Status::OK();
-}
-
-void LocalSpillDataDir::_update_inode_usage() {
-    size_t inode_total = 0;
-    size_t inode_available = 0;
-    auto st = io::global_local_filesystem()->get_inode_info(_path, &inode_total, &inode_available);
-    if (!st.ok()) {
-        LOG_EVERY_T(WARNING, 60) << fmt::format("failed to get inode info of spill path {}: {}",
-                                                _path, st.to_string());
-        return;
-    }
-    spill_disk_inode_total->set_value(inode_total);
-    spill_disk_inode_available->set_value(inode_available);
-
-    if (inode_total == 0) {
-        return;
-    }
-    if (inode_usage(inode_total, inode_available) >=
-        config::storage_flood_stage_usage_percent / 100.0) {
-        LOG_EVERY_T(WARNING, 60) << fmt::format(
-                "spill disk inode usage is high, path: {}, {}. Too many spill files or a "
-                "large spill gc backlog may exhaust inodes before disk space runs out",
-                _path, inode_debug_string(inode_total, inode_available));
-    }
-}
-
-bool LocalSpillDataDir::_reach_disk_capacity_limit(int64_t incoming_data_size) {
-    double used_pct = get_disk_usage(incoming_data_size);
-    int64_t left_bytes = _available_bytes - incoming_data_size;
-    if (used_pct >= config::storage_flood_stage_usage_percent / 100.0 &&
-        left_bytes <= config::storage_flood_stage_left_capacity_bytes) {
-        LOG(WARNING) << "reach capacity limit. used pct: " << used_pct
-                     << ", left bytes: " << left_bytes << ", path: " << _path;
-        return true;
-    }
-    return false;
-}
-
-bool LocalSpillDataDir::_reach_limit_unlocked(int64_t incoming_data_size) {
-    if (_reach_disk_capacity_limit(incoming_data_size)) {
-        return true;
-    }
-    if (_spill_data_bytes + incoming_data_size > _spill_data_limit_bytes) {
-        LOG_EVERY_T(WARNING, 1) << fmt::format(
-                "spill data reach limit, path: {}, capacity: {}, limit: {}, used: {}, "
-                "available: "
-                "{}, "
-                "incoming "
-                "bytes: {}",
-                _path, PrettyPrinter::print_bytes(_disk_capacity_bytes),
-                PrettyPrinter::print_bytes(_spill_data_limit_bytes),
-                PrettyPrinter::print_bytes(_spill_data_bytes),
-                PrettyPrinter::print_bytes(_available_bytes),
-                PrettyPrinter::print_bytes(incoming_data_size));
-        return true;
-    }
-    return false;
+            _inode_debug_string(static_cast<size_t>(spill_disk_inode_total->value()),
+                                static_cast<size_t>(spill_disk_inode_available->value())));
 }
 
 } // namespace doris

@@ -23,6 +23,7 @@
 #include <vector>
 
 #include "exec/pipeline/dependency.h"
+#include "exec/spill/local_spill_data_dir.h"
 #include "exec/spill/spill_file_manager.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/runtime_profile.h"

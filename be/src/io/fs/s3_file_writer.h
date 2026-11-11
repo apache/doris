@@ -78,7 +78,7 @@ private:
     Status _set_upload_to_remote_less_than_buffer_size();
     void _put_object(UploadFileBuffer& buf);
     void _upload_one_part(int part_num, UploadFileBuffer& buf);
-    bool _complete_part_task_callback(Status s);
+    bool _complete_part_task_callback(Status s, int64_t upload_bytes);
     Status _build_upload_buffer();
     Status _submit_upload_buffer(const std::shared_ptr<FileBuffer>& buf);
     void _record_close_latency();
@@ -94,6 +94,7 @@ private:
     // **Attention** call add_count() before submitting buf to async thread pool
     bthread::CountdownEvent _countdown_event {0};
 
+    std::shared_ptr<std::atomic<int64_t>> _inflight_upload_bytes = nullptr;
     std::atomic_bool _failed = false;
 
     Status _st;
