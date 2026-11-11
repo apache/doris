@@ -27,7 +27,7 @@ import org.apache.doris.qe.ConnectContext;
  * RightAntiJoin -> LeftAntiJoin
  * RightOuterJoin -> LeftOuterJoin
  */
-public class SemiJoinCommute extends OneRewriteRuleFactory {
+public class ConvertRightJoinToLeftJoin extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
         return logicalJoin()
@@ -36,6 +36,7 @@ public class SemiJoinCommute extends OneRewriteRuleFactory {
                 .whenNot(join -> join.isLeadingJoin())
                 .whenNot(LogicalJoin::hasDistributeHint)
                 .then(join -> join.withTypeChildren(join.getJoinType().swap(), join.right(), join.left(), null))
+                // Preserve the existing identifier used by disable_nereids_rules.
                 .toRule(RuleType.LOGICAL_SEMI_JOIN_COMMUTE);
     }
 }

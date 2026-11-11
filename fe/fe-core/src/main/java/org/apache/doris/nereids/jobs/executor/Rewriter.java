@@ -56,6 +56,7 @@ import org.apache.doris.nereids.rules.rewrite.ColumnPruning;
 import org.apache.doris.nereids.rules.rewrite.ConstantPropagation;
 import org.apache.doris.nereids.rules.rewrite.ConvertInnerOrCrossJoin;
 import org.apache.doris.nereids.rules.rewrite.ConvertOuterJoinToAntiJoin;
+import org.apache.doris.nereids.rules.rewrite.ConvertRightJoinToLeftJoin;
 import org.apache.doris.nereids.rules.rewrite.CountDistinctRewrite;
 import org.apache.doris.nereids.rules.rewrite.CountLiteralRewrite;
 import org.apache.doris.nereids.rules.rewrite.CreatePartitionTopNFromWindow;
@@ -157,7 +158,6 @@ import org.apache.doris.nereids.rules.rewrite.RewriteSearchToSlots;
 import org.apache.doris.nereids.rules.rewrite.RewriteSetOperationToJoinWhenSpill;
 import org.apache.doris.nereids.rules.rewrite.RewriteSimpleAggToConstantRule;
 import org.apache.doris.nereids.rules.rewrite.SaltJoin;
-import org.apache.doris.nereids.rules.rewrite.SemiJoinCommute;
 import org.apache.doris.nereids.rules.rewrite.SetPreAggStatus;
 import org.apache.doris.nereids.rules.rewrite.SimplifyEncodeDecode;
 import org.apache.doris.nereids.rules.rewrite.SimplifyWindowExpression;
@@ -333,7 +333,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                     ),
                                     // push down SEMI Join
                                     bottomUp(
-                                            new SemiJoinCommute(),
+                                            new ConvertRightJoinToLeftJoin(),
                                             new TransposeSemiJoinLogicalJoin(),
                                             new TransposeSemiJoinLogicalJoinProject(),
                                             new TransposeSemiJoinAgg(),
@@ -578,7 +578,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                 ),
                                 // push down SEMI Join
                                 bottomUp(
-                                        new SemiJoinCommute(),
+                                        new ConvertRightJoinToLeftJoin(),
                                         new TransposeSemiJoinLogicalJoin(),
                                         new TransposeSemiJoinLogicalJoinProject(),
                                         new TransposeSemiJoinAgg(),
