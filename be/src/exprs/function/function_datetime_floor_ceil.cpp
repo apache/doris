@@ -27,10 +27,12 @@
 #if !defined(__APPLE__)
 #include <experimental/bits/simd.h>
 #endif
+#include <map>
 #include <memory>
 #include <optional>
 #include <type_traits>
 #include <utility>
+#include <vector>
 
 #include "common/compiler_util.h"
 #include "common/status.h"
@@ -42,6 +44,7 @@
 #include "core/column/column_const.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_vector.h"
+#include "core/custom_allocator.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_date_or_datetime_v2.h"
 #include "core/data_type/data_type_date_time.h"
@@ -59,6 +62,7 @@
 #include "exprs/function/datetime_errors.h"
 #include "exprs/function/function.h"
 #include "exprs/function/simple_function_factory.h"
+#include "util/timezone_utils.h"
 
 namespace doris {
 class FunctionContext;
@@ -135,6 +139,53 @@ bool previous_rounding_transition(const cctz::time_zone& tz, cctz::time_point<cc
     transition->to = tz.lookup(instant).cs;
     return true;
 }
+
+// The recurrence probe is shared by all search intervals in a Block. Each interval
+// includes its preceding transition because a gap can shift a boundary into it.
+class RoundingGapScanner {
+public:
+    RoundingGapScanner(const cctz::time_zone& timezone, int64_t upper) : _timezone(timezone) {
+        cctz::time_zone::civil_transition last;
+        _has_transitions = timezone.prev_transition(
+                cctz::time_point<cctz::seconds>(cctz::seconds(upper + 1)), &last);
+        if (!_has_transitions) {
+            return; // A fixed-offset zone, or an interval before the first transition.
+        }
+        _last_stored = timezone.lookup(last.to).trans;
+        cctz::time_zone::civil_transition next;
+        const auto repeated = _last_stored + cctz::seconds(GREGORIAN_CYCLE_SECONDS);
+        _recurring = !timezone.next_transition(_last_stored, &next) &&
+                     timezone.lookup(repeated - cctz::seconds(1)).offset !=
+                             timezone.lookup(repeated).offset;
+    }
+
+    template <typename Visitor>
+    void for_each_gap(int64_t lower, int64_t upper, Visitor&& visit) const {
+        if (!_has_transitions) {
+            return;
+        }
+        auto cursor = cctz::time_point<cctz::seconds>(cctz::seconds(upper + 1));
+        cctz::time_zone::civil_transition transition;
+        while (previous_rounding_transition(_timezone, cursor, _last_stored, _recurring,
+                                            &transition)) {
+            const auto instant = _timezone.lookup(transition.to).trans;
+            const auto gap_seconds = transition.to - transition.from;
+            if (gap_seconds > 0 && instant.time_since_epoch().count() + gap_seconds > lower) {
+                visit(transition);
+            }
+            if (instant.time_since_epoch().count() <= lower) {
+                break;
+            }
+            cursor = instant - cctz::seconds(1);
+        }
+    }
+
+private:
+    const cctz::time_zone& _timezone;
+    cctz::time_point<cctz::seconds> _last_stored;
+    bool _has_transitions = false;
+    bool _recurring = false;
+};
 
 } // namespace
 
@@ -334,10 +385,23 @@ public:
 template <typename Flag, PrimitiveType PType>
 struct DateTimeFloorCeilCore {
     using DateValueType = typename PrimitiveTypeTraits<PType>::CppType;
+    using LocalDateTime = DateV2Value<DateTimeV2ValueType>;
+    static constexpr bool need_tz_conversion =
+            std::is_same_v<DateValueType, TimestampTzValue> &&
+            (Flag::Unit == YEAR || Flag::Unit == QUARTER || Flag::Unit == MONTH ||
+             Flag::Unit == WEEK || Flag::Unit == DAY || Flag::Unit == HOUR || Flag::Unit == MINUTE);
 
     static void vector(const PaddedPODArray<DateValueType>& dates,
                        PaddedPODArray<DateValueType>& res, const NullMap& result_null_map,
                        FunctionContext* context) {
+        if constexpr (need_tz_conversion) {
+            if (auto failed = vector_timestamptz_const(dates, 1, TimestampTzValue::FIRST_DAY, res,
+                                                       result_null_map, context)) {
+                throw_out_of_bound_one_date<DateValueType>(Flag::name, dates[*failed]);
+            }
+            return;
+        }
+
         for (int i = 0; i < dates.size(); ++i) {
             if (result_null_map[i]) {
                 continue;
@@ -351,6 +415,15 @@ struct DateTimeFloorCeilCore {
     static void vector_const_anchor(const PaddedPODArray<DateValueType>& dates,
                                     DateValueType origin_date, PaddedPODArray<DateValueType>& res,
                                     const NullMap& result_null_map, FunctionContext* context) {
+        if constexpr (need_tz_conversion) {
+            if (auto failed = vector_timestamptz_const(dates, 1, origin_date, res, result_null_map,
+                                                       context)) {
+                throw_out_of_bound_date_date<DateValueType>(Flag::name, dates[*failed],
+                                                            origin_date);
+            }
+            return;
+        }
+
         for (int i = 0; i < dates.size(); ++i) {
             if (result_null_map[i]) {
                 continue;
@@ -364,6 +437,14 @@ struct DateTimeFloorCeilCore {
     static void vector_const_period(const PaddedPODArray<DateValueType>& dates, Int32 period,
                                     PaddedPODArray<DateValueType>& res,
                                     const NullMap& result_null_map, FunctionContext* context) {
+        if constexpr (need_tz_conversion) {
+            if (auto failed = vector_timestamptz_const(dates, period, TimestampTzValue::FIRST_DAY,
+                                                       res, result_null_map, context)) {
+                throw_out_of_bound_date_int<DateValueType>(Flag::name, dates[*failed], period);
+            }
+            return;
+        }
+
         // expand codes for const input periods
 #define EXPAND_CODE_FOR_CONST_INPUT(X)                                                    \
     case X: {                                                                             \
@@ -403,6 +484,15 @@ struct DateTimeFloorCeilCore {
                 vector_const_period(dates, period, res, result_null_map, context);
                 return;
             }
+        }
+
+        if constexpr (need_tz_conversion) {
+            if (auto failed = vector_timestamptz_const(dates, period, origin_date, res,
+                                                       result_null_map, context)) {
+                throw_out_of_bound_int_date<DateValueType>(Flag::name, dates[*failed], period,
+                                                           origin_date);
+            }
+            return;
         }
 
         // expand codes for const input periods
@@ -593,29 +683,42 @@ struct DateTimeFloorCeilCore {
         return time_round_two_args(ts2, period, res, context);
     }
 
+    struct RoundingGap {
+        LocalDateTime start;
+        LocalDateTime end;
+        int64_t end_seconds;
+        int64_t instant_seconds;
+        int64_t length;
+        int before_offset;
+
+        RoundingGap(const cctz::time_zone& tz,
+                    const cctz::time_zone::civil_transition& transition) {
+            const auto utc = cctz::utc_time_zone();
+            end_seconds = cctz::convert(transition.to, utc).time_since_epoch().count();
+            start.from_unixtime(cctz::convert(transition.from, utc).time_since_epoch().count(),
+                                utc);
+            end.from_unixtime(end_seconds, utc);
+            const auto instant = tz.lookup(transition.from).trans;
+            instant_seconds = instant.time_since_epoch().count();
+            length = transition.to - transition.from;
+            before_offset = tz.lookup(instant - cctz::seconds(1)).offset;
+        }
+    };
+
     // Check the grid inside a gap and the first grid boundary after it.
     // On Lord Howe, a 20-minute grid can contain 02:15 and 02:35.
     // They resolve to 02:45 and 02:35. Compare instants, not local fields.
     static void select_gap_boundary(const TimestampTzValue& input, Int32 period,
                                     const DateV2Value<DateTimeV2ValueType>& origin,
-                                    const cctz::time_zone::civil_transition& transition,
+                                    const RoundingGap& gap,
                                     std::optional<TimestampTzValue>& selected,
-                                    FunctionContext* context) {
-        using LocalDateTime = DateV2Value<DateTimeV2ValueType>;
+                                    FunctionContext* context, bool include_after = true) {
         const auto& tz = context->state()->timezone_obj();
         const auto utc = cctz::utc_time_zone();
-        const auto end_seconds = cctz::convert(transition.to, utc).time_since_epoch().count();
-        const auto start_seconds = cctz::convert(transition.from, utc).time_since_epoch().count();
-        LocalDateTime start;
-        LocalDateTime end;
-        start.from_unixtime(start_seconds, utc);
-        end.from_unixtime(end_seconds, utc);
-        const auto instant = tz.lookup(transition.from).trans;
-        const auto before_offset = tz.lookup(instant - cctz::seconds(1)).offset;
         int64_t input_seconds;
         input.unix_timestamp(&input_seconds, utc);
         LocalDateTime reference;
-        reference.from_unixtime(input_seconds + before_offset, utc);
+        reference.from_unixtime(input_seconds + gap.before_offset, utc);
         reference.set_microsecond(input.microsecond());
         const auto consider = [&](const LocalDateTime& point, bool inside_gap) {
             auto local = origin;
@@ -625,7 +728,7 @@ struct DateTimeFloorCeilCore {
                         point, period, local, context)) {
                 return;
             }
-            if (inside_gap && (local < start || local >= end)) {
+            if (inside_gap && (local < gap.start || local >= gap.end)) {
                 return;
             }
             TimestampTzValue candidate;
@@ -643,66 +746,325 @@ struct DateTimeFloorCeilCore {
             }
         };
         if constexpr (Flag::Type == FLOOR) {
-            if (reference >= end) {
-                reference.from_unixtime(end_seconds - 1, utc);
+            if (reference >= gap.end) {
+                reference.from_unixtime(gap.end_seconds - 1, utc);
                 reference.set_microsecond(999999);
             }
         } else {
-            reference = std::max(reference, start);
+            reference = std::max(reference, gap.start);
         }
         consider(reference, true);
         if constexpr (Flag::Type == CEIL) {
-            consider(end, false);
+            if (include_after) {
+                consider(gap.end, false);
+            }
         }
+    }
+
+    using SearchInterval = std::pair<int64_t, int64_t>;
+
+    struct PreparedGaps {
+        DorisVector<RoundingGap> gaps;
+        DorisVector<LocalDateTime> after_boundaries;
+        int64_t max_length = 0;
+    };
+
+    static PreparedGaps prepare_gap_boundaries(DorisVector<SearchInterval>& intervals, Int32 period,
+                                               const LocalDateTime& origin,
+                                               FunctionContext* context) {
+        DORIS_CHECK(!intervals.empty());
+        PreparedGaps prepared;
+        std::sort(intervals.begin(), intervals.end());
+        size_t merged = 0;
+        for (const auto interval : intervals) {
+            if (merged > 0 && interval.first <= intervals[merged - 1].second + 1) {
+                intervals[merged - 1].second =
+                        std::max(intervals[merged - 1].second, interval.second);
+            } else {
+                intervals[merged++] = interval;
+            }
+        }
+        intervals.resize(merged);
+        const auto& tz = context->state()->timezone_obj();
+        const RoundingGapScanner scanner(tz, intervals.back().second);
+        std::optional<cctz::civil_second> previous_gap;
+        for (auto range = intervals.rbegin(); range != intervals.rend(); ++range) {
+            scanner.for_each_gap(range->first, range->second, [&](const auto& transition) {
+                // Disjoint intervals can share the same preceding gap. Prepare it only once.
+                if (previous_gap && *previous_gap == transition.from) {
+                    return;
+                }
+                previous_gap = transition.from;
+                RoundingGap gap(tz, transition);
+                auto point = gap.start;
+                if constexpr (Flag::Type == FLOOR) {
+                    point.from_unixtime(gap.end_seconds - 1, cctz::utc_time_zone());
+                    point.set_microsecond(999999);
+                }
+                auto boundary = origin;
+                // The local rounding function is monotone. Probe its maximum for FLOOR,
+                // minimum for CEIL; January-1 yearly grids cannot contribute a March gap.
+                // Retain the original rounding function: adding months to a clamped
+                // month-end boundary would change the anchor's day.
+                if (DateTimeFloorCeilCore<Flag, TYPE_DATETIMEV2>::time_round_two_args(
+                            point, period, boundary, context)) {
+                    const bool contributes =
+                            Flag::Type == FLOOR ? boundary >= gap.start : boundary < gap.end;
+                    if (contributes) {
+                        prepared.max_length = std::max(prepared.max_length, gap.length);
+                        prepared.gaps.push_back(gap);
+                    }
+                }
+                if constexpr (Flag::Type == CEIL) {
+                    // On Lord Howe, 02:15 shifts to 02:45, while the next 20-minute
+                    // boundary 02:35 stays 02:35. Ceil must compare both instants.
+                    boundary = origin;
+                    if (DateTimeFloorCeilCore<Flag, TYPE_DATETIMEV2>::time_round_two_args(
+                                gap.end, period, boundary, context)) {
+                        prepared.after_boundaries.push_back(boundary);
+                    }
+                }
+            });
+        }
+        std::sort(prepared.gaps.begin(), prepared.gaps.end(),
+                  [](const auto& left, const auto& right) {
+                      return left.instant_seconds < right.instant_seconds;
+                  });
+        auto& after = prepared.after_boundaries;
+        std::sort(after.begin(), after.end());
+        after.erase(std::unique(after.begin(), after.end()), after.end());
+        return prepared;
+    }
+
+    using ResolvedBoundaries = DorisMap<int, DorisVector<TimestampTzValue>>;
+
+    struct BlockGapCorrection {
+        PreparedGaps prepared;
+        ResolvedBoundaries by_offset;
+        DorisVector<int> preferred_offsets;
+        LocalDateTime origin;
+        Int32 period;
+    };
+
+    static void select_prepared_gap_boundary(const TimestampTzValue& input,
+                                             const BlockGapCorrection& correction,
+                                             std::optional<TimestampTzValue>& selected,
+                                             FunctionContext* context) {
+        const auto& prepared = correction.prepared;
+        if (prepared.gaps.empty() || (selected && *selected == input)) {
+            return;
+        }
+        int64_t input_seconds;
+        input.unix_timestamp(&input_seconds, cctz::utc_time_zone());
+        int64_t selected_seconds = input_seconds;
+        if (selected) {
+            selected->unix_timestamp(&selected_seconds, cctz::utc_time_zone());
+        }
+        const auto lower = std::min(input_seconds, selected_seconds);
+        const auto upper = std::max(input_seconds, selected_seconds);
+        auto gap = std::upper_bound(
+                prepared.gaps.begin(), prepared.gaps.end(), upper,
+                [](int64_t value, const auto& entry) { return value < entry.instant_seconds; });
+        while (gap != prepared.gaps.begin()) {
+            --gap;
+            // Only a gap whose shifted range intersects the row's search interval
+            // can improve it. max_length also handles unequal historical gap lengths.
+            if (gap->instant_seconds + prepared.max_length <= lower) {
+                break;
+            }
+            if (gap->instant_seconds + gap->length > lower) {
+                select_gap_boundary(input, correction.period, correction.origin, *gap, selected,
+                                    context, false);
+            }
+        }
+    }
+
+    static void prepare_preferred_offsets(const PaddedPODArray<TimestampTzValue>& dates,
+                                          const PaddedPODArray<TimestampTzValue>& res,
+                                          const NullMap& nulls,
+                                          const DorisVector<uint8_t>& has_candidate,
+                                          const cctz::time_zone& tz, ResolvedBoundaries& by_offset,
+                                          DorisVector<int>& preferred_offsets) {
+        if constexpr (Flag::Unit == HOUR || Flag::Unit == MINUTE) {
+            preferred_offsets.resize(dates.size());
+            for (size_t i = 0; i < dates.size(); ++i) {
+                if (nulls[i] || (has_candidate[i] && res[i] == dates[i])) {
+                    continue;
+                }
+                // Two occurrences of a fall-back hour keep their own offset.
+                preferred_offsets[i] = dates[i].utc_offset(tz);
+                by_offset.try_emplace(preferred_offsets[i]);
+            }
+        } else {
+            by_offset.try_emplace(0);
+        }
+    }
+
+    static void resolve_gap_boundaries(const DorisVector<LocalDateTime>& local_boundaries,
+                                       const cctz::time_zone& tz, ResolvedBoundaries& by_offset) {
+        for (auto& [offset, boundaries] : by_offset) {
+            boundaries.reserve(local_boundaries.size());
+            for (const auto& local : local_boundaries) {
+                TimestampTzValue boundary;
+                if constexpr (Flag::Unit == HOUR || Flag::Unit == MINUTE) {
+                    boundary.convert_local_to_utc(tz, local, offset);
+                } else {
+                    boundary.convert_local_to_utc(tz, local);
+                }
+                boundaries.push_back(boundary);
+            }
+            std::sort(boundaries.begin(), boundaries.end());
+            boundaries.erase(std::unique(boundaries.begin(), boundaries.end()), boundaries.end());
+        }
+    }
+
+    static std::optional<size_t> apply_gap_boundaries(const PaddedPODArray<TimestampTzValue>& dates,
+                                                      PaddedPODArray<TimestampTzValue>& res,
+                                                      const NullMap& nulls,
+                                                      DorisVector<uint8_t>& has_candidate,
+                                                      const BlockGapCorrection& correction,
+                                                      FunctionContext* context) {
+        for (size_t i = 0; i < dates.size(); ++i) {
+            if (nulls[i] || (has_candidate[i] && res[i] == dates[i])) {
+                continue;
+            }
+            if constexpr (Flag::Type == CEIL) {
+                if (!correction.prepared.after_boundaries.empty()) {
+                    int offset = 0;
+                    if constexpr (Flag::Unit == HOUR || Flag::Unit == MINUTE) {
+                        offset = correction.preferred_offsets[i];
+                    }
+                    const auto& boundaries = correction.by_offset.at(offset);
+                    auto boundary =
+                            std::lower_bound(boundaries.begin(), boundaries.end(), dates[i]);
+                    if (boundary != boundaries.end() && (!has_candidate[i] || *boundary < res[i])) {
+                        res[i] = *boundary;
+                        has_candidate[i] = true;
+                    }
+                }
+            }
+            std::optional<TimestampTzValue> selected;
+            if (has_candidate[i]) {
+                selected = res[i];
+            }
+            select_prepared_gap_boundary(dates[i], correction, selected, context);
+            if (!selected) {
+                return i; // Neither the ordinary grid nor a shifted gap boundary is in range.
+            }
+            res[i] = *selected;
+        }
+        return std::nullopt;
+    }
+
+    // Return the first unrepresentable row so each vector entry point preserves its error text.
+    // First calculate the ordinary boundary of every row; then enumerate the union of the
+    // search intervals once and reuse sorted gap boundaries for the entire Block.
+    static std::optional<size_t> vector_timestamptz_const(
+            const PaddedPODArray<TimestampTzValue>& dates, Int32 period, TimestampTzValue origin,
+            PaddedPODArray<TimestampTzValue>& res, const NullMap& nulls, FunctionContext* context) {
+        // A one-row Block cannot amortize preparation; retain the scalar path without
+        // allocating or sorting intervals (e.g. a point lookup or the last partial Block).
+        if (dates.size() == 1) {
+            if (nulls[0]) {
+                return std::nullopt;
+            }
+            res[0] = origin;
+            if (!time_round_two_args(dates[0], period, res[0], context)) {
+                return 0;
+            }
+            return std::nullopt;
+        }
+        const auto& tz = context->state()->timezone_obj();
+        int32_t fixed_offset;
+        if (TimezoneUtils::try_get_fixed_offset_seconds(tz, &fixed_offset)) {
+            for (size_t i = 0; i < dates.size(); ++i) {
+                if (nulls[i]) {
+                    continue;
+                }
+                res[i] = origin;
+                if (!time_round_two_args<0, false>(dates[i], period, res[i], context)) {
+                    return i;
+                }
+            }
+            return std::nullopt;
+        }
+
+        DorisVector<uint8_t> has_candidate(dates.size());
+        DorisVector<SearchInterval> intervals;
+        intervals.reserve(dates.size());
+        const auto utc = cctz::utc_time_zone();
+        for (size_t i = 0; i < dates.size(); ++i) {
+            if (nulls[i]) {
+                continue;
+            }
+            res[i] = origin;
+            has_candidate[i] = time_round_two_args<0, false>(dates[i], period, res[i], context);
+            if (has_candidate[i] && res[i] == dates[i]) {
+                continue; // No candidate can improve an exact boundary.
+            }
+            int64_t input_seconds;
+            dates[i].unix_timestamp(&input_seconds, utc);
+            int64_t selected_seconds = input_seconds;
+            if (has_candidate[i]) {
+                res[i].unix_timestamp(&selected_seconds, utc);
+            }
+            intervals.emplace_back(std::min(input_seconds, selected_seconds),
+                                   std::max(input_seconds, selected_seconds));
+        }
+        if (intervals.empty()) {
+            return std::nullopt; // Every non-NULL row is already an exact boundary.
+        }
+        auto local_origin = origin;
+        if (origin != TimestampTzValue::FIRST_DAY) {
+            convert_utc_to_local_impl(origin, local_origin, tz);
+        }
+        BlockGapCorrection correction {
+                .prepared = prepare_gap_boundaries(
+                        intervals, period, LocalDateTime(local_origin.to_date_int_val()), context),
+                .by_offset = {},
+                .preferred_offsets = {},
+                .origin = LocalDateTime(local_origin.to_date_int_val()),
+                .period = period};
+        if (!correction.prepared.after_boundaries.empty()) {
+            prepare_preferred_offsets(dates, res, nulls, has_candidate, tz, correction.by_offset,
+                                      correction.preferred_offsets);
+            resolve_gap_boundaries(correction.prepared.after_boundaries, tz, correction.by_offset);
+        }
+        return apply_gap_boundaries(dates, res, nulls, has_candidate, correction, context);
     }
 
     static void select_nearest_gap_boundary(const TimestampTzValue& input, Int32 period,
                                             const DateV2Value<DateTimeV2ValueType>& origin,
                                             std::optional<TimestampTzValue>& selected,
                                             FunctionContext* context) {
+        // No boundary can improve an exact match. Fixed offsets cannot introduce gaps.
+        if (selected && *selected == input) {
+            return;
+        }
         const auto& tz = context->state()->timezone_obj();
+        int32_t offset;
+        if (TimezoneUtils::try_get_fixed_offset_seconds(tz, &offset)) {
+            return;
+        }
         const auto utc = cctz::utc_time_zone();
         int64_t input_seconds;
         input.unix_timestamp(&input_seconds, utc);
-        // If the first candidate is outside the range, a gap before the input can
-        // still supply a valid result. For example, New York 9999-03-14 03:30.
+        // An out-of-range initial candidate can still have a valid shifted boundary,
+        // e.g. New York year_ceil at 9999-03-14 03:15. Include the preceding gap.
         int64_t selected_seconds = input_seconds;
         if (selected) {
             selected->unix_timestamp(&selected_seconds, utc);
         }
         const auto lower = std::min(input_seconds, selected_seconds);
-        auto cursor = cctz::time_point<cctz::seconds>(
-                cctz::seconds(std::max(input_seconds, selected_seconds) + 1));
-        cctz::time_zone::civil_transition transition;
-        if (!tz.prev_transition(cursor, &transition)) {
-            return; // Fixed-offset zones have no transitions.
-        }
-        const auto last_stored = tz.lookup(transition.to).trans;
-        cctz::time_zone::civil_transition next;
-        // A zone can retain a fixed offset after its last change. Do not repeat
-        // that old change. A recurring rule changes the offset again after 400 years.
-        const auto repeated = last_stored + cctz::seconds(GREGORIAN_CYCLE_SECONDS);
-        const bool recurring =
-                !tz.next_transition(last_stored, &next) &&
-                tz.lookup(repeated - cctz::seconds(1)).offset != tz.lookup(repeated).offset;
-        // A gap before the interval can move a grid boundary into the interval.
-        // Include the preceding transition, and keep the original calendar origin.
-        while (previous_rounding_transition(tz, cursor, last_stored, recurring, &transition)) {
-            const auto instant = tz.lookup(transition.to).trans;
-            const auto gap_seconds = transition.to - transition.from;
-            // Only shifted gap times inside the search interval can improve the result.
-            if (gap_seconds > 0 && instant.time_since_epoch().count() + gap_seconds > lower) {
-                select_gap_boundary(input, period, origin, transition, selected, context);
-            }
-            if (instant.time_since_epoch().count() <= lower) {
-                break;
-            }
-            cursor = instant - cctz::seconds(1);
-        }
+        const auto upper = std::max(input_seconds, selected_seconds);
+        RoundingGapScanner(tz, upper).for_each_gap(lower, upper, [&](const auto& transition) {
+            select_gap_boundary(input, period, origin, RoundingGap(tz, transition), selected,
+                                context);
+        });
     }
 
     // ts_res should be initialized with the ts_origin.
-    template <Int32 const_period = 0>
+    template <Int32 const_period = 0, bool correct_gaps = true>
     static bool time_round_two_args(const DateValueType& ts_arg, const Int32 period,
                                     DateValueType& ts_origin, FunctionContext* context) {
         /* For TimestampTzValue on date-based units, convert UTC to local time first, eg:
@@ -712,11 +1074,6 @@ struct DateTimeFloorCeilCore {
          * before write back ans, we should sub a time_zone offset
          * to make the ans is '2026-01-01 00:00:00+08:00' instead of '2026-01-01 08:00:00+08:00'
          */
-        constexpr bool need_tz_conversion =
-                std::is_same_v<DateValueType, TimestampTzValue> &&
-                (Flag::Unit == YEAR || Flag::Unit == QUARTER || Flag::Unit == MONTH ||
-                 Flag::Unit == WEEK || Flag::Unit == DAY || Flag::Unit == HOUR ||
-                 Flag::Unit == MINUTE);
 
         DateValueType local_arg;
         DateValueType local_origin;
@@ -1050,7 +1407,9 @@ struct DateTimeFloorCeilCore {
                     selected = resolve();
                 }
             }
-            select_nearest_gap_boundary(ts_arg, period, round_origin, selected, context);
+            if constexpr (correct_gaps) {
+                select_nearest_gap_boundary(ts_arg, period, round_origin, selected, context);
+            }
             if (!selected) {
                 return false; // Neither the ordinary grid nor a gap has an in-range boundary.
             }
