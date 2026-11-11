@@ -21,6 +21,7 @@
 
 #include <array>
 #include <cstdint>
+#include <functional>
 #include <initializer_list>
 #include <limits>
 #include <memory>
@@ -36,6 +37,7 @@
 #include "core/value/variant/variant_parquet_encoding.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/thread_context.h"
+#include "util/debug_points.h"
 #include "variant_test_utils.h"
 
 namespace doris {
@@ -1899,6 +1901,64 @@ TEST(VariantBatchBuilderTest, CapacityGrowthIsBatchBoundedRatherThanPerRow) {
     EXPECT_GT(small.pending_object_token_capacity, 0);
     EXPECT_GE(large.previous_object_token_capacity, small.previous_object_token_capacity);
     EXPECT_GE(large.pending_object_token_capacity, small.pending_object_token_capacity);
+}
+
+TEST(VariantBatchBuilderTest, ReleasesScratchWhenAllocationsAreRejected) {
+    auto tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::QUERY,
+                                                    "VariantBatchBuilderScratchRelease");
+    auto scoped_tracker = SwitchThreadMemTrackerLimiter(tracker);
+    VariantBatchBuilder builder;
+    auto row = builder.begin_row();
+    auto object = row.start_object();
+    object.add_key(string_ref("key"));
+    row.add_int(42);
+    object.finish();
+    row.finish();
+
+    const bool old_debug_points = config::enable_debug_points;
+    config::enable_debug_points = true;
+    constexpr auto point = "VariantBatchBuilder.before_release_scratch";
+    bool injected = false;
+    DebugPoints::instance()->add_with_callback(point, std::function<void()>([&] {
+                                                   tracker->set_limit(1);
+                                                   injected = true;
+                                               }));
+    Defer cleanup {[&] {
+        DebugPoints::instance()->remove(point);
+        config::enable_debug_points = old_debug_points;
+        tracker->set_limit(-1);
+    }};
+    ++enable_thread_catch_bad_alloc;
+    Defer restore_catch {[] { --enable_thread_catch_bad_alloc; }};
+    VariantBatchBuilder block = builder.finish_batch();
+    tracker->set_limit(-1);
+    ASSERT_TRUE(injected);
+    ASSERT_EQ(block.num_rows(), 1);
+    ASSERT_EQ(block.metadata_ref().dict_size(), 1);
+    EXPECT_EQ(required_field(block.value_at(0), "key").get_int(), 42);
+}
+
+TEST(VariantBatchBuilderTest, FailedKeyRegistrationLeavesNoUnindexedKey) {
+    auto tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::QUERY,
+                                                    "VariantBatchBuilderKeyRegistration");
+    auto scoped_tracker = SwitchThreadMemTrackerLimiter(tracker);
+    // A nonempty key first allocates bytes. An empty key goes straight to map allocation.
+    for (const auto key : {string_ref("new key"), string_ref("")}) {
+        VariantMetadataBuilder metadata;
+        {
+            tracker->set_limit(1);
+            ++enable_thread_catch_bad_alloc;
+            Defer restore {[&] {
+                --enable_thread_catch_bad_alloc;
+                tracker->set_limit(-1);
+            }};
+            expect_builder_exception_code(ErrorCode::MEM_ALLOC_FAILED,
+                                          [&] { metadata.register_key(key); });
+        }
+        EXPECT_EQ(metadata.num_keys(), 0);
+        EXPECT_EQ(metadata.register_key(key), 0);
+        EXPECT_EQ(metadata.num_keys(), 1);
+    }
 }
 
 TEST(VariantBatchBuilderTest, BatchLifetimeAllocationsAreMemTrackerVisible) {

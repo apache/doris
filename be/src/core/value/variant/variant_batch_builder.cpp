@@ -36,6 +36,10 @@
 #include "core/value/variant/variant_parquet_encoding.h"
 #include "util/utf8_check.h"
 
+#ifdef BE_TEST
+#include "util/debug_points.h"
+#endif
+
 namespace doris {
 namespace {
 
@@ -1581,6 +1585,7 @@ VariantBatchBuilder VariantBatchBuilder::finish_batch() {
     _impl->refresh_counters(_impl->metadata._key_capacity(),
                             _impl->metadata._key_capacity_growths(), _impl->metadata.num_keys());
     _impl->counters_finalized = true;
+    DBUG_EXECUTE_IF("VariantBatchBuilder.before_release_scratch", DBUG_RUN_CALLBACK());
 #endif
     PaddedPODArray<char> metadata = _impl->metadata._take_encoded_metadata();
     _impl->collection.release_scratch();
