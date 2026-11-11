@@ -67,11 +67,13 @@ Objects are stored under:
 The process ID is opaque and contains no BE IP address or port. Restarting the BE changes this
 root. Local spill paths keep their existing layout and startup recovery.
 
-Releasing a `SpillFile` or a local query context enqueues cleanup instead of deleting files on
-the query teardown thread. GC drains any detached writer's upload callbacks **before** deleting
-its prefix. Reservations and retained-object statistics decrease after successful physical
-deletion. A failed delete is retried in later GC rounds; query-directory cleanup also removes
-empty local directories and residual external-writer files.
+Releasing a `SpillFile` or a local query context enqueues physical cleanup instead of deleting
+files on the query teardown thread. Writer teardown remains synchronous: if the file still has
+an unfinished writer, discarding it waits for submitted uploads without publishing the unfinished
+part, before queuing deletion. This can still delay file/query teardown; GC does not take
+ownership of unfinished writers. Reservations and retained-object statistics decrease after
+successful physical deletion. A failed delete is retried in later GC rounds; query-directory
+cleanup also removes empty local directories and residual external-writer files.
 
 Shutdown does not start an additional deletion/retry pass. It still joins a GC pass already
 running, and outstanding I/O writers must remain alive until their callbacks finish. After a

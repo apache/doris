@@ -22,7 +22,6 @@
 
 #include <chrono>
 #include <memory>
-#include <utility>
 
 #include "common/config.h"
 #include "common/exception.h"
@@ -37,7 +36,6 @@
 #include "runtime/thread_context.h"
 #include "util/defer_op.h"
 #include "util/slice.h"
-#include "util/threadpool.h"
 
 namespace doris {
 namespace io {
@@ -111,38 +109,10 @@ Status UploadFileBuffer::append_data(const Slice& data) {
  * 0. constrcut the stream ptr if the buffer is not empty
  * 1. submit the on_upload() callback to executor
  */
-namespace {
-// ThreadPool::shutdown() drops queued tasks without running them. Spill GC may own a
-// detached writer by then: return its completion signal even when its upload never runs,
-// or that writer's destructor would wait forever after the pool has already shut down.
-class UploadBufferTask final : public Runnable {
-public:
-    explicit UploadBufferTask(std::shared_ptr<FileBuffer> buffer) : _buffer(std::move(buffer)) {}
-    ~UploadBufferTask() override {
-        if (_buffer) {
-            _buffer->set_status(Status::Cancelled("S3 upload task discarded during shutdown"));
-        }
-    }
-    void run() override {
-        auto buffer = std::exchange(_buffer, nullptr);
-        buffer->execute_async();
-    }
-    // A rejected submission is completed by S3FileWriter's caller, not by this task.
-    void disarm() { _buffer.reset(); }
-
-private:
-    std::shared_ptr<FileBuffer> _buffer;
-};
-} // namespace
-
 static Status submit_upload_buffer(std::shared_ptr<FileBuffer> buffer) {
     TEST_SYNC_POINT_RETURN_WITH_VALUE("UploadFileBuffer::submit", Status::OK(), buffer.get());
-    auto task = std::make_shared<UploadBufferTask>(std::move(buffer));
-    auto status = ExecEnv::GetInstance()->s3_file_upload_thread_pool()->submit(task);
-    if (!status.ok()) {
-        task->disarm();
-    }
-    return status;
+    return ExecEnv::GetInstance()->s3_file_upload_thread_pool()->submit_func(
+            [buf = std::move(buffer)]() { buf->execute_async(); });
 }
 
 std::ostream& operator<<(std::ostream& os, const BufferType& value) {

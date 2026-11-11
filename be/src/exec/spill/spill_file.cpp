@@ -29,7 +29,6 @@
 #include "exec/spill/spill_file_writer.h"
 #include "exec/spill/spill_s3_file_reader.h"
 #include "exec/spill/spill_s3_file_writer.h"
-#include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/path.h"
 #include "io/fs/s3_file_system.h"
@@ -74,11 +73,10 @@ void SpillFile::gc() {
         return;
     }
     _gc_started = true;
-    // Detach an unfinished writer without waiting for its upload callbacks here. GC drains
-    // it before deleting the prefix, so no upload can outlive the deletion and recreate data.
-    io::FileWriterPtr unfinished_writer;
+    // Preserve synchronous writer teardown: uploads must finish before queuing deletion.
+    // Only physical cleanup and deletion retries are moved to the GC thread.
     if (_active_writer != nullptr) {
-        unfinished_writer = _active_writer->_discard(this);
+        _active_writer->_discard(this);
     }
     const std::string file_context = _log_context();
     const int64_t written_bytes = std::exchange(_total_written_bytes, 0);
@@ -93,7 +91,7 @@ void SpillFile::gc() {
     DORIS_CHECK(manager != nullptr);
     manager->queue_spill_directory_deletion(_data_dir, _fs, _spill_dir, written_bytes,
                                             std::exchange(_persisted_bytes, 0), _query_id,
-                                            {file_context}, std::move(unfinished_writer));
+                                            {file_context});
 }
 
 std::string SpillFile::_log_context() const {

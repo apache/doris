@@ -2434,44 +2434,27 @@ TEST_F(SpillFileS3Test, UnrelatedUploadTasksDoNotThrottleSpill) {
     ASSERT_TRUE(writer->close().ok());
 }
 
-// GTest assertions inflate this metric; keep callback release and thread-join ordering visible.
-// NOLINTNEXTLINE(readability-function-cognitive-complexity)
-TEST_F(SpillFileS3Test, FileGcDoesNotWaitForUnfinishedUploads) {
+TEST_F(SpillFileS3Test, InflightUploadAccountingUsesSubmittedBufferCapacity) {
     _create_manager();
     std::mt19937 rng(188);
     SpillFileSPtr file;
-    ASSERT_TRUE(_manager->create_spill_file("async_discard/sort-1", file).ok());
+    ASSERT_TRUE(_manager->create_spill_file("buffer_capacity/sort-1", file).ok());
     SpillFileWriterSPtr writer;
     ASSERT_TRUE(file->create_writer(_runtime_state.get(), _profile.get(), writer).ok());
     mock_store().set_block_uploads(true);
     Defer unblock {[&]() { mock_store().set_block_uploads(false); }};
     ASSERT_TRUE(writer->write_block(_runtime_state.get(), _random_string_block(rng, 64, 200)).ok());
-    const auto charged = _data_dir->get_spill_data_bytes();
-    ASSERT_GT(charged, 0);
-    const auto lists = mock_store().list_requests.load();
-    const auto deletes = mock_store().delete_requests.load();
-    std::atomic<bool> finished {false};
-    ScopedThread destroying([&]() {
-        file.reset();
-        finished = true;
-    });
-    Defer release_before_join {[&]() { mock_store().set_block_uploads(false); }};
-    for (int i = 0; i < 500 && !finished.load(); ++i) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    }
-    EXPECT_TRUE(finished.load()) << "file teardown must not wait for upload callbacks";
-    EXPECT_EQ(mock_store().list_requests.load(), lists);
-    EXPECT_EQ(mock_store().delete_requests.load(), deletes);
-    EXPECT_EQ(_data_dir->get_spill_data_bytes(), charged);
-    // Callback accounting must use the submitted buffer's allocation, not a later config.
+    ASSERT_GT(_manager->inflight_upload_bytes()->load(), 0);
+    // Return each submitted allocation, not the buffer size configured at completion time.
     config::s3_write_buffer_size *= 2;
     mock_store().set_block_uploads(false);
-    destroying.join();
+    file.reset(); // Discard synchronously drains uploads, but does not perform deletion.
+    EXPECT_EQ(_manager->inflight_upload_bytes()->load(), 0);
+    EXPECT_GT(_data_dir->get_spill_data_bytes(), 0);
     _manager->gc(10000);
     EXPECT_EQ(_data_dir->get_spill_data_bytes(), 0);
-    EXPECT_EQ(_manager->inflight_upload_bytes()->load(), 0);
     EXPECT_EQ(mock_store().complete_multipart_requests.load(), 0);
-    EXPECT_TRUE(_query_objects("async_discard").empty());
+    EXPECT_TRUE(_query_objects("buffer_capacity").empty());
     ASSERT_TRUE(writer->close().ok());
 }
 
@@ -2512,87 +2495,6 @@ TEST_F(SpillFileS3Test, FailedUploadSubmissionReturnsInflightCharge) {
     EXPECT_FALSE(status.ok());
     EXPECT_EQ(_manager->inflight_upload_bytes()->load(), 0);
     EXPECT_FALSE(file->ready_for_reading());
-}
-
-// GTest assertions inflate this metric; keep callback release and thread-join ordering visible.
-// NOLINTNEXTLINE(readability-function-cognitive-complexity)
-TEST_F(SpillFileS3Test, ShutdownCompletesQueuedUploadsBeforeGcDestroysWriter) {
-    _create_manager();
-    auto* env = ExecEnv::GetInstance();
-    auto saved_pool = std::move(env->_s3_file_upload_thread_pool);
-    Defer restore_pool {[&]() { env->set_s3_file_upload_thread_pool(std::move(saved_pool)); }};
-    std::unique_ptr<ThreadPool> pool;
-    ASSERT_TRUE(ThreadPoolBuilder("spill_shutdown_upload")
-                        .set_min_threads(1)
-                        .set_max_threads(1)
-                        .build(&pool)
-                        .ok());
-    env->set_s3_file_upload_thread_pool(std::move(pool));
-    auto* upload_pool = env->s3_file_upload_thread_pool();
-    std::mutex mutex;
-    std::condition_variable cv;
-    bool started = false;
-    bool release = false;
-    auto unblock_pool = [&]() {
-        {
-            std::lock_guard lock(mutex);
-            release = true;
-        }
-        cv.notify_all();
-    };
-    Defer unblock {[&]() {
-        unblock_pool();
-        upload_pool->wait();
-    }};
-    ASSERT_TRUE(upload_pool
-                        ->submit_func([&]() {
-                            std::unique_lock lock(mutex);
-                            started = true;
-                            cv.notify_all();
-                            cv.wait(lock, [&]() { return release; });
-                        })
-                        .ok());
-    {
-        std::unique_lock lock(mutex);
-        ASSERT_TRUE(cv.wait_for(lock, std::chrono::seconds(5), [&]() { return started; }));
-    }
-    SpillFileSPtr file;
-    ASSERT_TRUE(_manager->create_spill_file("shutdown_upload/sort-1", file).ok());
-    SpillFileWriterSPtr writer;
-    ASSERT_TRUE(file->create_writer(_runtime_state.get(), _profile.get(), writer).ok());
-    std::mt19937 rng(191);
-    ASSERT_TRUE(writer->write_block(_runtime_state.get(), _random_string_block(rng, 64, 200)).ok());
-    auto* io_writer = dynamic_cast<io::S3FileWriter*>(writer->_file_writer.get());
-    ASSERT_NE(io_writer, nullptr);
-    file.reset();
-    // A broken dropped-task callback must fail the test rather than hang TearDown(). The
-    // isolated pool has only this writer's uploads, so release precisely its missing signals.
-    Defer finish_dropped_callbacks {[&]() {
-        while (_manager->inflight_upload_bytes()->load() > 0) {
-            io_writer->_complete_part_task_callback(Status::Cancelled("test cleanup"),
-                                                    config::s3_write_buffer_size);
-        }
-    }};
-    ASSERT_GT(_manager->inflight_upload_bytes()->load(), 0);
-    ScopedThread stopping([&]() { upload_pool->shutdown(); });
-    Defer release_before_join {[&]() { unblock_pool(); }};
-    for (int i = 0; i < 500 && upload_pool->get_queue_size() != 0; ++i) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    }
-    EXPECT_EQ(upload_pool->get_queue_size(), 0);
-    unblock_pool();
-    stopping.join();
-    EXPECT_EQ(_manager->inflight_upload_bytes()->load(), 0);
-    while (_manager->inflight_upload_bytes()->load() > 0) {
-        io_writer->_complete_part_task_callback(Status::Cancelled("test cleanup"),
-                                                config::s3_write_buffer_size);
-    }
-    // There are no upload threads left. Destruction must not wait for dropped callbacks.
-    _manager->gc(10000);
-    EXPECT_EQ(_manager->pending_delete_dir_count(), 0);
-    EXPECT_EQ(_data_dir->get_spill_data_bytes(), 0);
-    EXPECT_EQ(mock_store().put_requests.load(), 0);
-    EXPECT_EQ(mock_store().complete_multipart_requests.load(), 0);
 }
 
 TEST_F(SpillFileS3Test, RemoteStorageTypeSelectsRemoteBackend) {
