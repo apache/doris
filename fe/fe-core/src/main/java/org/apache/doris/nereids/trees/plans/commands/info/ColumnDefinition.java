@@ -435,8 +435,8 @@ public class ColumnDefinition {
         }
         type.validateDataType();
         if (type.typeContainsFile()) {
-            throw new AnalysisException(isOlap ? "FILE columns are not supported in internal tables"
-                    : "FILE columns are not supported in external tables");
+            throw new AnalysisException("Invalid type " + type.toCatalogDataType().toSql() + " for column '" + name
+                    + "': FILE and types containing FILE cannot be used as table columns");
         }
         type = updateCharacterTypeLength(type);
         if (!isSystemGeneratedTable && isOlap && keysType != KeysType.AGG_KEYS && isAggregateTableOnlyType()

@@ -1023,9 +1023,6 @@ public abstract class DataType {
                     }
                 }
             }
-        } else if (catalogType.isAggStateType() && catalogType.typeContainsFile()) {
-            throw new AnalysisException("AGG_STATE does not support FILE or a type containing FILE: "
-                    + catalogType.toSql());
         }
     }
 

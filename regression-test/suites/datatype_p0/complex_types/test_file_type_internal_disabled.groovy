@@ -41,7 +41,7 @@ suite("test_file_type_internal_disabled") {
                         ${model} DISTRIBUTED BY HASH(id) BUCKETS 1
                         PROPERTIES("replication_num"="1")
                     """
-                    exception "FILE columns are not supported in internal tables"
+                    exception "FILE and types containing FILE cannot be used as table columns"
                 }
             }
             test {
@@ -50,7 +50,15 @@ suite("test_file_type_internal_disabled") {
                     DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES("replication_num"="1")
                     AS SELECT 1 AS id, ${fileValues[type]} AS f
                 """
-                exception "FILE columns are not supported in internal tables"
+                exception "FILE and types containing FILE cannot be used as table columns"
+            }
+            test {
+                sql """
+                    CREATE TABLE test_file_type_disabled_hash (id INT, f ${type})
+                    DUPLICATE KEY(id) DISTRIBUTED BY HASH(f) BUCKETS 1
+                    PROPERTIES("replication_num"="1")
+                """
+                exception "FILE and types containing FILE cannot be used as table columns"
             }
         }
 
@@ -63,22 +71,25 @@ suite("test_file_type_internal_disabled") {
         for (def type : ["FILE", "ARRAY<FILE>", "STRUCT<f:FILE>", "MAP<STRING,FILE>"]) {
             test {
                 sql "ALTER TABLE test_file_type_disabled_base ADD COLUMN added ${type}"
-                exception "FILE columns are not supported in internal tables"
+                exception "FILE and types containing FILE cannot be used as table columns"
             }
             test {
                 sql "ALTER TABLE test_file_type_disabled_base MODIFY COLUMN f ${type}"
-                exception "FILE columns are not supported in internal tables"
+                exception "FILE and types containing FILE cannot be used as table columns"
             }
         }
         for (def type : ["FILE", "ARRAY<FILE>", "STRUCT<f:FILE>", "MAP<STRING,FILE>"]) {
-            test {
-                sql """
-                    CREATE MATERIALIZED VIEW test_file_type_disabled_mv
-                    BUILD DEFERRED REFRESH COMPLETE ON MANUAL
-                    DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES("replication_num"="1")
-                    AS SELECT id, ${fileValues[type]} AS f FROM test_file_type_disabled_base
-                """
-                exception "FILE columns are not supported in internal tables"
+            for (def distributionColumn : ["id", "f"]) {
+                test {
+                    sql """
+                        CREATE MATERIALIZED VIEW test_file_type_disabled_mv
+                        BUILD DEFERRED REFRESH COMPLETE ON MANUAL
+                        DISTRIBUTED BY HASH(${distributionColumn}) BUCKETS 1
+                        PROPERTIES("replication_num"="1", "enable_nondeterministic_function"="true")
+                        AS SELECT id, ${fileValues[type]} AS f FROM test_file_type_disabled_base
+                    """
+                    exception "FILE and types containing FILE cannot be used as table columns"
+                }
             }
         }
         qt_count "SELECT COUNT(f) FROM (SELECT ${file} AS f) t"
