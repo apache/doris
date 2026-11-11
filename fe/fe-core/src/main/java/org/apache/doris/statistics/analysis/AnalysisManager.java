@@ -492,35 +492,47 @@ public class AnalysisManager implements Writable {
     }
 
     public void updateTaskStatus(AnalysisInfo info, AnalysisState taskState, String message, long time) {
-        if (analysisJobIdToTaskMap.get(info.jobId) == null) {
+        Map<Long, BaseAnalysisTask> taskMap = analysisJobIdToTaskMap.get(info.jobId);
+        if (taskMap == null) {
             return;
         }
-        info.state = taskState;
-        // Preserve the existing info.message when flushBuffer calls updateTaskState(FINISHED, "")
-        // for already-finished tasks, so that a previously-set skip message (from
-        // BaseAnalysisTask.handleSkip) is not wiped by the subsequent batch FINISHED update.
-        if (!(taskState.equals(AnalysisState.FINISHED) && StringUtils.isEmpty(message))) {
-            info.message = message;
-        }
-        // Update the task cost time when task finished or failed. And only log the final state.
-        if (taskState.equals(AnalysisState.FINISHED) || taskState.equals(AnalysisState.FAILED)) {
-            info.timeCostInMs = time - info.lastExecTimeInMs;
-            info.lastExecTimeInMs = time;
-            // Persist task info for manual job.
-            if (info.jobType.equals(JobType.MANUAL)) {
-                logCreateAnalysisTask(info);
-            } else {
-                replayCreateAnalysisTask(info);
-            }
-        }
-        info.lastExecTimeInMs = time;
+        AnalysisJob runningJob = idToAnalysisJob.get(info.jobId);
         AnalysisInfo job = analysisJobInfoMap.get(info.jobId);
-        // Job may get deleted during execution.
         if (job == null) {
-            return;
+            if (runningJob == null) {
+                return;
+            }
+            job = runningJob.getJobInfo();
         }
-        // Synchronize the job state change in job level.
-        synchronized (job) {
+        // History entries can be replaced (e.g. partition analyze falls back to sampling).
+        // Use the live job's stable monitor for both callbacks and terminal cancellation.
+        AnalysisInfo statusLock = runningJob == null ? job : runningJob.getJobInfo();
+        synchronized (statusLock) {
+            // A cancellation can remove the job while another callback waits for this lock.
+            if (analysisJobIdToTaskMap.get(info.jobId) != taskMap
+                    || info.state == AnalysisState.FINISHED || info.state == AnalysisState.FAILED
+                    || (runningJob != null && runningJob.isTerminated() && taskState != AnalysisState.FAILED)) {
+                return;
+            }
+            info.state = taskState;
+            // Preserve the existing info.message when flushBuffer calls updateTaskState(FINISHED, "")
+            // for already-finished tasks, so that a previously-set skip message (from
+            // BaseAnalysisTask.handleSkip) is not wiped by the subsequent batch FINISHED update.
+            if (!(taskState.equals(AnalysisState.FINISHED) && StringUtils.isEmpty(message))) {
+                info.message = message;
+            }
+            // Update the task cost time when task finished or failed. And only log the final state.
+            if (taskState.equals(AnalysisState.FINISHED) || taskState.equals(AnalysisState.FAILED)) {
+                info.timeCostInMs = time - info.lastExecTimeInMs;
+                info.lastExecTimeInMs = time;
+                // Persist task info for manual job.
+                if (info.jobType.equals(JobType.MANUAL)) {
+                    logCreateAnalysisTask(info);
+                } else {
+                    replayCreateAnalysisTask(info);
+                }
+            }
+            info.lastExecTimeInMs = time;
             job.lastExecTimeInMs = time;
             if (taskState.equals(AnalysisState.FAILED)) {
                 String errMessage = String.format("%s:[%s] ", info.colName, message);
@@ -542,7 +554,7 @@ public class AnalysisManager implements Writable {
             }
             boolean allFinished = true;
             boolean hasFailure = false;
-            for (BaseAnalysisTask task : analysisJobIdToTaskMap.get(info.jobId).values()) {
+            for (BaseAnalysisTask task : taskMap.values()) {
                 AnalysisInfo taskInfo = task.info;
                 if (taskInfo.state.equals(AnalysisState.RUNNING) || taskInfo.state.equals(AnalysisState.PENDING)) {
                     allFinished = false;
@@ -575,6 +587,9 @@ public class AnalysisManager implements Writable {
                     } catch (Throwable e) {
                         LOG.warn("Failed to update Table statistics in job: {}", info.toString(), e);
                     }
+                }
+                if (statusLock != job) {
+                    statusLock.state = job.state;
                 }
                 logCreateAnalysisJob(job);
                 analysisJobIdToTaskMap.remove(job.jobId);
@@ -1004,7 +1019,7 @@ public class AnalysisManager implements Writable {
     }
 
     public void handleKillAnalyzeJob(KillAnalyzeJobCommand killAnalyzeJobCommand) throws DdlException {
-        Map<Long, BaseAnalysisTask> analysisTaskMap = analysisJobIdToTaskMap.remove(killAnalyzeJobCommand.getJobId());
+        Map<Long, BaseAnalysisTask> analysisTaskMap = analysisJobIdToTaskMap.get(killAnalyzeJobCommand.getJobId());
         if (analysisTaskMap == null) {
             throw new DdlException("Job not exists or already finished");
         }
@@ -1013,29 +1028,7 @@ public class AnalysisManager implements Writable {
             return;
         }
         checkPriv(anyTask);
-        AnalysisInfo job = analysisJobInfoMap.get(anyTask.getJobId());
-        // The job record may have been evicted from analysisJobInfoMap while the job was
-        // still running; its shared partitionUpdateRows map was already cleared at
-        // eviction time (see replayCreateAnalysisJob), so skip the job-level update.
-        if (job != null) {
-            logKilled(job);
-        }
-        for (BaseAnalysisTask taskInfo : analysisTaskMap.values()) {
-            taskInfo.cancel();
-            logKilled(taskInfo.info);
-        }
-        // The job reached a terminal state: all tasks share the job's partitionUpdateRows
-        // map, so clearing it here releases the memory retained by every task record.
-        if (job != null && job.partitionUpdateRows != null) {
-            job.partitionUpdateRows.clear();
-        }
-    }
-
-    private void logKilled(AnalysisInfo info) {
-        info.state = AnalysisState.FAILED;
-        info.message = "Killed by user: " + ConnectContext.get().getQualifiedUser();
-        info.lastExecTimeInMs = System.currentTimeMillis();
-        Env.getCurrentEnv().getEditLog().logCreateAnalysisTasks(info);
+        anyTask.job.taskFailed(anyTask, "Killed by user: " + ConnectContext.get().getQualifiedUser());
     }
 
     private void checkPriv(BaseAnalysisTask analysisTask) {
@@ -1119,7 +1112,7 @@ public class AnalysisManager implements Writable {
 
         public void cancel() {
             cancelled = true;
-            tasks.forEach(BaseAnalysisTask::cancel);
+            tasks.forEach(task -> task.job.cancel());
         }
 
         public void execute(ThreadPoolExecutor executor) {
@@ -1140,6 +1133,7 @@ public class AnalysisManager implements Writable {
                             colNames.add(task.info.colName);
                             errorMessages.add(Util.getRootCauseMessage(t));
                             LOG.warn("Failed to analyze, info: {}", task, t);
+                            task.job.taskFailed(task, Util.getRootCauseMessage(t));
                         }
                     } finally {
                         countDownLatch.countDown();
@@ -1149,12 +1143,14 @@ public class AnalysisManager implements Writable {
             try {
                 countDownLatch.await();
             } catch (InterruptedException t) {
-                LOG.warn("Thread got interrupted when waiting sync analyze task execution finished", t);
+                cancel();
+                Thread.currentThread().interrupt();
+                throw new RuntimeException("Interrupted while waiting for sync analyze", t);
+            }
+            if (cancelled) {
+                throw new RuntimeException("User Cancelled or Timeout.");
             }
             if (!colNames.isEmpty()) {
-                if (cancelled) {
-                    throw new RuntimeException("User Cancelled or Timeout.");
-                }
                 throw new RuntimeException("Failed to analyze following columns:[" + String.join(",", colNames)
                         + "] Reasons: " + String.join(",", errorMessages));
             }
@@ -1663,11 +1659,12 @@ public class AnalysisManager implements Writable {
     }
 
     public void constructJob(AnalysisInfo jobInfo, Collection<? extends BaseAnalysisTask> tasks) {
-        AnalysisJob job = new AnalysisJob(jobInfo, tasks);
+        AnalysisJob job = new AnalysisJob(jobInfo, tasks, this);
         idToAnalysisJob.put(jobInfo.jobId, job);
     }
 
     public void removeJob(long id) {
+        analysisJobIdToTaskMap.remove(id);
         idToAnalysisJob.remove(id);
     }
 

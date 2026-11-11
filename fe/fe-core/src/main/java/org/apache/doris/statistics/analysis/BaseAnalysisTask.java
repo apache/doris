@@ -282,7 +282,7 @@ public abstract class BaseAnalysisTask {
 
     protected Column col;
 
-    protected StmtExecutor stmtExecutor;
+    protected volatile StmtExecutor stmtExecutor;
 
     protected volatile boolean killed;
 
@@ -319,6 +319,9 @@ public abstract class BaseAnalysisTask {
     }
 
     public void execute() throws Exception {
+        if (killed) {
+            return;
+        }
         prepareExecution();
         try {
             doExecute();
@@ -397,12 +400,10 @@ public abstract class BaseAnalysisTask {
 
     public void cancel() {
         killed = true;
-        if (stmtExecutor != null) {
-            stmtExecutor.cancel(new Status(TStatusCode.CANCELLED, "analysis task cancelled"));
+        StmtExecutor executor = stmtExecutor;
+        if (executor != null) {
+            executor.cancel(new Status(TStatusCode.CANCELLED, "analysis task cancelled"));
         }
-        Env.getCurrentEnv().getAnalysisManager()
-                .updateTaskStatus(info, AnalysisState.FAILED,
-                        String.format("Job has been cancelled: %s", info.message), System.currentTimeMillis());
     }
 
     public long getJobId() {
@@ -530,22 +531,14 @@ public abstract class BaseAnalysisTask {
                 if (partitionRowCount > hugePartitionThreshold && AnalysisInfo.JobType.SYSTEM.equals(info.jobType)) {
                     hasHughPartition = true;
                     // -1 means it's skipped because this partition is too large.
-                    // Skip the write when the task is cancelled: the job may already be in a
-                    // terminal state and have cleared the shared map, so a late write would
-                    // re-populate it and keep the memory alive.
-                    if (!killed) {
-                        jobInfo.partitionUpdateRows.putIfAbsent(partition.getId(), -1L);
-                    }
+                    job.putPartitionUpdateRowsIfAbsent(jobInfo, partition.getId(), -1L);
                     LOG.info("Partition {} in table {} is too large, skip it.", part, tbl.getName());
                     continue;
                 }
                 batchRowCount += partitionRowCount;
                 // For cluster upgrade compatible (older version metadata doesn't have partition update rows map)
                 // and insert before first analyze, set partition update rows to 0.
-                // Skip the write when the task is cancelled: see the comment above.
-                if (!killed) {
-                    jobInfo.partitionUpdateRows.putIfAbsent(partition.getId(), 0L);
-                }
+                job.putPartitionUpdateRowsIfAbsent(jobInfo, partition.getId(), 0L);
             }
             params.put("partId", partition == null ? "-1" : String.valueOf(partition.getId()));
             // Skip partitions that not changed after last analyze.
@@ -678,6 +671,9 @@ public abstract class BaseAnalysisTask {
         try (AutoCloseConnectContext a  = StatisticsUtil.buildConnectContext(false)) {
             a.connectContext.getState().setPlanWithUnKnownColumnStats(true);
             stmtExecutor = new StmtExecutor(a.connectContext, sql);
+            if (killed) {
+                return;
+            }
             ColStatsData colStatsData = new ColStatsData(stmtExecutor.executeInternalQuery().get(0));
             if (!colStatsData.isValid()) {
                 if (MetricRepo.isInit) {
@@ -720,6 +716,9 @@ public abstract class BaseAnalysisTask {
     protected void runInsert(String sql) throws Exception {
         try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext(false)) {
             stmtExecutor = new StmtExecutor(r.connectContext, sql);
+            if (killed) {
+                return;
+            }
             try {
                 stmtExecutor.execute();
                 QueryState queryState = stmtExecutor.getContext().getState();
@@ -732,6 +731,8 @@ public abstract class BaseAnalysisTask {
                 AuditLogHelper.logAuditLog(stmtExecutor.getContext(), stmtExecutor.getOriginStmt().toString(),
                         stmtExecutor.getParsedStmt(), stmtExecutor.getQueryStatisticsForAuditLog(), true);
             }
+        } finally {
+            stmtExecutor = null;
         }
     }
 }

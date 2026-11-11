@@ -75,18 +75,16 @@ public class AnalysisTaskWrapper extends FutureTask<Void> {
         } catch (Exception e) {
             except = e;
         } finally {
-            if (!task.killed) {
-                if (except != null) {
-                    LOG.warn("Analyze {} failed.", task.toString(), except);
-                    if (MetricRepo.isInit) {
-                        MetricRepo.COUNTER_STATISTICS_FAILED_ANALYZE_TASK.increase(1L);
-                    }
-                    task.job.taskFailed(task, appendStatisticsAnalyzeOOMHint(Util.getRootCauseMessage(except)));
-                } else {
-                    if (MetricRepo.isInit) {
-                        MetricRepo.COUNTER_STATISTICS_SUCCEED_ANALYZE_TASK.increase(1L);
-                    }
+            if (except != null) {
+                LOG.warn("Analyze {} failed.", task.toString(), except);
+                if (MetricRepo.isInit) {
+                    MetricRepo.COUNTER_STATISTICS_FAILED_ANALYZE_TASK.increase(1L);
                 }
+                // A flush/timeout may already have killed this task. Job termination is
+                // idempotent and must never be skipped merely because cancellation won.
+                task.job.taskFailed(task, appendStatisticsAnalyzeOOMHint(Util.getRootCauseMessage(except)));
+            } else if (!task.killed && MetricRepo.isInit) {
+                MetricRepo.COUNTER_STATISTICS_SUCCEED_ANALYZE_TASK.increase(1L);
             }
         }
     }
@@ -94,7 +92,7 @@ public class AnalysisTaskWrapper extends FutureTask<Void> {
     public boolean cancel(String msg) {
         try {
             LOG.warn("{} cancelled, cost time:{}", task.toString(), System.currentTimeMillis() - startTime);
-            task.cancel();
+            task.job.taskFailed(task, msg);
         } catch (Exception e) {
             LOG.warn(String.format("Cancel job failed job info : %s",
                     appendStatisticsAnalyzeOOMHint(Util.getRootCauseMessage(e))));

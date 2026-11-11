@@ -41,6 +41,7 @@ import org.mockito.Mockito;
 
 import java.lang.reflect.Field;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public class AnalysisTaskExecutorTest extends TestWithFeService {
@@ -110,6 +111,34 @@ public class AnalysisTaskExecutorTest extends TestWithFeService {
             analysisTaskExecutor.tryToCancel();
             Assertions.assertTrue(cancelled.get());
             Assertions.assertEquals(0, analysisTaskExecutor.getTaskQueue().size());
+        }
+    }
+
+    @Test
+    public void testExecutionFailureIsNotCancelledByWatchdog() throws Exception {
+        try (MockedStatic<Env> env = Mockito.mockStatic(Env.class, Mockito.CALLS_REAL_METHODS)) {
+            env.when(Env::isCheckpointThread).thenReturn(true);
+            AnalysisTaskExecutor executor = new AnalysisTaskExecutor(1);
+            AnalysisTaskWrapper wrapper = Mockito.mock(AnalysisTaskWrapper.class);
+            Mockito.when(wrapper.get(Mockito.anyLong(), Mockito.eq(TimeUnit.MILLISECONDS)))
+                    .thenThrow(new java.util.concurrent.ExecutionException(new RuntimeException("write failed")));
+            executor.putJob(wrapper);
+            executor.tryToCancel();
+            Mockito.verify(wrapper, Mockito.never()).cancel(Mockito.anyString());
+        }
+    }
+
+    @Test
+    public void testCancelledFutureIsNotCancelledAgainByWatchdog() throws Exception {
+        try (MockedStatic<Env> env = Mockito.mockStatic(Env.class, Mockito.CALLS_REAL_METHODS)) {
+            env.when(Env::isCheckpointThread).thenReturn(true);
+            AnalysisTaskExecutor executor = new AnalysisTaskExecutor(1);
+            AnalysisTaskWrapper wrapper = Mockito.mock(AnalysisTaskWrapper.class);
+            Mockito.when(wrapper.get(Mockito.anyLong(), Mockito.eq(TimeUnit.MILLISECONDS)))
+                    .thenThrow(new java.util.concurrent.CancellationException());
+            executor.putJob(wrapper);
+            executor.tryToCancel();
+            Mockito.verify(wrapper, Mockito.never()).cancel(Mockito.anyString());
         }
     }
 
