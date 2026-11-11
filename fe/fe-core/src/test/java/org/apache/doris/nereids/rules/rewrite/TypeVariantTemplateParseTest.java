@@ -59,6 +59,9 @@ public class TypeVariantTemplateParseTest extends TestWithFeService {
     public void runBeforeAll() throws Exception {
         createDatabase(DATABASE);
         connectContext.setDatabase(DATABASE);
+        // the source table holds no rows here: PRUNE_EMPTY_PARTITION would turn its scan into an empty relation and
+        // drop the projection that carries the parse call before any assertion could see it
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
         createTable("create table " + TABLE + " (\n"
                 + "    id int,\n"
                 + "    v variant<'money.amount':decimal(20,6),'ratio*':decimal(30,18),'name':string>\n"
