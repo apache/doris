@@ -26,7 +26,7 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
-#include "core/data_type_serde/simdjson_value.h"
+#include "core/data_type_serde/simdjson_read_context.h"
 #include "core/value/jsonb_value.h"
 
 namespace doris {
@@ -40,9 +40,8 @@ Status append_simdjson(const DataTypeSerDe& serde, IColumn& column, const std::s
         auto doc = parser.iterate(text);
         auto object = doc.get_object().value();
         auto value = object.find_field_unordered("v").value();
-        SimdJsonValue input {value};
         auto status = serde.deserialize_one_cell_from_simdjson(
-                column, input, DataTypeSerDe::get_default_format_options(), context, "v");
+                column, value, DataTypeSerDe::get_default_format_options(), context, "v");
         if (!status.ok()) {
             return status;
         }
@@ -182,17 +181,15 @@ TEST(SimdJsonSerDeTest, RepeatedJsonpathStringAndSubtree) {
     auto jsonb_serde = jsonb_type.get_serde();
     for (int i = 0; i < 32; ++i) {
         auto value = object.find_field_unordered("payload").find_field_unordered("s").value();
-        SimdJsonValue input {value};
         ASSERT_TRUE(string_serde
                             ->deserialize_one_cell_from_simdjson(
-                                    *strings, input, DataTypeSerDe::get_default_format_options(),
+                                    *strings, value, DataTypeSerDe::get_default_format_options(),
                                     context, "s")
                             .ok());
         auto payload = object.find_field_unordered("payload").value();
-        SimdJsonValue subtree {payload};
         ASSERT_TRUE(jsonb_serde
                             ->deserialize_one_cell_from_simdjson(
-                                    *jsonbs, subtree, DataTypeSerDe::get_default_format_options(),
+                                    *jsonbs, payload, DataTypeSerDe::get_default_format_options(),
                                     context, "payload")
                             .ok());
     }

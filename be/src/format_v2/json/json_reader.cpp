@@ -1058,7 +1058,6 @@ Status JsonReader::_write_data_to_column(simdjson::ondemand::value& value,
                                          const std::string& column_name,
                                          const DataTypeSerDeSPtr& serde, bool* valid) {
     _simdjson_context.use_string_cache = use_string_cache;
-    SimdJsonValue input {value};
     // File slots can be logically non-nullable while their materialized columns are nullable.
     if (column_ptr->is_nullable() && !type_desc->is_nullable()) {
         auto& nullable = assert_cast<ColumnNullable&>(*column_ptr);
@@ -1067,12 +1066,12 @@ Status JsonReader::_write_data_to_column(simdjson::ondemand::value& value,
         } else {
             auto& nested = nullable.get_nested_column();
             RETURN_IF_ERROR(serde->deserialize_one_cell_from_simdjson(
-                    nested, input, _serde_options, _simdjson_context, column_name));
+                    nested, value, _serde_options, _simdjson_context, column_name));
             nullable.get_null_map_data().push_back(0);
         }
     } else {
         RETURN_IF_ERROR(serde->deserialize_one_cell_from_simdjson(
-                *column_ptr, input, _serde_options, _simdjson_context, column_name));
+                *column_ptr, value, _serde_options, _simdjson_context, column_name));
     }
     *valid = true;
     return Status::OK();

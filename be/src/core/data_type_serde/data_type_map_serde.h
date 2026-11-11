@@ -51,7 +51,7 @@ public:
                                       FormatOptions& options) const override;
     Status serialize_column_to_json(const IColumn& column, int64_t start_idx, int64_t end_idx,
                                     BufferWritable& bw, FormatOptions& options) const override;
-    Status deserialize_one_cell_from_simdjson(IColumn& column, SimdJsonValue& value,
+    Status deserialize_one_cell_from_simdjson(IColumn& column, simdjson::ondemand::value& value,
                                               const FormatOptions& options,
                                               SimdJsonReadContext& context,
                                               const std::string& column_name) const override;

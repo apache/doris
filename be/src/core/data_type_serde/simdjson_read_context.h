@@ -28,11 +28,6 @@
 #include "util/jsonb_writer.h"
 
 namespace doris {
-// Borrowed single-pass value. This view keeps simdjson implementation namespaces and SIMD
-// headers out of the common SerDe interface header.
-struct SimdJsonValue {
-    simdjson::ondemand::value& value;
-};
 // Reader-owned state, never stored in shared SerDes. Clear the cache before the next document:
 // its keys and values borrow the input and parser buffers.
 struct SimdJsonReadContext {
@@ -45,8 +40,4 @@ struct SimdJsonReadContext {
         return JsonbParser::decoded_key(field, cache());
     }
 };
-Status deserialize_simdjson_child(const DataTypeSerDe& serde, IColumn& column,
-                                  simdjson::ondemand::value& value,
-                                  const DataTypeSerDe::FormatOptions& options,
-                                  SimdJsonReadContext& context, const std::string& column_name);
 } // namespace doris

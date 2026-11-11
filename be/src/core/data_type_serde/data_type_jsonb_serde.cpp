@@ -27,7 +27,7 @@
 #include "common/status.h"
 #include "core/data_type_serde/arrow_validation.h"
 #include "core/data_type_serde/bson_value_view.h"
-#include "core/data_type_serde/simdjson_value.h"
+#include "core/data_type_serde/simdjson_read_context.h"
 #include "core/value/jsonb_value.h"
 #include "exprs/json_functions.h"
 #include "util/jsonb_parser_simd.h"
@@ -393,16 +393,16 @@ Status DataTypeJsonbSerDe::decode_bson_value(IColumn& column, const BsonValueVie
 }
 
 Status DataTypeJsonbSerDe::deserialize_one_cell_from_simdjson(
-        IColumn& column, SimdJsonValue& input, const FormatOptions& options,
+        IColumn& column, simdjson::ondemand::value& input, const FormatOptions& options,
         SimdJsonReadContext& context, const std::string& column_name) const {
-    const auto type = input.value.type().value();
+    const auto type = input.type().value();
     if (type != simdjson::ondemand::json_type::object &&
         type != simdjson::ondemand::json_type::array) {
         return DataTypeSerDe::deserialize_one_cell_from_simdjson(column, input, options, context,
                                                                  column_name);
     }
     auto& writer = context.jsonb_writer;
-    RETURN_IF_ERROR(JsonbParser::parse_value(input.value, writer, context.cache()));
+    RETURN_IF_ERROR(JsonbParser::parse_value(input, writer, context.cache()));
     const auto size = writer.getOutput()->getSize();
     column.insert_data(writer.getOutput()->getBuffer(), size);
     return Status::OK();

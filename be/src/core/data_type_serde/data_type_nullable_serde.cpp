@@ -38,7 +38,7 @@
 #include "core/data_type_serde/data_type_string_serde.h"
 #include "core/data_type_serde/decoded_column_view.h"
 #include "core/data_type_serde/orc_serde_utils.h"
-#include "core/data_type_serde/simdjson_value.h"
+#include "core/data_type_serde/simdjson_read_context.h"
 #include "exprs/function/cast/cast_base.h"
 #include "format/transformer/vcsv_transformer.h"
 #include "util/defer_op.h"
@@ -735,10 +735,10 @@ Status DataTypeNullableSerDe::decode_bson_value(IColumn& column, const BsonValue
 }
 
 Status DataTypeNullableSerDe::deserialize_one_cell_from_simdjson(
-        IColumn& column, SimdJsonValue& input, const FormatOptions& options,
+        IColumn& column, simdjson::ondemand::value& input, const FormatOptions& options,
         SimdJsonReadContext& context, const std::string& column_name) const {
     auto& target = assert_cast<ColumnNullable&>(column);
-    if (input.value.type().value() == simdjson::ondemand::json_type::null) {
+    if (input.type().value() == simdjson::ondemand::json_type::null) {
         target.insert_default();
         return Status::OK();
     }

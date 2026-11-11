@@ -28,7 +28,7 @@
 
 #include "core/custom_allocator.h"
 #include "core/data_type_serde/data_type_serde.h"
-#include "core/data_type_serde/simdjson_value.h"
+#include "core/data_type_serde/simdjson_read_context.h"
 #include "exprs/json_functions.h"
 #include "format_v2/file_reader.h"
 #include "gen_cpp/PlanNodes_types.h"

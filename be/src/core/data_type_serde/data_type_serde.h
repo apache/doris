@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <simdjson.h>
+
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -93,7 +95,6 @@ struct CastParameters;
 
 struct BsonValueView;
 struct BsonDecodeContext;
-struct SimdJsonValue;
 struct SimdJsonReadContext;
 class DataTypeSerDe;
 using DataTypeSerDeSPtr = std::shared_ptr<DataTypeSerDe>;
@@ -396,7 +397,8 @@ public:
 
     // Consumes one borrowed value and appends one cell. Errors propagate to the caller;
     // the reader retains responsibility for handling invalid rows.
-    virtual Status deserialize_one_cell_from_simdjson(IColumn& column, SimdJsonValue& value,
+    virtual Status deserialize_one_cell_from_simdjson(IColumn& column,
+                                                      simdjson::ondemand::value& value,
                                                       const FormatOptions& options,
                                                       SimdJsonReadContext& context,
                                                       const std::string& column_name) const;

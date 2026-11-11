@@ -33,7 +33,7 @@
 #include "core/data_type_serde/arrow_validation.h"
 #include "core/data_type_serde/complex_type_deserialize_util.h"
 #include "core/data_type_serde/orc_serde_utils.h"
-#include "core/data_type_serde/simdjson_value.h"
+#include "core/data_type_serde/simdjson_read_context.h"
 #include "core/string_ref.h"
 #include "util/defer_op.h"
 #include "util/jsonb_document.h"
@@ -914,11 +914,12 @@ Status DataTypeMapSerDe::read_column_from_orc(IColumn& column,
     return decode_map_orc_values(key_serde, value_serde, column, view);
 }
 
-Status DataTypeMapSerDe::deserialize_one_cell_from_simdjson(IColumn& column, SimdJsonValue& input,
+Status DataTypeMapSerDe::deserialize_one_cell_from_simdjson(IColumn& column,
+                                                            simdjson::ondemand::value& input,
                                                             const FormatOptions& options,
                                                             SimdJsonReadContext& context,
                                                             const std::string& column_name) const {
-    if (input.value.type().value() != simdjson::ondemand::json_type::object) {
+    if (input.type().value() != simdjson::ondemand::json_type::object) {
         return Status::DataQualityError("Json value isn't object, but the column `{}` is map.",
                                         column_name);
     }
@@ -928,7 +929,7 @@ Status DataTypeMapSerDe::deserialize_one_cell_from_simdjson(IColumn& column, Sim
     auto& keys = *keys_owner;
     auto& values = *values_owner;
 
-    for (simdjson::ondemand::field field : input.value.get_object()) {
+    for (simdjson::ondemand::field field : input.get_object()) {
         const auto key = context.decoded_key(field);
         Slice slice {key.data(), key.size()};
         // Object keys are decoded strings, not JSON tokens; preserve the reader's text conversion.
@@ -942,8 +943,8 @@ Status DataTypeMapSerDe::deserialize_one_cell_from_simdjson(IColumn& column, Sim
             RETURN_IF_ERROR(key_serde->deserialize_one_cell_from_json(keys, slice, options));
         }
         auto value = field.value();
-        RETURN_IF_ERROR(deserialize_simdjson_child(*value_serde, values, value, options, context,
-                                                   column_name + ".value"));
+        RETURN_IF_ERROR(value_serde->deserialize_one_cell_from_simdjson(
+                values, value, options, context, column_name + ".value"));
     }
     target.get_offsets().push_back(keys.size());
     return Status::OK();
