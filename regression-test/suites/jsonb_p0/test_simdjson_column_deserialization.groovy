@@ -31,6 +31,16 @@ suite("test_simdjson_column_deserialization", "p0") {
         set "max_filter_ratio", "0.5"
         file "simdjson_column_deserialization.json"
         time 10000
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            def load = parseJson(result)
+            assertEquals("Success", load.Status)
+            assertEquals(4, load.NumberTotalRows)
+            assertEquals(3, load.NumberLoadedRows)
+            assertEquals(1, load.NumberFilteredRows)
+        }
     }
     sql "sync"
     order_qt_by_name """SELECT id,small,flag,amount,CAST(payload AS STRING),items,attrs,
@@ -46,6 +56,16 @@ suite("test_simdjson_column_deserialization", "p0") {
         set "jsonpaths", '["$.id","$.small","$.flag","$.amount","$.payload","$.items","$.attrs","$.first_text","$.first_text"]'
         file "simdjson_column_deserialization.json"
         time 10000
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            def load = parseJson(result)
+            assertEquals("Success", load.Status)
+            assertEquals(4, load.NumberTotalRows)
+            assertEquals(3, load.NumberLoadedRows)
+            assertEquals(1, load.NumberFilteredRows)
+        }
     }
     sql "sync"
     order_qt_by_path """SELECT id,small,flag,amount,CAST(payload AS STRING),items,attrs,
