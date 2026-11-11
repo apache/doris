@@ -241,3 +241,28 @@ if (System.getenv("DORIS_CI_PRISTINE_FRAMEWORK") == "true") {
         "test_parquet_meta_tvf"
     ].join(",")
 }
+
+// Reviewed defaults for CI using the unmodified framework and rootless runtime.
+// Preserve other environments; addresses, local paths, credentials and build IDs are injected at deployment.
+if (System.getenv("DORIS_CI_PRISTINE_FRAMEWORK") == "true") {
+    // Use the existing read-only regression fixtures in Hong Kong.
+    s3BucketName = "doris-regression-hk"
+    s3Endpoint = "oss-cn-hongkong.aliyuncs.com"
+    s3Region = "oss-cn-hongkong"
+    s3FixtureProtocol = "https"
+    ciFixtureBaseUrl = "https://doris-regression-hk.oss-cn-hongkong.aliyuncs.com"
+    ciFixtureStsEnabled = true
+    ciScopedDynamicFixturesEnabled = true
+    ciFixtureProfile = "external"
+    // Preserve the existing local filesystem contract for the rootless external lane.
+    backendFilesystemTransport = "local-rootless"
+    ciTrinoLocalDispatchEnabled = true
+    backendLocalPathAllowlist = "[\"/tmp/test_export_view\"]"
+    // Preserve the existing build-scoped backup repository; its build ID is injected separately.
+    ciBackupRepositoryEnabled = true
+    ciBackupRepositoryBucket = "doris-ci-artifacts-1949087886039699-hk"
+    ciBackupRepositoryEndpoint = "https://oss-cn-hongkong-internal.aliyuncs.com"
+    ciBackupRepositoryRegion = "oss-cn-hongkong"
+    ciBackupRepositoryProfile = "external"
+    ciBackupRepositoryPrefix = "external"
+}
