@@ -448,6 +448,14 @@ VariantRef VariantRef::array_at(uint32_t index) const {
     return _container_value_at(_container_layout(VariantBasicType::ARRAY), index, true);
 }
 
+VariantRef::ArrayView VariantRef::array_view() const {
+    return {*this, _container_layout(VariantBasicType::ARRAY)};
+}
+
+VariantRef VariantRef::ArrayView::value_at(uint32_t index) const {
+    return _value._container_value_at(_layout, index, true);
+}
+
 bool VariantRef::object_find(StringRef key, VariantRef* out) const {
     if (out == nullptr) {
         throw Exception(ErrorCode::INVALID_ARGUMENT, "Variant object lookup output is null");

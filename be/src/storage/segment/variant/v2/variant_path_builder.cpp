@@ -308,14 +308,25 @@ DataTypePtr infer_type(VariantRef value, const DataTypePtr& reusable_type = null
     // Borrow the static element types and only resolve a common type when elements differ.
     DataTypePtr promoted_element;
     const DataTypePtr* element_type = nullptr;
-    const uint32_t element_count = value.num_elements();
-    for (uint32_t index = 0; index < element_count; ++index) {
-        const VariantRef element = value.array_at(index);
+    const VariantRef::ArrayView array = value.array_view();
+    for (uint32_t index = 0; index < array.size(); ++index) {
+        const VariantRef element = array.value_at(index);
         const ValueKind element_kind = value_kind(element);
         if (element_kind == ValueKind::ARRAY ||
             (element_kind == ValueKind::JSONB_REF &&
              element.basic_type() == VariantBasicType::OBJECT)) {
             return jsonb_type();
+        }
+        // After [1, 1.5] the scalar common type is JSONB. Further scalar elements cannot widen
+        // it, but keep checking for containers: [1, 1.5, {}] falls back as a whole JSONB subtree.
+        // DOUBLE likewise already covers FLOAT/DOUBLE, e.g. a long alternating float array.
+        if (element_type != nullptr) {
+            const PrimitiveType current = (*element_type)->get_primitive_type();
+            if (current == TYPE_JSONB ||
+                (current == TYPE_DOUBLE &&
+                 (element_kind == ValueKind::FLOAT || element_kind == ValueKind::DOUBLE))) {
+                continue;
+            }
         }
         const DataTypePtr& inferred = infer_scalar_type(element, element_kind);
         if (inferred->get_primitive_type() == INVALID_TYPE) {
@@ -518,9 +529,9 @@ bool value_is_representable(VariantRef value, const DataTypePtr& target_type) {
         }
         const DataTypePtr& element_type =
                 array_element_type(assert_cast<const DataTypeArray&>(*target_type));
-        const uint32_t count = value.num_elements();
-        for (uint32_t index = 0; index < count; ++index) {
-            const VariantRef element = value.array_at(index);
+        const VariantRef::ArrayView array = value.array_view();
+        for (uint32_t index = 0; index < array.size(); ++index) {
+            const VariantRef element = array.value_at(index);
             if (!element.is_null() && !value_is_representable(element, element_type)) {
                 return false;
             }
@@ -565,9 +576,9 @@ void write_path_jsonb(VariantRef value, JsonbWriter* writer) {
     }
     case ValueKind::ARRAY: {
         require_jsonb_write(writer->writeStartArray(), "array start");
-        const uint32_t count = value.num_elements();
-        for (uint32_t index = 0; index < count; ++index) {
-            write_path_jsonb(value.array_at(index), writer);
+        const VariantRef::ArrayView array = value.array_view();
+        for (uint32_t index = 0; index < array.size(); ++index) {
+            write_path_jsonb(array.value_at(index), writer);
         }
         require_jsonb_write(writer->writeEndArray(), "array end");
         return;
@@ -850,9 +861,9 @@ void append_array(VariantRef value, const DataTypePtr& target_type, IColumn* tar
     const DataTypePtr& element_type = array_element_type(array_type);
     // infer_type() made the first borrowed pass. Revisit the encoded children only after path type
     // promotion is complete, appending directly without an owning recursive scratch tree.
-    const uint32_t count = value.num_elements();
-    for (uint32_t index = 0; index < count; ++index) {
-        const VariantRef element = value.array_at(index);
+    const VariantRef::ArrayView input = value.array_view();
+    for (uint32_t index = 0; index < input.size(); ++index) {
+        const VariantRef element = input.value_at(index);
         if (element.is_null()) {
             elements.get_nested_column().insert_default();
             elements.get_null_map_data().push_back(1);

@@ -29,6 +29,7 @@ namespace doris {
 
 struct VariantRef {
     class ObjectView;
+    class ArrayView;
 
     VariantMetadataRef metadata;
     StringRef value;
@@ -59,6 +60,7 @@ struct VariantRef {
     bool object_find_by_id(uint32_t field_id, VariantRef* out) const;
     VariantRef object_value_at(uint32_t index, uint32_t* field_id_out) const;
     VariantRef array_at(uint32_t index) const;
+    ArrayView array_view() const;
 
 private:
     struct ContainerLayout {
@@ -95,6 +97,21 @@ private:
     VariantRef _value;
     ContainerLayout _layout;
     uint32_t _dictionary_size;
+};
+
+// Like ObjectView, this borrows immutable input bytes and validates the container layout once.
+// Each value_at() still validates the child's offset, encoded size and next-offset boundary.
+class VariantRef::ArrayView {
+public:
+    uint32_t size() const { return _layout.count; }
+    VariantRef value_at(uint32_t index) const;
+
+private:
+    friend struct VariantRef;
+    ArrayView(VariantRef value, ContainerLayout layout) : _value(value), _layout(layout) {}
+
+    VariantRef _value;
+    ContainerLayout _layout;
 };
 
 } // namespace doris
