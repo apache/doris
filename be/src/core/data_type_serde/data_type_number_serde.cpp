@@ -42,7 +42,6 @@
 #include "core/data_type_serde/decoded_column_view.h"
 #include "core/data_type_serde/orc_serde_utils.h"
 #include "core/data_type_serde/parquet_decode_source.h"
-#include "core/data_type_serde/simdjson_value.h"
 #include "core/packed_int128.h"
 #include "core/types.h"
 #include "core/value/timestamptz_value.h"
@@ -2225,41 +2224,6 @@ Status DataTypeNumberSerDe<T>::decode_bson_value(IColumn& column, const BsonValu
     return Status::OK();
 }
 
-template <PrimitiveType T>
-Status DataTypeNumberSerDe<T>::deserialize_one_cell_from_simdjson(
-        IColumn& column, SimdJsonValue& input, const FormatOptions& options,
-        SimdJsonReadContext& context, const std::string& column_name) const {
-    if constexpr (is_int_or_bool(T)) {
-        using Value = typename PrimitiveTypeTraits<T>::CppType;
-        const auto type = input.value.type().value();
-        auto& data = assert_cast<ColumnType&>(column).get_data();
-        if (type == simdjson::ondemand::json_type::boolean) {
-            data.push_back(static_cast<Value>(input.value.get_bool().value()));
-            return Status::OK();
-        }
-        if constexpr (is_int(T)) {
-            if (type == simdjson::ondemand::json_type::number) {
-                const auto token = input.value.raw_json_token();
-                // Fractions/exponents and >64-bit integers retain CastToInt's lexical rules. Avoid
-                // silently truncating 1.5 through double-to-int conversion.
-                if (token.find_first_of(".eE") == std::string_view::npos && token.size() <= 18) {
-                    const int64_t number = input.value.get_int64();
-                    if (static_cast<Int128>(number) <
-                                static_cast<Int128>(std::numeric_limits<Value>::lowest()) ||
-                        static_cast<Int128>(number) >
-                                static_cast<Int128>(std::numeric_limits<Value>::max())) {
-                        return Status::InvalidArgument("parse number fail, string: '{}'", token);
-                    }
-                    data.push_back(static_cast<Value>(number));
-                    return Status::OK();
-                }
-            }
-        }
-    }
-    return DataTypeSerDe::deserialize_one_cell_from_simdjson(column, input, options, context,
-                                                             column_name);
-}
-
 template class DataTypeNumberSerDe<TYPE_BOOLEAN>;
 template class DataTypeNumberSerDe<TYPE_TINYINT>;
 template class DataTypeNumberSerDe<TYPE_SMALLINT>;
@@ -2278,5 +2242,4 @@ template class DataTypeNumberSerDe<TYPE_IPV6>;
 template class DataTypeNumberSerDe<TYPE_UUID>;
 template class DataTypeNumberSerDe<TYPE_TIMEV2>;
 template class DataTypeNumberSerDe<TYPE_TIMESTAMPTZ>;
-
 } // namespace doris
