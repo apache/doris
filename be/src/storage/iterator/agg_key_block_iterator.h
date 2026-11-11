@@ -19,7 +19,6 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <optional>
 #include <vector>
 
 #include "common/status.h"
@@ -27,89 +26,93 @@
 #include "core/block/block.h"
 #include "core/column/column.h"
 #include "exprs/aggregate/aggregate_function.h"
-#include "storage/iterator/same_key_flags.h"
 #include "storage/iterators.h"
 #include "storage/schema.h"
 
 namespace doris {
 class RuntimeProfile;
 
-// Folds the value columns of key groups with the storage aggregate function of each column
-// (the `_reader` variant of the column's aggregation, e.g. sum_reader). The rows of a group are
-// row ranges of the merged Blocks, added with one add_batch_range per range and column. A group
-// may span several merged Blocks: its partial state stays in the function's place until
-// close_group() appends the result row.
-class AggValueAggregator {
-public:
-    AggValueAggregator() = default;
-    ~AggValueAggregator();
-
-    AggValueAggregator(const AggValueAggregator&) = delete;
-    AggValueAggregator& operator=(const AggValueAggregator&) = delete;
-
-    // `agg_ordinals` are the read-schema ordinals of the folded columns, ascending.
-    Status init(const ReadSchema& read_schema, std::vector<uint32_t> agg_ordinals,
-                int be_exec_version);
-
-    const std::vector<uint32_t>& agg_ordinals() const { return _agg_ordinals; }
-
-    // Whether the function of every folded column returns the single input of a one-row group
-    // unchanged (SUM, MIN, MAX, REPLACE, REPLACE_IF_NOT_NULL, HLL_UNION, BITMAP_UNION), so that
-    // a one-row group can be copied to the output instead of folded.
-    bool returns_single_row_unchanged() const { return _returns_single_row_unchanged; }
-
-    // The rows of `block` are added next: note which folded columns of it hold a NULL, so that
-    // the nullable functions take their batch path for the columns that hold none.
-    void start_block(const Block& block);
-
-    // Add rows [begin, end) of the Block passed to start_block() to the open group.
-    void add_rows(const Block& block, size_t begin, size_t end);
-
-    // Append the open group's result row to `out` and start an empty group.
-    void close_group(MutableColumns& out);
-
-private:
-    struct AggColumn {
-        uint32_t ordinal = 0;
-        AggregateFunctionPtr function;
-        // Allocated in _state_arena, created by `function`, destroyed by ~AggValueAggregator.
-        AggregateDataPtr place = nullptr;
-        bool block_has_null = false;
-    };
-
-    std::vector<uint32_t> _agg_ordinals;
-    std::vector<AggColumn> _columns;
-    bool _returns_single_row_unchanged = true;
-    // The memory of the places. Not `_arena`, which close_group() clears.
-    Arena _state_arena;
-    // Allocations of the open group's states, released when the group closes.
-    Arena _arena;
-};
-
 // The reads of AGG_KEYS tables that fold the rows of a key: queries that did not push their
-// aggregation down, compactions and the checksum task.
-// The rows of the read arrive in key order as merged Blocks, and SameKeyFlags tells the rows of
-// one key apart. Each key group becomes one output row:
-//   - the key columns and the REPLACE columns are copied from the group's first row, the newest
-//     one, which the REPLACE reader function keeps (replace_if_not_null skips NULLs and is
-//     folded);
-//   - the other value columns are folded by AggValueAggregator;
-//   - a stretch of one-row groups is copied to the output as is when every folded function
-//     returns its single input unchanged.
+// aggregation down, compactions and the checksum task. Like StarRocks' AggregateIterator and its
+// ChunkAggregator, it takes the rows of the read in key order as merged Blocks and, for each
+// merged Block,
+//   1. marks the rows whose key equals the key of the row before (build_equal_flags_for_column()
+//      for every key column; the first row is compared with the last row of the output, the key
+//      of the group still open);
+//   2. turns every key group into one output row:
+//      - the key columns and the REPLACE columns are copied from the group's first row, the
+//        newest one, which the REPLACE reader function keeps (replace_if_not_null skips NULLs and
+//        is folded);
+//      - the other value columns are folded by ValueAggregator;
+//      - a stretch of one-row groups is copied to the output as is when every folded function
+//        returns its single input unchanged.
 // Example with the merged Block k1 k1 k2 k3 k4 k4 (flags 0 1 0 0 0 1): k1 is folded from rows
 // 0-1, k2 and k3 are copied from rows 2-3, and k4 starts a group folded from rows 4-5 that
 // stays open into the next merged Block.
 // An output Block only ends in front of a new key, so it never splits a key group.
 class AggKeyBlockIterator {
 public:
-    // `rows` hands out the rows of the read in key order. `flags` tells its rows of one key
-    // apart; std::nullopt when no two of its rows share a key (rowsets read one after another).
-    // An output Block holds `max_rows` rows at most and ends once it holds
+    // Folds the value columns of key groups with the storage aggregate function of each column
+    // (the `_reader` variant of the column's aggregation, e.g. sum_reader). The rows of a group
+    // are row ranges of the merged Blocks, added with one add_batch_range per range and column. A
+    // group may span several merged Blocks: its partial state stays in the function's place until
+    // close_group() appends the result row.
+    class ValueAggregator {
+    public:
+        ValueAggregator() = default;
+        ~ValueAggregator();
+
+        ValueAggregator(const ValueAggregator&) = delete;
+        ValueAggregator& operator=(const ValueAggregator&) = delete;
+
+        // `agg_ordinals` are the read-schema ordinals of the folded columns, ascending.
+        Status init(const ReadSchema& read_schema, std::vector<uint32_t> agg_ordinals,
+                    int be_exec_version);
+
+        const std::vector<uint32_t>& agg_ordinals() const { return _agg_ordinals; }
+
+        // Whether the function of every folded column returns the single input of a one-row
+        // group unchanged (SUM, MIN, MAX, REPLACE, REPLACE_IF_NOT_NULL, HLL_UNION, BITMAP_UNION),
+        // so that a one-row group can be copied to the output instead of folded.
+        bool returns_single_row_unchanged() const { return _returns_single_row_unchanged; }
+
+        // The rows of `block` are added next: note which folded columns of it hold a NULL, so
+        // that the nullable functions take their batch path for the columns that hold none.
+        void start_block(const Block& block);
+
+        // Add rows [begin, end) of the Block passed to start_block() to the open group.
+        void add_rows(const Block& block, size_t begin, size_t end);
+
+        // Append the open group's result row to `out` and start an empty group.
+        void close_group(MutableColumns& out);
+
+    private:
+        struct AggColumn {
+            uint32_t ordinal = 0;
+            AggregateFunctionPtr function;
+            // Allocated in _state_arena, created by `function`, destroyed by ~ValueAggregator.
+            AggregateDataPtr place = nullptr;
+            bool block_has_null = false;
+        };
+
+        std::vector<uint32_t> _agg_ordinals;
+        std::vector<AggColumn> _columns;
+        bool _returns_single_row_unchanged = true;
+        // The memory of the places. Not `_arena`, which close_group() clears.
+        Arena _state_arena;
+        // Allocations of the open group's states, released when the group closes.
+        Arena _arena;
+    };
+
+    // `rows` hands out the rows of the read in key order. `merged` says whether it merges several
+    // inputs, so that the rows of one key may follow each other; when it does not (rowsets read
+    // one after another), no two of its rows share a key and every row is a group of its own. An
+    // output Block holds `max_rows` rows at most and ends once it holds
     // `preferred_block_size_bytes` with the adaptive batch size. `merged_rows` counts the rows
     // folded into an earlier row of their group.
-    AggKeyBlockIterator(RowwiseIteratorUPtr rows, std::optional<SameKeyFlags> flags,
-                        size_t max_rows, size_t preferred_block_size_bytes,
-                        ReadSchemaSPtr read_schema, int be_exec_version, uint64_t* merged_rows);
+    AggKeyBlockIterator(RowwiseIteratorUPtr rows, bool merged, size_t max_rows,
+                        size_t preferred_block_size_bytes, ReadSchemaSPtr read_schema,
+                        int be_exec_version, uint64_t* merged_rows);
 
     Status init();
 
@@ -147,8 +150,12 @@ private:
     bool _has_byte_budget() const;
     // The end (exclusive) of the stretch of one-row groups starting at `_pos`, `room` at most.
     size_t _one_row_groups_end(size_t room) const;
-    // Read the next merged Block into `_merged`; `_rows_eof` once there is none.
-    Status _read_merged_block();
+    // Read the next merged Block into `_merged` and mark its rows of one key in `_same_key`;
+    // `_rows_eof` once there is none. `columns` is the output, whose last row holds the key of the
+    // open group.
+    Status _read_merged_block(const MutableColumns& columns);
+    // Set `_same_key` for the rows of `_merged`, see the class comment.
+    void _mark_same_keys(const MutableColumns& columns);
     // The end (exclusive) of the group starting at or continued at row `begin` of `_merged`.
     size_t _group_end(size_t begin) const;
     // Copy the head columns of the group heads collected from `_merged` into `columns`.
@@ -157,21 +164,23 @@ private:
     Status _copy_single_rows(MutableColumns& columns, size_t begin, size_t end);
 
     const RowwiseIteratorUPtr _rows;
-    std::optional<SameKeyFlags> _flags;
+    const bool _merged_input;
     const size_t _max_rows;
     const size_t _preferred_block_size_bytes;
     const ReadSchemaSPtr _read_schema;
     const int _be_exec_version;
     uint64_t* _merged_rows;
 
-    // Read-schema ordinals copied from a group's first row: the keys and the REPLACE columns.
+    // Read-schema ordinals of the key columns, and of the columns copied from a group's first
+    // row: the keys and the REPLACE columns.
+    std::vector<uint32_t> _key_ordinals;
     std::vector<uint32_t> _head_ordinals;
-    AggValueAggregator _aggregator;
+    ValueAggregator _aggregator;
     bool _copy_one_row_groups = false;
 
     // The merged rows being folded, their same-key flags and the first row not consumed yet.
     Block _merged;
-    std::vector<uint8_t> _same_key;
+    EqualFlags _same_key;
     size_t _pos = 0;
     bool _rows_eof = false;
     // The last group started has no result row in the output yet.

@@ -24,6 +24,8 @@
 
 #include "common/config.h"
 #include "common/exception.h"
+#include "core/column/column_equal_flags.h"
+#include "core/data_type/data_type_nullable.h"
 #include "exprs/aggregate/aggregate_function_reader.h"
 #include "storage/iterators.h"
 #include "storage/tablet/tablet_schema.h"
@@ -52,14 +54,15 @@ bool reader_function_returns_single_input(FieldAggregationMethod aggregation) {
 
 } // namespace
 
-AggValueAggregator::~AggValueAggregator() {
+AggKeyBlockIterator::ValueAggregator::~ValueAggregator() {
     for (auto& column : _columns) {
         column.function->destroy(column.place);
     }
 }
 
-Status AggValueAggregator::init(const ReadSchema& read_schema, std::vector<uint32_t> agg_ordinals,
-                                int be_exec_version) {
+Status AggKeyBlockIterator::ValueAggregator::init(const ReadSchema& read_schema,
+                                                  std::vector<uint32_t> agg_ordinals,
+                                                  int be_exec_version) {
     DCHECK(_columns.empty());
     _agg_ordinals = std::move(agg_ordinals);
     _columns.reserve(_agg_ordinals.size());
@@ -95,14 +98,14 @@ Status AggValueAggregator::init(const ReadSchema& read_schema, std::vector<uint3
     return Status::OK();
 }
 
-void AggValueAggregator::start_block(const Block& block) {
+void AggKeyBlockIterator::ValueAggregator::start_block(const Block& block) {
     const size_t rows = block.rows();
     for (auto& column : _columns) {
         column.block_has_null = block.get_by_position(column.ordinal).column->has_null(0, rows);
     }
 }
 
-void AggValueAggregator::add_rows(const Block& block, size_t begin, size_t end) {
+void AggKeyBlockIterator::ValueAggregator::add_rows(const Block& block, size_t begin, size_t end) {
     DCHECK_LT(begin, end);
     for (auto& column : _columns) {
         const IColumn* source = block.get_by_position(column.ordinal).column.get();
@@ -111,7 +114,7 @@ void AggValueAggregator::add_rows(const Block& block, size_t begin, size_t end) 
     }
 }
 
-void AggValueAggregator::close_group(MutableColumns& out) {
+void AggKeyBlockIterator::ValueAggregator::close_group(MutableColumns& out) {
     for (auto& column : _columns) {
         column.function->insert_result_into(column.place, *out[column.ordinal]);
         column.function->reset(column.place);
@@ -119,13 +122,12 @@ void AggValueAggregator::close_group(MutableColumns& out) {
     _arena.clear();
 }
 
-AggKeyBlockIterator::AggKeyBlockIterator(RowwiseIteratorUPtr rows,
-                                         std::optional<SameKeyFlags> flags, size_t max_rows,
+AggKeyBlockIterator::AggKeyBlockIterator(RowwiseIteratorUPtr rows, bool merged, size_t max_rows,
                                          size_t preferred_block_size_bytes,
                                          ReadSchemaSPtr read_schema, int be_exec_version,
                                          uint64_t* merged_rows)
         : _rows(std::move(rows)),
-          _flags(std::move(flags)),
+          _merged_input(merged),
           _max_rows(max_rows),
           _preferred_block_size_bytes(preferred_block_size_bytes),
           _read_schema(std::move(read_schema)),
@@ -139,6 +141,9 @@ Status AggKeyBlockIterator::init() {
     const auto num_block_columns = static_cast<uint32_t>(_read_schema->num_block_columns());
     for (uint32_t ordinal = 0; ordinal < num_block_columns; ++ordinal) {
         const auto& column = *_read_schema->column(ordinal);
+        if (column.is_key()) {
+            _key_ordinals.push_back(ordinal);
+        }
         if (column.is_key() ||
             column.aggregation() == FieldAggregationMethod::OLAP_FIELD_AGGREGATION_REPLACE) {
             _head_ordinals.push_back(ordinal);
@@ -152,7 +157,7 @@ Status AggKeyBlockIterator::init() {
     return Status::OK();
 }
 
-Status AggKeyBlockIterator::_read_merged_block() {
+Status AggKeyBlockIterator::_read_merged_block(const MutableColumns& columns) {
     _merged.clear_column_data();
     _pos = 0;
     Status st = _rows->next_batch(&_merged);
@@ -161,13 +166,37 @@ Status AggKeyBlockIterator::_read_merged_block() {
         return Status::OK();
     }
     RETURN_IF_ERROR(st);
-    if (_flags.has_value()) {
-        _flags->compute(_merged, &_same_key);
-    } else {
-        _same_key.assign(_merged.rows(), 0);
-    }
+    _mark_same_keys(columns);
     _aggregator.start_block(_merged);
     return Status::OK();
+}
+
+void AggKeyBlockIterator::_mark_same_keys(const MutableColumns& columns) {
+    const size_t rows = _merged.rows();
+    DCHECK_GT(rows, 0);
+    if (!_merged_input) {
+        _same_key.assign(rows, 0);
+        return;
+    }
+    _same_key.assign(rows, 1);
+    for (uint32_t ordinal : _key_ordinals) {
+        const ColumnWithTypeAndName& key = _merged.get_by_position(ordinal);
+        build_equal_flags_for_column(*key.column, remove_nullable(key.type)->get_primitive_type(),
+                                     &_same_key);
+    }
+    // The first row goes on with the open group when its key is the key of that group: the last
+    // row of the output, since an output Block ends only in front of a new key and the head of
+    // the open group was copied before this Block was read. The first merged Block opens the
+    // first group.
+    _same_key[0] = _group_open;
+    for (size_t i = 0; _same_key[0] && i < _key_ordinals.size(); ++i) {
+        const IColumn& output = *columns[_key_ordinals[i]];
+        DCHECK_GT(output.size(), 0);
+        if (output.compare_at(output.size() - 1, 0,
+                              *_merged.get_by_position(_key_ordinals[i]).column, -1) != 0) {
+            _same_key[0] = 0;
+        }
+    }
 }
 
 size_t AggKeyBlockIterator::_group_end(size_t begin) const {
@@ -209,7 +238,7 @@ Status AggKeyBlockIterator::_advance_merged_block(MutableColumns& columns,
                                                   OutputProgress* progress) {
     // The collected heads point into `_merged`: copy them before it is refilled.
     RETURN_IF_ERROR(_copy_heads(columns));
-    RETURN_IF_ERROR(_read_merged_block());
+    RETURN_IF_ERROR(_read_merged_block(columns));
     if (_rows_eof) {
         if (_group_open) {
             _aggregator.close_group(columns);

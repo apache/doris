@@ -45,7 +45,6 @@
 #include "storage/iterator/agg_key_block_iterator.h"
 #include "storage/iterator/changelog_block_reader_utils.h"
 #include "storage/iterator/heap_merge_iterator.h"
-#include "storage/iterator/same_key_flags.h"
 #include "storage/iterator/vcollect_iterator.h"
 #include "storage/olap_common.h"
 #include "storage/olap_define.h"
@@ -615,16 +614,14 @@ Status BlockReader::_init_agg_key_iter(const ReaderParams& read_params) {
     }
 
     RowwiseIteratorUPtr rows;
-    std::optional<SameKeyFlags> flags;
     if (merge) {
-        RETURN_IF_ERROR(_init_agg_key_merge(std::move(children), runtime_state, &rows, &flags));
+        RETURN_IF_ERROR(_init_agg_key_merge(std::move(children), runtime_state, &rows));
     } else {
         rows = std::make_unique<RowsetReadersIterator>(std::move(rs_readers), _read_schema);
     }
     _agg_key_iter = std::make_unique<AggKeyBlockIterator>(
-            std::move(rows), std::move(flags), batch_max_rows(),
-            _reader_context.preferred_block_size_bytes, _read_schema,
-            read_params.get_be_exec_version(), &_merged_rows);
+            std::move(rows), merge, batch_max_rows(), _reader_context.preferred_block_size_bytes,
+            _read_schema, read_params.get_be_exec_version(), &_merged_rows);
     Status st = _agg_key_iter->init();
     if (!st.ok()) {
         st.prepend(fmt::format(
@@ -656,18 +653,18 @@ Status BlockReader::_add_merge_children(const RowsetReaderSharedPtr& rs_reader,
 }
 
 Status BlockReader::_init_agg_key_merge(std::vector<RowwiseIteratorUPtr> children,
-                                        RuntimeState* runtime_state, RowwiseIteratorUPtr* rows,
-                                        std::optional<SameKeyFlags>* flags) {
+                                        RuntimeState* runtime_state, RowwiseIteratorUPtr* rows) {
     SCOPED_RAW_TIMER(&_stats.block_reader_build_heap_init_timer_ns);
     // By the whole key, the newer row of a key first (the older one when the read asks for the
     // insert order, as in VCollectIterator): the fold keeps the REPLACE values of a key's first
     // row, as the REPLACE reader function does.
     MergeDecision decision;
     for (uint32_t ordinal = 0; ordinal < _read_schema->num_key_columns(); ++ordinal) {
-        decision.compare_ordinals.push_back(ordinal);
+        decision.order.emplace_back(static_cast<int>(ordinal), /*direction=*/1,
+                                    /*nulls_direction=*/-1);
     }
+    decision.num_key_entries = decision.order.size();
     decision.older_first = _reader_context.use_insert_order_when_same;
-    flags->emplace(decision.compare_ordinals);
     *rows = new_heap_merge_iterator(std::move(children), _read_schema, decision);
     StorageReadOptions opts(_stats);
     opts.block_row_max = cast_set<uint32_t>(batch_max_rows());

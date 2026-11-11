@@ -19,12 +19,13 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <memory>
+#include <queue>
 #include <vector>
 
 #include "common/status.h"
 #include "core/block/block.h"
 #include "core/column/column.h"
+#include "exec/sort/sort_description.h"
 #include "storage/iterators.h"
 #include "storage/schema.h"
 
@@ -34,21 +35,16 @@ class RuntimeState;
 
 // How a VHeapMergeIterator orders the rows of its children.
 struct MergeDecision {
-    // Read-schema ordinals two rows are compared by: the key columns, or a prefix of them for a
-    // read that sorts by an ORDER BY prefix.
-    std::vector<uint32_t> compare_ordinals;
-    // Whether `compare_ordinals` is the whole key, so two rows comparing equal are versions of
-    // one key.
-    bool compare_whole_key = true;
-    // The column that orders two rows of the same key, -1 without one: the sequence column (the
-    // larger value is the newer row) or the changelog TSO (the smaller one goes first,
-    // `small_sequence_first`).
-    int sequence_ordinal = -1;
-    bool small_sequence_first = false;
-    // Keys descending (ORDER BY key DESC LIMIT n).
-    bool reverse = false;
-    // Among the rows of one key and sequence value, the older one goes first; by default the
-    // newer one does.
+    // The read-schema columns two rows are compared by, in order, each with its direction (1
+    // ascending, -1 descending) and where its NULLs go (-1 first): the key columns, or a prefix of
+    // them for a read sorted by an ORDER BY prefix (descending for ORDER BY ... DESC), then the
+    // sequence column when there is one (descending, the larger value is the newer row; ascending
+    // for the changelog TSO). Like the SortDescription of a sort and StarRocks' SortDescs.
+    SortDescription order;
+    // How many leading entries of `order` are key columns.
+    size_t num_key_entries = 0;
+    // Among the rows equal on every column of `order`, the older child first; by default the
+    // newer one.
     bool older_first = false;
 };
 
@@ -59,19 +55,17 @@ struct MergeDecision {
 //
 // The children come in (rowset version, segment) order, the oldest first: the segments of one
 // rowset, or the inputs of a whole tablet read (see BlockReader::_init_agg_key_iter). Two rows
-// that compare equal are ordered by the sequence column when there is one (the larger value
-// first, or the smaller one with `small_sequence_first`), then by child order: a later child
-// holds the newer row and goes first, unless `older_first` asks for the older one first. Example
-// with key 1 in child 0 (v = 10) and in child 1 (v = 11): the merge hands out v = 11, then
-// v = 10.
+// equal on every column of the order go by child order: a later child holds the newer row and
+// goes first, unless `older_first` asks for the older one first. Example with key 1 in child 0
+// (v = 10) and in child 1 (v = 11): the merge hands out v = 11, then v = 10.
 //
 // The children are read as they are, without init(): a LazyInitSegmentIterator opens its
 // segment with the read options of its rowset on its first read.
 //
-// It merges like StarRocks' HeapMergeIterator. Every child that has rows sits in a heap ordered by
-// its current row (std::push_heap/std::pop_heap). Each round takes the child on top and the run
-// of its rows that still go before the current row of the next child, one comparison per row,
-// appends that run to the output Block and puts the child back. A run also ends at the end of
+// It merges like StarRocks' HeapMergeIterator. Every child that has rows sits in a priority queue
+// ordered by its current row. Each round takes the child on top and the run of its rows that
+// still go before the current row of the next child, one comparison per row, appends that run to
+// the output Block and puts the child back. A run also ends at the end of
 // the child's Block, which is then refilled, and at the row limit of the output Block.
 //
 // Like StarRocks, which sizes the chunks of a compaction by its memory limit, the merge counts
@@ -100,9 +94,10 @@ private:
     // One input of the merge and the Block it is positioned in.
     struct Child {
         RowwiseIteratorUPtr iter;
-        // The current Block, refilled in place by _fill().
-        std::shared_ptr<Block> block;
-        // The current row of `block`, its row count and its byte size.
+        // The current Block, refilled in place by _fill(); the rows are copied out of it.
+        Block block;
+        // The current row of `block`, its row count and its byte size; both 0 once the child is
+        // done.
         size_t pos = 0;
         size_t rows = 0;
         size_t bytes = 0;
@@ -115,11 +110,15 @@ private:
     // Whether row `a_pos` of child `a` goes before the current row of child `b`. Two rows of
     // different children never tie: the child order decides last.
     bool _less(uint32_t a, size_t a_pos, uint32_t b) const;
-    // The heap order of std::push_heap/std::pop_heap, which keep the largest element on top:
-    // `a` is "less" than `b` when the current row of `b` goes first.
-    auto _heap_order() const {
-        return [this](uint32_t a, uint32_t b) { return _less(b, _children[b].pos, a); };
-    }
+
+    // The order of `_heap`. std::priority_queue keeps its largest element on top, so `a` is
+    // "less" than `b` when the current row of `b` goes first.
+    struct HeapOrder {
+        const VHeapMergeIterator* merge;
+        bool operator()(uint32_t a, uint32_t b) const {
+            return merge->_less(b, merge->_children[b].pos, a);
+        }
+    };
 
     // The row limit of the next output Block, see the class comment.
     size_t _max_rows() const;
@@ -136,8 +135,8 @@ private:
     RuntimeState* _runtime_state = nullptr;
     int64_t _tablet_id = 0;
 
-    // The children that still have rows, a heap by _heap_order(): front() goes next.
-    std::vector<uint32_t> _heap;
+    // The children that still have rows; the one whose current row goes first is on top.
+    std::priority_queue<uint32_t, std::vector<uint32_t>, HeapOrder> _heap {HeapOrder {this}};
     bool _eof = false;
 };
 

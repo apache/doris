@@ -53,49 +53,44 @@ Status VHeapMergeIterator::init(const StorageReadOptions& opts) {
     _runtime_state = opts.runtime_state;
     _tablet_id = opts.tablet_id;
 
-    _heap.reserve(_children.size());
     for (size_t index = 0; index < _children.size(); ++index) {
         Child& child = _children[index];
-        child.block = std::make_shared<Block>(_read_schema->create_read_block());
+        child.block = _read_schema->create_read_block();
         bool exhausted = false;
         RETURN_IF_ERROR(_fill(child, &exhausted));
         if (exhausted) {
             child.iter.reset();
-            child.block.reset();
+            child.block.clear();
             continue;
         }
-        RETURN_IF_ERROR(_validate_compare_contract(*child.block));
-        _heap.push_back(cast_set<uint32_t>(index));
+        RETURN_IF_ERROR(_validate_compare_contract(child.block));
+        _heap.push(cast_set<uint32_t>(index));
     }
-    std::ranges::make_heap(_heap, _heap_order());
     return Status::OK();
 }
 
-// The read-schema ordinals the rows are compared by must exist in the merged Blocks and, when
-// they are the whole key, be key columns: a projection that puts a value column ahead of a
+// The read-schema columns the rows are compared by must exist in the merged Blocks, and the ones
+// taken for key columns must be key columns: a projection that puts a value column ahead of a
 // key would otherwise be merged by that value (issue #66390).
 Status VHeapMergeIterator::_validate_compare_contract(const Block& block) const {
     const size_t block_columns = block.columns();
     auto contract_error = [&](const std::string& detail) {
         return Status::InternalError(
                 "merge iterator compare contract violated: {}, tablet_id={}, block_columns={}, "
-                "read_columns={}, num_key_columns={}, sequence_ordinal={}",
+                "read_columns={}, num_key_columns={}, compare_columns={}, key_compare_columns={}",
                 detail, _tablet_id, block_columns, _read_schema->num_block_columns(),
-                _read_schema->num_key_columns(), _decision.sequence_ordinal);
+                _read_schema->num_key_columns(), _decision.order.size(), _decision.num_key_entries);
     };
-    for (uint32_t ordinal : _decision.compare_ordinals) {
-        if (ordinal >= block_columns) {
+    for (size_t i = 0; i < _decision.order.size(); ++i) {
+        const int ordinal = _decision.order[i].column_number;
+        if (ordinal < 0 || std::cmp_greater_equal(ordinal, block_columns)) {
             return contract_error("compare column ordinal " + std::to_string(ordinal) +
                                   " out of range");
         }
-        if (_decision.compare_whole_key && !_read_schema->column(ordinal)->is_key()) {
+        if (i < _decision.num_key_entries && !_read_schema->column(ordinal)->is_key()) {
             return contract_error("read schema ordinal " + std::to_string(ordinal) +
                                   " is not a key column");
         }
-    }
-    if (_decision.sequence_ordinal != -1 &&
-        std::cmp_greater_equal(_decision.sequence_ordinal, block_columns)) {
-        return contract_error("sequence column ordinal out of range");
     }
     return Status::OK();
 }
@@ -103,45 +98,43 @@ Status VHeapMergeIterator::_validate_compare_contract(const Block& block) const 
 Status VHeapMergeIterator::_fill(Child& child, bool* exhausted) {
     // A segment returns an empty batch when its predicates filter out every row it read.
     do {
-        child.block->clear_column_data();
-        Status st = child.iter->next_batch(child.block.get());
+        child.block.clear_column_data();
+        Status st = child.iter->next_batch(&child.block);
         if (st.is<END_OF_FILE>()) {
-            DCHECK_EQ(child.block->rows(), 0);
+            DCHECK_EQ(child.block.rows(), 0);
             *exhausted = true;
             child.pos = 0;
             child.rows = 0;
+            child.bytes = 0;
             return Status::OK();
         }
         RETURN_IF_ERROR(st);
         if (_runtime_state != nullptr && _runtime_state->is_cancelled()) [[unlikely]] {
             return _runtime_state->cancel_reason();
         }
-    } while (child.block->rows() == 0);
-    DCHECK_EQ(child.block->columns(), _read_schema->num_block_columns());
+    } while (child.block.rows() == 0);
+    DCHECK_EQ(child.block.columns(), _read_schema->num_block_columns());
     child.pos = 0;
-    child.rows = child.block->rows();
-    child.bytes = child.block->bytes();
+    child.rows = child.block.rows();
+    child.bytes = child.block.bytes();
     *exhausted = false;
     return Status::OK();
 }
 
 bool VHeapMergeIterator::_less(uint32_t a, size_t a_pos, uint32_t b) const {
-    const Block& a_block = *_children[a].block;
+    const Block& a_block = _children[a].block;
     const Child& b_child = _children[b];
-    const Block& b_block = *b_child.block;
-    const int keys =
-            a_block.compare_at(a_pos, b_child.pos, &_decision.compare_ordinals, b_block, -1);
-    if (keys != 0) {
-        return _decision.reverse ? keys > 0 : keys < 0;
-    }
-    if (_decision.sequence_ordinal != -1) {
-        const int sequence = a_block.compare_column_at(a_pos, b_child.pos,
-                                                       _decision.sequence_ordinal, b_block, -1);
-        if (sequence != 0) {
-            return _decision.small_sequence_first ? sequence < 0 : sequence > 0;
+    for (const SortColumnDescription& column : _decision.order) {
+        const int r = a_block.get_by_position(column.column_number)
+                              .column->compare_at(
+                                      a_pos, b_child.pos,
+                                      *b_child.block.get_by_position(column.column_number).column,
+                                      column.nulls_direction);
+        if (r != 0) {
+            return r * column.direction < 0;
         }
     }
-    // Same key and sequence: the later child holds the newer row.
+    // Equal on every column of the order: the later child holds the newer row.
     return _decision.older_first ? a < b : a > b;
 }
 
@@ -149,11 +142,12 @@ size_t VHeapMergeIterator::_max_rows() const {
     if (!config::enable_adaptive_batch_size || _preferred_block_size_bytes == 0) {
         return _block_row_max;
     }
+    // A child that is done holds no rows and no bytes.
     size_t bytes = 0;
     size_t rows = 0;
-    for (uint32_t index : _heap) {
-        bytes += _children[index].bytes;
-        rows += _children[index].rows;
+    for (const Child& child : _children) {
+        bytes += child.bytes;
+        rows += child.rows;
     }
     const size_t row_bytes = std::max<size_t>(1, bytes / rows);
     return std::clamp<size_t>(_preferred_block_size_bytes / row_bytes, 1, _block_row_max);
@@ -161,7 +155,7 @@ size_t VHeapMergeIterator::_max_rows() const {
 
 void VHeapMergeIterator::_append(MutableColumns& columns, const Child& child, size_t rows) {
     for (size_t ordinal = 0; ordinal < columns.size(); ++ordinal) {
-        const IColumn& source = *child.block->get_by_position(ordinal).column;
+        const IColumn& source = *child.block.get_by_position(ordinal).column;
         if (rows == 1) {
             columns[ordinal]->insert_from(source, child.pos);
         } else {
@@ -182,18 +176,17 @@ Status VHeapMergeIterator::next_batch(Block* block) {
     auto columns_guard = block->mutate_columns_scoped();
     auto& columns = columns_guard.mutable_columns();
     while (rows < max_rows && !_heap.empty()) {
-        // The child whose current row goes first moves to the back of `_heap`; the rest stays a
-        // heap, with the child whose row goes next on top.
-        std::ranges::pop_heap(_heap, _heap_order());
-        const uint32_t index = _heap.back();
+        // The child whose current row goes first, and its run: the rows that still go before the
+        // current row of the next child.
+        const uint32_t index = _heap.top();
+        _heap.pop();
         Child& child = _children[index];
-        // Its run: the rows that go before the current row of every other child.
         const size_t limit = std::min(child.rows - child.pos, max_rows - rows);
         size_t run = 1;
-        if (_heap.size() == 1) {
+        if (_heap.empty()) {
             run = limit;
         } else {
-            while (run < limit && _less(index, child.pos + run, _heap.front())) {
+            while (run < limit && _less(index, child.pos + run, _heap.top())) {
                 ++run;
             }
         }
@@ -207,12 +200,11 @@ Status VHeapMergeIterator::next_batch(Block* block) {
                 // The child is done: release its segment and its Block now, not at the end of the
                 // merge.
                 child.iter.reset();
-                child.block.reset();
-                _heap.pop_back();
+                child.block.clear();
                 continue;
             }
         }
-        std::ranges::push_heap(_heap, _heap_order());
+        _heap.push(index);
     }
     return Status::OK();
 }

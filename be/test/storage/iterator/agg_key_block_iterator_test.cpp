@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// AggValueAggregator folds key groups given as row ranges of merged Blocks: one group per
+// AggKeyBlockIterator::ValueAggregator folds key groups given as row ranges of merged Blocks: one group per
 // range set, a group open across Blocks, NULLs skipped by the nullable functions, and whether
 // one-row groups may be copied instead of folded. AggKeyBlockIterator turns every key group of
 // the merged Blocks into one row: the keys and the REPLACE values of the group's first row, the
@@ -39,7 +39,6 @@
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_quantilestate.h"
-#include "storage/iterator/same_key_flags.h"
 #include "storage/iterators.h"
 #include "storage/schema.h"
 #include "storage/tablet/tablet_schema.h"
@@ -87,8 +86,8 @@ Block make_block(const ReadSchema& schema, const std::vector<std::optional<int64
     return block;
 }
 
-std::unique_ptr<AggValueAggregator> make_aggregator(const ReadSchema& schema) {
-    auto aggregator = std::make_unique<AggValueAggregator>();
+std::unique_ptr<AggKeyBlockIterator::ValueAggregator> make_aggregator(const ReadSchema& schema) {
+    auto aggregator = std::make_unique<AggKeyBlockIterator::ValueAggregator>();
     EXPECT_TRUE(aggregator->init(schema, {1}, BeExecVersionManager::get_newest_version()).ok());
     return aggregator;
 }
@@ -151,12 +150,8 @@ private:
 std::vector<std::vector<Row>> fold(std::vector<std::vector<Row>> blocks, bool merged,
                                    size_t max_rows, uint64_t* merged_rows) {
     auto schema = make_agg_schema();
-    std::optional<SameKeyFlags> flags;
-    if (merged) {
-        flags.emplace(std::vector<uint32_t> {0});
-    }
     AggKeyBlockIterator iter(std::make_unique<MergedBlocksUtIterator>(schema, std::move(blocks)),
-                             std::move(flags), max_rows, /*preferred_block_size_bytes=*/0, schema,
+                             merged, max_rows, /*preferred_block_size_bytes=*/0, schema,
                              BeExecVersionManager::get_newest_version(), merged_rows);
     Status st = iter.init();
     EXPECT_TRUE(st.ok()) << st;
@@ -182,7 +177,7 @@ std::vector<std::vector<Row>> fold(std::vector<std::vector<Row>> blocks, bool me
 
 } // namespace
 
-TEST(AggValueAggregatorTest, FoldsEachGroupFromItsRowRange) {
+TEST(AggKeyBlockIteratorValueAggregatorTest, FoldsEachGroupFromItsRowRange) {
     auto schema = make_read_schema(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_SUM);
     auto aggregator = make_aggregator(*schema);
     Block block = make_block(*schema, {1, 2, 3, 4, 5, 6});
@@ -203,7 +198,7 @@ TEST(AggValueAggregatorTest, FoldsEachGroupFromItsRowRange) {
     EXPECT_EQ(value_at(*out[1], 2), 6);
 }
 
-TEST(AggValueAggregatorTest, KeepsAGroupOpenAcrossBlocks) {
+TEST(AggKeyBlockIteratorValueAggregatorTest, KeepsAGroupOpenAcrossBlocks) {
     auto schema = make_read_schema(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_MAX);
     auto aggregator = make_aggregator(*schema);
     Block first = make_block(*schema, {4, 9, 2});
@@ -224,7 +219,7 @@ TEST(AggValueAggregatorTest, KeepsAGroupOpenAcrossBlocks) {
     EXPECT_EQ(value_at(*out[1], 1), 9);
 }
 
-TEST(AggValueAggregatorTest, NullableSumSkipsNulls) {
+TEST(AggKeyBlockIteratorValueAggregatorTest, NullableSumSkipsNulls) {
     auto schema = make_read_schema(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_SUM,
                                    /*nullable=*/true);
     auto aggregator = make_aggregator(*schema);
@@ -249,7 +244,8 @@ TEST(AggValueAggregatorTest, NullableSumSkipsNulls) {
     EXPECT_EQ(value_at(*out[1], 2), 30);
 }
 
-TEST(AggValueAggregatorTest, OneRowGroupsAreCopiedOnlyForFunctionsReturningTheirInput) {
+TEST(AggKeyBlockIteratorValueAggregatorTest,
+     OneRowGroupsAreCopiedOnlyForFunctionsReturningTheirInput) {
     for (auto aggregation : {FieldAggregationMethod::OLAP_FIELD_AGGREGATION_SUM,
                              FieldAggregationMethod::OLAP_FIELD_AGGREGATION_MIN,
                              FieldAggregationMethod::OLAP_FIELD_AGGREGATION_MAX,
@@ -269,13 +265,16 @@ TEST(AggValueAggregatorTest, OneRowGroupsAreCopiedOnlyForFunctionsReturningTheir
     EXPECT_FALSE(make_aggregator(schema)->returns_single_row_unchanged());
 }
 
-// The group of key 1 sits in one merged Block, the group of key 2 is cut by the end of it: each
-// becomes one row with the REPLACE value of its first row, the newest one, and the SUM of all.
+// The group of key 1 sits in one merged Block, the group of key 2 is cut by the end of it, and
+// the third merged Block starts with a new key: each group becomes one row with the REPLACE value
+// of its first row, the newest one, and the SUM of all.
 TEST(AggKeyBlockIteratorTest, FoldsEveryKeyGroupOnce) {
     uint64_t merged_rows = 0;
-    const auto output = fold({{{1, 10, 1}, {1, 11, 2}, {2, 20, 3}}, {{2, 21, 4}, {3, 30, 5}}},
-                             /*merged=*/true, /*max_rows=*/100, &merged_rows);
-    EXPECT_EQ(output, (std::vector<std::vector<Row>> {{{1, 10, 3}, {2, 20, 7}, {3, 30, 5}}}));
+    const auto output =
+            fold({{{1, 10, 1}, {1, 11, 2}, {2, 20, 3}}, {{2, 21, 4}, {3, 30, 5}}, {{4, 40, 6}}},
+                 /*merged=*/true, /*max_rows=*/100, &merged_rows);
+    EXPECT_EQ(output,
+              (std::vector<std::vector<Row>> {{{1, 10, 3}, {2, 20, 7}, {3, 30, 5}, {4, 40, 6}}}));
     EXPECT_EQ(merged_rows, 2);
 }
 
@@ -289,9 +288,8 @@ TEST(AggKeyBlockIteratorTest, EndsOutputBlocksInFrontOfANewKey) {
     EXPECT_EQ(merged_rows, 1);
 }
 
-// Rowsets read one after another share no key: every row is a group of its own, also when a key
-// equals the key of the row before it.
-TEST(AggKeyBlockIteratorTest, KeepsEveryRowWithoutSameKeyFlags) {
+// Rowsets read one after another share no key: every row is a group of its own.
+TEST(AggKeyBlockIteratorTest, KeepsEveryRowOfInputsThatShareNoKey) {
     uint64_t merged_rows = 0;
     const auto output = fold({{{1, 10, 1}, {2, 20, 2}}, {{3, 30, 3}}}, /*merged=*/false,
                              /*max_rows=*/100, &merged_rows);

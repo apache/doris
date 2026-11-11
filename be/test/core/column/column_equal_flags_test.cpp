@@ -15,12 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// SameKeyFlags compares a key column of a key type by one loop for its type. Its flags must be
-// the ones IColumn::compare_at() gives row by row, the comparison the merge ordered the rows by:
-// for every type a key can have, nullable or not, across Blocks, for several key columns, and for
-// the columns it compares by compare_at() itself.
+// build_equal_flags_for_column() compares a column of a key type by one loop for its type. Its
+// flags must be the ones IColumn::compare_at() gives row by row, the comparison the merge orders
+// the rows by: for every type a key can have, nullable or not, for several key columns of one
+// Block, and for the columns it compares by compare_at() itself.
 
-#include "storage/iterator/same_key_flags.h"
+#include "core/column/column_equal_flags.h"
 
 #include <gtest/gtest.h>
 
@@ -100,62 +100,53 @@ Block make_block(const std::vector<DataTypePtr>& types,
     return block;
 }
 
-// The flags compare_at() gives, row by row.
-std::vector<std::vector<uint8_t>> compare_at_flags(const std::vector<Block>& blocks) {
-    std::vector<std::vector<uint8_t>> flags;
-    const Block* previous = nullptr;
-    for (const Block& block : blocks) {
-        auto& block_flags = flags.emplace_back(block.rows(), 1);
-        for (size_t row = 0; row < block.rows(); ++row) {
-            // The row before: the last row of the previous Block for the first row of a Block.
-            const Block* other = &block;
-            size_t other_row = row - 1;
-            if (row == 0) {
-                if (previous == nullptr) {
-                    block_flags[row] = 0;
-                    continue;
-                }
-                other = previous;
-                other_row = previous->rows() - 1;
-            }
-            for (size_t c = 0; c < block.columns(); ++c) {
-                if (block.get_by_position(c).column->compare_at(
-                            row, other_row, *other->get_by_position(c).column, -1) != 0) {
-                    block_flags[row] = 0;
-                }
+// The flags compare_at() gives, row by row: 1 on the rows that equal the row before on every
+// column, and on the first row, which build_equal_flags_for_column() leaves as it is.
+EqualFlags compare_at_flags(const Block& block) {
+    EqualFlags flags(block.rows(), 1);
+    for (size_t row = 1; row < block.rows(); ++row) {
+        for (size_t c = 0; c < block.columns(); ++c) {
+            const IColumn& column = *block.get_by_position(c).column;
+            if (column.compare_at(row, row - 1, column, -1) != 0) {
+                flags[row] = 0;
             }
         }
-        previous = &block;
     }
     return flags;
 }
 
-std::vector<std::vector<uint8_t>> same_key_flags(const std::vector<Block>& blocks) {
-    std::vector<uint32_t> key_ordinals;
-    for (uint32_t c = 0; c < blocks.front().columns(); ++c) {
-        key_ordinals.push_back(c);
-    }
-    SameKeyFlags same_key(key_ordinals);
-    std::vector<std::vector<uint8_t>> flags;
-    for (const Block& block : blocks) {
-        same_key.compute(block, &flags.emplace_back());
+// The flags of build_equal_flags_for_column() for every column of `block`.
+EqualFlags equal_flags(const Block& block) {
+    EqualFlags flags(block.rows(), 1);
+    for (size_t c = 0; c < block.columns(); ++c) {
+        const ColumnWithTypeAndName& column = block.get_by_position(c);
+        build_equal_flags_for_column(*column.column,
+                                     remove_nullable(column.type)->get_primitive_type(), &flags);
     }
     return flags;
 }
 
-// Three Blocks of one column cut through runs of equal values; NULL_VALUE marks NULLs.
-std::vector<Block> one_column_blocks(const DataTypePtr& type) {
+// One column with runs of equal values; NULL_VALUE marks NULLs.
+Block one_column_block(const DataTypePtr& type) {
     const int64_t null_or_four = type->is_nullable() ? NULL_VALUE : 4;
-    std::vector<Block> blocks;
-    blocks.push_back(make_block({type}, {{0}, {0}, {1}}));
-    blocks.push_back(make_block({type}, {{1}, {2}, {2}, {null_or_four}}));
-    blocks.push_back(make_block({type}, {{null_or_four}, {2}, {null_or_four}, {3}, {3}}));
-    return blocks;
+    return make_block({type}, {{0},
+                               {0},
+                               {1},
+                               {1},
+                               {2},
+                               {2},
+                               {2},
+                               {null_or_four},
+                               {null_or_four},
+                               {2},
+                               {null_or_four},
+                               {3},
+                               {3}});
 }
 
 } // namespace
 
-TEST(SameKeyFlagsTest, FlagsTheRowsOfEveryKeyTypeAsCompareAtDoes) {
+TEST(ColumnEqualFlagsTest, FlagsTheRowsOfEveryKeyTypeAsCompareAtDoes) {
     struct TypeSpec {
         PrimitiveType type;
         int precision = 0;
@@ -188,51 +179,55 @@ TEST(SameKeyFlagsTest, FlagsTheRowsOfEveryKeyTypeAsCompareAtDoes) {
             auto type = DataTypeFactory::instance().create_data_type(spec.type, nullable,
                                                                      spec.precision, spec.scale);
             SCOPED_TRACE(type->get_name());
-            const auto blocks = one_column_blocks(type);
-            const auto flags = same_key_flags(blocks);
-            EXPECT_EQ(flags, compare_at_flags(blocks));
-            EXPECT_EQ(flags, (std::vector<std::vector<uint8_t>> {
-                                     {0, 1, 0}, {1, 0, 1, 0}, {1, 0, 0, 0, 1}}));
+            const Block block = one_column_block(type);
+            const EqualFlags flags = equal_flags(block);
+            EXPECT_EQ(flags, compare_at_flags(block));
+            EXPECT_EQ(flags, (EqualFlags {1, 1, 0, 1, 0, 1, 1, 0, 1, 0, 0, 0, 1}));
         }
     }
 }
 
-// A row is same only when every key column equals the row before it.
-TEST(SameKeyFlagsTest, FlagsARowWhenEveryKeyColumnRepeats) {
-    const std::vector<DataTypePtr> types = {
-            DataTypeFactory::instance().create_data_type(TYPE_INT, false),
-            DataTypeFactory::instance().create_data_type(TYPE_STRING, true)};
-    std::vector<Block> blocks;
-    blocks.push_back(make_block(types, {{1, 1}, {1, 1}, {1, 2}, {2, 2}}));
-    blocks.push_back(
-            make_block(types, {{2, 2}, {2, NULL_VALUE}, {2, NULL_VALUE}, {3, NULL_VALUE}}));
-    const auto flags = same_key_flags(blocks);
-    EXPECT_EQ(flags, compare_at_flags(blocks));
-    EXPECT_EQ(flags, (std::vector<std::vector<uint8_t>> {{0, 1, 0, 0}, {1, 0, 1, 0}}));
+// Over several key columns a row keeps its flag only when every column equals the row before;
+// the flag of the first row is left as it is.
+TEST(ColumnEqualFlagsTest, KeepsAFlagWhenEveryColumnRepeats) {
+    const Block block =
+            make_block({DataTypeFactory::instance().create_data_type(TYPE_INT, false),
+                        DataTypeFactory::instance().create_data_type(TYPE_STRING, true)},
+                       {{1, 1},
+                        {1, 1},
+                        {1, 2},
+                        {2, 2},
+                        {2, 2},
+                        {2, NULL_VALUE},
+                        {2, NULL_VALUE},
+                        {3, NULL_VALUE}});
+    const EqualFlags flags = equal_flags(block);
+    EXPECT_EQ(flags, compare_at_flags(block));
+    EXPECT_EQ(flags, (EqualFlags {1, 1, 0, 0, 1, 0, 1, 0}));
+
+    EqualFlags first_row_cleared(block.rows(), 1);
+    first_row_cleared[0] = 0;
+    build_equal_flags_for_column(*block.get_by_position(0).column, TYPE_INT, &first_row_cleared);
+    EXPECT_EQ(first_row_cleared[0], 0);
 }
 
 // A column that is not of a key type, or not of the column class of its type, is compared by
 // compare_at() row by row.
-TEST(SameKeyFlagsTest, ComparesOtherColumnsByCompareAt) {
-    auto type = DataTypeFactory::instance().create_data_type(TYPE_DOUBLE, false);
-    const auto doubles = one_column_blocks(type);
-    EXPECT_EQ(same_key_flags(doubles), compare_at_flags(doubles));
+TEST(ColumnEqualFlagsTest, ComparesOtherColumnsByCompareAt) {
+    const Block doubles =
+            one_column_block(DataTypeFactory::instance().create_data_type(TYPE_DOUBLE, false));
+    EXPECT_EQ(equal_flags(doubles), compare_at_flags(doubles));
 
-    auto string_type = std::make_shared<DataTypeString>();
-    std::vector<Block> strings;
-    for (const std::vector<std::string>& values :
-         {std::vector<std::string> {"a", "a", "b"}, std::vector<std::string> {"b", "c"}}) {
-        auto column = ColumnString64::create();
-        for (const auto& value : values) {
-            column->insert_data(value.data(), value.size());
-        }
-        Block block;
-        block.insert(ColumnWithTypeAndName(std::move(column), string_type, "s"));
-        strings.push_back(std::move(block));
+    auto column = ColumnString64::create();
+    for (const char* value : {"a", "a", "b", "b", "c"}) {
+        column->insert_data(value, std::strlen(value));
     }
-    const auto flags = same_key_flags(strings);
+    Block strings;
+    strings.insert(
+            ColumnWithTypeAndName(std::move(column), std::make_shared<DataTypeString>(), "s"));
+    const EqualFlags flags = equal_flags(strings);
     EXPECT_EQ(flags, compare_at_flags(strings));
-    EXPECT_EQ(flags, (std::vector<std::vector<uint8_t>> {{0, 1, 0}, {1, 0}}));
+    EXPECT_EQ(flags, (EqualFlags {1, 1, 0, 1, 0}));
 }
 
 } // namespace doris

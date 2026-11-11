@@ -22,7 +22,6 @@
 
 #include <cstdint>
 #include <memory>
-#include <optional>
 #include <utility>
 #include <vector>
 
@@ -95,10 +94,9 @@ private:
     // merge them, else the rowset reader itself.
     Status _add_merge_children(const RowsetReaderSharedPtr& rs_reader,
                                std::vector<RowwiseIteratorUPtr>* children);
-    // Set `*rows` to the merge of `children` and `*flags` to the flags of its rows of one key.
+    // Set `*rows` to the merge of `children` by the whole key.
     Status _init_agg_key_merge(std::vector<RowwiseIteratorUPtr> children,
-                               RuntimeState* runtime_state, RowwiseIteratorUPtr* rows,
-                               std::optional<SameKeyFlags>* flags);
+                               RuntimeState* runtime_state, RowwiseIteratorUPtr* rows);
 
     Status _insert_data_normal(MutableColumns& columns);
 

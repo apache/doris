@@ -15,9 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// VHeapMergeIterator sorts the rows of its children into one stream: by the compared columns,
-// then by the sequence column, then by child order (the later child first, or the older one
-// with `older_first`), keys descending with `reverse`, in output Blocks of at most block_row_max
+// VHeapMergeIterator sorts the rows of its children into one stream: by the columns of its order,
+// each ascending or descending (a key, then a sequence column), then by child order (the later
+// child first, or the older one with `older_first`), in output Blocks of at most block_row_max
 // rows or of the byte budget, reading on past a child's empty batches.
 
 #include "storage/iterator/heap_merge_iterator.h"
@@ -98,9 +98,11 @@ private:
     size_t _next = 0;
 };
 
-MergeDecision key_decision() {
+// By the key k, ascending (descending with `descending`), NULLs first.
+MergeDecision key_decision(bool descending = false) {
     MergeDecision decision;
-    decision.compare_ordinals = {0};
+    decision.order.emplace_back(0, descending ? -1 : 1, -1);
+    decision.num_key_entries = 1;
     return decision;
 }
 
@@ -186,8 +188,8 @@ TEST(HeapMergeIteratorTest, MergesByKeyWithTheLaterChildFirst) {
                                                                                 {7, 71}}));
 }
 
-// Rows of one key go by the sequence column before child order: the larger value first, or the
-// smaller one with `small_sequence_first`.
+// Rows of one key go by the sequence column before child order: descending, the larger value
+// first, or ascending, the smaller one first (the changelog TSO).
 TEST(HeapMergeIteratorTest, OrdersRowsOfOneKeyBySequence) {
     auto schema = make_schema(true);
     const std::vector<std::vector<Batch>> children = {
@@ -195,11 +197,11 @@ TEST(HeapMergeIteratorTest, OrdersRowsOfOneKeyBySequence) {
             {{{1, 3, 11}, {2, 1, 21}}},
     };
     MergeDecision decision = key_decision();
-    decision.sequence_ordinal = 1;
+    decision.order.emplace_back(1, -1, -1);
     EXPECT_EQ(flatten(merge(schema, children, decision)),
               (std::vector<Row> {{1, 5, 10}, {1, 3, 11}, {2, 1, 21}, {2, 1, 20}}));
 
-    decision.small_sequence_first = true;
+    decision.order.back().direction = 1;
     EXPECT_EQ(flatten(merge(schema, children, decision)),
               (std::vector<Row> {{1, 3, 11}, {1, 5, 10}, {2, 1, 21}, {2, 1, 20}}));
 }
@@ -210,9 +212,7 @@ TEST(HeapMergeIteratorTest, ReverseMergesKeysDescending) {
             {{{5, 50}, {3, 30}}, {{1, 10}}},
             {{{4, 41}, {3, 31}, {2, 21}}},
     };
-    MergeDecision decision = key_decision();
-    decision.reverse = true;
-    EXPECT_EQ(flatten(merge(schema, children, decision)),
+    EXPECT_EQ(flatten(merge(schema, children, key_decision(/*descending=*/true))),
               (std::vector<Row> {{5, 50}, {4, 41}, {3, 31}, {3, 30}, {2, 21}, {1, 10}}));
 }
 
@@ -265,17 +265,19 @@ TEST(HeapMergeIteratorTest, ReadsOnAfterEmptyBatches) {
               (std::vector<Row> {{1, 11}, {2, 20}, {3, 31}, {4, 40}}));
 }
 
-// The rows are compared by key columns only: a compared value column, or a column the merged
-// Blocks do not have, is an error of the read, not a merge by the wrong column.
+// A column taken for a key column must be one, and every compared column must be in the merged
+// Blocks: otherwise the read fails instead of merging by the wrong column.
 TEST(HeapMergeIteratorTest, RejectsColumnsItCannotCompareBy) {
     auto schema = make_schema(false);
-    for (const std::vector<uint32_t>& compare_ordinals :
-         {std::vector<uint32_t> {1}, std::vector<uint32_t> {0, 2}}) {
+    for (const std::vector<int>& key_columns : {std::vector<int> {1}, std::vector<int> {0, 2}}) {
         std::vector<RowwiseIteratorUPtr> inputs;
         inputs.push_back(
                 std::make_unique<BatchesUtIterator>(*schema, std::vector<Batch> {{{1, 10}}}));
         MergeDecision decision;
-        decision.compare_ordinals = compare_ordinals;
+        for (int column : key_columns) {
+            decision.order.emplace_back(column, 1, -1);
+        }
+        decision.num_key_entries = decision.order.size();
         auto iter = new_heap_merge_iterator(std::move(inputs), schema, decision);
         OlapReaderStatistics stats;
         StorageReadOptions opts(stats);
