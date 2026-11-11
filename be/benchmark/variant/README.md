@@ -98,3 +98,38 @@ To run only one suite, pass its own filter as the third argument, e.g.
 - On a shared/busy host, run-to-run noise can be large (see `BASELINE.md` for a measured example).
   Prefer the median of several samples, and re-run before concluding a change regressed or improved
   performance.
+
+## Large JSON reproduction
+
+`BM_VariantLargeJsonImport` and `BM_VariantLargeJsonCompaction` add the following
+payloads to the existing flat-object workload:
+
+| Case | Payload |
+|---|---|
+| `LongIntegers` | 8,192 integer array elements |
+| `LongMixedNumbers` | 8,192 alternating integer/fractional array elements |
+| `String256KiB` | One 256 KiB string |
+| `Wide2048` | An object with 2,048 integer fields |
+
+Import times the real segment writer, excluding JSON generation, parsing and output
+validation. Compaction merges ten overlapping input rowsets through the whole-VARIANT
+route. `Wide2048Physical` additionally compacts all materialized subcolumns in separate
+vertical groups. Every case validates all output values against a checksum computed
+from generated JSON; compaction also validates versions, physical rewrite and layout.
+These are synthetic mechanism reproductions, not measurements of a production cluster.
+
+Build with `BUILD_TYPE=RELEASE ./build.sh --be --benchmark`, then run:
+
+```shell
+DORIS_VARIANT_BENCHMARK_ROWS=2000 DORIS_BENCHMARK_CPU=24 \
+  bash be/benchmark/variant/run_variant_segment_benchmark.sh \
+    be/output/lib/benchmark_test /tmp/variant-large-json-results '^BM_VariantLargeJson'
+```
+
+Each case has five samples. Rows must be divisible by ten and at least 2,000 for
+compaction's existing path-coverage checks. Import reports writer CPU separately from
+wall time; compaction's `main_thread_cpu_ms` excludes CPU consumed by helper threads.
+Retain both binaries and use identical workload sources, row counts and CPU affinity
+when comparing commits. Do not include profiled samples in timing results.
+
+Recorded analysis, timing and validation: [LARGE_JSON.md](LARGE_JSON.md).

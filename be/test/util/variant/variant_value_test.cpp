@@ -452,6 +452,42 @@ TEST(VariantValueTest, ObjectViewMatchesRandomAccessAndRetainsBoundsChecks) {
     EXPECT_EQ(empty.size(), 0);
 }
 
+// NOLINTNEXTLINE(readability-function-cognitive-complexity) -- GTest macros expand assertions.
+TEST(VariantValueTest, ArrayViewPreservesValuesAndRejectsInvalidBounds) {
+    const std::string empty_metadata = metadata({}, true);
+    const std::vector<std::string> children {
+            primitive(VariantPrimitiveId::INT64, integer_payload(123456789, 8)),
+            primitive(VariantPrimitiveId::NULL_VALUE), short_string("value"),
+            array_value({primitive(VariantPrimitiveId::TRUE_VALUE)}, 1, false)};
+    for (uint8_t width = 1; width <= 4; ++width) {
+        const std::string encoded = array_value(children, width, true);
+        const VariantRef ref = value_ref(empty_metadata, encoded);
+        const auto view = ref.array_view();
+        ASSERT_EQ(view.size(), children.size());
+        for (uint32_t index = 0; index < view.size(); ++index) {
+            EXPECT_EQ(view.value_at(index).value, ref.array_at(index).value);
+            EXPECT_EQ(view.value_at(index).value.to_string(), children[index]);
+        }
+        EXPECT_THROW(view.value_at(view.size()), Exception);
+        for (size_t size = 0; size < encoded.size(); ++size) {
+            EXPECT_THROW((VariantRef {metadata_ref(empty_metadata), {encoded.data(), size}})
+                                 .array_view(),
+                         Exception);
+        }
+    }
+    const std::string null_value = primitive(VariantPrimitiveId::NULL_VALUE);
+    const std::string valid = array_value({null_value}, 1, false);
+    std::string invalid_first = valid;
+    invalid_first[2] = 1;
+    EXPECT_THROW(value_ref(empty_metadata, invalid_first).array_view(), Exception);
+    std::string invalid_boundary = valid;
+    invalid_boundary[3] = 2;
+    invalid_boundary.push_back(static_cast<char>(VariantPrimitiveId::NULL_VALUE));
+    EXPECT_THROW(value_ref(empty_metadata, invalid_boundary).array_view().value_at(0), Exception);
+    EXPECT_THROW(value_ref(empty_metadata, null_value).array_view(), Exception);
+    EXPECT_EQ(value_ref(empty_metadata, array_value({}, 1, false)).array_view().size(), 0);
+}
+
 TEST(VariantValueTest, ObjectFindRejectsInvalidReceivers) {
     const std::string empty_metadata = metadata({}, true);
     VariantRef found;

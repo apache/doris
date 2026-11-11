@@ -70,8 +70,8 @@
 #include "storage/rowset/rowset_writer.h"
 #include "storage/rowset/rowset_writer_context.h"
 #include "storage/schema.h"
-#include "storage/segment/segment_loader.h"
 #include "storage/segment/segment.h"
+#include "storage/segment/segment_loader.h"
 #include "storage/segment/vertical_segment_writer.h"
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet.h"
@@ -107,7 +107,20 @@ constexpr uint64_t FNV_OFFSET = 1469598103934665603ULL;
 constexpr uint64_t FNV_PRIME = 1099511628211ULL;
 
 enum class VariantLayout : uint8_t { SPARSE16, DOC16, FULL };
-enum class VariantWorkload : uint8_t { FLAT, MIXED_PLACEMENT };
+enum class VariantWorkload : uint8_t {
+    FLAT,
+    MIXED_PLACEMENT,
+    LARGE_ARRAY,
+    LARGE_MIXED_ARRAY,
+    LARGE_STRING,
+    WIDE_OBJECT,
+};
+
+Status update_sparse_import_checksum(uint64_t* checksum, std::string_view json);
+
+bool is_large_json_workload(VariantWorkload workload) {
+    return workload != VariantWorkload::FLAT && workload != VariantWorkload::MIXED_PLACEMENT;
+}
 
 struct LayoutConfig {
     std::string_view name;
@@ -189,7 +202,10 @@ Status validate_layout(const CompactionScenario& scenario, const LayoutCounts& c
         break;
     }
     case VariantLayout::FULL:
-        if (counts.materialized != CANDIDATE_PATHS || counts.sparse != BUCKETS || counts.doc != 0) {
+        if (counts.materialized !=
+                    CANDIDATE_PATHS +
+                            (scenario.workload == VariantWorkload::WIDE_OBJECT ? 2048 : 0) ||
+            counts.sparse != BUCKETS || counts.doc != 0) {
             return Status::InternalError("Full layout is materialized={}, sparse={}, doc={}",
                                          counts.materialized, counts.sparse, counts.doc);
         }
@@ -265,6 +281,41 @@ Status update_flat_object_checksum(uint64_t* checksum, std::string_view json) {
 }
 
 std::string make_json(VariantWorkload workload, uint32_t row) {
+    if (is_large_json_workload(workload)) {
+        // The original flat fields retain the key/subpath oracle. A stable payload path isolates
+        // long arrays, large strings and wide objects without introducing per-row type conflicts.
+        std::string json = make_json(VariantWorkload::FLAT, row);
+        json.pop_back();
+        json += ",\"payload\":";
+        if (workload == VariantWorkload::LARGE_STRING) {
+            json.push_back('"');
+            json.append(256 * 1024, 'x');
+            json.push_back('"');
+        } else if (workload == VariantWorkload::WIDE_OBJECT) {
+            json.push_back('{');
+            for (uint32_t index = 0; index < 2048; ++index) {
+                if (index != 0) {
+                    json.push_back(',');
+                }
+                fmt::format_to(std::back_inserter(json), "\"f{}\":{}", index, index);
+            }
+            json.push_back('}');
+        } else {
+            json.push_back('[');
+            for (uint32_t index = 0; index < 8192; ++index) {
+                if (index != 0) {
+                    json.push_back(',');
+                }
+                json += std::to_string(index);
+                if (workload == VariantWorkload::LARGE_MIXED_ARRAY && index % 2 != 0) {
+                    json += ".5";
+                }
+            }
+            json.push_back(']');
+        }
+        json.push_back('}');
+        return json;
+    }
     static const std::array<std::string, COLD_PATHS> cold_keys = [] {
         std::array<std::string, COLD_PATHS> keys;
         for (uint32_t cold = 0; cold < COLD_PATHS; ++cold) {
@@ -578,8 +629,9 @@ private:
             return Status::OK();
         }
         auto compaction_schema = std::make_shared<TabletSchema>(*_schema);
+        VariantCompactionPathsMap compaction_paths;
         RETURN_IF_ERROR(variant_util::VariantCompactionUtil::get_extended_compaction_schema(
-                _input_rowsets, compaction_schema));
+                _input_rowsets, compaction_schema, compaction_paths));
         for (const TabletColumnPtr& column : compaction_schema->columns()) {
             if (column->is_extracted_column() && column->parent_unique_id() == ROOT_UID &&
                 column->is_variant_type() &&
@@ -600,7 +652,9 @@ private:
         for (uint32_t row = 0; row < _total_rows; ++row) {
             const std::string json = make_json(_scenario.workload, row);
             const std::string key = std::to_string(row);
-            RETURN_IF_ERROR(update_flat_object_checksum(&_expected_whole_checksum, json));
+            RETURN_IF_ERROR(is_large_json_workload(_scenario.workload)
+                                    ? update_sparse_import_checksum(&_expected_whole_checksum, json)
+                                    : update_flat_object_checksum(&_expected_whole_checksum, json));
             _expected_key_checksum = update_checksum(_expected_key_checksum, key);
             _expected_hot_checksum = update_checksum(_expected_hot_checksum, key);
             const bool has_sparse = row % SPARSE_HIT_PERIOD == 0;
@@ -767,7 +821,6 @@ private:
         RETURN_IF_ERROR(output->create_reader(&reader));
         RowsetReaderContext context;
         context.reader_type = ReaderType::READER_QUERY;
-        context.tablet_schema = query_schema;
         context.need_ordered_result = true;
         context.read_schema = read_schema;
         context.stats = statistics;
@@ -792,8 +845,10 @@ private:
             const auto& hot = block.get_by_position(2);
             const auto& sparse = block.get_by_position(3);
             for (size_t row = 0; row < block.rows(); ++row) {
-                Status whole_status = update_flat_object_checksum(
-                        &whole_checksum, whole.type->to_string(*whole.column, row));
+                const std::string json = whole.type->to_string(*whole.column, row);
+                Status whole_status = is_large_json_workload(_scenario.workload)
+                                              ? update_sparse_import_checksum(&whole_checksum, json)
+                                              : update_flat_object_checksum(&whole_checksum, json);
                 if (!whole_status.ok()) {
                     return Status::InternalError("Whole Variant mismatch at row {}: {}", rows + row,
                                                  whole_status.to_string());
@@ -869,6 +924,7 @@ void BM_VariantCumulativeCompaction(benchmark::State& state, CompactionScenario 
     uint32_t rows_per_rowset = 0;
     uint32_t input_segments = 0;
     uint32_t variant_subcolumn_writer_paths = 0;
+    uint64_t compaction_cpu_ns = 0;
     bool completed = false;
     for (auto _ : state) {
         benchmark::DoNotOptimize(_);
@@ -885,8 +941,11 @@ void BM_VariantCumulativeCompaction(benchmark::State& state, CompactionScenario 
             break;
         }
 
+        ThreadCpuStopWatch cpu;
+        cpu.start();
         const auto start = std::chrono::steady_clock::now();
         status = compaction->execute_compact();
+        compaction_cpu_ns = cpu.elapsed_time();
         const auto finish = std::chrono::steady_clock::now();
         state.SetIterationTime(std::chrono::duration<double>(finish - start).count());
 
@@ -913,6 +972,7 @@ void BM_VariantCumulativeCompaction(benchmark::State& state, CompactionScenario 
     state.counters["input_segments"] = input_segments;
     state.counters["rows_per_input_rowset"] = rows_per_rowset;
     state.counters["merge_ways"] = COMPACTION_INPUT_ROWSETS;
+    state.counters["main_thread_cpu_ms"] = static_cast<double>(compaction_cpu_ns) / 1e6;
     state.counters["input_key_ranges_overlap"] = 1;
     state.counters["input_json_bytes_per_row"] =
             static_cast<double>(result.input_json_bytes) / total_rows;
@@ -960,13 +1020,14 @@ constexpr uint32_t SPARSE_IMPORT_ROWS_PER_SEGMENT = 125'000;
 constexpr int32_t SPARSE_IMPORT_MAX_SUBCOLUMNS = 2'048;
 constexpr uint32_t SPARSE_IMPORT_SEED = 20'260'914;
 constexpr std::array<std::string_view, 20> SPARSE_IMPORT_WORDS {
-        "alpha", "beta", "gamma",   "delta", "epsilon", "zeta",  "eta",   "theta", "iota", "kappa",
-        "lambda", "mu", "nu", "xi", "omicron", "pi", "rho", "sigma", "tau", "upsilon"};
+        "alpha",  "beta", "gamma", "delta", "epsilon", "zeta", "eta", "theta", "iota", "kappa",
+        "lambda", "mu",   "nu",    "xi",    "omicron", "pi",   "rho", "sigma", "tau",  "upsilon"};
 
 struct SparseImportScenario {
     std::string_view name;
     bool arrays;
     uint32_t writers;
+    VariantWorkload workload = VariantWorkload::FLAT;
 };
 
 struct SparseImportResult {
@@ -1001,9 +1062,10 @@ void append_sparse_import_value(uint32_t key, bool arrays, Random* rng, std::str
     if (bucket < 10 || (bucket == 18 && !arrays)) {
         fmt::format_to(out, "{}", static_cast<int64_t>(rng->Uniform(2'000'001)) - 1'000'000);
     } else if (bucket < 15) {
-        fmt::format_to(out, "\"{}_{}\"",
-                       SPARSE_IMPORT_WORDS[rng->Uniform(static_cast<int>(SPARSE_IMPORT_WORDS.size()))],
-                       rng->Uniform(100'000));
+        fmt::format_to(
+                out, "\"{}_{}\"",
+                SPARSE_IMPORT_WORDS[rng->Uniform(static_cast<int>(SPARSE_IMPORT_WORDS.size()))],
+                rng->Uniform(100'000));
     } else if (bucket < 17) {
         fmt::format_to(out, "{:.4f}", sparse_import_unit(rng) * 2e6 - 1e6);
     } else if (bucket < 18) {
@@ -1019,8 +1081,9 @@ void append_sparse_import_value(uint32_t key, bool arrays, Random* rng, std::str
         }
         json->push_back(']');
     } else {
-        fmt::format_to(out, "{{\"x\":{},\"y\":\"{}\"}}", rng->Uniform(1'001),
-                       SPARSE_IMPORT_WORDS[rng->Uniform(static_cast<int>(SPARSE_IMPORT_WORDS.size()))]);
+        fmt::format_to(
+                out, "{{\"x\":{},\"y\":\"{}\"}}", rng->Uniform(1'001),
+                SPARSE_IMPORT_WORDS[rng->Uniform(static_cast<int>(SPARSE_IMPORT_WORDS.size()))]);
     }
 }
 
@@ -1040,8 +1103,8 @@ Status update_sparse_import_value_checksum(uint64_t* checksum, const rapidjson::
         *checksum = update_checksum(*checksum, "true");
         return Status::OK();
     case rapidjson::kStringType:
-        *checksum = update_checksum(
-                *checksum, std::string_view(value.GetString(), value.GetStringLength()));
+        *checksum = update_checksum(*checksum,
+                                    std::string_view(value.GetString(), value.GetStringLength()));
         return Status::OK();
     case rapidjson::kNumberType:
         // parse_to_variant infers a whole-numbered double (for example the generator's
@@ -1153,13 +1216,16 @@ TabletSchemaSPtr make_sparse_import_schema() {
 }
 
 Status make_sparse_import_block(bool arrays, uint32_t first_row, uint32_t rows, Random* rng,
-                                Block* block, uint64_t* json_bytes, uint64_t* expected_checksum) {
+                                Block* block, uint64_t* json_bytes, uint64_t* expected_checksum,
+                                VariantWorkload workload) {
     auto keys = ColumnInt64::create();
     auto raw_json = ColumnString::create();
     keys->reserve(rows);
     raw_json->reserve(rows);
     for (uint32_t local = 0; local < rows; ++local) {
-        const std::string json = make_sparse_import_json(arrays, rng);
+        const std::string json = is_large_json_workload(workload)
+                                         ? make_json(workload, first_row + local)
+                                         : make_sparse_import_json(arrays, rng);
         keys->insert_value(first_row + local);
         raw_json->insert_data(json.data(), json.size());
         *json_bytes += json.size();
@@ -1194,18 +1260,18 @@ using SparseImportSegments = std::vector<std::vector<Block>>;
 
 Status make_sparse_import_input(bool arrays, uint32_t writer, uint32_t rows,
                                 SparseImportSegments* segments, uint64_t* json_bytes,
-                                uint64_t* expected_checksum) {
+                                uint64_t* expected_checksum, VariantWorkload workload) {
     Random rng(SPARSE_IMPORT_SEED + writer);
     for (uint32_t segment_begin = 0; segment_begin < rows;
          segment_begin += SPARSE_IMPORT_ROWS_PER_SEGMENT) {
-        const uint32_t segment_rows = std::min(SPARSE_IMPORT_ROWS_PER_SEGMENT, rows - segment_begin);
+        const uint32_t segment_rows =
+                std::min(SPARSE_IMPORT_ROWS_PER_SEGMENT, rows - segment_begin);
         auto& batches = segments->emplace_back();
         for (uint32_t offset = 0; offset < segment_rows; offset += BATCH_ROWS) {
             Block block;
-            RETURN_IF_ERROR(make_sparse_import_block(arrays, segment_begin + offset,
-                                                     std::min(BATCH_ROWS, segment_rows - offset),
-                                                     &rng, &block, json_bytes,
-                                                     expected_checksum));
+            RETURN_IF_ERROR(make_sparse_import_block(
+                    arrays, segment_begin + offset, std::min(BATCH_ROWS, segment_rows - offset),
+                    &rng, &block, json_bytes, expected_checksum, workload));
             batches.push_back(std::move(block));
         }
     }
@@ -1283,9 +1349,7 @@ Status validate_sparse_import_output(const TabletSchemaSPtr& schema, const std::
                                                       /*tablet_id=*/1, segment_id, RowsetId(),
                                                       schema, reader_options, &segment, {},
                                                       &stats));
-            StorageReadOptions options;
-            options.stats = &stats;
-            options.tablet_schema = schema;
+            StorageReadOptions options(stats);
             std::unique_ptr<RowwiseIterator> iterator;
             RETURN_IF_ERROR(segment->new_iterator(read_schema, options, &iterator));
             RETURN_IF_ERROR(iterator->init(options));
@@ -1306,9 +1370,8 @@ Status validate_sparse_import_output(const TabletSchemaSPtr& schema, const std::
         }
     }
     if (actual_rows != total_rows || actual_checksum != expected_checksum) {
-        return Status::InternalError(
-                "Sparse import oracle mismatch: rows={}/{}, checksum={}/{}", actual_rows,
-                total_rows, actual_checksum, expected_checksum);
+        return Status::InternalError("Sparse import oracle mismatch: rows={}/{}, checksum={}/{}",
+                                     actual_rows, total_rows, actual_checksum, expected_checksum);
     }
     return Status::OK();
 }
@@ -1341,8 +1404,8 @@ Status run_sparse_import(const SparseImportScenario& scenario, uint32_t total_ro
         const uint32_t rows = total_rows / scenario.writers +
                               (writer + 1 == scenario.writers ? total_rows % scenario.writers : 0);
         RETURN_IF_ERROR(make_sparse_import_input(scenario.arrays, writer, rows, &inputs[writer],
-                                                 &result->input_json_bytes,
-                                                 &expected_checksum));
+                                                 &result->input_json_bytes, &expected_checksum,
+                                                 scenario.workload));
     }
 
     std::vector<SparseImportResult> writer_results(scenario.writers);
@@ -1511,6 +1574,61 @@ bool register_variant_compaction_benchmarks() {
     }
     return true;
 }
+
+// These fixtures exercise the same segment writer as memtable flushes and real overlapping
+// rowset merges. JSON generation/parsing and independent full-value validation remain untimed.
+bool register_variant_large_json_benchmarks() {
+    const std::array<std::pair<std::string_view, VariantWorkload>, 4> workloads {{
+            {"LongIntegers", VariantWorkload::LARGE_ARRAY},
+            {"LongMixedNumbers", VariantWorkload::LARGE_MIXED_ARRAY},
+            {"String256KiB", VariantWorkload::LARGE_STRING},
+            {"Wide2048", VariantWorkload::WIDE_OBJECT},
+    }};
+    for (const auto& [name, workload] : workloads) {
+        for (uint32_t sample = 1; sample <= 5; ++sample) {
+            const std::string suffix = std::string(name) + "/sample" + std::to_string(sample);
+            benchmark::RegisterBenchmark(("BM_VariantLargeJsonImport/" + suffix).c_str(),
+                                         [workload](benchmark::State& state) {
+                                             BM_VariantSparseImport(state, {.name = "LargeJson",
+                                                                            .arrays = true,
+                                                                            .writers = 1,
+                                                                            .workload = workload});
+                                         })
+                    ->Unit(benchmark::kMillisecond)
+                    ->Iterations(1)
+                    ->UseManualTime();
+            benchmark::RegisterBenchmark(("BM_VariantLargeJsonCompaction/" + suffix).c_str(),
+                                         [workload](benchmark::State& state) {
+                                             BM_VariantCumulativeCompaction(
+                                                     state, {.layout = VariantLayout::SPARSE16,
+                                                             .workload = workload,
+                                                             .name = "LargeJson",
+                                                             .compact_variant_subcolumns = false});
+                                         })
+                    ->Unit(benchmark::kMillisecond)
+                    ->Iterations(1)
+                    ->UseManualTime();
+        }
+    }
+    for (uint32_t sample = 1; sample <= 5; ++sample) {
+        benchmark::RegisterBenchmark(
+                ("BM_VariantLargeJsonCompaction/Wide2048Physical/sample" + std::to_string(sample))
+                        .c_str(),
+                [](benchmark::State& state) {
+                    BM_VariantCumulativeCompaction(state, {.layout = VariantLayout::FULL,
+                                                           .workload = VariantWorkload::WIDE_OBJECT,
+                                                           .name = "Wide2048Physical",
+                                                           .compact_variant_subcolumns = true});
+                })
+                ->Unit(benchmark::kMillisecond)
+                ->Iterations(1)
+                ->UseManualTime();
+    }
+    return true;
+}
+
+inline const bool VARIANT_LARGE_JSON_BENCHMARKS_REGISTERED =
+        register_variant_large_json_benchmarks();
 
 inline const bool VARIANT_COMPACTION_BENCHMARKS_REGISTERED =
         register_variant_compaction_benchmarks();

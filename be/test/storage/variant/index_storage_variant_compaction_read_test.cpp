@@ -16,9 +16,12 @@
 // under the License.
 
 #include <gtest/gtest.h>
+#include <rapidjson/document.h>
 
+#include "common/config.h"
 #include "storage/segment/variant/nested_group_provider.h"
 #include "storage/variant/index_storage_variant_test_base.h"
+#include "util/defer_op.h"
 
 namespace doris::index_storage_test {
 
@@ -210,6 +213,78 @@ TEST_F(IndexStorageVariantCompactionReadTest, WriteReadProbeAndCumulativeCompact
     ASSERT_TRUE(compacted_probe.has_value()) << compacted_probe.error();
     EXPECT_TRUE(compacted_probe->contains_relative_path("a"));
     EXPECT_TRUE(compacted_probe->contains_relative_path("b"));
+}
+
+// NOLINTNEXTLINE(readability-function-cognitive-complexity) -- GTest macros expand assertions.
+TEST_F(IndexStorageVariantCompactionReadTest, WideVariantSurvivesMultipleVerticalColumnGroups) {
+    const bool previous_vertical = config::enable_vertical_compaction;
+    const bool previous_subcolumns = config::enable_vertical_compact_variant_subcolumns;
+    config::enable_vertical_compaction = true;
+    config::enable_vertical_compact_variant_subcolumns = true;
+    Defer restore {[&] {
+        config::enable_vertical_compaction = previous_vertical;
+        config::enable_vertical_compact_variant_subcolumns = previous_subcolumns;
+    }};
+    IndexTabletOptions options;
+    options.tablet_id = 119012;
+    options.variant_columns = {VariantColumnSpec {}};
+    options.variant_columns[0].unique_id = 2;
+    options.variant_columns[0].name = "v";
+    options.variant_columns[0].max_subcolumns_count = 0;
+    ASSERT_TRUE(create_tablet(options).ok());
+    std::vector<RowsetSharedPtr> inputs;
+    constexpr uint32_t FIELDS = 128;
+    for (uint32_t version = 0; version < 3; ++version) {
+        std::vector<std::string> jsons;
+        for (uint32_t row = 2 * version; row < 2 * version + 2; ++row) {
+            std::string json = "{\"row_id\":" + std::to_string(row);
+            for (uint32_t field = 0; field < FIELDS; ++field) {
+                if ((row + field) % 17 != 0) {
+                    json += ",\"f" + std::to_string(field) +
+                            "\":" + std::to_string(row * FIELDS + field);
+                }
+            }
+            json += "}";
+            jsons.push_back(std::move(json));
+        }
+        IndexRowsetSpec spec;
+        spec.version = version;
+        spec.batches.push_back(IndexBatch::single_variant(std::move(jsons), 2 * version));
+        auto written = write_rowset(spec);
+        ASSERT_TRUE(written.has_value()) << written.error();
+        inputs.push_back(written.value());
+    }
+    auto compacted = compact_rowsets_and_reload(IndexCompactionKind::CUMULATIVE, inputs);
+    ASSERT_TRUE(compacted.has_value()) << compacted.error();
+    EXPECT_EQ(compacted.value()->start_version(), 0);
+    EXPECT_EQ(compacted.value()->end_version(), 2);
+    EXPECT_EQ(compacted.value()->num_rows(), 6);
+    for (const auto& input : inputs) {
+        EXPECT_NE(compacted.value()->rowset_id(), input->rowset_id());
+    }
+    IndexReadOptions read_options;
+    read_options.need_ordered_result = true;
+    read_options.collect_variant_values = true;
+    auto read = read_rowsets({compacted.value()}, read_options);
+    ASSERT_TRUE(read.has_value()) << read.error();
+    ASSERT_EQ(read->variant_values_by_uid.at(2).size(), 6);
+    for (uint32_t row = 0; row < 6; ++row) {
+        const auto& json = read->variant_values_by_uid.at(2)[row];
+        ASSERT_TRUE(json.has_value());
+        rapidjson::Document document;
+        document.Parse(json->data(), json->size());
+        ASSERT_FALSE(document.HasParseError());
+        ASSERT_TRUE(document.IsObject());
+        ASSERT_EQ(document["row_id"].GetUint(), row);
+        for (uint32_t field = 0; field < FIELDS; ++field) {
+            const std::string key = "f" + std::to_string(field);
+            ASSERT_EQ(document.HasMember(key.c_str()), (row + field) % 17 != 0)
+                    << row << ":" << field;
+            if ((row + field) % 17 != 0) {
+                EXPECT_EQ(document[key.c_str()].GetUint(), row * FIELDS + field);
+            }
+        }
+    }
 }
 
 TEST_F(IndexStorageVariantCompactionReadTest, DeepSparseVariantCompactsWithExternalSegmentMeta) {

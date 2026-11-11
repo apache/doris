@@ -857,6 +857,86 @@ TEST(VariantPathBuilderTest, ArrayPathReusesElementTypeAcrossRows) {
     }
 }
 
+// NOLINTNEXTLINE(readability-function-cognitive-complexity) -- GTest macros expand assertions.
+TEST(VariantPathBuilderTest, JsonbArrayInferenceStillDetectsLaterContainers) {
+    VariantBatchBuilder value_builder;
+    auto row = value_builder.begin_row();
+    auto array = row.start_array();
+    row.add_int(1);
+    row.add_double(2.5);
+    auto object = row.start_object();
+    object.add_key(StringRef("x"));
+    row.add_int(3);
+    object.finish();
+    array.finish();
+    row.finish();
+    auto nested_row = value_builder.begin_row();
+    auto outer_array = nested_row.start_array();
+    nested_row.add_int(4);
+    nested_row.add_double(5.5);
+    auto inner_array = nested_row.start_array();
+    nested_row.add_int(6);
+    inner_array.finish();
+    outer_array.finish();
+    nested_row.finish();
+    VariantBatchBuilder values = value_builder.finish_batch();
+    for (uint32_t index = 0; index < 2; ++index) {
+        segment_v2::VariantPathBuilder builder(PathInData("complex"));
+        ASSERT_TRUE(builder.append(values.value_at(index), 0).ok());
+        ASSERT_EQ(remove_nullable(builder.type())->get_primitive_type(), TYPE_JSONB);
+        EXPECT_EQ(builder.type()->to_string(*builder.column(), 0),
+                  index == 0 ? R"([1,2.5,{"x":3}])" : "[4,5.5,[6]]");
+    }
+}
+
+// NOLINTNEXTLINE(readability-function-cognitive-complexity) -- GTest macros expand assertions.
+TEST(VariantPathBuilderTest, LongMixedNumericArraysPreserveValuesAndNulls) {
+    constexpr uint32_t ELEMENTS = 8192;
+    VariantBatchBuilder value_builder;
+    for (uint32_t row_index = 0; row_index < 3; ++row_index) {
+        auto row = value_builder.begin_row();
+        auto array = row.start_array();
+        for (uint32_t index = 0; index < ELEMENTS; ++index) {
+            if (index % 17 == 0) {
+                row.add_null();
+            } else if (row_index == 0) {
+                row.add_float(static_cast<float>(index));
+            } else if (index % 2 == 0) {
+                row.add_double(index + 0.5);
+            } else {
+                row.add_float(static_cast<float>(index));
+            }
+        }
+        array.finish();
+        row.finish();
+    }
+    VariantBatchBuilder values = value_builder.finish_batch();
+    segment_v2::VariantPathBuilder builder(PathInData("large"));
+    for (uint32_t row = 0; row < 3; ++row) {
+        ASSERT_TRUE(builder.append(values.value_at(row), row).ok());
+    }
+    EXPECT_EQ(builder.promotion_count(), 1);
+    ColumnPtr materialized;
+    ASSERT_TRUE(builder.materialize(&materialized).ok());
+    const auto& arrays = assert_cast<const ColumnArray&>(
+            assert_cast<const ColumnNullable&>(*materialized).get_nested_column());
+    const auto& elements = assert_cast<const ColumnNullable&>(arrays.get_data());
+    const auto& numbers = assert_cast<const ColumnFloat64&>(elements.get_nested_column());
+    ASSERT_EQ(elements.size(), 3 * ELEMENTS);
+    for (uint32_t row = 0; row < 3; ++row) {
+        EXPECT_EQ(arrays.get_offsets()[row], (row + 1) * ELEMENTS);
+        for (uint32_t index = 0; index < ELEMENTS; ++index) {
+            const uint32_t offset = row * ELEMENTS + index;
+            ASSERT_EQ(elements.is_null_at(offset), index % 17 == 0) << offset;
+            if (index % 17 != 0) {
+                EXPECT_DOUBLE_EQ(numbers.get_data()[offset],
+                                 row != 0 && index % 2 == 0 ? index + 0.5 : index)
+                        << offset;
+            }
+        }
+    }
+}
+
 TEST(VariantPathBuilderTest, StringifiesArrayWithoutTreatingExistingNullAsCastFailure) {
     VariantBatchBuilder value_builder;
     auto row = value_builder.begin_row();
