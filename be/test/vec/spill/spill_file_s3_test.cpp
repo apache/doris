@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// Tests spill on object storage (spill_storage_type=s3) against an in-memory
+// Tests spill on object storage (spill_storage_type=remote) against an in-memory
 // ObjStorageClient injected through S3ClientFactory. Covers the write/read round trip,
 // cleanup (file gc and its retry), the capacity limit, upload back pressure and request
 // statistics.
@@ -1786,7 +1786,7 @@ TEST_F(SpillFileS3Test, InflightSpillUploadsBoundWriter) {
     config::spill_s3_max_inflight_upload_bytes = 2 * config::s3_write_buffer_size;
     config::spill_file_part_size_bytes = 1024 * 1024;
     _create_manager();
-    const auto& inflight = SpillS3FileWriter::_inflight_upload_bytes();
+    const auto& inflight = _manager->inflight_upload_bytes();
 
     std::mt19937 rng(11);
     std::vector<Block> blocks;
@@ -1944,7 +1944,7 @@ TEST_F(SpillFileS3Test, InflightSpillWaitIsCancellable) {
     config::spill_s3_max_inflight_upload_bytes = 2 * config::s3_write_buffer_size;
     config::spill_file_part_size_bytes = 1024 * 1024;
     _create_manager();
-    const auto& inflight = SpillS3FileWriter::_inflight_upload_bytes();
+    const auto& inflight = _manager->inflight_upload_bytes();
 
     std::mt19937 rng(13);
     std::vector<Block> blocks;
@@ -2430,7 +2430,7 @@ TEST_F(SpillFileS3Test, UnrelatedUploadTasksDoNotThrottleSpill) {
     unblock_pool();
     writing.join();
     ASSERT_TRUE(status.ok()) << status;
-    EXPECT_EQ(SpillS3FileWriter::_inflight_upload_bytes()->load(), 0);
+    EXPECT_EQ(_manager->inflight_upload_bytes()->load(), 0);
     ASSERT_TRUE(writer->close().ok());
 }
 
@@ -2469,7 +2469,7 @@ TEST_F(SpillFileS3Test, FileGcDoesNotWaitForUnfinishedUploads) {
     destroying.join();
     _manager->gc(10000);
     EXPECT_EQ(_data_dir->get_spill_data_bytes(), 0);
-    EXPECT_EQ(SpillS3FileWriter::_inflight_upload_bytes()->load(), 0);
+    EXPECT_EQ(_manager->inflight_upload_bytes()->load(), 0);
     EXPECT_EQ(mock_store().complete_multipart_requests.load(), 0);
     EXPECT_TRUE(_query_objects("async_discard").empty());
     ASSERT_TRUE(writer->close().ok());
@@ -2510,7 +2510,7 @@ TEST_F(SpillFileS3Test, FailedUploadSubmissionReturnsInflightCharge) {
     auto file =
             _write_blocks("failed_submit/sort-1", {_random_string_block(rng, 64, 200)}, &status);
     EXPECT_FALSE(status.ok());
-    EXPECT_EQ(SpillS3FileWriter::_inflight_upload_bytes()->load(), 0);
+    EXPECT_EQ(_manager->inflight_upload_bytes()->load(), 0);
     EXPECT_FALSE(file->ready_for_reading());
 }
 
@@ -2568,12 +2568,12 @@ TEST_F(SpillFileS3Test, ShutdownCompletesQueuedUploadsBeforeGcDestroysWriter) {
     // A broken dropped-task callback must fail the test rather than hang TearDown(). The
     // isolated pool has only this writer's uploads, so release precisely its missing signals.
     Defer finish_dropped_callbacks {[&]() {
-        while (SpillS3FileWriter::_inflight_upload_bytes()->load() > 0) {
+        while (_manager->inflight_upload_bytes()->load() > 0) {
             io_writer->_complete_part_task_callback(Status::Cancelled("test cleanup"),
                                                     config::s3_write_buffer_size);
         }
     }};
-    ASSERT_GT(SpillS3FileWriter::_inflight_upload_bytes()->load(), 0);
+    ASSERT_GT(_manager->inflight_upload_bytes()->load(), 0);
     ScopedThread stopping([&]() { upload_pool->shutdown(); });
     Defer release_before_join {[&]() { unblock_pool(); }};
     for (int i = 0; i < 500 && upload_pool->get_queue_size() != 0; ++i) {
@@ -2582,8 +2582,8 @@ TEST_F(SpillFileS3Test, ShutdownCompletesQueuedUploadsBeforeGcDestroysWriter) {
     EXPECT_EQ(upload_pool->get_queue_size(), 0);
     unblock_pool();
     stopping.join();
-    EXPECT_EQ(SpillS3FileWriter::_inflight_upload_bytes()->load(), 0);
-    while (SpillS3FileWriter::_inflight_upload_bytes()->load() > 0) {
+    EXPECT_EQ(_manager->inflight_upload_bytes()->load(), 0);
+    while (_manager->inflight_upload_bytes()->load() > 0) {
         io_writer->_complete_part_task_callback(Status::Cancelled("test cleanup"),
                                                 config::s3_write_buffer_size);
     }
@@ -2595,23 +2595,37 @@ TEST_F(SpillFileS3Test, ShutdownCompletesQueuedUploadsBeforeGcDestroysWriter) {
     EXPECT_EQ(mock_store().complete_multipart_requests.load(), 0);
 }
 
-TEST_F(SpillFileS3Test, RemoteStorageTypeAndLegacyAliasSelectSameBackend) {
+TEST_F(SpillFileS3Test, RemoteStorageTypeSelectsRemoteBackend) {
     const auto saved_type = config::spill_storage_type;
     Defer restore_type {[&]() { config::spill_storage_type = saved_type; }};
     config::deploy_mode = "cloud";
     config::cloud_unique_id = "";
-    for (const auto* type : {spill_storage_type::REMOTE, spill_storage_type::S3}) {
-        config::spill_storage_type = type;
-        _manager = new SpillFileManager(std::vector<StorePath> {});
-        ExecEnv::GetInstance()->_spill_file_mgr = _manager;
-        ASSERT_TRUE(_manager->init().ok());
-        _manager->stop();
-        _data_dir = _manager->_remote_store;
-        ASSERT_NE(_data_dir, nullptr);
-        EXPECT_TRUE(_manager->_local_stores.empty());
-        EXPECT_FALSE(_data_dir->ready()); // Vault binding remains lazy for both names.
-        _destroy_manager();
-    }
+    config::spill_storage_type = spill_storage_type::REMOTE;
+    _manager = new SpillFileManager(std::vector<StorePath> {});
+    ExecEnv::GetInstance()->_spill_file_mgr = _manager;
+    ASSERT_TRUE(_manager->init().ok());
+    _manager->stop();
+    _data_dir = _manager->_remote_store;
+    ASSERT_NE(_data_dir, nullptr);
+    EXPECT_TRUE(_manager->_local_stores.empty());
+    EXPECT_FALSE(_data_dir->ready()); // Vault binding remains lazy.
+}
+
+TEST_F(SpillFileS3Test, StorageTypeValidatorAcceptsOnlyLocalAndRemote) {
+    const auto saved_type = config::spill_storage_type;
+    Defer restore_type {[&]() { config::spill_storage_type = saved_type; }};
+    const auto& validate =
+            config::RegisterConfValidator::_s_field_validator->at("spill_storage_type");
+    config::spill_storage_type = spill_storage_type::LOCAL;
+    EXPECT_TRUE(validate());
+    EXPECT_FALSE(spill_storage_type::is_remote(config::spill_storage_type));
+    config::spill_storage_type = spill_storage_type::REMOTE;
+    EXPECT_TRUE(validate());
+    EXPECT_TRUE(spill_storage_type::is_remote(config::spill_storage_type));
+    // Remote spill has not been released; there is no legacy "s3" value to support.
+    config::spill_storage_type = "s3";
+    EXPECT_FALSE(validate());
+    EXPECT_FALSE(spill_storage_type::is_remote(config::spill_storage_type));
 }
 
 } // namespace doris::vectorized

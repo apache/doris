@@ -41,8 +41,8 @@ protected:
 
 private:
     Status _wait_for_upload_capacity();
-    static const std::shared_ptr<std::atomic<int64_t>>& _inflight_upload_bytes();
 
+    const std::shared_ptr<std::atomic<int64_t>> _inflight_upload_bytes;
     int64_t _part_upload_ns = 0;
     RuntimeProfile::Counter* _remote_upload_bytes = nullptr;
     RuntimeProfile::Counter* _remote_upload_timer = nullptr;

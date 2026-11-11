@@ -1752,7 +1752,7 @@ DEFINE_mInt32(spill_gc_interval_ms, "2000");             // 2s
 DEFINE_mInt32(spill_gc_work_time_ms, "2000");            // 2s
 DEFINE_mInt64(spill_file_part_size_bytes, "1073741824"); // 1GB
 DEFINE_String(spill_storage_type, doris::spill_storage_type::LOCAL);
-// remote (s3 is a compatibility alias): cloud mode only; spill is written to the S3 storage vault under
+// remote: cloud mode only; spill is written to the object-storage vault under
 // spill/{backend_uid}/{query_id}/, with a random ID generated once per BE process.
 // The BE deletes the objects of a spill file when the query is done with it. What a BE that
 // crashed left behind is not deleted by Doris: give the bucket a lifecycle rule that expires

@@ -143,6 +143,10 @@ public:
     /// Bytes and GET requests issued by spill against object storage.
     void update_spill_remote_read(int64_t bytes, int64_t get_requests);
 
+    const std::shared_ptr<std::atomic<int64_t>>& inflight_upload_bytes() const {
+        return _inflight_upload_bytes;
+    }
+
     /// Number of spill directories waiting for initial deletion or retry.
     size_t pending_delete_dir_count();
 
@@ -204,6 +208,11 @@ private:
     // for query spill and keeps its local stores for external writers.
     std::vector<LocalSpillDataDir*> _local_stores;
     RemoteSpillDataDir* _remote_store = nullptr;
+
+    // Shared only by this manager's spill writers. I/O writers retain the counter until
+    // their callbacks return the upload charges, without retaining the manager itself.
+    const std::shared_ptr<std::atomic<int64_t>> _inflight_upload_bytes =
+            std::make_shared<std::atomic<int64_t>>(0);
 
     CountDownLatch _stop_background_threads_latch;
     std::shared_ptr<Thread> _spill_gc_thread;

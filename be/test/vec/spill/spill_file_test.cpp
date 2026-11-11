@@ -21,6 +21,7 @@
 #include <sys/statvfs.h>
 
 #include <algorithm>
+#include <atomic>
 #include <filesystem>
 #include <functional>
 #include <memory>
@@ -28,6 +29,7 @@
 #include <set>
 #include <string>
 #include <typeinfo>
+#include <unordered_map>
 #include <vector>
 
 #include "common/config.h"
@@ -2069,6 +2071,25 @@ TEST(SpillFileManagerTest, ShutdownLeavesPendingLocalDirectoriesForStartupGc) {
     // The first pass removes query directories; the next prunes their now-empty GC parent.
     manager->gc(10000);
     EXPECT_TRUE(std::filesystem::is_empty(gc_root));
+}
+
+TEST(SpillFileManagerTest, UploadAccountingIsScopedToManagerLifetime) {
+    auto make_manager = []() {
+        return std::make_unique<SpillFileManager>(
+                std::unordered_map<std::string, std::unique_ptr<SpillDataDir>> {});
+    };
+    auto manager = make_manager();
+    auto previous_upload_bytes = manager->inflight_upload_bytes();
+    previous_upload_bytes->store(4096);
+    manager.reset();
+
+    // Retaining an old writer's accounting state must not charge a replacement manager.
+    manager = make_manager();
+    EXPECT_NE(previous_upload_bytes, manager->inflight_upload_bytes());
+    EXPECT_EQ(manager->inflight_upload_bytes()->load(), 0);
+    EXPECT_EQ(previous_upload_bytes->fetch_sub(4096), 4096);
+    EXPECT_EQ(previous_upload_bytes->load(), 0);
+    EXPECT_EQ(manager->inflight_upload_bytes()->load(), 0);
 }
 
 TEST(SpillFileManagerTest, StartupDoesNotReuseRootWhenQuarantineFails) {

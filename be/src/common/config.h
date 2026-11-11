@@ -1798,7 +1798,7 @@ DECLARE_mInt32(spill_gc_work_time_ms);
 DECLARE_mInt64(spill_file_part_size_bytes);
 DECLARE_Int64(spill_in_paused_queue_timeout_ms);
 // Where spill data is written: "local" (spill_storage_root_path) or "remote" (the storage vault of a
-// cloud instance). "s3" remains a compatibility alias. Remote spill is cloud-mode only.
+// cloud instance). Remote spill is cloud-mode only.
 DECLARE_String(spill_storage_type);
 // Storage vault ID (not the vault name) used by spill when remote spill is enabled. When
 // empty, an instance without storage vaults uses its latest object storage and an instance
