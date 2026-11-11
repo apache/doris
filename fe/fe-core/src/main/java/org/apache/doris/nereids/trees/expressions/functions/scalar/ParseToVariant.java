@@ -51,7 +51,7 @@ public class ParseToVariant extends ScalarFunction
 
     /**
      * A parse typed with a specific VARIANT type. When that type carries a Schema Template, the BE parses
-     * the text with the template's DECIMAL paths in hand (see VariantType#toThrift).
+     * the text with the template's DECIMAL and LARGEINT paths in hand (see VariantType#toThrift).
      */
     public ParseToVariant(Expression argument, VariantType returnType) {
         super("parse_to_variant", argument);

@@ -54,8 +54,8 @@ public:
 
     int32_t variant_max_subcolumns_count() const { return _max_subcolumns_count; }
     bool enable_doc_mode() const { return _enable_doc_mode; }
-    // The Schema Template's DECIMAL paths, an ingestion hint only: two VARIANT types that differ
-    // just here are still equal, and the hint never reaches a column's bytes.
+    // The Schema Template's fields with their types, an ingestion hint only: two VARIANT types
+    // that differ just here are still equal, and the hint never reaches a column's bytes.
     const VariantDecimalPathSetPtr& decimal_paths() const { return _decimal_paths; }
 
 protected:

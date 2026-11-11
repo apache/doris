@@ -217,29 +217,32 @@ public class VariantType extends ScalarType {
     }
 
     /**
-     * The predefined fields in declaration order, for the BE's parser, or an empty list when none of them is
-     * DECIMAL (or ARRAY of DECIMAL): a JSON number on a path whose first matching field is DECIMAL is parsed
-     * from its text instead of through a binary64. The whole template rides so the BE matches a path the way
-     * the shredder does, first field wins: with 'amount*':string before 'amount':decimal(10,2) the number
-     * under "amount" stays off the text path on both sides. A template cannot hold a DECIMALV2 field.
+     * The predefined fields in declaration order, each with its type (an ARRAY field with its item type), for
+     * the BE's parser; an empty list when no field is DECIMAL or LARGEINT (or ARRAY of one), the two types that
+     * change how a JSON number is read. On a path whose first matching field is DECIMAL a number is parsed from
+     * its text instead of through a binary64; on one whose first matching field is LARGEINT an integer beyond
+     * 64 bits is read exactly from its text, where the parser otherwise rejects the whole document. The whole
+     * template rides so the BE matches a path the way the shredder does, first field wins: with
+     * 'amount*':string before 'amount':decimal(10,2) the number under "amount" stays off the text path on both
+     * sides. Precision and scale stay behind: the BE reads the number exactly and the template's own cast
+     * applies them. A template cannot hold a DECIMALV2 field.
      */
     public ArrayList<TVariantTemplatePath> collectTemplatePaths() {
         ArrayList<TVariantTemplatePath> paths = Lists.newArrayList();
-        boolean anyDecimal = false;
+        boolean readsNumbersFromText = false;
         for (VariantField field : predefinedFields) {
-            Type fieldType = field.getType();
-            if (fieldType instanceof ArrayType) {
-                fieldType = ((ArrayType) fieldType).getItemType();
+            Type leafType = field.getType();
+            if (leafType instanceof ArrayType) {
+                leafType = ((ArrayType) leafType).getItemType();
             }
-            boolean isDecimal = fieldType.isDecimalV3();
-            anyDecimal |= isDecimal;
+            readsNumbersFromText |= leafType.isDecimalV3() || leafType.isLargeIntType();
             TVariantTemplatePath path = new TVariantTemplatePath();
             path.setPattern(field.getPattern());
             path.setIsGlob(field.getPatternType() != PatternType.MATCH_NAME);
-            path.setIsDecimal(isDecimal);
+            path.setType(leafType.getPrimitiveType().toThrift());
             paths.add(path);
         }
-        return anyDecimal ? paths : Lists.newArrayList();
+        return readsNumbersFromText ? paths : Lists.newArrayList();
     }
 
     @Override

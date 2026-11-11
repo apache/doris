@@ -46,9 +46,11 @@ struct JsonToVariantOptions {
     // serde turns this off because it mostly re-reads JSON that a Variant serde wrote: a value the
     // parser cannot read back, such as an integer beyond 64 bits, then keeps its text.
     bool throw_on_invalid_json = true;
-    // The DECIMAL paths of the destination VARIANT's Schema Template (nullptr or empty: none). With
-    // paths, a document is read with simdjson's ondemand parser, and a JSON number on one of them
-    // is parsed from its text into a decimal instead of through a binary64.
+    // The destination VARIANT's Schema Template, sent when it declares a DECIMAL or LARGEINT path
+    // (nullptr or empty: none). With it, a document is read with simdjson's ondemand parser: a
+    // JSON number on a DECIMAL path is parsed from its text into a decimal instead of through a
+    // binary64, and an integer beyond 64 bits on a LARGEINT path is read exactly from its text
+    // instead of failing the document.
     VariantDecimalPathSetPtr decimal_paths = nullptr;
 
     // Takes a value snapshot. Later changes to mutable config do not affect an encoder.

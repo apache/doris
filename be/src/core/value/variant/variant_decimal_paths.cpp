@@ -22,6 +22,7 @@
 #include <cstddef>
 #include <utility>
 
+#include "core/data_type/primitive_type.h"
 #include "core/value/variant/variant_parquet_encoding.h"
 
 namespace doris {
@@ -29,24 +30,34 @@ namespace doris {
 VariantDecimalPathSet::VariantDecimalPathSet(std::vector<VariantTemplatePath> paths)
         : _paths(std::move(paths)) {}
 
-bool VariantDecimalPathSet::matches(const std::string& path) const {
+VariantNumberRead VariantDecimalPathSet::number_read(const std::string& path) const {
     if (path.empty()) {
-        return false;
+        return VariantNumberRead::NATIVE;
     }
     for (const VariantTemplatePath& field : _paths) {
         const bool matched =
                 field.is_glob ? fnmatch(field.pattern.c_str(), path.c_str(), FNM_PATHNAME) == 0
                               : field.pattern == path;
-        if (matched) {
-            return field.is_decimal;
+        if (!matched) {
+            continue;
         }
+        // The first matching field decides, whatever its type: a field of any other type ends the
+        // search with NATIVE, as it ends the shredder's.
+        if (is_decimalv3(field.type)) {
+            return VariantNumberRead::DECIMAL_TEXT;
+        }
+        return field.type == TYPE_LARGEINT ? VariantNumberRead::LARGEINT_TEXT
+                                           : VariantNumberRead::NATIVE;
     }
-    return false;
+    return VariantNumberRead::NATIVE;
 }
 
 namespace {
 
 constexpr int kMaxDigits = 38;
+
+// 2^127, the magnitude of the smallest LARGEINT; the largest LARGEINT is one less.
+constexpr unsigned __int128 kLargeIntMinMagnitude = static_cast<unsigned __int128>(1) << 127;
 
 bool is_digit(char c) {
     return c >= '0' && c <= '9';
@@ -163,6 +174,53 @@ JsonNumberToDecimal parse_json_number_as_decimal(std::string_view token,
     out.scale = static_cast<uint8_t>(scale);
     out.width = variant_decimal_width(unscaled, scale);
     return JsonNumberToDecimal::OK;
+}
+
+JsonNumberToLargeInt parse_json_integer_as_largeint(std::string_view token,
+                                                    __int128& out) noexcept {
+    size_t pos = 0;
+    const bool negative = !token.empty() && token[0] == '-';
+    if (negative) {
+        ++pos;
+    }
+    if (pos >= token.size() || !is_digit(token[pos])) {
+        return JsonNumberToLargeInt::NOT_AN_INTEGER;
+    }
+    // JSON: int = "0" / digit1-9 *DIGIT, so a zero may only be the whole integer. simdjson reports
+    // "01" or "-01" as NUMBER_ERROR and the collector hands such tokens here when the path is
+    // declared LARGEINT, so this is the only check they meet (see parse_json_number_as_decimal).
+    if (token[pos] == '0' && pos + 1 < token.size()) {
+        return JsonNumberToLargeInt::NOT_AN_INTEGER;
+    }
+    // The range is not symmetric: -2^127 is a LARGEINT and 2^127 is not. The magnitude is
+    // accumulated unsigned against the bound of its sign, because 2^127 has no positive __int128.
+    const unsigned __int128 limit = negative ? kLargeIntMinMagnitude : kLargeIntMinMagnitude - 1;
+    unsigned __int128 magnitude = 0;
+    bool out_of_range = false;
+    for (; pos < token.size(); ++pos) {
+        const char c = token[pos];
+        if (!is_digit(c)) {
+            // a fraction, an exponent or trailing bytes
+            return JsonNumberToLargeInt::NOT_AN_INTEGER;
+        }
+        if (out_of_range) {
+            // keep scanning: a malformed tail still has to answer NOT_AN_INTEGER
+            continue;
+        }
+        const auto digit = static_cast<unsigned __int128>(c - '0');
+        if (magnitude > (limit - digit) / 10) {
+            out_of_range = true;
+            continue;
+        }
+        magnitude = magnitude * 10 + digit;
+    }
+    if (out_of_range) {
+        return JsonNumberToLargeInt::OUT_OF_RANGE;
+    }
+    // 0 - magnitude wraps modulo 2^128, which is the two's complement of the magnitude: it yields
+    // -2^127 for 2^127, where negating a signed value would overflow.
+    out = negative ? static_cast<__int128>(0 - magnitude) : static_cast<__int128>(magnitude);
+    return JsonNumberToLargeInt::OK;
 }
 
 } // namespace doris

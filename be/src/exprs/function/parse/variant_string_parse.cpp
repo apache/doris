@@ -184,11 +184,12 @@ private:
     const JsonToVariantOptions& _options;
 };
 
-// The ondemand twin of JsonTreeCollector for a destination with DECIMAL template paths: it sees
-// each number's text, so a number on such a path becomes an exact decimal. Any simdjson error
-// makes the collect return false and the caller hands the text to the DOM parser, whose verdict is
-// the documented one. Builder exceptions (depth, key length, duplicate keys) propagate as they do
-// there.
+// The ondemand twin of JsonTreeCollector for a destination whose Schema Template rides with its
+// type (it declares a DECIMAL or LARGEINT path): it sees each number's text, so a number on a
+// DECIMAL path becomes an exact decimal and an integer beyond 64 bits on a LARGEINT path an exact
+// 128-bit integer. Any simdjson error makes the collect return false and the caller hands the text
+// to the DOM parser, whose verdict is the documented one. Builder exceptions (depth, key length,
+// duplicate keys) propagate as they do there.
 class OndemandTreeCollector {
 public:
     OndemandTreeCollector(VariantBatchBuilder::Row& builder, const JsonToVariantOptions& options)
@@ -251,11 +252,14 @@ private:
     // Only a number that may be read from its text pays for the match (a glob is an fnmatch per
     // template field): an int64 / uint64 is stored as it is. Under an object that is an array
     // element nothing is on a declared path (collect_object).
-    bool on_decimal_path() const { return _unmatched == 0 && _paths.matches(_path); }
+    VariantNumberRead number_read() const {
+        return _unmatched == 0 ? _paths.number_read(_path) : VariantNumberRead::NATIVE;
+    }
 
     bool collect_number(simdjson::ondemand::value& value) {
         simdjson::ondemand::number number;
         const simdjson::error_code error = value.get_number().get(number);
+        VariantNumberRead mode = VariantNumberRead::NATIVE;
         if (error == simdjson::SUCCESS) {
             switch (number.get_number_type()) {
             case simdjson::ondemand::number_type::signed_integer:
@@ -265,31 +269,46 @@ private:
                 _builder.add_largeint(static_cast<__int128>(number.get_uint64()));
                 return true;
             case simdjson::ondemand::number_type::floating_point_number:
-                if (!on_decimal_path()) {
+                mode = number_read();
+                if (mode != VariantNumberRead::DECIMAL_TEXT) {
+                    // also on a LARGEINT path: a fraction or an exponent is not an integer as
+                    // written, so the double is kept and the template's cast decides
                     _builder.add_double(number.get_double());
                     return true;
                 }
                 break;
             case simdjson::ondemand::number_type::big_integer:
-                if (!on_decimal_path()) {
-                    return false;
-                }
+                mode = number_read();
                 break;
             }
         } else if (error != simdjson::NUMBER_ERROR && error != simdjson::BIGINT_ERROR) {
             return false;
-        } else if (!on_decimal_path()) {
-            // an integer beyond 64 bits off a DECIMAL path: the DOM parser's verdict, as today
-            return false;
+        } else {
+            mode = number_read();
         }
-        // A NUMBER_ERROR / BIGINT_ERROR token on a DECIMAL path is read from its text because
-        // simdjson reports two valid JSON numbers that way: an integer beyond 64 bits
-        // (18446744073709551616) and an exponent a double cannot hold (1e400). The same errors
-        // also cover tokens that are not JSON numbers at all, "01" or "-Infinity" among them, so
-        // the text reader enforces the grammar itself and whatever it declines takes the DOM
-        // parser's verdict below. Beyond 38 significant digits the text is kept as it is and the
-        // template's cast decides (a correctly rounded value or NULL).
-        const std::string_view token = trim_json_token(value.raw_json_token());
+        // What is left is a fraction or an exponent on a DECIMAL path, or a token simdjson holds
+        // in no 64-bit type. It reports two valid JSON numbers that way (the big_integer type, or
+        // NUMBER_ERROR / BIGINT_ERROR): an integer beyond 64 bits (18446744073709551616) and an
+        // exponent a double cannot hold (1e400). The same errors also cover tokens that are not
+        // JSON numbers at all, "01" or "-Infinity" among them, so each text reader enforces the
+        // grammar itself and whatever it declines takes the DOM parser's verdict.
+        switch (mode) {
+        case VariantNumberRead::NATIVE:
+            // The DOM parser fails the whole document on an integer beyond 64 bits, so off the
+            // DECIMAL and LARGEINT paths such a document is rejected, or kept as its text by the
+            // lenient serde, as it is today.
+            return false;
+        case VariantNumberRead::DECIMAL_TEXT:
+            return collect_decimal_text(trim_json_token(value.raw_json_token()));
+        case VariantNumberRead::LARGEINT_TEXT:
+            return collect_largeint_text(trim_json_token(value.raw_json_token()));
+        }
+        return false;
+    }
+
+    // Beyond 38 significant digits the text is kept as it is and the template's cast decides (a
+    // correctly rounded value or NULL).
+    bool collect_decimal_text(std::string_view token) {
         VariantDecimalText decimal;
         switch (parse_json_number_as_decimal(token, decimal)) {
         case JsonNumberToDecimal::OK:
@@ -305,10 +324,29 @@ private:
         return false;
     }
 
-    // Elements keep their array's path, so an ARRAY<DECIMAL> template covers the scalars directly
-    // inside it. The template addresses an array as a leaf, so an array that is itself an array
-    // element is as far off every declared path as an object element: {"prices":[[1.50]]} with
-    // 'prices' declared keeps the double 1.5 the shredder stores.
+    // An integer beyond 64 bits on a LARGEINT path, read exactly instead of failing the document.
+    // The builder stores a value up to 10^38 - 1 as a scale-0 decimal16 and a larger one as its
+    // digits (add_largeint), and the template's cast to LARGEINT takes either. An integer no
+    // LARGEINT holds keeps its text, as a decimal beyond 38 digits does, and that cast decides.
+    bool collect_largeint_text(std::string_view token) {
+        __int128 integer = 0;
+        switch (parse_json_integer_as_largeint(token, integer)) {
+        case JsonNumberToLargeInt::OK:
+            _builder.add_largeint(integer);
+            return true;
+        case JsonNumberToLargeInt::OUT_OF_RANGE:
+            _builder.add_string(to_string_ref(token));
+            return true;
+        case JsonNumberToLargeInt::NOT_AN_INTEGER:
+            return false;
+        }
+        return false;
+    }
+
+    // Elements keep their array's path, so an ARRAY<DECIMAL> or ARRAY<LARGEINT> template covers
+    // the scalars directly inside it. The template addresses an array as a leaf, so an array that
+    // is itself an array element is as far off every declared path as an object element:
+    // {"prices":[[1.50]]} with 'prices' declared keeps the double 1.5 the shredder stores.
     bool collect_array(simdjson::ondemand::value& value, uint32_t depth) {
         simdjson::ondemand::array array;
         if (value.get_array().get(array) != simdjson::SUCCESS) {

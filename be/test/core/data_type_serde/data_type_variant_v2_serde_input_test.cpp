@@ -31,6 +31,7 @@
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_variant_v2.h"
+#include "core/data_type/define_primitive_type.h"
 #include "core/data_type_serde/data_type_nullable_serde.h"
 #include "core/data_type_serde/data_type_string_serde.h"
 #include "core/data_type_serde/data_type_variant_v2_serde.h"
@@ -302,8 +303,8 @@ TEST(DataTypeVariantV2SerdeInputTest, PbAndArrowReadKeepExplicitGuards) {
 
 TEST(DataTypeVariantV2SerdeInputTest, DecimalTemplatePathsParseNumbersFromText) {
     auto paths = std::make_shared<const VariantDecimalPathSet>(std::vector<VariantTemplatePath> {
-            {.pattern = "money.amount", .is_glob = false, .is_decimal = true},
-            {.pattern = "ratio*", .is_glob = true, .is_decimal = true}});
+            {.pattern = "money.amount", .is_glob = false, .type = TYPE_DECIMAL128I},
+            {.pattern = "ratio*", .is_glob = true, .type = TYPE_DECIMAL128I}});
     DataTypeVariantV2SerDe serde(1, paths);
     EXPECT_EQ(paths, serde.decimal_paths());
     auto column = ColumnVariantV2::create();
@@ -367,7 +368,8 @@ TEST(DataTypeVariantV2SerdeInputTest, DecimalTemplatePathsParseNumbersFromText) 
 
 TEST(DataTypeVariantV2SerdeInputTest, DecimalTemplatePathsAtTheEdgesOfTheTextReader) {
     DataTypeVariantV2SerDe serde(
-            1, template_of({{.pattern = "money.amount", .is_glob = false, .is_decimal = true}}));
+            1,
+            template_of({{.pattern = "money.amount", .is_glob = false, .type = TYPE_DECIMAL128I}}));
     auto column = ColumnVariantV2::create();
     // An exponent a double cannot hold is valid JSON the DOM parser rejected as a whole; on a
     // declared path the text is now kept as it is, for the template's cast to decide.
@@ -401,9 +403,9 @@ TEST(DataTypeVariantV2SerdeInputTest, DecimalTemplatePathsAtTheEdgesOfTheTextRea
 
 TEST(DataTypeVariantV2SerdeInputTest, DecimalTemplatePathsStopAtAnObjectInsideAnArray) {
     DataTypeVariantV2SerDe serde(
-            1, template_of({{.pattern = "a.b", .is_glob = false, .is_decimal = true},
-                            {.pattern = "a.b.c", .is_glob = false, .is_decimal = true},
-                            {.pattern = "prices", .is_glob = false, .is_decimal = true}}));
+            1, template_of({{.pattern = "a.b", .is_glob = false, .type = TYPE_DECIMAL128I},
+                            {.pattern = "a.b.c", .is_glob = false, .type = TYPE_DECIMAL128I},
+                            {.pattern = "prices", .is_glob = false, .type = TYPE_DECIMAL128I}}));
     auto column = ColumnVariantV2::create();
     // The shredder treats the array under "a" as the leaf and never types the members of its
     // element objects, so their numbers are parsed as before: doubles, rendered 1.5.
@@ -433,7 +435,7 @@ TEST(DataTypeVariantV2SerdeInputTest, DecimalTemplatePathsStopAtAnObjectInsideAn
 
 TEST(DataTypeVariantV2SerdeInputTest, DecimalTemplatePathsKeepTheLenientVerdictOnAMalformedTail) {
     DataTypeVariantV2SerDe serde(
-            1, template_of({{.pattern = "amount", .is_glob = false, .is_decimal = true}}));
+            1, template_of({{.pattern = "amount", .is_glob = false, .type = TYPE_DECIMAL128I}}));
     auto column = ColumnVariantV2::create();
     // The ondemand pass checks depth and keys as it reads, the DOM parser rejects the malformed
     // tail first and the lenient serde keeps the text: both documents must become string rows.
@@ -456,7 +458,7 @@ TEST(DataTypeVariantV2SerdeInputTest, DecimalTemplatePathsKeepTheLenientVerdictO
 
 TEST(DataTypeVariantV2SerdeInputTest, DataTypeHandsItsDecimalPathsToTheSerde) {
     auto paths = std::make_shared<const VariantDecimalPathSet>(std::vector<VariantTemplatePath> {
-            {.pattern = "amount", .is_glob = false, .is_decimal = true}});
+            {.pattern = "amount", .is_glob = false, .type = TYPE_DECIMAL128I}});
     DataTypeVariantV2 typed(0, false, paths);
     DataTypeVariantV2 plain(0, false);
     EXPECT_EQ(paths, typed.decimal_paths());
@@ -473,16 +475,22 @@ TEST(DataTypeVariantV2SerdeInputTest, ThriftTemplatePathsReachTheDataType) {
     scalar_type.__set_type(TPrimitiveType::VARIANT);
     scalar_type.__set_variant_max_subcolumns_count(0);
     scalar_type.__set_variant_is_v2(true);
-    std::vector<TVariantTemplatePath> template_paths(3);
+    std::vector<TVariantTemplatePath> template_paths(5);
     template_paths[0].__set_pattern("name");
     template_paths[0].__set_is_glob(false);
-    template_paths[0].__set_is_decimal(false);
+    template_paths[0].__set_type(TPrimitiveType::STRING);
     template_paths[1].__set_pattern("money.amount");
     template_paths[1].__set_is_glob(false);
-    template_paths[1].__set_is_decimal(true);
+    template_paths[1].__set_type(TPrimitiveType::DECIMAL128I);
     template_paths[2].__set_pattern("ratio*");
     template_paths[2].__set_is_glob(true);
-    template_paths[2].__set_is_decimal(true);
+    template_paths[2].__set_type(TPrimitiveType::DECIMAL64);
+    template_paths[3].__set_pattern("id");
+    template_paths[3].__set_is_glob(false);
+    template_paths[3].__set_type(TPrimitiveType::LARGEINT);
+    template_paths[4].__set_pattern("count");
+    template_paths[4].__set_is_glob(false);
+    template_paths[4].__set_type(TPrimitiveType::BIGINT);
     scalar_type.__set_variant_template_paths(template_paths);
     TTypeNode type_node;
     type_node.__set_type(TTypeNodeType::SCALAR);
@@ -494,15 +502,39 @@ TEST(DataTypeVariantV2SerdeInputTest, ThriftTemplatePathsReachTheDataType) {
     const auto* variant = dynamic_cast<const DataTypeVariantV2*>(from_thrift.get());
     ASSERT_NE(nullptr, variant);
     ASSERT_NE(nullptr, variant->decimal_paths());
-    EXPECT_TRUE(variant->decimal_paths()->matches("money.amount"));
-    EXPECT_TRUE(variant->decimal_paths()->matches("ratio_x"));
-    EXPECT_FALSE(variant->decimal_paths()->matches("name"));
-    EXPECT_FALSE(variant->decimal_paths()->matches("money"));
+    // each field arrives with its own type, in declaration order
+    const std::vector<VariantTemplatePath>& fields = variant->decimal_paths()->paths();
+    ASSERT_EQ(5, fields.size());
+    EXPECT_EQ("name", fields[0].pattern);
+    EXPECT_FALSE(fields[0].is_glob);
+    EXPECT_EQ(TYPE_STRING, fields[0].type);
+    EXPECT_EQ(TYPE_DECIMAL128I, fields[1].type);
+    EXPECT_EQ("ratio*", fields[2].pattern);
+    EXPECT_TRUE(fields[2].is_glob);
+    EXPECT_EQ(TYPE_DECIMAL64, fields[2].type);
+    EXPECT_EQ(TYPE_LARGEINT, fields[3].type);
+    EXPECT_EQ(TYPE_BIGINT, fields[4].type);
+    // and the type decides how a number on the path is read
+    EXPECT_EQ(VariantNumberRead::DECIMAL_TEXT,
+              variant->decimal_paths()->number_read("money.amount"));
+    EXPECT_EQ(VariantNumberRead::DECIMAL_TEXT, variant->decimal_paths()->number_read("ratio_x"));
+    EXPECT_EQ(VariantNumberRead::LARGEINT_TEXT, variant->decimal_paths()->number_read("id"));
+    EXPECT_EQ(VariantNumberRead::NATIVE, variant->decimal_paths()->number_read("count"));
+    EXPECT_EQ(VariantNumberRead::NATIVE, variant->decimal_paths()->number_read("name"));
+    EXPECT_EQ(VariantNumberRead::NATIVE, variant->decimal_paths()->number_read("money"));
     auto serde = std::dynamic_pointer_cast<DataTypeVariantV2SerDe>(from_thrift->get_serde());
     ASSERT_NE(nullptr, serde);
     EXPECT_EQ(variant->decimal_paths(), serde->decimal_paths());
+    // the serde the type hands out reads with the template: exact on both kinds of path
+    auto column = ColumnVariantV2::create();
+    ASSERT_TRUE(deserialize_json(*serde, *column,
+                                 R"({"id":18446744073709551616,"money":{"amount":1.50}})")
+                        .ok());
+    EXPECT_EQ(R"({"id":18446744073709551616,"money":{"amount":1.50}})",
+              json_at(*serde, *column, 0));
 
-    // Without the field, from an older FE or a template without DECIMAL, the type has no paths.
+    // Without the field, from an older FE or a template without a DECIMAL or LARGEINT field, the
+    // type has no paths.
     TScalarType plain_scalar_type;
     plain_scalar_type.__set_type(TPrimitiveType::VARIANT);
     plain_scalar_type.__set_variant_max_subcolumns_count(0);
@@ -521,8 +553,9 @@ TEST(DataTypeVariantV2SerdeInputTest, ThriftTemplatePathsReachTheDataType) {
 TEST(DataTypeVariantV2SerdeInputTest, TheFirstMatchingTemplateFieldDecidesADecimalPath) {
     // 'amount*':string before 'amount':decimal(10,2): the shredder types "amount" as STRING, so the
     // number is parsed as before (a double, rendered 1.5) rather than as the decimal 1.50.
-    auto string_first = template_of({{.pattern = "amount*", .is_glob = true, .is_decimal = false},
-                                     {.pattern = "amount", .is_glob = false, .is_decimal = true}});
+    auto string_first =
+            template_of({{.pattern = "amount*", .is_glob = true, .type = TYPE_STRING},
+                         {.pattern = "amount", .is_glob = false, .type = TYPE_DECIMAL128I}});
     DataTypeVariantV2SerDe serde(1, string_first);
     auto column = ColumnVariantV2::create();
     ASSERT_TRUE(deserialize_json(serde, *column, R"({"amount":1.50,"total":2.50})").ok());
@@ -532,13 +565,105 @@ TEST(DataTypeVariantV2SerdeInputTest, TheFirstMatchingTemplateFieldDecidesADecim
     EXPECT_NE(std::string::npos, json.find(R"("total":2.5)")) << json;
 
     auto decimal_first =
-            template_of({{.pattern = "amount", .is_glob = false, .is_decimal = true},
-                         {.pattern = "amount*", .is_glob = true, .is_decimal = false}});
+            template_of({{.pattern = "amount", .is_glob = false, .type = TYPE_DECIMAL128I},
+                         {.pattern = "amount*", .is_glob = true, .type = TYPE_STRING}});
     DataTypeVariantV2SerDe decimal_serde(1, decimal_first);
     ASSERT_TRUE(deserialize_json(decimal_serde, *column, R"({"amount":1.50,"total":2.50})").ok());
     const std::string decimal_json = json_at(decimal_serde, *column, 1);
     EXPECT_NE(std::string::npos, decimal_json.find(R"("amount":1.50)")) << decimal_json;
     EXPECT_NE(std::string::npos, decimal_json.find(R"("total":2.5)")) << decimal_json;
+}
+
+TEST(DataTypeVariantV2SerdeInputTest, LargeIntTemplatePathsReadIntegersBeyond64BitsFromText) {
+    DataTypeVariantV2SerDe serde(
+            1, template_of({{.pattern = "id", .is_glob = false, .type = TYPE_LARGEINT},
+                            {.pattern = "ids", .is_glob = false, .type = TYPE_LARGEINT},
+                            {.pattern = "n", .is_glob = false, .type = TYPE_BIGINT}}));
+    auto column = ColumnVariantV2::create();
+    // 2^64 fits no 64-bit type, so the DOM parser rejects the whole document; on a declared
+    // LARGEINT path the integer is now read from its text and kept exactly.
+    ASSERT_TRUE(deserialize_json(serde, *column, R"({"id":18446744073709551616})").ok());
+    EXPECT_EQ(R"({"id":18446744073709551616})", json_at(serde, *column, 0));
+    ASSERT_TRUE(deserialize_json(serde, *column, R"({"id":-9223372036854775809})").ok());
+    EXPECT_EQ(R"({"id":-9223372036854775809})", json_at(serde, *column, 1));
+    // 2^63 fits a uint64 and is read as before, without the template.
+    ASSERT_TRUE(deserialize_json(serde, *column, R"({"id":9223372036854775808})").ok());
+    EXPECT_EQ(R"({"id":9223372036854775808})", json_at(serde, *column, 2));
+    // Above 10^38 - 1, what a Variant decimal16 holds, a LARGEINT is kept as its digits: the
+    // largest and the smallest LARGEINT, 2^127 - 1 and -2^127.
+    ASSERT_TRUE(
+            deserialize_json(serde, *column, R"({"id":170141183460469231731687303715884105727})")
+                    .ok());
+    EXPECT_EQ(R"({"id":"170141183460469231731687303715884105727"})", json_at(serde, *column, 3));
+    ASSERT_TRUE(
+            deserialize_json(serde, *column, R"({"id":-170141183460469231731687303715884105728})")
+                    .ok());
+    EXPECT_EQ(R"({"id":"-170141183460469231731687303715884105728"})", json_at(serde, *column, 4));
+    // 2^127 is no LARGEINT: its text is kept as it is, for the template's cast to decide.
+    ASSERT_TRUE(
+            deserialize_json(serde, *column, R"({"id":170141183460469231731687303715884105728})")
+                    .ok());
+    EXPECT_EQ(R"({"id":"170141183460469231731687303715884105728"})", json_at(serde, *column, 5));
+    // A fraction is not an integer as written: the parser's double stays.
+    ASSERT_TRUE(deserialize_json(serde, *column, R"({"id":1.5})").ok());
+    EXPECT_EQ(R"({"id":1.5})", json_at(serde, *column, 6));
+    // Scalars directly inside a declared array are the ARRAY<LARGEINT> field's.
+    ASSERT_TRUE(deserialize_json(serde, *column, R"({"ids":[18446744073709551616,-1]})").ok());
+    EXPECT_EQ(R"({"ids":[18446744073709551616,-1]})", json_at(serde, *column, 7));
+
+    // The vector entry point takes the same route.
+    std::vector<std::string> texts {R"({"id":18446744073709551617})",
+                                    R"({"id":340282366920938463463374607431768211456})"};
+    std::vector<Slice> slices;
+    for (const std::string& text : texts) {
+        slices.emplace_back(text.data(), text.size());
+    }
+    uint64_t deserialized = 0;
+    DataTypeSerDe::FormatOptions options;
+    ASSERT_TRUE(serde.deserialize_column_from_json_vector(*column, slices, &deserialized, options)
+                        .ok());
+    EXPECT_EQ(2, deserialized);
+    EXPECT_EQ(R"({"id":18446744073709551617})", json_at(serde, *column, 8));
+    EXPECT_EQ(R"({"id":"340282366920938463463374607431768211456"})", json_at(serde, *column, 9));
+}
+
+TEST(DataTypeVariantV2SerdeInputTest, AnIntegerBeyond64BitsOffALargeIntPathKeepsTheLenientVerdict) {
+    DataTypeVariantV2SerDe serde(
+            1, template_of({{.pattern = "id", .is_glob = false, .type = TYPE_LARGEINT},
+                            {.pattern = "a.id", .is_glob = false, .type = TYPE_LARGEINT},
+                            {.pattern = "ids", .is_glob = false, .type = TYPE_LARGEINT},
+                            {.pattern = "n", .is_glob = false, .type = TYPE_BIGINT}}));
+    auto column = ColumnVariantV2::create();
+    // The DOM parser cannot read an integer beyond 64 bits, and the lenient serde keeps a document
+    // the parser rejects as a string row. Each of these keeps that verdict, as without a template.
+    const std::vector<std::string> documents {
+            // on no template path
+            R"({"other":18446744073709551616})",
+            // on a path declared BIGINT
+            R"({"n":18446744073709551616})",
+            // after a LARGEINT path was already read: the partial row is rolled back
+            R"({"id":18446744073709551616,"other":18446744073709551616})",
+            // under an object that is an array element nothing is on a declared path
+            R"({"a":[{"id":18446744073709551616}]})",
+            // nor in an array nested inside the declared array
+            R"({"ids":[[18446744073709551616]]})",
+            // not JSON integers: a declared LARGEINT path does not rescue them
+            R"({"id":01})",
+            R"({"id":1e400})",
+    };
+    for (size_t row = 0; row < documents.size(); ++row) {
+        ASSERT_TRUE(deserialize_json(serde, *column, documents[row]).ok()) << documents[row];
+        const std::string kept = json_at(serde, *column, row);
+        EXPECT_EQ('"', kept.front()) << documents[row] << " -> " << kept;
+    }
+    // The same path through objects only is declared and exact, and a serde without a template
+    // keeps its verdict on the document that is exact above.
+    ASSERT_TRUE(deserialize_json(serde, *column, R"({"a":{"id":18446744073709551616}})").ok());
+    EXPECT_EQ(R"({"a":{"id":18446744073709551616}})", json_at(serde, *column, documents.size()));
+    DataTypeVariantV2SerDe plain;
+    auto plain_column = ColumnVariantV2::create();
+    ASSERT_TRUE(deserialize_json(plain, *plain_column, R"({"id":18446744073709551616})").ok());
+    EXPECT_EQ('"', json_at(plain, *plain_column, 0).front());
 }
 
 } // namespace doris

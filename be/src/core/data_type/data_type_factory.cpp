@@ -562,7 +562,7 @@ DataTypePtr DataTypeFactory::create_data_type(const std::vector<TTypeNode>& type
                 for (const TVariantTemplatePath& path : scalar_type.variant_template_paths) {
                     paths.push_back({.pattern = path.pattern,
                                      .is_glob = path.is_glob,
-                                     .is_decimal = path.is_decimal});
+                                     .type = thrift_to_type(path.type)});
                 }
                 decimal_paths = std::make_shared<const VariantDecimalPathSet>(std::move(paths));
             }

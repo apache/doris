@@ -20,8 +20,12 @@
 #include <gtest/gtest.h>
 
 #include <cstdint>
+#include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
+
+#include "core/data_type/define_primitive_type.h"
 
 namespace doris {
 namespace {
@@ -54,44 +58,104 @@ void expect_decimal(std::string_view token, const char* unscaled, int scale, int
     EXPECT_EQ(width, out.width) << token;
 }
 
+void expect_largeint(std::string_view token, const char* digits) {
+    __int128 out = 7;
+    ASSERT_EQ(JsonNumberToLargeInt::OK, parse_json_integer_as_largeint(token, out)) << token;
+    EXPECT_EQ(digits, digits_of(out)) << token;
+}
+
+// A token the reader declines leaves `out` as it was.
+void expect_no_largeint(std::string_view token, JsonNumberToLargeInt verdict) {
+    __int128 out = 7;
+    EXPECT_EQ(verdict, parse_json_integer_as_largeint(token, out)) << token;
+    EXPECT_EQ("7", digits_of(out)) << token;
+}
+
 } // namespace
 
 TEST(VariantDecimalPathsTest, SetMatchesExactAndGlobPaths) {
     const VariantDecimalPathSet paths =
-            paths_of({{.pattern = "money.amount", .is_glob = false, .is_decimal = true},
-                      {.pattern = "ratio*", .is_glob = true, .is_decimal = true},
-                      {.pattern = "name", .is_glob = false, .is_decimal = false}});
+            paths_of({{.pattern = "money.amount", .is_glob = false, .type = TYPE_DECIMAL128I},
+                      {.pattern = "ratio*", .is_glob = true, .type = TYPE_DECIMAL64},
+                      {.pattern = "name", .is_glob = false, .type = TYPE_STRING}});
     EXPECT_FALSE(paths.empty());
-    EXPECT_TRUE(paths.matches("money.amount"));
-    EXPECT_TRUE(paths.matches("ratio_a"));
-    EXPECT_TRUE(paths.matches("ratio"));
-    EXPECT_FALSE(paths.matches("name"));
-    EXPECT_FALSE(paths.matches("money"));
-    EXPECT_FALSE(paths.matches("money.amount.cents"));
-    EXPECT_FALSE(paths.matches("amount"));
-    EXPECT_FALSE(paths.matches(""));
+    EXPECT_EQ(VariantNumberRead::DECIMAL_TEXT, paths.number_read("money.amount"));
+    EXPECT_EQ(VariantNumberRead::DECIMAL_TEXT, paths.number_read("ratio_a"));
+    EXPECT_EQ(VariantNumberRead::DECIMAL_TEXT, paths.number_read("ratio"));
+    EXPECT_EQ(VariantNumberRead::NATIVE, paths.number_read("name"));
+    EXPECT_EQ(VariantNumberRead::NATIVE, paths.number_read("money"));
+    EXPECT_EQ(VariantNumberRead::NATIVE, paths.number_read("money.amount.cents"));
+    EXPECT_EQ(VariantNumberRead::NATIVE, paths.number_read("amount"));
+    EXPECT_EQ(VariantNumberRead::NATIVE, paths.number_read(""));
     EXPECT_TRUE(paths_of({}).empty());
-    EXPECT_FALSE(paths_of({}).matches("money.amount"));
+    EXPECT_EQ(VariantNumberRead::NATIVE, paths_of({}).number_read("money.amount"));
+}
+
+TEST(VariantDecimalPathsTest, TheFieldsTypeSelectsTheRead) {
+    const VariantDecimalPathSet paths =
+            paths_of({{.pattern = "d32", .is_glob = false, .type = TYPE_DECIMAL32},
+                      {.pattern = "d64", .is_glob = false, .type = TYPE_DECIMAL64},
+                      {.pattern = "d128", .is_glob = false, .type = TYPE_DECIMAL128I},
+                      {.pattern = "d256", .is_glob = false, .type = TYPE_DECIMAL256},
+                      {.pattern = "id", .is_glob = false, .type = TYPE_LARGEINT},
+                      {.pattern = "ids_*", .is_glob = true, .type = TYPE_LARGEINT},
+                      {.pattern = "n", .is_glob = false, .type = TYPE_BIGINT},
+                      {.pattern = "s", .is_glob = false, .type = TYPE_STRING},
+                      {.pattern = "f", .is_glob = false, .type = TYPE_DOUBLE},
+                      {.pattern = "unset", .is_glob = false, .type = INVALID_TYPE}});
+    // every DECIMAL width reads a number from its text
+    EXPECT_EQ(VariantNumberRead::DECIMAL_TEXT, paths.number_read("d32"));
+    EXPECT_EQ(VariantNumberRead::DECIMAL_TEXT, paths.number_read("d64"));
+    EXPECT_EQ(VariantNumberRead::DECIMAL_TEXT, paths.number_read("d128"));
+    EXPECT_EQ(VariantNumberRead::DECIMAL_TEXT, paths.number_read("d256"));
+    // LARGEINT, by name or by glob, reads an integer beyond 64 bits from its text
+    EXPECT_EQ(VariantNumberRead::LARGEINT_TEXT, paths.number_read("id"));
+    EXPECT_EQ(VariantNumberRead::LARGEINT_TEXT, paths.number_read("ids_a"));
+    // every other type, the default INVALID_TYPE included, keeps the parser's own read
+    EXPECT_EQ(VariantNumberRead::NATIVE, paths.number_read("n"));
+    EXPECT_EQ(VariantNumberRead::NATIVE, paths.number_read("s"));
+    EXPECT_EQ(VariantNumberRead::NATIVE, paths.number_read("f"));
+    EXPECT_EQ(VariantNumberRead::NATIVE, paths.number_read("unset"));
+    EXPECT_EQ(VariantNumberRead::NATIVE, paths.number_read("unmatched"));
+    EXPECT_EQ(VariantNumberRead::NATIVE, paths.number_read("ids"));
+    EXPECT_EQ(VariantNumberRead::NATIVE, paths.number_read("id.low"));
 }
 
 TEST(VariantDecimalPathsTest, TheFirstMatchingTemplateFieldDecidesLikeTheShredder) {
     // 'amount*':string is declared before 'amount':decimal: the shredder types "amount" as a
     // STRING, so the parser must not read it as a decimal either.
     const VariantDecimalPathSet string_first =
-            paths_of({{.pattern = "amount*", .is_glob = true, .is_decimal = false},
-                      {.pattern = "amount", .is_glob = false, .is_decimal = true}});
-    EXPECT_FALSE(string_first.matches("amount"));
-    EXPECT_FALSE(string_first.matches("amount_due"));
+            paths_of({{.pattern = "amount*", .is_glob = true, .type = TYPE_STRING},
+                      {.pattern = "amount", .is_glob = false, .type = TYPE_DECIMAL64}});
+    EXPECT_EQ(VariantNumberRead::NATIVE, string_first.number_read("amount"));
+    EXPECT_EQ(VariantNumberRead::NATIVE, string_first.number_read("amount_due"));
     const VariantDecimalPathSet decimal_first =
-            paths_of({{.pattern = "amount", .is_glob = false, .is_decimal = true},
-                      {.pattern = "amount*", .is_glob = true, .is_decimal = false}});
-    EXPECT_TRUE(decimal_first.matches("amount"));
-    EXPECT_FALSE(decimal_first.matches("amount_due"));
+            paths_of({{.pattern = "amount", .is_glob = false, .type = TYPE_DECIMAL64},
+                      {.pattern = "amount*", .is_glob = true, .type = TYPE_STRING}});
+    EXPECT_EQ(VariantNumberRead::DECIMAL_TEXT, decimal_first.number_read("amount"));
+    EXPECT_EQ(VariantNumberRead::NATIVE, decimal_first.number_read("amount_due"));
+    // a glob and a named field that ask for different text reads: the first one declared wins
+    const VariantDecimalPathSet largeint_glob_first =
+            paths_of({{.pattern = "id*", .is_glob = true, .type = TYPE_LARGEINT},
+                      {.pattern = "id", .is_glob = false, .type = TYPE_DECIMAL128I}});
+    EXPECT_EQ(VariantNumberRead::LARGEINT_TEXT, largeint_glob_first.number_read("id"));
+    EXPECT_EQ(VariantNumberRead::LARGEINT_TEXT, largeint_glob_first.number_read("id_2"));
+    const VariantDecimalPathSet decimal_name_first =
+            paths_of({{.pattern = "id", .is_glob = false, .type = TYPE_DECIMAL128I},
+                      {.pattern = "id*", .is_glob = true, .type = TYPE_LARGEINT}});
+    EXPECT_EQ(VariantNumberRead::DECIMAL_TEXT, decimal_name_first.number_read("id"));
+    EXPECT_EQ(VariantNumberRead::LARGEINT_TEXT, decimal_name_first.number_read("id_2"));
+    // a BIGINT field declared first keeps a later LARGEINT field of the same path out of reach
+    const VariantDecimalPathSet bigint_first =
+            paths_of({{.pattern = "id", .is_glob = false, .type = TYPE_BIGINT},
+                      {.pattern = "id*", .is_glob = true, .type = TYPE_LARGEINT}});
+    EXPECT_EQ(VariantNumberRead::NATIVE, bigint_first.number_read("id"));
+    EXPECT_EQ(VariantNumberRead::LARGEINT_TEXT, bigint_first.number_read("idx"));
     // a MATCH_NAME pattern is compared literally, never as a glob
     const VariantDecimalPathSet literal =
-            paths_of({{.pattern = "ratio*", .is_glob = false, .is_decimal = true}});
-    EXPECT_TRUE(literal.matches("ratio*"));
-    EXPECT_FALSE(literal.matches("ratio_a"));
+            paths_of({{.pattern = "ratio*", .is_glob = false, .type = TYPE_DECIMAL64}});
+    EXPECT_EQ(VariantNumberRead::DECIMAL_TEXT, literal.number_read("ratio*"));
+    EXPECT_EQ(VariantNumberRead::NATIVE, literal.number_read("ratio_a"));
 }
 
 TEST(VariantDecimalPathsTest, ReadsFractionsExactly) {
@@ -167,6 +231,70 @@ TEST(VariantDecimalPathsTest, DeclinesMalformedTokens) {
     expect_decimal("0.5", "5", 1, 4);
     expect_decimal("-0.5", "-5", 1, 4);
     expect_decimal("0e2", "0", 0, 4);
+}
+
+TEST(VariantDecimalPathsTest, ReadsAnIntegerIntoALargeInt) {
+    expect_largeint("0", "0");
+    // an integer has no negative zero
+    expect_largeint("-0", "0");
+    expect_largeint("7", "7");
+    expect_largeint("-42", "-42");
+    expect_largeint("9223372036854775807", "9223372036854775807");
+    // 2^63 and 2^64: the first integers past int64 and past uint64
+    expect_largeint("9223372036854775808", "9223372036854775808");
+    expect_largeint("-9223372036854775809", "-9223372036854775809");
+    expect_largeint("18446744073709551616", "18446744073709551616");
+    // 10^38 - 1 and 10^38: either side of what a Variant decimal16 holds
+    expect_largeint("99999999999999999999999999999999999999",
+                    "99999999999999999999999999999999999999");
+    expect_largeint("100000000000000000000000000000000000000",
+                    "100000000000000000000000000000000000000");
+}
+
+TEST(VariantDecimalPathsTest, ReadsALargeIntUpToItsAsymmetricBounds) {
+    // 2^127 - 1 and -2^127 are the largest and the smallest LARGEINT
+    expect_largeint("170141183460469231731687303715884105727",
+                    "170141183460469231731687303715884105727");
+    expect_largeint("-170141183460469231731687303715884105727",
+                    "-170141183460469231731687303715884105727");
+    expect_largeint("-170141183460469231731687303715884105728",
+                    "-170141183460469231731687303715884105728");
+    // 2^127 and -2^127 - 1 are one past either bound
+    expect_no_largeint("170141183460469231731687303715884105728",
+                       JsonNumberToLargeInt::OUT_OF_RANGE);
+    expect_no_largeint("-170141183460469231731687303715884105729",
+                       JsonNumberToLargeInt::OUT_OF_RANGE);
+    // 39 digits again, where the last multiplication by ten is what overflows
+    expect_no_largeint("999999999999999999999999999999999999999",
+                       JsonNumberToLargeInt::OUT_OF_RANGE);
+    // 2^128 and 2^128 + 1 must not wrap around to 0 and 1
+    expect_no_largeint("340282366920938463463374607431768211456",
+                       JsonNumberToLargeInt::OUT_OF_RANGE);
+    expect_no_largeint("340282366920938463463374607431768211457",
+                       JsonNumberToLargeInt::OUT_OF_RANGE);
+    // 60 digits
+    expect_no_largeint("123456789012345678901234567890123456789012345678901234567890",
+                       JsonNumberToLargeInt::OUT_OF_RANGE);
+    expect_no_largeint("-123456789012345678901234567890123456789012345678901234567890",
+                       JsonNumberToLargeInt::OUT_OF_RANGE);
+}
+
+TEST(VariantDecimalPathsTest, DeclinesWhatIsNotAJsonInteger) {
+    // JSON: int = "0" / digit1-9 *DIGIT. A leading zero, a sign other than '-', or nothing at all.
+    for (const char* token :
+         {"", "-", "+1", "01", "-01", "00", "-00", "--1", " 1", "1 ", "abc", "-Infinity", "NaN"}) {
+        expect_no_largeint(token, JsonNumberToLargeInt::NOT_AN_INTEGER);
+    }
+    // a fraction or an exponent is a JSON number, but not an integer as written
+    for (const char* token : {"1.0", "1.5", "0.5", "-0.0", "1e3", "1E3", "0e0", "1."}) {
+        expect_no_largeint(token, JsonNumberToLargeInt::NOT_AN_INTEGER);
+    }
+    // trailing bytes, also behind digits that are already out of range
+    expect_no_largeint("1x", JsonNumberToLargeInt::NOT_AN_INTEGER);
+    expect_no_largeint("123456789012345678901234567890123456789012345678901234567890x",
+                       JsonNumberToLargeInt::NOT_AN_INTEGER);
+    expect_no_largeint("123456789012345678901234567890123456789012345678901234567890.5",
+                       JsonNumberToLargeInt::NOT_AN_INTEGER);
 }
 
 } // namespace doris

@@ -34,6 +34,7 @@ import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TPlanNode;
+import org.apache.doris.thrift.TPrimitiveType;
 import org.apache.doris.thrift.TScalarType;
 import org.apache.doris.thrift.TVariantTemplatePath;
 import org.apache.doris.utframe.TestWithFeService;
@@ -206,10 +207,10 @@ public class TypeVariantTemplateParseTest extends TestWithFeService {
         List<TVariantTemplatePath> paths = type.getVariantTemplatePaths();
         Assertions.assertEquals(3, paths.size());
         Assertions.assertEquals("money.amount", paths.get(0).getPattern());
-        Assertions.assertTrue(paths.get(0).isIsDecimal());
+        Assertions.assertEquals(TPrimitiveType.DECIMAL128I, paths.get(0).getType());
         Assertions.assertEquals("ratio*", paths.get(1).getPattern());
-        Assertions.assertTrue(paths.get(1).isIsDecimal());
+        Assertions.assertEquals(TPrimitiveType.DECIMAL128I, paths.get(1).getType());
         Assertions.assertEquals("name", paths.get(2).getPattern());
-        Assertions.assertFalse(paths.get(2).isIsDecimal());
+        Assertions.assertEquals(TPrimitiveType.STRING, paths.get(2).getType());
     }
 }
