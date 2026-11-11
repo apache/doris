@@ -614,7 +614,7 @@ public class ScalarType extends Type {
     public String toString() {
         if (type == PrimitiveType.CHAR) {
             if (isWildcardChar()) {
-                return "character(" + MAX_CHAR_LENGTH + ")";
+                return "char(" + MAX_CHAR_LENGTH + ")";
             }
             return "char(" + len + ")";
         } else  if (type == PrimitiveType.DECIMALV2) {
@@ -654,7 +654,7 @@ public class ScalarType extends Type {
         switch (type) {
             case CHAR:
                 if (isWildcardChar()) {
-                    stringBuilder.append("character").append("(").append(MAX_CHAR_LENGTH).append(")");
+                    stringBuilder.append("char").append("(").append(MAX_CHAR_LENGTH).append(")");
                 } else if (Strings.isNullOrEmpty(lenStr)) {
                     stringBuilder.append("char").append("(").append(len).append(")");
                 } else {

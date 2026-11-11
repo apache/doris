@@ -17,8 +17,8 @@ tinyint_value2	decimal(3,0)	Yes	true	\N
 smallint_value2	decimal(5,0)	Yes	true	\N	
 int_value2	decimal(10,0)	Yes	true	\N	
 bigint_value2	decimal(19,0)	Yes	true	\N	
-country	character(255)	Yes	true	\N	
-city	character(255)	Yes	true	\N	
+country	char(255)	Yes	true	\N	
+city	char(255)	Yes	true	\N	
 address	text	Yes	true	\N	
 name	text	Yes	true	\N	
 num1	decimal(5,2)	Yes	true	\N	

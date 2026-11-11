@@ -35,6 +35,26 @@ public class TypeTest {
                 ScalarType.createVarbinaryType(ScalarType.MAX_VARBINARY_LENGTH).getColumnSize());
     }
 
+    /**
+     * A CHAR without a length and a CHAR(255) are both the wildcard CHAR. They print as char(255), the way
+     * information_schema.columns and every other CHAR length print, so SHOW COLUMNS, DESC and SHOW CREATE
+     * TABLE never hand a client a separate "character" type name.
+     */
+    @Test
+    public void testWildcardCharPrintsAsChar() {
+        for (ScalarType charType : new ScalarType[] {ScalarType.createChar(-1), ScalarType.createChar(255)}) {
+            Assertions.assertEquals("char(255)", charType.toString());
+            Assertions.assertEquals("char(255)", charType.toSql());
+            Assertions.assertEquals("char(255)", charType.hideVersionForVersionColumn(false));
+            Assertions.assertEquals("char(255)", charType.hideVersionForVersionColumn(true));
+        }
+        Assertions.assertEquals("array<char(255)>", new ArrayType(ScalarType.createChar(-1), true).toSql());
+        Assertions.assertEquals("char(10)", ScalarType.createChar(10).toSql());
+        // The parser reads CHARACTER as another spelling of CHAR, so the printed SQL keeps its meaning.
+        Assertions.assertEquals(new NereidsParser().parseDataType("character(255)"),
+                new NereidsParser().parseDataType(ScalarType.createChar(-1).toSql()));
+    }
+
     @Test
     public void testTimestampNsJavaUdfType() {
         Assertions.assertEquals(1,

@@ -13,7 +13,7 @@ date_col	date	Yes	true	\N
 datetime_col1	datetime	Yes	true	\N	
 datetime_col2	datetime(3)	Yes	true	\N	
 datetime_col3	datetime(6)	Yes	true	\N	
-char_col	character(255)	Yes	true	\N	
+char_col	char(255)	Yes	true	\N	
 varchar_col	varchar(65533)	Yes	true	\N	
 string_col	text	Yes	true	\N	
 json_col	text	Yes	true	\N	
@@ -37,7 +37,7 @@ date_col	date	No	true	\N
 datetime_col1	datetime	No	true	\N	
 datetime_col2	datetime(3)	No	true	\N	
 datetime_col3	datetime(6)	No	true	\N	
-char_col	character(255)	No	true	\N	
+char_col	char(255)	No	true	\N	
 varchar_col	varchar(65533)	No	true	\N	
 string_col	text	No	true	\N	
 json_col	text	No	true	\N	

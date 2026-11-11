@@ -7,7 +7,7 @@ db2_jdbc_catalog
 
 -- !sample_table_desc --
 BIGINT_COLUMN	bigint	Yes	true	\N	
-CHAR_COLUMN	character(255)	Yes	true	\N	
+CHAR_COLUMN	char(255)	Yes	true	\N	
 CHAR_VARYING_COLUMN	varchar(255)	Yes	true	\N	
 CLOB_COLUMN	text	Yes	true	\N	
 DATE_COLUMN	date	Yes	true	\N	

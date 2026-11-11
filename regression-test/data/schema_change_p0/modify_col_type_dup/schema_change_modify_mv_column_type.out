@@ -34,7 +34,7 @@ mv_tbl_scalar_types_dup_1	DUP_KEYS	a1	tinyint	tinyint	Yes	true	\N		true	`c_tinyi
 		c1	datetime	datetimev2(0)	Yes	false	\N	NONE	true	`c_datetime`	
 		c2	date	datev2	Yes	false	\N	NONE	true	`c_datev2`	
 		c3	datetime	datetimev2(0)	Yes	false	\N	NONE	true	`c_datetimev2`	
-		c4	character(255)	character(255)	Yes	false	\N	NONE	true	`c_char`	
+		c4	char(255)	char(255)	Yes	false	\N	NONE	true	`c_char`	
 		c5	varchar(65533)	varchar(65533)	Yes	false	\N	NONE	true	`c_varchar`	
 		c6	text	text	Yes	false	\N	NONE	true	`c_string`	
 

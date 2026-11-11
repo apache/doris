@@ -7,7 +7,7 @@ bigint_val	bigint	Yes	true	\N
 decimal_val	decimal(38,10)	Yes	true	\N	
 real_val	float	Yes	true	\N	
 double_val	double	Yes	true	\N	
-char_val	character(255)	Yes	true	\N	
+char_val	char(255)	Yes	true	\N	
 varchar_val	text	Yes	true	\N	
 text_val	text	Yes	true	\N	
 date_val	text	Yes	true	\N	

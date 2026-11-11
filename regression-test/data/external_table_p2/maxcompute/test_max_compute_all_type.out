@@ -19,7 +19,7 @@ timestamp_ntz_col2	datetime(6)	Yes	true	\N
 timestamp_ntz_col3	datetime(6)	Yes	true	\N	
 char_col1	char(50)	Yes	true	\N	
 char_col2	char(100)	Yes	true	\N	
-char_col3	character(255)	Yes	true	\N	
+char_col3	char(255)	Yes	true	\N	
 varchar_col1	varchar(50)	Yes	true	\N	
 varchar_col2	varchar(100)	Yes	true	\N	
 varchar_col3	varchar(255)	Yes	true	\N	
