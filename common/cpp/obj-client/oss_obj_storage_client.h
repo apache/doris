@@ -53,7 +53,7 @@ public:
     ObjStorageResponse delete_object(const ObjStoragePath& opts) override;
     std::string generate_presigned_url(const ObjStoragePath& opts,
                                        int64_t expiration_secs) override;
-    ObjStorageResponse get_lifecycle(const std::string& bucket, int64_t* expiration_days) override;
+    ObjStorageResponse get_lifecycle(const ObjStoragePath& path, int64_t* expiration_days) override;
 
     ObjStorageResponse check_versioning(const std::string& bucket) override;
 

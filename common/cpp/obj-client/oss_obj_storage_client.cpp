@@ -49,6 +49,24 @@ ObjStorageResponse response(const Outcome& outcome) {
 ObjStorageResponse invalid_response(std::string message) {
     return {.status = {ObjStorageStatus::IO_ERROR, std::move(message)}};
 }
+
+bool lifecycle_prefix_overlaps(pugi::xml_node rule, std::string_view vault_prefix) {
+    std::string_view rule_prefix = rule.child_value("Prefix");
+    if (!vault_prefix.starts_with(rule_prefix) && !rule_prefix.starts_with(vault_prefix)) {
+        return false;
+    }
+    // The longer prefix describes the intersection (e.g. "vault/" and "vault/cold/").
+    // A prefix-only Not can exclude all of it. Tags and size filters need object metadata,
+    // so keep potentially matching rules for the checker's earliest-expiration alarm.
+    auto intersection = vault_prefix.size() >= rule_prefix.size() ? vault_prefix : rule_prefix;
+    for (auto excluded : rule.child("Filter").children("Not")) {
+        if (!excluded.child("Tag") && excluded.child("Prefix") &&
+            intersection.starts_with(excluded.child_value("Prefix"))) {
+            return false;
+        }
+    }
+    return true;
+}
 } // namespace
 
 OssObjStorageClient::OssObjStorageClient(
@@ -270,13 +288,13 @@ ObjStorageResponse OssObjStorageClient::check_versioning(const std::string& buck
     return ObjStorageResponse::OK();
 }
 
-ObjStorageResponse OssObjStorageClient::get_lifecycle(const std::string& bucket,
+ObjStorageResponse OssObjStorageClient::get_lifecycle(const ObjStoragePath& path,
                                                       int64_t* expiration_days) {
     // OSS SDK 0.2.0 does not yet expose a typed GetBucketLifecycle operation.
     oss::OperationInput input;
     input.opName = "GetBucketLifecycle";
     input.method = "GET";
-    input.bucket = bucket;
+    input.bucket = path.bucket;
     input.parameters["lifecycle"] = "";
     auto result = _client->invokeOperation(input);
     if (auto* error = std::get_if<oss::OperationError>(&result)) {
@@ -287,17 +305,25 @@ ObjStorageResponse OssObjStorageClient::get_lifecycle(const std::string& bucket,
     if (!body || !doc.load(*body)) {
         return invalid_response("Invalid OSS bucket lifecycle XML");
     }
-    int64_t days = 0;
+    std::optional<int64_t> shortest;
     for (auto rule : doc.child("LifecycleConfiguration").children("Rule")) {
-        auto value = rule.child("NoncurrentVersionExpiration").child("NoncurrentDays");
-        if (value) {
-            days = value.text().as_llong();
+        auto expiration = rule.child("NoncurrentVersionExpiration").child("NoncurrentDays");
+        if (!expiration || std::string_view(rule.child_value("Status")) != "Enabled" ||
+            !lifecycle_prefix_overlaps(rule, path.prefix)) {
+            continue;
         }
+        int64_t days = expiration.text().as_llong();
+        if (days <= 0) {
+            return invalid_response("Invalid OSS noncurrent version expiration");
+        }
+        shortest = shortest ? std::min(*shortest, days) : days;
     }
-    if (days <= 0) {
-        return invalid_response("OSS bucket has no noncurrent version expiration");
+    if (!shortest) {
+        return invalid_response(
+                fmt::format("No enabled OSS noncurrent version expiration for {}/{}", path.bucket,
+                            path.prefix));
     }
-    *expiration_days = days;
+    *expiration_days = *shortest;
     return ObjStorageResponse::OK();
 }
 

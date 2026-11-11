@@ -35,12 +35,20 @@ public:
     void handle(HttpRequest* request) override {
         EXPECT_EQ(request->header(HttpHeaders::AUTHORIZATION).find("OSS4-HMAC-SHA256"), 0);
         if (request->uri().find("lifecycle") != std::string::npos) {
+            auto rule = [](std::string prefix, int days, std::string status = "Enabled",
+                           std::string filter = "") {
+                return "<Rule><Status>" + status + "</Status><Prefix>" + prefix + "</Prefix>" +
+                       filter + "<NoncurrentVersionExpiration><NoncurrentDays>" +
+                       std::to_string(days) +
+                       "</NoncurrentDays></NoncurrentVersionExpiration></Rule>";
+            };
             HttpChannel::send_reply(
-                    request,
-                    "<LifecycleConfiguration><Rule>"
-                    "<Expiration><Days>60</Days></Expiration>"
-                    "<NoncurrentVersionExpiration><NoncurrentDays>7</NoncurrentDays>"
-                    "</NoncurrentVersionExpiration></Rule></LifecycleConfiguration>");
+                    request, "<LifecycleConfiguration>" + rule("vault/cold/", 7) +
+                                     rule("vault/", 30) + rule("vault/", 1, "Disabled") +
+                                     rule("vault/", 2, "Enabled",
+                                          "<Filter><Not><Prefix>vault/hot/</Prefix></Not>"
+                                          "<Not><Prefix>vault/cold/</Prefix></Not></Filter>") +
+                                     rule("vault-backup/", 90) + "</LifecycleConfiguration>");
         } else if (request->uri().find("versioning") != std::string::npos) {
             HttpChannel::send_reply(request,
                                     "<VersioningConfiguration><Status>Enabled</Status>"
@@ -80,9 +88,20 @@ TEST(OssObjStorageClientTest, NativeRangeReadAndRecyclerBucketInspection) {
     auto version = client.check_versioning("bucket");
     ASSERT_TRUE(version.ok()) << version.status.msg;
     int64_t days = 0;
-    auto lifecycle = client.get_lifecycle("bucket", &days);
-    ASSERT_TRUE(lifecycle.ok()) << lifecycle.status.msg;
+    auto lifecycle = [&](std::string prefix) {
+        return client.get_lifecycle({.bucket = "bucket", .prefix = std::move(prefix)}, &days);
+    };
+    ASSERT_TRUE(lifecycle("vault/cold/tablets/").ok());
     EXPECT_EQ(days, 7);
+    ASSERT_TRUE(lifecycle("vault/hot/").ok());
+    EXPECT_EQ(days, 30);
+    ASSERT_TRUE(lifecycle("vault/").ok());
+    EXPECT_EQ(days, 2);
+    ASSERT_TRUE(lifecycle("vault-backup/").ok());
+    EXPECT_EQ(days, 90);
+    ASSERT_TRUE(lifecycle("").ok());
+    EXPECT_EQ(days, 2);
+    EXPECT_FALSE(lifecycle("other/").ok());
     auto url = client.generate_presigned_url(path, 60);
     EXPECT_NE(url.find("x-oss-signature="), std::string::npos);
     EXPECT_NE(url.find("x-oss-security-token=test-token"), std::string::npos);

@@ -91,7 +91,7 @@ public:
         return "url";
     }
 
-    ObjStorageResponse get_lifecycle(const std::string&, int64_t*) override {
+    ObjStorageResponse get_lifecycle(const ObjStoragePath&, int64_t*) override {
         ++calls;
         return ObjStorageResponse::OK();
     }
@@ -167,7 +167,7 @@ TEST(RateLimitedObjStorageClientTest, AppliesAdmissionPolicyToEveryClientOperati
     EXPECT_TRUE(client->delete_object(opts).ok());
     EXPECT_TRUE(delete_objects_recursively(client, opts).ok());
     int64_t expiration_days = 0;
-    EXPECT_TRUE(client->get_lifecycle("bucket", &expiration_days).ok());
+    EXPECT_TRUE(client->get_lifecycle(opts, &expiration_days).ok());
     EXPECT_TRUE(client->check_versioning("bucket").ok());
     EXPECT_TRUE(client->abort_multipart_upload(opts, "upload-id").ok());
     EXPECT_EQ(client->generate_presigned_url(opts, 60), "url");
@@ -213,7 +213,7 @@ TEST(RateLimitedObjStorageClientTest, RejectsEveryOperationBeforeDispatchingToIn
     expect_rejected(client->delete_object(opts));
     expect_rejected(delete_objects_recursively(client, opts));
     int64_t expiration_days = 0;
-    expect_rejected(client->get_lifecycle("bucket", &expiration_days));
+    expect_rejected(client->get_lifecycle(opts, &expiration_days));
     expect_rejected(client->check_versioning("bucket"));
     expect_rejected(client->abort_multipart_upload(opts, "upload-id"));
 

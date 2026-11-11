@@ -77,7 +77,7 @@ public:
 
     std::string generate_presigned_url(const io::ObjStoragePath&, int64_t) override { return {}; }
 
-    io::ObjStorageResponse get_lifecycle(const std::string&, int64_t*) override {
+    io::ObjStorageResponse get_lifecycle(const io::ObjStoragePath&, int64_t*) override {
         return io::ObjStorageResponse::OK();
     }
 

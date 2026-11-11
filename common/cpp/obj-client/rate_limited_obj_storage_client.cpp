@@ -116,13 +116,13 @@ std::string RateLimitedObjStorageClient::generate_presigned_url(const ObjStorage
     return inner_->generate_presigned_url(opts, expiration_secs);
 }
 
-ObjStorageResponse RateLimitedObjStorageClient::get_lifecycle(const std::string& bucket,
+ObjStorageResponse RateLimitedObjStorageClient::get_lifecycle(const ObjStoragePath& path,
                                                               int64_t* expiration_days) {
     auto rate_limit = acquire(S3RateLimitType::GET);
     if (!rate_limit.resp.ok()) {
         return rate_limit.resp;
     }
-    return inner_->get_lifecycle(bucket, expiration_days);
+    return inner_->get_lifecycle(path, expiration_days);
 }
 
 ObjStorageResponse RateLimitedObjStorageClient::check_versioning(const std::string& bucket) {

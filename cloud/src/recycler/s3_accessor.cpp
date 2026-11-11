@@ -626,7 +626,9 @@ int S3Accessor::abort_multipart_upload(const std::string& path, const std::strin
 }
 
 int S3Accessor::get_lifecycle(int64_t* expiration_days) {
-    return obj_client_->get_lifecycle(conf_.bucket, expiration_days).status.code;
+    return obj_client_
+            ->get_lifecycle({.bucket = conf_.bucket, .prefix = get_key("")}, expiration_days)
+            .status.code;
 }
 
 int S3Accessor::check_versioning() {
