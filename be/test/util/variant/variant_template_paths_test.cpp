@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "core/value/variant/variant_decimal_paths.h"
+#include "core/value/variant/variant_template_paths.h"
 
 #include <gtest/gtest.h>
 
@@ -30,8 +30,8 @@
 namespace doris {
 namespace {
 
-VariantDecimalPathSet paths_of(std::vector<VariantTemplatePath> paths) {
-    return VariantDecimalPathSet(std::move(paths));
+VariantTemplatePaths paths_of(std::vector<VariantTemplatePath> paths) {
+    return VariantTemplatePaths(std::move(paths));
 }
 
 // gtest cannot print an __int128; compare through a decimal rendering.
@@ -73,8 +73,8 @@ void expect_no_largeint(std::string_view token, JsonNumberToLargeInt verdict) {
 
 } // namespace
 
-TEST(VariantDecimalPathsTest, SetMatchesExactAndGlobPaths) {
-    const VariantDecimalPathSet paths =
+TEST(VariantTemplatePathsTest, SetMatchesExactAndGlobPaths) {
+    const VariantTemplatePaths paths =
             paths_of({{.pattern = "money.amount", .is_glob = false, .type = TYPE_DECIMAL128I},
                       {.pattern = "ratio*", .is_glob = true, .type = TYPE_DECIMAL64},
                       {.pattern = "name", .is_glob = false, .type = TYPE_STRING}});
@@ -91,8 +91,8 @@ TEST(VariantDecimalPathsTest, SetMatchesExactAndGlobPaths) {
     EXPECT_EQ(VariantNumberRead::NATIVE, paths_of({}).number_read("money.amount"));
 }
 
-TEST(VariantDecimalPathsTest, TheFieldsTypeSelectsTheRead) {
-    const VariantDecimalPathSet paths =
+TEST(VariantTemplatePathsTest, TheFieldsTypeSelectsTheRead) {
+    const VariantTemplatePaths paths =
             paths_of({{.pattern = "d32", .is_glob = false, .type = TYPE_DECIMAL32},
                       {.pattern = "d64", .is_glob = false, .type = TYPE_DECIMAL64},
                       {.pattern = "d128", .is_glob = false, .type = TYPE_DECIMAL128I},
@@ -121,44 +121,44 @@ TEST(VariantDecimalPathsTest, TheFieldsTypeSelectsTheRead) {
     EXPECT_EQ(VariantNumberRead::NATIVE, paths.number_read("id.low"));
 }
 
-TEST(VariantDecimalPathsTest, TheFirstMatchingTemplateFieldDecidesLikeTheShredder) {
+TEST(VariantTemplatePathsTest, TheFirstMatchingTemplateFieldDecidesLikeTheShredder) {
     // 'amount*':string is declared before 'amount':decimal: the shredder types "amount" as a
     // STRING, so the parser must not read it as a decimal either.
-    const VariantDecimalPathSet string_first =
+    const VariantTemplatePaths string_first =
             paths_of({{.pattern = "amount*", .is_glob = true, .type = TYPE_STRING},
                       {.pattern = "amount", .is_glob = false, .type = TYPE_DECIMAL64}});
     EXPECT_EQ(VariantNumberRead::NATIVE, string_first.number_read("amount"));
     EXPECT_EQ(VariantNumberRead::NATIVE, string_first.number_read("amount_due"));
-    const VariantDecimalPathSet decimal_first =
+    const VariantTemplatePaths decimal_first =
             paths_of({{.pattern = "amount", .is_glob = false, .type = TYPE_DECIMAL64},
                       {.pattern = "amount*", .is_glob = true, .type = TYPE_STRING}});
     EXPECT_EQ(VariantNumberRead::DECIMAL_TEXT, decimal_first.number_read("amount"));
     EXPECT_EQ(VariantNumberRead::NATIVE, decimal_first.number_read("amount_due"));
     // a glob and a named field that ask for different text reads: the first one declared wins
-    const VariantDecimalPathSet largeint_glob_first =
+    const VariantTemplatePaths largeint_glob_first =
             paths_of({{.pattern = "id*", .is_glob = true, .type = TYPE_LARGEINT},
                       {.pattern = "id", .is_glob = false, .type = TYPE_DECIMAL128I}});
     EXPECT_EQ(VariantNumberRead::LARGEINT_TEXT, largeint_glob_first.number_read("id"));
     EXPECT_EQ(VariantNumberRead::LARGEINT_TEXT, largeint_glob_first.number_read("id_2"));
-    const VariantDecimalPathSet decimal_name_first =
+    const VariantTemplatePaths decimal_name_first =
             paths_of({{.pattern = "id", .is_glob = false, .type = TYPE_DECIMAL128I},
                       {.pattern = "id*", .is_glob = true, .type = TYPE_LARGEINT}});
     EXPECT_EQ(VariantNumberRead::DECIMAL_TEXT, decimal_name_first.number_read("id"));
     EXPECT_EQ(VariantNumberRead::LARGEINT_TEXT, decimal_name_first.number_read("id_2"));
     // a BIGINT field declared first keeps a later LARGEINT field of the same path out of reach
-    const VariantDecimalPathSet bigint_first =
+    const VariantTemplatePaths bigint_first =
             paths_of({{.pattern = "id", .is_glob = false, .type = TYPE_BIGINT},
                       {.pattern = "id*", .is_glob = true, .type = TYPE_LARGEINT}});
     EXPECT_EQ(VariantNumberRead::NATIVE, bigint_first.number_read("id"));
     EXPECT_EQ(VariantNumberRead::LARGEINT_TEXT, bigint_first.number_read("idx"));
     // a MATCH_NAME pattern is compared literally, never as a glob
-    const VariantDecimalPathSet literal =
+    const VariantTemplatePaths literal =
             paths_of({{.pattern = "ratio*", .is_glob = false, .type = TYPE_DECIMAL64}});
     EXPECT_EQ(VariantNumberRead::DECIMAL_TEXT, literal.number_read("ratio*"));
     EXPECT_EQ(VariantNumberRead::NATIVE, literal.number_read("ratio_a"));
 }
 
-TEST(VariantDecimalPathsTest, ReadsFractionsExactly) {
+TEST(VariantTemplatePathsTest, ReadsFractionsExactly) {
     expect_decimal("123456789012.345678", "123456789012345678", 6, 8);
     expect_decimal("-1.5", "-15", 1, 4);
     expect_decimal("0.123456789012345678901", "123456789012345678901", 21, 16);
@@ -171,7 +171,7 @@ TEST(VariantDecimalPathsTest, ReadsFractionsExactly) {
     expect_decimal("188118222.011121933", "188118222011121933", 9, 8);
 }
 
-TEST(VariantDecimalPathsTest, FoldsAnExponentIntoTheScale) {
+TEST(VariantTemplatePathsTest, FoldsAnExponentIntoTheScale) {
     expect_decimal("1.5e3", "1500", 0, 4);
     expect_decimal("1.5E-3", "15", 4, 4);
     expect_decimal("1e2", "100", 0, 4);
@@ -180,7 +180,7 @@ TEST(VariantDecimalPathsTest, FoldsAnExponentIntoTheScale) {
     expect_decimal("0e100", "0", 0, 4);
 }
 
-TEST(VariantDecimalPathsTest, ReadsIntegersUpToThirtyEightDigits) {
+TEST(VariantTemplatePathsTest, ReadsIntegersUpToThirtyEightDigits) {
     expect_decimal("123456789012345678901", "123456789012345678901", 0, 16);
     expect_decimal("18446744073709551616", "18446744073709551616", 0, 16);
     expect_decimal("99999999999999999999999999999999999999",
@@ -189,7 +189,7 @@ TEST(VariantDecimalPathsTest, ReadsIntegersUpToThirtyEightDigits) {
                    "-99999999999999999999999999999999999999", 0, 16);
 }
 
-TEST(VariantDecimalPathsTest, WidthHoldsTheScaleAsWellAsTheDigits) {
+TEST(VariantTemplatePathsTest, WidthHoldsTheScaleAsWellAsTheDigits) {
     // decimal4 / decimal8 carry 9 / 18 digits: a scale beyond that needs the wider encoding even
     // when the unscaled value is tiny, or a reader bound by the width's precision rejects it
     expect_decimal("0.000000001", "1", 9, 4);
@@ -204,7 +204,7 @@ TEST(VariantDecimalPathsTest, WidthHoldsTheScaleAsWellAsTheDigits) {
     expect_decimal("0.0000000000", "0", 10, 8);
 }
 
-TEST(VariantDecimalPathsTest, DeclinesWhatDoesNotFit) {
+TEST(VariantTemplatePathsTest, DeclinesWhatDoesNotFit) {
     VariantDecimalText out;
     EXPECT_EQ(JsonNumberToDecimal::OUT_OF_RANGE,
               parse_json_number_as_decimal("100000000000000000000000000000000000000", out));
@@ -215,7 +215,7 @@ TEST(VariantDecimalPathsTest, DeclinesWhatDoesNotFit) {
     EXPECT_EQ(JsonNumberToDecimal::OUT_OF_RANGE, parse_json_number_as_decimal("1e99999", out));
 }
 
-TEST(VariantDecimalPathsTest, DeclinesMalformedTokens) {
+TEST(VariantTemplatePathsTest, DeclinesMalformedTokens) {
     VariantDecimalText out;
     for (const char* token : {"", "-", "1.", ".5", "1e", "1e+", "abc", "1.5x", "--1", "1..5", " 1",
                               "-Infinity", "NaN", "+1"}) {
@@ -233,7 +233,7 @@ TEST(VariantDecimalPathsTest, DeclinesMalformedTokens) {
     expect_decimal("0e2", "0", 0, 4);
 }
 
-TEST(VariantDecimalPathsTest, ReadsAnIntegerIntoALargeInt) {
+TEST(VariantTemplatePathsTest, ReadsAnIntegerIntoALargeInt) {
     expect_largeint("0", "0");
     // an integer has no negative zero
     expect_largeint("-0", "0");
@@ -251,7 +251,7 @@ TEST(VariantDecimalPathsTest, ReadsAnIntegerIntoALargeInt) {
                     "100000000000000000000000000000000000000");
 }
 
-TEST(VariantDecimalPathsTest, ReadsALargeIntUpToItsAsymmetricBounds) {
+TEST(VariantTemplatePathsTest, ReadsALargeIntUpToItsAsymmetricBounds) {
     // 2^127 - 1 and -2^127 are the largest and the smallest LARGEINT
     expect_largeint("170141183460469231731687303715884105727",
                     "170141183460469231731687303715884105727");
@@ -279,7 +279,7 @@ TEST(VariantDecimalPathsTest, ReadsALargeIntUpToItsAsymmetricBounds) {
                        JsonNumberToLargeInt::OUT_OF_RANGE);
 }
 
-TEST(VariantDecimalPathsTest, DeclinesWhatIsNotAJsonInteger) {
+TEST(VariantTemplatePathsTest, DeclinesWhatIsNotAJsonInteger) {
     // JSON: int = "0" / digit1-9 *DIGIT. A leading zero, a sign other than '-', or nothing at all.
     for (const char* token :
          {"", "-", "+1", "01", "-01", "00", "-00", "--1", " 1", "1 ", "abc", "-Infinity", "NaN"}) {

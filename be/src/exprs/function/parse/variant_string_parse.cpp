@@ -193,7 +193,7 @@ private:
 class OndemandTreeCollector {
 public:
     OndemandTreeCollector(VariantBatchBuilder::Row& builder, const JsonToVariantOptions& options)
-            : _builder(builder), _options(options), _paths(*options.decimal_paths) {}
+            : _builder(builder), _options(options), _paths(*options.template_paths) {}
 
     bool collect(simdjson::ondemand::value& value, uint32_t depth) {
         variant_json::require_json_depth(depth);
@@ -421,7 +421,7 @@ private:
 
     VariantBatchBuilder::Row& _builder;
     const JsonToVariantOptions& _options;
-    const VariantDecimalPathSet& _paths;
+    const VariantTemplatePaths& _paths;
     std::string _path;
     // Set while an array's elements are collected; an object or array element raises `_unmatched`
     // for its whole subtree. A `false` return abandons the collector with its row, so neither is
@@ -631,11 +631,12 @@ struct JsonStringToVariantEncoder::Impl {
             throw Exception(ErrorCode::INVALID_ARGUMENT,
                             "Variant JSON input has a null data pointer");
         }
-        if (json.size != 0 && options.decimal_paths != nullptr && !options.decimal_paths->empty()) {
+        if (json.size != 0 && options.template_paths != nullptr &&
+            !options.template_paths->empty()) {
             auto row = builder.begin_row();
             bool collected = false;
             if (options.throw_on_invalid_json) {
-                collected = collect_with_decimal_paths(row, json);
+                collected = collect_with_template_paths(row, json);
             } else {
                 // The lenient serde keeps a document the DOM parser rejects as a string row, and
                 // the DOM parser reads the whole text before any depth or key check runs. The
@@ -644,7 +645,7 @@ struct JsonStringToVariantEncoder::Impl {
                 // throw where the DOM path stored the text. Let the DOM parser give the verdict: a
                 // well-formed document meets the same check there and fails as it always did.
                 try {
-                    collected = collect_with_decimal_paths(row, json);
+                    collected = collect_with_template_paths(row, json);
                 } catch (const Exception& exception) {
                     if (exception.code() != ErrorCode::INVALID_ARGUMENT) {
                         throw;
@@ -674,7 +675,7 @@ struct JsonStringToVariantEncoder::Impl {
 
     // A root object or array read with the ondemand parser; false on any simdjson error, and for a
     // root scalar, which has no path.
-    bool collect_with_decimal_paths(VariantBatchBuilder::Row& row, StringRef json) {
+    bool collect_with_template_paths(VariantBatchBuilder::Row& row, StringRef json) {
         // One padded copy per encoder, grown to the largest document seen: ondemand values point
         // into it, and the builder copies a row's bytes before the next document is read.
         const size_t padded_size = json.size + simdjson::SIMDJSON_PADDING;

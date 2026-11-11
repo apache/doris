@@ -69,7 +69,7 @@
 #include "core/data_type/define_primitive_type.h"
 #include "core/types.h"
 #include "core/uint128.h"
-#include "core/value/variant/variant_decimal_paths.h"
+#include "core/value/variant/variant_template_paths.h"
 #include "storage/olap_common.h"
 
 namespace doris {
@@ -554,7 +554,7 @@ DataTypePtr DataTypeFactory::create_data_type(const std::vector<TTypeNode>& type
             bool doc_mode = scalar_type.__isset.variant_enable_doc_mode
                                     ? scalar_type.variant_enable_doc_mode
                                     : false;
-            VariantDecimalPathSetPtr decimal_paths;
+            VariantTemplatePathsPtr template_paths;
             if (scalar_type.__isset.variant_template_paths &&
                 !scalar_type.variant_template_paths.empty()) {
                 std::vector<VariantTemplatePath> paths;
@@ -564,10 +564,10 @@ DataTypePtr DataTypeFactory::create_data_type(const std::vector<TTypeNode>& type
                                      .is_glob = path.is_glob,
                                      .type = thrift_to_type(path.type)});
                 }
-                decimal_paths = std::make_shared<const VariantDecimalPathSet>(std::move(paths));
+                template_paths = std::make_shared<const VariantTemplatePaths>(std::move(paths));
             }
             DataTypePtr dt = std::make_shared<DataTypeVariantV2>(
-                    scalar_type.variant_max_subcolumns_count, doc_mode, std::move(decimal_paths));
+                    scalar_type.variant_max_subcolumns_count, doc_mode, std::move(template_paths));
             return is_nullable ? make_nullable(dt) : dt;
         }
         return create_data_type(thrift_to_type(scalar_type.type), is_nullable,

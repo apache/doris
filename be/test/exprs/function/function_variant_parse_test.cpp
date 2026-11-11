@@ -34,8 +34,8 @@
 #include "core/data_type/data_type_variant.h"
 #include "core/data_type/data_type_variant_v2.h"
 #include "core/data_type/define_primitive_type.h"
-#include "core/value/variant/variant_decimal_paths.h"
 #include "core/value/variant/variant_parquet_encoding.h"
+#include "core/value/variant/variant_template_paths.h"
 #include "exprs/function/function_test_util.h"
 #include "exprs/function/parse/variant_string_parse.h"
 #include "exprs/function/simple_function_factory.h"
@@ -374,7 +374,7 @@ TEST(FunctionVariantParseTest, ConfiguredInputValidationUsesFailOrOuterNull) {
 
 TEST(FunctionVariantParseTest, DecimalTemplatePathsOnTheResultTypeParseNumbersFromText) {
     const DataTypePtr string_type = std::make_shared<DataTypeString>();
-    auto paths = std::make_shared<const VariantDecimalPathSet>(std::vector<VariantTemplatePath> {
+    auto paths = std::make_shared<const VariantTemplatePaths>(std::vector<VariantTemplatePath> {
             {.pattern = "money.amount", .is_glob = false, .type = TYPE_DECIMAL128I}});
     const std::string document = R"({"money":{"amount":123456789012.345678},"score":0.5})";
     for (const char* name : {"parse_to_variant", "try_parse_to_variant"}) {
@@ -398,7 +398,7 @@ TEST(FunctionVariantParseTest, DecimalTemplatePathsOnTheResultTypeParseNumbersFr
 
 TEST(FunctionVariantParseTest, DecimalTemplatePathsStopAtAnArrayInsideAnArray) {
     const DataTypePtr string_type = std::make_shared<DataTypeString>();
-    auto paths = std::make_shared<const VariantDecimalPathSet>(std::vector<VariantTemplatePath> {
+    auto paths = std::make_shared<const VariantTemplatePaths>(std::vector<VariantTemplatePath> {
             {.pattern = "prices", .is_glob = false, .type = TYPE_DECIMAL128I}});
     const DataTypePtr typed = std::make_shared<DataTypeVariantV2>(0, false, paths);
     // Scalars directly inside the declared array are the ARRAY<DECIMAL> field's: read from text.
@@ -418,7 +418,7 @@ TEST(FunctionVariantParseTest, DecimalTemplatePathsStopAtAnArrayInsideAnArray) {
 
 TEST(FunctionVariantParseTest, DecimalTemplatePathsDoNotRescueALeadingZero) {
     const DataTypePtr string_type = std::make_shared<DataTypeString>();
-    auto paths = std::make_shared<const VariantDecimalPathSet>(std::vector<VariantTemplatePath> {
+    auto paths = std::make_shared<const VariantTemplatePaths>(std::vector<VariantTemplatePath> {
             {.pattern = "money.amount", .is_glob = false, .type = TYPE_DECIMAL128I}});
     // "01" is not a JSON number; a declared path does not change the document's verdict.
     const std::string document = R"({"money":{"amount":01}})";
@@ -435,7 +435,7 @@ TEST(FunctionVariantParseTest, DecimalTemplatePathsDoNotRescueALeadingZero) {
 
 TEST(FunctionVariantParseTest, LargeIntTemplatePathsReadAnIntegerBeyond64BitsFromItsText) {
     const DataTypePtr string_type = std::make_shared<DataTypeString>();
-    auto paths = std::make_shared<const VariantDecimalPathSet>(std::vector<VariantTemplatePath> {
+    auto paths = std::make_shared<const VariantTemplatePaths>(std::vector<VariantTemplatePath> {
             {.pattern = "id", .is_glob = false, .type = TYPE_LARGEINT},
             {.pattern = "ids", .is_glob = false, .type = TYPE_LARGEINT},
             {.pattern = "amount", .is_glob = false, .type = TYPE_DECIMAL64}});
@@ -489,7 +489,7 @@ TEST(FunctionVariantParseTest, LargeIntTemplatePathsReadAnIntegerBeyond64BitsFro
 
 TEST(FunctionVariantParseTest, AnIntegerBeyond64BitsOffALargeIntPathKeepsTheDocumentsVerdict) {
     const DataTypePtr string_type = std::make_shared<DataTypeString>();
-    auto paths = std::make_shared<const VariantDecimalPathSet>(std::vector<VariantTemplatePath> {
+    auto paths = std::make_shared<const VariantTemplatePaths>(std::vector<VariantTemplatePath> {
             {.pattern = "id", .is_glob = false, .type = TYPE_LARGEINT},
             {.pattern = "a.id", .is_glob = false, .type = TYPE_LARGEINT},
             {.pattern = "ids", .is_glob = false, .type = TYPE_LARGEINT},

@@ -410,8 +410,8 @@ Status write_binary_variant_arrow(const IColumn& column, const NullMap* null_map
 } // namespace
 
 DataTypeVariantV2SerDe::DataTypeVariantV2SerDe(int nesting_level,
-                                               VariantDecimalPathSetPtr decimal_paths)
-        : DataTypeSerDe(nesting_level), _decimal_paths(std::move(decimal_paths)) {}
+                                               VariantTemplatePathsPtr template_paths)
+        : DataTypeSerDe(nesting_level), _template_paths(std::move(template_paths)) {}
 
 int64_t DataTypeVariantV2SerDe::get_uncompressed_serialized_bytes(const IColumn& column,
                                                                   int be_exec_version) {
@@ -647,7 +647,7 @@ JsonToVariantOptions serde_json_options() {
 
 JsonToVariantOptions DataTypeVariantV2SerDe::json_options() const {
     JsonToVariantOptions options = serde_json_options();
-    options.decimal_paths = _decimal_paths;
+    options.template_paths = _template_paths;
     return options;
 }
 

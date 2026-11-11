@@ -26,7 +26,7 @@
 
 #include "common/status.h"
 #include "core/value/variant/variant_batch_builder.h"
-#include "core/value/variant/variant_decimal_paths.h"
+#include "core/value/variant/variant_template_paths.h"
 #include "core/value/variant/variant_value.h"
 
 namespace cctz {
@@ -51,7 +51,7 @@ struct JsonToVariantOptions {
     // JSON number on a DECIMAL path is parsed from its text into a decimal instead of through a
     // binary64, and an integer beyond 64 bits on a LARGEINT path is read exactly from its text
     // instead of failing the document.
-    VariantDecimalPathSetPtr decimal_paths = nullptr;
+    VariantTemplatePathsPtr template_paths = nullptr;
 
     // Takes a value snapshot. Later changes to mutable config do not affect an encoder.
     static JsonToVariantOptions current_config();

@@ -50,9 +50,9 @@ enum class VariantNumberRead : uint8_t {
 
 // The Schema Template of one VARIANT type, answering how a number on a path is read. Built once
 // per type, shared by its serde and by the parse functions.
-class VariantDecimalPathSet {
+class VariantTemplatePaths {
 public:
-    explicit VariantDecimalPathSet(std::vector<VariantTemplatePath> paths);
+    explicit VariantTemplatePaths(std::vector<VariantTemplatePath> paths);
 
     bool empty() const noexcept { return _paths.empty(); }
     const std::vector<VariantTemplatePath>& paths() const noexcept { return _paths; }
@@ -69,7 +69,7 @@ private:
     std::vector<VariantTemplatePath> _paths;
 };
 
-using VariantDecimalPathSetPtr = std::shared_ptr<const VariantDecimalPathSet>;
+using VariantTemplatePathsPtr = std::shared_ptr<const VariantTemplatePaths>;
 
 // A JSON number read exactly: the value is unscaled * 10^-scale, and `width` is the narrowest
 // Variant decimal (4, 8 or 16 bytes) whose precision holds both the digits and the scale.

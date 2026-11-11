@@ -36,7 +36,7 @@
 #include "core/data_type_serde/data_type_string_serde.h"
 #include "core/data_type_serde/data_type_variant_v2_serde.h"
 #include "core/string_buffer.hpp"
-#include "core/value/variant/variant_decimal_paths.h"
+#include "core/value/variant/variant_template_paths.h"
 #include "gen_cpp/Types_types.h"
 #include "gen_cpp/types.pb.h"
 
@@ -70,8 +70,8 @@ std::string json_at(const DataTypeVariantV2SerDe& serde, const IColumn& column, 
     return output->get_data_at(0).to_string();
 }
 
-VariantDecimalPathSetPtr template_of(std::vector<VariantTemplatePath> fields) {
-    return std::make_shared<const VariantDecimalPathSet>(std::move(fields));
+VariantTemplatePathsPtr template_of(std::vector<VariantTemplatePath> fields) {
+    return std::make_shared<const VariantTemplatePaths>(std::move(fields));
 }
 
 ColumnVariantV2::MutablePtr typed_int(int32_t value) {
@@ -302,11 +302,11 @@ TEST(DataTypeVariantV2SerdeInputTest, PbAndArrowReadKeepExplicitGuards) {
 }
 
 TEST(DataTypeVariantV2SerdeInputTest, DecimalTemplatePathsParseNumbersFromText) {
-    auto paths = std::make_shared<const VariantDecimalPathSet>(std::vector<VariantTemplatePath> {
+    auto paths = std::make_shared<const VariantTemplatePaths>(std::vector<VariantTemplatePath> {
             {.pattern = "money.amount", .is_glob = false, .type = TYPE_DECIMAL128I},
             {.pattern = "ratio*", .is_glob = true, .type = TYPE_DECIMAL128I}});
     DataTypeVariantV2SerDe serde(1, paths);
-    EXPECT_EQ(paths, serde.decimal_paths());
+    EXPECT_EQ(paths, serde.template_paths());
     auto column = ColumnVariantV2::create();
     ASSERT_TRUE(deserialize_json(serde, *column,
                                  R"({"money":{"amount":123456789012.345678,"ccy":"INR"},)"
@@ -347,7 +347,7 @@ TEST(DataTypeVariantV2SerdeInputTest, DecimalTemplatePathsParseNumbersFromText) 
 
     // A serde without paths parses the same number through a binary64, as before.
     DataTypeVariantV2SerDe plain;
-    EXPECT_EQ(nullptr, plain.decimal_paths());
+    EXPECT_EQ(nullptr, plain.template_paths());
     auto plain_column = ColumnVariantV2::create();
     ASSERT_TRUE(
             deserialize_json(plain, *plain_column, R"({"ratio_a":0.123456789012345678901})").ok());
@@ -456,18 +456,18 @@ TEST(DataTypeVariantV2SerdeInputTest, DecimalTemplatePathsKeepTheLenientVerdictO
     EXPECT_NE(std::string::npos, json_at(serde, *column, 2).find(R"("amount":1.50)"));
 }
 
-TEST(DataTypeVariantV2SerdeInputTest, DataTypeHandsItsDecimalPathsToTheSerde) {
-    auto paths = std::make_shared<const VariantDecimalPathSet>(std::vector<VariantTemplatePath> {
+TEST(DataTypeVariantV2SerdeInputTest, DataTypeHandsItsTemplatePathsToTheSerde) {
+    auto paths = std::make_shared<const VariantTemplatePaths>(std::vector<VariantTemplatePath> {
             {.pattern = "amount", .is_glob = false, .type = TYPE_DECIMAL128I}});
     DataTypeVariantV2 typed(0, false, paths);
     DataTypeVariantV2 plain(0, false);
-    EXPECT_EQ(paths, typed.decimal_paths());
-    EXPECT_EQ(nullptr, plain.decimal_paths());
+    EXPECT_EQ(paths, typed.template_paths());
+    EXPECT_EQ(nullptr, plain.template_paths());
     // The paths are an ingestion hint, never part of the type's identity.
     EXPECT_TRUE(typed.equals(plain));
     auto serde = std::dynamic_pointer_cast<DataTypeVariantV2SerDe>(typed.get_serde());
     ASSERT_NE(nullptr, serde);
-    EXPECT_EQ(paths, serde->decimal_paths());
+    EXPECT_EQ(paths, serde->template_paths());
 }
 
 TEST(DataTypeVariantV2SerdeInputTest, ThriftTemplatePathsReachTheDataType) {
@@ -501,9 +501,9 @@ TEST(DataTypeVariantV2SerdeInputTest, ThriftTemplatePathsReachTheDataType) {
     DataTypePtr from_thrift = DataTypeFactory::instance().create_data_type(type_desc);
     const auto* variant = dynamic_cast<const DataTypeVariantV2*>(from_thrift.get());
     ASSERT_NE(nullptr, variant);
-    ASSERT_NE(nullptr, variant->decimal_paths());
+    ASSERT_NE(nullptr, variant->template_paths());
     // each field arrives with its own type, in declaration order
-    const std::vector<VariantTemplatePath>& fields = variant->decimal_paths()->paths();
+    const std::vector<VariantTemplatePath>& fields = variant->template_paths()->paths();
     ASSERT_EQ(5, fields.size());
     EXPECT_EQ("name", fields[0].pattern);
     EXPECT_FALSE(fields[0].is_glob);
@@ -516,15 +516,15 @@ TEST(DataTypeVariantV2SerdeInputTest, ThriftTemplatePathsReachTheDataType) {
     EXPECT_EQ(TYPE_BIGINT, fields[4].type);
     // and the type decides how a number on the path is read
     EXPECT_EQ(VariantNumberRead::DECIMAL_TEXT,
-              variant->decimal_paths()->number_read("money.amount"));
-    EXPECT_EQ(VariantNumberRead::DECIMAL_TEXT, variant->decimal_paths()->number_read("ratio_x"));
-    EXPECT_EQ(VariantNumberRead::LARGEINT_TEXT, variant->decimal_paths()->number_read("id"));
-    EXPECT_EQ(VariantNumberRead::NATIVE, variant->decimal_paths()->number_read("count"));
-    EXPECT_EQ(VariantNumberRead::NATIVE, variant->decimal_paths()->number_read("name"));
-    EXPECT_EQ(VariantNumberRead::NATIVE, variant->decimal_paths()->number_read("money"));
+              variant->template_paths()->number_read("money.amount"));
+    EXPECT_EQ(VariantNumberRead::DECIMAL_TEXT, variant->template_paths()->number_read("ratio_x"));
+    EXPECT_EQ(VariantNumberRead::LARGEINT_TEXT, variant->template_paths()->number_read("id"));
+    EXPECT_EQ(VariantNumberRead::NATIVE, variant->template_paths()->number_read("count"));
+    EXPECT_EQ(VariantNumberRead::NATIVE, variant->template_paths()->number_read("name"));
+    EXPECT_EQ(VariantNumberRead::NATIVE, variant->template_paths()->number_read("money"));
     auto serde = std::dynamic_pointer_cast<DataTypeVariantV2SerDe>(from_thrift->get_serde());
     ASSERT_NE(nullptr, serde);
-    EXPECT_EQ(variant->decimal_paths(), serde->decimal_paths());
+    EXPECT_EQ(variant->template_paths(), serde->template_paths());
     // the serde the type hands out reads with the template: exact on both kinds of path
     auto column = ColumnVariantV2::create();
     ASSERT_TRUE(deserialize_json(*serde, *column,
@@ -547,7 +547,7 @@ TEST(DataTypeVariantV2SerdeInputTest, ThriftTemplatePathsReachTheDataType) {
     DataTypePtr plain = DataTypeFactory::instance().create_data_type(plain_desc);
     const auto* plain_variant = dynamic_cast<const DataTypeVariantV2*>(plain.get());
     ASSERT_NE(nullptr, plain_variant);
-    EXPECT_EQ(nullptr, plain_variant->decimal_paths());
+    EXPECT_EQ(nullptr, plain_variant->template_paths());
 }
 
 TEST(DataTypeVariantV2SerdeInputTest, TheFirstMatchingTemplateFieldDecidesADecimalPath) {

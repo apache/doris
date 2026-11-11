@@ -44,9 +44,9 @@ DataTypeVariantV2::DataTypeVariantV2(int32_t max_subcolumns_count, bool enable_d
 }
 
 DataTypeVariantV2::DataTypeVariantV2(int32_t max_subcolumns_count, bool enable_doc_mode,
-                                     VariantDecimalPathSetPtr decimal_paths)
+                                     VariantTemplatePathsPtr template_paths)
         : DataTypeVariantV2(max_subcolumns_count, enable_doc_mode) {
-    _decimal_paths = std::move(decimal_paths);
+    _template_paths = std::move(template_paths);
 }
 
 Status DataTypeVariantV2::check_column(const IColumn& column) const {
@@ -98,7 +98,7 @@ Field DataTypeVariantV2::get_field(const TExprNode& node) const {
 }
 
 DataTypeSerDeSPtr DataTypeVariantV2::get_serde(int nesting_level) const {
-    return std::make_shared<DataTypeVariantV2SerDe>(nesting_level, _decimal_paths);
+    return std::make_shared<DataTypeVariantV2SerDe>(nesting_level, _template_paths);
 }
 
 void DataTypeVariantV2::to_protobuf(PTypeDesc*, PTypeNode* node, PScalarType*) const {

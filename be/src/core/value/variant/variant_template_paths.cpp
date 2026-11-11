@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "core/value/variant/variant_decimal_paths.h"
+#include "core/value/variant/variant_template_paths.h"
 
 #include <fnmatch.h>
 
@@ -27,10 +27,10 @@
 
 namespace doris {
 
-VariantDecimalPathSet::VariantDecimalPathSet(std::vector<VariantTemplatePath> paths)
+VariantTemplatePaths::VariantTemplatePaths(std::vector<VariantTemplatePath> paths)
         : _paths(std::move(paths)) {}
 
-VariantNumberRead VariantDecimalPathSet::number_read(const std::string& path) const {
+VariantNumberRead VariantTemplatePaths::number_read(const std::string& path) const {
     if (path.empty()) {
         return VariantNumberRead::NATIVE;
     }

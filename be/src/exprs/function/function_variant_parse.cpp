@@ -77,7 +77,7 @@ public:
 
         // Typed by the FE with the destination column's VARIANT type when it has a template.
         JsonToVariantOptions options = JsonToVariantOptions::current_config();
-        options.decimal_paths = variant_type->decimal_paths();
+        options.template_paths = variant_type->template_paths();
         JsonStringToVariantEncoder encoder(options);
         const StringRef null_json("null", 4);
         for (size_t row = 0; row < input_rows_count; ++row) {

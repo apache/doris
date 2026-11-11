@@ -18,7 +18,7 @@
 #pragma once
 
 #include "core/data_type_serde/data_type_serde.h"
-#include "core/value/variant/variant_decimal_paths.h"
+#include "core/value/variant/variant_template_paths.h"
 
 namespace arrow {
 class DataType;
@@ -32,9 +32,9 @@ struct JsonToVariantOptions;
 class DataTypeVariantV2SerDe final : public DataTypeSerDe {
 public:
     explicit DataTypeVariantV2SerDe(int nesting_level = 1,
-                                    VariantDecimalPathSetPtr decimal_paths = nullptr);
+                                    VariantTemplatePathsPtr template_paths = nullptr);
 
-    const VariantDecimalPathSetPtr& decimal_paths() const { return _decimal_paths; }
+    const VariantTemplatePathsPtr& template_paths() const { return _template_paths; }
 
     static int64_t get_uncompressed_serialized_bytes(const IColumn& column, int be_exec_version);
     static char* serialize(const IColumn& column, char* buf, int be_exec_version);
@@ -100,7 +100,7 @@ public:
 private:
     JsonToVariantOptions json_options() const;
 
-    VariantDecimalPathSetPtr _decimal_paths;
+    VariantTemplatePathsPtr _template_paths;
 };
 
 } // namespace doris
