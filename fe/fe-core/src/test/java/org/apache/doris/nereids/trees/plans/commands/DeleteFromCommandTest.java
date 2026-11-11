@@ -155,6 +155,37 @@ public class DeleteFromCommandTest extends TestWithFeService {
     }
 
     @Test
+    public void testAnnDeleteCarriesVectors() throws Exception {
+        createTable("CREATE TABLE " + DB + ".ann_delete_mow ("
+                + "k INT NOT NULL, Vec ARRAY<FLOAT> NOT NULL, vec2 ARRAY<FLOAT> NOT NULL, "
+                + "other_array ARRAY<FLOAT>, v INT, "
+                + "INDEX ann1 (Vec) USING ANN PROPERTIES "
+                + "('index_type'='hnsw', 'metric_type'='l2_distance', 'dim'='3'), "
+                + "INDEX ann2 (vec2) USING ANN PROPERTIES "
+                + "('index_type'='hnsw', 'metric_type'='l2_distance', 'dim'='2')) "
+                + "UNIQUE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1 "
+                + "PROPERTIES ('replication_num'='1', 'enable_unique_key_merge_on_write'='true')");
+        DeleteFromCommand command = parseDelete("DELETE FROM ann_delete_mow WHERE k=1");
+        UnboundTableSink<?> sink = (UnboundTableSink<?>) command.completeQueryPlan(
+                connectContext, command.logicalQuery);
+        Assertions.assertEquals(Arrays.asList("k", "Vec", "vec2", Column.DELETE_SIGN), sink.getColNames());
+        Assertions.assertTrue(sink.isPartialUpdate());
+    }
+
+    @Test
+    public void testDeleteWithoutAnnKeepsKeyOnlyWrite() throws Exception {
+        createTable("CREATE TABLE " + DB + ".plain_delete_mow ("
+                + "k INT NOT NULL, vec ARRAY<FLOAT> NOT NULL, v INT) "
+                + "UNIQUE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1 "
+                + "PROPERTIES ('replication_num'='1', 'enable_unique_key_merge_on_write'='true')");
+        DeleteFromCommand command = parseDelete("DELETE FROM plain_delete_mow WHERE k=1");
+        UnboundTableSink<?> sink = (UnboundTableSink<?>) command.completeQueryPlan(
+                connectContext, command.logicalQuery);
+        Assertions.assertEquals(Arrays.asList("k", Column.DELETE_SIGN), sink.getColNames());
+        Assertions.assertTrue(sink.isPartialUpdate());
+    }
+
+    @Test
     public void testRowTtlDeleteUsesFullRow() {
         DeleteFromCommand command = parseDelete("DELETE FROM ttl_delete_mow WHERE abs(k)=1");
         LogicalPlan plan = command.completeQueryPlan(connectContext, command.logicalQuery);

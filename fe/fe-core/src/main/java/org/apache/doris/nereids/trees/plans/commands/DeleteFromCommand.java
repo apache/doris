@@ -30,6 +30,7 @@ import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
@@ -38,6 +39,7 @@ import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.info.IndexType;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -613,6 +615,12 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
                 break;
             }
         }
+        Set<String> annColumns = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+        for (Index index : targetTable.getIndexes()) {
+            if (index.getIndexType() == IndexType.ANN) {
+                annColumns.addAll(index.getColumns());
+            }
+        }
         for (Column column : targetTable.getBaseSchema(true)) {
             NamedExpression expr;
             if (column.getName().equalsIgnoreCase(Column.DELETE_SIGN)) {
@@ -624,6 +632,10 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
             } else if (column.isKey()) {
                 expr = new UnboundSlot(tableName, column.getName());
             } else if (!isMow && (!column.isVisible() || (!column.isAllowNull() && !column.hasDefaultValue()))) {
+                expr = new UnboundSlot(tableName, column.getName());
+            } else if (isMow && annColumns.contains(column.getName())) {
+                // Delete-sign writes still build ANN indexes. Missing vectors would be filled with
+                // empty arrays by partial update, so carry the original vectors into the write.
                 expr = new UnboundSlot(tableName, column.getName());
             } else if (hasClusterKey || hasSyncMaterializedView || targetTable.hasRowTtl()) {
                 // TTL tables cannot fill missing columns from independently reclaimed rows.

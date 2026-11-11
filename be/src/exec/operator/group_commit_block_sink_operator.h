@@ -111,6 +111,16 @@ public:
 private:
     friend class GroupCommitBlockSinkLocalState;
 
+    Status _init_ann_validation();
+    Status _validate_ann_dimensions(const Block& block) const;
+
+    struct AnnColumn {
+        size_t position;
+        size_t dimension;
+        std::string name;
+    };
+    std::vector<AnnColumn> _ann_columns;
+
     const RowDescriptor& _row_desc;
     const std::vector<TExpr>& _t_output_expr;
     VExprContextSPtrs _output_vexpr_ctxs;
