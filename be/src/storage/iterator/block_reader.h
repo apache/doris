@@ -17,11 +17,12 @@
 
 #pragma once
 
-#include <parallel_hashmap/phmap.h>
 #include <stddef.h>
 #include <sys/types.h>
 
 #include <cstdint>
+#include <memory>
+#include <optional>
 #include <utility>
 #include <vector>
 
@@ -30,8 +31,8 @@
 #include "core/block/block.h"
 #include "core/column/column.h"
 #include "core/data_type/data_type.h"
-#include "exprs/aggregate/aggregate_function.h"
 #include "storage/changelog_types.h"
+#include "storage/iterator/agg_key_block_iterator.h"
 #include "storage/iterator/vcollect_iterator.h"
 #include "storage/rowset/rowset_reader.h"
 #include "storage/tablet/tablet_reader.h"
@@ -39,6 +40,7 @@
 namespace doris {
 class ColumnPredicate;
 class RuntimeProfile;
+class RuntimeState;
 
 class BlockReader final : public TabletReader {
 public:
@@ -49,9 +51,7 @@ public:
 
     Status next_block_with_aggregation(Block* block, bool* eof) override;
 
-    void update_profile(RuntimeProfile* profile) override {
-        return _vcollect_iter.update_profile(profile);
-    }
+    void update_profile(RuntimeProfile* profile) override;
 
     // Returns the configured preferred output block byte budget; 0 when adaptive is disabled.
     size_t preferred_block_size_bytes() const override {
@@ -62,7 +62,7 @@ private:
     // Directly read row from rowset and pass to upper caller. No need to do aggregation.
     // This is usually used for DUPLICATE KEY tables
     Status _direct_next_block(Block* block, bool* eof);
-    // For normal AGGREGATE KEY tables, read data by a merge heap.
+    // For AGGREGATE KEY tables, the rows of every key folded into one by _agg_key_iter.
     Status _agg_key_next_block(Block* block, bool* eof);
     // For UNIQUE KEY tables, read data by a merge heap.
     // The difference from _agg_key_next_block is that it will read the data from high version to low version,
@@ -89,7 +89,16 @@ private:
 
     Status _init_collect_iter(const ReaderParams& read_params);
 
-    Status _init_agg_state(const ReaderParams& read_params);
+    // Set up _agg_key_iter for the reads that _agg_key_next_block() serves.
+    Status _init_agg_key_iter(const ReaderParams& read_params);
+    // Add the children of the merge that read `rs_reader`: its segments when its reader would
+    // merge them, else the rowset reader itself.
+    Status _add_merge_children(const RowsetReaderSharedPtr& rs_reader,
+                               std::vector<RowwiseIteratorUPtr>* children);
+    // Set `*rows` to the merge of `children` and `*flags` to the flags of its rows of one key.
+    Status _init_agg_key_merge(std::vector<RowwiseIteratorUPtr> children,
+                               RuntimeState* runtime_state, RowwiseIteratorUPtr* rows,
+                               std::optional<SameKeyFlags>* flags);
 
     Status _insert_data_normal(MutableColumns& columns);
 
@@ -98,14 +107,6 @@ private:
     // Check if the accumulated output columns have reached the preferred byte budget,
     // used to limit the output block size for adaptive batch sizing.
     bool _reached_byte_budget(const MutableColumns& columns) const;
-
-    void _append_agg_data(MutableColumns& columns);
-
-    void _update_agg_data(MutableColumns& columns);
-
-    size_t _copy_agg_data();
-
-    void _update_agg_value(MutableColumns& columns, int begin, int end, bool is_close = true);
 
     Status _append_change_row(MutableColumns& target_columns, const Block& src_block,
                               size_t row_pos, changelog::StreamChangeOp output_op, bool use_before);
@@ -116,32 +117,21 @@ private:
     VCollectIterator _vcollect_iter;
     IteratorRowRef _next_row {{}, -1, false};
 
-    std::vector<AggregateFunctionPtr> _agg_functions;
-    std::vector<AggregateDataPtr> _agg_places;
-
-    // Read-schema ordinals of the non-key columns of AGG tables, folded
-    // through the aggregate machinery.
-    std::vector<uint32_t> _agg_columns_idx;
-
-    std::vector<int> _agg_data_counters;
-    int _last_agg_data_counter = 0;
+    // The readers of the rowsets whose segments are children of the merge in _agg_key_iter: a
+    // rowset reader keeps its rowset in use until it is destroyed.
+    std::vector<RowsetReaderSharedPtr> _segment_merge_rs_readers;
+    std::unique_ptr<AggKeyBlockIterator> _agg_key_iter;
 
     // Buffer of consecutive rows that share the same primary key, used by
     // _min_delta_next_block to fold INSERT/UPDATE/DELETE into a single net change.
     // Rows are appended as the merge iterator advances and cleared after each key group.
     MutableColumns _stored_data_columns;
-    std::vector<IteratorRowRef> _stored_row_ref;
-
-    std::vector<bool> _stored_has_null_tag;
-    std::vector<bool> _stored_has_variable_length_tag;
 
     // One-row carry-over buffer holding the AFTER row of an UPDATE pair when the BEFORE row
     // was already emitted on the boundary of batch_max_rows(). Flushed by _emit_pending_row()
     // at the start of the next call to *_next_block.
     MutableColumns _pending_row_columns;
     bool _has_pending_row = false;
-
-    phmap::flat_hash_map<const Block*, std::vector<std::pair<int, int>>> _temp_ref_map;
 
     bool _eof = false;
 
@@ -155,7 +145,6 @@ private:
     bool _filter_delete_sign = false;
     bool _filter_row_ttl = false;
     int64_t _row_ttl_now_us = 0;
-    Arena _arena;
 };
 
 } // namespace doris
