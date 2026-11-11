@@ -404,11 +404,6 @@ Status DataTypeJsonbSerDe::deserialize_one_cell_from_simdjson(
     auto& writer = context.jsonb_writer;
     RETURN_IF_ERROR(JsonbParser::parse_value(input.value, writer, context.cache()));
     const auto size = writer.getOutput()->getSize();
-    if (size > JsonBinaryValue::MAX_LENGTH) {
-        return Status::InternalError(
-                "Jsonb value length {} exceeds maximum allowed length of {} bytes", size,
-                JsonBinaryValue::MAX_LENGTH);
-    }
     column.insert_data(writer.getOutput()->getBuffer(), size);
     return Status::OK();
 }
