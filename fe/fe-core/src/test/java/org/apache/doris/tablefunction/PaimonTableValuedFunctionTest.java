@@ -20,9 +20,6 @@ package org.apache.doris.tablefunction;
 import org.apache.doris.datasource.paimon.PaimonReaderOptions;
 
 import org.apache.paimon.CoreOptions;
-import org.apache.paimon.catalog.Identifier;
-import org.apache.paimon.privilege.PrivilegeChecker;
-import org.apache.paimon.privilege.PrivilegedFileStoreTable;
 import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.FallbackReadFileStoreTable;
 import org.apache.paimon.table.FileStoreTable;
@@ -74,10 +71,8 @@ public class PaimonTableValuedFunctionTest {
         Mockito.when(main.options()).thenReturn(Collections.emptyMap());
         Mockito.when(fallback.options()).thenReturn(Collections.emptyMap());
         FallbackReadFileStoreTable pair = new FallbackReadFileStoreTable(main, fallback, true);
-        FileStoreTable privileged = PrivilegedFileStoreTable.wrap(
-                pair, Mockito.mock(PrivilegeChecker.class), Identifier.create("db", "table"));
 
-        Table systemTable = PaimonTableValuedFunction.createRuntimeSafeSystemTable(privileged, "ro");
+        Table systemTable = PaimonTableValuedFunction.createRuntimeSafeSystemTable(pair, "ro");
 
         Assertions.assertInstanceOf(ReadOptimizedTable.class, systemTable);
         Field wrapped = ReadOptimizedTable.class.getDeclaredField("wrapped");

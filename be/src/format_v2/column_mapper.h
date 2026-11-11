@@ -64,9 +64,6 @@ enum TableVirtualColumnType {
     // Doris internal Iceberg row locator column `__DORIS_ICEBERG_ROWID_COL__`.
     // It is a struct used by delete/update/merge, not the Iceberg `_row_id`.
     ICEBERG_ROWID = 3,
-    // Paimon Default blob storage: FILE values materialized from managed .blob files
-    // after physical columns and before table predicates.
-    PAIMON_BLOB = 4,
 };
 
 enum class FilterConversionType {
@@ -152,6 +149,9 @@ struct ColumnMapping {
     std::vector<ColumnMapping> child_mappings;
     // True when file value can be used directly as table value without cast or child remap.
     bool is_trivial = false;
+    // The table reader materializes this BLOB column after ordinary finalize.
+    // Preserve any physical source, but never cast it or push logical BLOB predicates into it.
+    bool requires_blob_materialization = false;
     // How filters referencing this table/global column can be converted below table-reader
     // finalize. This is metadata for localize_filters() and future constant-filter evaluation.
     FilterConversionType filter_conversion = FilterConversionType::FINALIZE_ONLY;
@@ -161,6 +161,10 @@ struct ColumnMapping {
     std::string debug_string() const;
 };
 
+// Inputs needed by a BLOB column materialized by the owning TableReader.
+// PHYSICAL_COLUMN preserves the matched physical tree without interpreting it as the output type.
+enum class BlobMaterializationInput { NONE, PHYSICAL_COLUMN };
+
 struct TableColumnMapperOptions {
     TableColumnMappingMode mode = TableColumnMappingMode::BY_FIELD_ID;
     // Iceberg requires a missing required field to fail unless an initial default is present.
@@ -168,9 +172,10 @@ struct TableColumnMapperOptions {
     bool reject_missing_required_field = false;
     bool allow_idless_complex_wrapper_projection = false;
     bool enable_row_lineage_virtual_columns = false;
-    // Projected Paimon managed BLOB columns materialized as FILE by PaimonBlobMaterializer.
-    // They have no source in the anchor and must bypass constants and file predicate pushdown.
-    std::set<std::string> paimon_blob_columns {};
+    // BLOB columns materialized by TableReader, keyed by query output position rather than
+    // file ordinal or field ID. Matching, physical projection and local positions remain
+    // mapper-owned; logical BLOB predicates stay above physical input materialization.
+    std::map<GlobalIndex, BlobMaterializationInput> table_reader_materialized_blob_columns {};
 
     std::string debug_string() const;
 };

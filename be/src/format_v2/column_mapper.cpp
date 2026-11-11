@@ -197,8 +197,6 @@ std::string virtual_column_type_to_string(TableVirtualColumnType type) {
         return "LAST_UPDATED_SEQUENCE_NUMBER";
     case TableVirtualColumnType::ICEBERG_ROWID:
         return "ICEBERG_ROWID";
-    case TableVirtualColumnType::PAIMON_BLOB:
-        return "PAIMON_BLOB";
     }
     return "UNKNOWN";
 }
@@ -510,6 +508,7 @@ std::string ColumnMapping::debug_string() const {
                               [](const ColumnMapping& child) { return child.debug_string(); })
         << ", is_trivial=" << is_trivial << ", is_constant=" << constant_index.has_value()
         << ", filter_conversion=" << filter_conversion_type_to_string(filter_conversion)
+        << ", requires_blob_materialization=" << requires_blob_materialization
         << ", virtual_column_type=" << virtual_column_type_to_string(virtual_column_type)
         << ", has_default_expr=" << (default_expr != nullptr) << "}";
     return out.str();
@@ -2082,6 +2081,9 @@ static Status build_scan_projection(ColumnMapping* mapping, bool force_full_comp
     const auto file_column_id = LocalColumnId(mapping->file_local_id.value());
     *projection = LocalColumnIndex::top_level(file_column_id);
     projection->timestamp_is_adjusted_to_utc = mapping->timestamp_is_adjusted_to_utc;
+    if (mapping->requires_blob_materialization) {
+        return Status::OK();
+    }
     // Columnar readers can turn a complex mapping into a nested file projection, but
     // row-oriented readers must scan the full top-level complex field because all children are
     // encoded in the same text cell.
@@ -2272,10 +2274,27 @@ Status TableColumnMapper::_create_mapping_for_column(const ColumnDefinition& tab
     mapping->table_column_name = table_column.name;
     mapping->table_type = table_column.type;
     mapping->variant_access_paths = table_column.variant_access_paths;
-    if (_options.paimon_blob_columns.contains(table_column.name)) {
-        // Managed BLOBs live outside the Parquet anchor. Wait for PaimonBlobMaterializer
-        // before evaluating their predicates; do not synthesize missing-column constants.
-        mapping->virtual_column_type = TableVirtualColumnType::PAIMON_BLOB;
+    if (const auto blob_materialization_it =
+                _options.table_reader_materialized_blob_columns.find(global_index);
+        blob_materialization_it != _options.table_reader_materialized_blob_columns.end()) {
+        const auto* file_field =
+                blob_materialization_it->second == BlobMaterializationInput::PHYSICAL_COLUMN
+                        ? _find_file_field(table_column, _file_schema)
+                        : nullptr;
+        if (file_field != nullptr) {
+            // Read the complete physical tree. The owning TableReader converts its leaves;
+            // FILE's logical struct children must never be matched against binary descriptors.
+            DORIS_CHECK(file_field->local_id >= 0 ||
+                        file_field->local_id == GLOBAL_ROWID_COLUMN_ID);
+            mapping->file_local_id = file_field->local_id;
+            mapping->file_column_name = file_field->name;
+            mapping->original_file_type = file_field->type;
+            mapping->original_file_children = file_field->children;
+            mapping->projected_file_children = file_field->children;
+            mapping->file_type = file_field->type;
+        }
+        mapping->requires_blob_materialization = true;
+        mapping->is_trivial = false;
         mapping->filter_conversion = FilterConversionType::FINALIZE_ONLY;
         return Status::OK();
     }
@@ -2534,7 +2553,7 @@ Status TableColumnMapper::create_scan_request(
     // already applied the final scan projection to mapping.file_type/projected_file_children before
     // rewriting filter expressions.
     for (auto& mapping : _mappings) {
-        if (!mapping.file_local_id.has_value()) {
+        if (!mapping.file_local_id.has_value() || mapping.requires_blob_materialization) {
             continue;
         }
         const auto local_id = LocalColumnId(*mapping.file_local_id);

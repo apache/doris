@@ -35,7 +35,7 @@
 #include "exprs/vexpr_context.h"
 #include "format/table/deletion_vector_reader.h"
 #include "format/table/paimon_reader.h"
-#include "format_v2/blob/paimon_blob_materializer.h"
+#include "format_v2/blob/paimon_blob_columns_materializer.h"
 #include "format_v2/column_mapper.h"
 #include "format_v2/jni/paimon_jni_reader.h"
 #include "format_v2/table/paimon_rust_table_reader.h"
@@ -239,30 +239,30 @@ Status apply_paimon_timestamp_semantics(format::ColumnDefinition* column) {
 
 } // namespace
 
-PaimonReader::PaimonReader() : _blob_materializer(std::make_unique<PaimonBlobMaterializer>()) {}
+PaimonReader::PaimonReader()
+        : _blob_columns_materializer(std::make_unique<PaimonBlobColumnsMaterializer>()) {}
 
 PaimonReader::~PaimonReader() = default;
 
 Status PaimonReader::init(format::TableReadOptions&& options) {
     RETURN_IF_ERROR(TableReader::init(std::move(options)));
     const std::map<std::string, std::string> empty_options;
-    return _blob_materializer->init(_scan_params && _scan_params->__isset.paimon_options
-                                            ? _scan_params->paimon_options
-                                            : empty_options,
-                                    _scanner_profile);
+    return _blob_columns_materializer->init(_projected_columns,
+                                            _scan_params && _scan_params->__isset.paimon_options
+                                                    ? _scan_params->paimon_options
+                                                    : empty_options,
+                                            _scanner_profile);
 }
 
 Status PaimonReader::abort_split() {
     auto status = TableReader::abort_split();
-    _blob_materializer->reset();
-    _blob_row_position_index.reset();
+    _blob_columns_materializer->reset();
     return status;
 }
 
 Status PaimonReader::close() {
     auto status = TableReader::close();
-    _blob_materializer->reset();
-    _blob_row_position_index.reset();
+    _blob_columns_materializer->reset();
     return status;
 }
 
@@ -273,8 +273,7 @@ Status PaimonReader::prepare_split(const format::SplitReadOptions& options) {
         SCOPED_TIMER(_profile.prepare_split_timer);
         const auto& paimon_params = options.current_range.table_format_params.paimon_params;
         _split_schema_id = paimon_params.__isset.schema_id ? paimon_params.schema_id : -1;
-        _blob_row_position_index.reset();
-        RETURN_IF_ERROR(_blob_materializer->prepare_split(paimon_params, _projected_columns));
+        RETURN_IF_ERROR(_blob_columns_materializer->prepare_split(paimon_params));
     }
     RETURN_IF_ERROR(format::TableReader::prepare_split(options));
     SCOPED_TIMER(_profile.total_timer);
@@ -322,37 +321,39 @@ Status PaimonReader::customize_file_scan_request(format::FileScanRequest* file_r
     DORIS_CHECK(file_request != nullptr);
     RETURN_IF_ERROR(format::TableReader::customize_file_scan_request(file_request));
     file_request->variant_schema_overrides = _variant_schema_overrides;
-    if (_blob_materializer->has_blob_columns()) {
-        // Request original file positions alongside surviving rows for the BLOB row-ID join.
-        const auto id = format::LocalColumnId(format::ROW_POSITION_COLUMN_ID);
-        _append_file_scan_column(file_request, id, &file_request->non_predicate_columns);
-        _blob_row_position_index = file_request->local_positions.at(id);
+    for (const auto row_position_column_id :
+         _blob_columns_materializer->additional_row_position_columns()) {
+        _append_file_scan_column(file_request, row_position_column_id,
+                                 &file_request->non_predicate_columns);
+    }
+    if (_blob_columns_materializer->has_blob_columns()) {
+        RETURN_IF_ERROR(_blob_columns_materializer->prepare_file_inputs(
+                _data_reader.column_mapper->mappings(), *file_request));
     }
     return Status::OK();
 }
 
 void PaimonReader::configure_mapper_options(format::TableColumnMapperOptions* options) const {
-    options->paimon_blob_columns = _blob_materializer->blob_column_names();
+    _blob_columns_materializer->configure_mapper_options(options);
 }
 
 Status PaimonReader::materialize_virtual_columns(Block* table_block) {
-    if (!_blob_row_position_index || table_block->rows() == 0) {
+    if (table_block->rows() == 0 || !_blob_columns_materializer->has_blob_columns()) {
         return Status::OK();
     }
-    const auto& anchor_row_positions = assert_cast<const ColumnInt64&>(
-            *_data_reader.block_template.get_by_position(_blob_row_position_index->value()).column);
-    return _blob_materializer->materialize(
-            anchor_row_positions, table_block,
-            {.system_properties = *_system_properties,
-             .runtime_state = _runtime_state,
-             .io_ctx = _io_ctx.get(),
-             .profile = _scanner_profile,
-             .fs_name = _current_file_range_desc.fs_name,
-             .file_cache_admission = !_current_file_range_desc.__isset.file_cache_admission ||
-                                     _current_file_range_desc.file_cache_admission,
-             .blob_max_size = _runtime_state != nullptr
-                                      ? _runtime_state->query_options().paimon_blob_max_size
-                                      : TQueryOptions().paimon_blob_max_size});
+    const PaimonBlobColumnsMaterializer::ReadContext read_context {
+            .system_properties = *_system_properties,
+            .runtime_state = _runtime_state,
+            .io_ctx = _io_ctx.get(),
+            .profile = _scanner_profile,
+            .fs_name = _current_file_range_desc.fs_name,
+            .file_cache_admission = !_current_file_range_desc.__isset.file_cache_admission ||
+                                    _current_file_range_desc.file_cache_admission,
+            .blob_max_size = _runtime_state != nullptr
+                                     ? _runtime_state->query_options().paimon_blob_max_size
+                                     : TQueryOptions().paimon_blob_max_size};
+    return _blob_columns_materializer->materialize(_data_reader.block_template, table_block,
+                                                   read_context);
 }
 
 Status PaimonReader::_parse_deletion_vector_file(const TTableFormatFileDesc& t_desc,

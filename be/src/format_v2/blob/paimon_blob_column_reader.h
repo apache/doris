@@ -17,82 +17,48 @@
 
 #pragma once
 
-#include <cstdint>
 #include <memory>
 #include <string>
-#include <vector>
 
-#include "core/column/column_vector.h"
+#include "format_v2/blob/paimon_blob_column_builder.h"
+#include "format_v2/blob/paimon_blob_read_context.h"
 #include "format_v2/column_data.h"
 #include "gen_cpp/PlanNodes_types.h"
 
-namespace doris {
-class RuntimeProfile;
-class RuntimeState;
-namespace io {
-struct FileSystemProperties;
-struct IOContext;
-} // namespace io
-} // namespace doris
-
-namespace doris::format {
-class BlobFileReader;
-} // namespace doris::format
-
 namespace doris::format::paimon {
 
-// Reads one top-level BLOB column using Paimon Default blob storage. Managed .blob files
-// are joined by logical row ID; descriptor-only/external-storage layouts are handled by JNI.
-// Output may contain inline bytes or a descriptor, independently of this storage restriction.
-// This reader has no knowledge of output Block positions.
+class PaimonBlobPayloadReader;
+
+enum class PaimonBlobInputLayout { ROW_POSITION, DESCRIPTOR_COLUMN };
+
+// One call per column/batch. Concrete readers own input interpretation; all of them
+// use PaimonBlobColumnBuilder for FILE construction. No file/table Block positions here.
 class PaimonBlobColumnReader {
 public:
-    // The context is borrowed for read_blob(). Scanner-owned profile and I/O statistics
-    // must outlive this reader, since the opened file readers retain them.
-    struct ReadContext {
-        const io::FileSystemProperties& system_properties;
-        RuntimeState* runtime_state;
-        const io::IOContext* io_ctx;
-        RuntimeProfile* profile;
-        const std::string& fs_name;
-        bool file_cache_admission;
-        // Per-value inline payload limit; descriptor output does not read payload bytes.
-        int64_t blob_max_size;
-    };
+    using ReadContext = PaimonBlobReadContext;
+    virtual ~PaimonBlobColumnReader() = default;
 
-    // Sort a nonempty group for one field and verify contiguous coverage of the whole anchor.
-    // The caller validates field IDs and the non-overflowing anchor range first. This is also
-    // used for unprojected groups, so corrupt metadata cannot be mistaken for a missing column.
-    static Status validate_blob_files(std::vector<const TPaimonBlobFileDesc*>* files,
-                                      int64_t anchor_first_row_id, int64_t anchor_row_count);
+    static std::unique_ptr<PaimonBlobColumnReader> create(PaimonBlobInputLayout input_layout,
+                                                          const ColumnDefinition& column_definition,
+                                                          PaimonBlobOutputMode output_mode,
+                                                          PaimonBlobPayloadReader& payload_reader);
 
-    // Copies descriptors from an already validated/sorted group; borrows no metadata pointers.
-    // An empty group means this field was absent when the anchor was written.
-    PaimonBlobColumnReader(const ColumnDefinition& column,
-                           const std::vector<const TPaimonBlobFileDesc*>& files,
-                           bool blob_as_descriptor);
+    virtual Status prepare_split(const TPaimonFileDesc& split_params) = 0;
+    // Release current split state; retain the column definition and output mode for reuse.
+    virtual void reset() = 0;
+    virtual Status read(const ColumnPtr& input_column, const DataTypePtr& input_column_type,
+                        const ReadContext& read_context, ColumnPtr* result_column) = 0;
 
-    ~PaimonBlobColumnReader();
+protected:
+    PaimonBlobColumnReader(const ColumnDefinition& column_definition,
+                           PaimonBlobOutputMode output_mode)
+            : _column_name(column_definition.name),
+              _result_column_type(column_definition.type),
+              _output_mode(output_mode) {}
 
-    // anchor_row_positions are zero-based original positions in the complete Parquet file,
-    // preserved across filtering and byte splits. Returns one FILE value per input position;
-    // files and decoded indexes are opened lazily.
-    Status read_blob(const ColumnInt64& anchor_row_positions, int64_t anchor_first_row_id,
-                     const ReadContext& context, MutableColumnPtr* blob_column_result);
-
-private:
-    struct BlobFileState {
-        TPaimonBlobFileDesc blob_metadata;
-        // Created on first access; metadata and decoded indexes are reused across batches.
-        std::unique_ptr<BlobFileReader> blob_reader;
-    };
-
-    Status _open_blob_file(BlobFileState* blob_file, const ReadContext& context);
-
-    std::string _blob_column_name;
-    DataTypePtr _blob_column_type;
-    std::vector<BlobFileState> _blob_files;
-    bool _blob_as_descriptor;
+    std::string _column_name;
+    DataTypePtr _result_column_type;
+    PaimonBlobOutputMode _output_mode;
 };
 
 } // namespace doris::format::paimon

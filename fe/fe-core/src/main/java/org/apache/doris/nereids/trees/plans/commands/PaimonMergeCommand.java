@@ -101,9 +101,9 @@ public class PaimonMergeCommand extends Command implements ForwardWithSync, Expl
             target = new LogicalSubQueryAlias<>(targetAlias.get(), target);
         }
         JoinType joinType = notMatchedClauses.isEmpty()
-                ? JoinType.INNER_JOIN : JoinType.LEFT_OUTER_JOIN;
+                ? JoinType.INNER_JOIN : JoinType.RIGHT_OUTER_JOIN;
         return new LogicalJoin<>(joinType, ImmutableList.of(), ImmutableList.of(onClause),
-                source, target, JoinReorderContext.EMPTY);
+                target, source, JoinReorderContext.EMPTY);
     }
 
     @Override

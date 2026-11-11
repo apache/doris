@@ -402,6 +402,10 @@ struct TPaimonFileDesc {
     22: optional i64 anchor_first_row_id
     // Complete anchor range: [anchor_first_row_id, anchor_first_row_id + anchor_row_count).
     23: optional i64 anchor_row_count
+    // Field 24 is reserved for vector_payload on master.
+    // Managed primary-key BLOB fields stored as descriptors inside this native data file.
+    // Absence preserves the existing row-ID/ordinary native reader behavior.
+    25: optional list<i32> blob_descriptor_field_ids
 }
 
 struct TTrinoConnectorFileDesc {
