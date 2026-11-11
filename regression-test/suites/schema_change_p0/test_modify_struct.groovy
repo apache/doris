@@ -228,7 +228,7 @@ suite ("test_modify_struct") {
                 waitUntilSchemaChangeDone.call(tableName, "")
             },changeTypeErrMsg)
             // 3.12 add sub-column with json/variant; when in DataType::validateNestedType will throw exception
-            def jsonVariantErrMsg="errCode = 2, detailMessage = STRUCT unsupported sub-type"
+            def jsonVariantErrMsg="STRUCT unsupported sub-type"
             for (String type : ["JSON", "VARIANT"]) {
                 expectExceptionLike({
                     sql """ alter table ${tableName} modify column c_s_1 STRUCT<col:VARCHAR(30), col1:INT, col2:DECIMAL(10,2), col3:${type}> ${defaultValue} """

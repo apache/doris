@@ -19,12 +19,15 @@ package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ColumnToThrift;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MysqlColType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.mysql.MysqlSerializer;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.persist.gson.GsonUtilsCatalog;
 import org.apache.doris.thrift.TPrimitiveType;
@@ -92,6 +95,50 @@ public class FileTypeTest {
         Assertions.assertThrows(Exception.class,
                 () -> new NereidsParser().parseSingle("SELECT CAST(NULL AS FILE(10))"));
         Assertions.assertDoesNotThrow(() -> new NereidsParser().parseSingle("SELECT file FROM files"));
+    }
+
+    @Test
+    public void testColumnValidationRejectsFileAndPreservesExpressionTypes() {
+        for (String sql : Arrays.asList("FILE", "ARRAY<FILE>", "STRUCT<f:FILE>", "MAP<STRING,FILE>",
+                "ARRAY<STRUCT<f:FILE>>", "STRUCT<f:MAP<STRING,ARRAY<FILE>>>",
+                "AGG_STATE<count(FILE)>", "AGG_STATE<any_value(ARRAY<FILE>)>")) {
+            DataType type = DataType.convertFromString(sql);
+            Assertions.assertDoesNotThrow(() -> type.validateDataType(), sql);
+            String expected = "Invalid type " + type.toCatalogDataType().toSql() + " for column 'f': "
+                    + "FILE and types containing FILE cannot be used as table columns";
+            for (boolean isOlap : Arrays.asList(true, false)) {
+                ColumnDefinition column = new ColumnDefinition("f", type, true);
+                AnalysisException error = Assertions.assertThrows(AnalysisException.class,
+                        () -> column.validate(isOlap, Collections.emptySet(), Collections.emptySet(),
+                                false, KeysType.DUP_KEYS), sql);
+                Assertions.assertEquals(expected, error.getMessage());
+            }
+        }
+    }
+
+    @Test
+    public void testColumnValidationAcceptsOrdinaryTypes() {
+        for (String sql : Arrays.asList("INT", "STRING", "ARRAY<INT>", "STRUCT<f:STRING>", "MAP<STRING,INT>")) {
+            DataType type = DataType.convertFromString(sql);
+            for (boolean isOlap : Arrays.asList(true, false)) {
+                ColumnDefinition column = new ColumnDefinition("f", type, true);
+                Assertions.assertDoesNotThrow(() -> column.validate(isOlap, Collections.emptySet(),
+                        Collections.emptySet(), false, KeysType.DUP_KEYS), sql);
+            }
+        }
+    }
+
+    @Test
+    public void testColumnValidationPreservesEarlierTypeErrors() {
+        DataType map = DataType.convertFromString("MAP<FILE,INT>");
+        ColumnDefinition column = new ColumnDefinition("f", map, true);
+        AnalysisException error = Assertions.assertThrows(AnalysisException.class,
+                () -> column.validate(true, Collections.emptySet(), Collections.emptySet(), false, KeysType.DUP_KEYS));
+        Assertions.assertTrue(error.getMessage().contains("MAP key type must be a primitive type"),
+                error.getMessage());
+        Assertions.assertTrue(error.getMessage().startsWith(
+                "Invalid type " + map.toCatalogDataType().toSql() + " for column 'f':"),
+                error.getMessage());
     }
 
     @Test

@@ -17,28 +17,23 @@
 
 package org.apache.doris.nereids.types;
 
-import org.apache.doris.alter.MaterializedViewHandler;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.info.TableNameInfo;
-import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.rules.expression.check.CheckCast;
 import org.apache.doris.nereids.trees.plans.commands.CreateMTMVCommand;
-import org.apache.doris.nereids.trees.plans.commands.CreateMaterializedViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableLikeCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.AddColumnOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.DefaultValue;
-import org.apache.doris.nereids.trees.plans.commands.info.DistributionDescriptor;
 import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.PartitionTableInfo;
 import org.apache.doris.nereids.util.PlanChecker;
@@ -85,7 +80,8 @@ public class FileTypeDdlTest extends TestWithFeService {
                 AggregateType agg = keys == KeysType.AGG_KEYS ? AggregateType.REPLACE : null;
                 AnalysisException error = Assertions.assertThrows(AnalysisException.class,
                         () -> validate(column(sql, false, agg, Optional.empty()), true, keys));
-                Assertions.assertEquals("FILE columns are not supported in internal tables", error.getMessage());
+                Assertions.assertTrue(error.getMessage().contains(
+                        "FILE and types containing FILE cannot be used as table columns"), error.getMessage());
             }
         }
         Assertions.assertThrows(AnalysisException.class,
@@ -104,11 +100,13 @@ public class FileTypeDdlTest extends TestWithFeService {
             for (String ddl : Arrays.asList(
                     "CREATE TABLE ddl_file (id INT, f " + sqlType + ") DUPLICATE KEY(id) "
                             + "DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES('replication_num'='1')",
+                    "CREATE TABLE ddl_file_hash (id INT, f " + sqlType + ") DUPLICATE KEY(id) "
+                            + "DISTRIBUTED BY HASH(f) BUCKETS 1 PROPERTIES('replication_num'='1')",
                     "CREATE TABLE ddl_ctas DISTRIBUTED BY HASH(id) BUCKETS 1 "
                             + "PROPERTIES('replication_num'='1') AS SELECT 1 AS id, " + value.getValue() + " AS f")) {
                 Exception error = Assertions.assertThrows(Exception.class, () -> createTable(ddl));
                 Assertions.assertTrue(error.getMessage().contains(
-                        "FILE columns are not supported in internal tables"), error.getMessage());
+                        "FILE and types containing FILE cannot be used as table columns"), error.getMessage());
             }
         }
     }
@@ -126,39 +124,27 @@ public class FileTypeDdlTest extends TestWithFeService {
         Exception error = Assertions.assertThrows(Exception.class,
                 () -> command.run(connectContext, new StmtExecutor(connectContext, sql)));
         Assertions.assertTrue(error.getMessage().contains(
-                "FILE columns are not supported in internal tables"), error.getMessage());
+                "FILE and types containing FILE cannot be used as table columns"), error.getMessage());
     }
 
     @Test
-    public void testMaterializedViewRejectsFileColumns() throws Exception {
-        createTable("CREATE TABLE ddl_mv_source (id INT, f STRING, extra INT) DUPLICATE KEY(id) "
-                + "DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES('replication_num'='1')");
-        OlapTable source = (OlapTable) Env.getCurrentInternalCatalog().getDbOrAnalysisException("file_agg_state_ddl")
-                .getTableOrAnalysisException("ddl_mv_source");
-        for (String sqlType : Arrays.asList("FILE", "ARRAY<FILE>", "STRUCT<f:FILE>", "MAP<STRING,FILE>")) {
-            // Simulate a pre-existing FILE table; MV creation must not bypass the new schema restriction.
-            source.getColumn("f").setType(DataType.convertFromString(sqlType).toCatalogDataType());
-            String syncSql = "CREATE MATERIALIZED VIEW ddl_sync_file AS SELECT id, f FROM ddl_mv_source ORDER BY id";
-            createStatementCtx(syncSql);
-            CreateMaterializedViewCommand sync = (CreateMaterializedViewCommand)
-                    new NereidsParser().parseSingle(syncSql);
-            sync.validate(connectContext);
-            Exception syncError = Assertions.assertThrows(Exception.class,
-                    () -> Deencapsulation.invoke(new MaterializedViewHandler(), "checkAndPrepareMaterializedView",
-                            sync, source, Collections.emptyMap()));
-            Assertions.assertTrue(syncError.getMessage().contains(
-                    "Do not support FILE type or types containing FILE in materialized view columns"),
-                    syncError.getMessage());
-
-            String asyncSql = "CREATE MATERIALIZED VIEW ddl_async_file BUILD DEFERRED REFRESH COMPLETE ON MANUAL "
-                    + "DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES('replication_num'='1') "
-                    + "AS SELECT id, f FROM ddl_mv_source";
-            createStatementCtx(asyncSql);
-            CreateMTMVCommand async = (CreateMTMVCommand) new NereidsParser().parseSingle(asyncSql);
-            Exception asyncError = Assertions.assertThrows(Exception.class,
-                    () -> async.getCreateMTMVInfo().analyze(connectContext));
-            Assertions.assertTrue(asyncError.getMessage().contains(
-                    "FILE columns are not supported in internal tables"), asyncError.getMessage());
+    public void testAsyncMaterializedViewUsesTableColumnValidation() {
+        String file = "to_file('file_ddl', null)";
+        for (String value : Arrays.asList(file, "array(" + file + ")", "named_struct('f', " + file + ")",
+                "map('f', " + file + ")")) {
+            for (String distributionColumn : Arrays.asList("id", "f")) {
+                String sql = "CREATE MATERIALIZED VIEW ddl_async_file BUILD DEFERRED REFRESH COMPLETE ON MANUAL "
+                        + "DISTRIBUTED BY HASH(" + distributionColumn + ") BUCKETS 1 "
+                        + "PROPERTIES('replication_num'='1', 'enable_nondeterministic_function'='true') "
+                        + "AS SELECT id, " + value + " AS f FROM ddl_base";
+                createStatementCtx(sql);
+                CreateMTMVCommand command = (CreateMTMVCommand) new NereidsParser().parseSingle(sql);
+                Exception error = Assertions.assertThrows(Exception.class,
+                        () -> command.getCreateMTMVInfo().analyze(connectContext));
+                Assertions.assertTrue(error.getMessage().contains("for column 'f'"), error.getMessage());
+                Assertions.assertTrue(error.getMessage().contains(
+                        "FILE and types containing FILE cannot be used as table columns"), error.getMessage());
+            }
         }
     }
 
@@ -189,7 +175,8 @@ public class FileTypeDdlTest extends TestWithFeService {
         for (String sql : Arrays.asList("ARRAY<STRUCT<f:FILE>>", "STRUCT<f:MAP<STRING,ARRAY<FILE>>>")) {
             Exception error = Assertions.assertThrows(Exception.class,
                     () -> validate(column(sql, false, null, Optional.empty()), false, KeysType.DUP_KEYS));
-            Assertions.assertEquals("FILE columns are not supported in external tables", error.getMessage());
+            Assertions.assertTrue(error.getMessage().contains(
+                    "FILE and types containing FILE cannot be used as table columns"), error.getMessage());
         }
     }
 
@@ -213,20 +200,20 @@ public class FileTypeDdlTest extends TestWithFeService {
         for (String leaf : Arrays.asList("FILE", "ARRAY<FILE>", "STRUCT<f:FILE>", "MAP<STRING,FILE>")) {
             String sql = "AGG_STATE<any_value(" + leaf + ")>";
             DataType state = DataType.convertFromString(sql);
-            AnalysisException error = Assertions.assertThrows(AnalysisException.class, state::validateDataType);
-            Assertions.assertTrue(error.getMessage().contains("AGG_STATE does not support FILE"), error.getMessage());
+            Assertions.assertDoesNotThrow(state::validateDataType);
             ColumnDefinition added = column(sql, false, null, Optional.empty());
             AnalysisException alterError = Assertions.assertThrows(AnalysisException.class,
                     () -> AddColumnOp.validateColumnDef(tableName, added, null, null));
-            Assertions.assertTrue(alterError.getMessage().contains("AGG_STATE does not support FILE"),
-                    alterError.getMessage());
+            Assertions.assertTrue(alterError.getMessage().contains(
+                    "FILE and types containing FILE cannot be used as table columns"), alterError.getMessage());
         }
         Assertions.assertDoesNotThrow(() -> DataType.convertFromString("AGG_STATE<sum(INT)>").validateDataType());
         for (String sql : Arrays.asList("FILE", "ARRAY<FILE>", "STRUCT<f:FILE>", "MAP<STRING,FILE>")) {
             AnalysisException error = Assertions.assertThrows(AnalysisException.class,
                     () -> AddColumnOp.validateColumnDef(tableName, column(sql, false, null, Optional.empty()),
                             null, null));
-            Assertions.assertEquals("FILE columns are not supported in internal tables", error.getMessage());
+            Assertions.assertTrue(error.getMessage().contains(
+                    "FILE and types containing FILE cannot be used as table columns"), error.getMessage());
         }
     }
 
@@ -295,17 +282,11 @@ public class FileTypeDdlTest extends TestWithFeService {
     }
 
     @Test
-    public void testRejectDistributionClusterAndIndexes() {
+    public void testRejectClusterAndIndexes() {
         for (String sql : Arrays.asList("FILE", "ARRAY<FILE>", "STRUCT<f:FILE>", "MAP<STRING,FILE>")) {
             ColumnDefinition column = column(sql, false, null, Optional.empty());
             Assertions.assertThrows(Exception.class, () -> column.validate(true, Collections.emptySet(),
                     Collections.singleton("f"), false, KeysType.DUP_KEYS));
-            DistributionDescriptor distribution = new DistributionDescriptor(true, false, 1,
-                    Collections.singletonList("f"));
-            Assertions.assertThrows(Exception.class,
-                    () -> distribution.validate(Collections.singletonMap("f", column), KeysType.DUP_KEYS));
-            Assertions.assertThrows(Exception.class,
-                    () -> HashDistributionInfo.checkDistributionColumnType("f", column.getType().toCatalogDataType()));
             Assertions.assertFalse(IndexDefinition.isSupportIdxType(column.getType()), sql);
             Assertions.assertFalse(new Column("f", column.getType().toCatalogDataType()).isSupportBloomFilter(), sql);
             for (String indexType : Arrays.asList("INVERTED", "BLOOMFILTER", "NGRAM_BF")) {
