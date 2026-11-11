@@ -34,29 +34,27 @@ class RuntimeProfile;
 
 // The reads of AGG_KEYS tables that fold the rows of a key: queries that did not push their
 // aggregation down, compactions and the checksum task. Like StarRocks' AggregateIterator and its
-// ChunkAggregator, it takes the rows of the read in key order as merged Blocks and, for each
-// merged Block,
+// ChunkAggregator, it takes the rows of the read in key order as merged Blocks, the rows of one
+// key in the order they were written and never split between two merged Blocks (see
+// MergeDecision::whole_key_groups), and, for each merged Block,
 //   1. marks the rows whose key equals the key of the row before (build_equal_flags_for_column()
-//      for every key column; the first row is compared with the last row of the output, the key
-//      of the group still open);
+//      for every key column); the first row starts a group;
 //   2. turns every key group into one output row:
-//      - the key columns and the REPLACE columns are copied from the group's first row, the
-//        newest one, which the REPLACE reader function keeps (replace_if_not_null skips NULLs and
-//        is folded);
+//      - the key columns and the REPLACE columns are copied from the group's last row, the
+//        newest one;
 //      - the other value columns are folded by ValueAggregator;
 //      - a stretch of one-row groups is copied to the output as is when every folded function
 //        returns its single input unchanged.
 // Example with the merged Block k1 k1 k2 k3 k4 k4 (flags 0 1 0 0 0 1): k1 is folded from rows
-// 0-1, k2 and k3 are copied from rows 2-3, and k4 starts a group folded from rows 4-5 that
-// stays open into the next merged Block.
+// 0-1, k2 and k3 are copied from rows 2-3, and k4 is folded from rows 4-5.
 // An output Block only ends in front of a new key, so it never splits a key group.
 class AggKeyBlockIterator {
 public:
-    // Folds the value columns of key groups with the storage aggregate function of each column
-    // (the `_reader` variant of the column's aggregation, e.g. sum_reader). The rows of a group
-    // are row ranges of the merged Blocks, added with one add_batch_range per range and column. A
-    // group may span several merged Blocks: its partial state stays in the function's place until
-    // close_group() appends the result row.
+    // Folds the value columns of key groups with the storage aggregate function of each column:
+    // the `_reader` variant of the column's aggregation (e.g. sum_reader), or the `_load` one of
+    // REPLACE_IF_NOT_NULL, which takes the last non-NULL value as the rows come in the order they
+    // were written. A group lies within one merged Block, so fold_group() adds its rows with one
+    // add_batch_range per column and appends the result row while the Block still holds them.
     class ValueAggregator {
     public:
         ValueAggregator() = default;
@@ -76,15 +74,13 @@ public:
         // so that a one-row group can be copied to the output instead of folded.
         bool returns_single_row_unchanged() const { return _returns_single_row_unchanged; }
 
-        // The rows of `block` are added next: note which folded columns of it hold a NULL, so
+        // The rows of `block` are folded next: note which folded columns of it hold a NULL, so
         // that the nullable functions take their batch path for the columns that hold none.
         void start_block(const Block& block);
 
-        // Add rows [begin, end) of the Block passed to start_block() to the open group.
-        void add_rows(const Block& block, size_t begin, size_t end);
-
-        // Append the open group's result row to `out` and start an empty group.
-        void close_group(MutableColumns& out);
+        // Fold rows [begin, end) of the Block passed to start_block(), the rows of one key, and
+        // append the result row to `out`.
+        void fold_group(const Block& block, size_t begin, size_t end, MutableColumns& out);
 
     private:
         struct AggColumn {
@@ -98,9 +94,9 @@ public:
         std::vector<uint32_t> _agg_ordinals;
         std::vector<AggColumn> _columns;
         bool _returns_single_row_unchanged = true;
-        // The memory of the places. Not `_arena`, which close_group() clears.
+        // The memory of the places. Not `_arena`, which fold_group() clears.
         Arena _state_arena;
-        // Allocations of the open group's states, released when the group closes.
+        // Allocations of the states of the group being folded, released once it is folded.
         Arena _arena;
     };
 
@@ -128,7 +124,7 @@ private:
 
     // What one next_block() call has appended so far.
     struct OutputProgress {
-        // Result rows; the open group is not one yet.
+        // Result rows.
         size_t rows = 0;
         // `rows` when the byte budget was measured last.
         size_t rows_at_last_check = 0;
@@ -136,9 +132,8 @@ private:
         uint64_t merged_rows = 0;
     };
 
-    // Copy the collected heads and read the next merged Block; past the last row, close the
-    // open group and finish.
-    Status _advance_merged_block(MutableColumns& columns, OutputProgress* progress);
+    // Copy the collected last rows and read the next merged Block.
+    Status _advance_merged_block(MutableColumns& columns);
     // Fold the rows of `_merged` from `_pos` on until it is consumed or the output Block is
     // full (`*full`); a full output Block ends in front of the first row of a group.
     Status _fold_merged_rows(MutableColumns& columns, OutputProgress* progress, bool* full);
@@ -151,15 +146,16 @@ private:
     // The end (exclusive) of the stretch of one-row groups starting at `_pos`, `room` at most.
     size_t _one_row_groups_end(size_t room) const;
     // Read the next merged Block into `_merged` and mark its rows of one key in `_same_key`;
-    // `_rows_eof` once there is none. `columns` is the output, whose last row holds the key of the
-    // open group.
+    // `_done` once there is none. `columns` is the output.
     Status _read_merged_block(const MutableColumns& columns);
     // Set `_same_key` for the rows of `_merged`, see the class comment.
     void _mark_same_keys(const MutableColumns& columns);
-    // The end (exclusive) of the group starting at or continued at row `begin` of `_merged`.
+    // Whether the first row of `_merged` has the key of the last row of `columns`.
+    bool _continues_last_output_key(const MutableColumns& columns) const;
+    // The end (exclusive) of the group starting at row `begin` of `_merged`.
     size_t _group_end(size_t begin) const;
-    // Copy the head columns of the group heads collected from `_merged` into `columns`.
-    Status _copy_heads(MutableColumns& columns);
+    // Copy the copied columns of the group last rows collected from `_merged` into `columns`.
+    Status _copy_last_rows(MutableColumns& columns);
     // Copy the folded columns of rows [begin, end) of `_merged`, one-row groups, into `columns`.
     Status _copy_single_rows(MutableColumns& columns, size_t begin, size_t end);
 
@@ -171,10 +167,10 @@ private:
     const int _be_exec_version;
     uint64_t* _merged_rows;
 
-    // Read-schema ordinals of the key columns, and of the columns copied from a group's first
+    // Read-schema ordinals of the key columns, and of the columns copied from a group's last
     // row: the keys and the REPLACE columns.
     std::vector<uint32_t> _key_ordinals;
-    std::vector<uint32_t> _head_ordinals;
+    std::vector<uint32_t> _copied_ordinals;
     ValueAggregator _aggregator;
     bool _copy_one_row_groups = false;
 
@@ -182,11 +178,8 @@ private:
     Block _merged;
     EqualFlags _same_key;
     size_t _pos = 0;
-    bool _rows_eof = false;
-    // The last group started has no result row in the output yet.
-    bool _group_open = false;
-    // Rows of `_merged` that start a group whose head columns are not copied yet.
-    std::vector<uint32_t> _heads;
+    // Rows of `_merged` that end a group whose copied columns are not copied yet.
+    std::vector<uint32_t> _last_rows;
     // Every row has been read and every group emitted.
     bool _done = false;
 };

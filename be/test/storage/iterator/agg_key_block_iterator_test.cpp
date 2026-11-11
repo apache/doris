@@ -15,11 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// AggKeyBlockIterator::ValueAggregator folds key groups given as row ranges of merged Blocks: one group per
-// range set, a group open across Blocks, NULLs skipped by the nullable functions, and whether
-// one-row groups may be copied instead of folded. AggKeyBlockIterator turns every key group of
-// the merged Blocks into one row: the keys and the REPLACE values of the group's first row, the
-// other values folded, groups cut by a merged Block folded once, and output Blocks that end in
+// AggKeyBlockIterator::ValueAggregator folds key groups given as row ranges of merged Blocks: one
+// result row per group, NULLs skipped by the nullable functions, the last value that is not NULL
+// for REPLACE_IF_NOT_NULL, and whether one-row groups may be copied instead of folded.
+// AggKeyBlockIterator turns every key group of the merged Blocks into one row: the keys and the
+// REPLACE values of the group's last row, the other values folded, and output Blocks that end in
 // front of a new key.
 
 #include "storage/iterator/agg_key_block_iterator.h"
@@ -185,12 +185,9 @@ TEST(AggKeyBlockIteratorValueAggregatorTest, FoldsEachGroupFromItsRowRange) {
 
     // Groups: rows [0,2) -> 1+2, rows [2,5) -> 3+4+5, row 5 -> 6.
     aggregator->start_block(block);
-    aggregator->add_rows(block, 0, 2);
-    aggregator->close_group(out);
-    aggregator->add_rows(block, 2, 5);
-    aggregator->close_group(out);
-    aggregator->add_rows(block, 5, 6);
-    aggregator->close_group(out);
+    aggregator->fold_group(block, 0, 2, out);
+    aggregator->fold_group(block, 2, 5, out);
+    aggregator->fold_group(block, 5, 6, out);
 
     ASSERT_EQ(out[1]->size(), 3);
     EXPECT_EQ(value_at(*out[1], 0), 3);
@@ -198,25 +195,25 @@ TEST(AggKeyBlockIteratorValueAggregatorTest, FoldsEachGroupFromItsRowRange) {
     EXPECT_EQ(value_at(*out[1], 2), 6);
 }
 
-TEST(AggKeyBlockIteratorValueAggregatorTest, KeepsAGroupOpenAcrossBlocks) {
-    auto schema = make_read_schema(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_MAX);
+// The rows of a key come in the order they were written: REPLACE_IF_NOT_NULL takes the last value
+// that is not NULL, and NULL for a group of NULLs only.
+TEST(AggKeyBlockIteratorValueAggregatorTest, ReplaceIfNotNullTakesTheLastValueThatIsNotNull) {
+    auto schema = make_read_schema(
+            FieldAggregationMethod::OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL, /*nullable=*/true);
     auto aggregator = make_aggregator(*schema);
-    Block first = make_block(*schema, {4, 9, 2});
-    Block second = make_block(*schema, {7, 11});
+    Block block = make_block(*schema, {1, 2, std::nullopt, std::nullopt, std::nullopt, 3});
     MutableColumns out = schema->create_read_block().mutate_columns();
 
-    // One group from the last two rows of the first Block and the first row of the second.
-    aggregator->start_block(first);
-    aggregator->add_rows(first, 0, 1);
-    aggregator->close_group(out);
-    aggregator->add_rows(first, 1, 3);
-    aggregator->start_block(second);
-    aggregator->add_rows(second, 0, 1);
-    aggregator->close_group(out);
+    // Groups: rows [0,3) -> 2, rows [3,5) -> NULL, row 5 -> 3.
+    aggregator->start_block(block);
+    aggregator->fold_group(block, 0, 3, out);
+    aggregator->fold_group(block, 3, 5, out);
+    aggregator->fold_group(block, 5, 6, out);
 
-    ASSERT_EQ(out[1]->size(), 2);
-    EXPECT_EQ(value_at(*out[1], 0), 4);
-    EXPECT_EQ(value_at(*out[1], 1), 9);
+    ASSERT_EQ(out[1]->size(), 3);
+    EXPECT_EQ(value_at(*out[1], 0), 2);
+    EXPECT_EQ(value_at(*out[1], 1), std::nullopt);
+    EXPECT_EQ(value_at(*out[1], 2), 3);
 }
 
 TEST(AggKeyBlockIteratorValueAggregatorTest, NullableSumSkipsNulls) {
@@ -230,13 +227,10 @@ TEST(AggKeyBlockIteratorValueAggregatorTest, NullableSumSkipsNulls) {
     MutableColumns out = schema->create_read_block().mutate_columns();
 
     aggregator->start_block(with_nulls);
-    aggregator->add_rows(with_nulls, 0, 3);
-    aggregator->close_group(out);
-    aggregator->add_rows(with_nulls, 3, 5);
-    aggregator->close_group(out);
+    aggregator->fold_group(with_nulls, 0, 3, out);
+    aggregator->fold_group(with_nulls, 3, 5, out);
     aggregator->start_block(without_nulls);
-    aggregator->add_rows(without_nulls, 0, 2);
-    aggregator->close_group(out);
+    aggregator->fold_group(without_nulls, 0, 2, out);
 
     ASSERT_EQ(out[1]->size(), 3);
     EXPECT_EQ(value_at(*out[1], 0), 4);
@@ -265,26 +259,27 @@ TEST(AggKeyBlockIteratorValueAggregatorTest,
     EXPECT_FALSE(make_aggregator(schema)->returns_single_row_unchanged());
 }
 
-// The group of key 1 sits in one merged Block, the group of key 2 is cut by the end of it, and
-// the third merged Block starts with a new key: each group becomes one row with the REPLACE value
-// of its first row, the newest one, and the SUM of all.
+// Every merged Block holds whole key groups, the rows of a key in the order they were written:
+// each group becomes one row with the REPLACE value of its last row, the newest one, and the SUM
+// of all, also the group that ends a merged Block.
 TEST(AggKeyBlockIteratorTest, FoldsEveryKeyGroupOnce) {
     uint64_t merged_rows = 0;
-    const auto output =
-            fold({{{1, 10, 1}, {1, 11, 2}, {2, 20, 3}}, {{2, 21, 4}, {3, 30, 5}}, {{4, 40, 6}}},
-                 /*merged=*/true, /*max_rows=*/100, &merged_rows);
+    const auto output = fold({{{1, 10, 1}, {1, 11, 2}, {2, 20, 3}},
+                              {{3, 30, 4}, {3, 31, 5}, {3, 32, 6}},
+                              {{4, 40, 7}}},
+                             /*merged=*/true, /*max_rows=*/100, &merged_rows);
     EXPECT_EQ(output,
-              (std::vector<std::vector<Row>> {{{1, 10, 3}, {2, 20, 7}, {3, 30, 5}, {4, 40, 6}}}));
-    EXPECT_EQ(merged_rows, 2);
+              (std::vector<std::vector<Row>> {{{1, 11, 3}, {2, 20, 3}, {3, 32, 15}, {4, 40, 7}}}));
+    EXPECT_EQ(merged_rows, 3);
 }
 
 // An output Block of two rows at most ends in front of a new key and never splits a group.
 TEST(AggKeyBlockIteratorTest, EndsOutputBlocksInFrontOfANewKey) {
     uint64_t merged_rows = 0;
-    const auto output = fold({{{1, 10, 1}, {2, 20, 2}, {3, 30, 3}}, {{3, 31, 4}, {4, 40, 5}}},
+    const auto output = fold({{{1, 10, 1}, {2, 20, 2}, {3, 30, 3}, {3, 31, 4}}, {{4, 40, 5}}},
                              /*merged=*/true, /*max_rows=*/2, &merged_rows);
     EXPECT_EQ(output,
-              (std::vector<std::vector<Row>> {{{1, 10, 1}, {2, 20, 2}}, {{3, 30, 7}, {4, 40, 5}}}));
+              (std::vector<std::vector<Row>> {{{1, 10, 1}, {2, 20, 2}}, {{3, 31, 7}, {4, 40, 5}}}));
     EXPECT_EQ(merged_rows, 1);
 }
 

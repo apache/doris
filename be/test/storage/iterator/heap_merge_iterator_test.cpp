@@ -15,10 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// VHeapMergeIterator sorts the rows of its children into one stream: by the columns of its order,
-// each ascending or descending (a key, then a sequence column), then by child order (the later
-// child first, or the older one with `older_first`), in output Blocks of at most block_row_max
-// rows or of the byte budget, reading on past a child's empty batches.
+// VHeapMergeIterator sorts the rows of its children into one stream: by the key columns, each
+// ascending or descending, then by the sequence column, then by child order (the older child
+// first), in output Blocks of at most block_row_max rows or of the byte budget, past which only
+// the rows of the last key go on with `whole_key_groups`, reading on past a child's empty batches.
 
 #include "storage/iterator/heap_merge_iterator.h"
 
@@ -101,8 +101,7 @@ private:
 // By the key k, ascending (descending with `descending`), NULLs first.
 MergeDecision key_decision(bool descending = false) {
     MergeDecision decision;
-    decision.order.emplace_back(0, descending ? -1 : 1, -1);
-    decision.num_key_entries = 1;
+    decision.keys.emplace_back(0, descending ? -1 : 1, -1);
     return decision;
 }
 
@@ -156,40 +155,29 @@ std::vector<Row> flatten(const std::vector<std::vector<Row>>& blocks) {
 
 } // namespace
 
-// Rows of one key go by child order, the later child first; runs of a child cross its Block
-// boundaries, and the last child left hands out its rows without comparisons.
-TEST(HeapMergeIteratorTest, MergesByKeyWithTheLaterChildFirst) {
+// Rows of one key go by child order, the older child first, in the order they were written; runs
+// of a child cross its Block boundaries, and the last child left hands out its rows without
+// comparisons.
+TEST(HeapMergeIteratorTest, MergesByKeyWithTheOlderChildFirst) {
     auto schema = make_schema(false);
     const std::vector<std::vector<Batch>> children = {
             {{{1, 10}, {3, 30}}, {{5, 50}}},
             {{{1, 11}, {2, 21}}, {{3, 31}, {6, 61}, {7, 71}}},
             {{{4, 40}}},
     };
-    EXPECT_EQ(flatten(merge(schema, children, key_decision())), (std::vector<Row> {{1, 11},
-                                                                                   {1, 10},
+    EXPECT_EQ(flatten(merge(schema, children, key_decision())), (std::vector<Row> {{1, 10},
+                                                                                   {1, 11},
                                                                                    {2, 21},
-                                                                                   {3, 31},
                                                                                    {3, 30},
+                                                                                   {3, 31},
                                                                                    {4, 40},
                                                                                    {5, 50},
                                                                                    {6, 61},
                                                                                    {7, 71}}));
-
-    MergeDecision older_first = key_decision();
-    older_first.older_first = true;
-    EXPECT_EQ(flatten(merge(schema, children, older_first)), (std::vector<Row> {{1, 10},
-                                                                                {1, 11},
-                                                                                {2, 21},
-                                                                                {3, 30},
-                                                                                {3, 31},
-                                                                                {4, 40},
-                                                                                {5, 50},
-                                                                                {6, 61},
-                                                                                {7, 71}}));
 }
 
-// Rows of one key go by the sequence column before child order: descending, the larger value
-// first, or ascending, the smaller one first (the changelog TSO).
+// Rows of one key go by the sequence column before child order, ascending: the row with the
+// largest value comes last.
 TEST(HeapMergeIteratorTest, OrdersRowsOfOneKeyBySequence) {
     auto schema = make_schema(true);
     const std::vector<std::vector<Batch>> children = {
@@ -197,13 +185,9 @@ TEST(HeapMergeIteratorTest, OrdersRowsOfOneKeyBySequence) {
             {{{1, 3, 11}, {2, 1, 21}}},
     };
     MergeDecision decision = key_decision();
-    decision.order.emplace_back(1, -1, -1);
+    decision.sequence = SortColumnDescription(1, 1, -1);
     EXPECT_EQ(flatten(merge(schema, children, decision)),
-              (std::vector<Row> {{1, 5, 10}, {1, 3, 11}, {2, 1, 21}, {2, 1, 20}}));
-
-    decision.order.back().direction = 1;
-    EXPECT_EQ(flatten(merge(schema, children, decision)),
-              (std::vector<Row> {{1, 3, 11}, {1, 5, 10}, {2, 1, 21}, {2, 1, 20}}));
+              (std::vector<Row> {{1, 3, 11}, {1, 5, 10}, {2, 1, 20}, {2, 1, 21}}));
 }
 
 TEST(HeapMergeIteratorTest, ReverseMergesKeysDescending) {
@@ -213,7 +197,7 @@ TEST(HeapMergeIteratorTest, ReverseMergesKeysDescending) {
             {{{4, 41}, {3, 31}, {2, 21}}},
     };
     EXPECT_EQ(flatten(merge(schema, children, key_decision(/*descending=*/true))),
-              (std::vector<Row> {{5, 50}, {4, 41}, {3, 31}, {3, 30}, {2, 21}, {1, 10}}));
+              (std::vector<Row> {{5, 50}, {4, 41}, {3, 30}, {3, 31}, {2, 21}, {1, 10}}));
 }
 
 TEST(HeapMergeIteratorTest, KeepsToTheRowLimit) {
@@ -229,7 +213,27 @@ TEST(HeapMergeIteratorTest, KeepsToTheRowLimit) {
     EXPECT_EQ(blocks[2].size(), 2);
     EXPECT_EQ(flatten(blocks),
               (std::vector<Row> {
-                      {1, 11}, {1, 10}, {2, 20}, {3, 30}, {4, 40}, {5, 51}, {6, 61}, {7, 71}}));
+                      {1, 10}, {1, 11}, {2, 20}, {3, 30}, {4, 40}, {5, 51}, {6, 61}, {7, 71}}));
+}
+
+// With `whole_key_groups`, an output Block goes past the row limit with the rows of its last key
+// only, so the rows of one key never land in two Blocks; without it, the Block ends at the limit.
+TEST(HeapMergeIteratorTest, KeepsTheRowsOfOneKeyInOneBlock) {
+    auto schema = make_schema(false);
+    const std::vector<std::vector<Batch>> children = {
+            {{{1, 10}, {2, 20}}, {{3, 30}}},
+            {{{2, 21}, {3, 31}}},
+            {{{2, 22}, {4, 42}}},
+    };
+    MergeDecision decision = key_decision();
+    decision.whole_key_groups = true;
+    EXPECT_EQ(merge(schema, children, decision, /*block_row_max=*/2),
+              (std::vector<std::vector<Row>> {
+                      {{1, 10}, {2, 20}, {2, 21}, {2, 22}}, {{3, 30}, {3, 31}}, {{4, 42}}}));
+
+    EXPECT_EQ(merge(schema, children, key_decision(), /*block_row_max=*/2),
+              (std::vector<std::vector<Row>> {
+                      {{1, 10}, {2, 20}}, {{2, 21}, {2, 22}}, {{3, 30}, {3, 31}}, {{4, 42}}}));
 }
 
 // With a byte budget, an output Block holds the budget divided by the average row size of the
@@ -265,25 +269,31 @@ TEST(HeapMergeIteratorTest, ReadsOnAfterEmptyBatches) {
               (std::vector<Row> {{1, 11}, {2, 20}, {3, 31}, {4, 40}}));
 }
 
-// A column taken for a key column must be one, and every compared column must be in the merged
-// Blocks: otherwise the read fails instead of merging by the wrong column.
+// A key column must be one, and every compared column must be in the merged Blocks: otherwise
+// the read fails instead of merging by the wrong column.
 TEST(HeapMergeIteratorTest, RejectsColumnsItCannotCompareBy) {
     auto schema = make_schema(false);
-    for (const std::vector<int>& key_columns : {std::vector<int> {1}, std::vector<int> {0, 2}}) {
+    auto init = [&](const MergeDecision& decision) {
         std::vector<RowwiseIteratorUPtr> inputs;
         inputs.push_back(
                 std::make_unique<BatchesUtIterator>(*schema, std::vector<Batch> {{{1, 10}}}));
-        MergeDecision decision;
-        for (int column : key_columns) {
-            decision.order.emplace_back(column, 1, -1);
-        }
-        decision.num_key_entries = decision.order.size();
         auto iter = new_heap_merge_iterator(std::move(inputs), schema, decision);
         OlapReaderStatistics stats;
         StorageReadOptions opts(stats);
-        Status st = iter->init(opts);
+        return iter->init(opts);
+    };
+    for (const std::vector<int>& key_columns : {std::vector<int> {1}, std::vector<int> {0, 2}}) {
+        MergeDecision decision;
+        for (int column : key_columns) {
+            decision.keys.emplace_back(column, 1, -1);
+        }
+        Status st = init(decision);
         EXPECT_TRUE(st.is<ErrorCode::INTERNAL_ERROR>()) << st;
     }
+    MergeDecision decision = key_decision();
+    decision.sequence = SortColumnDescription(2, 1, -1);
+    Status st = init(decision);
+    EXPECT_TRUE(st.is<ErrorCode::INTERNAL_ERROR>()) << st;
 }
 
 } // namespace doris

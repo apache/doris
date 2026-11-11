@@ -19,6 +19,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <queue>
 #include <vector>
 
@@ -33,19 +34,21 @@ namespace doris {
 class RuntimeProfile;
 class RuntimeState;
 
-// How a VHeapMergeIterator orders the rows of its children.
+// How a VHeapMergeIterator orders the rows of its children and cuts its output Blocks.
 struct MergeDecision {
-    // The read-schema columns two rows are compared by, in order, each with its direction (1
-    // ascending, -1 descending) and where its NULLs go (-1 first): the key columns, or a prefix of
-    // them for a read sorted by an ORDER BY prefix (descending for ORDER BY ... DESC), then the
-    // sequence column when there is one (descending, the larger value is the newer row; ascending
-    // for the changelog TSO). Like the SortDescription of a sort and StarRocks' SortDescs.
-    SortDescription order;
-    // How many leading entries of `order` are key columns.
-    size_t num_key_entries = 0;
-    // Among the rows equal on every column of `order`, the older child first; by default the
-    // newer one.
-    bool older_first = false;
+    // The key columns two rows are compared by, in order, each with its direction (1 ascending, -1
+    // descending) and where its NULLs go (-1 first), like the SortDescription of a sort and
+    // StarRocks' SortDescs: the whole key, or a prefix of it for a read sorted by an ORDER BY
+    // prefix (descending for ORDER BY ... DESC).
+    SortDescription keys;
+    // The column that orders the rows of one key, when there is one: the sequence column or the
+    // changelog TSO, ascending, so that the row with the largest value comes last.
+    std::optional<SortColumnDescription> sequence;
+    // Whether an output Block ends only in front of a new key, so that the rows of one key are
+    // never split between two Blocks and the reader above takes every key from one Block. For
+    // children that hold every key once (AGG_KEYS and UNIQUE_KEYS segments and rowsets), a Block
+    // then goes past the row limit by fewer rows than there are children.
+    bool whole_key_groups = false;
 };
 
 // Sorts the key-ordered rows of several iterators into one key-ordered stream, the way a
@@ -54,10 +57,11 @@ struct MergeDecision {
 // AggKeyBlockIterator.
 //
 // The children come in (rowset version, segment) order, the oldest first: the segments of one
-// rowset, or the inputs of a whole tablet read (see BlockReader::_init_agg_key_iter). Two rows
-// equal on every column of the order go by child order: a later child holds the newer row and
-// goes first, unless `older_first` asks for the older one first. Example with key 1 in child 0
-// (v = 10) and in child 1 (v = 11): the merge hands out v = 11, then v = 10.
+// rowset, or the inputs of a whole tablet read (see BlockReader::_init_agg_key_iter). Like
+// StarRocks, the rows of one key come in the order they were written: by the sequence column when
+// there is one, then by child order, the older child first. The newest row of a key is its last
+// one. Example with key 1 in child 0 (v = 10) and in child 1 (v = 11): the merge hands out
+// v = 10, then v = 11.
 //
 // The children are read as they are, without init(): a LazyInitSegmentIterator opens its
 // segment with the read options of its rowset on its first read.
@@ -65,8 +69,9 @@ struct MergeDecision {
 // It merges like StarRocks' HeapMergeIterator. Every child that has rows sits in a priority queue
 // ordered by its current row. Each round takes the child on top and the run of its rows that
 // still go before the current row of the next child, one comparison per row, appends that run to
-// the output Block and puts the child back. A run also ends at the end of
-// the child's Block, which is then refilled, and at the row limit of the output Block.
+// the output Block and puts the child back. A run also ends at the end of the child's Block,
+// which is then refilled, and at the row limit of the output Block (past it, only the rows of
+// the last key go on with `whole_key_groups`).
 //
 // Like StarRocks, which sizes the chunks of a compaction by its memory limit, the merge counts
 // rows only: the row limit of an output Block is block_row_max, or, with a byte budget, the
@@ -110,6 +115,11 @@ private:
     // Whether row `a_pos` of child `a` goes before the current row of child `b`. Two rows of
     // different children never tie: the child order decides last.
     bool _less(uint32_t a, size_t a_pos, uint32_t b) const;
+    // Row `a_pos` of child `a` against the current row of child `b` on `column`, in the direction
+    // of `column`: negative when the row of `a` goes first.
+    int _compare(const SortColumnDescription& column, uint32_t a, size_t a_pos, uint32_t b) const;
+    // Whether the current row of child `index` has the key of the last row of `columns`.
+    bool _has_last_key(const MutableColumns& columns, uint32_t index) const;
 
     // The order of `_heap`. std::priority_queue keeps its largest element on top, so `a` is
     // "less" than `b` when the current row of `b` goes first.

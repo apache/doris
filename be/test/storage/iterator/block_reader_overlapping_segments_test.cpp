@@ -19,10 +19,10 @@
 // same key can sit in two segments of one rowset. For an AGG_KEYS read that folds the rows of a
 // key, BlockReader merges every segment of such a rowset together with the other rowsets in one
 // VHeapMergeIterator, and AggKeyBlockIterator folds the merged rows. These tests write such
-// rowsets, read them through BlockReader as a query and as a compaction, with Block sizes that cut
-// key groups in two, and check the rows that come back:
+// rowsets, read them through BlockReader as a query and as a compaction, with Block row limits
+// that fall inside key groups, and check the rows that come back:
 //   - the row of the segment flushed later is the newer row of its key;
-//   - a key group cut by a Block boundary is still folded into one row;
+//   - a key group that a Block row limit falls inside is still folded into one row;
 //   - rowsets whose keys ascend from one to the next are read one after another.
 
 #include <gen_cpp/olap_file.pb.h>
@@ -135,8 +135,8 @@ std::string trace(ReaderType reader_type, int batch_size) {
            " batch_size=" + std::to_string(batch_size);
 }
 
-// A query and a compaction both read through BlockReader, with Blocks of 1, 2 and 3 rows that cut
-// key groups in two and with Blocks that hold the whole merge.
+// A query and a compaction both read through BlockReader, with Blocks of 1, 2 and 3 rows whose row
+// limits fall inside key groups and with Blocks that hold the whole merge.
 constexpr std::array kReaderTypes = {ReaderType::READER_QUERY,
                                      ReaderType::READER_CUMULATIVE_COMPACTION};
 constexpr std::array kBatchSizes = {1, 2, 3, 100};
@@ -315,9 +315,9 @@ protected:
 };
 
 // AGG_KEYS: both overlapping segments of the lowest-version rowset hold keys 1..3, so its
-// segment merge yields 1 1 2 2 3 3 and Blocks of 1, 2 or 3 rows cut key groups in two. Every key
-// must still come back once, with the SUM of all its rows and the REPLACE value of its newest
-// row: the later segment within the rowset, the newer rowset when there is one.
+// segment merge yields 1 1 2 2 3 3 and the row limits of Blocks of 1, 2 or 3 rows fall inside key
+// groups. Every key must still come back once, with the SUM of all its rows and the REPLACE value
+// of its newest row: the later segment within the rowset, the newer rowset when there is one.
 TEST_F(BlockReaderOverlappingSegmentsTest, AggKeysFoldEveryKeyGroupOnce) {
     auto schema = make_schema(
             {{"k", "INT", true}, {"s", "BIGINT", false, "SUM"}, {"r", "INT", false, "REPLACE"}});

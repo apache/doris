@@ -605,7 +605,7 @@ Status BlockReader::_init_agg_key_iter(const ReaderParams& read_params) {
                 rs_readers.push_back(rs_reader);
                 continue;
             }
-            // The merge puts the newer of two rows of one key first by the order of its children,
+            // The merge puts the rows of one key in the order of its children, the older first,
             // so the rowsets must come in version order.
             DORIS_CHECK_GE(rs_reader->rowset()->start_version(), previous_start_version);
             previous_start_version = rs_reader->rowset()->start_version();
@@ -655,16 +655,15 @@ Status BlockReader::_add_merge_children(const RowsetReaderSharedPtr& rs_reader,
 Status BlockReader::_init_agg_key_merge(std::vector<RowwiseIteratorUPtr> children,
                                         RuntimeState* runtime_state, RowwiseIteratorUPtr* rows) {
     SCOPED_RAW_TIMER(&_stats.block_reader_build_heap_init_timer_ns);
-    // By the whole key, the newer row of a key first (the older one when the read asks for the
-    // insert order, as in VCollectIterator): the fold keeps the REPLACE values of a key's first
-    // row, as the REPLACE reader function does.
+    // By the whole key, the rows of a key in the order they were written and never split between
+    // two merged Blocks: the fold takes every key from one merged Block and copies the REPLACE
+    // values of its last row, the newest one.
     MergeDecision decision;
     for (uint32_t ordinal = 0; ordinal < _read_schema->num_key_columns(); ++ordinal) {
-        decision.order.emplace_back(static_cast<int>(ordinal), /*direction=*/1,
-                                    /*nulls_direction=*/-1);
+        decision.keys.emplace_back(static_cast<int>(ordinal), /*direction=*/1,
+                                   /*nulls_direction=*/-1);
     }
-    decision.num_key_entries = decision.order.size();
-    decision.older_first = _reader_context.use_insert_order_when_same;
+    decision.whole_key_groups = true;
     *rows = new_heap_merge_iterator(std::move(children), _read_schema, decision);
     StorageReadOptions opts(_stats);
     opts.block_row_max = cast_set<uint32_t>(batch_max_rows());
