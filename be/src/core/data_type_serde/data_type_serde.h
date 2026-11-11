@@ -93,6 +93,8 @@ struct CastParameters;
 
 struct BsonValueView;
 struct BsonDecodeContext;
+struct SimdJsonValue;
+struct SimdJsonReadContext;
 class DataTypeSerDe;
 using DataTypeSerDeSPtr = std::shared_ptr<DataTypeSerDe>;
 using DataTypeSerDeSPtrs = std::vector<DataTypeSerDeSPtr>;
@@ -391,6 +393,13 @@ public:
     virtual Status serialize_column_to_json(const IColumn& column, int64_t start_idx,
                                             int64_t end_idx, BufferWritable& bw,
                                             FormatOptions& options) const = 0;
+
+    // Consumes one borrowed value and appends one cell. Complex overrides roll back partial
+    // child writes on failure, including simdjson exceptions. Reader owns row filtering.
+    virtual Status deserialize_one_cell_from_simdjson(IColumn& column, SimdJsonValue& value,
+                                                      const FormatOptions& options,
+                                                      SimdJsonReadContext& context,
+                                                      const std::string& column_name) const;
 
     virtual Status deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                                   const FormatOptions& options) const = 0;

@@ -61,6 +61,7 @@
 
 #include <limits>
 #include <string_view>
+#include <unordered_map>
 
 #include "common/status.h"
 #include "util/jsonb_document.h"
@@ -70,6 +71,38 @@
 namespace doris {
 using int128_t = __int128;
 struct JsonbParser {
+    using StringCache = std::unordered_map<std::string_view, std::string_view>;
+
+    // Rewinding an On-Demand object does not rewind its unescape buffer. Cache decoded values
+    // and keys when jsonpaths revisit a subtree, e.g. $.payload followed by $.payload.text.
+    static std::string_view decoded_string(simdjson::ondemand::value& value, StringCache* cache) {
+        if (cache == nullptr) {
+            return value.get_string().value();
+        }
+        const auto token = value.raw_json().value();
+        const auto it = cache->find(token);
+        if (it != cache->end()) {
+            return it->second;
+        }
+        const auto text = value.get_string().value();
+        cache->emplace(token, text);
+        return text;
+    }
+
+    static std::string_view decoded_key(simdjson::ondemand::field& field, StringCache* cache) {
+        if (cache == nullptr) {
+            return field.unescaped_key().value();
+        }
+        const auto token = field.key_raw_json_token();
+        const auto it = cache->find(token);
+        if (it != cache->end()) {
+            return it->second;
+        }
+        const auto key = field.unescaped_key().value();
+        cache->emplace(token, key);
+        return key;
+    }
+
 private:
     static bool is_json_whitespace(char c) {
         return c == ' ' || c == '\t' || c == '\n' || c == '\r';
@@ -149,6 +182,18 @@ private:
     }
 
 public:
+    // Consume a subtree without copying/re-indexing its text. No value escapes: encoding
+    // row.payload leaves the reader ready to advance to row.id.
+    static Status parse_value(simdjson::ondemand::value value, JsonbWriter& writer,
+                              StringCache* cache = nullptr) {
+        writer.reset();
+        try {
+            return parse(value, writer, cache);
+        } catch (simdjson::simdjson_error& e) {
+            return Status::InvalidArgument("simdjson parse exception: {}", e.what());
+        }
+    }
+
     // parse a UTF-8 JSON string with length
     // will reset writer before parse
     static Status parse(const char* pch, size_t len, JsonbWriter& writer) {
@@ -238,7 +283,8 @@ private:
 
     // parse json, recursively if necessary, by simdjson
     //  and serialize to binary format by writer
-    static Status parse(simdjson::ondemand::value value, JsonbWriter& writer) {
+    static Status parse(simdjson::ondemand::value value, JsonbWriter& writer,
+                        StringCache* cache = nullptr) {
         switch (value.type()) {
         case simdjson::ondemand::json_type::null: {
             return write_null(value, writer);
@@ -250,7 +296,7 @@ private:
             break;
         }
         case simdjson::ondemand::json_type::string: {
-            RETURN_IF_ERROR(write_string(value.get_string(), writer));
+            RETURN_IF_ERROR(write_string(decoded_string(value, cache), writer));
             break;
         }
         case simdjson::ondemand::json_type::number: {
@@ -261,12 +307,8 @@ private:
                 return Status::InvalidArgument("writeStartObject failed");
             }
 
-            for (auto kv : value.get_object()) {
-                std::string_view key;
-                simdjson::error_code e = kv.unescaped_key().get(key);
-                if (e != simdjson::SUCCESS) {
-                    return Status::InvalidArgument(fmt::format("simdjson get key failed: {}", e));
-                }
+            for (simdjson::ondemand::field field : value.get_object()) {
+                const auto key = decoded_key(field, cache);
 
                 // write key
                 if (key.size() > std::numeric_limits<uint8_t>::max()) {
@@ -278,7 +320,7 @@ private:
                 }
 
                 // parse object value
-                RETURN_IF_ERROR(parse(kv.value(), writer));
+                RETURN_IF_ERROR(parse(field.value(), writer, cache));
             }
 
             if (!writer.writeEndObject()) {
@@ -294,7 +336,7 @@ private:
 
             for (auto elem : value.get_array()) {
                 // parse array element
-                RETURN_IF_ERROR(parse(elem.value(), writer));
+                RETURN_IF_ERROR(parse(elem.value(), writer, cache));
             }
 
             if (!writer.writeEndArray()) {

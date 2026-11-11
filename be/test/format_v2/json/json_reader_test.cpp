@@ -37,11 +37,13 @@
 #include "core/column/column_string.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_jsonb.h"
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
+#include "core/value/jsonb_value.h"
 #include "exec/scan/scanner.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
@@ -1191,6 +1193,38 @@ TEST(JsonReaderTest, EmptyFileProjectionMaterializesPartitionRows) {
         }
     }
     EXPECT_TRUE(reader.close().ok());
+}
+
+TEST(JsonReaderTest, SimdjsonJsonbSubtreesAndOverlappingPaths) {
+    ObjectPool pool;
+    auto jsonb = make_nullable(std::make_shared<DataTypeJsonb>());
+    auto string = make_nullable(std::make_shared<DataTypeString>());
+    std::vector<SlotDescriptor*> slots {make_test_slot(&pool, 0, 0, jsonb, "payload"),
+                                        make_test_slot(&pool, 1, 1, string, "first"),
+                                        make_test_slot(&pool, 2, 2, string, "second"),
+                                        make_test_slot(&pool, 3, 3, jsonb, "copy")};
+    auto result = read_once(
+            "simdjson_jsonb_paths.jsonl",
+            R"({"payload":{"text":"a\nb","large":18446744073709551616}})"
+            "\n"
+            R"({"payload":{"text":"next","array":[true,null,{}]}})"
+            "\n",
+            json_scan_params(true, false,
+                             R"(["$.payload","$.payload.text","$.payload.text","$.payload"])"),
+            slots, {0, 1, 2, 3});
+    ASSERT_TRUE(result.status.ok()) << result.status;
+    ASSERT_EQ(result.rows, 2);
+    for (size_t i = 0; i < result.rows; ++i) {
+        EXPECT_EQ(nullable_string_at(*result.block.get_by_position(0).column, i),
+                  nullable_string_at(*result.block.get_by_position(3).column, i));
+        EXPECT_EQ(nullable_string_at(*result.block.get_by_position(1).column, i),
+                  nullable_string_at(*result.block.get_by_position(2).column, i));
+    }
+    EXPECT_EQ(nullable_string_at(*result.block.get_by_position(1).column, 0), "a\nb");
+    JsonBinaryValue expected;
+    ASSERT_TRUE(expected.from_json_string(R"({"text":"a\nb","large":18446744073709551616})").ok());
+    EXPECT_EQ(nullable_string_at(*result.block.get_by_position(0).column, 0),
+              std::string(expected.value(), expected.size()));
 }
 
 } // namespace doris::format::json

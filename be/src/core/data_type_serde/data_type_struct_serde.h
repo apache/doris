@@ -16,10 +16,10 @@
 // under the License.
 
 #pragma once
-
 #include <glog/logging.h>
 
 #include <cstdint>
+#include <unordered_map>
 
 #include "common/status.h"
 #include "core/data_type_serde/data_type_serde.h"
@@ -33,11 +33,7 @@ class Arena;
 
 class DataTypeStructSerDe : public DataTypeSerDe {
 public:
-    DataTypeStructSerDe(const DataTypeSerDeSPtrs& _elem_serdes_ptrs, const Strings names,
-                        int nesting_level = 1)
-            : DataTypeSerDe(nesting_level),
-              elem_serdes_ptrs(_elem_serdes_ptrs),
-              elem_names(names) {}
+    DataTypeStructSerDe(DataTypeSerDeSPtrs elem_serdes, Strings names, int nesting_level = 1);
 
     Status decode_bson_value(IColumn& column, const BsonValueView& value,
                              const BsonDecodeContext& context) const override;
@@ -55,6 +51,11 @@ public:
 
     Status serialize_column_to_json(const IColumn& column, int64_t start_idx, int64_t end_idx,
                                     BufferWritable& bw, FormatOptions& options) const override;
+
+    Status deserialize_one_cell_from_simdjson(IColumn& column, SimdJsonValue& value,
+                                              const FormatOptions& options,
+                                              SimdJsonReadContext& context,
+                                              const std::string& column_name) const override;
 
     Status deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                           const FormatOptions& options) const override;
@@ -140,5 +141,6 @@ private:
 
     DataTypeSerDeSPtrs elem_serdes_ptrs;
     Strings elem_names;
+    std::unordered_map<std::string, size_t> simdjson_field_positions;
 };
 } // namespace doris

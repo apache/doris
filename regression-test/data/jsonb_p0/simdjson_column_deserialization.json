@@ -1,0 +1,4 @@
+{"id": 1, "small": 127, "flag": true, "amount": 123.5678, "payload": {"n": 18446744073709551616, "s": "a\nb"}, "items": [{"x": 1, "X": 2, "y": "a\nb"}, null, {"y": "missing"}], "attrs": {"k": [1, null, 3]}, "first_text": "a\nb", "second_text": "other"}
+{"id": 2, "small": -128, "flag": false, "amount": "-0.1250", "payload": [1, {"a": [true, null, "中"]}], "items": [], "attrs": {}, "first_text": "quote\"slash\\", "second_text": "two"}
+{"id": 3, "small": 128, "flag": true, "amount": 1, "payload": {"bad": true}, "items": [{"x": 7}], "attrs": {"bad": [1]}, "first_text": "filtered"}
+{"id": 4, "small": "12", "flag": "true", "amount": 0, "payload": "{\"embedded\":1}", "items": [{"x": 4}], "attrs": {"next": []}, "first_text": "after", "second_text": "last"}

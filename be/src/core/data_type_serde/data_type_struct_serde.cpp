@@ -20,6 +20,8 @@
 #include <gen_cpp/types.pb.h>
 
 #include <algorithm>
+#include <cctype>
+#include <ranges>
 
 #include "arrow/array/builder_nested.h"
 #include "common/cast_set.h"
@@ -35,6 +37,7 @@
 #include "core/data_type_serde/complex_type_deserialize_util.h"
 #include "core/data_type_serde/data_type_serde.h"
 #include "core/data_type_serde/orc_serde_utils.h"
+#include "core/data_type_serde/simdjson_value.h"
 #include "core/string_ref.h"
 #include "util/defer_op.h"
 #include "util/jsonb_document.h"
@@ -43,6 +46,18 @@
 namespace doris {
 
 class Arena;
+
+DataTypeStructSerDe::DataTypeStructSerDe(DataTypeSerDeSPtrs elem_serdes, Strings names,
+                                         int nesting_level)
+        : DataTypeSerDe(nesting_level),
+          elem_serdes_ptrs(std::move(elem_serdes)),
+          elem_names(std::move(names)) {
+    for (size_t i = 0; i < elem_names.size(); ++i) {
+        auto name = elem_names[i];
+        std::ranges::transform(name, name.begin(), [](unsigned char c) { return std::tolower(c); });
+        simdjson_field_positions.emplace(std::move(name), i);
+    }
+}
 
 namespace {
 
@@ -891,6 +906,61 @@ Status DataTypeStructSerDe::decode_bson_value(IColumn& column, const BsonValueVi
         if (!status.ok()) {
             return status;
         }
+    }
+    committed = true;
+    return Status::OK();
+}
+
+Status DataTypeStructSerDe::deserialize_one_cell_from_simdjson(
+        IColumn& column, SimdJsonValue& input, const FormatOptions& options,
+        SimdJsonReadContext& context, const std::string& column_name) const {
+    if (input.value.type().value() != simdjson::ondemand::json_type::object) {
+        return Status::DataQualityError("Json value isn't object, but the column `{}` is struct.",
+                                        column_name);
+    }
+    auto& target = assert_cast<ColumnStruct&>(column);
+    const auto before = target.size();
+    bool committed = false;
+    Defer rollback([&] {
+        if (!committed) {
+            for (size_t i = 0; i < elem_serdes_ptrs.size(); ++i) {
+                auto& child = target.get_column(i);
+                if (child.size() > before) {
+                    child.pop_back(child.size() - before);
+                }
+            }
+        }
+    });
+    std::vector<bool> seen(elem_names.size(), false);
+    for (simdjson::ondemand::field member : input.value.get_object()) {
+        std::string name(context.decoded_key(member));
+        std::ranges::transform(name, name.begin(), [](unsigned char c) { return std::tolower(c); });
+        const auto it = simdjson_field_positions.find(name);
+        if (it == simdjson_field_positions.end()) {
+            continue;
+        }
+        const auto index = it->second;
+        auto& child = target.get_column(index);
+        // Preserve nested STRUCT's last-wins behavior, e.g. {"a":1,"A":2}.
+        if (seen[index]) {
+            child.pop_back(1);
+        }
+        auto value = member.value();
+        RETURN_IF_ERROR(deserialize_simdjson_child(*elem_serdes_ptrs[index], child, value, options,
+                                                   context, column_name + "." + name));
+        seen[index] = true;
+    }
+    for (size_t i = 0; i < elem_names.size(); ++i) {
+        if (seen[i]) {
+            continue;
+        }
+        auto& child = target.get_column(i);
+        if (!child.is_nullable()) {
+            return Status::DataQualityError(
+                    "Json file structColumn miss field {} and this column isn't nullable.",
+                    column_name + "." + elem_names[i]);
+        }
+        child.insert_default();
     }
     committed = true;
     return Status::OK();

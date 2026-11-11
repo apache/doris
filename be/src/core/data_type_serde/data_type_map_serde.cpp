@@ -33,7 +33,9 @@
 #include "core/data_type_serde/arrow_validation.h"
 #include "core/data_type_serde/complex_type_deserialize_util.h"
 #include "core/data_type_serde/orc_serde_utils.h"
+#include "core/data_type_serde/simdjson_value.h"
 #include "core/string_ref.h"
+#include "util/defer_op.h"
 #include "util/jsonb_document.h"
 #include "util/jsonb_writer.h"
 #include "util/simd/bits.h"
@@ -910,6 +912,63 @@ Status DataTypeMapSerDe::read_column_from_orc(IColumn& column,
         return Status::OK();
     }
     return decode_map_orc_values(key_serde, value_serde, column, view);
+}
+
+Status DataTypeMapSerDe::deserialize_one_cell_from_simdjson(IColumn& column, SimdJsonValue& input,
+                                                            const FormatOptions& options,
+                                                            SimdJsonReadContext& context,
+                                                            const std::string& column_name) const {
+    if (input.value.type().value() != simdjson::ondemand::json_type::object) {
+        return Status::DataQualityError("Json value isn't object, but the column `{}` is map.",
+                                        column_name);
+    }
+    auto& target = assert_cast<ColumnMap&>(column);
+    auto keys_owner = target.get_keys_ptr()->assert_mutable();
+    auto values_owner = target.get_values_ptr()->assert_mutable();
+    auto& keys = *keys_owner;
+    auto& values = *values_owner;
+    const auto before = keys.size();
+    const auto offsets_before = target.get_offsets().size();
+    bool committed = false;
+    Defer rollback([&] {
+        if (!committed) {
+            if (keys.size() > before) {
+                keys.pop_back(keys.size() - before);
+            }
+            if (values.size() > before) {
+                values.pop_back(values.size() - before);
+            }
+            target.get_offsets().resize(offsets_before);
+        }
+    });
+    for (simdjson::ondemand::field field : input.value.get_object()) {
+        const auto key = context.decoded_key(field);
+        Slice slice {key.data(), key.size()};
+        // Object keys are decoded strings, not JSON tokens; preserve the reader's text conversion.
+        if (keys.is_nullable()) {
+            auto& nullable = assert_cast<ColumnNullable&>(keys);
+            auto& nested_key = nullable.get_nested_column();
+            const auto key_before = nested_key.size();
+            bool key_committed = false;
+            Defer key_rollback([&] {
+                if (!key_committed && nested_key.size() > key_before) {
+                    nested_key.pop_back(nested_key.size() - key_before);
+                }
+            });
+            RETURN_IF_ERROR(key_serde->get_nested_serdes()[0]->deserialize_one_cell_from_json(
+                    nested_key, slice, options));
+            nullable.get_null_map_data().push_back(0);
+            key_committed = true;
+        } else {
+            RETURN_IF_ERROR(key_serde->deserialize_one_cell_from_json(keys, slice, options));
+        }
+        auto value = field.value();
+        RETURN_IF_ERROR(deserialize_simdjson_child(*value_serde, values, value, options, context,
+                                                   column_name + ".value"));
+    }
+    target.get_offsets().push_back(keys.size());
+    committed = true;
+    return Status::OK();
 }
 
 } // namespace doris

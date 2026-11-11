@@ -34,11 +34,13 @@
 #include "core/data_type_serde/data_type_number_serde.h"
 #include "core/data_type_serde/data_type_string_serde.h"
 #include "core/data_type_serde/parquet_decode_source.h"
+#include "core/data_type_serde/simdjson_value.h"
 #include "core/field.h"
 #include "exprs/function/cast/cast_base.h"
 #include "runtime/descriptors.h"
 #include "util/jsonb_document.h"
 #include "util/jsonb_writer.h"
+
 namespace doris {
 DataTypeSerDe::~DataTypeSerDe() = default;
 
@@ -421,6 +423,38 @@ Status DataTypeSerDe::read_one_cell_from_bson(IColumn& column, const BsonValueVi
 Status DataTypeSerDe::decode_bson_value(IColumn&, const BsonValueView&,
                                         const BsonDecodeContext&) const {
     return Status::NotSupported("BSON decoding is not supported for this Doris type");
+}
+
+Status deserialize_simdjson_child(const DataTypeSerDe& serde, IColumn& column,
+                                  simdjson::ondemand::value& value,
+                                  const DataTypeSerDe::FormatOptions& options,
+                                  SimdJsonReadContext& context, const std::string& column_name) {
+    SimdJsonValue view {value};
+    return serde.deserialize_one_cell_from_simdjson(column, view, options, context, column_name);
+}
+Status DataTypeSerDe::deserialize_one_cell_from_simdjson(IColumn& column, SimdJsonValue& input,
+                                                         const FormatOptions& options,
+                                                         SimdJsonReadContext& context,
+                                                         const std::string& column_name) const {
+    auto& value = input.value;
+    std::string_view text;
+    switch (value.type().value()) {
+    case simdjson::ondemand::json_type::null:
+        return Status::DataQualityError("Json value is null, but the column `{}` is not nullable.",
+                                        column_name);
+    case simdjson::ondemand::json_type::string:
+        text = JsonbParser::decoded_string(value, context.cache());
+        break;
+    case simdjson::ondemand::json_type::boolean:
+        // Preserve legacy true -> "1" coercion for text-based String/Decimal/JSONB targets.
+        text = value.get_bool() ? "1" : "0";
+        break;
+    default:
+        text = simdjson::to_json_string(value);
+        break;
+    }
+    Slice slice {text.data(), text.size()};
+    return deserialize_one_cell_from_json(column, slice, options);
 }
 
 } // namespace doris
