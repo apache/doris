@@ -36,6 +36,7 @@
 #include "core/arena.h"
 #include "core/assert_cast.h"
 #include "core/column/column_const.h"
+#include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/column/column_vector.h"
 #include "core/column/variant_v2/column_variant_v2.h"
@@ -993,6 +994,20 @@ Status DataTypeVariantV2SerDe::write_column_to_iceberg_arrow(
     RETURN_IF_CATCH_EXCEPTION({
         return write_parquet_variant_arrow(column, null_map, array_builder, start, end,
                                            VariantRowMetadata::BOUNDED);
+    });
+    return Status::OK();
+}
+
+Status DataTypeVariantV2SerDe::write_column_to_parquet_arrow(const IColumn& column,
+                                                             const NullMap* null_map,
+                                                             arrow::ArrayBuilder* builder,
+                                                             int64_t start, int64_t end) {
+    RETURN_IF_CATCH_EXCEPTION({
+        const auto* nullable = check_and_get_column<ColumnNullable>(column);
+        const auto& values = nullable ? nullable->get_nested_column() : column;
+        const auto* nulls = nullable ? &nullable->get_null_map_data() : null_map;
+        return write_parquet_variant_arrow(values, nulls, builder, start, end,
+                                           VariantRowMetadata::OWN_KEYS);
     });
     return Status::OK();
 }

@@ -22,6 +22,7 @@
 
 #include "core/data_type/data_type.h"
 #include "core/data_type_serde/data_type_serde.h"
+#include "core/data_type_serde/data_type_variant_v2_serde.h"
 
 namespace doris {
 
@@ -78,6 +79,10 @@ Status ParquetArrowBlockConvertor::write_column(const DataTypePtr& type, const D
         return Status::InvalidArgument(
                 "Parquet writer is not bound for Doris type {} and Arrow field {}",
                 type->get_name(), field->ToString());
+    }
+    if (type->get_primitive_type() == TYPE_VARIANT) {
+        return DataTypeVariantV2SerDe::write_column_to_parquet_arrow(column, null_map, builder,
+                                                                     start, end);
     }
     return serde.write_column_to_arrow(column, null_map, builder, start, end, timezone);
 }
