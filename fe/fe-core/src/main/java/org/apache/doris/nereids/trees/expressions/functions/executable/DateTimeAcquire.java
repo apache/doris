@@ -162,4 +162,19 @@ public class DateTimeAcquire {
     public static Expression utcTimestamp(IntegerLiteral precision) {
         return currentTimestamp(precision.getValue(), ZoneId.of("UTC+0"));
     }
+
+    @ExecFunction(name = "utc_date")
+    public static Expression utcDate() {
+        return DateV2Literal.fromJavaDateType(currentDateTime(ZoneId.of("UTC+0")));
+    }
+
+    @ExecFunction(name = "utc_time")
+    public static Expression utcTime() {
+        return TimeV2Literal.fromJavaDateType(currentDateTime(ZoneId.of("UTC+0")));
+    }
+
+    @ExecFunction(name = "utc_time")
+    public static Expression utcTime(IntegerLiteral precision) {
+        return TimeV2Literal.fromJavaDateType(currentDateTime(ZoneId.of("UTC+0")), precision.getValue());
+    }
 }

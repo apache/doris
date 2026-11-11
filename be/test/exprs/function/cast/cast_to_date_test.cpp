@@ -414,7 +414,8 @@ TEST_F(FunctionCastTest, numeric_to_date_skips_null_covered_payload) {
                 {std::move(from_column), from_type, "from"},
                 {nullptr, to_type, "to"},
         };
-        ASSERT_TRUE(fn(ctx.get(), block, {0}, 1, block.rows(), nullptr));
+        ASSERT_TRUE(fn(ctx.get(), block.get_by_position(0), block.get_by_position(1), block.rows(),
+                       nullptr));
 
         const auto& result = assert_cast<const ColumnNullable&>(*block.get_by_position(1).column);
         // The row with the hidden payload stays NULL.
@@ -446,7 +447,9 @@ TEST_F(FunctionCastTest, numeric_to_date_skips_null_covered_payload) {
                 {std::move(from_column), from_type, "from"},
                 {nullptr, to_type, "to"},
         };
-        EXPECT_FALSE(fn(ctx.get(), block, {0}, 1, block.rows(), nullptr).ok());
+        EXPECT_FALSE(fn(ctx.get(), block.get_by_position(0), block.get_by_position(1), block.rows(),
+                        nullptr)
+                             .ok());
     }
 }
 

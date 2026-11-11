@@ -1,0 +1,405 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+import org.apache.arrow.driver.jdbc.shaded.org.apache.arrow.flight.CallOption
+import org.apache.arrow.driver.jdbc.shaded.org.apache.arrow.flight.CallOptions
+import org.apache.arrow.driver.jdbc.shaded.org.apache.arrow.flight.CloseSessionRequest
+import org.apache.arrow.driver.jdbc.shaded.org.apache.arrow.flight.FlightClient
+import org.apache.arrow.driver.jdbc.shaded.org.apache.arrow.flight.FlightRuntimeException
+import org.apache.arrow.driver.jdbc.shaded.org.apache.arrow.flight.FlightStatusCode
+import org.apache.arrow.driver.jdbc.shaded.org.apache.arrow.flight.Location
+import org.apache.arrow.driver.jdbc.shaded.org.apache.arrow.flight.sql.FlightSqlClient
+import org.apache.arrow.driver.jdbc.shaded.org.apache.arrow.memory.RootAllocator
+import org.apache.arrow.driver.jdbc.shaded.org.apache.arrow.vector.types.TimeUnit
+import org.apache.arrow.driver.jdbc.shaded.org.apache.arrow.vector.types.pojo.ArrowType
+
+suite("test_schema_only", "arrow_flight_sql") {
+    def config = context.config.otherConfigs
+    def location = Location.forGrpcInsecure(config.get("extArrowFlightSqlHost"),
+            Integer.parseInt(config.get("extArrowFlightSqlPort")))
+    new RootAllocator().withCloseable { allocator ->
+        FlightClient.builder(allocator, location).build().withCloseable { flight ->
+            def token = flight.authenticateBasicToken(config.get("extArrowFlightSqlUser"),
+                    config.get("extArrowFlightSqlPassword")).get()
+            CallOption[] options = [token, CallOptions.timeout(30, java.util.concurrent.TimeUnit.SECONDS)]
+            def client = new FlightSqlClient(flight)
+            String showTimeout = "SHOW VARIABLES LIKE 'query_timeout'"
+            def readVariable = { String name ->
+                def info = client.execute("SHOW VARIABLES LIKE '${name}'", options)
+                assertEquals(1, info.getEndpoints().size())
+                def values = []
+                flight.getStream(info.getEndpoints().get(0).getTicket(), options).withCloseable { stream ->
+                    while (stream.next()) {
+                        def root = stream.getRoot()
+                        for (int i = 0; i < root.getRowCount(); ++i) {
+                            values.add(root.getVector("Value").getObject(i).toString())
+                        }
+                    }
+                }
+                assertEquals(1, values.size())
+                return values[0]
+            }
+            def readTimeout = { readVariable("query_timeout") }
+            def prepareSchema = { String query ->
+                def prepared = client.prepare(query, options)
+                try {
+                    // ADBC ExecuteSchema consumes this schema before executing or fetching FlightInfo.
+                    def schema = prepared.getResultSetSchema()
+                    assertTrue(schema.getFields()*.getName() != ["ResultMeta"])
+                    assertEquals(schema, prepared.fetchSchema(options).getSchema())
+                    return schema
+                } finally {
+                    prepared.close(options)
+                }
+            }
+            try {
+                client.execute("USE information_schema", options)
+                // Prepare must bind unaliased expressions in query mode, as execution does.
+                // Comparing metadata-only calls misses synthetic aliases that execution rejects.
+                ["1", "unhex('616263')", "CAST(CAST('2026-01-01' AS DATETIME(6)) AS STRING)"].each { expression ->
+                    def prepared = client.prepare("SELECT ${expression}", options)
+                    try {
+                        def advertised = prepared.getResultSetSchema()
+                        assertEquals([expression], advertised.getFields()*.getName())
+                        def executed = prepared.execute(options).getSchema()
+                        assertEquals(advertised.getFields()*.getName(), executed.getFields()*.getName())
+                        assertEquals(advertised.getFields()*.getType(), executed.getFields()*.getType())
+                        assertEquals(advertised, prepared.fetchSchema(options).getSchema())
+                    } finally {
+                        prepared.close(options)
+                    }
+                }
+                def cases = [
+                        ["SELECT CAST(1 AS BIGINT) AS id, CAST(NULL AS VARCHAR(20)) AS name",
+                         ["id", "name"], [new ArrowType.Int(64, true), new ArrowType.Utf8()]],
+                        ["""SELECT CAST('2025-01-02 03:04:05.123456' AS DATETIME(6)) AS event_time,
+                                  ARRAY('first', 'second') AS tags,
+                                  MAP('key', CAST(1 AS BIGINT)) AS properties,
+                                  NAMED_STRUCT('amount', CAST(1 AS DECIMAL(18,4))) AS record""",
+                         ["event_time", "tags", "properties", "record"],
+                         [new ArrowType.Timestamp(TimeUnit.MICROSECOND, null), new ArrowType.List(),
+                          new ArrowType.Map(false), new ArrowType.Struct()]],
+                        ["SELECT TABLE_CATALOG, TABLE_SCHEMA, TABLE_NAME FROM information_schema.tables WHERE 1=0",
+                         ["TABLE_CATALOG", "TABLE_SCHEMA", "TABLE_NAME"],
+                         [new ArrowType.Utf8(), new ArrowType.Utf8(), new ArrowType.Utf8()]],
+                        ["SELECT group_concat_state('x') AS state", ["state"], [new ArrowType.Utf8()]],
+                        [showTimeout, ["Variable_name", "Value", "Default_Value", "Changed"],
+                         [new ArrowType.Utf8(), new ArrowType.Utf8(), new ArrowType.Utf8(), new ArrowType.Utf8()]]
+                ]
+                [
+                        ["SHOW PROCEDURE STATUS", ["ProcedureName", "CatalogId", "DbId", "DbName", "PackageName",
+                                                  "OwnerName", "CreateTime", "ModifyTime"]],
+                        ["EXPLAIN SELECT 1", ["Explain String(Nereids Planner)"]],
+                        ["EXPLAIN PLAN PROCESS SELECT 1", ["Rule", "Before", "After"]],
+                        ["SHOW STORAGE POLICY", ["PolicyName", "Id", "Version", "Type", "StorageResource",
+                                                "CooldownDatetime", "CooldownTtl"]],
+                        ["SHOW STORAGE POLICY USING", ["PolicyName", "Database", "Table", "Partitions"]],
+                        ["INSERT INTO schema_source VALUES (1)", ["StatusResult"]],
+                        ["UPDATE schema_source SET id=1", ["StatusResult"]],
+                        ["DELETE FROM schema_source WHERE id=1", ["StatusResult"]],
+                        ["MERGE INTO schema_target t USING schema_source s ON t.id=s.id WHEN MATCHED THEN DELETE",
+                         ["StatusResult"]],
+                        ["KILL QUERY 123", ["StatusResult"]],
+                        ["BEGIN", ["StatusResult"]], ["COMMIT", ["StatusResult"]], ["ROLLBACK", ["StatusResult"]]
+                ].each { entry ->
+                    def schema = prepareSchema(entry[0])
+                    assertEquals(entry[1], schema.getFields()*.getName())
+                    assertEquals(schema, client.getExecuteSchema(entry[0], options).getSchema())
+                    assertTrue(schema.getFields().every { it.getType() == new ArrowType.Utf8() })
+                }
+                // A frontend-side result is checked against its prepared schema in full, so the header Prepare
+                // tells without running a command must be the one running it sends: run the commands above that
+                // have no side effects, and the other frontend-side ones this suite prepares.
+                def executeAsPrepared = { String query ->
+                    def prepared = client.prepare(query, options)
+                    try {
+                        def advertised = prepared.getResultSetSchema()
+                        assertTrue(advertised.getFields()*.getName() != ["ResultMeta"], query)
+                        def info = prepared.execute(options)
+                        assertEquals(advertised, info.getSchema(), query)
+                        flight.getStream(info.getEndpoints()[0].getTicket(), options).withCloseable { stream ->
+                            while (stream.next()) {
+                                assertEquals(advertised, stream.getRoot().getSchema(), query)
+                            }
+                        }
+                    } finally {
+                        prepared.close(options)
+                    }
+                }
+                ["SHOW PROCEDURE STATUS", "EXPLAIN SELECT 1", "EXPLAIN PLAN PROCESS SELECT 1", "SHOW STORAGE POLICY",
+                 "SHOW STORAGE POLICY USING", "SHOW STORAGE POLICY USING FOR schema_only_missing_policy",
+                 showTimeout, "SHOW FRONTEND CONFIG", "SHOW PROC '/'"].each { query ->
+                    executeAsPrepared(query)
+                }
+                // Re-parsing a prepared statement must not silently change its advertised result type.
+                String previousMode = readVariable("sql_mode")
+                try {
+                    [true, false].each { fetchSchema ->
+                        client.execute("SET sql_mode=''", options)
+                        def prepared = client.prepare("SELECT 1 || 2 AS x", options)
+                        try {
+                            assertEquals(new ArrowType.Bool(), prepared.getResultSetSchema().getFields()[0].getType())
+                            client.execute("SET sql_mode='PIPES_AS_CONCAT'", options)
+                            try {
+                                if (fetchSchema) {
+                                    prepared.fetchSchema(options)
+                                } else {
+                                    prepared.execute(options)
+                                }
+                                assertTrue(false, "A changed result schema must expire the prepared handle")
+                            } catch (FlightRuntimeException error) {
+                                assertEquals(FlightStatusCode.NOT_FOUND, error.status().code())
+                            }
+                        } finally {
+                            prepared.close(options)
+                        }
+                    }
+                } finally {
+                    client.execute("SET sql_mode='${previousMode}'", options)
+                }
+                cases.eachWithIndex { entry, index ->
+                    def schema = prepareSchema(entry[0])
+                    assertEquals(entry[1], schema.getFields()*.getName())
+                    assertEquals(entry[2], schema.getFields()*.getType())
+                    assertEquals(schema, client.getExecuteSchema(entry[0], options).getSchema())
+                    if (index == 0) {
+                        assertTrue(!schema.getFields()[0].isNullable())
+                        assertTrue(schema.getFields()[1].isNullable())
+                    } else if (index == 1) {
+                        assertEquals(new ArrowType.Utf8(), schema.getFields()[1].getChildren()[0].getType())
+                        def entries = schema.getFields()[2].getChildren()[0]
+                        assertTrue(!entries.isNullable())
+                        assertTrue(!entries.getChildren()[0].isNullable())
+                        assertEquals(new ArrowType.Int(64, true), entries.getChildren()[1].getType())
+                        assertEquals(new ArrowType.Decimal(18, 4, 128),
+                                schema.getFields()[3].getChildren()[0].getType())
+                    }
+                }
+
+                // Resolving command metadata must not execute SET or leak query-scoped SET_VAR hints.
+                def originalTimeout = readTimeout()
+                def changedTimeout = originalTimeout == "17" ? "19" : "17"
+                def setQuery = "SET query_timeout=${changedTimeout}".toString()
+                assertEquals(["StatusResult"], prepareSchema(setQuery).getFields()*.getName())
+                client.getExecuteSchema(setQuery, options)
+                assertEquals(originalTimeout, readTimeout())
+                def hintedQuery = "SELECT /*+ SET_VAR(query_timeout=${changedTimeout}) */ 1 AS id".toString()
+                prepareSchema(hintedQuery)
+                client.getExecuteSchema(hintedQuery, options)
+                assertEquals(originalTimeout, readTimeout())
+
+                ["SELEC 1", "SELECT definitely_missing_schema_column"].each { query ->
+                    [true, false].each { preparedRoute ->
+                        FlightRuntimeException failure = null
+                        try {
+                            if (preparedRoute) {
+                                prepareSchema(query)
+                            } else {
+                                client.getExecuteSchema(query, options)
+                            }
+                        } catch (FlightRuntimeException e) {
+                            failure = e
+                        }
+                        assertTrue(failure != null, "Schema discovery accepted invalid SQL: ${query}")
+                        assertEquals(FlightStatusCode.INVALID_ARGUMENT, failure.status().code())
+                        assertEquals(["id", "name"], prepareSchema(cases[0][0]).getFields()*.getName())
+                        assertEquals(originalTimeout, readTimeout())
+                    }
+                }
+
+                assertEquals(6, prepareSchema("SHOW FRONTEND CONFIG").getFields().size())
+                assertEquals(prepareSchema("SHOW PROC '/'"), client.getExecuteSchema("SHOW PROC '/'", options).getSchema())
+                // A statement whose result schema only running it can tell keeps the placeholder on Prepare,
+                // since the Arrow Flight SQL JDBC driver prepares every statement and does not fall back when
+                // Prepare refuses one; GetSchema, asked for that schema itself, answers UNIMPLEMENTED. So does a
+                // result with an untyped NULL column, at any depth: BE sends it as nullable Bool, not as Null.
+                ["SHOW PYTHON PACKAGES IN '3.11'", "SHOW QUERY STATS", "DESC information_schema.tables",
+                 "WARM UP SELECT * FROM schema_source", "SET @schema_only = 1; SELECT @schema_only AS v",
+                 "SELECT NULL AS n", "SELECT ARRAY(NULL) AS a"].each { query ->
+                    def placeholder = client.prepare(query, options)
+                    try {
+                        assertEquals(["ResultMeta"], placeholder.getResultSetSchema().getFields()*.getName())
+                        FlightRuntimeException failure = null
+                        try {
+                            placeholder.fetchSchema(options)
+                        } catch (FlightRuntimeException e) {
+                            failure = e
+                        }
+                        assertTrue(failure != null, "GetSchema answered for a placeholder handle: ${query}")
+                        assertEquals(FlightStatusCode.UNIMPLEMENTED, failure.status().code())
+                    } finally {
+                        placeholder.close(options)
+                    }
+                    FlightRuntimeException failure = null
+                    try {
+                        client.getExecuteSchema(query, options)
+                    } catch (FlightRuntimeException e) {
+                        failure = e
+                    }
+                    assertTrue(failure != null, "GetSchema answered without running: ${query}")
+                    assertEquals(FlightStatusCode.UNIMPLEMENTED, failure.status().code())
+                }
+                // Such a handle still runs, unchecked, as it did before Prepare analyzed anything.
+                def unchecked = client.prepare("SET @schema_only = 7; SELECT @schema_only AS v", options)
+                try {
+                    def info = unchecked.execute(options)
+                    def values = []
+                    // The query's result is on the backends: read each endpoint from where it says it is.
+                    info.getEndpoints().each { endpoint ->
+                        FlightClient.builder(allocator, endpoint.getLocations()[0]).build().withCloseable { be ->
+                            be.getStream(endpoint.getTicket(), options).withCloseable { stream ->
+                                while (stream.next()) {
+                                    def root = stream.getRoot()
+                                    for (int i = 0; i < root.getRowCount(); ++i) {
+                                        values.add(root.getVector("v").getObject(i).toString())
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    assertEquals(["7"], values)
+                } finally {
+                    unchecked.close(options)
+                }
+                // A query such as `SELECT org_id, NULL FROM t` runs unchecked the same way, every time, instead of
+                // having its handle expired by the Bool that BE sends for the NULL column.
+                def nulls = client.prepare(
+                        "SELECT k, NULL AS n FROM (SELECT 1 AS k UNION ALL SELECT 2 AS k) t ORDER BY k", options)
+                try {
+                    assertEquals(["ResultMeta"], nulls.getResultSetSchema().getFields()*.getName())
+                    2.times {
+                        def info = nulls.execute(options)
+                        def keys = []
+                        def nullCount = 0
+                        info.getEndpoints().each { endpoint ->
+                            FlightClient.builder(allocator, endpoint.getLocations()[0]).build().withCloseable { be ->
+                                be.getStream(endpoint.getTicket(), options).withCloseable { stream ->
+                                    while (stream.next()) {
+                                        def root = stream.getRoot()
+                                        for (int i = 0; i < root.getRowCount(); ++i) {
+                                            keys.add(root.getVector("k").getObject(i).toString())
+                                            nullCount += root.getVector("n").isNull(i) ? 1 : 0
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        assertEquals(["1", "2"], keys.sort())
+                        assertEquals(2, nullCount)
+                    }
+                } finally {
+                    nulls.close(options)
+                }
+                // WARM UP SELECT answers OK instead of its statistics when planning proves its source empty, as for a
+                // table without data: its placeholder handle runs that unchecked rather than refusing it.
+                client.execute("CREATE DATABASE IF NOT EXISTS ${context.dbName}", options)
+                client.execute("DROP TABLE IF EXISTS ${context.dbName}.schema_only_warmup_source", options)
+                client.execute("""CREATE TABLE ${context.dbName}.schema_only_warmup_source (id INT)
+                        DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1
+                        PROPERTIES ("replication_num" = "1")""", options)
+                def warmup = client.prepare("WARM UP SELECT * FROM ${context.dbName}.schema_only_warmup_source", options)
+                try {
+                    assertEquals(["ResultMeta"], warmup.getResultSetSchema().getFields()*.getName())
+                    // Only cloud mode warms up internal tables; elsewhere WARM UP SELECT reads external tables only.
+                    if (isCloudMode()) {
+                        assertEquals(["StatusResult"], warmup.execute(options).getSchema().getFields()*.getName())
+                    }
+                } finally {
+                    warmup.close(options)
+                }
+
+                // The serialized group_concat state is advertised as UTF8; running it checks that against the
+                // type BE sends for it, as every prepared execution does.
+                def state = client.prepare("SELECT group_concat_state('x') AS state", options)
+                try {
+                    def advertised = state.getResultSetSchema()
+                    assertEquals([new ArrowType.Utf8()], advertised.getFields()*.getType())
+                    assertEquals(advertised.getFields()*.getType(), state.execute(options).getSchema().getFields()*.getType())
+                } finally {
+                    state.close(options)
+                }
+
+                // Executing an explicit namespace change must not invalidate that same handle.
+                ["USE mysql", "USE mysql; SHOW VARIABLES LIKE 'query_timeout'"].each { query ->
+                    client.execute("USE information_schema", options)
+                    def changing = client.prepare(query, options)
+                    try {
+                        def expected = changing.getResultSetSchema()
+                        2.times {
+                            def info = changing.execute(options)
+                            assertEquals(expected, info.getSchema())
+                            assertEquals(expected, changing.fetchSchema(options).getSchema())
+                            flight.getStream(info.getEndpoints()[0].getTicket(), options).withCloseable { stream ->
+                                while (stream.next()) {
+                                    assertEquals(expected, stream.getRoot().getSchema())
+                                }
+                            }
+                        }
+                    } finally {
+                        changing.close(options)
+                    }
+                }
+                def help = client.prepare("HELP 'schema_only_unknown_help_topic'", options)
+                try {
+                    def expected = help.getResultSetSchema()
+                    assertEquals(["name", "is_it_category"], expected.getFields()*.getName())
+                    assertEquals(expected, help.fetchSchema(options).getSchema())
+                    def info = help.execute(options)
+                    assertEquals(expected, info.getSchema())
+                    flight.getStream(info.getEndpoints()[0].getTicket(), options).withCloseable { stream ->
+                        while (stream.next()) {
+                            assertEquals(expected, stream.getRoot().getSchema())
+                        }
+                    }
+                } finally {
+                    help.close(options)
+                }
+                assertEquals(["Snapshot", "Timestamp", "Status"],
+                        prepareSchema("SHOW SNAPSHOT ON schema_repository").getFields()*.getName())
+                assertEquals(["Snapshot", "Timestamp", "Database", "Details", "Status"],
+                        prepareSchema("SHOW SNAPSHOT ON schema_repository WHERE SNAPSHOT='s' AND TIMESTAMP='t'")
+                                .getFields()*.getName())
+
+                client.execute("USE information_schema", options)
+                def prepared = client.prepare("SELECT TABLE_NAME FROM tables WHERE 1=0", options)
+                try {
+                    client.execute("USE mysql", options)
+                    // A prepared header must not silently describe a different database's table.
+                    [true, false].each { schemaRoute ->
+                        FlightRuntimeException failure = null
+                        try {
+                            if (schemaRoute) {
+                                prepared.fetchSchema(options)
+                            } else {
+                                prepared.execute(options)
+                            }
+                        } catch (FlightRuntimeException e) {
+                            failure = e
+                        }
+                        assertTrue(failure != null)
+                        assertEquals(FlightStatusCode.NOT_FOUND, failure.status().code())
+                    }
+                } finally {
+                    prepared.close(options)
+                }
+
+            } finally {
+                client.closeSession(new CloseSessionRequest(), options)
+            }
+        }
+    }
+}

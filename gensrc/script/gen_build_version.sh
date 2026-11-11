@@ -146,14 +146,13 @@ package org.apache.doris.common;
 
 public class Version {
 
-  // Use String.valueOf() to prevent javac compile-time constant inlining.
-  // Without this, changing Version.class alone (e.g. via fast-compile-fe.sh)
-  // has no effect because the old values are baked into every referencing class.
+  // Runtime initializers keep build metadata out of cached consumers' constant pools.
+  // Refreshing Version.class during packaging must update both strings and version numbers.
   public static final String DORIS_BUILD_VERSION_PREFIX = String.valueOf("${build_version_prefix}");
-  public static final int DORIS_BUILD_VERSION_MAJOR = ${build_version_major};
-  public static final int DORIS_BUILD_VERSION_MINOR = ${build_version_minor};
-  public static final int DORIS_BUILD_VERSION_PATCH = ${build_version_patch};
-  public static final int DORIS_BUILD_VERSION_HOTFIX = ${build_version_hotfix};
+  public static final int DORIS_BUILD_VERSION_MAJOR = Integer.parseInt("${build_version_major}");
+  public static final int DORIS_BUILD_VERSION_MINOR = Integer.parseInt("${build_version_minor}");
+  public static final int DORIS_BUILD_VERSION_PATCH = Integer.parseInt("${build_version_patch}");
+  public static final int DORIS_BUILD_VERSION_HOTFIX = Integer.parseInt("${build_version_hotfix}");
   public static final String DORIS_BUILD_VERSION_RC_VERSION = String.valueOf("${build_version_rc_version}");
   public static final String DORIS_FEATURE_LIST = String.valueOf("${doris_feature_list}");
 

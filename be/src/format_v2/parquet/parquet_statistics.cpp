@@ -942,10 +942,12 @@ std::shared_ptr<segment_v2::ZoneMap> make_zonemap_from_statistics(
 }
 
 void add_slot_zonemap(ZoneMapEvalContext* ctx, int slot_index, const DataTypePtr& data_type,
-                      std::shared_ptr<segment_v2::ZoneMap> zone_map) {
+                      std::shared_ptr<segment_v2::ZoneMap> zone_map, bool has_zero_nan_count) {
     DORIS_CHECK(ctx != nullptr);
     ZoneMapEvalContext::SlotZoneMap slot_zone_map;
     slot_zone_map.set_data_type_from_parquet(data_type);
+    // A finite min=max=1 alone cannot exclude NaN > 1; a validated zero count can.
+    slot_zone_map.floating_nan_count_unknown &= !has_zero_nan_count;
     slot_zone_map.zone_map = std::move(zone_map);
     ctx->slots.emplace(slot_index, std::move(slot_zone_map));
 }
@@ -1015,6 +1017,15 @@ ParquetColumnStatistics ParquetStatisticsUtils::TransformColumnStatistics(
         result.has_null_count = false;
         result.has_null = true;
     }
+    // Accept only an explicit zero in consistent floating statistics. Missing/positive/invalid
+    // counts, impossible null counts, and NaN or unordered bounds cannot establish this proof.
+    const auto physical_type = column_schema.type_descriptor.physical_type;
+    result.has_zero_nan_count =
+            (physical_type == tparquet::Type::FLOAT || physical_type == tparquet::Type::DOUBLE) &&
+            statistics->__isset.nan_count && statistics->nan_count == 0 &&
+            (!statistics->__isset.null_count ||
+             (statistics->null_count >= 0 && statistics->null_count <= column_value_count)) &&
+            (result.has_min_max || !result.has_not_null);
     return result;
 }
 
@@ -1034,6 +1045,49 @@ bool ParquetStatisticsUtils::NativeBloomFilterExcludes(
 }
 
 namespace {
+
+ParquetColumnStatistics native_footer_column_statistics(const tparquet::FileMetaData& metadata,
+                                                        const tparquet::RowGroup& row_group,
+                                                        const ParquetColumnSchema& column_schema,
+                                                        const cctz::time_zone* timezone,
+                                                        bool null_count_trusted) {
+    if (column_schema.leaf_column_id < 0 ||
+        std::cmp_greater_equal(column_schema.leaf_column_id, row_group.columns.size())) {
+        return {};
+    }
+    const auto& chunk = row_group.columns[column_schema.leaf_column_id];
+    if (!chunk.__isset.meta_data || !chunk.meta_data.__isset.statistics) {
+        return {};
+    }
+    const auto& column = chunk.meta_data;
+    const auto statistics = detail::sanitize_native_footer_statistics(
+            column_schema.type_descriptor, column.statistics,
+            detail::has_supported_type_defined_order(metadata, column_schema.leaf_column_id));
+    return ParquetStatisticsUtils::TransformColumnStatistics(
+            column_schema, &statistics, column.num_values, timezone, null_count_trusted);
+}
+
+bool native_footer_has_zero_nan_count(const tparquet::FileMetaData& metadata,
+                                      const tparquet::RowGroup& row_group,
+                                      const ParquetColumnSchema& column_schema,
+                                      const cctz::time_zone* timezone, bool null_count_trusted) {
+    const auto physical = column_schema.type_descriptor.physical_type;
+    if ((physical != tparquet::Type::FLOAT && physical != tparquet::Type::DOUBLE) ||
+        column_schema.leaf_column_id < 0 ||
+        std::cmp_greater_equal(column_schema.leaf_column_id, row_group.columns.size())) {
+        return false;
+    }
+    const auto& chunk = row_group.columns[column_schema.leaf_column_id];
+    // Avoid decoding footer bounds again for integer/string columns and legacy floating files.
+    if (!chunk.__isset.meta_data || !chunk.meta_data.__isset.statistics ||
+        !chunk.meta_data.statistics.__isset.nan_count ||
+        chunk.meta_data.statistics.nan_count != 0) {
+        return false;
+    }
+    return native_footer_column_statistics(metadata, row_group, column_schema, timezone,
+                                           null_count_trusted)
+            .has_zero_nan_count;
+}
 
 void collect_filtered_leaf_ids(const ParquetColumnSchema& column_schema,
                                const format::LocalColumnIndex* projection,
@@ -1092,24 +1146,11 @@ bool check_native_statistics(const tparquet::FileMetaData& metadata,
             column_schema->leaf_column_id >= static_cast<int>(row_group.columns.size())) {
             return;
         }
-        const auto& chunk = row_group.columns[column_schema->leaf_column_id];
-        std::shared_ptr<segment_v2::ZoneMap> zone_map;
-        if (chunk.__isset.meta_data) {
-            const auto& column_metadata = chunk.meta_data;
-            std::optional<tparquet::Statistics> safe_statistics;
-            if (column_metadata.__isset.statistics) {
-                safe_statistics = detail::sanitize_native_footer_statistics(
-                        column_schema->type_descriptor, column_metadata.statistics,
-                        detail::has_supported_type_defined_order(metadata,
-                                                                 column_schema->leaf_column_id));
-            }
-            zone_map = ParquetStatisticsUtils::MakeZoneMap(
-                    ParquetStatisticsUtils::TransformColumnStatistics(
-                            *column_schema,
-                            safe_statistics.has_value() ? &*safe_statistics : nullptr,
-                            column_metadata.num_values, timezone, null_count_trusted));
-        }
-        add_slot_zonemap(ctx, slot_index, column_schema->type, std::move(zone_map));
+        const auto statistics = native_footer_column_statistics(metadata, row_group, *column_schema,
+                                                                timezone, null_count_trusted);
+        add_slot_zonemap(ctx, slot_index, column_schema->type,
+                         ParquetStatisticsUtils::MakeZoneMap(statistics),
+                         statistics.has_zero_nan_count);
     };
 
     VExprContextSPtrs direct_conjuncts;
@@ -1881,13 +1922,14 @@ RowRange native_page_row_range(const tparquet::OffsetIndex& offset_index, size_t
 class NativePageIndexPredicateEvaluator {
 public:
     NativePageIndexPredicateEvaluator(
-            const tparquet::FileMetaData& metadata,
+            const tparquet::FileMetaData& metadata, const tparquet::RowGroup& row_group,
             const std::unordered_map<int, NativeParquetPageIndex>& page_indexes,
             const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
             const format::FileScanRequest& request, int64_t row_group_rows,
             ParquetPruningStats* pruning_stats, const cctz::time_zone* timezone,
             bool null_count_trusted)
             : _metadata(metadata),
+              _row_group(row_group),
               _page_indexes(page_indexes),
               _file_schema(file_schema),
               _request(request),
@@ -1912,6 +1954,7 @@ public:
 private:
     struct SlotPageZoneMaps {
         DataTypePtr data_type;
+        bool has_zero_nan_count = false;
         std::vector<RowRange> ranges;
         std::vector<std::shared_ptr<segment_v2::ZoneMap>> zone_maps;
     };
@@ -1964,7 +2007,8 @@ private:
         std::vector<RowRange> ranges;
         for (size_t page_idx = 0; page_idx < pages->ranges.size(); ++page_idx) {
             ZoneMapEvalContext ctx;
-            add_slot_zonemap(&ctx, slot_index, pages->data_type, pages->zone_maps[page_idx]);
+            add_slot_zonemap(&ctx, slot_index, pages->data_type, pages->zone_maps[page_idx],
+                             pages->has_zero_nan_count);
             if (expr->evaluate_zonemap_filter(ctx) != ZoneMapFilterResult::kNoMatch) {
                 append_row_range(pages->ranges[page_idx], &ranges);
             }
@@ -1999,6 +2043,10 @@ private:
         const auto& indexes = index_it->second;
         SlotPageZoneMaps pages;
         pages.data_type = column_schema->type;
+        // The owning column chunk's zero covers all its pages. A count from another row group or
+        // column would be unsafe, e.g. if this column has finite bounds but also contains a NaN.
+        pages.has_zero_nan_count = native_footer_has_zero_nan_count(
+                _metadata, _row_group, *column_schema, _timezone, _null_count_trusted);
         pages.ranges.reserve(indexes.offset_index.page_locations.size());
         pages.zone_maps.reserve(indexes.offset_index.page_locations.size());
         for (size_t page_idx = 0; page_idx < indexes.offset_index.page_locations.size();
@@ -2020,6 +2068,7 @@ private:
     }
 
     const tparquet::FileMetaData& _metadata;
+    const tparquet::RowGroup& _row_group;
     const std::unordered_map<int, NativeParquetPageIndex>& _page_indexes;
     const std::vector<std::unique_ptr<ParquetColumnSchema>>& _file_schema;
     const format::FileScanRequest& _request;
@@ -2088,6 +2137,8 @@ Status select_row_group_ranges_by_native_page_index(
             continue;
         }
         const auto& indexes = index_it->second;
+        const bool has_zero_nan_count = native_footer_has_zero_nan_count(
+                metadata, row_group, *column_schema, timezone, null_count_trusted);
         std::vector<RowRange> filter_ranges;
         bool usable = true;
         for (size_t page_idx = 0; page_idx < indexes.offset_index.page_locations.size();
@@ -2103,7 +2154,7 @@ Status select_row_group_ranges_by_native_page_index(
             }
             ZoneMapEvalContext ctx;
             add_slot_zonemap(&ctx, slot_index, column_schema->type,
-                             ParquetStatisticsUtils::MakeZoneMap(statistics));
+                             ParquetStatisticsUtils::MakeZoneMap(statistics), has_zero_nan_count);
             if (VExprContext::evaluate_zonemap_filter(conjuncts, ctx) !=
                 ZoneMapFilterResult::kNoMatch) {
                 append_row_range(page_range, &filter_ranges);
@@ -2123,8 +2174,8 @@ Status select_row_group_ranges_by_native_page_index(
         }
     }
 
-    NativePageIndexPredicateEvaluator evaluator(metadata, page_indexes, file_schema, request,
-                                                row_group_rows, pruning_stats, timezone,
+    NativePageIndexPredicateEvaluator evaluator(metadata, row_group, page_indexes, file_schema,
+                                                request, row_group_rows, pruning_stats, timezone,
                                                 null_count_trusted);
     for (const auto& conjunct : multi_slot_conjuncts) {
         auto conjunct_ranges = evaluator.evaluate(conjunct->root());

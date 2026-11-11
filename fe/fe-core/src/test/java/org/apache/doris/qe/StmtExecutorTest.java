@@ -18,11 +18,18 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.analysis.StatementBase;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.arrowflight.protocol.FlightProtocolAdapter;
+import org.apache.doris.authorization.spi.AuthorizationPlugin;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.catalog.InternalSchemaInitializer;
+import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.ResourceMgr;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.FeConstants;
@@ -30,22 +37,40 @@ import org.apache.doris.common.IncrWindowNotReadyException;
 import org.apache.doris.common.NereidsException;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.profile.ExecutionProfile;
 import org.apache.doris.common.profile.Profile;
 import org.apache.doris.common.profile.ProfileManager;
 import org.apache.doris.common.profile.RuntimeProfile;
 import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.common.util.FairTaskExecutor;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.connector.ConnectorSessionBuilder;
+import org.apache.doris.connector.spi.Connector;
+import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.ConnectorTaskScheduler;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalTable.ConnectorFilteredPartitionView;
+import org.apache.doris.datasource.plugin.PluginDrivenSchemaCacheValue;
 import org.apache.doris.mysql.authenticate.TestLogAppender;
+import org.apache.doris.mysql.privilege.AccessControllerManager;
+import org.apache.doris.mysql.privilege.Auth;
+import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.ExternalTablePreloadInfo;
 import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
+import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.plans.LimitPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.distribute.DistributedPlan;
 import org.apache.doris.nereids.trees.plans.distribute.FragmentIdMapping;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.planner.PlanFragment;
@@ -78,6 +103,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.parallel.ResourceLock;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.MockedConstruction;
@@ -90,7 +116,9 @@ import java.lang.reflect.Method;
 import java.nio.file.Path;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -98,6 +126,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 public class StmtExecutorTest extends TestWithFeService {
     private static final String AI_RESOURCE_LOG_SECRET = "sk-test-secret";
@@ -131,6 +160,140 @@ public class StmtExecutorTest extends TestWithFeService {
             Assertions.assertTrue(connectContext.getState().getErrorMessage().contains("requestedEndTimestampMs=2000"));
             Assertions.assertTrue(connectContext.getState().getErrorMessage().contains("retryAfterMs=1000"));
             Assertions.assertTrue(connectContext.getState().getErrorMessage().contains("timeoutMs=5000"));
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    @ResourceLock("global")
+    public void testQueryCallbacksWithoutCoordinator(boolean planningFailure) throws Exception {
+        ConnectContext context = Mockito.spy(connectContext);
+        context.getState().reset();
+        Mockito.doReturn(Mockito.mock(ResultSender.class)).when(context).getResultSender();
+        TUniqueId queryId = new TUniqueId(0x22050L, planningFailure ? 1L : 2L);
+        AtomicInteger cleanup = new AtomicInteger();
+        QeProcessorImpl.INSTANCE.registerQueryFinishCallback(DebugUtil.printId(queryId), cleanup::incrementAndGet);
+        try {
+            StmtExecutor executor = new StmtExecutor(context, "explain select 1");
+            if (planningFailure) {
+                try (MockedConstruction<NereidsPlanner> planners = Mockito.mockConstruction(NereidsPlanner.class,
+                        (planner, construction) -> Mockito.doThrow(new NereidsException("planning failed",
+                                new UserException("planning failed")))
+                                .when(planner).plan(Mockito.any(StatementBase.class), Mockito.any(TQueryOptions.class)))) {
+                    executor.execute(queryId);
+                    Assertions.assertEquals(1, planners.constructed().size());
+                }
+                Assertions.assertEquals(QueryState.MysqlStateType.ERR, context.getState().getStateType());
+            } else {
+                executor.execute(queryId);
+                Assertions.assertNotEquals(QueryState.MysqlStateType.ERR, context.getState().getStateType(),
+                        context.getState().getErrorMessage());
+            }
+            Assertions.assertNull(QeProcessorImpl.INSTANCE.getCoordinator(queryId));
+            Assertions.assertEquals(1, cleanup.get(), "planning-only attempts must release registered callbacks");
+            QeProcessorImpl.INSTANCE.unregisterQuery(queryId);
+            Assertions.assertEquals(1, cleanup.get(), "later finalization must not repeat cleanup");
+        } finally {
+            QeProcessorImpl.INSTANCE.unregisterQuery(queryId);
+        }
+    }
+
+    @Test
+    @ResourceLock("global")
+    public void testPlanningFailureClosesTaskGroupBeforeScanRegistration() throws Exception {
+        ConnectContext context = Mockito.spy(connectContext);
+        context.getState().reset();
+        Mockito.doReturn(Mockito.mock(ResultSender.class)).when(context).getResultSender();
+        StmtExecutor executor = new StmtExecutor(context, "explain select 1");
+        ConnectorSession session = ConnectorSessionBuilder.from(context).withCatalogId(1).build();
+        FairTaskExecutor pool = context.getEnv().getExtMetaCacheMgr()
+                .getQueryTaskExecutor(ConnectorTaskScheduler.Stage.METADATA);
+        int groupsBefore = pool.getGroupCount();
+        ConnectorTaskScheduler group = session.getTaskScheduler(ConnectorTaskScheduler.Stage.METADATA);
+        Assertions.assertEquals(groupsBefore + 1, pool.getGroupCount());
+        TUniqueId queryId = new TUniqueId(0x22050L, 3L);
+        try (MockedConstruction<NereidsPlanner> planners = Mockito.mockConstruction(NereidsPlanner.class,
+                (planner, construction) -> Mockito.doThrow(new NereidsException("planning failed",
+                        new UserException("planning failed")))
+                        .when(planner).plan(Mockito.any(StatementBase.class), Mockito.any(TQueryOptions.class)))) {
+            executor.execute(queryId);
+            Assertions.assertEquals(1, planners.constructed().size());
+            Assertions.assertEquals(QueryState.MysqlStateType.ERR, context.getState().getStateType());
+            Assertions.assertTrue(group.isClosed());
+            Assertions.assertEquals(groupsBefore, pool.getGroupCount());
+        } finally {
+            session.getStatementScope().closeAll();
+            QeProcessorImpl.INSTANCE.unregisterQuery(queryId);
+        }
+    }
+
+    @ParameterizedTest
+    @CsvSource({"false, CANCELLED", "true, CANCELLED", "false, TIMEOUT", "true, TIMEOUT"})
+    @ResourceLock("global")
+    public void testPlanningCancellationClosesCapturedTaskGroups(boolean cancelBeforeCapture,
+            TStatusCode statusCode) throws Exception {
+        ConnectContext context = Mockito.spy(connectContext);
+        context.setStatementContext(new StatementContext(context, new OriginStatement("select 1", 0)));
+        context.setQueryId(new TUniqueId(0x22051L, statusCode.getValue() * 2L + (cancelBeforeCapture ? 1 : 0)));
+        StmtExecutor executor = new StmtExecutor(context, "select 1");
+        context.setExecutor(executor);
+        Status reason = new Status(statusCode, "cancel before coordinator publication");
+        if (cancelBeforeCapture) {
+            executor.cancel(reason, false);
+        }
+        ConnectorSession session = ConnectorSessionBuilder.from(context).withCatalogId(1).build();
+        try {
+            if (cancelBeforeCapture) {
+                Assertions.assertThrows(java.util.concurrent.CancellationException.class,
+                        () -> session.getTaskScheduler(ConnectorTaskScheduler.Stage.SPLIT));
+            } else {
+                ConnectorTaskScheduler split = session.getTaskScheduler(ConnectorTaskScheduler.Stage.SPLIT);
+                ConnectorTaskScheduler metadata = session.getTaskScheduler(ConnectorTaskScheduler.Stage.METADATA);
+                Assertions.assertFalse(split.isClosed());
+                Assertions.assertFalse(metadata.isClosed());
+                executor.cancel(reason, false);
+                Assertions.assertTrue(split.isClosed());
+                Assertions.assertTrue(metadata.isClosed());
+            }
+        } finally {
+            session.getStatementScope().closeAll();
+        }
+    }
+
+    @Test
+    @ResourceLock("global")
+    public void testCancellationRegistrationWhileCallbackIsRunning() throws Exception {
+        StmtExecutor executor = new StmtExecutor(connectContext, "select 1");
+        AtomicInteger first = new AtomicInteger();
+        AtomicInteger late = new AtomicInteger();
+        CountDownLatch entered = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        executor.registerQueryCancellationCallback(() -> {
+            first.incrementAndGet();
+            entered.countDown();
+            try {
+                Assertions.assertTrue(release.await(5, TimeUnit.SECONDS));
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new RuntimeException(e);
+            }
+        });
+        ExecutorService worker = Executors.newSingleThreadExecutor();
+        try {
+            Future<?> cancelling = worker.submit(() -> executor.cancel(
+                    new Status(TStatusCode.CANCELLED, "cancel during callback registration"), false));
+            Assertions.assertTrue(entered.await(5, TimeUnit.SECONDS));
+            executor.registerQueryCancellationCallback(late::incrementAndGet);
+            Assertions.assertEquals(1, late.get());
+            release.countDown();
+            cancelling.get(5, TimeUnit.SECONDS);
+            executor.cancel(new Status(TStatusCode.TIMEOUT, "later cancellation"), false);
+            Assertions.assertEquals(1, first.get());
+            Assertions.assertEquals(1, late.get());
+        } finally {
+            release.countDown();
+            worker.shutdownNow();
+            Assertions.assertTrue(worker.awaitTermination(5, TimeUnit.SECONDS));
         }
     }
 
@@ -509,81 +672,226 @@ public class StmtExecutorTest extends TestWithFeService {
     @Test
     @ResourceLock("global")
     public void testSuccessfulRetryRendersMergedProfileAndActualRows(@TempDir Path profileDirectory) throws Exception {
-        ProfileManager manager = ProfileManager.getInstance();
-        connectContext.getSessionVariable().enableProfile = true;
-        connectContext.getSessionVariable().autoProfileThresholdMs = 0;
-        TUniqueId firstQueryId = new TUniqueId(0x22040L, 5L);
-        TUniqueId retryQueryId = new TUniqueId(0x22040L, 6L);
-        connectContext.setQueryId(firstQueryId);
-        connectContext.setStartTime();
-        StmtExecutor executor = new StmtExecutor(connectContext,
-                analyzeAndGetStmtByNereids("select 1", connectContext));
-        executor.getSummaryProfile().setQueryBeginTime(System.currentTimeMillis());
-        Profile profile = executor.getProfile();
-        Statistics statistics = new Statistics(0, Collections.emptyMap());
-        PhysicalEmptyRelation physicalPlan = new PhysicalEmptyRelation(new RelationId(0), Collections.emptyList(),
-                Optional.empty(), null, PhysicalProperties.ANY, statistics);
-        int planNodeId = physicalPlan.getId();
-        profile.setPhysicalPlan(physicalPlan);
-        ExecutionProfile failedExecution = new ExecutionProfile(firstQueryId, Collections.singletonList(0));
-        ExecutionProfile successfulExecution = new ExecutionProfile(retryQueryId, Collections.singletonList(0));
-        TQueryOptions queryOptions = new TQueryOptions();
-        queryOptions.enable_profile = true;
+        // Exercise storage synchronously: the global daemon can spill and release this completed
+        // profile while the test is writing or reading it from its temporary directory.
+        ProfileManager manager = new ProfileManager() { };
+        try (MockedStatic<ProfileManager> managers = Mockito.mockStatic(ProfileManager.class)) {
+            managers.when(ProfileManager::getInstance).thenReturn(manager);
+            connectContext.getSessionVariable().enableProfile = true;
+            connectContext.getSessionVariable().autoProfileThresholdMs = 0;
+            TUniqueId firstQueryId = new TUniqueId(0x22040L, 5L);
+            TUniqueId retryQueryId = new TUniqueId(0x22040L, 6L);
+            connectContext.setQueryId(firstQueryId);
+            connectContext.setStartTime();
+            StmtExecutor executor = new StmtExecutor(connectContext,
+                    analyzeAndGetStmtByNereids("select 1", connectContext));
+            executor.getSummaryProfile().setQueryBeginTime(System.currentTimeMillis());
+            Profile profile = executor.getProfile();
+            Statistics statistics = new Statistics(0, Collections.emptyMap());
+            PhysicalEmptyRelation physicalPlan = new PhysicalEmptyRelation(new RelationId(0), Collections.emptyList(),
+                    Optional.empty(), null, PhysicalProperties.ANY, statistics);
+            int planNodeId = physicalPlan.getId();
+            profile.setPhysicalPlan(physicalPlan);
+            ExecutionProfile failedExecution = new ExecutionProfile(firstQueryId, Collections.singletonList(0));
+            ExecutionProfile successfulExecution = new ExecutionProfile(retryQueryId, Collections.singletonList(0));
+            TQueryOptions queryOptions = new TQueryOptions();
+            queryOptions.enable_profile = true;
 
+            try {
+                Coordinator firstCoord = Mockito.mock(Coordinator.class);
+                Mockito.when(firstCoord.getQueryOptions()).thenReturn(queryOptions);
+                Mockito.when(firstCoord.getExecutionProfile()).thenReturn(failedExecution);
+                profile.addExecutionProfile(failedExecution);
+                QeProcessorImpl.INSTANCE.registerQuery(firstQueryId, new QeProcessorImpl.QueryInfo(firstCoord));
+                Assertions.assertTrue(failedExecution.updateProfile(
+                        createBackendRowsProfile(firstQueryId, planNodeId, 1000),
+                        new TNetworkAddress("127.0.0.1", 9060), true).ok());
+                executor.updateProfile(false);
+                executor.finalizeQuery(true);
+
+                connectContext.setQueryId(retryQueryId);
+                Coordinator retryCoord = Mockito.mock(Coordinator.class);
+                Mockito.when(retryCoord.getQueryOptions()).thenReturn(queryOptions);
+                Mockito.when(retryCoord.getExecutionProfile()).thenReturn(successfulExecution);
+                Mockito.when(retryCoord.getExecStatus()).thenReturn(Status.OK);
+                executor.setCoord(retryCoord);
+                profile.addExecutionProfile(successfulExecution);
+                QeProcessorImpl.INSTANCE.registerQuery(retryQueryId, new QeProcessorImpl.QueryInfo(retryCoord));
+                successfulExecution.addFragmentBackend(0, 1L);
+                successfulExecution.addFragmentBackend(0, 2L);
+                Assertions.assertTrue(successfulExecution.updateProfile(
+                        createBackendRowsProfile(retryQueryId, planNodeId, 17),
+                        new TNetworkAddress("127.0.0.1", 9060), true).ok());
+                Assertions.assertTrue(successfulExecution.updateProfile(
+                        createBackendRowsProfile(retryQueryId, planNodeId, 25),
+                        new TNetworkAddress("127.0.0.2", 9060), true).ok());
+                Assertions.assertTrue(successfulExecution.isCompleted());
+                executor.updateProfile(false);
+                executor.finalizeQuery();
+                Assertions.assertNotNull(manager.findProfileElementObject(profile.getId()));
+
+                String profileText = profile.getProfileByLevel();
+                Assertions.assertTrue(profileText.contains("MergedProfile:"));
+                Assertions.assertTrue(profileText.contains("Pipeline 0(instance_num=2)"));
+                Assertions.assertTrue(profileText.contains("RowsProduced: sum 42"));
+                Assertions.assertFalse(profileText.contains("build merged simple profile failed"));
+                Assertions.assertFalse(profileText.contains("DetailProfile(" + DebugUtil.printId(firstQueryId) + ")"));
+                Assertions.assertTrue(profileText.contains("DetailProfile(" + DebugUtil.printId(retryQueryId) + ")"));
+                Assertions.assertEquals(42L, profile.rowsProducedMap.get(String.valueOf(planNodeId)));
+                Assertions.assertEquals(42L, statistics.getActualRowCount());
+
+                profile.writeToStorage(profileDirectory.toString());
+                Profile storedProfile = Profile.read(profile.getProfileStoragePath());
+                Assertions.assertNotNull(storedProfile);
+                String storedText = storedProfile.getProfileByLevel();
+                Assertions.assertTrue(storedText.contains("MergedProfile:"), storedText);
+                Assertions.assertTrue(storedText.contains("RowsProduced: sum 42"));
+                Assertions.assertFalse(storedText.contains("DetailProfile(" + DebugUtil.printId(firstQueryId) + ")"));
+            } finally {
+                QeProcessorImpl.INSTANCE.unregisterQuery(firstQueryId);
+                QeProcessorImpl.INSTANCE.unregisterQuery(retryQueryId);
+                manager.removeProfile(profile);
+            }
+        }
+    }
+
+    @Test
+    @ResourceLock("global")
+    public void outerReplanRetryReplacesClosedConnectorScope() throws Exception {
+        int oldRetryTime = Config.max_query_retry_time;
+        ConnectContext previousContext = ConnectContext.get();
+        ConnectContext context = Mockito.spy(connectContext);
+        SessionVariable variables = new SessionVariable();
+        variables.setEnableMaterializedViewRewrite(false);
+        variables.setEnableDmlMaterializedViewRewrite(false);
+        variables.setEnableFoldConstantByBe(false);
+        variables.setEnableSqlCache(false);
+        Mockito.doReturn(variables).when(context).getSessionVariable();
+        Mockito.doReturn(UserIdentity.createAnalyzedUserIdentWithIp("partition_retry_user", "%"))
+                .when(context).getCurrentUserIdentity();
+        Env env = Mockito.spy(context.getEnv());
+        AccessControllerManager access = Mockito.spy(
+                new AccessControllerManager(Mockito.mock(Auth.class), true));
+        AuthorizationPlugin plugin = Mockito.mock(AuthorizationPlugin.class);
+        Mockito.when(plugin.getDataMasks(Mockito.any(), Mockito.any(), Mockito.anySet(), Mockito.any()))
+                .thenReturn(Map.of());
+        Mockito.doReturn(plugin).when(access).getAccessControllerOrDefault(Mockito.anyString());
+        Mockito.doReturn(access).when(env).getAccessManager();
+        Mockito.doReturn(env).when(context).getEnv();
+        context.setStartTime();
+        context.setQueryId(new TUniqueId(0x33040L, 1L));
+        StmtExecutor executor = Mockito.spy(new StmtExecutor(context, "select 1"));
+        context.setExecutor(executor);
+        StatementContext statement = context.getStatementContext();
+        TableIf internal = Mockito.mock(TableIf.class);
+        Mockito.when(internal.getId()).thenReturn(21L);
+        Mockito.when(internal.needReadLockWhenPlan()).thenReturn(true);
+        Mockito.when(internal.tryReadLock(1, TimeUnit.MINUTES)).thenReturn(true);
+        PluginDrivenExternalTable hive = Mockito.mock(PluginDrivenExternalTable.class);
+        DatabaseIf<?> database = Mockito.mock(DatabaseIf.class);
+        PluginDrivenExternalCatalog catalog = Mockito.mock(PluginDrivenExternalCatalog.class);
+        Mockito.doReturn(catalog).when(database).getCatalog();
+        Mockito.when(database.getFullName()).thenReturn("db");
+        Mockito.when(catalog.getName()).thenReturn("hive_catalog");
+        Mockito.when(catalog.getConnector()).thenReturn(Mockito.mock(Connector.class));
+        Mockito.when(hive.getCatalog()).thenReturn(catalog);
+        Mockito.doReturn(database).when(hive).getDatabase();
+        Mockito.when(hive.getId()).thenReturn(22L);
+        Mockito.when(hive.getName()).thenReturn("h");
+        Mockito.when(hive.supportsExternalMetadataPreload()).thenReturn(true);
+        Mockito.when(hive.supportsConnectorPartitionPruning()).thenReturn(true);
+        Column partitionColumn = new Column("p", Type.INT);
+        Mockito.when(hive.getFullSchema(Mockito.any())).thenReturn(List.of(partitionColumn));
+        Mockito.when(hive.getPartitionColumns(Mockito.any())).thenReturn(List.of(partitionColumn));
+        Mockito.when(hive.getSchemaCacheValue(Mockito.any())).thenReturn(Optional.of(
+                new PluginDrivenSchemaCacheValue(
+                        List.of(partitionColumn), List.of(partitionColumn), List.of("p"), Map.of())));
+        AtomicInteger selections = new AtomicInteger();
+        Mockito.when(hive.applyPartitionFilterForScan(Mockito.any(), Mockito.any())).thenAnswer(invocation -> {
+            selections.incrementAndGet();
+            ConnectorFilteredPartitionView view = Mockito.mock(ConnectorFilteredPartitionView.class);
+            Mockito.when(view.getItems()).thenReturn(Map.of("p=1", Mockito.mock(PartitionItem.class)));
+            return Optional.of(view);
+        });
+        statement.getTables().put(List.of("internal_catalog", "db", "i"), internal);
+        statement.getTables().put(List.of("hive_catalog", "db", "h"), hive);
+        String mixedQuery = "select h.p from internal_catalog.db.i i "
+                + "cross join hive_catalog.db.h h where h.p = 1";
+        Method parse = StmtExecutor.class.getDeclaredMethod("parseByNereids");
+        parse.setAccessible(true);
+        parse.invoke(executor);
+        AtomicInteger attempts = new AtomicInteger();
+        AtomicReference<ExternalTablePreloadInfo> oldPreload = new AtomicReference<>();
+        AtomicReference<RelationId> oldRelation = new AtomicReference<>();
+        List<ConnectorTaskScheduler> groups = Lists.newArrayList();
+        FairTaskExecutor splitPool = context.getEnv().getExtMetaCacheMgr()
+                .getQueryTaskExecutor(ConnectorTaskScheduler.Stage.SPLIT);
+        FairTaskExecutor metadataPool = context.getEnv().getExtMetaCacheMgr()
+                .getQueryTaskExecutor(ConnectorTaskScheduler.Stage.METADATA);
+        int splitGroupsBefore = splitPool.getGroupCount();
+        int metadataGroupsBefore = metadataPool.getGroupCount();
+        Mockito.doAnswer(invocation -> {
+            context.setQueryId(invocation.getArgument(0));
+            ConnectorSession session = ConnectorSessionBuilder.from(context).withCatalogId(1).build();
+            groups.add(session.getTaskScheduler(ConnectorTaskScheduler.Stage.SPLIT));
+            groups.add(session.getTaskScheduler(ConnectorTaskScheduler.Stage.METADATA));
+            try {
+                int attempt = attempts.incrementAndGet();
+                if (attempt == 2) {
+                    Assertions.assertFalse(statement.hasPartitionPolicyObservation(hive));
+                    Assertions.assertTrue(statement.getExternalTablePreloadInfo(hive.getId()).isEmpty());
+                    Assertions.assertTrue(statement.getExternalMetadataPreloadResult().isEmpty());
+                    Assertions.assertFalse(oldPreload.get().hasFilteredScanView(oldRelation.get()));
+                    Assertions.assertTrue(((Set<?>) Deencapsulation.getField(
+                            statement, "usedPartitionPolicyProofs")).isEmpty());
+                }
+                LogicalPlan plan = new NereidsParser().parseSingle(mixedQuery);
+                UnboundRelation relation = plan.<UnboundRelation>collectToList(UnboundRelation.class::isInstance)
+                        .stream().filter(node -> node.getNameParts().contains("h")).findFirst().get();
+                CascadesContext cascades = CascadesContext.initContext(statement, plan, PhysicalProperties.ANY);
+                NereidsPlanner planner = new NereidsPlanner(statement);
+                Deencapsulation.setField(planner, "cascadesContext", cascades);
+                Deencapsulation.invoke(planner, "collectAndLockTable", false, false, true);
+                ExternalTablePreloadInfo preload = statement.getExternalTablePreloadInfo(hive.getId()).get();
+                Assertions.assertTrue(statement.getExternalMetadataPreloadResult().isPresent());
+                Assertions.assertTrue(statement.hasPartitionPolicyObservation(hive));
+                Assertions.assertEquals(1, ((Set<?>) Deencapsulation.getField(
+                        statement, "usedPartitionPolicyProofs")).size());
+                Assertions.assertEquals(Set.of("p=1"),
+                        preload.getFilteredScanView(relation.getRelationId()).get().getItems().keySet());
+                Assertions.assertEquals(attempt, selections.get());
+                if (attempt == 1) {
+                    oldPreload.set(preload);
+                    oldRelation.set(relation.getRelationId());
+                    throw new UserException("E-230");
+                }
+                Assertions.assertNotSame(oldPreload.get(), preload);
+            } finally {
+                statement.releasePlannerResources();
+                session.getStatementScope().closeAll();
+            }
+            return null;
+        }).when(executor).execute(Mockito.any(TUniqueId.class));
         try {
-            Coordinator firstCoord = Mockito.mock(Coordinator.class);
-            Mockito.when(firstCoord.getQueryOptions()).thenReturn(queryOptions);
-            Mockito.when(firstCoord.getExecutionProfile()).thenReturn(failedExecution);
-            profile.addExecutionProfile(failedExecution);
-            QeProcessorImpl.INSTANCE.registerQuery(firstQueryId, new QeProcessorImpl.QueryInfo(firstCoord));
-            Assertions.assertTrue(failedExecution.updateProfile(
-                    createBackendRowsProfile(firstQueryId, planNodeId, 1000),
-                    new TNetworkAddress("127.0.0.1", 9060), true).ok());
-            executor.updateProfile(false);
-            executor.finalizeQuery(true);
-
-            connectContext.setQueryId(retryQueryId);
-            Coordinator retryCoord = Mockito.mock(Coordinator.class);
-            Mockito.when(retryCoord.getQueryOptions()).thenReturn(queryOptions);
-            Mockito.when(retryCoord.getExecutionProfile()).thenReturn(successfulExecution);
-            Mockito.when(retryCoord.getExecStatus()).thenReturn(Status.OK);
-            executor.setCoord(retryCoord);
-            profile.addExecutionProfile(successfulExecution);
-            QeProcessorImpl.INSTANCE.registerQuery(retryQueryId, new QeProcessorImpl.QueryInfo(retryCoord));
-            successfulExecution.addFragmentBackend(0, 1L);
-            successfulExecution.addFragmentBackend(0, 2L);
-            Assertions.assertTrue(successfulExecution.updateProfile(
-                    createBackendRowsProfile(retryQueryId, planNodeId, 17),
-                    new TNetworkAddress("127.0.0.1", 9060), true).ok());
-            Assertions.assertTrue(successfulExecution.updateProfile(
-                    createBackendRowsProfile(retryQueryId, planNodeId, 25),
-                    new TNetworkAddress("127.0.0.2", 9060), true).ok());
-            Assertions.assertTrue(successfulExecution.isCompleted());
-            executor.updateProfile(false);
-            executor.finalizeQuery();
-            Assertions.assertNotNull(manager.findProfileElementObject(profile.getId()));
-
-            String profileText = profile.getProfileByLevel();
-            Assertions.assertTrue(profileText.contains("MergedProfile:"));
-            Assertions.assertTrue(profileText.contains("Pipeline 0(instance_num=2)"));
-            Assertions.assertTrue(profileText.contains("RowsProduced: sum 42"));
-            Assertions.assertFalse(profileText.contains("build merged simple profile failed"));
-            Assertions.assertFalse(profileText.contains("DetailProfile(" + DebugUtil.printId(firstQueryId) + ")"));
-            Assertions.assertTrue(profileText.contains("DetailProfile(" + DebugUtil.printId(retryQueryId) + ")"));
-            Assertions.assertEquals(42L, profile.rowsProducedMap.get(String.valueOf(planNodeId)));
-            Assertions.assertEquals(42L, statistics.getActualRowCount());
-
-            profile.writeToStorage(profileDirectory.toString());
-            Profile storedProfile = Profile.read(profile.getProfileStoragePath());
-            Assertions.assertNotNull(storedProfile);
-            String storedText = storedProfile.getProfileByLevel();
-            Assertions.assertTrue(storedText.contains("MergedProfile:"));
-            Assertions.assertTrue(storedText.contains("RowsProduced: sum 42"));
-            Assertions.assertFalse(storedText.contains("DetailProfile(" + DebugUtil.printId(firstQueryId) + ")"));
+            context.setThreadLocalInfo();
+            Config.max_query_retry_time = 1;
+            Method execute = StmtExecutor.class.getDeclaredMethod("executeWithReplanRetries", TUniqueId.class);
+            execute.setAccessible(true);
+            execute.invoke(executor, context.queryId());
+            Assertions.assertEquals(2, attempts.get());
+            Assertions.assertEquals(4, groups.size());
+            Assertions.assertTrue(groups.stream().allMatch(ConnectorTaskScheduler::isClosed));
+            Assertions.assertEquals(splitGroupsBefore, splitPool.getGroupCount());
+            Assertions.assertEquals(metadataGroupsBefore, metadataPool.getGroupCount());
+            Mockito.verify(hive, Mockito.never()).getNameToPartitionItemsForScan(Mockito.any());
+            Mockito.verify(internal, Mockito.times(2)).tryReadLock(1, TimeUnit.MINUTES);
         } finally {
-            QeProcessorImpl.INSTANCE.unregisterQuery(firstQueryId);
-            QeProcessorImpl.INSTANCE.unregisterQuery(retryQueryId);
-            manager.removeProfile(profile);
+            Config.max_query_retry_time = oldRetryTime;
+            context.getStatementContext().resetConnectorStatementScope();
+            ConnectContext.remove();
+            if (previousContext != null) {
+                previousContext.setThreadLocalInfo();
+            }
         }
     }
 
@@ -754,9 +1062,7 @@ public class StmtExecutorTest extends TestWithFeService {
                     return coordinator;
                 });
 
-        try (MockedStatic<EnvFactory> factories = Mockito.mockStatic(EnvFactory.class);
-                MockedConstruction<NereidsCoordinator> coordinators = Mockito.mockConstruction(NereidsCoordinator.class,
-                        (coordinator, construction) -> configureCoordinator.configure(coordinator))) {
+        try (MockedStatic<EnvFactory> factories = Mockito.mockStatic(EnvFactory.class)) {
             factories.when(EnvFactory::getInstance).thenReturn(factory);
             Config.cloud_unique_id = "profile-replan-test";
             Config.max_query_retry_time = "EXHAUSTED".equals(outcome) ? 0 : 1;
@@ -839,7 +1145,9 @@ public class StmtExecutorTest extends TestWithFeService {
             JsonObject finalAttempt = attemptDetails.getAsJsonObject(DebugUtil.printId(context.queryId()));
             Assertions.assertEquals(context.getState().getStateType() == QueryState.MysqlStateType.ERR ? "FAILED" : "SUCCEEDED",
                     finalAttempt.get("state").getAsString());
-            Assertions.assertEquals(fetchFailure ? 1 : 0, coordinators.constructed().size());
+            // Every dispatch, including a replanned query, now obtains its coordinator from the same factory.
+            Mockito.verify(factory, Mockito.times(executions.size())).createCoordinator(
+                    Mockito.eq(context), Mockito.eq(planner), Mockito.any());
             Assertions.assertNotEquals(Long.MAX_VALUE, profile.getQueryFinishTimestamp());
             Assertions.assertEquals(context.getStartTime(), profile.getSummaryProfile().getQueryBeginTime());
             for (ExecutionProfile execution : executions) {
@@ -1194,10 +1502,7 @@ public class StmtExecutorTest extends TestWithFeService {
         // a query to the master FE), the StmtExecutor is created via the proxy
         // constructor which creates a fresh StatementContext without a
         // parsedStatement. Without the fix, statementContext.getParsedStatement()
-        // remains null, causing SessionVariable.canUseNereidsDistributePlanner()
-        // to return false, which leads EnvFactory.createCoordinator() to create
-        // a legacy Coordinator instead of NereidsCoordinator, resulting in
-        // "fragment has no children" error.
+        // remains null until parsing propagates it to the statement context.
 
         // Simulate the proxy flow: StmtExecutor(ConnectContext, OriginStatement, boolean isProxy)
         StmtExecutor executor = new StmtExecutor(connectContext,

@@ -22,9 +22,9 @@ import org.apache.paimon.catalog.FileSystemCatalog;
 import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.format.OrcOptions;
 import org.apache.paimon.fs.local.LocalFileIO;
+import org.apache.paimon.schema.FileSystemSchemaManager;
 import org.apache.paimon.schema.Schema;
 import org.apache.paimon.schema.SchemaChange;
-import org.apache.paimon.schema.SchemaManager;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.source.RawFile;
 import org.apache.paimon.types.DataTypes;
@@ -59,7 +59,7 @@ class PaimonLegacyOrcTimestampTest {
                     new RawFile("part.orc", 0L, 100L, 1L, "orc", original.schema().id(), 0L)));
             Assertions.assertTrue(PaimonScanPlanProvider.requiresOrcTimestampReader(
                     original, oldFiles, Collections.singleton(1), new HashMap<>()));
-            new SchemaManager(original.fileIO(), original.location())
+            new FileSystemSchemaManager(original.fileIO(), original.location())
                     .commitChanges(SchemaChange.dropColumn("events"));
             FileStoreTable evolved = (FileStoreTable) catalog.getTable(id);
             Map<Long, Boolean> schemaCache = new HashMap<>();

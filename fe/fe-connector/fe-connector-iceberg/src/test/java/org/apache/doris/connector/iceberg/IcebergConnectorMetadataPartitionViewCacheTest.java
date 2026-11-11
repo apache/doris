@@ -25,6 +25,7 @@ import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.mvcc.ConnectorMvccPartition;
 import org.apache.doris.connector.spi.mvcc.ConnectorMvccPartitionView;
 import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
+import org.apache.doris.connector.spi.mvcc.ConnectorSqlCacheVersion;
 import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
 
 import org.apache.iceberg.DataFiles;
@@ -123,9 +124,69 @@ public class IcebergConnectorMetadataPartitionViewCacheTest {
         return new ConnectorMetadataCache<>("iceberg", "partition_view", Collections.emptyMap());
     }
 
+    @Test
+    public void sqlCacheVersionPinsMetadataAndDetectsSchemaChangesAndRollback() {
+        TwoSnap f = twoSnapshotTable();
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.table = f.table;
+        IcebergConnectorMetadata md = metadataWithMvccCache(ops, mvccCache());
+        IcebergTableHandle first = handle().withSnapshot(f.s1, null, f.schemaId);
+        IcebergTableHandle second = handle().withSnapshot(f.s2, null, f.schemaId);
+        IcebergStatementScopeTest.ScopeSession session = new IcebergStatementScopeTest.ScopeSession(
+                1L, "cache-query", new TestStatementScope());
+        ConnectorSqlCacheVersion v1 = md.getSqlCacheVersion(session, first).orElseThrow();
+        ConnectorSqlCacheVersion v2 = md.getSqlCacheVersion(session, second).orElseThrow();
+        Assertions.assertNotEquals(v1.getVersion(), v2.getVersion());
+        Assertions.assertEquals(f.table.snapshot(f.s1).timestampMillis(), v1.getUpdateTimeMillis());
+        Assertions.assertEquals(v2.getVersion(), md.getSqlCacheVersion(session,
+                handle().withSnapshot(f.s2, "branch", f.schemaId)).orElseThrow().getVersion());
+        f.table.updateSchema().addColumn("extra", Types.StringType.get()).commit();
+        Assertions.assertEquals(v2.getVersion(), md.getSqlCacheVersion(session, second).orElseThrow().getVersion(),
+                "an existing statement must not observe a later metadata-only commit");
+        IcebergStatementScopeTest.ScopeSession next = new IcebergStatementScopeTest.ScopeSession(
+                1L, "next-cache-query", new TestStatementScope());
+        IcebergTableHandle evolved = handle().withSnapshot(f.s2, null, f.table.schema().schemaId());
+        Assertions.assertNotEquals(v2.getVersion(), md.getSqlCacheVersion(next, evolved).orElseThrow().getVersion());
+        // Snapshot ids are opaque; a rollback changes the identity even when its commit time is older.
+        f.table.manageSnapshots().rollbackTo(f.s1).commit();
+        IcebergStatementScopeTest.ScopeSession rollback = new IcebergStatementScopeTest.ScopeSession(
+                1L, "rollback-query", new TestStatementScope());
+        Assertions.assertNotEquals(v2.getVersion(), md.getSqlCacheVersion(rollback,
+                handle().withSnapshot(f.s1, null, f.table.schema().schemaId())).orElseThrow().getVersion());
+        Assertions.assertTrue(ops.log.stream().noneMatch(entry -> entry.startsWith("listPartitions")), ops.log.toString());
+    }
+
     private static List<String> mvccNames(Optional<ConnectorMvccPartitionView> view) {
         return view.get().getPartitions().stream()
                 .map(ConnectorMvccPartition::getName).collect(Collectors.toList());
+    }
+
+    @Test
+    public void versionTokenAndListUseThePinnedSnapshot() {
+        TwoSnap f = twoSnapshotTable();
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.table = f.table;
+        IcebergConnectorMetadata md = metadataWithListCache(ops, listCache());
+        IcebergTableHandle first = handle().withSnapshot(f.s1, null, f.schemaId);
+        IcebergTableHandle second = handle().withSnapshot(f.s2, null, f.schemaId);
+        IcebergStatementScopeTest.ScopeSession session = new IcebergStatementScopeTest.ScopeSession(
+                1L, "version-query", new TestStatementScope());
+        String firstVersion = md.getPartitionViewVersion(session, first).orElseThrow();
+        Assertions.assertEquals(firstVersion, md.getPartitionViewVersion(session,
+                handle().withSnapshot(f.s1, "branch-alias", f.schemaId)).orElseThrow());
+        Assertions.assertNotEquals(firstVersion, md.getPartitionViewVersion(session, second).orElseThrow());
+        Assertions.assertFalse(md.getPartitionViewVersion(session, handle()).isPresent());
+        Assertions.assertEquals(1, md.listPartitions(session, first, Optional.empty()).size());
+        Assertions.assertEquals(2, md.listPartitions(session, second, Optional.empty()).size());
+        // Metadata-only evolution must change the token even without a new data snapshot.
+        f.table.updateSpec().addField("id").commit();
+        Assertions.assertEquals(firstVersion, md.getPartitionViewVersion(session, first).orElseThrow(),
+                "an existing statement must retain its metadata generation");
+        IcebergStatementScopeTest.ScopeSession next = new IcebergStatementScopeTest.ScopeSession(
+                1L, "next-query", new TestStatementScope());
+        Assertions.assertNotEquals(firstVersion, md.getPartitionViewVersion(next, first).orElseThrow());
+        Assertions.assertFalse(md.getPartitionViewVersion(null, first).isPresent());
+        Assertions.assertEquals(f.s2, f.table.currentSnapshot().snapshotId());
     }
 
     @Test

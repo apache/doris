@@ -24,6 +24,7 @@ import org.apache.doris.connector.hms.HmsPartitionInfo;
 import org.apache.doris.connector.hms.HmsTableInfo;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStatementScope;
+import org.apache.doris.connector.spi.ConnectorTableNotFoundException;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -34,7 +35,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Pins {@link HiveConnectorMetadata#getTableComment} for an iceberg-on-HMS table read through the gateway.
+ * Pins {@link HiveConnectorMetadata#getTableComment} for Hive and Iceberg tables read through HMS.
  *
  * <p><b>WHY this matters:</b> the comment accessor takes a database and table NAME, never a
  * {@code ConnectorTableHandle}, so the gateway cannot route it to the iceberg sibling the way it routes every
@@ -45,8 +46,8 @@ import java.util.Map;
  * table. Iceberg's HMS catalog mirrors the comment into the HMS table parameters on every commit, so the
  * gateway answers from the metastore table it already reads.</p>
  *
- * <p>The plain-hive assertions are the other half of the contract: a plain hive table must keep the empty
- * comment legacy returned, so this change cannot alter what any existing hive deployment displays.</p>
+ * <p>Plain Hive tables use the same HMS {@code comment} parameter. Their comments must appear in the
+ * gateway's information schema and table status instead of being hidden by the legacy empty result.</p>
  */
 public class HiveConnectorMetadataTableCommentTest {
 
@@ -73,18 +74,26 @@ public class HiveConnectorMetadataTableCommentTest {
     }
 
     @Test
-    public void plainHiveTableKeepsItsLegacyEmptyComment() {
+    public void plainHiveTableReportsItsComment() {
         Map<String, String> params = new HashMap<>();
-        params.put("comment", "a hive table comment that legacy never surfaced");
+        params.put("comment", "客户表's comment");
         HmsTableInfo hive = HmsTableInfo.builder()
                 .dbName("db").tableName("t").tableType("MANAGED_TABLE")
                 .inputFormat("org.apache.hadoop.mapred.TextInputFormat")
                 .parameters(params)
                 .build();
 
-        Assertions.assertEquals("", metadataFor(hive).getTableComment(session, "db", "t"),
-                "a plain hive table must keep the empty comment legacy HMSExternalTable returned; surfacing it "
-                        + "here would change what every existing hive deployment displays");
+        Assertions.assertEquals("客户表's comment", metadataFor(hive).getTableComment(session, "db", "t"));
+    }
+
+    @Test
+    public void plainHiveTableWithoutACommentReportsEmpty() {
+        HmsTableInfo hive = HmsTableInfo.builder()
+                .dbName("db").tableName("t").tableType("EXTERNAL_TABLE")
+                .inputFormat("org.apache.hadoop.mapred.TextInputFormat")
+                .build();
+
+        Assertions.assertEquals("", metadataFor(hive).getTableComment(session, "db", "t"));
     }
 
     @Test
@@ -95,6 +104,20 @@ public class HiveConnectorMetadataTableCommentTest {
         Assertions.assertEquals("", md.getTableComment(session, "db", "gone"),
                 "the comment is a display value fetched opportunistically; a metastore miss must not fail the "
                         + "statement that is merely rendering a table list");
+    }
+
+    @Test
+    public void confirmedAbsenceReachesTheEngineButViewExistenceRemainsFalse() {
+        ConnectorTableNotFoundException missing = new ConnectorTableNotFoundException("db", "gone", null);
+        HiveConnectorMetadata metadata = new HiveConnectorMetadata(new FakeHmsClient(null) {
+            @Override
+            public HmsTableInfo getTable(String dbName, String tableName) {
+                throw new HmsClientException("table RPC failed", missing);
+            }
+        }, HiveTestProperties.minimal(), new FakeConnectorContext());
+        Assertions.assertSame(missing, Assertions.assertThrows(ConnectorTableNotFoundException.class,
+                () -> metadata.getTableComment(session, "db", "gone")));
+        Assertions.assertFalse(metadata.viewExists(session, "db", "gone"));
     }
 
     private static HmsTableInfo icebergTable(Map<String, String> params) {

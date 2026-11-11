@@ -40,6 +40,7 @@ import org.apache.doris.nereids.trees.plans.commands.load.LoadProperty;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.resource.computegroup.ComputeGroupBindingUtil;
 
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
@@ -74,6 +75,7 @@ public class AlterRoutineLoadCommand extends AlterCommand {
             .add(CreateRoutineLoadInfo.STRICT_MODE)
             .add(CreateRoutineLoadInfo.TIMEZONE)
             .add(CreateRoutineLoadInfo.WORKLOAD_GROUP)
+            .add(CreateRoutineLoadInfo.COMPUTE_GROUP)
             .add(JsonFileFormatProperties.PROP_JSON_PATHS)
             .add(JsonFileFormatProperties.PROP_STRIP_OUTER_ARRAY)
             .add(JsonFileFormatProperties.PROP_NUM_AS_STRING)
@@ -162,7 +164,7 @@ public class AlterRoutineLoadCommand extends AlterCommand {
         labelNameInfo.validate(ctx);
         FeNameFormat.checkCommonName(NAME_TYPE, labelNameInfo.getLabel());
         // check routine load job properties include desired concurrent number etc.
-        checkJobProperties();
+        checkJobProperties(ctx);
         // check load properties
         RoutineLoadJob job = Env.getCurrentEnv().getRoutineLoadManager()
                 .getJob(getDbName(), getJobName());
@@ -177,7 +179,7 @@ public class AlterRoutineLoadCommand extends AlterCommand {
         }
     }
 
-    private void checkJobProperties() throws UserException {
+    private void checkJobProperties(ConnectContext ctx) throws UserException {
         Optional<String> optional = jobProperties.keySet().stream().filter(
                 entity -> !CONFIGURABLE_JOB_PROPERTIES_SET.contains(entity)).findFirst();
         if (optional.isPresent()) {
@@ -287,24 +289,42 @@ public class AlterRoutineLoadCommand extends AlterCommand {
             analyzedJobProperties.put(CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE, modeStr.toUpperCase());
         }
 
+        if (jobProperties.containsKey(CreateRoutineLoadInfo.COMPUTE_GROUP)) {
+            String computeGroup = jobProperties.get(CreateRoutineLoadInfo.COMPUTE_GROUP);
+            if (!StringUtil.isEmpty(computeGroup)) {
+                // Validated right here instead of letting a bad name pause the whole job on the next task.
+                // The job's workload group is then checked in this group by RoutineLoadJob#checkAlteredWorkloadGroup,
+                // which also knows the one the job keeps when this ALTER sets none.
+                ComputeGroupBindingUtil.validateDeclaredComputeGroup(ctx, computeGroup);
+                // a combined ALTER converts its new Kafka offsets in this group, see KafkaRoutineLoadJob
+                ComputeGroupBindingUtil.activateDeclaredComputeGroup(computeGroup);
+                analyzedJobProperties.put(CreateRoutineLoadInfo.COMPUTE_GROUP, computeGroup);
+            }
+        }
+
         if (jobProperties.containsKey(CreateRoutineLoadInfo.WORKLOAD_GROUP)) {
             String workloadGroup = jobProperties.get(CreateRoutineLoadInfo.WORKLOAD_GROUP);
             if (!StringUtil.isEmpty(workloadGroup)) {
-                // NOTE: delay check workload group's existence check when alter routine load job
-                // because we can only get clusterId when alter job.
+                // Checked by RoutineLoadJob#checkAlteredWorkloadGroup, in the compute group of the job and as its
+                // owner, which only the job knows.
                 analyzedJobProperties.put(CreateRoutineLoadInfo.WORKLOAD_GROUP,
                         jobProperties.get(CreateRoutineLoadInfo.WORKLOAD_GROUP));
             }
         }
 
+        // Checked as CREATE checks them, since the job takes its byte from the value the same way
         if (jobProperties.containsKey(CsvFileFormatProperties.PROP_ENCLOSE)) {
-            analyzedJobProperties.put(CsvFileFormatProperties.PROP_ENCLOSE,
-                    jobProperties.get(CsvFileFormatProperties.PROP_ENCLOSE));
+            String enclose = jobProperties.get(CsvFileFormatProperties.PROP_ENCLOSE);
+            CreateRoutineLoadInfo.checkCsvControlValue(CsvFileFormatProperties.PROP_ENCLOSE, enclose);
+            CsvFileFormatProperties.parseEnclose(enclose);
+            analyzedJobProperties.put(CsvFileFormatProperties.PROP_ENCLOSE, enclose);
         }
 
         if (jobProperties.containsKey(CsvFileFormatProperties.PROP_ESCAPE)) {
-            analyzedJobProperties.put(CsvFileFormatProperties.PROP_ESCAPE,
-                    jobProperties.get(CsvFileFormatProperties.PROP_ESCAPE));
+            String escape = jobProperties.get(CsvFileFormatProperties.PROP_ESCAPE);
+            CreateRoutineLoadInfo.checkCsvControlValue(CsvFileFormatProperties.PROP_ESCAPE, escape);
+            CsvFileFormatProperties.parseEscape(escape);
+            analyzedJobProperties.put(CsvFileFormatProperties.PROP_ESCAPE, escape);
         }
 
         if (jobProperties.containsKey(CsvFileFormatProperties.PROP_EMPTY_FIELD_AS_NULL)) {

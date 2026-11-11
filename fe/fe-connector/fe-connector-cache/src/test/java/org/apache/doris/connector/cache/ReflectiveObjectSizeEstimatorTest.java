@@ -23,7 +23,9 @@ import org.junit.jupiter.api.Test;
 import java.net.URI;
 import java.nio.ByteBuffer;
 import java.util.AbstractList;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.RandomAccess;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -127,6 +129,88 @@ class ReflectiveObjectSizeEstimatorTest {
 
         Assertions.assertFalse(estimate.isComplete());
         Assertions.assertTrue(estimate.getIncompleteReason().startsWith("depth_limit:"));
+    }
+
+    @Test
+    void perElementEstimateCompletesALongListThatTheWholeValueWalkRejects() {
+        // A value that is large only because of one long list, such as a wide table's columns, has the list walked
+        // element by element, each element under its own visit budget. MUTATION: walking the list as part of the
+        // value's graph -> the visit budget runs out -> red.
+        Holder small = holderOf(1_000);
+        Holder large = holderOf(30_000);
+        MetaCacheSizeEstimate whole = MetaCacheSizeEstimator.estimateSafely("whole_value",
+                () -> MetaCacheSizeEstimate.complete(ReflectiveObjectSizeEstimator.estimateComplete(large)));
+        Assertions.assertFalse(whole.isComplete());
+
+        long smallBytes = ReflectiveObjectSizeEstimator.estimateCompletePerElement(small, small.values);
+        long largeBytes = ReflectiveObjectSizeEstimator.estimateCompletePerElement(large, large.values);
+
+        // The elements share no object, so the estimate is exactly an unbounded walk of the value.
+        Assertions.assertEquals(ReflectiveObjectSizeEstimator.estimateComplete(large, Integer.MAX_VALUE, 20),
+                largeBytes);
+        Assertions.assertTrue(largeBytes > smallBytes * 25, "the estimate must grow with the list");
+    }
+
+    @Test
+    void perElementEstimateCountsAnElementInTwoOfTheListsOnce() {
+        // A schema's display columns reuse most of its column objects. MUTATION: estimating every element of every
+        // listed collection -> the shared elements count twice -> red.
+        Holder holder = holderOf(20_000);
+        holder.view = new ArrayList<>(holder.values);
+
+        Assertions.assertEquals(ReflectiveObjectSizeEstimator.estimateComplete(holder, Integer.MAX_VALUE, 20),
+                ReflectiveObjectSizeEstimator.estimateCompletePerElement(holder, holder.values, holder.view));
+    }
+
+    @Test
+    void perElementEstimateStillBoundsEachElement() {
+        AtomicInteger reads = new AtomicInteger();
+        Holder holder = holderOf(10);
+        holder.values.add(new CountingList(reads));
+
+        MetaCacheSizeEstimate estimate = MetaCacheSizeEstimator.estimateSafely("bounded_element",
+                () -> MetaCacheSizeEstimate.complete(
+                        ReflectiveObjectSizeEstimator.estimateCompletePerElement(holder, holder.values)));
+
+        Assertions.assertFalse(estimate.isComplete());
+        Assertions.assertTrue(reads.get() <= 10_001, "one element's walk must stop at the visit budget");
+    }
+
+    @Test
+    void eachElementEstimatorWeighsAValueThatIsTheLongList() {
+        List<Object> partitions = holderOf(30_000).values;
+
+        MetaCacheSizeEstimate estimate = MetaCacheSizeEstimators
+                .<String, List<Object>>reflectiveEachElement().estimate("key", partitions);
+
+        Assertions.assertTrue(estimate.isComplete(), estimate.getIncompleteReason());
+        Assertions.assertEquals(ReflectiveObjectSizeEstimator.estimateComplete("key")
+                + ReflectiveObjectSizeEstimator.estimateComplete(partitions, Integer.MAX_VALUE, 20),
+                estimate.getBytes());
+    }
+
+    private static Holder holderOf(int elements) {
+        Holder holder = new Holder();
+        for (int i = 0; i < elements; i++) {
+            holder.values.add(new Element("element-" + i, 1_000L + i));
+        }
+        return holder;
+    }
+
+    private static final class Holder {
+        private final String name = "holder";
+        private final List<Object> values = new ArrayList<>();
+        private List<Object> view;
+    }
+
+    private static final class Element {
+        private final String name;
+        private final Long id;
+
+        private Element(String name, Long id) {
+            this.name = name;
+            this.id = id;
+        }
     }
 
     private static final class CountingList extends AbstractList<String> implements RandomAccess {

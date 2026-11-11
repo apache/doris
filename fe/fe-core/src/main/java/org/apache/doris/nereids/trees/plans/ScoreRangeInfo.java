@@ -20,6 +20,8 @@ package org.apache.doris.nereids.trees.plans;
 import org.apache.doris.thrift.TExprOpcode;
 import org.apache.doris.thrift.TScoreRangeInfo;
 
+import com.google.common.base.Preconditions;
+
 import java.util.Objects;
 
 /**
@@ -42,6 +44,15 @@ public class ScoreRangeInfo {
 
     public double getThreshold() {
         return threshold;
+    }
+
+    /**
+     * Render the pushed predicate for EXPLAIN, e.g. "score() > 0.5".
+     */
+    public String toSql() {
+        Preconditions.checkState(op == TExprOpcode.GT || op == TExprOpcode.GE,
+                "score range only supports > and >=, but got %s", op);
+        return "score() " + (op == TExprOpcode.GT ? ">" : ">=") + " " + threshold;
     }
 
     /**

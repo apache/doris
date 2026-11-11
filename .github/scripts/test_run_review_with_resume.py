@@ -86,6 +86,7 @@ class ResumeReviewTest(unittest.TestCase):
             base_sha="b" * 40,
             model="gpt-5.6-sol",
             fallback_model=None,
+            capacity_fallback_model="gpt-6-sol",
             effort="xhigh",
             budget_seconds=1000,
         )
@@ -425,6 +426,173 @@ class ResumeReviewTest(unittest.TestCase):
         self.assertEqual("done", (self.context / "codex-final-message.txt").read_text())
         self.target_check.assert_called_once()
 
+    def test_capacity_fallback_resumes_same_session_after_five_failures(self):
+        self.args.model = "gpt-6.1-sol"
+        self.args.budget_seconds = 3600
+        before = self.ledger.read_text()
+        self.assertEqual(0, self.execute(
+            [{"events": [thread_event(), failed()], "elapsed": 5}] * 5
+            + [{"events": [thread_event(), completed()], "status": 0}]
+        ))
+        self.assertEqual(
+            ["gpt-6.1-sol"] * 5 + ["gpt-6-sol"],
+            [c[c.index("--model") + 1] for c in self.commands],
+        )
+        self.assertEqual([3600, 3295, 2990, 2685, 2380, 2075], self.timeouts)
+        self.assertEqual([300] * 5, self.sleeps)
+        for command in self.commands[1:]:
+            self.assertEqual(["resume", THREAD], command[-3:-1])
+            self.assertIn("model_reasoning_effort=xhigh", command)
+        self.assertNotIn("Capacity recovery switched", self.commands[4][-1])
+        self.assertIn("Capacity recovery switched to gpt-6-sol", self.commands[5][-1])
+        self.assertIn("including child agents", self.commands[5][-1])
+        self.assertIn("cumulative round count", self.commands[5][-1])
+        self.assertEqual(before, self.ledger.read_text())
+        self.assertEqual("gpt-6-sol\n", (self.context / "codex-review-model.txt").read_text())
+        self.verification.assert_called_once()
+
+    def test_policy_capacity_resumes_same_session_with_shared_budget(self):
+        before = self.ledger.read_text()
+        message = "Policy-restricted capacity is unavailable. Please try again later."
+        self.assertEqual(0, self.execute([
+            {"events": [thread_event(), failed(message)], "elapsed": 5},
+            {"events": [thread_event(), completed()], "status": 0},
+        ]))
+        self.assertEqual([300], self.sleeps)
+        self.assertEqual([1000, 695], self.timeouts)
+        self.assertEqual(["resume", THREAD], self.commands[1][-3:-1])
+        self.assertEqual(before, self.ledger.read_text())
+        self.target_check.assert_called_once()
+
+    def test_mixed_capacity_errors_share_fallback_and_retry_limit(self):
+        self.args.budget_seconds = 3600
+        policy_message = "Policy-restricted capacity is unavailable. Please try again later."
+        messages = [policy_message, runner.CAPACITY_MESSAGE] * 3 + [policy_message]
+        self.assertEqual(1, self.execute([
+            {"events": [thread_event(), failed(message)]} for message in messages
+        ]))
+        self.assertEqual([300] * 6, self.sleeps)
+        self.assertEqual(
+            [self.args.model] * 5 + [self.args.capacity_fallback_model] * 2,
+            [command[command.index("--model") + 1] for command in self.commands],
+        )
+        for command in self.commands[1:]:
+            self.assertEqual(["resume", THREAD], command[-3:-1])
+        self.assertEqual(policy_message, self.last_error())
+
+    def test_policy_capacity_error_event_with_zero_exit_resumes(self):
+        message = "Policy-restricted capacity is unavailable. Please try again later."
+        self.assertEqual(0, self.execute([
+            {"events": [thread_event(), {"type": "error", "message": message}], "status": 0},
+            {"events": [thread_event(), completed()], "status": 0},
+        ]))
+        self.assertEqual([300], self.sleeps)
+
+    def test_policy_capacity_after_submission_requires_verified_delivery(self):
+        (self.context / runner.SUBMISSION_FILE).write_text("{}")
+        message = "Policy-restricted capacity is unavailable. Please try again later."
+        self.assertEqual(0, self.execute([{"events": [thread_event(), failed(message)]}]))
+        self.verification.assert_called_once()
+        self.assertTrue(json.loads((self.context / runner.RESULT_FILE).read_text())["recovered_after_capacity"])
+        self.assertEqual([], self.sleeps)
+        self.target_check.assert_not_called()
+
+    def test_policy_capacity_with_partial_submission_does_not_resume(self):
+        (self.context / runner.SUBMISSION_FILE).write_text("{}")
+        self.verification.side_effect = ValueError("Final review inline comments were not completely verified")
+        message = "Policy-restricted capacity is unavailable. Please try again later."
+        self.assertEqual(1, self.execute([{"events": [thread_event(), failed(message)]}]))
+        self.verification.assert_called_once()
+        self.assertIn("not completely verified", self.last_error())
+        self.assertEqual([], self.sleeps)
+        self.assertFalse((self.context / runner.RESULT_FILE).exists())
+
+    def test_policy_capacity_does_not_override_cancellation(self):
+        message = "Policy-restricted capacity is unavailable. Please try again later."
+        self.assertEqual(1, self.execute([
+            {"events": [thread_event(), failed(message)], "status": 143},
+        ]))
+        self.assertEqual([], self.sleeps)
+        self.verification.assert_not_called()
+
+    def test_policy_capacity_does_not_exceed_shared_budget(self):
+        self.args.budget_seconds = 300
+        message = "Policy-restricted capacity is unavailable. Please try again later."
+        self.assertEqual(1, self.execute([{"events": [thread_event(), failed(message)]}]))
+        self.assertIn("Insufficient shared review budget", self.last_error())
+        self.assertEqual([], self.sleeps)
+
+    def test_policy_capacity_text_in_tool_output_does_not_override_safety_failure(self):
+        event = {"type": "item.completed", "item": {
+            "type": "command_execution",
+            "aggregated_output": "Policy-restricted capacity is unavailable. Please try again later.",
+        }}
+        self.assertEqual(1, self.execute([
+            {"events": [thread_event(), event, failed("Request blocked by safety policy")]},
+        ]))
+        self.assertEqual("Request blocked by safety policy", self.last_error())
+        self.assertEqual([], self.sleeps)
+
+    def test_capacity_fallback_is_optional(self):
+        self.args.capacity_fallback_model = None
+        self.args.budget_seconds = 3600
+        self.assertEqual(1, self.execute([{"events": [thread_event(), failed()]}] * 7))
+        self.assertEqual(
+            [self.args.model] * 7,
+            [c[c.index("--model") + 1] for c in self.commands],
+        )
+
+    def test_fifth_attempt_non_capacity_failure_does_not_switch(self):
+        self.args.budget_seconds = 3600
+        self.assertEqual(1, self.execute(
+            [{"events": [thread_event(), failed()]}] * 4
+            + [{"events": [thread_event(), failed("HTTP 422")]}]
+        ))
+        self.assertEqual(5, len(self.commands))
+        self.assertEqual("HTTP 422", self.last_error())
+        self.assertEqual(self.args.model + "\n", (self.context / "codex-review-model.txt").read_text())
+
+    def test_capacity_fallback_preserves_budget_and_target_checks(self):
+        self.args.budget_seconds = 1500
+        self.assertEqual(1, self.execute([{"events": [thread_event(), failed()]}] * 5))
+        self.assertEqual(5, len(self.commands))
+        self.assertEqual([300] * 4, self.sleeps)
+        self.assertIn("Insufficient shared review budget", self.last_error())
+        self.assertEqual(self.args.model + "\n", (self.context / "codex-review-model.txt").read_text())
+
+    def test_target_change_before_capacity_switch_stops_same_review(self):
+        self.args.budget_seconds = 3600
+        self.target_check.side_effect = [None] * 4 + [runner.ReviewSuperseded("c" * 40)]
+        self.assertEqual(75, self.execute([{"events": [thread_event(), failed()]}] * 5))
+        self.assertEqual(5, len(self.commands))
+        self.assertEqual(self.args.model + "\n", (self.context / "codex-review-model.txt").read_text())
+        self.assert_superseded()
+
+    def test_submission_at_fifth_capacity_is_verified_without_switch(self):
+        self.args.budget_seconds = 3600
+        read_events = runner.read_events
+        def submitted(path):
+            if path.name == "5.jsonl":
+                (self.context / runner.SUBMISSION_FILE).write_text("{}")
+            return read_events(path)
+        with mock.patch.object(runner, "read_events", side_effect=submitted):
+            self.assertEqual(0, self.execute([{"events": [thread_event(), failed()]}] * 5))
+        self.assertEqual(5, len(self.commands))
+        self.assertEqual([300] * 4, self.sleeps)
+        self.verification.assert_called_once()
+        self.assertTrue(json.loads((self.context / runner.RESULT_FILE).read_text())["recovered_after_capacity"])
+
+    def test_unsupported_capacity_fallback_does_not_restart_or_switch_back(self):
+        self.args.budget_seconds = 3600
+        rejection = "The 'gpt-6-sol' " + runner.UNSUPPORTED_CHATGPT_MODEL
+        self.assertEqual(1, self.execute(
+            [{"events": [thread_event(), failed()]}] * 5
+            + [{"events": [thread_event(), failed(rejection)]}]
+        ))
+        self.assertEqual(6, len(self.commands))
+        self.assertEqual(["resume", THREAD], self.commands[-1][-3:-1])
+        self.assertEqual(rejection, self.last_error())
+
     def test_zero_exit_capacity_can_complete_on_the_sixth_resume(self):
         self.args.budget_seconds = 3600
         self.assertEqual(
@@ -579,6 +747,10 @@ class ResumeReviewTest(unittest.TestCase):
         self.assertEqual(1, self.execute([{"events": [thread_event(), failed()]}] * 7))
         self.assertEqual([300] * 6, self.sleeps)
         self.assertEqual(7, len(self.commands))
+        self.assertEqual(
+            [self.args.model] * 5 + ["gpt-6-sol"] * 2,
+            [c[c.index("--model") + 1] for c in self.commands],
+        )
         self.assertEqual(runner.CAPACITY_MESSAGE, self.last_error())
 
     def test_no_retry_for_auth_usage_or_generic_errors_even_before_session_starts(self):
@@ -1056,6 +1228,7 @@ HELPER
                     check=True,
                 )
                 args = json.loads(result.stdout)
+                self.assertEqual("gpt-6-sol", args[args.index("--capacity-fallback-model") + 1])
                 actual = int(args[args.index("--budget-seconds") + 1])
                 self.assertLessEqual(actual, expected)
                 self.assertGreaterEqual(actual, expected - 2)
@@ -1301,6 +1474,14 @@ class ProcessLifecycleTest(unittest.TestCase):
         reaper.reap.assert_called_once_with()
 
     def test_real_process_capacity_then_resume_preserves_state(self):
+        self.assert_real_process_capacity_then_resume(runner.CAPACITY_MESSAGE)
+
+    def test_real_process_policy_capacity_then_resume_preserves_state(self):
+        self.assert_real_process_capacity_then_resume(
+            "Policy-restricted capacity is unavailable. Please try again later."
+        )
+
+    def assert_real_process_capacity_then_resume(self, message):
         with tempfile.TemporaryDirectory() as tmp, redirect_stderr(io.StringIO()):
             root = Path(tmp)
             write_fake_gh(root)
@@ -1334,7 +1515,7 @@ else:
     }) + "\n")
     (root / "request-count").write_text("1")
     print(json.dumps({"type": "turn.failed", "error": {
-        "message": "Selected model is at capacity. Please try a different model."
+        "message": os.environ["FAKE_CAPACITY_MESSAGE"]
     }}))
     sys.exit(1)
 """
@@ -1359,6 +1540,7 @@ else:
                         "CODEX_HOME": str(root / "isolated-home"),
                         "FAKE_REVIEW_ROOT": str(root),
                         "FAKE_THREAD_ID": THREAD,
+                        "FAKE_CAPACITY_MESSAGE": message,
                     },
                 ),
                 mock.patch.object(runner, "RETRY_DELAYS", (0, 0, 0)),

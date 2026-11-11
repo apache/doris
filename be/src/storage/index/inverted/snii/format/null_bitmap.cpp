@@ -182,6 +182,12 @@ Status NullBitmapWriter::serialization_sizes(uint32_t doc_count,
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
                 "null bitmap: null serialization size output");
     }
+    // Rewrites the containers into their smallest form, as the V2 writer does before it serializes.
+    // Runs of NULL rows (a path that is absent from most rows of a sparse column) are the common
+    // case, and as plain array or bitset containers they cost about 8 KiB per 65536 rows instead
+    // of a few bytes. This is the one place that fixes the serialized size, and finish() sizes
+    // itself through here, so the sizes reported to callers and the bytes written always agree.
+    bitmap_->runOptimize();
     const size_t roaring_bytes = bitmap_->getSizeInBytes();
     const size_t prefix_bytes = varint_len(doc_count) + varint_len(roaring_bytes);
     if (roaring_bytes > std::numeric_limits<size_t>::max() - prefix_bytes) {

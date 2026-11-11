@@ -38,6 +38,14 @@ inline const schema::external::TField* get_field_ptr(const schema::external::TFi
 const schema::external::TSchema* find_history_schema(const TFileScanRangeParams* params,
                                                      int64_t schema_id);
 
+// The schema named by current_schema_id, or the first one when FE sends no id; nullptr when the
+// plan carries no schema dictionary.
+const schema::external::TSchema* find_current_schema(const TFileScanRangeParams* params);
+
+// Build the identity of a table field and its nested fields: field id, name, name mapping and
+// timestamp marker, but no type. Array items are named `element` and map children `key`/`value`.
+ColumnDefinition build_schema_identity_from_external_field(const schema::external::TField& field);
+
 bool can_map_by_history_schema(const TFileScanRangeParams* params, int64_t split_schema_id);
 
 // Annotate a file-local schema with the field ids and name mappings from the historical table
@@ -47,5 +55,15 @@ bool can_map_by_history_schema(const TFileScanRangeParams* params, int64_t split
 Status annotate_file_schema_from_history(const TFileScanRangeParams* params,
                                          int64_t split_schema_id,
                                          std::vector<ColumnDefinition>* file_schema);
+
+// Parquet INT96 carries no instant annotation, so the same physical column can hold a wall clock
+// (Paimon TIMESTAMP) or an instant (Paimon TIMESTAMP_LTZ, an Iceberg timestamptz written by Spark
+// or Hive). Rewrite each DATETIMEV2/TIMESTAMPTZ leaf that carries the table schema's marker
+// (`timestamp_is_adjusted_to_utc`) to TIMESTAMPTZ or DATETIMEV2, then rebuild its containers so a
+// parent type agrees with its children. Precision and nullability are preserved, and a leaf
+// without a marker keeps its file type. For example, an INT96 leaf read as DATETIMEV2(6) and marked
+// as an instant becomes TIMESTAMPTZ(6), and an ARRAY<DATETIMEV2(6)> around it becomes
+// ARRAY<TIMESTAMPTZ(6)>.
+Status apply_file_timestamp_semantics(ColumnDefinition* column);
 
 } // namespace doris::format

@@ -249,6 +249,19 @@ class AdbcCatalogPropertiesTest {
                 current, Map.of("meta.cache.max-weight", "1MB", "meta.cache.adbc.metadata.max-weight", "2MB")));
     }
 
+    @Test
+    void submittedMetaCacheKeysMustNameAKnownOption() {
+        AdbcConnectorProvider provider = new AdbcConnectorProvider();
+        Map<String, String> current = minimal();
+        IllegalArgumentException misspelled = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> provider.validatePropertiesForUpdate(
+                        current, Map.of("meta.cache.adbc.metadata.ttl-secnod", "60")));
+        Assertions.assertEquals("Unknown external meta cache property: meta.cache.adbc.metadata.ttl-secnod",
+                misspelled.getMessage());
+        current.put("meta.cache.adbc.metadata.ttl-secnod", "60");
+        Assertions.assertDoesNotThrow(() -> provider.validatePropertiesForUpdate(current, Map.of("comment", "new")));
+    }
+
     /**
      * A cache knob is read through {@code CacheSpec}, which answers an unparseable value with the default
      * rather than an error. Silently caching for ten minutes when the operator wrote {@code ttl-second=6O0}

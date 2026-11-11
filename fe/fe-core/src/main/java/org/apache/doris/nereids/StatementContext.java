@@ -20,11 +20,15 @@ package org.apache.doris.nereids;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
+import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.authorization.DataMaskSpec;
+import org.apache.doris.authorization.RowFilterSpec;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
 import org.apache.doris.catalog.info.TableNameInfo;
@@ -34,15 +38,26 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.connector.ConnectorStatementScopeImpl;
 import org.apache.doris.connector.spi.ConnectorStatementScope;
 import org.apache.doris.connector.spi.handle.ConnectorTransaction;
+import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.SchemaCacheValue;
+import org.apache.doris.datasource.connector.converter.NereidsToConnectorExpressionConverter;
+import org.apache.doris.datasource.mvcc.MvccReadSelector;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccTable;
 import org.apache.doris.datasource.mvcc.MvccTableInfo;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
+import org.apache.doris.datasource.plugin.PluginDrivenSchemaCacheValue;
 import org.apache.doris.foundation.format.FormatOptions;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVCache;
+import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.mtmv.ivm.IvmRewriteContext;
+import org.apache.doris.mysql.privilege.AccessControllerManager;
+import org.apache.doris.mysql.privilege.AccessControllerManager.DataPolicyContext;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
+import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.cost.CostWeight;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.hint.Hint;
@@ -50,13 +65,18 @@ import org.apache.doris.nereids.hint.UseMvHint;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.analysis.ColumnAliasGenerator;
+import org.apache.doris.nereids.rules.exploration.mv.InitConsistentMaterializationContextHook;
+import org.apache.doris.nereids.rules.exploration.mv.InitMaterializationContextHook;
 import org.apache.doris.nereids.trees.expressions.CTEId;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.Placeholder;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.PlaceholderId;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -65,7 +85,10 @@ import org.apache.doris.nereids.trees.plans.TableId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.RelationUtil;
+import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.GlobalVariable;
@@ -83,6 +106,7 @@ import com.google.common.base.Strings;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
 import com.google.common.base.Throwables;
+import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.HashMultimap;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
@@ -103,6 +127,7 @@ import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -111,6 +136,7 @@ import java.util.Set;
 import java.util.Stack;
 import java.util.TreeMap;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 import javax.annotation.concurrent.GuardedBy;
 
 /**
@@ -148,6 +174,19 @@ public class StatementContext implements Closeable {
     private final Map<String, Supplier<Object>> contextCacheMap = Maps.newLinkedHashMap();
     private boolean changelogReferenceTsoRequired;
     private Long changelogReferenceTso;
+    private boolean skipUnpreloadedScanPartitionPruning;
+    private final Map<DataPolicyContext, Map<String, DataMaskSpec>> dataMaskEvaluations = new HashMap<>();
+    private final Set<Long> partitionPolicyObservedTables = new HashSet<>();
+    private final Map<RelationId, UserIdentity> systemPartitionFilterUsers = new HashMap<>();
+    private final Map<RelationId, PartitionPolicyProof> partitionPolicyProofs = new LinkedHashMap<>();
+    private final Set<PartitionPolicyProof> usedPartitionPolicyProofs = new HashSet<>();
+    private final Map<PartitionPolicyProof, List<RowFilterSpec>> partitionProofRowPolicies = new HashMap<>();
+    private final Map<PartitionPolicyProof, DataPolicyContext> executionPolicyContexts = new HashMap<>();
+    private boolean partitionPolicyPlanningInvalidated;
+    private boolean partitionPolicyExecutionInvalidated;
+    private boolean partitionPolicyRetryPending;
+    private Planner partitionPolicyPlanner;
+    private long partitionPolicyEpoch;
 
     private OriginStatement originStatement;
     // NOTICE: we set the plan parsed by DorisParser to parsedStatement and if the
@@ -231,7 +270,7 @@ public class StatementContext implements Closeable {
     // NOT cleared on close()/releasePlannerResources -- it survives to statement GC. A reused
     // prepared-statement context drops it per execution via resetConnectorStatementScope() (see
     // ExecuteCommand) so one execution's cached tables never leak into the next.
-    private ConnectorStatementScope connectorStatementScope;
+    private ConnectorStatementScopeImpl connectorStatementScope;
 
     // table locks
     private final Stack<CloseableResource> plannerResources = new Stack<>();
@@ -291,6 +330,9 @@ public class StatementContext implements Closeable {
     // The identity is captured by the same provider call chain as connectorWriteSchemas. Keeping it alongside
     // the columns prevents bind-time expressions and the later sink fence from naming different generations.
     private final Map<Long, String> connectorWriteMetadataIdentities = new HashMap<>();
+    // Connector targets of a DELETE. Their writer schema is pinned for the delete sink, but the statement writes no
+    // row values, so a write-only default in that schema does not apply to DEFAULT(column) on them.
+    private final Set<Long> connectorDeleteTargets = new HashSet<>();
 
     // for create view support in nereids
     // key is the start and end position of the sql substring that needs to be
@@ -337,9 +379,10 @@ public class StatementContext implements Closeable {
     // if greater than 0 means the duration has used
     private long materializedViewRewriteDuration = 0L;
 
-    // Record used table and it's used partitions
+    // Records are consumed by iteration/union, not membership lookup. List values avoid hashing every
+    // partition name inside Pair when recording a scan; repeated records do not change the union.
     private final Multimap<List<String>, Pair<RelationId, Set<String>>> tableUsedPartitionNameMap =
-            HashMultimap.create();
+            ArrayListMultimap.create();
     // Record query common table id to relation id mapping, this is used for mv rewrite
     private final Multimap<Integer, Integer> commonTableIdToRelationIdToMap = HashMultimap.create();
 
@@ -406,9 +449,9 @@ public class StatementContext implements Closeable {
         this(ConnectContext.get(), null, 0);
     }
 
-    // For StatementScopeIdGenerator
+    // For StatementScopeIdGenerator; its fallback only allocates IDs and must not retain a connection.
     public StatementContext(int initialId) {
-        this(ConnectContext.get(), null, initialId);
+        this(null, null, initialId);
     }
 
     public StatementContext(ConnectContext connectContext, OriginStatement originStatement) {
@@ -426,8 +469,8 @@ public class StatementContext implements Closeable {
             if (CacheAnalyzer.canUseSqlCache(connectContext.getSessionVariable())) {
                 // cannot set the queryId here because the queryId for the current query is set
                 // in the subsequent steps.
-                this.sqlCacheContext = new SqlCacheContext(
-                        connectContext.getCurrentUserIdentity());
+                this.sqlCacheContext = new SqlCacheContext(connectContext.getCurrentUserIdentity(),
+                        Env.getCurrentEnv().getSqlCacheManager().newMetadataSnapshot());
                 if (originStatement != null) {
                     this.sqlCacheContext.setOriginSql(originStatement.originStmt);
                 }
@@ -484,6 +527,269 @@ public class StatementContext implements Closeable {
         next.isShortCircuitQuery = isShortCircuitQuery;
         next.hasNondeterministic = hasNondeterministic;
         return next;
+    }
+
+    public Map<String, DataMaskSpec> getOrEvaluateDataMasks(DataPolicyContext policy,
+            java.util.function.Supplier<Map<String, DataMaskSpec>> evaluation) {
+        return dataMaskEvaluations.computeIfAbsent(policy, key -> Map.copyOf(evaluation.get()));
+    }
+
+    private static List<String> policySchemaFingerprint(List<Column> schema) {
+        return schema.stream().map(column -> column.getName().toLowerCase(Locale.ROOT) + ":"
+                + DataType.fromCatalogType(column.getType()).toSql() + ":" + column.isAllowNull())
+                .collect(Collectors.toList());
+    }
+
+    public void registerSystemPartitionFilter(RelationId relationId, UserIdentity user) {
+        systemPartitionFilterUsers.put(relationId, user);
+    }
+
+    /** Establishes raw-value preservation from a complete, successful mask evaluation before locks. */
+    public boolean proveInitialPartitionValues(UnboundRelation relation, TableIf table) {
+        if (relation.getTableSnapshot().isPresent() || relation.getScanParams() != null
+                || !(table instanceof PluginDrivenExternalTable)
+                || !table.supportsExternalMetadataPreload()
+                || !((PluginDrivenExternalTable) table).supportsConnectorPartitionPruning()
+                || ((PluginDrivenExternalTable) table).isView()
+                || table.getDatabase() == null || table.getDatabase().getCatalog() == null
+                || !(((PluginDrivenExternalTable) table).getCatalog() instanceof PluginDrivenExternalCatalog)
+                || mvRefreshPredicates.isPresent()) {
+            return false;
+        }
+        requirePartitionPolicyPlanning();
+        PluginDrivenExternalTable external = (PluginDrivenExternalTable) table;
+        loadSnapshots(table, Optional.empty(), Optional.empty());
+        Optional<MvccSnapshot> pin = getSnapshot(table, Optional.empty(), Optional.empty());
+        List<Column> schema = external.getFullSchema(pin);
+        if (schema == null || schema.isEmpty()) {
+            return false;
+        }
+        Optional<SchemaCacheValue> schemaValue = external.getSchemaCacheValue(pin);
+        if (schemaValue.isEmpty() || !(schemaValue.get() instanceof PluginDrivenSchemaCacheValue)) {
+            return false;
+        }
+        DataPolicyContext policy = capturePartitionPolicy(external, schema);
+        Map<String, DataMaskSpec> masks = connectContext.getEnv().getAccessManager()
+                .evalDataMaskPolicies(policy, this);
+        partitionPolicyObservedTables.add(table.getId());
+        if (!masks.isEmpty()) {
+            return false;
+        }
+        partitionPolicyProofs.putIfAbsent(relation.getRelationId(),
+                new PartitionPolicyProof(external, policy, pin, policySchemaFingerprint(schema),
+                        policySchemaFingerprint(external.getPartitionColumns(pin)),
+                        ((PluginDrivenSchemaCacheValue) schemaValue.get()).getPartitionColumnRemoteNames()));
+        return true;
+    }
+
+    private DataPolicyContext capturePartitionPolicy(PluginDrivenExternalTable table, List<Column> schema) {
+        Set<String> columns = schema.stream().map(Column::getName).collect(Collectors.toCollection(LinkedHashSet::new));
+        return capturePartitionPolicyColumns(table, columns);
+    }
+
+    private DataPolicyContext capturePartitionPolicyColumns(PluginDrivenExternalTable table, Set<String> columns) {
+        return connectContext.getEnv().getAccessManager().captureDataPolicyContext(
+                connectContext.getCurrentUserIdentity(), table.getDatabase().getCatalog().getName(),
+                table.getDatabase().getFullName(), table.getName(), columns, this);
+    }
+
+    public boolean hasPartitionPolicyObservation(TableIf table) {
+        return partitionPolicyObservedTables.contains(table.getId());
+    }
+
+    /** Refuses a bound relation whose actual policy scope or typed output no longer justifies its subset. */
+    public DataPolicyContext validatePartitionPolicy(LogicalPlan relation) {
+        requirePartitionPolicyPlanning();
+        if (!(relation instanceof org.apache.doris.nereids.trees.plans.logical.LogicalFileScan)) {
+            return null;
+        }
+        org.apache.doris.nereids.trees.plans.logical.LogicalFileScan scan =
+                (org.apache.doris.nereids.trees.plans.logical.LogicalFileScan) relation;
+        PartitionPolicyProof proof = partitionPolicyProofs.get(scan.getPreloadRelationId());
+        if (proof == null || !usedPartitionPolicyProofs.contains(proof)) {
+            return null;
+        }
+        Set<String> columns = scan.getOutput().stream().map(Slot::getName).collect(Collectors.toSet());
+        List<String> output = scan.getOutput().stream().map(slot -> slot.getName().toLowerCase(Locale.ROOT)
+                + ":" + slot.getDataType().toSql() + ":" + slot.nullable()).collect(Collectors.toList());
+        try {
+            DataPolicyContext actual = proof.systemUser == null
+                    ? capturePartitionPolicyColumns(proof.table, columns) : null;
+            if (proof.table != scan.getTable() || !proofMatches(proof, actual, false) || !proof.schema.equals(output)) {
+                throw new AnalysisException("Partition policy proof changed before binding " + proof.table.getName());
+            }
+            return actual;
+        } catch (RuntimeException failure) {
+            invalidatePartitionPolicy(false);
+            throw failure;
+        }
+    }
+
+    /** Records the raw row-policy observation actually expanded into this relation's plan. */
+    public void recordPartitionRowPolicies(LogicalPlan relation, List<RowFilterSpec> policies) {
+        if (relation instanceof org.apache.doris.nereids.trees.plans.logical.LogicalFileScan) {
+            PartitionPolicyProof proof = partitionPolicyProofs.get(
+                    ((org.apache.doris.nereids.trees.plans.logical.LogicalFileScan) relation).getPreloadRelationId());
+            if (proof != null) {
+                List<RowFilterSpec> previous = partitionProofRowPolicies.putIfAbsent(proof, List.copyOf(policies));
+                if (previous != null && !previous.equals(policies)) {
+                    invalidatePartitionPolicy(false);
+                    throw new AnalysisException("Row policy changed between aliases of " + proof.table.getName());
+                }
+            }
+        }
+    }
+
+    private boolean proofMatches(PartitionPolicyProof proof, DataPolicyContext actual, boolean retry) {
+        if (proof.systemUser != null) {
+            return proof.systemUser.equals(connectContext.getCurrentUserIdentity())
+                    && proof.table.getDatabase() != null && proof.table.getDatabase().getCatalog() != null
+                    && ((PluginDrivenExternalCatalog) proof.table.getCatalog()).getConnector() == proof.connector
+                    && proof.pin.orElse(null)
+                    == getSnapshot(proof.table, Optional.empty(), Optional.empty()).orElse(null)
+                    && proofSchemaMatches(proof);
+        }
+        DataPolicyContext expected = executionPolicyContexts.getOrDefault(proof, proof.policy);
+        return proof.table.getDatabase() != null && proof.table.getDatabase().getCatalog() != null
+                && ((PluginDrivenExternalCatalog) proof.table.getCatalog()).getConnector() == proof.connector
+                && proof.pin.orElse(null) == getSnapshot(proof.table, Optional.empty(), Optional.empty()).orElse(null)
+                && proofSchemaMatches(proof)
+                && (retry ? expected.samePolicyScope(actual) : expected.equals(actual));
+    }
+
+    private boolean proofSchemaMatches(PartitionPolicyProof proof) {
+        Optional<SchemaCacheValue> schema = proof.table.getSchemaCacheValue(proof.pin);
+        if (schema.isEmpty() || !(schema.get() instanceof PluginDrivenSchemaCacheValue)) {
+            return false;
+        }
+        PluginDrivenSchemaCacheValue actual = (PluginDrivenSchemaCacheValue) schema.get();
+        return proof.schema.equals(policySchemaFingerprint(actual.getSchema()))
+                && proof.partitions.equals(policySchemaFingerprint(actual.getPartitionColumns()))
+                && proof.remotePartitions.equals(actual.getPartitionColumnRemoteNames());
+    }
+
+    private void requirePartitionPolicyPlanning() {
+        if (partitionPolicyPlanningInvalidated) {
+            throw new AnalysisException("Partition policy planning state was invalidated; replan in a fresh statement");
+        }
+    }
+
+    private void invalidatePartitionPolicy(boolean retry) {
+        partitionPolicyEpoch++;
+        dataMaskEvaluations.clear();
+        partitionPolicyObservedTables.clear();
+        systemPartitionFilterUsers.clear();
+        boolean used = !usedPartitionPolicyProofs.isEmpty();
+        for (Map.Entry<RelationId, PartitionPolicyProof> entry : partitionPolicyProofs.entrySet()) {
+            ExternalTablePreloadInfo info = externalTablePreloadInfos.get(entry.getValue().table.getId());
+            if (info != null) {
+                info.getInitialScanPredicates().remove(entry.getKey());
+                info.markUnfilteredLatestRelation();
+                info.clearPartitionViews();
+            }
+        }
+        partitionPolicyPlanningInvalidated |= used;
+        partitionPolicyExecutionInvalidated |= used && !retry;
+        partitionPolicyRetryPending |= used && retry;
+        partitionPolicyProofs.values().removeIf(proof -> !usedPartitionPolicyProofs.contains(proof));
+    }
+
+    /** Revalidates retained execution evidence after scope reset without reviving planning candidates. */
+    public void validateOrRevalidatePartitionPoliciesForExecution(Planner planner) {
+        List<PartitionPolicyProof> used = partitionPolicyProofs.values().stream()
+                .filter(usedPartitionPolicyProofs::contains).collect(Collectors.toList());
+        if (used.isEmpty()) {
+            return;
+        }
+        if (partitionPolicyExecutionInvalidated
+                || partitionPolicyPlanner != null && partitionPolicyPlanner != planner) {
+            throw new AnalysisException("Partition policy execution proof was invalidated");
+        }
+        Preconditions.checkState(plannerResources.isEmpty(), "Policy revalidation requires released planner locks");
+        long epoch = partitionPolicyEpoch;
+        Map<DataPolicyContext, List<RowFilterSpec>> evaluated = new HashMap<>();
+        Map<PartitionPolicyProof, DataPolicyContext> renewed = new LinkedHashMap<>();
+        try {
+            for (PartitionPolicyProof proof : used) {
+                List<Column> schema = proof.table.getFullSchema(proof.pin);
+                DataPolicyContext actual = proof.systemUser == null
+                        ? capturePartitionPolicy(proof.table, schema) : null;
+                List<RowFilterSpec> baselineRows = partitionProofRowPolicies.get(proof);
+                if (proof.systemUser == null && baselineRows == null
+                        || !proof.schema.equals(policySchemaFingerprint(schema))
+                        || !proofMatches(proof, actual, partitionPolicyRetryPending)) {
+                    throw new AnalysisException("Partition policy scope changed for " + proof.table.getName());
+                }
+                if (partitionPolicyRetryPending) {
+                    PluginDrivenSchemaCacheValue fresh = (PluginDrivenSchemaCacheValue) proof.table.initSchema()
+                            .orElseThrow(() -> new AnalysisException("Schema unavailable for policy revalidation"));
+                    if (!proof.schema.equals(policySchemaFingerprint(fresh.getSchema()))
+                            || !proof.partitions.equals(policySchemaFingerprint(fresh.getPartitionColumns()))
+                            || !proof.remotePartitions.equals(fresh.getPartitionColumnRemoteNames())) {
+                        throw new AnalysisException("Partition policy schema changed for " + proof.table.getName());
+                    }
+                    if (proof.systemUser == null) {
+                        AccessControllerManager manager = connectContext.getEnv().getAccessManager();
+                        List<RowFilterSpec> rows = evaluated.get(actual);
+                        if (rows == null) {
+                            if (!manager.evalDataMaskPolicies(actual).isEmpty()) {
+                                throw new AnalysisException("Column masks changed for " + proof.table.getName());
+                            }
+                            rows = manager.evalRowFilterPolicies(actual);
+                            evaluated.put(actual, rows);
+                        }
+                        if (!baselineRows.equals(rows)) {
+                            throw new AnalysisException("Row policies changed for " + proof.table.getName());
+                        }
+                    }
+                }
+                if (proof.systemUser == null) {
+                    if (!actual.equals(capturePartitionPolicy(proof.table, schema))) {
+                        throw new AnalysisException("Partition policy context changed during revalidation");
+                    }
+                    renewed.put(proof, actual);
+                }
+            }
+            if (epoch != partitionPolicyEpoch) {
+                throw new AnalysisException("Partition policy epoch changed during revalidation");
+            }
+        } catch (RuntimeException failure) {
+            invalidatePartitionPolicy(false);
+            throw failure;
+        }
+        executionPolicyContexts.putAll(renewed);
+        partitionPolicyRetryPending = false;
+        partitionPolicyPlanner = planner;
+    }
+
+    private static final class PartitionPolicyProof {
+        private final PluginDrivenExternalTable table;
+        private final DataPolicyContext policy;
+        private final UserIdentity systemUser;
+        private final Optional<MvccSnapshot> pin;
+        private final List<String> schema;
+        private final List<String> partitions;
+        private final List<String> remotePartitions;
+        private final Object connector;
+
+        private PartitionPolicyProof(PluginDrivenExternalTable table, DataPolicyContext policy,
+                Optional<MvccSnapshot> pin, List<String> schema, List<String> partitions,
+                List<String> remotePartitions) {
+            this(table, policy, null, pin, schema, partitions, remotePartitions);
+        }
+
+        private PartitionPolicyProof(PluginDrivenExternalTable table, DataPolicyContext policy, UserIdentity systemUser,
+                Optional<MvccSnapshot> pin, List<String> schema, List<String> partitions,
+                List<String> remotePartitions) {
+            this.table = table;
+            this.policy = policy;
+            this.systemUser = systemUser;
+            this.pin = pin;
+            this.schema = List.copyOf(schema);
+            this.partitions = List.copyOf(partitions);
+            this.remotePartitions = List.copyOf(remotePartitions);
+            this.connector = ((PluginDrivenExternalCatalog) table.getCatalog()).getConnector();
+        }
     }
 
     /** Pins the backend execution version selected for this statement execution. */
@@ -588,6 +894,14 @@ public class StatementContext implements Closeable {
         return Optional.ofNullable(connectorWriteSchemas.get(tableId));
     }
 
+    public void addConnectorDeleteTarget(long tableId) {
+        connectorDeleteTargets.add(tableId);
+    }
+
+    public boolean isConnectorDeleteTarget(long tableId) {
+        return connectorDeleteTargets.contains(tableId);
+    }
+
     public void setConnectorWriteMetadataIdentity(long tableId, String identity) {
         connectorWriteMetadataIdentities.put(tableId, identity);
     }
@@ -689,6 +1003,15 @@ public class StatementContext implements Closeable {
      */
     public void registerExternalTableForPreload(TableIf table, Optional<TableSnapshot> tableSnapshot,
             Optional<TableScanParams> scanParams) {
+        registerExternalTableForPreload(table, tableSnapshot, scanParams, false);
+    }
+
+    /**
+     * Register an external relation for pre-lock metadata preload. {@code hasInitialFilter} records whether
+     * this relation is below an effective LogicalFilter that remains selective after constant folding.
+     */
+    public void registerExternalTableForPreload(TableIf table, Optional<TableSnapshot> tableSnapshot,
+            Optional<TableScanParams> scanParams, boolean hasInitialFilter) {
         if (!(table instanceof ExternalTable) || !table.supportsExternalMetadataPreload()) {
             return;
         }
@@ -704,6 +1027,9 @@ public class StatementContext implements Closeable {
             preloadInfo.markNonLatestRelation();
         } else {
             preloadInfo.markLatestRelation();
+            if (!hasInitialFilter) {
+                preloadInfo.markUnfilteredLatestRelation();
+            }
         }
     }
 
@@ -869,6 +1195,18 @@ public class StatementContext implements Closeable {
     }
 
     /**
+     * The scope a connector session built now captures: {@link #getOrCreateConnectorStatementScope}, or
+     * {@link ConnectorStatementScope#NONE} once that scope is closed. The statement has ended by then, and what
+     * still builds a session on its context (the lineage of an INSERT, say) runs as offline work does instead of
+     * failing in the closed scope. A session captured before the close keeps the closed scope, which refuses to
+     * load, so a split producer that outlives the statement stops.
+     */
+    public synchronized ConnectorStatementScope getConnectorStatementScopeForNewSession() {
+        getOrCreateConnectorStatementScope();
+        return connectorStatementScope.isClosed() ? ConnectorStatementScope.NONE : connectorStatementScope;
+    }
+
+    /**
      * Drops the values of this statement's connector scope that only planning reads (see
      * {@link ConnectorStatementScope#endPlanning}), when a connector has opened the scope; unlike
      * {@link #getOrCreateConnectorStatementScope}, it never creates one. {@link #releasePlannerResources} calls it.
@@ -879,24 +1217,60 @@ public class StatementContext implements Closeable {
         }
     }
 
-    /**
-     * Closes (deterministically) then drops the connector scope so the next statement execution starts fresh.
-     * Prepared-statement EXECUTE reuses one StatementContext across executions (see
-     * {@link org.apache.doris.nereids.trees.plans.commands.ExecuteCommand}) and a retry reuses it across attempts;
-     * this is called at the start of each, so a prior execution's / attempt's cached tables, pinned connector
-     * writer schema, and closeable state are released (closeAll is idempotent — a no-op if the query-finish
-     * callback already closed it) and never leak into the next. Callers invoke this only after the prior
-     * execution/attempt has finished (no off-thread pump still running), so close-before-drop is safe.
-     */
-    public synchronized void resetConnectorStatementScope() {
+    /** Closes a scope created during this attempt even if no scan registered a query-finish callback. */
+    public synchronized void closeConnectorStatementScope() {
         if (this.connectorStatementScope != null) {
             this.connectorStatementScope.closeAll();
         }
+    }
+
+    /**
+     * Requests closure of the old connector scope and drops it so the next execution/attempt starts fresh.
+     * Prepared-statement EXECUTE reuses one StatementContext across executions (see
+     * {@link org.apache.doris.nereids.trees.plans.commands.ExecuteCommand}) and a retry reuses it across attempts.
+     * Old split producers and their cleanup retain the captured old scope until termination; closeAll defers
+     * disposal while those users remain. New sessions obtain a fresh scope, so cached tables, pinned writer
+     * schema, and closeable state cannot leak into the next attempt. Repeated close requests are idempotent.
+     */
+    public synchronized void resetConnectorStatementScope() {
+        invalidatePartitionPolicy(true);
+        closeConnectorStatementScope();
         this.connectorStatementScope = null;
         this.connectorWriteSchemas.clear();
         this.connectorWriteMetadataIdentities.clear();
+        this.connectorDeleteTargets.clear();
         changelogReferenceTsoRequired = false;
         changelogReferenceTso = null;
+    }
+
+    /**
+     * Starts a fresh planning attempt on a reused StatementContext after {@link #resetConnectorStatementScope}
+     * revoked the replaced plan's partition-policy proofs.
+     *
+     * <p>The revocation must keep the discarded plan unusable, but a caller that replans from the logical
+     * statement (a query replan retry, or {@code InsertIntoTableCommand}'s plan retry) needs fresh proof state.
+     * Without it, every later collect/preload/lock/pre-explain step of the new attempt throws "Partition policy
+     * planning state was invalidated; replan in a fresh statement" even though the replaced attempt's plan is
+     * already gone. The preload candidates are dropped as well: their filtered views are pinned to the connector
+     * scope that was just closed, and the new attempt registers and re-materializes them from its own scope.</p>
+     */
+    public synchronized void beginPartitionPolicyReplan() {
+        dataMaskEvaluations.clear();
+        partitionPolicyObservedTables.clear();
+        systemPartitionFilterUsers.clear();
+        partitionPolicyProofs.clear();
+        usedPartitionPolicyProofs.clear();
+        partitionProofRowPolicies.clear();
+        executionPolicyContexts.clear();
+        partitionPolicyPlanningInvalidated = false;
+        partitionPolicyExecutionInvalidated = false;
+        partitionPolicyRetryPending = false;
+        partitionPolicyPlanner = null;
+        partitionPolicyEpoch++;
+        externalTablePreloadInfos.clear();
+        // The next attempt re-runs collection and must run the metadata preload pass again; the replaced
+        // attempt's completion latch would otherwise suppress it and push schema loading under planner locks.
+        externalMetadataPreloadResult = null;
     }
 
     /**
@@ -1176,6 +1550,7 @@ public class StatementContext implements Closeable {
      * lock all table collect by TableCollector
      */
     public synchronized void lock() {
+        requirePartitionPolicyPlanning();
         if (!needLockTables
                 || (tables.isEmpty() && mtmvRelatedTables.isEmpty() && insertTargetTables.isEmpty())
                 || !plannerResources.isEmpty()) {
@@ -1285,14 +1660,15 @@ public class StatementContext implements Closeable {
         // After the table locks: stopping a remote Doris scan's node sends a CloseSession to the other
         // frontend, which must not be waited for under a lock.
         stopScanNodesLeftBehind();
-        // Fallback deterministic close of the per-statement connector scope, for statements that never reach the
-        // query-finish callback: external DDL / SHOW / DESCRIBE / EXPLAIN / foreground ANALYZE run via Command.run
-        // with no coordinator, so PluginDrivenScanNode.getSplits never registers a primary close for them. close()
-        // runs in ConnectProcessor's per-statement finally (direct connection) and the forwarded-request finally
-        // (master side), so it covers them. Guarded by isReturnResultFromLocal so an arrow-flight statement (which
-        // returns results asynchronously and defers cleanup to its own query-finish close) is not closed early
-        // here. Idempotent (closeAll is close-once), so a coordinated statement whose scope the primary already
-        // closed is a no-op. Command statements have no off-thread scan pump, so close-after-use holds.
+        // Fallback deterministic close of the per-statement connector scope, for statements that open it without
+        // planning a scan, so no query-finish callback closes it: external DDL / SHOW / DESCRIBE run via
+        // Command.run and only read metadata. (Every scan registers that callback when it starts planning splits,
+        // also under EXPLAIN or a plan that fails later; StmtExecutor runs it when the attempt ends.) close() runs
+        // in ConnectProcessor's per-statement finally (direct connection) and the forwarded-request finally (master
+        // side), so it covers them. Guarded by isReturnResultFromLocal so an arrow-flight statement (which returns
+        // results asynchronously and defers cleanup to its own query-finish close) is not closed early here.
+        // Idempotent (closeAll is close-once), so a statement whose scope the callback already closed is a no-op;
+        // a split producer still running after the close is refused by the closed scope.
         if (connectorStatementScope != null && connectContext != null && connectContext.isReturnResultFromLocal()) {
             connectorStatementScope.closeAll();
         }
@@ -1380,10 +1756,17 @@ public class StatementContext implements Closeable {
      * to one EXECUTE only; carrying it forward would make a later commit permanently invisible.
      */
     public void resetMvccSnapshots() {
+        invalidatePartitionPolicy(false);
         snapshots.clear();
         latestSnapshots.clear();
         latestSnapshotFences.clear();
         resolvedSnapshotScanParams.clear();
+        // A recorded scan partition view belongs to ONE execution: carrying it into the next one would pin a
+        // stale partition set and, because the recorded value is what the warmup checks, also suppress warming
+        // that execution. The preload CANDIDATES survive, exactly like the preload completion below.
+        for (ExternalTablePreloadInfo preloadInfo : externalTablePreloadInfos.values()) {
+            preloadInfo.clearPartitionViews();
+        }
         // PREPARE keeps preload candidates, but completion belongs to one analysis pass and must
         // not suppress preloading after the next EXECUTE resets its snapshot generation.
         externalMetadataPreloadResult = null;
@@ -1456,40 +1839,7 @@ public class StatementContext implements Closeable {
      */
     private static String versionKeyOf(Optional<TableSnapshot> tableSnapshot,
             Optional<TableScanParams> scanParams) {
-        // Concatenate both selectors (rather than returning on the first) so the key stays injective even
-        // if a reference ever carried BOTH a snapshot and scan params. Today the two are mutually exclusive
-        // (e.g. IcebergUtils.getQuerySpecSnapshot rejects FOR-TIME together with @branch/@tag), so in every
-        // reachable case exactly one part is non-empty and the key is "v:...", "p:...", or "".
-        StringBuilder key = new StringBuilder();
-        if (tableSnapshot != null && tableSnapshot.isPresent()) {
-            TableSnapshot ts = tableSnapshot.get();
-            key.append('v');
-            appendVersionKeyPart(key, ts.getType());
-            appendVersionKeyPart(key, ts.getValue());
-        }
-        if (scanParams != null && scanParams.isPresent()) {
-            TableScanParams sp = scanParams.get();
-            key.append('p');
-            appendVersionKeyPart(key, sp.getParamType());
-            Map<String, String> sortedParams = new TreeMap<>(sp.getMapParams());
-            key.append('m').append(sortedParams.size()).append(':');
-            for (Map.Entry<String, String> entry : sortedParams.entrySet()) {
-                // Length prefixes preserve entry boundaries even when user values contain Map.toString()
-                // delimiters; sorting separately keeps semantically identical maps order-independent.
-                appendVersionKeyPart(key, entry.getKey());
-                appendVersionKeyPart(key, entry.getValue());
-            }
-            key.append('l').append(sp.getListParams().size()).append(':');
-            for (String value : sp.getListParams()) {
-                appendVersionKeyPart(key, value);
-            }
-        }
-        return key.toString();
-    }
-
-    private static void appendVersionKeyPart(StringBuilder key, Object value) {
-        String text = String.valueOf(value);
-        key.append(text.length()).append(':').append(text);
+        return MvccReadSelector.of(tableSnapshot, scanParams).getKey();
     }
 
     /**
@@ -1534,6 +1884,285 @@ public class StatementContext implements Closeable {
 
     public Collection<ExternalTablePreloadInfo> getExternalTablePreloadInfos() {
         return Collections.unmodifiableCollection(externalTablePreloadInfos.values());
+    }
+
+    /** Marks collected view relations whose ids will be replaced when the definition is bound again. */
+    public void markReparsedViewRelationsForPreload(Set<RelationId> relationIds) {
+        externalTablePreloadInfos.values().forEach(info ->
+                relationIds.forEach(info::markReparsedScanRelation));
+    }
+
+    public boolean shouldSkipUnpreloadedScanPartitionPruning() {
+        return skipUnpreloadedScanPartitionPruning;
+    }
+
+    /**
+     * The preload record of one external table, or empty when the table was never registered for preload.
+     * Used by lock-sensitive consumers to reuse metadata the pre-lock preload pass already materialized.
+     *
+     * @param tableId the table's id, as used by {@link #registerExternalTableForPreload}
+     * @return ExternalTablePreloadInfo
+     */
+    public Optional<ExternalTablePreloadInfo> getExternalTablePreloadInfo(long tableId) {
+        return Optional.ofNullable(externalTablePreloadInfos.get(tableId));
+    }
+
+    /**
+     * Materializes every deferred connector partition view that can be consumed while the internal table read
+     * locks are held. This step is unconditional for physical finalization: it exists so the default
+     * configuration gets the lock scope, not only the opt-in {@code enable_preload_external_metadata} pass.
+     *
+     * <p>WHY it is needed at all: {@code QueryPartitionCollector} runs from
+     * {@code InitMaterializationContextHook.afterRewrite}, i.e. while {@link #lock()} is held, and an unfiltered
+     * connector-pruning file scan is still {@code DEFERRED} at that point. Even with both MV rewrite switches
+     * off, {@code PluginDrivenScanNode.doFinalize} still materializes a no-filter deferred scan before the
+     * planner releases the internal read locks. Materializing the same view here moves both consumers outside
+     * the lock window.</p>
+     *
+     * <p>Plan-only EXPLAIN still runs logical partition pruning, so relation-scoped filters must be resolved
+     * before locking even when both MV rewrite switches are off. Only the unfiltered full-view warmup can
+     * be skipped in that configuration. The MV gate is the OR of the query and DML rewrite switches because
+     * either hook can consume a deferred view.</p>
+     */
+    public void preloadDeferredScanPartitionViewsBeforeLock(boolean willFinalizePhysicalPlan) {
+        requirePartitionPolicyPlanning();
+        ConnectContext connectContext = getConnectContext();
+        if (connectContext == null || connectContext.getSessionVariable() == null) {
+            return;
+        }
+        boolean mvCollectorWillRun = connectContext.getSessionVariable().isEnableMaterializedViewRewrite()
+                || connectContext.getSessionVariable().isEnableDmlMaterializedViewRewrite();
+        boolean needsUnfilteredScanView = willFinalizePhysicalPlan || mvCollectorWillRun;
+        skipUnpreloadedScanPartitionPruning = !needsUnfilteredScanView;
+        boolean hasPlanReadLockTable = hasAnyPlanReadLockTable();
+        Set<BaseTableInfo> candidateMtmvPctTables = mvCollectorWillRun
+                ? collectCandidateMtmvPctTables() : Collections.emptySet();
+        for (ExternalTablePreloadInfo preloadInfo : externalTablePreloadInfos.values()) {
+            if (hasPlanReadLockTable) {
+                preloadFilteredScanPartitionViews(preloadInfo);
+                if (needsUnfilteredScanView) {
+                    preloadDeferredScanPartitionView(preloadInfo);
+                }
+            }
+            preloadMtmvPartitionView(preloadInfo, candidateMtmvPctTables);
+        }
+    }
+
+    /** Resolve relation-scoped filters before internal locks, never sharing one alias's subset with another. */
+    private void preloadFilteredScanPartitionViews(ExternalTablePreloadInfo info) {
+        ExternalTable table = info.getTable();
+        if (!info.shouldPreloadLatestSnapshot() || !(table instanceof PluginDrivenExternalTable)
+                || !((PluginDrivenExternalTable) table).supportsConnectorPartitionPruning()) {
+            return;
+        }
+        loadSnapshots(table, Optional.empty(), Optional.empty());
+        Optional<MvccSnapshot> snapshot = getSnapshot(table);
+        List<Column> columns = table.getPartitionColumns(snapshot);
+        for (Map.Entry<RelationId, Expression> entry : info.getInitialScanPredicates().entrySet()) {
+            if (info.hasFilteredScanView(entry.getKey())) {
+                continue;
+            }
+            PartitionPolicyProof proof = partitionPolicyProofs.get(entry.getKey());
+            if (proof != null && !proofMatches(proof,
+                    capturePartitionPolicy(proof.table, proof.table.getFullSchema(snapshot)), false)) {
+                invalidatePartitionPolicy(false);
+                throw new AnalysisException("Partition policy changed before selective preload");
+            }
+            // Only bind declared partition columns here. Full analysis, coercion, privileges and residual
+            // evaluation remain in their normal stages; unsupported forms use the preloaded full view.
+            Expression bound = entry.getValue().rewriteUp(expression -> {
+                if (!(expression instanceof UnboundSlot)) {
+                    return expression;
+                }
+                List<String> names = ((UnboundSlot) expression).getNameParts();
+                String name = names.get(names.size() - 1);
+                return columns.stream().filter(column -> column.getName().equalsIgnoreCase(name))
+                        .findFirst().<Expression>map(column -> new SlotReference(column.getName(),
+                                DataType.fromCatalogType(column.getType()), column.isAllowNull()))
+                        .orElse(expression);
+            });
+            List<Expression> safeConjuncts = ExpressionUtils.extractConjunction(bound).stream()
+                    .filter(StatementContext::isSafeInitialPartitionPredicate).collect(Collectors.toList());
+            ConnectorExpression predicate = safeConjuncts.isEmpty() ? null
+                    : NereidsToConnectorExpressionConverter.convert(ExpressionUtils.and(safeConjuncts));
+            UserIdentity systemUser = systemPartitionFilterUsers.get(entry.getKey());
+            if (predicate != null && proof == null && systemUser != null) {
+                if (!systemUser.equals(connectContext.getCurrentUserIdentity())) {
+                    throw new AnalysisException("Partition policy user changed before selective preload");
+                }
+                List<Column> schema = table.getFullSchema(snapshot);
+                if (schema != null) {
+                    List<String> remotePartitions = table.getSchemaCacheValue(snapshot)
+                            .filter(PluginDrivenSchemaCacheValue.class::isInstance)
+                            .map(value -> ((PluginDrivenSchemaCacheValue) value).getPartitionColumnRemoteNames())
+                            .orElse(Collections.emptyList());
+                    proof = new PartitionPolicyProof((PluginDrivenExternalTable) table, null, systemUser, snapshot,
+                            policySchemaFingerprint(schema), policySchemaFingerprint(columns), remotePartitions);
+                }
+            }
+            Optional<PluginDrivenExternalTable.ConnectorFilteredPartitionView> view = predicate == null
+                    || systemUser != null && proof == null
+                    ? Optional.empty()
+                    : ((PluginDrivenExternalTable) table).applyPartitionFilterForScan(snapshot, predicate);
+            info.setFilteredScanView(entry.getKey(), view, predicate);
+            if (proof != null && view.isPresent()) {
+                partitionPolicyProofs.putIfAbsent(entry.getKey(), proof);
+                usedPartitionPolicyProofs.add(proof);
+            }
+            if (!view.isPresent() && !info.hasScanPartitionView()) {
+                info.setScanPartitionView(((PluginDrivenExternalTable) table).getNameToPartitionItemsForScan(snapshot));
+            }
+        }
+    }
+
+    /** Only prefilter typed equality/IN whose later coercion cannot change partition-value semantics. */
+    private static boolean isSafeInitialPartitionPredicate(Expression expression) {
+        if (expression instanceof EqualTo) {
+            Expression left = expression.child(0);
+            Expression right = expression.child(1);
+            return left instanceof SlotReference && right instanceof Literal
+                    && compatibleInitialPartitionTypes(left.getDataType(), right.getDataType())
+                    || right instanceof SlotReference && left instanceof Literal
+                    && compatibleInitialPartitionTypes(right.getDataType(), left.getDataType());
+        }
+        if (expression instanceof InPredicate && expression.child(0) instanceof SlotReference) {
+            DataType type = expression.child(0).getDataType();
+            return expression.children().subList(1, expression.arity()).stream()
+                    .allMatch(child -> child instanceof Literal
+                            && compatibleInitialPartitionTypes(type, child.getDataType()));
+        }
+        return false;
+    }
+
+    private static boolean compatibleInitialPartitionTypes(DataType column, DataType literal) {
+        // In particular, VARCHAR p = 1 is a numeric comparison, not textual p = '1': prefiltering it as
+        // strings could drop p=01. Let full analysis/coercion handle mixed families on the warmed full view.
+        return column.equals(literal) || column.isIntegralType() && literal.isIntegralType()
+                || column.isStringLikeType() && literal.isStringLikeType();
+    }
+
+    /**
+     * Takes a stable copy of the candidate MVs' PCT table identities without doing connector I/O while an MV lock
+     * is held. The full external views are materialized only after every MV lock has been released.
+     */
+    private Set<BaseTableInfo> collectCandidateMtmvPctTables() {
+        boolean queryHook = plannerHooks.contains(InitMaterializationContextHook.INSTANCE);
+        boolean dmlHook = plannerHooks.contains(InitConsistentMaterializationContextHook.INSTANCE);
+        if (!queryHook && !dmlHook) {
+            return Collections.emptySet();
+        }
+        SessionVariable variables = getConnectContext().getSessionVariable();
+        boolean externalMvEligible = queryHook && variables.isEnableMaterializedViewRewriteWhenBaseTableUnawareness()
+                || dmlHook && variables.isEnableDmlMaterializedViewRewriteWhenBaseTableUnawareness();
+        Set<BaseTableInfo> pctTables = new HashSet<>();
+        for (MTMV mtmv : candidateMTMVs) {
+            // Mirror the gates InitMaterializationContextHook / InitConsistentMaterializationContextHook apply
+            // before MTMV partition validation: an ineligible candidate is discarded there, so its complete view
+            // has no consumer. Warming it anyway would restore the O(all partitions) listing this pre-lock pass
+            // exists to move out of the planner's lock window.
+            if (!mtmv.isUseForRewrite() || (!externalMvEligible && MTMVUtil.mtmvContainsExternalTable(mtmv))) {
+                continue;
+            }
+            mtmv.readMvLock();
+            try {
+                mtmv.getMvPartitionInfo().getPctInfos().forEach(
+                        pctInfo -> pctTables.add(pctInfo.getTableInfo()));
+            } finally {
+                mtmv.readMvUnlock();
+            }
+        }
+        return pctTables;
+    }
+
+    /**
+     * Materializes the complete latest partition view needed by an async-MV candidate's partition mapping. This
+     * is deliberately separate from the scan view: a filtered scan must retain connector predicate pruning, while
+     * {@code MTMV.calculatePartitionMappings} still needs the full partition universe for union compensation.
+     */
+    private void preloadMtmvPartitionView(ExternalTablePreloadInfo preloadInfo,
+            Set<BaseTableInfo> candidateMtmvPctTables) {
+        if (preloadInfo.hasMtmvPartitionView() || !preloadInfo.shouldPreloadLatestSnapshot()
+                || candidateMtmvPctTables.isEmpty()) {
+            return;
+        }
+        ExternalTable table = preloadInfo.getTable();
+        if (!(table instanceof PluginDrivenExternalTable)
+                || !((PluginDrivenExternalTable) table).supportsConnectorPartitionPruning()
+                || !candidateMtmvPctTables.contains(new BaseTableInfo(table))) {
+            return;
+        }
+        if (preloadInfo.hasScanPartitionView()) {
+            preloadInfo.setMtmvPartitionView(preloadInfo.getScanPartitionView());
+            return;
+        }
+        // Pin the statement's latest generation BEFORE materializing. Without this, getNameToPartitionItemsForScan
+        // materializes an unrecorded latest snapshot, binding later pins another one, and the warmed view is then
+        // served for the bound pin - so MV compensation and the scan would describe two different generations.
+        loadSnapshots(table, Optional.empty(), Optional.empty());
+        preloadInfo.setMtmvPartitionView(
+                ((PluginDrivenExternalTable) table).getNameToPartitionItemsForScan(getSnapshot(table)));
+    }
+
+    /**
+     * Materializes one table's deferred scan partition view and records it on its preload entry. No-op when the
+     * view is already materialized, when no latest reference is initially unfiltered, or when the connector
+     * does not support deferred partition pruning: a filtered relation must let connector pruning avoid the
+     * full view instead of eagerly enumerating it.
+     */
+    public void preloadDeferredScanPartitionView(ExternalTablePreloadInfo preloadInfo) {
+        if (preloadInfo.hasScanPartitionView() || !preloadInfo.shouldPreloadLatestSnapshot()
+                || !preloadInfo.shouldPreloadUnfilteredScanPartitionView()) {
+            return;
+        }
+        ExternalTable table = preloadInfo.getTable();
+        if (!(table instanceof PluginDrivenExternalTable)
+                || !((PluginDrivenExternalTable) table).supportsConnectorPartitionPruning()) {
+            return;
+        }
+        preloadInfo.setScanPartitionView(
+                ((PluginDrivenExternalTable) table).getNameToPartitionItemsForScan(getSnapshot(table)));
+    }
+
+    /**
+     * Resolves the scan-path partition view of ONE table reference for every consumer in this statement, from a
+     * single generation.
+     *
+     * <p>WHY one generation: the MV partition compensator decides which base partitions a rewritten query still
+     * has to read from the base table BY NAME - the compensation union branch is restricted to exactly the
+     * recorded names - while the physical scan reads the partitions of its own, later, enumeration. Two
+     * generations mean a partition added between them is read by neither branch, and its rows silently
+     * disappear from a rewritten query. The first caller therefore materializes the view, every later caller in
+     * the same statement reuses it, and the compensation decision and the data read describe the same partition
+     * set. The pre-lock warmup ({@link #preloadDeferredScanPartitionViewsBeforeLock}) normally wins that race,
+     * so the enumeration also stays outside the planner's lock window whenever that step ran.</p>
+     *
+     * <p>A reference carrying a version selector is NOT served from the record, and is not recorded: the record
+     * is per table and the warmup materializes the LATEST generation only, so reusing it for e.g.
+     * {@code @branch} would describe a partition set that reference never reads.</p>
+     *
+     * @param table       the external table the reference belongs to
+     * @param tableSnapshot the reference's FOR VERSION/TIME AS OF selector (if any)
+     * @param scanParams    the reference's {@code @branch}/{@code @tag} selector (if any)
+     * @param enumeration   how to materialize the view when no recorded one applies; invoked at most once per
+     *                      recorded table
+     * @return the view; an {@link Optional#empty()} result means the connector view is UNAVAILABLE, which every
+     *         caller must read as "read every partition", never as "read none"
+     */
+    public Optional<Map<String, PartitionItem>> resolveScanPartitionView(ExternalTable table,
+            Optional<TableSnapshot> tableSnapshot, Optional<TableScanParams> scanParams,
+            Supplier<Optional<Map<String, PartitionItem>>> enumeration) {
+        if (tableSnapshot.isPresent() || scanParams.isPresent()) {
+            return enumeration.get();
+        }
+        // The entry is created on demand rather than required to pre-exist: this is the first phase that runs
+        // after the preload pass (which is done with the map by then, candidates and bookkeeping alike), so
+        // recording here can neither pull the table into a preload nor mutate a finished result.
+        ExternalTablePreloadInfo preloadInfo = externalTablePreloadInfos.computeIfAbsent(table.getId(),
+                id -> new ExternalTablePreloadInfo(table));
+        if (!preloadInfo.hasScanPartitionView()) {
+            preloadInfo.setScanPartitionView(enumeration.get());
+        }
+        return preloadInfo.getScanPartitionView();
     }
 
     public int getExternalTablePreloadCandidateCount() {

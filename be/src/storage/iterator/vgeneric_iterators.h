@@ -21,7 +21,6 @@
 #include <stdint.h>
 
 #include <list>
-#include <map>
 #include <memory>
 #include <queue>
 #include <utility>
@@ -64,8 +63,7 @@ private:
     size_t _output_rows = 0;
     bool _init = false;
     TPushAggOp::type _push_down_agg_type_opt;
-    std::map<int32_t, std::unique_ptr<ColumnIterator>> _column_iterators_map;
-    std::vector<ColumnIterator*> _column_iterators;
+    std::vector<std::unique_ptr<ColumnIterator>> _column_iterators;
 
     static constexpr size_t MAX_ROW_SIZE_IN_COUNT = 65535;
 };
@@ -324,12 +322,6 @@ RowwiseIteratorUPtr new_merge_iterator(std::vector<RowwiseIteratorUPtr>&& inputs
 // Inputs iterators' ownership is taken by created union iterator.
 RowwiseIteratorUPtr new_union_iterator(std::vector<RowwiseIteratorUPtr>&& inputs,
                                        ReadSchemaSPtr read_schema);
-
-// Create an auto increment iterator which returns num_rows data in format of schema.
-// This class aims to be used in unit test.
-//
-// Client should delete returned iterator.
-RowwiseIteratorUPtr new_auto_increment_iterator(const ReadSchema& schema, size_t num_rows);
 
 RowwiseIterator* new_vstatistics_iterator(std::shared_ptr<Segment> segment,
                                           const ReadSchema& schema);

@@ -345,6 +345,29 @@ public class PaimonScanParamsTest {
     }
 
     @Test
+    public void testLatestDeltaCannotBecomeAFullSnapshotRead(@TempDir Path warehouse) throws Exception {
+        try (Catalog catalog = localCatalog(warehouse)) {
+            Table table = tableWithSnapshots(catalog, 3);
+            Map<String, String> options = ImmutableMap.of("scan.mode", "latest-delta");
+            // The SDK reads only snapshot 3's new file. Resolving this mode to scan.snapshot-id=3
+            // would instead read all three snapshots' rows.
+            Assertions.assertEquals(1L, table.copy(options).newReadBuilder().newScan().plan()
+                    .splits().stream().mapToLong(split -> split.rowCount()).sum());
+            Assertions.assertEquals(3L, table.copy(ImmutableMap.of("scan.snapshot-id", "3"))
+                    .newReadBuilder().newScan().plan().splits().stream()
+                    .mapToLong(split -> split.rowCount()).sum());
+
+            DorisConnectorException exception = Assertions.assertThrows(DorisConnectorException.class,
+                    () -> PaimonScanParams.resolveOptions(table, options));
+            Assertions.assertTrue(exception.getMessage().contains("latest-delta"));
+            Assertions.assertTrue(exception.getMessage().contains("@incr"));
+        }
+        Assertions.assertThrows(DorisConnectorException.class,
+                () -> PaimonScanParams.pinOptionsToSnapshot(
+                        ImmutableMap.of("scan.mode", "LATEST-DELTA"), 3L));
+    }
+
+    @Test
     public void testTagSelectorRetainsTagMetadataInsteadOfAnExpirableSnapshotId(@TempDir Path warehouse)
             throws Exception {
         try (Catalog catalog = localCatalog(warehouse)) {

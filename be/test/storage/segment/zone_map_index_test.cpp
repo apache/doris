@@ -152,7 +152,7 @@ public:
         {
             Slice slices[] = {Slice(short_string), Slice(big_long_string1),
                               Slice(small_long_string1)};
-            writer->add_values(&slices, 3);
+            writer->add_values(reinterpret_cast<const uint8_t*>(&slices), 3);
             if (pass_all) {
                 writer->invalid_page_zone_map();
             }
@@ -166,7 +166,7 @@ public:
         {
             Slice slices[] = {Slice(short_string), Slice(big_long_string2),
                               Slice(small_long_string1)};
-            writer->add_values(&slices, 3);
+            writer->add_values(reinterpret_cast<const uint8_t*>(&slices), 3);
             if (pass_all) {
                 writer->invalid_page_zone_map();
             }
@@ -254,7 +254,7 @@ public:
         auto tab_col = create_char_key(0, true, length);
         const TabletColumn* field = tab_col.get();
         // ZoneMap writer stores whatever slice bytes it receives. In production
-        // OlapColumnDataConvertorChar pads CHAR slices to the declared length
+        // ScalarColumnWriter pads CHAR slices to the declared length
         // before they reach the writer; from_olap_string strnlens at read time
         // so the materialized Field is always unpadded. This test passes raw
         // shorter slices directly to the writer to exercise the strnlen path.
@@ -263,7 +263,7 @@ public:
         std::unique_ptr<ZoneMapIndexWriter> writer;
         ASSERT_TRUE(ZoneMapIndexWriter::create(data_type, field, writer).ok());
         Slice slices[] = {Slice(s_less_than_char_len1), Slice(s_less_than_char_len2)};
-        writer->add_values(&slices, 2);
+        writer->add_values(reinterpret_cast<const uint8_t*>(&slices), 2);
         if (pass_all) {
             writer->invalid_page_zone_map();
         }
@@ -357,7 +357,7 @@ public:
 
         {
             decimal12_t values[] = {decimal1, decimal2, decimal3};
-            writer->add_values(&values, 3);
+            writer->add_values(reinterpret_cast<const uint8_t*>(&values), 3);
             if (pass_all) {
                 writer->invalid_page_zone_map();
             }
@@ -444,7 +444,7 @@ public:
         VecDateTimeValue value3(false, TIME_DATE, 0, 0, 0, 2026, 2, 28);
         uint24_t values[] = {value1.to_olap_date(), value2.to_olap_date(), value3.to_olap_date()};
         {
-            writer->add_values(&values, 3);
+            writer->add_values(reinterpret_cast<const uint8_t*>(&values), 3);
             if (pass_all) {
                 writer->invalid_page_zone_map();
             }
@@ -526,7 +526,7 @@ public:
         uint64_t values[] = {value1.to_olap_datetime(), value2.to_olap_datetime(),
                              value3.to_olap_datetime()};
         {
-            writer->add_values(&values, 3);
+            writer->add_values(reinterpret_cast<const uint8_t*>(&values), 3);
             if (pass_all) {
                 writer->invalid_page_zone_map();
             }
@@ -607,7 +607,7 @@ public:
         std::unique_ptr<ZoneMapIndexWriter> writer;
         ASSERT_TRUE(ZoneMapIndexWriter::create(data_type, tab_col.get(), writer).ok());
         Slice slices[] = {Slice(value), Slice(value)};
-        writer->add_values(slices, 2);
+        writer->add_values(reinterpret_cast<const uint8_t*>(slices), 2);
         ASSERT_TRUE(writer->flush().ok());
 
         const std::string file_path = kTestDir + "/" + testname;
@@ -726,7 +726,7 @@ TEST_F(ColumnZoneMapTest, UuidPage) {
     ASSERT_TRUE(UUIDValue::from_string(values[0], "00112233-4455-6677-8899-aabbccddeeff"));
     ASSERT_TRUE(UUIDValue::from_string(values[1], "00000000-0000-0000-0000-000000000001"));
     ASSERT_TRUE(UUIDValue::from_string(values[2], "ffffffff-ffff-ffff-ffff-ffffffffffff"));
-    writer->add_values(values, 3);
+    writer->add_values(reinterpret_cast<const uint8_t*>(values), 3);
     writer->add_nulls(1);
     ASSERT_TRUE(writer->flush().ok());
 
@@ -1545,9 +1545,9 @@ TEST_F(ColumnZoneMapTest, TimeStampNsWriteReadFilter) {
     };
     writer->add_nulls(2);
     ASSERT_TRUE(writer->flush().ok());
-    writer->add_values(values, 2);
+    writer->add_values(reinterpret_cast<const uint8_t*>(values), 2);
     ASSERT_TRUE(writer->flush().ok());
-    writer->add_values(values + 2, 2);
+    writer->add_values(reinterpret_cast<const uint8_t*>(values + 2), 2);
     writer->add_nulls(1);
     ASSERT_TRUE(writer->flush().ok());
     writer->add_nulls(2);
@@ -1631,7 +1631,7 @@ TEST_F(ColumnZoneMapTest, AllNullPageAfterIntValues_SegmentMinMaxPreserved) {
     // Page 1: integers spanning [100, 200].
     std::vector<int32_t> values = {100, 150, 200};
     for (int32_t v : values) {
-        writer->add_values(&v, 1);
+        writer->add_values(reinterpret_cast<const uint8_t*>(&v), 1);
     }
     ASSERT_TRUE(writer->flush().ok());
 
@@ -1685,7 +1685,7 @@ TEST_F(ColumnZoneMapTest, AllNullPageAfterMaxLenStringPage_NoSegmentMaxDoubleInc
     // Page 1: one string of exactly MAX_ZONE_MAP_INDEX_SIZE bytes, all 'x'.
     std::string long_x(MAX_ZONE_MAP_INDEX_SIZE, 'x');
     Slice s(long_x);
-    writer->add_values(&s, 1);
+    writer->add_values(reinterpret_cast<const uint8_t*>(&s), 1);
     ASSERT_TRUE(writer->flush().ok());
 
     // Page 2: only nulls — triggers the all-null-page flush path.

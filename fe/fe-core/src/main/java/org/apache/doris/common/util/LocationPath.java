@@ -144,8 +144,7 @@ public class LocationPath {
                 throw new IllegalArgumentException("Invalid location: " + location + ", normalized location is null");
             }
         }
-        String encodedLocation = encodedLocation(normalizedLocation);
-        URI uri = URI.create(encodedLocation);
+        URI uri = parseFileSystemUri(normalizedLocation);
         String fsIdentifier = Strings.nullToEmpty(uri.getScheme()) + "://" + Strings.nullToEmpty(uri.getAuthority());
         if (StringUtils.isBlank(schema)) {
             schema = Strings.nullToEmpty(uri.getScheme());
@@ -163,8 +162,7 @@ public class LocationPath {
 
     public static LocationPath of(String location) {
         String schema = extractScheme(location);
-        String encodedLocation = encodedLocation(location);
-        URI uri = URI.create(encodedLocation);
+        URI uri = parseFileSystemUri(location);
         String fsIdentifier = Strings.nullToEmpty(uri.getScheme()) + "://" + Strings.nullToEmpty(uri.getAuthority());
         return new LocationPath(schema, location, fsIdentifier, null);
     }
@@ -186,8 +184,7 @@ public class LocationPath {
                                   StorageAdapter storageAdapter) {
         String schema = extractScheme(location);
         String normalizedLocation = storageAdapter.validateAndNormalizeUri(location);
-        String encodedLocation = encodedLocation(normalizedLocation);
-        URI uri = URI.create(encodedLocation);
+        URI uri = parseFileSystemUri(normalizedLocation);
         String fsIdentifier = Strings.nullToEmpty(uri.getScheme()) + "://"
                 + Strings.nullToEmpty(uri.getAuthority());
         if (StringUtils.isBlank(schema)) {
@@ -248,8 +245,7 @@ public class LocationPath {
             }
         } else {
             // Fallback to full URI parsing
-            String encodedLocation = encodedLocation(normalizedLocation);
-            URI uri = URI.create(encodedLocation);
+            URI uri = parseFileSystemUri(normalizedLocation);
             String authority = uri.getAuthority();
             if (Strings.isNullOrEmpty(authority)) {
                 throw new StoragePropertiesException("Invalid location, missing authority: " + normalizedLocation);
@@ -339,7 +335,62 @@ public class LocationPath {
     }
 
 
+    private static String fileSystemUriPrefix(String location) {
+        // Only scheme and authority are consumed by the factories. For a hierarchical URI, the
+        // path is opaque here: encodedLocation escapes its special characters before URI parsing,
+        // and normalizedLocation retains the original bytes. Avoid encoding/parsing that path for
+        // every file and split. Keep the slash so an empty authority (hdfs:///path) stays valid.
+        int schemeEnd = location.indexOf(SCHEME_DELIM);
+        if (schemeEnd > 0 && location.indexOf('/') == schemeEnd + 1) {
+            int pathStart = location.indexOf('/', schemeEnd + SCHEME_DELIM.length());
+            if (pathStart >= 0) {
+                location = location.substring(0, pathStart + 1);
+            }
+        }
+        return location;
+    }
+
+    private static URI parseFileSystemUri(String location) {
+        return URI.create(encodedLocation(fileSystemUriPrefix(location)));
+    }
+
+    /** A single producer's parser, retaining only its last filesystem prefix and file path. */
+    public static class Factory {
+        private String lastPrefix;
+        private LocationPath lastPath;
+
+        public LocationPath create(String location) {
+            if (lastPath != null && location.equals(lastPath.normalizedLocation)) {
+                return lastPath;
+            }
+            String prefix = fileSystemUriPrefix(location);
+            if (prefix.equals(lastPrefix)) {
+                // Only the opaque path changed; schema and authority have already been parsed.
+                lastPath = new LocationPath(lastPath.schema, location, lastPath.fsIdentifier, null);
+            } else {
+                LocationPath parsed = LocationPath.of(location);
+                lastPrefix = prefix;
+                lastPath = parsed;
+            }
+            return lastPath;
+        }
+    }
+
     private static String encodedLocation(String location) {
+        // URLEncoder leaves these characters unchanged (the subsequent replacements restore ':'
+        // and '/'). Preserve URI.create validation while avoiding encoding an ordinary URI prefix.
+        boolean needsEncoding = false;
+        for (int i = 0; i < location.length(); i++) {
+            char c = location.charAt(i);
+            if (!(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9'
+                    || c == '-' || c == '_' || c == '.' || c == '*' || c == ':' || c == '/')) {
+                needsEncoding = true;
+                break;
+            }
+        }
+        if (!needsEncoding) {
+            return location;
+        }
         try {
             return URLEncoder.encode(location, StandardCharsets.UTF_8.name())
                     .replace("%2F", "/")

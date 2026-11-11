@@ -55,7 +55,8 @@ suite("test_csv_with_none_utf8_data", "p0") {
             def json = parseJson(result)
             def (code, out, err) = curl("GET", json.ErrorURL)
             log.info("error result: " + out)
-            def checkError = out.contains("Invalid file encoding: all CSV files must be UTF-8 encoded")
+            // Supported loads use V2 diagnostics; keep the rejection-count checks below.
+            def checkError = out.contains("[DATA_QUALITY_ERROR]Only support csv data in utf8 codec")
             assertTrue(checkError)
             assertEquals("fail", json.Status.toLowerCase())
             assertTrue(json.Message.contains("too many filtered rows"))

@@ -42,11 +42,16 @@ import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.protocol.MysqlProtocolAdapter;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
+import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Placeholder;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.VarBinaryLiteral;
 import org.apache.doris.nereids.trees.plans.PlaceholderId;
 import org.apache.doris.nereids.trees.plans.commands.ExecuteCommand;
 import org.apache.doris.nereids.trees.plans.commands.PrepareCommand;
+import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Preconditions;
@@ -214,7 +219,7 @@ public class MysqlConnectProcessor extends ConnectProcessor {
                     MysqlColType type = prepareCommand.getPlaceholders().get(i).getMysqlColType();
                     boolean isUnsigned = prepareCommand.getPlaceholders().get(i).isUnsigned();
                     byte[] longData = prepCtx.getLongData(i);
-                    Literal l;
+                    Expression l;
                     if (longData != null) {
                         switch (type) {
                             case MYSQL_TYPE_STRING:
@@ -240,6 +245,22 @@ public class MysqlConnectProcessor extends ConnectProcessor {
                                     packetBuf.position() - start);
                         }
                     }
+                    // A string wire type still has string semantics, including in predicates. BE can
+                    // cast its original bytes to a string without the lossy Java UTF-8 decoding.
+                    if (l instanceof VarBinaryLiteral binary) {
+                        switch (type) {
+                            case MYSQL_TYPE_STRING:
+                            case MYSQL_TYPE_VARSTRING:
+                                l = new Cast(binary, StringType.INSTANCE);
+                                break;
+                            case MYSQL_TYPE_VARCHAR:
+                                l = new Cast(binary,
+                                        VarcharType.createVarcharType(((byte[]) binary.getValue()).length));
+                                break;
+                            default:
+                                break;
+                        }
+                    }
                     statementContext.getIdToPlaceholderRealExpr().put(exprId, l);
                 }
                 if (forwarded != null && !ctx.isProxy()) {
@@ -255,10 +276,14 @@ public class MysqlConnectProcessor extends ConnectProcessor {
             stmt.setOrigStmt(prepareCommand.getOriginalStmt());
             executor = new StmtExecutor(ctx, stmt, true);
             ctx.setExecutor(executor);
-            if (null != queryId) {
-                executor.execute(queryId);
-            } else {
-                executor.execute();
+            try {
+                if (null != queryId) {
+                    executor.execute(queryId);
+                } else {
+                    executor.execute();
+                }
+            } finally {
+                finishExecution(prepCtx);
             }
             if (ctx.getSessionVariable().isEnablePreparedStmtAuditLog()) {
                 stmtStr = executeStmt.toSql();
@@ -279,6 +304,21 @@ public class MysqlConnectProcessor extends ConnectProcessor {
             // When audit log is disabled for prepared statements, still update QPS metrics.
             AuditLogHelper.updateMetrics(ctx);
         }
+    }
+
+    /**
+     * COM_STMT_EXECUTE has no per-statement close like the one COM_QUERY runs in its finally. An execution that
+     * fails after its scans were planned, such as one a scan-level SQL block rule rejects or a prepared
+     * INSERT ... SELECT whose transaction fails to begin, never reaches unregisterQuery: the query-finish callbacks
+     * its scans registered (releasing a connector read transaction, closing the connector scope) would stay in the
+     * registry for good, its connector scope would stay open until the statement's next EXECUTE, and scan nodes left
+     * for the statement end would never stop. The context ExecuteCommand ran this execution with is the prepared
+     * statement's current one (see PreparedStatementContext#nextStatementContext). Both calls are no-ops for an
+     * execution that finished normally, which already unregistered its query and closed its scope.
+     */
+    private void finishExecution(PreparedStatementContext prepCtx) {
+        QeProcessorImpl.INSTANCE.unregisterQuery(ctx.queryId());
+        prepCtx.getStatementContext().close();
     }
 
     // process COM_EXECUTE, parse binary row data

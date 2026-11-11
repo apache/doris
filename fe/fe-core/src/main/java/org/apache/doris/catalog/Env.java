@@ -170,9 +170,11 @@ import org.apache.doris.mysql.authenticate.AuthenticatorManager;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.SqlCacheContext.FullTableName;
 import org.apache.doris.nereids.jobs.load.LabelProcessor;
 import org.apache.doris.nereids.lineage.LineageEventProcessor;
 import org.apache.doris.nereids.stats.HboPlanStatisticsManager;
+import org.apache.doris.nereids.stats.SimpleAggCacheMgr;
 import org.apache.doris.nereids.trees.plans.commands.AdminSetFrontendConfigCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminSetPartitionVersionCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminSetReplicaStatusCommand;
@@ -211,6 +213,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.RenamePartitionOp;
 import org.apache.doris.nereids.trees.plans.commands.info.RenameRollupOp;
 import org.apache.doris.nereids.trees.plans.commands.info.RenameTableOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ReplacePartitionOp;
+import org.apache.doris.nereids.util.SqlLiteralUtils;
 import org.apache.doris.persist.AlterMTMV;
 import org.apache.doris.persist.AutoIncrementIdUpdateLog;
 import org.apache.doris.persist.BackendReplicasInfo;
@@ -3639,8 +3642,8 @@ public class Env {
         if (Config.isCloudMode()) {
             // the cloud mode will not update table version when use recover partition,
             // so we should invalidate all cache to avoid bugs
-            getSqlCacheManager().invalidateAll();
-            getSortedPartitionsCacheManager().invalidateAll();
+            invalidateCache("SQL", () -> getSqlCacheManager().invalidateAll());
+            invalidateCache("sorted partitions", () -> getSortedPartitionsCacheManager().invalidateAll());
             return true;
         }
         return false;
@@ -4173,6 +4176,48 @@ public class Env {
         if (olapTable.getStoragePolicy() != null && !olapTable.getStoragePolicy().equals("")) {
             sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY).append("\" = \"");
             sb.append(olapTable.getStoragePolicy()).append("\"");
+        }
+
+        // row ttl
+        if (olapTable.hasRowTtl()) {
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_ENABLE_ROW_TTL).append("\" = \"true\"");
+
+            Column ttlColumn = Preconditions.checkNotNull(olapTable.getTtlColumn(),
+                    "Row TTL hidden column is missing from table %s", olapTable.getName());
+            if (!ttlColumn.getType().getPrimitiveType().isDateLikeType()) {
+                Preconditions.checkState(ttlColumn.getType().getPrimitiveType() == PrimitiveType.BIGINT
+                                && olapTable.isDirectRowTtl(),
+                        "Unsupported Row TTL hidden column or properties in table %s", olapTable.getName());
+            } else {
+                TableProperty tableProperty = Preconditions.checkNotNull(olapTable.getTableProperty(),
+                        "Row TTL properties are missing from table %s", olapTable.getName());
+                Map<String, String> properties = tableProperty.getProperties();
+                String ttlColProperty = PropertyAnalyzer.PROPERTIES_FUNCTION_COLUMN + "."
+                        + PropertyAnalyzer.PROPERTIES_TTL_COL;
+                String ttlProperty = PropertyAnalyzer.PROPERTIES_FUNCTION_COLUMN + "."
+                        + PropertyAnalyzer.PROPERTIES_TTL;
+                String ttlTimeZoneProperty = PropertyAnalyzer.PROPERTIES_FUNCTION_COLUMN + "."
+                        + PropertyAnalyzer.PROPERTIES_TTL_TIME_ZONE;
+                String ttlCol = properties.get(ttlColProperty);
+                String ttl = properties.get(ttlProperty);
+                String ttlTimeZone = Preconditions.checkNotNull(properties.get(ttlTimeZoneProperty),
+                        "Row TTL time zone property is missing from table %s", olapTable.getName());
+
+                Preconditions.checkState(!Strings.isNullOrEmpty(ttlCol),
+                        "Row TTL source column property is missing from table %s", olapTable.getName());
+                Column sourceColumn = Preconditions.checkNotNull(olapTable.getColumn(ttlCol),
+                        "Row TTL source column %s is missing from table %s", ttlCol, olapTable.getName());
+                Preconditions.checkState(sourceColumn.getType().equals(ttlColumn.getType()),
+                        "Row TTL source and hidden column types differ in table %s", olapTable.getName());
+                Preconditions.checkState(!Strings.isNullOrEmpty(ttl) && olapTable.getRowTtlDurationMicros() >= 0,
+                        "Row TTL duration property is missing or invalid in table %s", olapTable.getName());
+
+                sb.append(",\n\"").append(ttlColProperty).append("\" = ")
+                        .append(SqlLiteralUtils.quoteStringLiteral(ttlCol));
+                sb.append(",\n\"").append(ttlProperty).append("\" = \"").append(ttl).append("\"");
+                sb.append(",\n\"").append(ttlTimeZoneProperty).append("\" = \"")
+                        .append(ttlTimeZone).append("\"");
+            }
         }
 
         // sequence type
@@ -5854,6 +5899,7 @@ public class Env {
                 db.unregisterTable(tableName);
                 table.setName(newTableName);
                 db.registerTable(table);
+                onTableChanged(table, tableName);
                 constraintManager.renameTable(
                         TableNameInfoUtils.fromDb(db, tableName),
                         TableNameInfoUtils.fromDb(db, newTableName));
@@ -6456,12 +6502,15 @@ public class Env {
                 new ModifyTablePropertyOperationLog(db.getId(), table.getId(), table.getName(),
                         properties);
         editLog.logModifyTableProperties(info);
+        if (properties.containsKey(RowTtlConfig.TTL_PROPERTY)) {
+            onTableChanged(table);
+        }
     }
 
     public void updateBinlogConfig(Database db, OlapTable table, BinlogConfig newBinlogConfig) {
         Preconditions.checkArgument(table.isWriteLockHeldByCurrentThread());
         table.setBinlogConfig(newBinlogConfig);
-        getSqlCacheManager().invalidateAboutTable(table);
+        onTableChanged(table);
         ModifyTablePropertyOperationLog info =
                 new ModifyTablePropertyOperationLog(db.getId(), table.getId(), table.getName(),
                         newBinlogConfig.toProperties());
@@ -6473,7 +6522,7 @@ public class Env {
     public void updateChangelogConfig(Database db, OlapTable table, ChangelogConfig newChangelogConfig) {
         Preconditions.checkArgument(table.isWriteLockHeldByCurrentThread());
         table.setChangelogConfig(newChangelogConfig);
-        getSqlCacheManager().invalidateAboutTable(table);
+        onTableChanged(table);
         ModifyTablePropertyOperationLog info =
                 new ModifyTablePropertyOperationLog(db.getId(), table.getId(), table.getName(),
                         newChangelogConfig.toProperties());
@@ -6521,11 +6570,11 @@ public class Env {
                     break;
                 case OperationType.OP_UPDATE_BINLOG_CONFIG:
                     // buildProperty has rebuilt the binlog and the changelog config from the table properties.
-                    getSqlCacheManager().invalidateAboutTable(olapTable);
                     break;
                 default:
                     break;
             }
+            onTableChanged(olapTable);
         } finally {
             olapTable.writeUnlock();
         }
@@ -6643,6 +6692,22 @@ public class Env {
         this.analysisManager.createAnalyze(command, isProxy);
     }
 
+    /**
+     * The database a session lands in when it switches to {@code catalog}, if the catalog names one: a data
+     * source whose metadata model has no database layer can name the single database Doris presents for it;
+     * the connector owns that name. Asked of the provider, not the connector, because switching to a catalog
+     * must not force it to initialize.
+     */
+    public static Optional<String> defaultDatabaseOnUse(CatalogIf catalog) {
+        Map<String, String> catalogProps = catalog.getProperties();
+        String catalogType = catalogProps.get(CatalogMgr.CATALOG_TYPE_PROP);
+        if (catalogType == null) {
+            return Optional.empty();
+        }
+        return ConnectorFactory.findProvider(catalogType, catalogProps)
+                .flatMap(ConnectorProvider::defaultDatabaseOnUse);
+    }
+
     // Switch catalog of this session
     public void changeCatalog(ConnectContext ctx, String catalogName) throws DdlException {
         CatalogIf catalogIf = catalogMgr.getCatalogOrDdlException(catalogName);
@@ -6660,17 +6725,9 @@ public class Env {
             if (StringUtils.isNotEmpty(lastDb)) {
                 ctx.setDatabase(lastDb);
             }
-            // A data source whose metadata model has no database layer can name the single database Doris
-            // presents for it; the connector owns that name. Asked of the provider, not the connector, because
-            // switching to a catalog must not force it to initialize. Applied after the remembered database on
-            // purpose: such a catalog has exactly one database, so there is nothing else to return to.
-            Map<String, String> catalogProps = catalogIf.getProperties();
-            String catalogType = catalogProps.get(CatalogMgr.CATALOG_TYPE_PROP);
-            if (catalogType != null) {
-                ConnectorFactory.findProvider(catalogType, catalogProps)
-                        .flatMap(ConnectorProvider::defaultDatabaseOnUse)
-                        .ifPresent(ctx::setDatabase);
-            }
+            // Applied after the remembered database on purpose: such a catalog has exactly one database, so
+            // there is nothing else to return to.
+            defaultDatabaseOnUse(catalogIf).ifPresent(ctx::setDatabase);
         } catch (RuntimeException | Error e) {
             // A failed remembered/default database lookup must not leave a partially switched session.
             ctx.restoreNameSpaceContext(previousNamespace);
@@ -6883,6 +6940,7 @@ public class Env {
             ExternalCatalog ctl = (ExternalCatalog) catalogMgr.getCatalog(info.getCtl());
             if (ctl != null) {
                 ctl.replayTruncateTable(info);
+                onTableChanged(info.getCtl(), info.getDb(), info.getTable());
             }
         }
     }
@@ -7275,7 +7333,7 @@ public class Env {
                 LOG.warn("ignore set same state {} for table {}. is replay: {}.",
                             olapTable.getState(), tableName, isReplay);
             }
-            Env.getCurrentEnv().getSqlCacheManager().invalidateAboutTable(olapTable);
+            onTableChanged(olapTable);
         } finally {
             olapTable.writeUnlock();
         }
@@ -7383,7 +7441,7 @@ public class Env {
                 LOG.info("set replica {} of tablet {} on backend {} as version {}, last success version {}, "
                         + "last failed version {}, update time {}. is replay: {}", replica.getId(), tabletId,
                         backendId, version, lastSuccessVersion, lastFailedVersion, updateTime, isReplay);
-                Env.getCurrentEnv().getSqlCacheManager().invalidateAboutTable(table);
+                onTableChanged(table);
             } finally {
                 table.writeUnlock();
             }
@@ -7464,7 +7522,7 @@ public class Env {
                         + " {}.", partitionId, oldVersion, visibleVersion, database, table, isReplay);
             }
 
-            Env.getCurrentEnv().getSqlCacheManager().invalidateAboutTable(olapTable);
+            onTableChanged(olapTable);
         } finally {
             olapTable.writeUnlock();
         }
@@ -7761,6 +7819,86 @@ public class Env {
 
     public NereidsSortedPartitionsCacheManager getSortedPartitionsCacheManager() {
         return sortedPartitionsCacheManager;
+    }
+
+    /** Invalidate derived query caches after applying an existing table metadata journal. */
+    public void onTableChanged(TableIf table) {
+        onTableChanged(table, table.getName());
+    }
+
+    /** Notify after mutation while retaining the original name of a renamed or replaced table. */
+    public void onTableChanged(TableIf table, String originalName) {
+        DatabaseIf<?> db = table.getDatabase();
+        FullTableName name = db == null || db.getCatalog() == null ? null
+                : new FullTableName(db.getCatalog().getName(), db.getFullName(), originalName);
+        onTableChanged(table.getId(), name, table instanceof OlapTable);
+    }
+
+    /** The table may have been removed by the operation whose journal is being replayed. */
+    public void onTableChanged(long dbId, long tableId) {
+        Database db = getInternalCatalog().getDbNullable(dbId);
+        Table table = db == null ? null : db.getTableNullable(tableId);
+        if (table != null) {
+            onTableChanged(table);
+        } else {
+            onTableChanged(tableId, null, true);
+        }
+    }
+
+    private void onTableChanged(long tableId, FullTableName name, boolean olapTable) {
+        invalidateCache("SQL", () -> getSqlCacheManager().invalidateAboutTable(tableId, name));
+        invalidateCache("sorted partitions", () -> {
+            getSortedPartitionsCacheManager().invalidateTable(tableId);
+            if (name != null) {
+                getSortedPartitionsCacheManager().invalidateTable(name.catalog, name.db, name.table);
+            }
+        });
+        if (name != null) {
+            invalidateCache("MTMV rewrite", () -> getMtmvService().getRelationManager()
+                    .invalidateRewriteCaches(name.catalog, name.db, name.table));
+        }
+        if (olapTable) {
+            invalidateCache("simple aggregates", () -> SimpleAggCacheMgr.internalInstance().invalidateTable(tableId));
+        }
+    }
+
+    /** Name-based external refresh logs can arrive before a local table object has been loaded. */
+    public void onTableChanged(String catalog, String db, String table) {
+        if (Strings.isNullOrEmpty(catalog) || InternalCatalog.INTERNAL_CATALOG_NAME.equals(catalog)) {
+            Database database = getInternalCatalog().getDbNullable(db);
+            Table current = database == null ? null : database.getTableNullable(table);
+            if (current != null) {
+                onTableChanged(current);
+                return;
+            }
+            catalog = InternalCatalog.INTERNAL_CATALOG_NAME;
+        }
+        onTableChanged(-1L, new FullTableName(catalog, db, table), false);
+    }
+
+    public void onDatabaseChanged(String catalog, String db) {
+        invalidateCache("SQL", () -> getSqlCacheManager().invalidateAboutDatabase(catalog, db));
+        invalidateCache("sorted partitions", () -> getSortedPartitionsCacheManager().invalidateDatabase(catalog, db));
+        invalidateCache("MTMV rewrite", () -> getMtmvService().getRelationManager()
+                .invalidateRewriteCaches(catalog, db, null));
+    }
+
+    public void onCatalogChanged(String catalog) {
+        invalidateCache("SQL", () -> getSqlCacheManager().invalidateAboutCatalog(catalog));
+        invalidateCache("sorted partitions", () -> getSortedPartitionsCacheManager().invalidateCatalog(catalog));
+        invalidateCache("MTMV rewrite", () -> getMtmvService().getRelationManager()
+                .invalidateRewriteCaches(catalog, null, null));
+    }
+
+    private void invalidateCache(String cache, Runnable invalidation) {
+        if (isCheckpointThread()) {
+            return;
+        }
+        try {
+            invalidation.run();
+        } catch (Throwable t) {
+            LOG.warn("Failed to invalidate {} cache after applying a metadata change", cache, t);
+        }
     }
 
     public SplitSourceManager getSplitSourceManager() {

@@ -279,6 +279,10 @@ Status InvertedIndexFileCollection::add(int seg_id, IndexFileWriterPtr&& index_w
 Status InvertedIndexFileCollection::begin_close() {
     std::lock_guard lock(_lock);
     for (auto&& [id, writer] : _inverted_index_file_writers) {
+        // A writer sealed when its segment was flushed is counted in the segment statistics.
+        if (writer->is_closed()) {
+            continue;
+        }
         RETURN_IF_ERROR(writer->begin_close());
         _total_size += writer->get_index_file_total_size();
     }
@@ -973,7 +977,7 @@ Status BaseBetaRowsetWriter::_close_file_writers() {
     // Flush and close segment files
     RETURN_NOT_OK_STATUS_WITH_WARN(_segment_creator.close(),
                                    "failed to close segment creator when build new rowset");
-    return Status::OK();
+    return _close_inverted_index_file_writers();
 }
 
 Status BetaRowsetWriter::_close_file_writers() {
@@ -1272,9 +1276,11 @@ Status BetaRowsetWriter::create_segment_writer_for_segcompaction(
     writer_options.write_type = DataWriteType::TYPE_COMPACTION;
     writer_options.max_rows_per_segment = _context.max_rows_per_segment;
 
-    *writer = std::make_unique<segment_v2::VerticalSegmentWriter>(
-            file_writer.get(), _num_segcompacted, _context.tablet_schema, _context.tablet,
-            _context.data_dir, writer_options, index_file_writer.get());
+    RETURN_IF_CATCH_EXCEPTION({
+        *writer = std::make_unique<segment_v2::VerticalSegmentWriter>(
+                file_writer.get(), _num_segcompacted, _context.tablet_schema, _context.tablet,
+                _context.data_dir, writer_options, index_file_writer.get());
+    });
     if (auto& seg_writer = _segcompaction_worker->get_file_writer();
         seg_writer != nullptr && seg_writer->state() != io::FileWriter::State::CLOSED) {
         RETURN_IF_ERROR(_segcompaction_worker->get_file_writer()->close());

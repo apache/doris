@@ -25,7 +25,9 @@ import org.junit.jupiter.api.Test;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -59,6 +61,16 @@ public class FeMetaCacheEntryTest {
             Assertions.assertEquals(1L, stats.getLoadSuccessCount());
             Assertions.assertTrue(stats.getRequestCount() >= 4L);
             Assertions.assertTrue(stats.getInvalidateCount() >= 1L);
+            // Without a weight limit the entry reports -1 for every weight figure.
+            Assertions.assertFalse(stats.isWeightBounded());
+            Assertions.assertEquals(-1L, stats.getMaxWeight());
+            Assertions.assertEquals(-1L, stats.getEstimatedWeight());
+            Assertions.assertEquals(-1L, stats.getEvictionWeight());
+            Assertions.assertEquals(-1L, stats.getWeightAdmissionRejectedCount());
+            Assertions.assertEquals(-1L, stats.getCatalogMaxWeight());
+            Assertions.assertEquals(-1L, stats.getCatalogEstimatedWeight());
+            Assertions.assertEquals(-1L, stats.getGlobalMaxWeight());
+            Assertions.assertEquals(-1L, stats.getGlobalEstimatedWeight());
         } finally {
             executor.shutdownNow();
         }
@@ -81,6 +93,12 @@ public class FeMetaCacheEntryTest {
 
             Assertions.assertSame(oversized, mutation.get(3L, TimeUnit.SECONDS));
             Assertions.assertNull(entry.getIfPresent("key"));
+            MetaCacheEntryStats stats = entry.stats();
+            Assertions.assertTrue(stats.isWeightBounded());
+            Assertions.assertEquals(1_024L, stats.getMaxWeight());
+            Assertions.assertEquals(1L, stats.getWeightAdmissionRejectedCount());
+            // The rejected mutation invalidated the old value; an invalidation is not an eviction.
+            Assertions.assertEquals(0L, stats.getEvictionWeight());
         } finally {
             worker.shutdownNow();
             refreshExecutor.shutdownNow();
@@ -267,6 +285,44 @@ public class FeMetaCacheEntryTest {
         } finally {
             continueAction.countDown();
             worker.shutdownNow();
+            refreshExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testBulkInvalidationOrdersNewObjectAndIdPublication() throws Exception {
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        ExecutorService workers = Executors.newFixedThreadPool(2);
+        CountDownLatch indexClearStarted = new CountDownLatch(1);
+        CountDownLatch finishIndexClear = new CountDownLatch(1);
+        CountDownLatch newLookupStarted = new CountDownLatch(1);
+        Map<String, Integer> ids = new ConcurrentHashMap<>();
+        try {
+            FeMetaCacheEntry<String, Integer> entry = new FeMetaCacheEntry<>(
+                    "objects", String::length, ENABLED, refreshExecutor, false);
+            entry.getAndRunIfCurrent("old", (key, value) -> ids.put(key, value));
+
+            Future<?> invalidate = workers.submit(() -> entry.invalidateAllAndRun(() -> {
+                indexClearStarted.countDown();
+                await(finishIndexClear);
+                ids.clear();
+            }));
+            await(indexClearStarted);
+            Future<Integer> newLookup = workers.submit(() -> {
+                newLookupStarted.countDown();
+                return entry.getAndRunIfCurrent("new", (key, value) -> ids.put(key, value));
+            });
+            await(newLookupStarted);
+            finishIndexClear.countDown();
+
+            invalidate.get(3L, TimeUnit.SECONDS);
+            Assertions.assertEquals(Integer.valueOf(3), newLookup.get(3L, TimeUnit.SECONDS));
+            Assertions.assertEquals(Integer.valueOf(3), entry.getIfPresent("new"));
+            Assertions.assertEquals(Integer.valueOf(3), ids.get("new"));
+            Assertions.assertFalse(ids.containsKey("old"));
+        } finally {
+            finishIndexClear.countDown();
+            workers.shutdownNow();
             refreshExecutor.shutdownNow();
         }
     }

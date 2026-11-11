@@ -30,7 +30,6 @@
 #include "core/column/columns_common.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_decimal.h"
-#include "core/decimal12.h"
 #include "core/value/decimalv2_value.h"
 #include "exec/common/int_exp.h"
 #include "exec/common/sip_hash.h"
@@ -388,24 +387,6 @@ void ColumnDecimal<T>::insert_data(const char* src, size_t /*length*/) {
     value_type tmp;
     memcpy(&tmp, src, sizeof(value_type));
     data.emplace_back(tmp);
-}
-
-template <PrimitiveType T>
-void ColumnDecimal<T>::insert_many_fix_len_data(const char* data_ptr, size_t num) {
-    size_t old_size = data.size();
-    data.resize(old_size + num);
-
-    if constexpr (T == TYPE_DECIMALV2) {
-        DecimalV2Value* target = (DecimalV2Value*)(data.data() + old_size);
-        for (int i = 0; i < num; i++) {
-            const char* cur_ptr = data_ptr + sizeof(decimal12_t) * i;
-            auto int_value = unaligned_load<int64_t>(cur_ptr);
-            auto frac_value = unaligned_load<int32_t>(cur_ptr + sizeof(int64_t));
-            target[i].from_olap_decimal(int_value, frac_value);
-        }
-    } else {
-        memcpy(data.data() + old_size, data_ptr, num * sizeof(value_type));
-    }
 }
 
 template <PrimitiveType T>

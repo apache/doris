@@ -189,6 +189,8 @@ public class OlapScanNode extends ScanNode {
     private long totalTabletsNum = 0;
     private long selectedIndexId = -1;
     private Collection<Long> selectedPartitionIds = Lists.newArrayList();
+
+    private final Map<Long, Long> sqlCachePartitionVersions = Maps.newHashMap();
     private Map<Long, String> selectedPartitionNames = Collections.emptyMap();
     // Partition boundaries must come from the same planning snapshot as runtime-filter
     // partition monotonicity. Thrift serialization can happen after query queueing, when
@@ -479,6 +481,7 @@ public class OlapScanNode extends ScanNode {
             final List<Tablet> tablets = selectedTable.getTablets();
             Long visibleVersion = visibleVersionMap.get(partitionId);
             assert visibleVersion != null : "the acquried version is not exists in the visible version map";
+            sqlCachePartitionVersions.put(partitionId, visibleVersion);
             String visibleVersionStr = String.valueOf(visibleVersion);
             for (Tablet tablet : tablets) {
                 TScanRangeLocations locations = locationsMap.get(tablet.getId());
@@ -494,6 +497,10 @@ public class OlapScanNode extends ScanNode {
 
     public Long getTabletSingleReplicaSize(Long tabletId) {
         return tabletBytes.get(tabletId);
+    }
+
+    public Map<Long, Long> getSqlCachePartitionVersions() {
+        return sqlCachePartitionVersions;
     }
 
     public long getMaxVersion() {
@@ -515,6 +522,7 @@ public class OlapScanNode extends ScanNode {
         }
         // for non-cloud mode. for cloud mode see `updateScanRangeVersions`
         maxVersion = Math.max(maxVersion, visibleVersion);
+        sqlCachePartitionVersions.put(partition.getId(), visibleVersion);
 
         int useFixReplica = -1;
         boolean skipMissingVersion = false;
@@ -1285,6 +1293,10 @@ public class OlapScanNode extends ScanNode {
         }
         if (scoreSortLimit != -1) {
             output.append(prefix).append("SCORE SORT LIMIT: ").append(scoreSortLimit).append("\n");
+        }
+        if (scoreRangeInfo != null) {
+            // The pushed score predicate is no longer among the scan conjuncts.
+            output.append(prefix).append("SCORE RANGE: ").append(scoreRangeInfo.toSql()).append("\n");
         }
 
         if (annSortInfo != null) {

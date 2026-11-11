@@ -99,6 +99,21 @@ public class PaimonConnectorValidatePropertiesTest {
     }
 
     @Test
+    public void rejectsMisspelledMetaCacheOption() {
+        IllegalArgumentException misspelled = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> validate(props(
+                        "paimon.catalog.type", "filesystem", "warehouse", "/wh",
+                        "meta.cache.paimon.partition_view.max-weigth", "16MB")));
+        Assertions.assertEquals(
+                "Unknown external meta cache property: meta.cache.paimon.partition_view.max-weigth",
+                misspelled.getMessage());
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> validate(props(
+                        "paimon.catalog.type", "filesystem", "warehouse", "/wh",
+                        "meta.cache.paimon.partition_view.enable", "1")));
+    }
+
+    @Test
     public void acceptsValidMetaCacheKnobs() {
         // Valid values must pass: ttl-second=-1 is the "no expiration" sentinel (min is -1), 0 disables,
         // capacity=0 disables, enable is boolean. enable/capacity remain unwired (warn-only) but are NOT

@@ -26,7 +26,10 @@ jobs:
         timeout-minutes: 2
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.workflow_sha || github.sha }}
+          # PR target events already provide a trusted default-branch ref/SHA.
+          # Passing that SHA explicitly after merge trips checkout's fork guard
+          # when it equals the PR merge commit. Other callers stay SHA-pinned.
+          ref: ${{ github.event_name != 'pull_request_target' && (github.workflow_sha || github.sha) || '' }}
           persist-credentials: false
           path: .review-api-source
           sparse-checkout: .github/scripts/review_github_api.py

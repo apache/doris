@@ -34,6 +34,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/config.h"
 #include "common/status.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/local_file_system.h"
@@ -100,6 +101,9 @@ public:
 
     void xor_byte(size_t offset, uint8_t mask) { _data[offset] ^= static_cast<char>(mask); }
 
+    // Makes every read take at least `delay`, like a page-cache miss.
+    void set_read_delay(std::chrono::microseconds delay) { _read_delay = delay; }
+
     void block_once_on_range_containing(size_t offset) {
         std::lock_guard<std::mutex> guard(_control_mu);
         _block_offset = offset;
@@ -161,6 +165,9 @@ protected:
             }
         }
 
+        if (_read_delay.count() > 0) {
+            std::this_thread::sleep_for(_read_delay);
+        }
         if (result.size > 0) {
             std::memcpy(result.data, _data.data() + offset, result.size);
         }
@@ -204,6 +211,7 @@ private:
     mutable std::mutex _control_mu;
     std::condition_variable _control_cv;
     size_t _block_offset = std::numeric_limits<size_t>::max();
+    std::chrono::microseconds _read_delay {0};
     bool _block_armed = false;
     bool _blocked = false;
     bool _released = false;
@@ -989,6 +997,204 @@ TEST(DorisSniiFileReaderConcurrencyTest, ParallelPathMatchesSerialPath) {
         EXPECT_EQ(as_string(serial_outs.views[i]), as_string(expected[i]));
         EXPECT_EQ(as_string(parallel_outs.views[i]), as_string(expected[i]));
     }
+}
+
+// Sets config::snii_inline_read_max_segments and clears the shared read-latency average; both are
+// restored on exit so a test never leaks them into its siblings.
+struct InlineReadConfigGuard {
+    explicit InlineReadConfigGuard(int32_t value) : _saved(config::snii_inline_read_max_segments) {
+        config::snii_inline_read_max_segments = value;
+        DorisSniiFileReader::reset_read_latency_for_test();
+    }
+    ~InlineReadConfigGuard() {
+        config::snii_inline_read_max_segments = _saved;
+        DorisSniiFileReader::reset_read_latency_for_test();
+    }
+    InlineReadConfigGuard(const InlineReadConfigGuard&) = delete;
+    InlineReadConfigGuard& operator=(const InlineReadConfigGuard&) = delete;
+
+private:
+    int32_t _saved;
+};
+
+// For a test that a batch stays on the calling thread: on a busy host even a read from memory can
+// take longer than the slow-read threshold, which would send the rest of the batch to the pool.
+struct NoSlowReadHandOffGuard {
+    NoSlowReadHandOffGuard() { DorisSniiFileReader::set_slow_read_hand_off_for_test(false); }
+    ~NoSlowReadHandOffGuard() { DorisSniiFileReader::set_slow_read_hand_off_for_test(true); }
+    NoSlowReadHandOffGuard(const NoSlowReadHandOffGuard&) = delete;
+    NoSlowReadHandOffGuard& operator=(const NoSlowReadHandOffGuard&) = delete;
+};
+
+// Reads `segments` disjoint 4-byte ranges through a reader backed by a two-thread pool and returns
+// how many of the physical reads ran on the calling thread.
+size_t reads_on_calling_thread(
+        bool local_fs, size_t segments, io::FileCacheStatistics* stats,
+        std::chrono::microseconds read_delay = std::chrono::microseconds(0)) {
+    const std::string data = make_pattern(segments * 8192 + 16);
+    auto recording_reader = std::make_shared<RecordingFileReader>(data);
+    recording_reader->set_read_delay(read_delay);
+    DorisSniiFileReader reader(recording_reader, /*io_ctx=*/nullptr, /*direct_remote_io=*/false,
+                               local_fs);
+
+    std::unique_ptr<ThreadPool> pool;
+    auto pool_st =
+            ThreadPoolBuilder("snii_batch_test").set_min_threads(2).set_max_threads(4).build(&pool);
+    EXPECT_TRUE(pool_st.ok()) << pool_st.to_string();
+    IoPoolSeamGuard seam(pool.get());
+
+    io::IOContext io_ctx;
+    io_ctx.file_cache_stats = stats;
+    std::vector<::doris::snii::io::Range> ranges;
+    for (size_t i = 0; i < segments; ++i) {
+        ranges.push_back({static_cast<uint64_t>(i) * 8192, 4});
+    }
+    index_query::IoReadResult outs;
+    {
+        DorisSniiFileReader::ScopedIOContext scope(&io_ctx);
+        auto status = reader.read_batch(ranges, &outs);
+        EXPECT_TRUE(status.ok()) << status.to_string();
+    }
+    EXPECT_EQ(outs.views.size(), segments);
+    for (size_t i = 0; i < segments && i < outs.views.size(); ++i) {
+        EXPECT_EQ(as_string(outs.views[i]), data.substr(i * 8192, 4));
+    }
+    EXPECT_EQ(recording_reader->reads().size(), segments);
+    size_t on_caller = 0;
+    for (const CapturedRead& read : recording_reader->reads()) {
+        on_caller += read.thread_id == std::this_thread::get_id() ? 1 : 0;
+    }
+    return on_caller;
+}
+
+// A small batch on the local filesystem is read by the calling thread: handing it to the shared
+// pool costs more than the reads. The serial rounds then equal the segment count.
+TEST(DorisSniiFileReaderInlineReadTest, SmallLocalBatchRunsOnCallingThread) {
+    InlineReadConfigGuard config_guard(4);
+    NoSlowReadHandOffGuard no_hand_off;
+    io::FileCacheStatistics stats;
+    EXPECT_EQ(reads_on_calling_thread(/*local_fs=*/true, 4, &stats), 4U);
+    EXPECT_EQ(stats.inverted_index_range_read_count, 4);
+    EXPECT_EQ(stats.inverted_index_serial_read_rounds, 4);
+}
+
+// Above the segment limit the batch still fans out to the pool.
+TEST(DorisSniiFileReaderInlineReadTest, LargeLocalBatchStillFansOut) {
+    InlineReadConfigGuard config_guard(4);
+    io::FileCacheStatistics stats;
+    EXPECT_EQ(reads_on_calling_thread(/*local_fs=*/true, 8, &stats), 0U);
+    EXPECT_EQ(stats.inverted_index_range_read_count, 8);
+    EXPECT_EQ(stats.inverted_index_serial_read_rounds, 1);
+}
+
+// A remote or cached-remote reader always fans out, whatever the batch size.
+TEST(DorisSniiFileReaderInlineReadTest, RemoteSmallBatchStillFansOut) {
+    InlineReadConfigGuard config_guard(4);
+    io::FileCacheStatistics stats;
+    EXPECT_EQ(reads_on_calling_thread(/*local_fs=*/false, 4, &stats), 0U);
+    EXPECT_EQ(stats.inverted_index_serial_read_rounds, 1);
+}
+
+// Reads that miss the page cache overlap in the pool, so once recent reads were slow a small batch
+// fans out again: the first batch starts inline, while the average is still low, but sends the
+// segments it has left to the pool at its first slow read; the later ones fan out from the start.
+TEST(DorisSniiFileReaderInlineReadTest, SlowReadsReturnToThePool) {
+    InlineReadConfigGuard config_guard(4);
+    size_t on_caller_first = 0;
+    size_t on_caller_last = 0;
+    for (int batch = 0; batch < 12; ++batch) {
+        io::FileCacheStatistics stats;
+        const size_t on_caller = reads_on_calling_thread(/*local_fs=*/true, 4, &stats,
+                                                         std::chrono::microseconds(300));
+        if (batch == 0) {
+            on_caller_first = on_caller;
+        }
+        on_caller_last = on_caller;
+    }
+    EXPECT_EQ(on_caller_first, 1U);
+    EXPECT_EQ(on_caller_last, 0U);
+}
+
+// A phrase prefix reads the postings of every term its prefix expands to, in batches of up to 16
+// segments; while reads are fast those stay on the calling thread too. One more fans out.
+TEST(DorisSniiFileReaderInlineReadTest, PhrasePrefixSizedBatchRunsOnCallingThread) {
+    InlineReadConfigGuard config_guard(16);
+    NoSlowReadHandOffGuard no_hand_off;
+    io::FileCacheStatistics stats;
+    EXPECT_EQ(reads_on_calling_thread(/*local_fs=*/true, 16, &stats), 16U);
+    EXPECT_EQ(stats.inverted_index_serial_read_rounds, 16);
+    io::FileCacheStatistics over_stats;
+    EXPECT_EQ(reads_on_calling_thread(/*local_fs=*/true, 17, &over_stats), 0U);
+    EXPECT_EQ(over_stats.inverted_index_serial_read_rounds, 2);
+}
+
+// The average can be low while this batch's data is not in the page cache. Its first slow read then
+// sends the segments it has left to the pool, so the batch pays one read on the calling thread and
+// overlaps the rest: one inline round plus one pool wave.
+TEST(DorisSniiFileReaderInlineReadTest, SlowReadSendsTheSegmentsLeftToThePool) {
+    InlineReadConfigGuard config_guard(16);
+    io::FileCacheStatistics stats;
+    EXPECT_EQ(reads_on_calling_thread(/*local_fs=*/true, 8, &stats, std::chrono::microseconds(300)),
+              1U);
+    EXPECT_EQ(stats.inverted_index_range_read_count, 8);
+    EXPECT_EQ(stats.inverted_index_serial_read_rounds, 2);
+}
+
+// One segment left after a slow read is read on the calling thread: alone it overlaps nothing.
+TEST(DorisSniiFileReaderInlineReadTest, LastSegmentAfterSlowReadStaysInline) {
+    InlineReadConfigGuard config_guard(16);
+    io::FileCacheStatistics stats;
+    EXPECT_EQ(reads_on_calling_thread(/*local_fs=*/true, 2, &stats, std::chrono::microseconds(300)),
+              2U);
+    EXPECT_EQ(stats.inverted_index_serial_read_rounds, 2);
+}
+
+// Slow remote reads must not lower the local reads' chance of being read inline: with tiered
+// storage one BE serves local and remote rowsets, and only local readers consult the average.
+TEST(DorisSniiFileReaderInlineReadTest, RemoteReadsDoNotSlowTheLocalEstimate) {
+    InlineReadConfigGuard config_guard(4);
+    NoSlowReadHandOffGuard no_hand_off;
+    for (int batch = 0; batch < 12; ++batch) {
+        io::FileCacheStatistics remote_stats;
+        EXPECT_EQ(reads_on_calling_thread(/*local_fs=*/false, 4, &remote_stats,
+                                          std::chrono::microseconds(1000)),
+                  0U);
+    }
+    io::FileCacheStatistics local_stats;
+    EXPECT_EQ(reads_on_calling_thread(/*local_fs=*/true, 4, &local_stats), 4U);
+}
+
+// A batch above the byte limit fans out even when reads are fast.
+TEST(DorisSniiFileReaderInlineReadTest, LargeBytesBatchStillFansOut) {
+    InlineReadConfigGuard config_guard(4);
+    const std::string data = make_pattern(2 << 20);
+    auto recording_reader = std::make_shared<RecordingFileReader>(data);
+    DorisSniiFileReader reader(recording_reader, nullptr, false, /*local_fs=*/true);
+    std::unique_ptr<ThreadPool> pool;
+    ASSERT_TRUE(ThreadPoolBuilder("snii_batch_test")
+                        .set_min_threads(2)
+                        .set_max_threads(4)
+                        .build(&pool)
+                        .ok());
+    IoPoolSeamGuard seam(pool.get());
+    // Two disjoint 300 KiB ranges, so they do not coalesce and the batch exceeds 256 KiB.
+    std::vector<::doris::snii::io::Range> ranges {{0, 300 * 1024}, {1 << 20, 300 * 1024}};
+    index_query::IoReadResult outs;
+    ASSERT_TRUE(reader.read_batch(ranges, &outs).ok());
+    size_t on_caller = 0;
+    for (const CapturedRead& read : recording_reader->reads()) {
+        on_caller += read.thread_id == std::this_thread::get_id() ? 1 : 0;
+    }
+    EXPECT_EQ(recording_reader->reads().size(), 2U);
+    EXPECT_EQ(on_caller, 0U);
+}
+
+// Zero turns the shortcut off and restores the previous behaviour for local files.
+TEST(DorisSniiFileReaderInlineReadTest, ZeroDisablesInlineRead) {
+    InlineReadConfigGuard config_guard(0);
+    io::FileCacheStatistics stats;
+    EXPECT_EQ(reads_on_calling_thread(/*local_fs=*/true, 4, &stats), 0U);
+    EXPECT_EQ(stats.inverted_index_serial_read_rounds, 1);
 }
 
 } // namespace doris::segment_v2::snii_doris

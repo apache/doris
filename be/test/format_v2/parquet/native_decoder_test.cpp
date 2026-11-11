@@ -54,6 +54,7 @@
 #include "format_v2/parquet/reader/native/page_reader.h"
 #include "io/fs/buffered_reader.h"
 #include "io/fs/file_reader.h"
+#include "storage/segment/row_ranges.h"
 #include "util/block_compression.h"
 #include "util/coding.h"
 #include "util/faststring.h"
@@ -294,6 +295,93 @@ public:
     size_t consume_calls = 0;
     std::vector<uint32_t> indices;
 };
+
+TEST(ParquetV2NativeDecoderTest, BooleanDictionaryUnpacksPlainEntries) {
+    for (const auto encoding :
+         {tparquet::Encoding::RLE_DICTIONARY, tparquet::Encoding::PLAIN_DICTIONARY}) {
+        SCOPED_TRACE(encoding);
+        for (const size_t count : {1, 2, 8, 9, 129}) {
+            SCOPED_TRACE(count);
+            std::unique_ptr<Decoder> decoder;
+            ASSERT_TRUE(Decoder::get_decoder(tparquet::Type::BOOLEAN, encoding, decoder).ok());
+            decoder->set_type_length(-1);
+            const size_t bytes = (count + 7) / 8;
+            auto dictionary = make_unique_buffer<uint8_t>(bytes);
+            memset(dictionary.get(), 0xaa, bytes);
+            ASSERT_TRUE(decoder->set_dict(dictionary, bytes, count).ok());
+            CaptureFixedConsumer values;
+            CaptureBinaryConsumer unused;
+            ASSERT_TRUE(decoder->decode_dictionary(values, unused).ok());
+            EXPECT_EQ(values.width, 1);
+            ASSERT_EQ(values.bytes.size(), count);
+            for (size_t row = 0; row < count; ++row) {
+                EXPECT_EQ(values.bytes[row], row % 2);
+            }
+        }
+    }
+}
+
+TEST(ParquetV2NativeDecoderTest, BooleanDictionaryReadSkipSelectionAndBounds) {
+    for (const auto encoding :
+         {tparquet::Encoding::RLE_DICTIONARY, tparquet::Encoding::PLAIN_DICTIONARY}) {
+        SCOPED_TRACE(encoding);
+        std::unique_ptr<Decoder> decoder;
+        ASSERT_TRUE(Decoder::get_decoder(tparquet::Type::BOOLEAN, encoding, decoder).ok());
+        auto dictionary = make_unique_buffer<uint8_t>(1);
+        dictionary[0] = 2;
+        ASSERT_TRUE(decoder->set_dict(dictionary, 1, 2).ok());
+        faststring encoded;
+        RleEncoder<uint32_t> encoder(&encoded, 2);
+        const std::vector<uint32_t> ids {1, 0, 1, 1, 0, 0, 1, 0};
+        for (const auto id : ids) {
+            encoder.Put(id);
+        }
+        encoder.Flush();
+        std::string payload(1, 2);
+        payload.append(reinterpret_cast<const char*>(encoded.data()), encoded.size());
+        Slice data(payload);
+        ASSERT_TRUE(decoder->set_data(&data).ok());
+        std::vector<uint32_t> actual;
+        ASSERT_TRUE(decoder->decode_dictionary_indices(2, &actual).ok());
+        EXPECT_EQ(actual, (std::vector<uint32_t> {1, 0}));
+        ASSERT_TRUE(decoder->skip_values(2).ok());
+        ParquetSelection selection {
+                .total_values = 4, .selected_values = 2, .ranges = {{.first = 1, .count = 2}}};
+        actual.clear();
+        ASSERT_TRUE(decoder->decode_selected_dictionary_indices(selection, &actual).ok());
+        EXPECT_EQ(actual, (std::vector<uint32_t> {0, 1}));
+
+        const auto generation = decoder->dictionary_generation();
+        auto replacement = make_unique_buffer<uint8_t>(1);
+        replacement[0] = 1;
+        ASSERT_TRUE(decoder->set_dict(replacement, 1, 1).ok());
+        EXPECT_GT(decoder->dictionary_generation(), generation);
+        CaptureFixedConsumer values;
+        CaptureBinaryConsumer unused;
+        ASSERT_TRUE(decoder->decode_dictionary(values, unused).ok());
+        EXPECT_EQ(values.bytes, (std::vector<uint8_t> {1}));
+        ASSERT_TRUE(decoder->set_data(&data).ok());
+        EXPECT_TRUE(decoder->skip_values(1).is<ErrorCode::CORRUPTION>());
+        ASSERT_TRUE(decoder->set_data(&data).ok());
+        EXPECT_TRUE(decoder->decode_dictionary_indices(1, &actual).is<ErrorCode::CORRUPTION>());
+    }
+}
+
+TEST(ParquetV2NativeDecoderTest, BooleanDictionaryRejectsInvalidPackedExtent) {
+    std::unique_ptr<Decoder> decoder;
+    ASSERT_TRUE(Decoder::get_decoder(tparquet::Type::BOOLEAN, tparquet::Encoding::RLE_DICTIONARY,
+                                     decoder)
+                        .ok());
+    auto dictionary = make_unique_buffer<uint8_t>(2);
+    EXPECT_TRUE(decoder->set_dict(dictionary, 0, 1).is<ErrorCode::CORRUPTION>());
+    EXPECT_TRUE(decoder->set_dict(dictionary, 1, 9).is<ErrorCode::CORRUPTION>());
+    EXPECT_TRUE(decoder->set_dict(dictionary, 2, 2).is<ErrorCode::CORRUPTION>());
+    EXPECT_TRUE(decoder->set_dict(dictionary, -1, 2).is<ErrorCode::CORRUPTION>());
+    EXPECT_TRUE(decoder->set_dict(dictionary, 1, std::numeric_limits<size_t>::max())
+                        .is<ErrorCode::CORRUPTION>());
+    DorisUniqueBufferPtr<uint8_t> missing;
+    EXPECT_TRUE(decoder->set_dict(missing, 1, 2).is<ErrorCode::CORRUPTION>());
+}
 
 TEST(ParquetV2NativeDecoderTest, FragmentedPlainSelectionUsesOneConsumerBatch) {
     std::array<int32_t, 32> input {};
@@ -609,19 +697,211 @@ std::vector<uint8_t> serialize_page(tparquet::PageHeader header,
     return bytes;
 }
 
-std::vector<uint8_t> serialize_plain_int32_page(const std::vector<int32_t>& values) {
+TEST(ParquetV2NativeDecoderTest, BooleanDictionaryAcrossPagesAndPlainFallback) {
+    for (const bool page_v2 : {false, true}) {
+        for (const auto encoding :
+             {tparquet::Encoding::RLE_DICTIONARY, tparquet::Encoding::PLAIN_DICTIONARY}) {
+            SCOPED_TRACE(page_v2);
+            SCOPED_TRACE(encoding);
+            tparquet::PageHeader dict_header;
+            dict_header.__set_type(tparquet::PageType::DICTIONARY_PAGE);
+            dict_header.__set_compressed_page_size(1);
+            dict_header.__set_uncompressed_page_size(1);
+            tparquet::DictionaryPageHeader dict_info;
+            dict_info.__set_num_values(2);
+            dict_info.__set_encoding(tparquet::Encoding::PLAIN);
+            dict_header.__set_dictionary_page_header(dict_info);
+            // A nonzero dictionary offset distinguishes this chunk from one without a dictionary.
+            std::vector<uint8_t> bytes(1, 0);
+            const auto dictionary = serialize_page(dict_header, {2});
+            bytes.insert(bytes.end(), dictionary.begin(), dictionary.end());
+            const auto data_offset = bytes.size();
+            for (size_t page = 0; page < 3; ++page) {
+                const auto page_encoding = page == 2 ? tparquet::Encoding::PLAIN : encoding;
+                // Width 1 + a literal run of eight IDs (0x55); PLAIN uses the opposite polarity.
+                const std::vector<uint8_t> payload =
+                        page == 2 ? std::vector<uint8_t> {0xaa} : std::vector<uint8_t> {1, 3, 0x55};
+                tparquet::PageHeader header;
+                header.__set_type(page_v2 ? tparquet::PageType::DATA_PAGE_V2
+                                          : tparquet::PageType::DATA_PAGE);
+                header.__set_compressed_page_size(payload.size());
+                header.__set_uncompressed_page_size(payload.size());
+                if (page_v2) {
+                    tparquet::DataPageHeaderV2 info;
+                    info.__set_num_values(8);
+                    info.__set_num_rows(8);
+                    info.__set_num_nulls(0);
+                    info.__set_encoding(page_encoding);
+                    info.__set_definition_levels_byte_length(0);
+                    info.__set_repetition_levels_byte_length(0);
+                    info.__set_is_compressed(false);
+                    header.__set_data_page_header_v2(info);
+                } else {
+                    tparquet::DataPageHeader info;
+                    info.__set_num_values(8);
+                    info.__set_encoding(page_encoding);
+                    info.__set_definition_level_encoding(tparquet::Encoding::RLE);
+                    info.__set_repetition_level_encoding(tparquet::Encoding::RLE);
+                    header.__set_data_page_header(info);
+                }
+                const auto serialized = serialize_page(header, payload);
+                bytes.insert(bytes.end(), serialized.begin(), serialized.end());
+            }
+            MemoryBufferedReader stream(bytes);
+            tparquet::ColumnChunk chunk;
+            chunk.meta_data.__set_type(tparquet::Type::BOOLEAN);
+            chunk.meta_data.__set_codec(tparquet::CompressionCodec::UNCOMPRESSED);
+            chunk.meta_data.__set_num_values(24);
+            chunk.meta_data.__set_total_compressed_size(bytes.size() - 1);
+            chunk.meta_data.__set_dictionary_page_offset(1);
+            chunk.meta_data.__set_data_page_offset(data_offset);
+            NativeFieldSchema field;
+            field.physical_type = tparquet::Type::BOOLEAN;
+            ParquetPageReadContext page_context(false, "");
+            ColumnChunkReader<false, false> reader(&stream, &chunk, &field, nullptr, 24, nullptr,
+                                                   page_context);
+            ASSERT_TRUE(reader.init().ok());
+            DataTypeUInt8 type;
+            auto column = type.create_column();
+            ParquetDecodeContext context;
+            context.physical_type = ParquetPhysicalType::BOOLEAN;
+            ParquetMaterializationState state;
+            for (size_t page = 0; page < 3; ++page) {
+                ASSERT_TRUE(reader.parse_page_header().ok());
+                ASSERT_TRUE(reader.load_page_data().ok());
+                ASSERT_TRUE(reader.skip_values(2).ok());
+                const std::vector<uint8_t> selected {1, 0, 1, 1, 0, 1};
+                FilterMap filter;
+                ASSERT_TRUE(filter.init(selected.data(), selected.size(), false).ok());
+                ColumnSelectVector selection;
+                ASSERT_TRUE(selection.init({6, 0}, 6, nullptr, &filter, 0).ok());
+                const auto status = reader.materialize_values(column, *type.get_serde(), context,
+                                                              state, selection);
+                ASSERT_TRUE(status.ok()) << status;
+                EXPECT_EQ(reader.remaining_num_values(), 0);
+                ASSERT_TRUE(reader.next_page().ok());
+            }
+            EXPECT_FALSE(reader.has_next_page());
+            const std::vector<uint8_t> expected {1, 1, 0, 0, 1, 1, 0, 0, 0, 0, 1, 1};
+            ASSERT_EQ(column->size(), expected.size());
+            const auto& values = assert_cast<const ColumnUInt8&>(*column).get_data();
+            EXPECT_TRUE(std::equal(expected.begin(), expected.end(), values.begin()));
+        }
+    }
+}
+
+std::vector<uint8_t> serialize_plain_int32_page(const std::vector<int32_t>& values,
+                                                bool repeated = false) {
+    std::vector<uint8_t> payload;
+    if (repeated) {
+        for (level_t level : {0, 1}) {
+            faststring encoded;
+            RleEncoder<level_t> encoder(&encoded, 1);
+            for (size_t value = 0; value < values.size(); ++value) {
+                encoder.Put(level);
+            }
+            encoder.Flush();
+            const size_t offset = payload.size();
+            payload.resize(offset + sizeof(uint32_t));
+            encode_fixed32_le(payload.data() + offset, encoded.size());
+            payload.insert(payload.end(), encoded.data(), encoded.data() + encoded.size());
+        }
+    }
+    const auto* value_bytes = reinterpret_cast<const uint8_t*>(values.data());
+    payload.insert(payload.end(), value_bytes, value_bytes + values.size() * sizeof(int32_t));
     tparquet::PageHeader header;
     header.type = tparquet::PageType::DATA_PAGE;
-    header.__set_compressed_page_size(values.size() * sizeof(int32_t));
-    header.__set_uncompressed_page_size(values.size() * sizeof(int32_t));
+    header.__set_compressed_page_size(payload.size());
+    header.__set_uncompressed_page_size(payload.size());
     header.__isset.data_page_header = true;
     header.data_page_header.__set_num_values(values.size());
     header.data_page_header.__set_encoding(tparquet::Encoding::PLAIN);
     header.data_page_header.__set_definition_level_encoding(tparquet::Encoding::RLE);
     header.data_page_header.__set_repetition_level_encoding(tparquet::Encoding::RLE);
-    const auto* value_bytes = reinterpret_cast<const uint8_t*>(values.data());
-    return serialize_page(
-            header, std::vector<uint8_t>(value_bytes, value_bytes + header.compressed_page_size));
+    return serialize_page(header, payload);
+}
+
+void verify_context_factory_modes(bool in_collection) {
+    std::vector<uint8_t> bytes;
+    tparquet::OffsetIndex index;
+    for (int32_t first : {10, 20, 30}) {
+        const auto page = serialize_plain_int32_page({first, first + 1}, in_collection);
+        tparquet::PageLocation location;
+        location.__set_offset(bytes.size());
+        location.__set_compressed_page_size(page.size());
+        location.__set_first_row_index(index.page_locations.size() * 2);
+        index.page_locations.push_back(location);
+        bytes.insert(bytes.end(), page.begin(), page.end());
+    }
+    tparquet::ColumnMetaData metadata;
+    metadata.__set_type(tparquet::Type::INT32);
+    metadata.__set_codec(tparquet::CompressionCodec::UNCOMPRESSED);
+    metadata.__set_num_values(6);
+    metadata.__set_total_compressed_size(bytes.size());
+    metadata.__set_data_page_offset(0);
+    tparquet::ColumnChunk chunk;
+    chunk.__set_meta_data(metadata);
+    tparquet::RowGroup group;
+    group.__set_columns({chunk});
+    group.__set_num_rows(6);
+    NativeFieldSchema field;
+    field.physical_column_index = 0;
+    field.physical_type = tparquet::Type::INT32;
+    field.data_type = std::make_shared<DataTypeInt32>();
+    field.parquet_schema.__set_type(tparquet::Type::INT32);
+    field.repetition_level = in_collection ? 1 : 0;
+    field.definition_level = in_collection ? 1 : 0;
+    field.repeated_parent_def_level = in_collection ? 1 : 0;
+    field.parquet_schema.__set_repetition_type(in_collection
+                                                       ? tparquet::FieldRepetitionType::REPEATED
+                                                       : tparquet::FieldRepetitionType::REQUIRED);
+    const auto ranges = RowRanges::create_single(2, 4);
+    const std::set<uint64_t> column_ids;
+    for (bool indexed : {false, true}) {
+        SCOPED_TRACE(testing::Message() << in_collection << "/" << indexed);
+        std::unordered_map<int, tparquet::OffsetIndex> indexes;
+        if (indexed) {
+            indexes.emplace(0, index);
+        }
+        std::unique_ptr<ColumnReader> reader;
+        {
+            // Readers borrow row-group data, never this temporary context.
+            const ColumnReaderCreateContext context {
+                    .file = std::make_shared<NativeDecoderMemoryFileReader>(bytes),
+                    .row_group = group,
+                    .row_ranges = ranges,
+                    .col_offsets = indexes,
+                    .column_ids = column_ids,
+                    .filter_column_ids = column_ids,
+                    .row_group_ordinal = 0,
+                    .options = {.max_buf_size = bytes.size(),
+                                .page_cache_file_key = "native-context-range"}};
+            ASSERT_TRUE(ColumnReader::create(context, &field, in_collection, reader).ok());
+        }
+        if (in_collection) {
+            reader->set_column_in_nested();
+        }
+        FilterMap filter;
+        ASSERT_TRUE(filter.init(nullptr, 2, false).ok());
+        ColumnPtr values = field.data_type->create_column();
+        size_t rows = 0;
+        bool eof = false;
+        while (rows < 2 && !eof) {
+            size_t read = 0;
+            ASSERT_TRUE(reader->read_column_data(values, field.data_type, nullptr, filter, 2 - rows,
+                                                 &read, &eof, false)
+                                .ok());
+            rows += read;
+        }
+        ASSERT_EQ(rows, 2);
+        EXPECT_EQ((*values)[0].get<TYPE_INT>(), 20);
+        EXPECT_EQ((*values)[1].get<TYPE_INT>(), 21);
+    }
+}
+
+TEST(ParquetV2NativeDecoderTest, ColumnReaderContextPreservesRangesAcrossFactoryModes) {
+    verify_context_factory_modes(false);
+    verify_context_factory_modes(true);
 }
 
 TEST(ParquetV2NativeDecoderTest, ColumnChunkInitDoesNotReadFirstDataPage) {
@@ -1551,9 +1831,12 @@ TEST(ParquetV2NativeDecoderTest, DictionaryProbeMaterializesTypedValuesOnlyOnce)
     field.parquet_schema.__set_type(tparquet::Type::INT32);
     field.parquet_schema.__set_repetition_type(tparquet::FieldRepetitionType::REQUIRED);
     auto file = std::make_shared<NativeDecoderMemoryFileReader>(bytes);
-    const auto row_ranges = ::doris::RowRanges::create_single(2);
+    const auto row_ranges = segment_v2::RowRanges::create_single(2);
     ScalarColumnReader<false, false> reader(row_ranges, 2, chunk, nullptr, nullptr, nullptr);
-    ASSERT_TRUE(reader.init(file, &field, bytes.size(), nullptr, "", ParquetReaderCompat {}, true)
+    ASSERT_TRUE(reader.init(file, &field,
+                            ColumnReaderOptions {.max_buf_size = bytes.size(),
+                                                 .page_cache_file_key = {},
+                                                 .enable_strict_mode = true})
                         .ok());
     EXPECT_EQ(file->read_count(), 0);
     auto dictionary_result = reader.dictionary_values(field.data_type);
@@ -3418,9 +3701,12 @@ TEST(ParquetV2NativeDecoderTest, LazyFlatIndexedSkipValidatesFirstPageCardinalit
     field.parquet_schema.__set_type(tparquet::Type::INT32);
     field.parquet_schema.__set_repetition_type(tparquet::FieldRepetitionType::REQUIRED);
     auto file = std::make_shared<NativeDecoderMemoryFileReader>(bytes);
-    const auto row_ranges = ::doris::RowRanges::create_single(2, 4);
+    const auto row_ranges = segment_v2::RowRanges::create_single(2, 4);
     ScalarColumnReader<false, true> reader(row_ranges, 6, chunk, &offset_index, nullptr, nullptr);
-    ASSERT_TRUE(reader.init(file, &field, bytes.size(), nullptr, "", ParquetReaderCompat {}, true)
+    ASSERT_TRUE(reader.init(file, &field,
+                            ColumnReaderOptions {.max_buf_size = bytes.size(),
+                                                 .page_cache_file_key = {},
+                                                 .enable_strict_mode = true})
                         .ok());
 
     FilterMap filter;
@@ -3464,9 +3750,12 @@ TEST(ParquetV2NativeDecoderTest, LazyFixedWidthFilterUsesReconciledFirstPageRang
     field.parquet_schema.__set_type(tparquet::Type::INT32);
     field.parquet_schema.__set_repetition_type(tparquet::FieldRepetitionType::REQUIRED);
     auto file = std::make_shared<NativeDecoderMemoryFileReader>(bytes);
-    const auto row_ranges = ::doris::RowRanges::create_single(0, 2);
+    const auto row_ranges = segment_v2::RowRanges::create_single(0, 2);
     ScalarColumnReader<false, true> reader(row_ranges, 3, chunk, &offset_index, nullptr, nullptr);
-    ASSERT_TRUE(reader.init(file, &field, bytes.size(), nullptr, "", ParquetReaderCompat {}, true)
+    ASSERT_TRUE(reader.init(file, &field,
+                            ColumnReaderOptions {.max_buf_size = bytes.size(),
+                                                 .page_cache_file_key = {},
+                                                 .enable_strict_mode = true})
                         .ok());
 
     FilterMap filter;
@@ -3515,9 +3804,12 @@ TEST(ParquetV2NativeDecoderTest, LazyFlatIndexedFallbackUsesReconciledFirstPageR
     field.parquet_schema.__set_type(tparquet::Type::INT32);
     field.parquet_schema.__set_repetition_type(tparquet::FieldRepetitionType::REQUIRED);
     auto file = std::make_shared<NativeDecoderMemoryFileReader>(bytes);
-    const auto row_ranges = ::doris::RowRanges::create_single(0, 2);
+    const auto row_ranges = segment_v2::RowRanges::create_single(0, 2);
     ScalarColumnReader<false, true> reader(row_ranges, 3, chunk, &offset_index, nullptr, nullptr);
-    ASSERT_TRUE(reader.init(file, &field, bytes.size(), nullptr, "", ParquetReaderCompat {}, true)
+    ASSERT_TRUE(reader.init(file, &field,
+                            ColumnReaderOptions {.max_buf_size = bytes.size(),
+                                                 .page_cache_file_key = {},
+                                                 .enable_strict_mode = true})
                         .ok());
 
     FilterMap filter;
@@ -3792,13 +4084,15 @@ TEST(ParquetV2NativeDecoderTest, LevelOnlyReaderSkipsLeadingZeroValuePages) {
         field.parquet_schema.__set_type(tparquet::Type::INT32);
         field.parquet_schema.__set_repetition_type(tparquet::FieldRepetitionType::OPTIONAL);
 
-        auto row_ranges = ::doris::RowRanges::create_single(1);
+        auto row_ranges = segment_v2::RowRanges::create_single(1);
         ScalarColumnReader<false, false> scalar_reader(row_ranges, 1, chunk, nullptr, &utc,
                                                        nullptr);
-        ASSERT_TRUE(
-                scalar_reader
-                        .init(file, &field, bytes.size(), nullptr, "", ParquetReaderCompat {}, true)
-                        .ok());
+        ASSERT_TRUE(scalar_reader
+                            .init(file, &field,
+                                  ColumnReaderOptions {.max_buf_size = bytes.size(),
+                                                       .page_cache_file_key = {},
+                                                       .enable_strict_mode = true})
+                            .ok());
         FilterMap filter;
         ASSERT_TRUE(filter.init(nullptr, 1, false).ok());
         ColumnPtr scalar_column = field.data_type->create_column();
@@ -4878,7 +5172,7 @@ TEST(ParquetV2NativeDecoderTest, CacheDisabledPagesDoNotPrepareCopiedPayload) {
 }
 
 TEST(ParquetV2NativeDecoderTest, OversizedNestedBatchScratchUsesIdleBatchHysteresis) {
-    ::doris::RowRanges row_ranges;
+    segment_v2::RowRanges row_ranges;
     tparquet::ColumnChunk chunk;
     ScalarColumnReader<true, false> reader(row_ranges, 1, chunk, nullptr, nullptr, nullptr);
 
@@ -4898,7 +5192,7 @@ TEST(ParquetV2NativeDecoderTest, OversizedNestedBatchScratchUsesIdleBatchHystere
 }
 
 TEST(ParquetV2NativeDecoderTest, NestedBatchScratchEnforcesAggregateRetentionLimit) {
-    ::doris::RowRanges row_ranges;
+    segment_v2::RowRanges row_ranges;
     tparquet::ColumnChunk chunk;
     ScalarColumnReader<true, false> reader(row_ranges, 1, chunk, nullptr, nullptr, nullptr);
 

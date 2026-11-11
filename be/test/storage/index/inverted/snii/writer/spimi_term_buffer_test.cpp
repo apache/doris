@@ -670,27 +670,9 @@ TEST(SniiSpimiTermBuffer, AscendingInputByteIdenticalAcrossDrains) {
     EXPECT_TRUE(strm.status().ok());
 }
 
-// ---------------------------------------------------------------------------
-// T17: MemoryReporter per-token zero-delta debounce.
-//
-// accumulate() reports its REAL resident-byte delta (posting arena + the
-// vocab-sized slot index) to the writer-level MemoryReporter once per token. The
-// arena grows only ~every 32 KiB block and the borrowed-vocab slot index is
-// fixed-capacity, so the vast majority of tokens see delta==0. report_arena_delta()
-// now SKIPS the locked fetch_add for those (debounce). These tests pin the
-// deterministic op-count (report() calls == arena-growth events, never per token),
-// the byte-level equivalence (current_bytes() unchanged), and the REDLINE: over_cap()
-// is still evaluated UNCONDITIONALLY every token (never gated on the local delta), so
-// a dict-side push over the unified cap still triggers a spill when this buffer's own
-// delta is 0. A MemoryReporter built with a counting consume_release lambda exposes
-// the exact per-token report() count / delta values as a deterministic seam.
-// ---------------------------------------------------------------------------
+// Checks that zero resident-byte deltas skip reporter updates while the spill limit is still checked for every token.
 
-// FV-1 (deterministic op-count + functional): feeding 100 same-doc tokens issues
-// exactly TWO report() calls -- one ctor delta (the resident slot index) and one for
-// the first token (its 32 KiB arena block plus the G08-charged first-touch Term-slot /
-// touched-list growth, a few dozen bytes) -- and NEVER a zero-delta report. Before the
-// debounce, tokens 2..100 each issued report(0): 101 calls, 99 of them zero.
+// Repeated tokens that leave resident memory unchanged must not trigger reports.
 TEST(SniiSpimiTermBufferTest, AccumulateIssuesNoZeroDeltaReport) {
     std::vector<int64_t> deltas;
     MemoryReporter rep([&deltas](int64_t d) { deltas.push_back(d); }, /*cap_bytes=*/0);
@@ -706,7 +688,7 @@ TEST(SniiSpimiTermBufferTest, AccumulateIssuesNoZeroDeltaReport) {
     // tokens leave resident unchanged -> debounced away.
     ASSERT_EQ(deltas.size(), 2U);
     EXPECT_GT(deltas[0], 0); // slot index resident bytes (vocab-sized)
-    // One CompactPostingPool block (1 << 15) dominates; the G08 slot-pool charge for
+    // One CompactPostingPool block (1 << 15) dominates; the slot-pool charge for
     // the single touched term adds well under 128 B on top.
     EXPECT_GE(deltas[1], 32768);
     EXPECT_LT(deltas[1], 32768 + 128);
@@ -716,14 +698,8 @@ TEST(SniiSpimiTermBufferTest, AccumulateIssuesNoZeroDeltaReport) {
     EXPECT_TRUE(buf.status().ok());
 }
 
-// FV-2 (equivalence + count stability): the report() COUNT is independent of the
-// token count (100 vs 500 same-doc tokens both issue exactly 2 reports), and the
-// resulting unified total is byte-identical (resident = first arena block + slot
-// index + first-touch slot-pool growth, not a function of token count). The sum
-// of issued deltas equals
-// current_bytes() -- the MemoryReporter self-balancing invariant the debounce
-// preserves. Snapshots are taken WHILE each buffer is live (before its dtor reports
-// the final balancing negative).
+// Repeated tokens leave the report count unchanged, and report deltas sum to
+// the resident bytes while the buffer is alive.
 TEST(SniiSpimiTermBufferTest, ReportedTotalMatchesResidentRegardlessOfTokenCount) {
     const std::vector<std::string> vocab = {"a"};
 
@@ -761,7 +737,7 @@ TEST(SniiSpimiTermBufferTest, ReportedTotalMatchesResidentRegardlessOfTokenCount
     ASSERT_GE(d100.size(), 2U);
     ASSERT_GE(d500.size(), 2U);
     // Both: identical first-token delta -- one 32 KiB arena block plus the same
-    // G08 first-touch slot-pool/touched-list growth (the slot index cancels in
+    // First-touch slot-pool/touched-list growth (the slot index cancels in
     // this delta; the growth is token-count-independent, hence the equality).
     EXPECT_EQ(d100[1], d500[1]);
     EXPECT_GE(d100[1], 32768);
@@ -775,7 +751,7 @@ TEST(SniiSpimiTermBufferTest, ReportedTotalMatchesResidentRegardlessOfTokenCount
     EXPECT_EQ(cur100, d100[0] + d100[1]); // slot index + first-token resident
 }
 
-// FV-3 (REDLINE guard): the debounce skips report() ONLY -- it must NOT gate
+// The debounce skips report() ONLY -- it must NOT gate
 // over_cap(). over_cap() reads the writer-level UNIFIED total (shared with the dict
 // buffer), so a dict-side allocation can push the total over the cap while THIS
 // buffer's local arena delta is 0. accumulate() must still evaluate over_cap() every
@@ -804,7 +780,7 @@ TEST(SniiSpimiTermBufferTest, OverCapStillFiresWhenLocalArenaDeltaIsZero) {
     EXPECT_TRUE(buf.status().ok());
 }
 
-// FV-4 (boundary): an EMPTY borrowed vocab has a zero-capacity slot index, so the
+// An EMPTY borrowed vocab has a zero-capacity slot index, so the
 // ctor's resident delta is 0 and is debounced away -- no report() is issued and
 // construction does not crash. Before the debounce the ctor issued report(0).
 TEST(SniiSpimiTermBufferTest, EmptyVocabReportsNoDelta) {
@@ -820,7 +796,7 @@ TEST(SniiSpimiTermBufferTest, EmptyVocabReportsNoDelta) {
     EXPECT_TRUE(buf.status().ok());
 }
 
-// FV-5 (no-reporter path unaffected): with a null reporter, report_arena_delta() is a
+// With a null reporter, report_arena_delta() is a
 // no-op and finalize_sorted() still produces the correct postings. Confirms the
 // debounce change did not perturb the off-Doris path.
 TEST(SniiSpimiTermBufferTest, NullReporterFinalizeIsCorrect) {
@@ -842,7 +818,7 @@ TEST(SniiSpimiTermBufferTest, NullReporterFinalizeIsCorrect) {
     EXPECT_TRUE(buf.status().ok());
 }
 
-// FV-6 (spill/drain negative path + self-balance): a forced spill emits NONZERO
+// A forced spill emits NONZERO
 // negative deltas (arena reset, then slot-index free), never a zero. After a full
 // drain the reporter's unified total returns to 0 -- the debounce preserves the
 // self-balancing invariant (no leaked positive). The merged postings are correct.

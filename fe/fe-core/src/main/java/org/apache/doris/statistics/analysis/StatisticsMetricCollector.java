@@ -86,7 +86,11 @@ public class StatisticsMetricCollector extends MasterDaemon {
                         if (table.getRowCount() == 0) {
                             tmpEmptyTableCount += 1;
                         }
-                        if (analysisManager.findTableStatsStatus(table.getId()) == null) {
+                        // A record exists for a table which was never analyzed as well, for instance the record
+                        // a load creates for a table whose statistics were dropped. Only a record with an
+                        // analyze timestamp describes collected statistics.
+                        TableStatsMeta tableStatsStatus = analysisManager.findTableStatsStatus(table.getId());
+                        if (tableStatsStatus == null || tableStatsStatus.updatedTime == 0) {
                             tmpNotAnalyzedTableCount += 1;
                         }
                         // Get all unhealthy columns.

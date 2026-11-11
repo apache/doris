@@ -18,17 +18,120 @@
 package org.apache.doris.connector.es;
 
 import org.apache.doris.connector.spi.ConnectorType;
+import org.apache.doris.connector.spi.pushdown.ConnectorAnd;
 import org.apache.doris.connector.spi.pushdown.ConnectorColumnRef;
 import org.apache.doris.connector.spi.pushdown.ConnectorComparison;
+import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
+import org.apache.doris.connector.spi.pushdown.ConnectorFunctionCall;
 import org.apache.doris.connector.spi.pushdown.ConnectorLike;
 import org.apache.doris.connector.spi.pushdown.ConnectorLiteral;
+import org.apache.doris.connector.spi.pushdown.ConnectorNot;
+import org.apache.doris.connector.spi.pushdown.ConnectorOr;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.Arrays;
 import java.util.Collections;
 
 public class EsQueryDslBuilderTest {
+
+    private static ConnectorExpression keywordEquals(String value) {
+        return new ConnectorComparison(ConnectorComparison.Operator.EQ,
+                new ConnectorColumnRef("name", ConnectorType.of("VARCHAR")), ConnectorLiteral.ofString(value));
+    }
+
+    private static ConnectorExpression partiallyPushableAnd() {
+        ConnectorExpression local = new ConnectorFunctionCall("unsupported_predicate", ConnectorType.of("BOOLEAN"),
+                Collections.singletonList(new ConnectorColumnRef("name", ConnectorType.of("VARCHAR"))));
+        return new ConnectorAnd(Arrays.asList(keywordEquals("one"), local));
+    }
+
+    private static EsQueryDslResult buildWithTracking(ConnectorExpression expression) {
+        return EsQueryDslBuilder.buildQueryDslWithResult(expression, Collections.emptyMap(),
+                Collections.singletonMap("name", "keyword"), true, Collections.emptyList());
+    }
+
+    @Test
+    void partialAndRetainsOnlyItsUnsupportedConjunct() {
+        EsQueryDslResult result = buildWithTracking(partiallyPushableAnd());
+        Assertions.assertEquals(Collections.singletonList(1), result.getNotPushedIndices());
+        Assertions.assertEquals("{\"term\":{\"name\":\"one\"}}", result.getQueryDsl());
+    }
+
+    @Test
+    void orWithPartiallyPushableAndRemainsLocal() {
+        EsQueryDslResult result = buildWithTracking(new ConnectorOr(
+                Arrays.asList(partiallyPushableAnd(), keywordEquals("two"))));
+        Assertions.assertEquals(Collections.singletonList(0), result.getNotPushedIndices());
+        Assertions.assertEquals(EsQueryDslBuilder.matchAllQuery(), result.getQueryDsl());
+    }
+
+    @Test
+    void notWithPartiallyPushableAndRemainsLocal() {
+        EsQueryDslResult result = buildWithTracking(new ConnectorNot(partiallyPushableAnd()));
+        Assertions.assertEquals(Collections.singletonList(0), result.getNotPushedIndices());
+        Assertions.assertEquals(EsQueryDslBuilder.matchAllQuery(), result.getQueryDsl());
+    }
+
+    @Test
+    void fullyPushableOrAndNotRemainPushed() {
+        for (ConnectorExpression expression : Arrays.asList(
+                new ConnectorOr(Arrays.asList(keywordEquals("one"), keywordEquals("two"))),
+                new ConnectorNot(keywordEquals("one")))) {
+            EsQueryDslResult result = buildWithTracking(expression);
+            Assertions.assertTrue(result.getNotPushedIndices().isEmpty());
+            Assertions.assertNotEquals(EsQueryDslBuilder.matchAllQuery(), result.getQueryDsl());
+        }
+    }
+
+    @Test
+    void retainedRangeNotComplementsTheOriginalExistentialQuery() {
+        ConnectorColumnRef column = new ConnectorColumnRef("value", ConnectorType.of("BIGINT"));
+        for (ConnectorComparison.Operator op : Arrays.asList(ConnectorComparison.Operator.LT,
+                ConnectorComparison.Operator.LE, ConnectorComparison.Operator.GT, ConnectorComparison.Operator.GE)) {
+            ConnectorExpression comparison = new ConnectorComparison(op, column, ConnectorLiteral.ofLong(2));
+            EsQueryDslResult result = buildWithTracking(new ConnectorNot(comparison));
+            Assertions.assertTrue(result.getNotPushedIndices().isEmpty());
+            Assertions.assertTrue(result.getQueryDsl().contains("\"must_not\":"
+                    + buildWithTracking(comparison).getQueryDsl()), result.getQueryDsl());
+            Assertions.assertTrue(result.getQueryDsl().contains("\"must\":{\"exists\":{\"field\":\"value\"}}"));
+        }
+    }
+
+    @Test
+    void retainedNotComparisonsPreserveNullRejection() {
+        ConnectorColumnRef column = new ConnectorColumnRef("value", ConnectorType.of("BIGINT"));
+        ConnectorComparison.Operator[] operators = {ConnectorComparison.Operator.EQ, ConnectorComparison.Operator.NE};
+        ConnectorComparison.Operator[] inverses = {ConnectorComparison.Operator.NE, ConnectorComparison.Operator.EQ};
+        for (int i = 0; i < operators.length; i++) {
+            ConnectorExpression expression = new ConnectorComparison(operators[i], column, ConnectorLiteral.ofLong(1));
+            ConnectorExpression inverse = new ConnectorComparison(inverses[i], column, ConnectorLiteral.ofLong(1));
+            Assertions.assertEquals(buildWithTracking(inverse).getQueryDsl(),
+                    buildWithTracking(new ConnectorNot(expression)).getQueryDsl());
+            Assertions.assertEquals(buildWithTracking(expression).getQueryDsl(),
+                    buildWithTracking(new ConnectorNot(new ConnectorNot(expression))).getQueryDsl());
+        }
+        ConnectorExpression eq = new ConnectorComparison(ConnectorComparison.Operator.EQ, column,
+                ConnectorLiteral.ofLong(1));
+        ConnectorExpression ne = new ConnectorComparison(ConnectorComparison.Operator.NE, column,
+                ConnectorLiteral.ofLong(1));
+        Assertions.assertEquals(buildWithTracking(new ConnectorAnd(Arrays.asList(ne, eq))).getQueryDsl(),
+                buildWithTracking(new ConnectorNot(new ConnectorOr(Arrays.asList(eq, ne)))).getQueryDsl());
+    }
+
+    @Test
+    void notEqualExcludesMissingValuesForEveryNonNullLiteral() {
+        for (ConnectorLiteral literal : Arrays.asList(ConnectorLiteral.ofLong(1),
+                ConnectorLiteral.ofString("one"), ConnectorLiteral.ofString(""), ConnectorLiteral.ofBoolean(true))) {
+            ConnectorExpression comparison = new ConnectorComparison(ConnectorComparison.Operator.NE,
+                    new ConnectorColumnRef("value", literal.getType()), literal);
+            EsQueryDslResult result = EsQueryDslBuilder.buildQueryDslWithResult(comparison,
+                    Collections.emptyMap(), Collections.emptyMap(), true, Collections.emptyList());
+            Assertions.assertTrue(result.getNotPushedIndices().isEmpty());
+            Assertions.assertTrue(result.getQueryDsl().contains("\"must\":{\"exists\":{\"field\":\"value\"}}"));
+        }
+    }
 
     @Test
     public void testRegexpProducesRegexpQuery() {

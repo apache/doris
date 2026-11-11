@@ -20,11 +20,8 @@ package org.apache.doris.connector.paimon;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import org.apache.paimon.CoreOptions;
-import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.fs.Path;
 import org.apache.paimon.fs.local.LocalFileIO;
-import org.apache.paimon.privilege.PrivilegeChecker;
-import org.apache.paimon.privilege.PrivilegedFileStoreTable;
 import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.AppendOnlyFileStoreTable;
 import org.apache.paimon.table.CatalogEnvironment;
@@ -39,7 +36,6 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 
-import java.lang.reflect.Proxy;
 import java.util.Collections;
 import java.util.Map;
 
@@ -130,14 +126,6 @@ public class PaimonReaderOptionsTest {
         FallbackReadFileStoreTable emptyThenExplicit = (FallbackReadFileStoreTable)
                 PaimonReaderOptions.runtimeSafeTable(
                         new FallbackReadFileStoreTable(empty, explicit, true), 512);
-        PrivilegeChecker checker = (PrivilegeChecker) Proxy.newProxyInstance(
-                PrivilegeChecker.class.getClassLoader(),
-                new Class<?>[] {PrivilegeChecker.class},
-                (proxy, method, args) -> null);
-        FileStoreTable privileged = PrivilegedFileStoreTable.wrap(
-                new FallbackReadFileStoreTable(explicit, empty, true), checker,
-                Identifier.create("db", "table"));
-        Table normalizedDelegate = PaimonReaderOptions.runtimeSafeTable(privileged, 512);
 
         Assertions.assertEquals("256", safeEmpty.options()
                 .get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key()));
@@ -149,25 +137,6 @@ public class PaimonReaderOptionsTest {
                 .get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key()));
         Assertions.assertEquals("1", emptyThenExplicit.other().options()
                 .get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key()));
-        Assertions.assertInstanceOf(FallbackReadFileStoreTable.class, normalizedDelegate);
-        Assertions.assertEquals("256", ((FallbackReadFileStoreTable) normalizedDelegate)
-                .other().options().get(CoreOptions.SCAN_MANIFEST_PARALLELISM.key()));
-    }
-
-    @Test
-    void testSystemSourceKeepsFallbackAsOutermostPlanningDecorator() {
-        FileStoreTable main = newFileStoreTable("main", Collections.emptyMap());
-        FileStoreTable fallback = newFileStoreTable("fallback", Collections.emptyMap());
-        FallbackReadFileStoreTable pair = new FallbackReadFileStoreTable(main, fallback, true);
-        PrivilegeChecker checker = (PrivilegeChecker) Proxy.newProxyInstance(
-                PrivilegeChecker.class.getClassLoader(),
-                new Class<?>[] {PrivilegeChecker.class},
-                (proxy, method, args) -> null);
-        FileStoreTable privileged = PrivilegedFileStoreTable.wrap(
-                pair, checker,
-                Identifier.create("db", "privileged_fallback"));
-
-        Assertions.assertSame(pair, PaimonTableDecorators.unwrapToFallbackOrBase(privileged));
     }
 
     @Test
@@ -299,25 +268,6 @@ public class PaimonReaderOptionsTest {
                         PaimonReaderOptions.MAX_MANIFEST_PARALLELISM),
                 PaimonReaderOptions.backendManifestParallelismCap(
                         new FallbackReadFileStoreTable(main, fallback, true)).getAsInt());
-    }
-
-    @Test
-    void testRejectUnsafeFallbackHiddenByPrivilegeDelegate() {
-        FileStoreTable main = newFileStoreTable("privileged_main", Collections.emptyMap());
-        FileStoreTable fallback = newFileStoreTable(
-                "privileged_fallback", ImmutableMap.of("scan.manifest.parallelism", "0"));
-        FileStoreTable fallbackReadTable = new FallbackReadFileStoreTable(main, fallback, true);
-        PrivilegeChecker checker = (PrivilegeChecker) Proxy.newProxyInstance(
-                PrivilegeChecker.class.getClassLoader(),
-                new Class<?>[] {PrivilegeChecker.class},
-                (proxy, method, args) -> null);
-        FileStoreTable privilegedTable = PrivilegedFileStoreTable.wrap(
-                fallbackReadTable,
-                checker,
-                Identifier.create("db", "table"));
-
-        Assertions.assertThrows(IllegalArgumentException.class,
-                () -> PaimonReaderOptions.validateEffectiveTable(privilegedTable));
     }
 
     private FileStoreTable newFileStoreTable(String name, Map<String, String> options) {

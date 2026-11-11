@@ -180,6 +180,52 @@ public class TaskProcessorTest {
         }
     }
 
+    /** A task the full queue turns away is told so, and only that one: the others are accepted and run. */
+    @Test
+    public void testATaskTheFullQueueTurnsAwayIsToldSo() throws Exception {
+        CountDownLatch running = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        AtomicInteger rejections = new AtomicInteger();
+        TaskProcessor taskProcessor = new TaskProcessor(1, 1, Thread::new);
+        try {
+            Assertions.assertTrue(taskProcessor.addTask(countingRejections(1L, rejections, () -> {
+                running.countDown();
+                try {
+                    release.await(10, TimeUnit.SECONDS);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            })));
+            Assertions.assertTrue(running.await(10, TimeUnit.SECONDS));
+            // The only worker is busy, and the queue has room for one more task.
+            Assertions.assertTrue(taskProcessor.addTask(countingRejections(2L, rejections, () -> { })));
+            Assertions.assertEquals(0, rejections.get());
+
+            Assertions.assertFalse(taskProcessor.addTask(countingRejections(3L, rejections, () -> { })));
+            Assertions.assertEquals(1, rejections.get());
+        } finally {
+            release.countDown();
+            taskProcessor.shutdown();
+        }
+    }
+
+    private static AbstractTask countingRejections(long taskId, AtomicInteger rejections, Runnable body) {
+        AbstractTask task = new InsertTask("task-" + taskId, null, null, null) {
+            @Override
+            public void runTask() {
+                body.run();
+            }
+
+            @Override
+            public void onRejected() {
+                rejections.incrementAndGet();
+            }
+        };
+        task.setStatus(TaskStatus.PENDING);
+        task.setTaskId(taskId);
+        return task;
+    }
+
     private static void installStatementScope(AtomicInteger closeCount, CountDownLatch scopeInstalled) {
         ConnectContext connectContext = new ConnectContext();
         connectContext.setThreadLocalInfo();

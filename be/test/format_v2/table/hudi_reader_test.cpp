@@ -37,6 +37,7 @@
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/field.h"
+#include "format/format_common.h"
 #include "format_v2/column_data.h"
 #include "format_v2/parquet/parquet_reader.h"
 #include "gen_cpp/ExternalTableSchema_types.h"
@@ -157,6 +158,13 @@ public:
 // Scenario: FileScannerV2 Hudi native reader uses the split schema id to annotate the physical
 // file schema before TableColumnMapper runs. This keeps schema-evolved Hudi files on field-id
 // mapping, including renamed nested children.
+TEST(HudiReaderTest, NativeReaderRejectsUnmergedDeltaLogs) {
+    hudi::HudiReader reader;
+    SplitReadOptions split;
+    split.current_range.table_format_params.hudi_params.__set_delta_logs({"delta.log"});
+    EXPECT_TRUE(reader.prepare_split(split).is<ErrorCode::NOT_IMPLEMENTED_ERROR>());
+}
+
 TEST(HudiReaderTest, CustomParquetFactoryReusesScannerCounters) {
     RuntimeProfile profile("hudi");
     parquet::ParquetProfileCache cache(&profile);

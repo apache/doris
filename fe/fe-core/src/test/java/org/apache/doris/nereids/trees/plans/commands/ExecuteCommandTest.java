@@ -22,6 +22,7 @@ import org.apache.doris.analysis.Queriable;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.MysqlColType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
@@ -31,14 +32,24 @@ import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccTable;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
+import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Placeholder;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.VarBinaryLiteral;
 import org.apache.doris.nereids.trees.plans.commands.merge.MergeIntoCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.planner.GroupCommitPlanner;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
+import org.apache.doris.qe.PointQueryExecutor;
 import org.apache.doris.qe.PreparedStatementContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.ShortCircuitQueryContext;
@@ -46,8 +57,10 @@ import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.thrift.TQueryOptions;
 
 import com.google.common.collect.ImmutableMap;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.util.ArrayList;
@@ -58,6 +71,127 @@ import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class ExecuteCommandTest {
+
+    @AfterEach
+    public void tearDown() {
+        ConnectContext.remove();
+    }
+
+    @Test
+    public void testExpressionBindingRefreshesCachedPointQuery() throws Exception {
+        ConnectContext context = new ConnectContext();
+        PreparedStatementContext prepared = prepareParameterStatement(context, "select * from tbl where k = ?");
+        StatementContext initialContext = prepared.getStatementContext();
+        initialContext.setShortCircuitQuery(true);
+        ShortCircuitQueryContext cached = Mockito.mock(ShortCircuitQueryContext.class);
+        Mockito.when(cached.isReusable(context)).thenReturn(true);
+        prepared.shortCircuitQueryContext = Optional.of(cached);
+        StmtExecutor executor = parameterExecutor(context);
+
+        try (MockedStatic<PointQueryExecutor> pointQueries = Mockito.mockStatic(PointQueryExecutor.class)) {
+            bindAndExecute(context, prepared, executor, new StringLiteral("ASCII"));
+            pointQueries.verify(() -> PointQueryExecutor.directExecuteShortCircuitQuery(
+                    executor, prepared, prepared.getStatementContext()));
+
+            Expression binary = new Cast(new VarBinaryLiteral(new byte[] {(byte) 0xff}), StringType.INSTANCE);
+            bindAndExecute(context, prepared, executor, binary);
+            StatementContext refreshed = prepared.getStatementContext();
+            Assertions.assertFalse(refreshed.isShortCircuitQuery());
+            Assertions.assertNull(refreshed.getShortCircuitQueryContext());
+            Assertions.assertTrue(prepared.shortCircuitQueryContext.isEmpty());
+            Assertions.assertNotSame(initialContext, refreshed);
+            Assertions.assertEquals(binary, refreshed.getIdToPlaceholderRealExpr().get(
+                    prepared.command.getPlaceholders().get(0).getPlaceholderId()));
+            Assertions.assertEquals(MysqlColType.MYSQL_TYPE_VARSTRING,
+                    prepared.command.getPlaceholders().get(0).getMysqlColType());
+            Mockito.verify(executor).execute();
+            pointQueries.verifyNoMoreInteractions();
+
+            bindAndExecute(context, prepared, executor, new StringLiteral("ASCII again"));
+            Mockito.verify(executor, Mockito.times(2)).execute();
+        }
+    }
+
+    @Test
+    public void testExpressionBindingClearsUncachedPointQueryFlag() throws Exception {
+        ConnectContext context = new ConnectContext();
+        PreparedStatementContext prepared = prepareParameterStatement(context, "select * from tbl where k = ?");
+        // A point-query execution can fail before publishing its cached context.
+        prepared.getStatementContext().setShortCircuitQuery(true);
+        StmtExecutor executor = parameterExecutor(context);
+
+        bindAndExecute(context, prepared, executor,
+                new Cast(new VarBinaryLiteral(new byte[] {(byte) 0xff}), StringType.INSTANCE));
+
+        Assertions.assertFalse(prepared.getStatementContext().isShortCircuitQuery());
+        Assertions.assertNull(prepared.getStatementContext().getShortCircuitQueryContext());
+        Mockito.verify(executor).execute();
+    }
+
+    @Test
+    public void testExpressionBindingSkipsPreparedGroupCommit() throws Exception {
+        ConnectContext context = new ConnectContext();
+        context.getSessionVariable().groupCommit = "sync_mode";
+        Assertions.assertTrue(context.getSessionVariable().enableGroupCommitFullPrepare);
+        PreparedStatementContext prepared = prepareParameterStatement(context, "insert into test.tbl values (?)");
+        // A previous literal execution has already populated the full-prepare cache.
+        GroupCommitPlanner cached = Mockito.mock(GroupCommitPlanner.class);
+        prepared.groupCommitPlanner = Optional.of(cached);
+        StmtExecutor executor = parameterExecutor(context);
+        try (MockedStatic<GroupCommitPlanner> groupCommit = Mockito.mockStatic(GroupCommitPlanner.class)) {
+            bindAndExecute(context, prepared, executor, new StringLiteral("ASCII"));
+            groupCommit.verify(() -> GroupCommitPlanner.executeGroupCommitInsert(
+                    context, prepared, prepared.getStatementContext()));
+            groupCommit.clearInvocations();
+
+            Expression binary = new Cast(new VarBinaryLiteral(new byte[] {(byte) 0xff}), StringType.INSTANCE);
+            bindAndExecute(context, prepared, executor, binary);
+            Mockito.verify(executor).execute();
+            Assertions.assertEquals(binary, prepared.getStatementContext().getIdToPlaceholderRealExpr().get(
+                    prepared.command.getPlaceholders().get(0).getPlaceholderId()));
+            groupCommit.verifyNoInteractions();
+
+            bindAndExecute(context, prepared, executor, new NullLiteral());
+            groupCommit.verify(() -> GroupCommitPlanner.executeGroupCommitInsert(
+                    context, prepared, prepared.getStatementContext()));
+            Assertions.assertSame(cached, prepared.groupCommitPlanner.orElseThrow());
+        }
+    }
+
+    private PreparedStatementContext prepareParameterStatement(ConnectContext context, String sql) throws Exception {
+        context.setThreadLocalInfo();
+        LogicalPlanAdapter parsed = (LogicalPlanAdapter) new NereidsParser().parseSQL(sql).get(0);
+        StatementContext statementContext = parsed.getStatementContext();
+        statementContext.setConnectContext(context);
+        List<Placeholder> placeholders = statementContext.getPlaceholders().stream()
+                .map(placeholder -> placeholder.withNewMysqlColType(MysqlColType.MYSQL_TYPE_VARSTRING.getCode()))
+                .toList();
+        statementContext.setPlaceholders(placeholders);
+        PrepareCommand command = new PrepareCommand("stmt", parsed.getLogicalPlan(), placeholders,
+                new OriginStatement(sql, 0));
+        PreparedStatementContext prepared = new PreparedStatementContext(command, context, statementContext, "stmt");
+        context.setStatementContext(statementContext);
+        context.addPreparedStatementContext("stmt", prepared);
+        return prepared;
+    }
+
+    private StmtExecutor parameterExecutor(ConnectContext context) {
+        StmtExecutor executor = Mockito.mock(StmtExecutor.class);
+        Mockito.when(executor.getContext()).thenReturn(context);
+        Mockito.doAnswer(invocation -> {
+            context.setStatementContext(invocation.getArgument(0));
+            return null;
+        }).when(executor).setStatementContext(Mockito.any(StatementContext.class));
+        return executor;
+    }
+
+    private void bindAndExecute(ConnectContext context, PreparedStatementContext prepared,
+            StmtExecutor executor, Expression value) throws Exception {
+        context.setGroupCommit(false);
+        prepared.getStatementContext().getIdToPlaceholderRealExpr().put(
+                prepared.command.getPlaceholders().get(0).getPlaceholderId(), value);
+        new ExecuteCommand("stmt", prepared.command, prepared.getStatementContext()).run(context, executor);
+    }
 
     @Test
     public void testResolvedScanOptionsAreResetForEveryExecute() throws Exception {

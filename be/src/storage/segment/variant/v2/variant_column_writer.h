@@ -29,9 +29,6 @@
 
 namespace doris {
 
-class OlapBlockDataConvertor;
-struct VariantColumnData;
-
 namespace segment_v2 {
 
 class VariantBinaryWriter;
@@ -47,7 +44,7 @@ public:
     ~VariantV2ColumnWriter();
 
     Status init();
-    Status append(const VariantColumnData& column, size_t num_rows,
+    Status append(const IColumn& column, size_t row_pos, size_t num_rows,
                   std::span<const uint8_t> outer_nulls);
     Status finalize();
     bool is_finalized() const { return _is_finalized; }
@@ -67,10 +64,8 @@ private:
     Status _write_root(const IColumn* root_jsonb, int& column_id);
     // Streams one batch of the root-only JSONB column into the root column writer.
     Status _append_root_batch(const ColumnString& batch, std::span<const uint8_t> outer_nulls);
-    Status _write_materialized(const VariantShreddedColumns& shredded,
-                               OlapBlockDataConvertor* converter, int& column_id);
-    Status _write_binary(const VariantShreddedColumns& shredded, OlapBlockDataConvertor* converter,
-                         int& column_id);
+    Status _write_materialized(const VariantShreddedColumns& shredded, int& column_id);
+    Status _write_binary(const VariantShreddedColumns& shredded, int& column_id);
     Status _for_each_column_writer(const std::function<Status(ColumnWriter*)>& function);
 
     ColumnWriterOptions _opts;

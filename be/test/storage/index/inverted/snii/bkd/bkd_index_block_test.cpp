@@ -162,9 +162,7 @@ bool bytes_equal(Slice actual, const std::vector<uint8_t>& expected) {
            std::memcmp(actual.data(), expected.data(), expected.size()) == 0;
 }
 
-// Every rejection below must be a Status, never a crash and never an out-of-bounds
-// read -- that is the whole point of routing disk bytes through ByteSource and
-// validating once at open (design 8).
+// Malformed disk bytes must return Status without crashing or reading past the buffer.
 ::testing::AssertionResult IsCorrupted(const Status& status) {
     if (status.is<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>()) {
         return ::testing::AssertionSuccess();
@@ -221,9 +219,7 @@ TEST(SniiBkdIndexBlock, RoundTripPreservesHeaderBoundsSplitsAndDirectory) {
     EXPECT_GE(reader.heap_bytes(), 2 * kBytesPerDim + 2 * kBytesPerDim + 3 * sizeof(LeafRef));
 }
 
-// The encoder must emit exactly the layout documented in design 5.1. Pinning the
-// bytes here is what keeps the format from drifting silently and what makes the
-// hand-assembled corruption fixtures below a faithful mirror of real output.
+// Compare emitted bytes with the expected on-disk layout.
 TEST(SniiBkdIndexBlock, EncoderMatchesDocumentedLayout) {
     const RawIndexBlock raw = valid_three_leaf_block();
     EXPECT_EQ(encode(raw), frame(raw));
@@ -241,8 +237,7 @@ TEST(SniiBkdIndexBlock, RoundTripCarriesFlagsAndNonDefaultLeafCapacity) {
     EXPECT_EQ(reader.header().points_per_leaf, 512U);
 }
 
-// Design 5.3: an empty index is header-only with leaf_count == 0 and a zero-length
-// bkd_data. It is a LEGAL state, not corruption.
+// An empty index has a header and zero-length bkd_data.
 TEST(SniiBkdIndexBlock, EmptyIndexRoundTrips) {
     RawIndexBlock raw;
     raw.points_per_leaf = 777;
@@ -262,8 +257,7 @@ TEST(SniiBkdIndexBlock, EmptyIndexRoundTrips) {
     EXPECT_TRUE(reader.split_values().empty());
 }
 
-// Design 5.1: with a single leaf there is no boundary to record, so split_values is
-// empty and the whole value range routes to leaf 0.
+// A single leaf needs no split value.
 TEST(SniiBkdIndexBlock, SingleLeafHasNoSplitValues) {
     RawIndexBlock raw;
     raw.point_count = 4;
@@ -315,8 +309,7 @@ TEST(SniiBkdIndexBlock, FutureFormatVersionIsNotSupported) {
     BkdIndexBlockReader reader;
     const Status status = open_raw(raw, &reader);
     EXPECT_TRUE(status.is<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>()) << status;
-    // Must NOT be reported as a damaged segment: the caller falls back to "index
-    // unavailable" instead of flagging corruption (design 3 / 8).
+    // An unsupported version signals index unavailable rather than corruption.
     EXPECT_FALSE(status.is<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>()) << status;
 }
 
@@ -446,8 +439,7 @@ TEST(SniiBkdIndexBlock, UnknownFieldTypeIsCorrupted) {
     EXPECT_TRUE(IsCorrupted(open_raw(raw, &reader)));
 }
 
-// A string type has no fixed-width sortable-bytes representation, so it can never
-// have produced a BKD index (design 2: one dimension, numeric only).
+// String fields cannot produce fixed-width BKD values.
 TEST(SniiBkdIndexBlock, NonNumericFieldTypeIsCorrupted) {
     RawIndexBlock raw = valid_three_leaf_block();
     raw.field_type = static_cast<uint32_t>(FieldType::OLAP_FIELD_TYPE_STRING);
@@ -456,7 +448,7 @@ TEST(SniiBkdIndexBlock, NonNumericFieldTypeIsCorrupted) {
     EXPECT_TRUE(IsCorrupted(open_raw(raw, &reader)));
 }
 
-// Design 5.3: leaf_count == 0 means no points at all.
+// Zero leaves means zero points.
 TEST(SniiBkdIndexBlock, EmptyIndexWithNonZeroPointCountIsCorrupted) {
     RawIndexBlock raw;
     raw.point_count = 7;

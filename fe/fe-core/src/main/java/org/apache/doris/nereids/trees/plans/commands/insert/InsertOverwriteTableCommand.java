@@ -600,10 +600,14 @@ public class InsertOverwriteTableCommand extends Command
             // reuses this ctx) so the connector points the overwrite commit at the branch. The guard above
             // already rejected @branch for connectors without supportsWriteBranch().
             branchName.ifPresent(notUsed -> pluginCtx.setBranchName(branchName));
+            TableIf targetTable = InsertUtils.getTargetTable(logicalQuery, ctx);
             if (sink.hasStaticPartition()) {
                 pluginCtx.setStaticPartitionSpecFromExpressions(sink.getStaticPartitionKeyValues(),
-                        InsertUtils.connectorWriteSchema(InsertUtils.getTargetTable(logicalQuery, ctx), true));
+                        InsertUtils.connectorWriteSchema(targetTable, true));
             }
+            // The child of the copied sink was normalized against the writer schema pinned in run(); the inner
+            // insert does not normalize it again, so it checks that it pins the same generation.
+            InsertUtils.recordNormalizedWriteGeneration(ctx.getStatementContext(), targetTable, pluginCtx);
             insertCtx = pluginCtx;
         } else {
             throw new UserException("Current catalog does not support insert overwrite yet.");

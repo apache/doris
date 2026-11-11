@@ -19,11 +19,10 @@
 
 #include <glog/logging.h>
 
-#include <algorithm>
 #include <cstring>
+#include <utility>
 
 #include "common/cast_set.h"
-#include "common/config.h"
 #include "common/exception.h"
 #include "core/block/block.h"
 #include "exec/spill/spill_file_manager.h"
@@ -34,6 +33,7 @@
 #include "runtime/query_context.h"
 #include "runtime/runtime_profile_counter_names.h"
 #include "runtime/runtime_state.h"
+#include "runtime/workload_management/io_context.h"
 #include "util/debug_points.h"
 #include "util/slice.h"
 namespace doris {
@@ -49,7 +49,6 @@ SpillFileReader::SpillFileReader(RuntimeState* state, RuntimeProfile* profile,
           _spill_dir(std::move(spill_dir)),
           _part_sizes(std::move(part_sizes)),
           _part_count(_part_sizes.size()),
-          _is_remote(data_dir != nullptr && data_dir->is_remote()),
           _resource_ctx(state->get_query_ctx()->resource_ctx()) {
     // Internalize counter setup. The counters themselves are registered by the owning
     // operator (SpillReadCounters::init), so look them up by the shared name constants:
@@ -69,32 +68,26 @@ SpillFileReader::SpillFileReader(RuntimeState* state, RuntimeProfile* profile,
     _read_file_size = get_counter(profile::SPILL_READ_FILE_BYTES);
     _read_rows_count = get_counter(profile::SPILL_READ_ROWS);
     _read_file_count = get_counter(profile::SPILL_READ_FILE_COUNT);
-    // Optional: older profiles may not register it.
-    _remote_read_requests = custom_profile->get_counter(profile::SPILL_REMOTE_READ_REQUESTS);
-    if (_is_remote) {
-        _coalesce_bytes = static_cast<size_t>(std::max<int64_t>(
-                0,
-                std::min(config::spill_s3_read_coalesce_bytes, state->spill_buffer_size_bytes())));
-    }
 }
 
 void SpillFileReader::_record_read(size_t bytes_read) {
     COUNTER_UPDATE(_read_file_size, bytes_read);
     ExecEnv::GetInstance()->spill_file_mgr()->update_spill_read_bytes(bytes_read);
-    if (_is_remote) {
-        // One successful read_at() is one logical GET. Retries inside the object storage client
-        // and reads that finally failed are not counted.
-        if (_remote_read_requests != nullptr) {
-            COUNTER_UPDATE(_remote_read_requests, 1);
-        }
-        if (_resource_ctx) {
-            _resource_ctx->io_context()->update_spill_read_bytes_from_remote_storage(bytes_read);
-            _resource_ctx->io_context()->update_spill_remote_read_requests(1);
-        }
-        ExecEnv::GetInstance()->spill_file_mgr()->update_spill_remote_read(bytes_read, 1);
-    } else if (_resource_ctx) {
+    _record_spill_read(bytes_read);
+}
+
+void SpillFileReader::_record_spill_read(size_t bytes_read) {
+    if (_resource_ctx) {
         _resource_ctx->io_context()->update_spill_read_bytes_from_local_storage(bytes_read);
     }
+}
+
+size_t SpillFileReader::_footer_probe_size(size_t, bool) const {
+    return 2 * sizeof(size_t);
+}
+
+size_t SpillFileReader::_read_window_end(size_t index) const {
+    return _block_start_offsets[index + 1];
 }
 
 Status SpillFileReader::open() {
@@ -120,7 +113,7 @@ Status SpillFileReader::_open_part(size_t part_index, bool fetch_small_part) {
     }
     io::FileReaderOptions opts;
     opts.cache_type = io::FileCachePolicy::NO_CACHE;
-    // The writer recorded the part size; on object storage this saves a HEAD request.
+    // The writer recorded the part size, so opening needs no size lookup.
     opts.file_size = _part_sizes[part_index];
     {
         SCOPED_TIMER(_read_file_timer);
@@ -138,23 +131,12 @@ Status SpillFileReader::_read_footer(size_t file_size, bool fetch_small_part) {
     //   [block start offsets array (_part_block_count * size_t)]
     //   [serialized blocks]
     constexpr size_t kFooterTailBytes = 2 * sizeof(size_t);
-    // Enough for the offsets of a few thousand blocks, so the footer usually takes one GET.
-    constexpr size_t kRemoteFooterProbeBytes = 64 * 1024;
     if (file_size < kFooterTailBytes) {
         return Status::InternalError("spill part {} is too small: {} bytes",
                                      _file_reader->path().native(), file_size);
     }
 
-    // Without coalescing (local disk) the footer is read exactly. Otherwise a larger tail, bounded
-    // by the coalesced read size like every other read, is read in one request, or the whole
-    // part when it fits in one coalesced read.
-    size_t probe_size = kFooterTailBytes;
-    if (_coalesce_bytes > 0) {
-        probe_size = fetch_small_part && file_size <= _coalesce_bytes
-                             ? file_size
-                             : std::min({file_size, kRemoteFooterProbeBytes,
-                                         std::max(_coalesce_bytes, kFooterTailBytes)});
-    }
+    const size_t probe_size = _footer_probe_size(file_size, fetch_small_part);
     _ensure_read_buff(probe_size);
     RETURN_IF_ERROR(_read_exact(file_size - probe_size, _read_buff.data(), probe_size));
 
@@ -217,14 +199,7 @@ Status SpillFileReader::_block_slice(size_t index, Slice* out) {
     const size_t begin = _block_start_offsets[index];
     const size_t end = _block_start_offsets[index + 1];
     if (begin < _window_begin || end > _window_end) {
-        // Take this block and the following ones as long as the read stays within
-        // _coalesce_bytes. A block larger than that is still read whole.
-        size_t last = index + 1;
-        while (last < _part_block_count &&
-               _block_start_offsets[last + 1] - begin <= _coalesce_bytes) {
-            ++last;
-        }
-        const size_t window_end = _block_start_offsets[last];
+        const size_t window_end = _read_window_end(index);
         // A failed read may leave the buffer partly overwritten.
         _window_begin = _window_end = 0;
         _ensure_read_buff(window_end - begin);

@@ -89,6 +89,11 @@ suite("test_iceberg_write_partition_distribution",
         ) partition_file_counts
     """
 
+    assertEquals(0L, (sql """
+        select count(*) from identity_partitions\$files
+        where content = 0 and (split_offsets is null or size(split_offsets) = 0 or split_offsets[1] <= 0)
+    """)[0][0] as long)
+
     // Transform partitions: rows of one day carry different timestamps, so routing by the raw source value would
     // split a day across writers. The hash must cover day(ts).
     sql """drop table if exists day_partitions"""
@@ -100,7 +105,8 @@ suite("test_iceberg_write_partition_distribution",
         partition by list (day(ts)) ()
         properties (
             "format-version" = "2",
-            "write.format.default" = "parquet"
+            "write.format.default" = "parquet",
+            "write.metadata.metrics.default" = "none"
         )
     """
     qt_day_plan """
@@ -125,4 +131,10 @@ suite("test_iceberg_write_partition_distribution",
             group by `partition`
         ) partition_file_counts
     """
+    // Disabling column metrics must not suppress the physical split boundaries in each data file.
+    assertEquals(0L, (sql """
+        select count(*) from day_partitions\$files
+        where content = 0 and (split_offsets is null or size(split_offsets) = 0 or split_offsets[1] <= 0)
+    """)[0][0] as long)
+
 }

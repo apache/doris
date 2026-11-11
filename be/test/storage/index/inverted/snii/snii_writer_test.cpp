@@ -31,6 +31,7 @@
 #include <cstdint>
 #include <map>
 #include <optional>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -38,8 +39,10 @@
 #include "common/exception.h"
 #include "common/status.h"
 #include "gen_cpp/AgentService_types.h"
+#include "io/fs/local_file_system.h"
 #include "runtime/exec_env.h"
 #include "runtime/index_policy/index_policy_mgr.h"
+#include "storage/index/index_file_writer.h"
 #include "storage/index/inverted/analysis/analyzer/analyzer.h"
 #include "storage/index/inverted/analysis/analyzer/custom_analyzer.h"
 #include "storage/index/inverted/analysis/gram/gram_extractor.h"
@@ -52,6 +55,7 @@
 #include "storage/index/inverted/snii/format/dict_block_directory.h"
 #include "storage/index/inverted/snii/format/dict_entry.h"
 #include "storage/index/inverted/snii/format/format_constants.h"
+#include "storage/index/inverted/snii/format/null_bitmap.h"
 #include "storage/index/inverted/snii/format/phrase_bigram.h"
 #include "storage/index/inverted/snii/format/sampled_term_index.h"
 #include "storage/index/inverted/snii/query/bm25_scorer.h"
@@ -468,7 +472,7 @@ TEST(SniiSegmentReaderTest, DictBlockAnchorHeapBytesCountsLongAnchor) {
 
 // ==================== null-docids growth-policy regression pins ====================
 //
-// append_nullable feeds add_nulls once per NULL RUN -- millions of calls on a
+// ScalarColumnWriter::append feeds add_nulls once per NULL RUN -- millions of calls on a
 // large interleaved-null compaction segment. An exact reserve(size()+count)
 // inside add_nulls capped capacity at "just enough", so EVERY subsequent call
 // reallocated + memcpy'd the whole array: O(runs x N) total memcpy (the
@@ -505,6 +509,120 @@ TEST(SniiWriterNullDocids, AddNullsGrowsGeometricallyNotQuadratically) {
     EXPECT_TRUE(std::ranges::is_sorted(nulls));
 }
 
+namespace {
+constexpr uint32_t kNullHandoffRows = 1U << 20;
+
+void add_null_handoff_rows(doris::segment_v2::SniiIndexColumnWriter* writer, bool arrays) {
+    ASSERT_OK(writer->add_nulls(1));
+    if (arrays) {
+        std::vector<uint64_t> offsets(kNullHandoffRows + 1, 0);
+        std::vector<uint8_t> null_map(kNullHandoffRows, 1);
+        ASSERT_OK(writer->add_array_values(sizeof(doris::Slice), nullptr, nullptr, offsets.data(),
+                                           kNullHandoffRows));
+        ASSERT_OK(writer->add_array_nulls(null_map.data(), kNullHandoffRows));
+    } else {
+        ASSERT_OK(writer->add_nulls(kNullHandoffRows));
+    }
+}
+
+void check_null_handoff_growth(const doris::segment_v2::SniiIndexColumnWriter& writer,
+                               int64_t mirrored_bytes, int64_t peak_bytes) {
+    const auto& nulls = writer.null_docids_for_test();
+    ASSERT_EQ(nulls.size(), kNullHandoffRows + 1);
+    EXPECT_EQ(nulls.front(), 0);
+    EXPECT_EQ(nulls.back(), kNullHandoffRows);
+    const int64_t retained_bytes = nulls.capacity() * sizeof(uint32_t);
+    EXPECT_EQ(writer.memory_reporter_for_test()->current_bytes(), retained_bytes);
+    EXPECT_EQ(mirrored_bytes, retained_bytes);
+    EXPECT_GE(peak_bytes, retained_bytes + static_cast<int64_t>(sizeof(uint32_t)));
+}
+
+void check_null_handoff_finish(doris::segment_v2::SniiIndexColumnWriter* writer,
+                               doris::segment_v2::IndexFileWriter* index_writer,
+                               const int64_t* mirrored_bytes, int64_t* peak_bytes) {
+    auto* reporter = writer->memory_reporter_for_test();
+    const auto& nulls = writer->null_docids_for_test();
+    const int64_t retained_bytes = nulls.capacity() * sizeof(uint32_t);
+    const auto bitmap_bytes = doris::snii::format::NullBitmapWriter::build_memory_upper_bound(
+            std::span<const uint32_t>(nulls));
+    *peak_bytes = *mirrored_bytes;
+    ASSERT_OK(writer->finish());
+    EXPECT_GE(*peak_bytes, retained_bytes + bitmap_bytes);
+    EXPECT_EQ(reporter->current_bytes(), 0);
+    EXPECT_EQ(*mirrored_bytes, 0);
+    EXPECT_EQ(writer->memory_reporter_for_test(), nullptr);
+    ASSERT_EQ(index_writer->_snii_memory_reporters.size(), 1);
+    EXPECT_EQ(index_writer->_snii_memory_reporters.front().get(), reporter);
+    ASSERT_OK(index_writer->begin_close());
+    ASSERT_OK(index_writer->finish_close());
+}
+} // namespace
+
+TEST(SniiWriterNullDocids, InitializedScalarAndArrayHandoffPreservesAccounting) {
+    const std::string directory = "./ut_dir/snii_null_docids_handoff";
+    auto fs = doris::io::global_local_filesystem();
+    ASSERT_OK(fs->delete_directory(directory));
+    ASSERT_OK(fs->create_directory(directory));
+    for (const bool arrays : {false, true}) {
+        SCOPED_TRACE(arrays ? "array" : "scalar");
+        int64_t mirrored_bytes = 0;
+        int64_t peak_bytes = 0;
+        {
+            const std::string path = directory + (arrays ? "/array.idx" : "/scalar.idx");
+            doris::io::FileWriterPtr file;
+            ASSERT_OK(fs->create_file(path, &file));
+            doris::segment_v2::IndexFileWriter index_writer(
+                    fs, path, "null_handoff", 0, doris::InvertedIndexStorageFormatPB::SNII,
+                    std::move(file));
+            doris::TabletIndex meta;
+            doris::TabletIndexPB pb;
+            pb.set_index_type(doris::IndexType::INVERTED);
+            pb.set_index_id(119);
+            pb.add_col_unique_id(0);
+            meta.init_from_pb(pb);
+            doris::segment_v2::SniiIndexColumnWriter writer(
+                    &index_writer, &meta, doris::FieldType::OLAP_FIELD_TYPE_VARCHAR);
+            ASSERT_OK(writer.init());
+            auto* reporter = writer.memory_reporter_for_test();
+            mirrored_bytes = reporter->current_bytes();
+            reporter->consume_release_ = [&, original = reporter->consume_release_](int64_t delta) {
+                original(delta);
+                mirrored_bytes += delta;
+                peak_bytes = std::max(peak_bytes, mirrored_bytes);
+            };
+            add_null_handoff_rows(&writer, arrays);
+            check_null_handoff_growth(writer, mirrored_bytes, peak_bytes);
+            check_null_handoff_finish(&writer, &index_writer, &mirrored_bytes, &peak_bytes);
+        }
+        EXPECT_EQ(mirrored_bytes, 0);
+    }
+}
+
+TEST(SniiWriterNullDocids, FailedHandoffReleasesNullAllocationBeforeReporter) {
+    doris::TabletIndex meta;
+    doris::TabletIndexPB pb;
+    pb.set_index_type(doris::IndexType::INVERTED);
+    pb.set_index_id(120);
+    pb.add_col_unique_id(0);
+    meta.init_from_pb(pb);
+    doris::segment_v2::IndexFileWriter index_writer(doris::io::global_local_filesystem(),
+                                                    "missing_null_output", "null_handoff", 0,
+                                                    doris::InvertedIndexStorageFormatPB::SNII);
+    doris::segment_v2::SniiIndexColumnWriter writer(&index_writer, &meta,
+                                                    doris::FieldType::OLAP_FIELD_TYPE_VARCHAR);
+    ASSERT_OK(writer.init());
+    auto* reporter = writer.memory_reporter_for_test();
+    ASSERT_OK(writer.add_nulls(1U << 20));
+    ASSERT_GT(reporter->current_bytes(), 0);
+    EXPECT_EQ(writer.finish().code(), doris::ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND);
+    EXPECT_EQ(reporter->current_bytes(), 0);
+    EXPECT_TRUE(index_writer._snii_memory_reporters.empty());
+    EXPECT_TRUE(writer.null_docids_for_test().empty());
+    writer.close_on_error();
+    EXPECT_EQ(writer.memory_reporter_for_test(), nullptr);
+    EXPECT_EQ(writer.null_docids_for_test().capacity(), 0);
+}
+
 TEST(SniiWriterFailureLatch, AnalyzerFailureDiscardsStateAndBlocksFinish) {
     doris::TabletIndex index_meta;
     init_failure_index_meta(&index_meta, 91);
@@ -518,7 +636,7 @@ TEST(SniiWriterFailureLatch, AnalyzerFailureDiscardsStateAndBlocksFinish) {
             create_failure_analyzer());
 
     const doris::Slice value = malformed_value_after_valid_token();
-    auto add_status = writer.add_values("", &value, 1);
+    auto add_status = writer.add_values(reinterpret_cast<const uint8_t*>(&value), 1);
     ASSERT_EQ(add_status.code(), doris::ErrorCode::INVERTED_INDEX_ANALYZER_ERROR);
     EXPECT_EQ(writer.term_buffer_for_test(), nullptr);
     EXPECT_EQ(writer.memory_reporter_for_test(), nullptr);
@@ -585,7 +703,7 @@ TEST(SniiWriterTest, SplitNormalizerRetainsPhrasePositions) {
     ASSERT_EQ(writer.config_for_test(), IndexConfig::kDocsPositions);
 
     const doris::Slice value("foo-bar");
-    ASSERT_OK(writer.add_values("content", &value, 1));
+    ASSERT_OK(writer.add_values(reinterpret_cast<const uint8_t*>(&value), 1));
     auto postings = writer.term_buffer_for_test()->finalize_sorted();
     bool saw_foo = false;
     bool saw_bar = false;
@@ -625,7 +743,7 @@ TEST(SniiWriterTest, GramTokenizerForcesDocsOnlyAndIsRecognised) {
 
     const std::vector<doris::Slice> values {doris::Slice("rpc error: code = Unavailable"),
                                             doris::Slice("手机微博")};
-    ASSERT_OK(writer.add_values("c", values.data(), values.size()));
+    ASSERT_OK(writer.add_values(reinterpret_cast<const uint8_t*>(values.data()), values.size()));
     auto postings = writer.term_buffer_for_test()->finalize_sorted();
     std::vector<std::string> terms;
     terms.reserve(postings.size());
@@ -663,7 +781,7 @@ TEST(SniiWriterTest, GramRowsStayIndependentAcrossTheReusedTokenStream) {
     const std::vector<doris::Slice> values {
             doris::Slice("rpc error: code = Unavailable desc = transport is closing"),
             doris::Slice("手机微博"), doris::Slice("SELECT COUNT(*) FROM tbl WHERE k = 42")};
-    ASSERT_OK(writer.add_values("c", values.data(), values.size()));
+    ASSERT_OK(writer.add_values(reinterpret_cast<const uint8_t*>(values.data()), values.size()));
 
     // Ground truth: the same extractor the writer used, driven one row at a time.
     gram::GramExtractor extractor(*writer.gram_scheme_for_test());
@@ -709,7 +827,7 @@ TEST(SniiWriterTest, GramTokenizerBuffersReachTheMemoryReporter) {
         row += "2026-09-06 INFO rpc request completed service=Frontend latency_ms=17 ";
     }
     const doris::Slice value(row.data(), row.size());
-    ASSERT_OK(writer.add_values("c", &value, 1));
+    ASSERT_OK(writer.add_values(reinterpret_cast<const uint8_t*>(&value), 1));
 
     // Ground truth: the same tokenizer on the same row, driven standalone. reset() is what fills
     // the buffers, so their capacity is settled by the time it returns.

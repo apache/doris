@@ -39,6 +39,11 @@ under the License.
     <dependencies>
         <dependency>
             <groupId>org.apache.doris</groupId>
+            <artifactId>fe-filesystem-gcs-common</artifactId>
+            <version>${revision}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.doris</groupId>
             <artifactId>fe-filesystem-spi</artifactId>
             <version>${revision}</version>
             <!-- SPI/API (and its transitive fe-extension-spi) live on the fe-core host classpath

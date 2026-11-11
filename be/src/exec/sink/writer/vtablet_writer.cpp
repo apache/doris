@@ -715,10 +715,10 @@ void VNodeChannel::_set_adaptive_random_bucket_open_request(PTabletWriterOpenReq
                 }
                 auto tablet_id = full_ordered_tablets[bucket_seq];
                 if (!partition_to_local_tablets[partition_id].contains(tablet_id)) {
-                    LOG(WARNING) << "skip non-local tablet selected by local bucket seq, load_id="
-                                 << _parent->_load_id << ", partition_id=" << partition_id
-                                 << ", bucket_seq=" << bucket_seq << ", tablet_id=" << tablet_id
-                                 << ", node_id=" << _node_id;
+                    VLOG_DEBUG << "skip non-local tablet selected by local bucket seq, load_id="
+                               << _parent->_load_id << ", partition_id=" << partition_id
+                               << ", bucket_seq=" << bucket_seq << ", tablet_id=" << tablet_id
+                               << ", node_id=" << _node_id;
                     continue;
                 }
                 selected_ordered_tablets.push_back(tablet_id);

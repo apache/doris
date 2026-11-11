@@ -169,4 +169,46 @@ suite("test_s3_tvf", "p0,external") {
     } finally {
     }
 
+    // Exercise schema conversion with both readers, including failed casts, source NULLs and
+    // multiple batches. The BIGINT seed must be listed before the STRING file for TVF inference.
+    String castPrefix = "s3://${getS3BucketName()}/regression/parquet_invalid_string_cast/${UUID.randomUUID()}"
+    String castStorageProperties = """
+        "s3.endpoint" = "${s3_endpoint}",
+        "s3.region" = "${region}",
+        "s3.access_key" = "${ak}",
+        "s3.secret_key" = "${sk}"
+    """
+    sql """SELECT CAST(1 AS BIGINT) AS id, CAST('seed' AS STRING) AS name
+           INTO OUTFILE "${castPrefix}/00_seed/part_" FORMAT AS parquet
+           PROPERTIES (${castStorageProperties})"""
+    sql """SELECT CAST(CASE number % 4
+                          WHEN 0 THEN 'xx'
+                          WHEN 1 THEN '5'
+                          WHEN 2 THEN NULL
+                          ELSE '9' END AS STRING) AS id,
+                  CAST(number AS STRING) AS name
+           FROM numbers("number" = "4096")
+           INTO OUTFILE "${castPrefix}/01_strings/part_" FORMAT AS parquet
+           PROPERTIES (${castStorageProperties})"""
+
+    def previousCastSettings = sql "SELECT @@enable_file_scanner_v2, @@batch_size, @@enable_strict_cast"
+    try {
+        sql "SET batch_size=1024"
+        sql "SET enable_strict_cast=false"
+        // Materialize every value; COUNT(*) could use footer statistics and skip conversion.
+        // Compare the actual reader outputs rather than hardcoding expected rows in Groovy.
+        def castResults = [false, true].collect { scannerV2 ->
+            sql "SET enable_file_scanner_v2=${scannerV2}"
+            sql """SELECT id, name FROM S3(
+                       "uri" = "${castPrefix}/{00_seed,01_strings}/*.parquet",
+                       "format" = "parquet",
+                       ${castStorageProperties}) ORDER BY name"""
+        }
+        assertEquals(castResults[0], castResults[1],
+                "V1 and V2 must preserve the same values and NULLs across mixed-schema batches")
+    } finally {
+        sql "SET enable_file_scanner_v2=${previousCastSettings[0][0]}"
+        sql "SET batch_size=${previousCastSettings[0][1]}"
+        sql "SET enable_strict_cast=${previousCastSettings[0][2]}"
+    }
 }

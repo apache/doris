@@ -18,6 +18,8 @@
 import groovy.json.JsonOutput
 
 suite("test_iceberg_write_uuid_inputs", "p0,external,iceberg,external_docker,external_docker_iceberg") {
+    // This suite explicitly checks the converted partition metadata.
+    sql "SET enable_iceberg_internal_partition_pruning=true"
     if (!context.config.otherConfigs.get("enableIcebergTest")?.toString()?.equalsIgnoreCase("true")) {
         return
     }

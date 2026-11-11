@@ -36,6 +36,8 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.info.TableNameInfo;
+import org.apache.doris.cloud.qe.ComputeGroupException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
@@ -151,6 +153,27 @@ public class MTMVPlanUtil {
         // After 1, this logic is no longer needed. This is to be compatible with older versions
         setCatalogAndDb(ctx, mtmv);
         return ctx;
+    }
+
+    /**
+     * The compute group of the current session, which a manual refresh of an MV that declares none
+     * borrows. Null outside cloud mode, without a session, or when the session resolves none.
+     */
+    @Nullable
+    public static String getSessionComputeGroup() {
+        if (!Config.isCloudMode()) {
+            return null;
+        }
+        ConnectContext ctx = ConnectContext.get();
+        if (ctx == null) {
+            return null;
+        }
+        try {
+            return ctx.getCloudCluster(false);
+        } catch (ComputeGroupException e) {
+            LOG.warn("failed to resolve compute group for refresh mtmv", e);
+            return null;
+        }
     }
 
     /**
@@ -612,6 +635,12 @@ public class MTMVPlanUtil {
                 statementContext.invalidCache(SessionVariable.DISABLE_NEREIDS_RULES);
             }
             Plan analyzedPlan = planner.getAnalyzedPlan();
+            Set<TableIf> baseTables = Sets.newHashSet(statementContext.getTables().values());
+            Set<TableIf> oneLevelTables = Sets.newHashSet(statementContext.getOneLevelTables().values());
+            MTMVRelation relation = generateMTMVRelation(baseTables, oneLevelTables);
+            // Row TTL injects a time-dependent internal predicate. Report the unsupported table policy before
+            // the generic nondeterministic-expression check so the policy cannot be bypassed by MV properties.
+            MTMVUtil.checkNoRowTtlBaseTable(relation);
             // can not contain Random function
             analyzeExpressions(analyzedPlan, mvProperties);
             // can not contain partition or tablets
@@ -621,8 +650,6 @@ public class MTMVPlanUtil {
                 throw new AnalysisException("can not contain invalid expression");
             }
 
-            Set<TableIf> baseTables = Sets.newHashSet(statementContext.getTables().values());
-            Set<TableIf> oneLevelTables = Sets.newHashSet(statementContext.getOneLevelTables().values());
             for (TableIf table : baseTables) {
                 if (table.isTemporary()) {
                     throw new AnalysisException("do not support create materialized view on temporary table ("
@@ -635,7 +662,6 @@ public class MTMVPlanUtil {
                     }
                 }
             }
-            MTMVRelation relation = generateMTMVRelation(baseTables, oneLevelTables);
             MTMVPartitionInfo mvPartitionInfo = mvPartitionDefinition.analyzeAndTransferToMTMVPartitionInfo(planner);
             List<ColumnDefinition> columns = MTMVPlanUtil.generateColumns(plan, ctx, mvPartitionInfo.getPartitionCol(),
                     (distribution == null || CollectionUtils.isEmpty(distribution.getCols())) ? Sets.newHashSet()

@@ -29,6 +29,8 @@ import org.apache.paimon.data.InternalRow;
 import org.apache.paimon.data.Timestamp;
 import org.apache.paimon.fs.local.LocalFileIO;
 import org.apache.paimon.predicate.FieldRef;
+import org.apache.paimon.predicate.FieldTransform;
+import org.apache.paimon.predicate.NestedFieldTransform;
 import org.apache.paimon.predicate.Predicate;
 import org.apache.paimon.predicate.PredicateBuilder;
 import org.apache.paimon.predicate.Transform;
@@ -44,7 +46,6 @@ import org.apache.paimon.table.sink.BatchWriteBuilder;
 import org.apache.paimon.table.source.ChainSplit;
 import org.apache.paimon.table.source.QueryAuthSplit;
 import org.apache.paimon.table.source.Split;
-import org.apache.paimon.types.DataType;
 import org.apache.paimon.types.DataTypes;
 import org.apache.paimon.types.RowType;
 import org.apache.paimon.utils.InstantiationUtil;
@@ -513,7 +514,7 @@ public class PaimonTimestampRepairReaderTest {
                     Timestamp.fromLocalDateTime(LocalDateTime.of(2025, 1, 1, 0, 0, 1)));
             Split split = FallbackReadFileStoreTable.toFallbackSplit(new QueryAuthSplit(
                     other.newReadBuilder().newScan().plan().splits().get(0),
-                    new TypedPolicyAuth(policy, Collections.emptyMap())), true);
+                    serializedPolicy(policy, Collections.emptyMap())), true);
             Table pair = new FallbackReadFileStoreTable((FileStoreTable) catalog.getTable(mainId),
                     ((FileStoreTable) other).copy(Collections.singletonMap("query-auth.enabled", "true")), true);
             Map<String, String> params = new HashMap<>();
@@ -572,6 +573,7 @@ public class PaimonTimestampRepairReaderTest {
             catalog.createDatabase("db", false);
             Identifier id = Identifier.create("db", "events");
             boolean nested = mode.equals("nested_policy");
+            boolean masking = mode.equals("masking_policy");
             boolean renamedPolicy = mode.startsWith("fallback_") && mode.endsWith("renamed_policy");
             boolean auditPolicy = mode.equals("audit_log_policy") || mode.contains("_audit_");
             Schema.Builder schema = Schema.newBuilder().column("id", DataTypes.INT())
@@ -580,18 +582,22 @@ public class PaimonTimestampRepairReaderTest {
                 schema.column("payload", RowType.builder().field("visible", DataTypes.INT())
                         .field("hidden", DataTypes.TIMESTAMP(6)).build());
             }
+            if (masking) {
+                schema.column("mask_source", DataTypes.TIMESTAMP(0));
+            }
             catalog.createTable(id, schema.build(), false);
             Table table = catalog.getTable(id);
             BatchWriteBuilder writer = table.newBatchWriteBuilder();
             Timestamp negative = Timestamp.fromLocalDateTime(LocalDateTime.of(1969, 12, 31, 23, 59, 59, 600000000));
             Timestamp positive = Timestamp.fromLocalDateTime(LocalDateTime.of(2025, 1, 1, 0, 0, 1, 600000000));
             try (BatchTableWrite write = writer.newWrite()) {
+                Timestamp masked = Timestamp.fromLocalDateTime(LocalDateTime.of(2020, 1, 1, 0, 0));
                 write.write(nested ? GenericRow.of(7, negative, GenericRow.of(7, negative))
-                        : GenericRow.of(7, negative));
+                        : masking ? GenericRow.of(7, negative, masked) : GenericRow.of(7, negative));
                 write.write(nested ? GenericRow.of(7, positive, GenericRow.of(7, positive))
-                        : GenericRow.of(7, positive));
+                        : masking ? GenericRow.of(7, positive, masked) : GenericRow.of(7, positive));
                 write.write(nested ? GenericRow.of(8, positive, GenericRow.of(8, positive))
-                        : GenericRow.of(8, positive));
+                        : masking ? GenericRow.of(8, positive, masked) : GenericRow.of(8, positive));
                 try (BatchTableCommit commit = writer.newCommit()) {
                     commit.commit(write.prepareCommit());
                 }
@@ -644,18 +650,16 @@ public class PaimonTimestampRepairReaderTest {
                         || mode.equals("fallback_policy")
                         ? timestamp : integer;
                 if (nested) {
-                    policy = builder.equal(new HiddenTimestamp(Collections.singletonList(new FieldRef(
+                    policy = builder.equal(new NestedFieldTransform(new FieldRef(
                             builder.indexOf("payload"), "payload",
-                            table.rowType().getTypeAt(builder.indexOf("payload"))))),
+                            table.rowType().getTypeAt(builder.indexOf("payload"))),
+                            Collections.singletonList("hidden")),
                             Timestamp.fromLocalDateTime(LocalDateTime.of(1969, 12, 31, 23, 59, 59)));
                 }
-                TableQueryAuthResult auth = mode.equals("integer_policy") || mode.equals("audit_log_policy")
-                        || renamedPolicy
-                        ? new TableQueryAuthResult(
-                        Collections.singletonList(JsonSerdeUtil.toJson(policy)), Collections.emptyMap())
-                        : new TypedPolicyAuth(policy, mode.equals("masking_policy")
-                                ? Collections.singletonMap("ts", new TimestampMask(Collections.singletonList(
-                                        new FieldRef(1, "ts", DataTypes.TIMESTAMP(0))))) : Collections.emptyMap());
+                TableQueryAuthResult auth = serializedPolicy(policy, masking
+                        ? Collections.singletonMap("ts", new FieldTransform(new FieldRef(
+                                builder.indexOf("mask_source"), "mask_source", DataTypes.TIMESTAMP(0))))
+                        : Collections.emptyMap());
                 split = new QueryAuthSplit(split, auth);
                 params.put("paimon_predicate", encode(Collections.emptyList()));
                 params.put("paimon." + PaimonJniScanner.DORIS_TIMESTAMP_PRECISION_REPAIR, "true");
@@ -712,96 +716,10 @@ public class PaimonTimestampRepairReaderTest {
         return Base64.getUrlEncoder().withoutPadding().encodeToString(InstantiationUtil.serializeObject(value));
     }
 
-    private static final class TypedPolicyAuth extends TableQueryAuthResult {
-        private static final long serialVersionUID = 1L;
-        private final Predicate policy;
-        private final Map<String, Transform> masking;
-
-        private TypedPolicyAuth(Predicate policy, Map<String, Transform> masking) {
-            super(Collections.emptyList(), Collections.emptyMap());
-            this.policy = policy;
-            this.masking = masking;
-        }
-
-        @Override
-        public Predicate extractPredicate() {
-            // Exercise the SDK policy callback independently of its timestamp JSON codec.
-            return policy;
-        }
-
-        @Override
-        public Map<String, Transform> extractColumnMasking() {
-            return masking;
-        }
-    }
-
-    private static final class TimestampMask implements Transform {
-        private static final long serialVersionUID = 1L;
-        private final List<Object> inputs;
-
-        private TimestampMask(List<Object> inputs) {
-            this.inputs = inputs;
-        }
-
-        @Override
-        public String name() {
-            return "TEST_TIMESTAMP_MASK";
-        }
-
-        @Override
-        public List<Object> inputs() {
-            return inputs;
-        }
-
-        @Override
-        public DataType outputType() {
-            return DataTypes.TIMESTAMP(0);
-        }
-
-        @Override
-        public Object transform(InternalRow row) {
-            FieldRef source = (FieldRef) inputs.get(0);
-            Assertions.assertEquals(0, row.getTimestamp(source.index(), 0).toLocalDateTime().getNano());
-            return Timestamp.fromLocalDateTime(LocalDateTime.of(2020, 1, 1, 0, 0));
-        }
-
-        @Override
-        public Transform copyWithNewInputs(List<Object> newInputs) {
-            return new TimestampMask(newInputs);
-        }
-    }
-
-    private static final class HiddenTimestamp implements Transform {
-        private static final long serialVersionUID = 1L;
-        private final List<Object> inputs;
-
-        private HiddenTimestamp(List<Object> inputs) {
-            this.inputs = inputs;
-        }
-
-        @Override
-        public String name() {
-            return "TEST_HIDDEN_TIMESTAMP";
-        }
-
-        @Override
-        public List<Object> inputs() {
-            return inputs;
-        }
-
-        @Override
-        public DataType outputType() {
-            return DataTypes.TIMESTAMP(0);
-        }
-
-        @Override
-        public Object transform(InternalRow row) {
-            return row.getRow(((FieldRef) inputs.get(0)).index(), 2).getTimestamp(1, 0);
-        }
-
-        @Override
-        public Transform copyWithNewInputs(List<Object> newInputs) {
-            return new HiddenTimestamp(newInputs);
-        }
+    private static TableQueryAuthResult serializedPolicy(Predicate policy, Map<String, Transform> masks) {
+        Map<String, String> serializedMasks = new HashMap<>();
+        masks.forEach((name, transform) -> serializedMasks.put(name, JsonSerdeUtil.toJson(transform)));
+        // QueryAuthSplit 2.1 transports these JSON definitions, not subclass overrides.
+        return new TableQueryAuthResult(Collections.singletonList(JsonSerdeUtil.toJson(policy)), serializedMasks);
     }
 }

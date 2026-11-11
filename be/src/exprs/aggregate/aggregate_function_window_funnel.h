@@ -102,7 +102,6 @@ struct DataValue {
 template <PrimitiveType T>
 struct WindowFunnelState {
     static constexpr PrimitiveType PType = T;
-    using NativeType = typename PrimitiveTypeTraits<T>::StorageFieldType;
     using DateValueType = typename PrimitiveTypeTraits<T>::CppType;
     int event_count = 0;
     int64_t window;

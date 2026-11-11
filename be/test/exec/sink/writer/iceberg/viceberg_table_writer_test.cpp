@@ -32,6 +32,7 @@
 #include "core/data_type/data_type_timestamptz.h"
 #include "core/data_type/data_type_varbinary.h"
 #include "exec/sink/writer/iceberg/partition_transformers.h"
+#include "exec/sink/writer/iceberg/viceberg_partition_writer.h"
 #include "exec/sink/writer/iceberg/vpartition_writer_base.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vslot_ref.h"
@@ -71,7 +72,7 @@ TEST(VIcebergTableWriterTest, RejectsRequiredNullBeforeWriterCreation) {
     TIcebergTableSink sink;
     TDataSink data_sink;
     data_sink.__set_iceberg_table_sink(sink);
-    VIcebergTableWriter writer(data_sink, {}, nullptr, nullptr);
+    VIcebergTableWriter writer(data_sink, {});
     writer._schema = schema;
 
     auto type = make_nullable(std::make_shared<DataTypeInt32>());
@@ -102,7 +103,7 @@ TEST(VIcebergTableWriterTest, RejectsNestedRequiredNullBeforeWriterCreation) {
     TIcebergTableSink sink;
     TDataSink data_sink;
     data_sink.__set_iceberg_table_sink(sink);
-    VIcebergTableWriter writer(data_sink, {}, nullptr, nullptr);
+    VIcebergTableWriter writer(data_sink, {});
     writer._schema = schema;
 
     auto child_type = make_nullable(std::make_shared<DataTypeInt32>());
@@ -144,7 +145,7 @@ TEST(VIcebergTableWriterTest, TimestampIdentityPreservesUtcCommitAndNull) {
     TDataSink data_sink;
     data_sink.__set_iceberg_table_sink(sink);
     VExprContextSPtrs exprs;
-    VIcebergTableWriter writer(data_sink, exprs, nullptr, nullptr);
+    VIcebergTableWriter writer(data_sink, exprs);
     RuntimeState state;
     state.set_timezone("America/New_York");
     writer._state = &state;
@@ -228,7 +229,7 @@ TEST(VIcebergTableWriterTest, StaticNullBinaryPartitionsKeepNullPathsAndCommitVa
         TDataSink data_sink;
         data_sink.__set_iceberg_table_sink(sink);
         VExprContextSPtrs exprs;
-        VIcebergTableWriter writer(data_sink, exprs, nullptr, nullptr);
+        VIcebergTableWriter writer(data_sink, exprs);
         writer._schema = schema;
         auto type = make_nullable(std::make_shared<DataTypeVarbinary>());
         writer._iceberg_partition_columns.emplace_back(
@@ -292,7 +293,7 @@ TEST(VIcebergTableWriterTest, BinaryIdentityStaticAndDynamicRouting) {
     TDataSink data_sink;
     data_sink.__set_iceberg_table_sink(sink);
     VExprContextSPtrs exprs;
-    VIcebergTableWriter writer(data_sink, exprs, nullptr, nullptr);
+    VIcebergTableWriter writer(data_sink, exprs);
     writer._schema = schema;
     writer._iceberg_partition_columns.emplace_back(
             spec->fields()[0], TYPE_VARBINARY, 0, std::vector<size_t> {},
@@ -327,6 +328,65 @@ TEST(VIcebergTableWriterTest, BinaryIdentityStaticAndDynamicRouting) {
     EXPECT_EQ(std::vector<std::string>({"0xdead", "7"}), writer._partition_values(hybrid));
 }
 
+TEST(VIcebergTableWriterTest, OpenRejectsASinkWithoutTheTableFormOfTheDataLocation) {
+    // Without original_output_path the commit used to record relative paths such as
+    // /p=1/xxx.parquet; now the write fails before any file is created.
+    TIcebergTableSink sink;
+    sink.__set_output_path("s3://b/db/t/data");
+    TDataSink data_sink;
+    data_sink.__set_iceberg_table_sink(sink);
+    VIcebergTableWriter writer(data_sink, {});
+    RuntimeState state;
+    TQueryOptions query_options;
+    query_options.__set_supports_external_file_report_ack(true);
+    state.set_query_options(query_options);
+    RuntimeProfile profile("test");
+
+    Status status = writer.open(&state, &profile);
+
+    EXPECT_TRUE(status.is<ErrorCode::INTERNAL_ERROR>()) << status;
+    EXPECT_NE(std::string::npos, status.to_string().find("original_output_path"));
+    EXPECT_FALSE(writer._output_location.has_value());
+}
+
+TEST(VIcebergTableWriterTest, PartitionWritersWriteAndCommitUnderBothFormsOfTheDataLocation) {
+    // FE normalizes the location BE writes to (oss:// becomes s3://); the commit must keep the
+    // table's own form in the data location and in every partition directory under it.
+    std::vector<iceberg::NestedField> columns;
+    columns.emplace_back(false, 1, "p", std::make_unique<iceberg::IntegerType>(), std::nullopt);
+    TIcebergTableSink sink;
+    sink.__set_output_path("s3://b/db/t/data");
+    sink.__set_original_output_path("oss://b/db/t/data/");
+    sink.__set_file_format(TFileFormatType::FORMAT_PARQUET);
+    sink.__set_compression_type(TFileCompressType::SNAPPYBLOCK);
+    TDataSink data_sink;
+    data_sink.__set_iceberg_table_sink(sink);
+    VIcebergTableWriter writer(data_sink, {});
+    writer._schema = std::make_shared<iceberg::Schema>(std::move(columns));
+    // What open() derives from the two location fields.
+    writer._output_location.emplace(sink.output_path, sink.original_output_path);
+
+    const std::string file_name = "f";
+    auto expect_paths = [&](const std::string& partition_dir) {
+        auto writer_base = writer._create_partition_writer(nullptr, -1, &file_name, 0);
+        auto* partition_writer = dynamic_cast<VIcebergPartitionWriter*>(writer_base.get());
+        ASSERT_NE(nullptr, partition_writer);
+        const auto& location = partition_writer->_write_info.location;
+        const std::string target_file = partition_writer->_get_target_file_name();
+        EXPECT_EQ("s3://b/db/t/data/" + partition_dir + target_file,
+                  location.write_path(target_file));
+        EXPECT_EQ("oss://b/db/t/data/" + partition_dir + target_file,
+                  location.commit_path(target_file));
+    };
+    // A non-partitioned table writes into the data location itself.
+    expect_paths("");
+    // A partition writes into its directory under the data location.
+    writer._is_full_static_partition = true;
+    writer._static_partition_path = "p=1";
+    writer._static_partition_value_list = {"1"};
+    expect_paths("p=1/");
+}
+
 TEST(VIcebergTableWriterTest, RejectMissingPartitionSource) {
     std::vector<iceberg::NestedField> columns;
     columns.emplace_back(false, 3, "id", std::make_unique<iceberg::IntegerType>(), std::nullopt);
@@ -338,7 +398,7 @@ TEST(VIcebergTableWriterTest, RejectMissingPartitionSource) {
     TIcebergTableSink iceberg_sink;
     TDataSink data_sink;
     data_sink.__set_iceberg_table_sink(iceberg_sink);
-    VIcebergTableWriter writer(data_sink, {}, nullptr, nullptr);
+    VIcebergTableWriter writer(data_sink, {});
     writer._schema = schema;
     writer._partition_spec = iceberg::PartitionSpecParser::from_json(schema, spec_json);
 
@@ -349,6 +409,50 @@ TEST(VIcebergTableWriterTest, RejectMissingPartitionSource) {
         EXPECT_NE(exception.to_string().find("source field 1 outside writer schema"),
                   std::string::npos);
     }
+}
+
+TEST(VIcebergTableWriterTest, VoidPartitionFieldNeedsNoSourceColumn) {
+    // A v1 table keeps void(region) for its dropped partition field after region is dropped too.
+    std::vector<iceberg::NestedField> columns;
+    columns.emplace_back(true, 1, "note", std::make_unique<iceberg::IntegerType>(), std::nullopt);
+    columns.emplace_back(true, 3, "category", std::make_unique<iceberg::IntegerType>(),
+                         std::nullopt);
+    auto schema = std::make_shared<iceberg::Schema>(std::move(columns));
+    const std::string spec_json =
+            R"({"spec-id":1,"fields":[{"name":"region","transform":"void","source-id":2,)"
+            R"("field-id":1000},{"name":"category","transform":"identity","source-id":3,)"
+            R"("field-id":1001}]})";
+    auto int_type = make_nullable(std::make_shared<DataTypeInt32>());
+    VExprContextSPtrs output_exprs {
+            VExprContext::create_shared(VSlotRef::create_shared(0, 0, -1, int_type, "note")),
+            VExprContext::create_shared(VSlotRef::create_shared(1, 1, -1, int_type, "category"))};
+
+    TIcebergTableSink iceberg_sink;
+    TDataSink data_sink;
+    data_sink.__set_iceberg_table_sink(iceberg_sink);
+    VIcebergTableWriter writer(data_sink, output_exprs);
+    writer._schema = schema;
+    writer._partition_spec = iceberg::PartitionSpecParser::from_json(schema, spec_json);
+    writer._iceberg_partition_columns = writer._to_iceberg_partition_columns();
+    ASSERT_EQ(writer._iceberg_partition_columns.size(), 2);
+    EXPECT_EQ(writer._iceberg_partition_columns[0].source_idx(), -1);
+    EXPECT_EQ(writer._iceberg_partition_columns[1].source_idx(), 1);
+
+    IcebergPartitionData partition({std::any(), Int32(7)});
+    EXPECT_EQ("region=null/category=7", writer._partition_to_path(partition));
+    EXPECT_EQ(std::vector<std::string>({"null", "7"}), writer._partition_values(partition));
+    auto recording_writer = std::make_shared<RecordingPartitionWriter>();
+    writer._partitions_to_writers[writer._partition_to_writer_key(partition)] = recording_writer;
+    auto note = int_type->create_column();
+    note->insert_many_defaults(2);
+    auto category = int_type->create_column();
+    category->insert(Field::create_field<TYPE_INT>(7));
+    category->insert(Field::create_field<TYPE_INT>(7));
+    Block block({ColumnWithTypeAndName(note->get_ptr(), int_type, "note"),
+                 ColumnWithTypeAndName(category->get_ptr(), int_type, "category")});
+    // Both rows must reach the writer of the partition whose void value is NULL.
+    ASSERT_TRUE(writer._write_prepared_block(block).ok());
+    EXPECT_EQ(2, recording_writer->rows);
 }
 
 TEST(VIcebergTableWriterTest, ResolvesNestedPartitionSource) {
@@ -369,7 +473,7 @@ TEST(VIcebergTableWriterTest, ResolvesNestedPartitionSource) {
     TIcebergTableSink iceberg_sink;
     TDataSink data_sink;
     data_sink.__set_iceberg_table_sink(iceberg_sink);
-    VIcebergTableWriter writer(data_sink, output_exprs, nullptr, nullptr);
+    VIcebergTableWriter writer(data_sink, output_exprs);
     writer._schema = schema;
     writer._partition_spec = iceberg::PartitionSpecParser::from_json(schema, spec_json);
 
@@ -418,7 +522,7 @@ TEST(VIcebergTableWriterTest, UuidStaticPartitionAcceptsCanonicalText) {
     TDataSink data_sink;
     data_sink.__set_iceberg_table_sink(sink);
     VExprContextSPtrs exprs;
-    VIcebergTableWriter writer(data_sink, exprs, nullptr, nullptr);
+    VIcebergTableWriter writer(data_sink, exprs);
     writer._schema = schema;
     writer._iceberg_partition_columns.emplace_back(
             spec->fields()[0], TYPE_VARBINARY, 0, std::vector<size_t> {},

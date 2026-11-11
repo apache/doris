@@ -511,6 +511,9 @@ void doris_tablet_schema_to_cloud(TabletSchemaCloudPB* out, const TabletSchemaPB
     if (in.has_row_lsn_col_idx()) {
         out->set_row_lsn_col_idx(in.row_lsn_col_idx());
     }
+    out->set_ttl_col_idx(in.ttl_col_idx());
+    out->set_row_ttl_duration_us(in.row_ttl_duration_us());
+    out->set_row_ttl_time_zone_offset_seconds(in.row_ttl_time_zone_offset_seconds());
 
     if (in.has___split_schema()) {
         out->mutable___split_schema()->CopyFrom(in.__split_schema());
@@ -566,6 +569,9 @@ void doris_tablet_schema_to_cloud(TabletSchemaCloudPB* out, TabletSchemaPB&& in)
     if (in.has_row_lsn_col_idx()) {
         out->set_row_lsn_col_idx(in.row_lsn_col_idx());
     }
+    out->set_ttl_col_idx(in.ttl_col_idx());
+    out->set_row_ttl_duration_us(in.row_ttl_duration_us());
+    out->set_row_ttl_time_zone_offset_seconds(in.row_ttl_time_zone_offset_seconds());
 
     if (in.has___split_schema()) {
         out->mutable___split_schema()->CopyFrom(in.__split_schema());
@@ -634,6 +640,9 @@ void cloud_tablet_schema_to_doris(TabletSchemaPB* out, const TabletSchemaCloudPB
     if (in.has_row_lsn_col_idx()) {
         out->set_row_lsn_col_idx(in.row_lsn_col_idx());
     }
+    out->set_ttl_col_idx(in.ttl_col_idx());
+    out->set_row_ttl_duration_us(in.row_ttl_duration_us());
+    out->set_row_ttl_time_zone_offset_seconds(in.row_ttl_time_zone_offset_seconds());
 
     if (in.has___split_schema()) {
         out->mutable___split_schema()->CopyFrom(in.__split_schema());
@@ -690,6 +699,9 @@ void cloud_tablet_schema_to_doris(TabletSchemaPB* out, TabletSchemaCloudPB&& in)
     if (in.has_row_lsn_col_idx()) {
         out->set_row_lsn_col_idx(in.row_lsn_col_idx());
     }
+    out->set_ttl_col_idx(in.ttl_col_idx());
+    out->set_row_ttl_duration_us(in.row_ttl_duration_us());
+    out->set_row_ttl_time_zone_offset_seconds(in.row_ttl_time_zone_offset_seconds());
 
     if (in.has___split_schema()) {
         out->mutable___split_schema()->CopyFrom(in.__split_schema());
@@ -757,6 +769,9 @@ void doris_tablet_meta_to_cloud(TabletMetaCloudPB* out, const TabletMetaPB& in) 
     out->mutable_cooldown_meta_id()->CopyFrom(in.cooldown_meta_id());
     if (in.has_binlog_config()) {
         out->mutable_binlog_config()->CopyFrom(in.binlog_config());
+    }
+    if (in.has_row_ttl_config()) {
+        out->mutable_row_ttl_config()->CopyFrom(in.row_ttl_config());
     }
     if (in.has_tablet_role()) {
         out->set_tablet_role(in.tablet_role());
@@ -845,6 +860,9 @@ void doris_tablet_meta_to_cloud(TabletMetaCloudPB* out, TabletMetaPB&& in) {
     out->mutable_cooldown_meta_id()->CopyFrom(in.cooldown_meta_id());
     if (in.has_binlog_config()) {
         out->mutable_binlog_config()->Swap(in.mutable_binlog_config());
+    }
+    if (in.has_row_ttl_config()) {
+        out->mutable_row_ttl_config()->Swap(in.mutable_row_ttl_config());
     }
     if (in.has_tablet_role()) {
         out->set_tablet_role(in.tablet_role());
@@ -941,6 +959,9 @@ void cloud_tablet_meta_to_doris(TabletMetaPB* out, const TabletMetaCloudPB& in) 
     if (in.has_binlog_config()) {
         out->mutable_binlog_config()->CopyFrom(in.binlog_config());
     }
+    if (in.has_row_ttl_config()) {
+        out->mutable_row_ttl_config()->CopyFrom(in.row_ttl_config());
+    }
     if (in.has_tablet_role()) {
         out->set_tablet_role(in.tablet_role());
     }
@@ -1028,6 +1049,9 @@ void cloud_tablet_meta_to_doris(TabletMetaPB* out, TabletMetaCloudPB&& in) {
     out->mutable_cooldown_meta_id()->CopyFrom(in.cooldown_meta_id());
     if (in.has_binlog_config()) {
         out->mutable_binlog_config()->Swap(in.mutable_binlog_config());
+    }
+    if (in.has_row_ttl_config()) {
+        out->mutable_row_ttl_config()->Swap(in.mutable_row_ttl_config());
     }
     if (in.has_tablet_role()) {
         out->set_tablet_role(in.tablet_role());

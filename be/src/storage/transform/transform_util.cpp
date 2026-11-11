@@ -19,38 +19,17 @@
 
 #include "common/cast_set.h"
 #include "core/block/block.h"
-#include "storage/iterator/olap_data_convertor.h"
 #include "storage/tablet/tablet_schema.h"
 
 namespace doris::segment_v2 {
 
-Status convert_key_columns(OlapBlockDataConvertor& convertor, const TabletSchema& schema,
-                           const Block& block, size_t num_rows,
-                           std::vector<IOlapColumnDataAccessor*>& key_columns) {
+void collect_key_columns(const TabletSchema& schema, const Block& block,
+                         std::vector<const IColumn*>& key_columns) {
     key_columns.clear();
     const uint32_t num_key_columns = cast_set<uint32_t>(schema.num_key_columns());
     for (uint32_t cid = 0; cid < num_key_columns; ++cid) {
-        convertor.add_column_data_convertor_at(schema.column(cid), cid);
-        RETURN_IF_ERROR(convertor.set_source_content_with_specifid_column(
-                block.get_by_position(cid), 0, num_rows, cid));
-        auto [st, column] = convertor.convert_column_data(cid);
-        RETURN_IF_ERROR(st);
-        key_columns.push_back(column);
+        key_columns.push_back(block.get_by_position(cid).column.get());
     }
-    return Status::OK();
-}
-
-Status convert_seq_column(OlapBlockDataConvertor& convertor, const TabletSchema& schema,
-                          const Block& block, size_t src_pos, size_t num_rows,
-                          IOlapColumnDataAccessor*& seq_column) {
-    const auto seq_cid = cast_set<uint32_t>(schema.sequence_col_idx());
-    convertor.add_column_data_convertor_at(schema.column(seq_cid), seq_cid);
-    RETURN_IF_ERROR(convertor.set_source_content_with_specifid_column(
-            block.get_by_position(src_pos), 0, num_rows, seq_cid));
-    auto [st, column] = convertor.convert_column_data(seq_cid);
-    RETURN_IF_ERROR(st);
-    seq_column = column;
-    return Status::OK();
 }
 
 Block widen_partial_update_block(const TabletSchema& schema,
