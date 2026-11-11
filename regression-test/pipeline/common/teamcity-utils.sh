@@ -129,51 +129,23 @@ teamcity_current_producer() {
 }
 
 teamcity_current_enqueue() {
-    local type=$1 params=$2 count=$3 dependencies=${4:-null} key_root key ordinal id row props active instance payload actual
+    local type=$1 params=$2 count=$3 dependencies=${4:-null} ordinal id instance payload actual
     teamcity_current_root "$type" || return 1
-    key_root=$(jq -c '[.comment.id,.comment.updated_at,.comment.body]' "${GITHUB_EVENT_PATH:?}" | sha256sum | cut -d' ' -f1)
-    key_root="comment:${key_root}:${COMMIT_ID_FROM_TRIGGER}:${type}"
-    teamcity_rest "builds?locator=buildType:(id:${type}),branch:(name:pull/${PULL_REQUEST_NUM}),defaultFilter:false,count:100&fields=build(${TC_FIELDS})" > "$TC_TMP/history.json" || return 1
-    teamcity_rest "buildQueue?locator=buildType:(id:${type})&fields=build(${TC_FIELDS})" > "$TC_TMP/queued.json" || return 1
-    jq -s '{build:([.[].build[]?]|unique_by(.id))}' "$TC_TMP/history.json" "$TC_TMP/queued.json" > "$TC_TMP/combined.json" || return 1
-    mv "$TC_TMP/combined.json" "$TC_TMP/history.json"
-    # Reuse the existing revision-aware queue/running lookup, without canceling builds.
-    local COMMENT_TRIGGER_TYPE=${TC_REQUEST_LANE} duplicate_status=0
-    active=$(get_active_builds_of_revision "$PULL_REQUEST_NUM" "$COMMENT_TRIGGER_TYPE" "$COMMIT_ID_FROM_TRIGGER") || duplicate_status=$?
-    [[ $duplicate_status == 0 || $duplicate_status == 1 ]] || return 1
     instance=$(teamcity_rest "vcs-root-instances?locator=buildType:(id:${type})&fields=vcs-root-instance(id,vcs-root-id)" |
         jq -er '[."vcs-root-instance"[] | select(."vcs-root-id"=="DorisMigrationValidation_ApacheDoris")] | select(length==1) | .[0].id') || return 1
     for ((ordinal=1; ordinal<=count; ordinal++)); do
-        key="${key_root}:${ordinal}"
-        id=$(jq -r --arg key "$key" '[.build[]? | select(any(.properties.property[]?; .name=="env.CI_COMMENT_REQUEST_KEY" and .value==$key))] | if length>1 then error("Duplicate request keys") else .[0].id // empty end' "$TC_TMP/history.json") || return 1
-        while [[ -z $id && -n $active ]]; do
-            row=${active%%$'\n'*}; [[ $active == *$'\n'* ]] && active=${active#*$'\n'} || active=''
-            [[ " ${TC_USED_IDS:-} " == *" $row "* ]] && continue
-            actual=$(teamcity_rest "builds/id:${row}?fields=${TC_FIELDS}") || return 1
-            # Producer pins must match; Compile must cover all requested regression lanes.
-            if jq -e --argjson expected "$params" --arg root "$key_root" '
-                ((.properties.property // []) | map({key:.name,value:.value}) | from_entries) as $p |
-                .status!="FAILURE" and .canceledInfo==null and
-                (($p["env.CI_COMMENT_REQUEST_KEY"] // "" | startswith($root)) | not) and
-                all($expected | to_entries[]; .key as $k | .value as $v |
-                    if $k=="regression_targets" then (($v|split(","))-($p[$k] // "p0,cloud_p0,vault_p0,external,nonConcurrent"|split(","))|length)==0
-                    elif $k=="env.CI_FANOUT_KEY" or $k=="env.PR_NUMBER" or $k=="env.CI_BRANCH" then true else $p[$k]==$v end)' <<< "$actual" >/dev/null; then id=$row; fi
-        done
-        if [[ -z $id ]]; then
-            teamcity_current_pr || { echo 'PR revision or target changed; no new build submitted' >&2; return 1; }
-            payload=$(jq -cn --arg type "$type" --arg pr "$PULL_REQUEST_NUM" --arg head "$COMMIT_ID_FROM_TRIGGER" --arg instance "$instance" --arg key "$key" --argjson params "$params" --argjson deps "$dependencies" '
-                {buildType:{id:$type},branchName:("pull/"+$pr),revisions:{failOnMissingRevisions:true,revision:[{version:$head,vcsBranchName:("refs/pull/"+$pr+"/head"),"vcs-root-instance":{id:$instance}}]},
-                 properties:{property:(($params+{"env.CI_COMMENT_REQUEST_KEY":$key})|to_entries|map({name:.key,value:.value}))},
-                 triggeringOptions:{queueAtTop:false,rebuildAllDependencies:false}} +
-                (if $deps==null then {} else {"custom-artifact-dependencies":{"artifact-dependency":$deps}} end)') || return 1
-            # No automatic POST retry: a workflow retry reconciles the persisted request key.
-            id=$(teamcity_rest buildQueue -X POST --data-binary "$payload" | jq -er .id) || return 1
-            actual=$(teamcity_rest "builds/id:${id}?fields=${TC_FIELDS}") || return 1
-            jq -e --arg head "$COMMIT_ID_FROM_TRIGGER" --arg key "$key" --argjson params "$params" '
-                ((.properties.property // []) | map({key:.name,value:.value}) | from_entries) as $p |
-                [.revisions.revision[].version]==[$head] and $p["env.CI_COMMENT_REQUEST_KEY"]==$key and all($params|to_entries[]; $p[.key]==.value)' <<< "$actual" >/dev/null || return 1
-        fi
-        TC_USED_IDS="${TC_USED_IDS:-} $id"
+        teamcity_current_pr || { echo 'PR revision or target changed; no new build submitted' >&2; return 1; }
+        payload=$(jq -cn --arg type "$type" --arg pr "$PULL_REQUEST_NUM" --arg head "$COMMIT_ID_FROM_TRIGGER" --arg instance "$instance" --argjson params "$params" --argjson deps "$dependencies" '
+            {buildType:{id:$type},branchName:("pull/"+$pr),revisions:{failOnMissingRevisions:true,revision:[{version:$head,vcsBranchName:("refs/pull/"+$pr+"/head"),"vcs-root-instance":{id:$instance}}]},
+             properties:{property:($params|to_entries|map({name:.key,value:.value}))},
+             triggeringOptions:{queueAtTop:false,rebuildAllDependencies:false}} +
+            (if $deps==null then {} else {"custom-artifact-dependencies":{"artifact-dependency":$deps}} end)') || return 1
+        # Queue replacement and duplicate handling belong to TeamCity.
+        id=$(teamcity_rest buildQueue -X POST --data-binary "$payload" | jq -er .id) || return 1
+        actual=$(teamcity_rest "builds/id:${id}?fields=${TC_FIELDS}") || return 1
+        jq -e --arg head "$COMMIT_ID_FROM_TRIGGER" --argjson params "$params" '
+            ((.properties.property // []) | map({key:.name,value:.value}) | from_entries) as $p |
+            [.revisions.revision[].version]==[$head] and all($params|to_entries[]; $p[.key]==.value)' <<< "$actual" >/dev/null || return 1
         echo "INFO: ${type} build ${id}: ${TEAMCITY_URL}/buildConfiguration/${type}/${id}" >&2
         printf '%s\n' "$id"
     done
@@ -190,7 +162,6 @@ teamcity_current_trigger() (
     }
     TC_TMP=$(mktemp -d); trap 'rm -rf -- "$TC_TMP"' EXIT
     TC_FIELDS='id,number,buildTypeId,branchName,state,status,canceledInfo,revisions(revision(version)),properties(property(name,value))'
-    TC_REQUEST_LANE=$lane
     params=$(jq -cn --arg pr "$PULL_REQUEST_NUM" --arg branch "$PULL_REQUEST_TARGET_BRANCH" '{"env.PR_NUMBER":$pr,"env.CI_BRANCH":$branch}')
     type=${comment_to_pipeline[$lane]}
     case $lane in
@@ -202,7 +173,7 @@ teamcity_current_trigger() (
             if [[ $rc == 3 ]]; then
                 echo "No current verified artifact; Compile will trigger $lane" >&2
                 params=$(jq -c --arg lane "$regression_lane" '.+{regression_targets:$lane,is_debug:"false"}' <<< "$params")
-                type=Doris_Compile; TC_REQUEST_LANE=compile
+                type=Doris_Compile
             else
                 [[ $rc == 0 ]]
                 params=$(cat "$TC_TMP/parameters.json")
@@ -225,7 +196,6 @@ teamcity_current_performance() {
     teamcity_current_producer performance || rc=$?
     if [[ $rc == 3 ]]; then
         comment_to_pipeline[performance_compile]=Doris_Performance_Compile
-        TC_REQUEST_LANE=performance_compile
         producer=$(teamcity_current_enqueue Doris_Performance_Compile "$params" 1) || return 1
         deadline=$((SECONDS+10800))
         while :; do
@@ -274,132 +244,8 @@ PY
     dependencies=$(jq -cn --arg number "$(jq -r .number "$TC_TMP/producer.json")" '[{type:"artifact_dependency","source-buildType":{id:"Doris_Performance_Compile"},properties:{property:[
         {name:"revisionName",value:"buildNumber"},{name:"revisionValue",value:$number},{name:"cleanDestinationDirectory",value:"true"},
         {name:"pathRules",value:"performance-release-packages/manifest.json => performance-input-%teamcity.build.id%\nperformance-release-packages/binary.tar.gz => performance-input-%teamcity.build.id%"}]}}]') || return 1
-    TC_REQUEST_LANE=performance
     teamcity_current_enqueue Doris_Performance "$params" "$count" "$dependencies"
 }
-
-get_commit_id_of_build() {
-    # 获取某个build的commit id
-    if [[ -z "$1" ]]; then return 1; fi
-    local build_id="$1"
-    local commit_id
-    local ret
-    set +x
-    if ret=$(
-        teamcity_request -sS --fail -X GET \
-            -H "Content-Type:text/plain" \
-            -H "Accept: application/json" \
-            "${TEAMCITY_URL}/app/rest/builds/id:${build_id}"
-    ); then
-        set +x
-        commit_id=$(echo "${ret}" | jq -r '.revisions.revision[0].version')
-        echo "${commit_id}"
-    else
-        set +x
-        return 1
-    fi
-}
-
-get_running_build_of_pr() {
-    # "获取pr在某条流水线上正在跑的build"
-    local PULL_REQUEST_NUM="${PULL_REQUEST_NUM:-$1}"
-    local COMMENT_TRIGGER_TYPE="${COMMENT_TRIGGER_TYPE:-$2}"
-    if [[ -z "${PULL_REQUEST_NUM}" || -z "${COMMENT_TRIGGER_TYPE}" ]]; then
-        echo "Usage: get_queue_build_of_pr PULL_REQUEST_NUM COMMENT_TRIGGER_TYPE" && return 1
-    fi
-
-    local PIPELINE="${comment_to_pipeline[${COMMENT_TRIGGER_TYPE}]}"
-    local running_builds_list
-    local ret
-    set +x
-    if ret=$(
-        teamcity_request -sS --fail -X GET \
-            -H "Content-Type:text/plain" \
-            -H "Accept: application/json" \
-            "${TEAMCITY_URL}/app/rest/builds?locator=buildType:${PIPELINE},branch:pull/${PULL_REQUEST_NUM},running:true"
-    ); then
-        set +x
-        running_builds_list=$(echo "${ret}" | jq -r '.build[]?.id')
-        echo "${running_builds_list}"
-    else
-        set +x
-        return 1
-    fi
-}
-# get_running_build_of_pr "$1" "$2"
-
-get_queue_build_of_pr() {
-    # "获取pr在某条流水线上排队的build"
-    local PULL_REQUEST_NUM="${PULL_REQUEST_NUM:-$1}"
-    local COMMENT_TRIGGER_TYPE="${COMMENT_TRIGGER_TYPE:-$2}"
-    if [[ -z "${PULL_REQUEST_NUM}" || -z "${COMMENT_TRIGGER_TYPE}" ]]; then
-        echo "Usage: get_queue_build_of_pr PULL_REQUEST_NUM COMMENT_TRIGGER_TYPE" && return 1
-    fi
-
-    local PIPELINE="${comment_to_pipeline[${COMMENT_TRIGGER_TYPE}]}"
-    local queue_builds_list
-    local ret
-    set +x
-    if ret=$(
-        teamcity_request -sS --fail -X GET \
-            -H "Content-Type:text/plain" \
-            -H "Accept: application/json" \
-            "${TEAMCITY_URL}/app/rest/buildQueue?locator=buildType:${PIPELINE}"
-    ); then
-        set +x
-        queue_builds_list=$(echo "${ret}" | jq ".build[]? | select(.branchName == \"pull/${PULL_REQUEST_NUM}\") | .id")
-        echo "${queue_builds_list}"
-    else
-        set +x
-        echo "WARNING: failed to get queue build for PR ${PULL_REQUEST_NUM} of pipeline ${PIPELINE}" && return 1
-    fi
-}
-# get_queue_build_of_pr "$1" "$2"
-
-get_active_builds_of_revision() {
-    # Return active build IDs for the same PR, pipeline, and revision.
-    # Return 0 when a duplicate exists, 1 when none exists, and 2 when lookup fails.
-    local PULL_REQUEST_NUM="${PULL_REQUEST_NUM:-$1}"
-    local COMMENT_TRIGGER_TYPE="${COMMENT_TRIGGER_TYPE:-$2}"
-    local COMMIT_ID_FROM_TRIGGER="${COMMIT_ID_FROM_TRIGGER:-$3}"
-    if [[ -z "${PULL_REQUEST_NUM}" ||
-        -z "${COMMENT_TRIGGER_TYPE}" ||
-        -z "${COMMIT_ID_FROM_TRIGGER}" ]]; then
-        echo "Usage: get_active_builds_of_revision PULL_REQUEST_NUM COMMENT_TRIGGER_TYPE COMMIT_ID_FROM_TRIGGER" >&2
-        return 2
-    fi
-
-    local queue_build_ids
-    local running_build_ids
-    if ! queue_build_ids=$(get_queue_build_of_pr "${PULL_REQUEST_NUM}" "${COMMENT_TRIGGER_TYPE}"); then
-        echo "WARNING: failed to get queued builds for duplicate check" >&2
-        return 2
-    fi
-    if ! running_build_ids=$(get_running_build_of_pr "${PULL_REQUEST_NUM}" "${COMMENT_TRIGGER_TYPE}"); then
-        echo "WARNING: failed to get running builds for duplicate check" >&2
-        return 2
-    fi
-
-    local build_id
-    local build_revision
-    local duplicate_build_ids=()
-    for build_id in ${queue_build_ids} ${running_build_ids}; do
-        if ! build_revision=$(get_commit_id_of_build "${build_id}"); then
-            echo "WARNING: failed to get revision of active build ${build_id}" >&2
-            return 2
-        fi
-        if [[ "${build_revision}" == "${COMMIT_ID_FROM_TRIGGER}" ]]; then
-            duplicate_build_ids+=("${build_id}")
-        fi
-    done
-
-    if [[ ${#duplicate_build_ids[@]} -gt 0 ]]; then
-        printf '%s\n' "${duplicate_build_ids[@]}"
-        return 0
-    fi
-    return 1
-}
-# get_active_builds_of_revision "$1" "$2" "$3"
 
 skip_build() {
     set +x
@@ -422,7 +268,7 @@ skip_build() {
     local state="${TC_BUILD_STATE:-success}" # 可选值 success failure pending
     local payload="{\"state\":\"${state}\",\"target_url\":\"\",\"description\":\"Skip teamCity build\",\"context\":\"${conment_to_context[${COMMENT_TRIGGER_TYPE}]}\"}"
     set +x
-    if curl -L \
+    if curl --fail --silent --show-error --max-time 45 \
         -X POST \
         -H "Accept: application/vnd.github+json" \
         -H "Authorization: Bearer ${GITHUB_TOKEN:-}" \
@@ -453,9 +299,22 @@ trigger_build() {
 }
 # trigger_build "$1" "$2" "$3" "$4"
 
+# A skipped Compile also resolves the checks that its fanout would publish.
+teamcity_skip_unaffected() {
+    teamcity_current_pr || { echo 'PR revision or target changed; no skip status written' >&2; return 1; }
+    local lane lanes="$COMMENT_TRIGGER_TYPE"
+    if [[ $COMMENT_TRIGGER_TYPE == compile ]]; then
+        lanes='compile p0 cloud_p0 vault_p0 external nonconcurrent'
+    fi
+    for lane in $lanes; do
+        skip_build "$COMMIT_ID_FROM_TRIGGER" "$lane" || return 1
+    done
+}
+
 trigger_or_skip_build() {
     set +x
-    # Keep the original call signature; explicit commands do not use the file filter.
+    # Preserve the existing per-pipeline file filter.
+    local FILE_CHANGED="${1:-true}"
     local PULL_REQUEST_NUM="${PULL_REQUEST_NUM:-$2}"
     local PULL_REQUEST_TARGET_BRANCH="${PULL_REQUEST_TARGET_BRANCH:-$3}"
     local COMMIT_ID_FROM_TRIGGER="${COMMIT_ID_FROM_TRIGGER:-$4}"
@@ -468,8 +327,14 @@ trigger_or_skip_build() {
         return 1
     fi
 
-    # Explicit comment commands always run; reuse matching active builds.
-    trigger_build "$PULL_REQUEST_NUM" "$COMMIT_ID_FROM_TRIGGER" "$COMMENT_TRIGGER_TYPE" "${COMMENT_REPEAT_TIMES:-1}"
+    [[ " ${targetBranch_to_pipelines[$PULL_REQUEST_TARGET_BRANCH]:-} " == *" $COMMENT_TRIGGER_TYPE "* ]] || {
+        echo "No pipeline for $COMMENT_TRIGGER_TYPE on $PULL_REQUEST_TARGET_BRANCH" >&2; return 1;
+    }
+    case "$FILE_CHANGED" in
+        true) trigger_build "$PULL_REQUEST_NUM" "$COMMIT_ID_FROM_TRIGGER" "$COMMENT_TRIGGER_TYPE" "${COMMENT_REPEAT_TIMES:-1}" ;;
+        false) teamcity_skip_unaffected ;;
+        *) echo "Invalid FILE_CHANGED: $FILE_CHANGED" >&2; return 1 ;;
+    esac
 }
 # trigger_or_skip_build "$1" "$2" "$3" "$4" "$5"
 

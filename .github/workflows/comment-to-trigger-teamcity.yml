@@ -51,12 +51,6 @@ jobs:
         )
       }}
 
-    # Serialize duplicate commands for one PR. The next run then sees the build
-    # queued by the previous run and can safely skip an identical PR revision.
-    concurrency:
-      group: comment-to-trigger-teamcity-${{ github.event.issue.number }}
-      cancel-in-progress: false
-
     runs-on: ubuntu-latest
     env:
       COMMENT_BODY: ${{ github.event.comment.body }}
@@ -158,12 +152,61 @@ jobs:
         ref: ${{ github.event.repository.default_branch }}
         persist-credentials: false
 
-    - name: "Read changed files for pipeline script check"
+    - name: "Check if pr need run build"
       if: ${{ fromJSON(steps.parse.outputs.comment_trigger) }}
+      id: changes
       run: |
         source regression-test/pipeline/common/github-utils.sh
         set +x
-        _get_pr_changed_files "${{ steps.parse.outputs.PULL_REQUEST_NUM }}"
+        if _get_pr_changed_files "${{ steps.parse.outputs.PULL_REQUEST_NUM }}"; then
+          if file_changed_fe_ut; then
+            echo "changed_fe_ut=true" | tee -a "$GITHUB_OUTPUT"
+          else
+            echo "changed_fe_ut=false" | tee -a "$GITHUB_OUTPUT"
+          fi
+          if file_changed_be_ut; then
+            echo "changed_be_ut=true" | tee -a "$GITHUB_OUTPUT"
+          else
+            echo "changed_be_ut=false" | tee -a "$GITHUB_OUTPUT"
+          fi
+          if file_changed_cloud_ut; then
+            echo "changed_cloud_ut=true" | tee -a "$GITHUB_OUTPUT"
+          else
+            echo "changed_cloud_ut=false" | tee -a "$GITHUB_OUTPUT"
+          fi
+          if file_changed_regression_p0; then
+            echo "changed_p0=true" | tee -a "$GITHUB_OUTPUT"
+            echo "changed_external=true" | tee -a "$GITHUB_OUTPUT"
+            echo "changed_nonconcurrent=true" | tee -a "$GITHUB_OUTPUT"
+          else
+            echo "changed_p0=false" | tee -a "$GITHUB_OUTPUT"
+            echo "changed_external=false" | tee -a "$GITHUB_OUTPUT"
+            echo "changed_nonconcurrent=false" | tee -a "$GITHUB_OUTPUT"
+          fi
+          if file_changed_performance; then
+            echo "changed_performance=true" | tee -a "$GITHUB_OUTPUT"
+          else
+            echo "changed_performance=false" | tee -a "$GITHUB_OUTPUT"
+          fi
+          if file_changed_cloud_p0; then
+            echo "changed_cloud_p0=true" | tee -a "$GITHUB_OUTPUT"
+            echo "changed_vault_p0=true" | tee -a "$GITHUB_OUTPUT"
+          else
+            echo "changed_cloud_p0=false" | tee -a "$GITHUB_OUTPUT"
+            echo "changed_vault_p0=false" | tee -a "$GITHUB_OUTPUT"
+          fi
+        else
+          echo "INFO: failed to _get_pr_changed_files, default trigger all"
+          echo "changed_fe_ut=true" | tee -a "$GITHUB_OUTPUT"
+          echo "changed_be_ut=true" | tee -a "$GITHUB_OUTPUT"
+          echo "changed_cloud_ut=true" | tee -a "$GITHUB_OUTPUT"
+          echo "changed_p0=true" | tee -a "$GITHUB_OUTPUT"
+          echo "changed_external=true" | tee -a "$GITHUB_OUTPUT"
+          echo "changed_performance=true" | tee -a "$GITHUB_OUTPUT"
+          echo "changed_cloud_p0=true" | tee -a "$GITHUB_OUTPUT"
+          echo "changed_vault_p0=true" | tee -a "$GITHUB_OUTPUT"
+          echo "changed_nonconcurrent=true" | tee -a "$GITHUB_OUTPUT"
+        fi
 
     # - name: "Setup tmate session"
     #   if: ${{ failure() }}
@@ -211,7 +254,7 @@ jobs:
         source ./regression-test/pipeline/common/teamcity-utils.sh
         set +x
         trigger_or_skip_build \
-          "true" \
+          "${{ steps.changes.outputs.changed_fe_ut }}" \
           "${{ steps.parse.outputs.PULL_REQUEST_NUM }}" \
           "${{ steps.parse.outputs.TARGET_BRANCH }}" \
           "${{ steps.parse.outputs.COMMIT_ID_FROM_TRIGGER }}" \
@@ -225,7 +268,7 @@ jobs:
         source ./regression-test/pipeline/common/teamcity-utils.sh
         set +x
         trigger_or_skip_build \
-          "true" \
+          "${{ steps.changes.outputs.changed_be_ut }}" \
           "${{ steps.parse.outputs.PULL_REQUEST_NUM }}" \
           "${{ steps.parse.outputs.TARGET_BRANCH }}" \
           "${{ steps.parse.outputs.COMMIT_ID_FROM_TRIGGER }}" \
@@ -238,7 +281,7 @@ jobs:
         source ./regression-test/pipeline/common/teamcity-utils.sh
         set +x
         trigger_or_skip_build \
-          "true" \
+          "${{ steps.changes.outputs.changed_cloud_ut }}" \
           "${{ steps.parse.outputs.PULL_REQUEST_NUM }}" \
           "${{ steps.parse.outputs.TARGET_BRANCH }}" \
           "${{ steps.parse.outputs.COMMIT_ID_FROM_TRIGGER }}" \
@@ -250,8 +293,13 @@ jobs:
       run: |
         source ./regression-test/pipeline/common/teamcity-utils.sh
         set +x
+        if [[ "${{ steps.changes.outputs.changed_p0 }}" == true || "${{ steps.changes.outputs.changed_cloud_p0 }}" == true ]]; then
+          changed=true
+        else
+          changed=false
+        fi
         trigger_or_skip_build \
-          "true" \
+          "${changed}" \
           "${{ steps.parse.outputs.PULL_REQUEST_NUM }}" \
           "${{ steps.parse.outputs.TARGET_BRANCH }}" \
           "${{ steps.parse.outputs.COMMIT_ID_FROM_TRIGGER }}" \
@@ -267,7 +315,7 @@ jobs:
         fi
         set +x
         trigger_or_skip_build \
-          "true" \
+          "${{ steps.changes.outputs.changed_p0 }}" \
           "${{ steps.parse.outputs.PULL_REQUEST_NUM }}" \
           "${{ steps.parse.outputs.TARGET_BRANCH }}" \
           "${{ steps.parse.outputs.COMMIT_ID_FROM_TRIGGER }}" \
@@ -283,7 +331,7 @@ jobs:
         fi
         set +x
         trigger_or_skip_build \
-          "true" \
+          "${{ steps.changes.outputs.changed_external }}" \
           "${{ steps.parse.outputs.PULL_REQUEST_NUM }}" \
           "${{ steps.parse.outputs.TARGET_BRANCH }}" \
           "${{ steps.parse.outputs.COMMIT_ID_FROM_TRIGGER }}" \
@@ -299,7 +347,7 @@ jobs:
         fi
         set +x
         trigger_or_skip_build \
-          "true" \
+          "${{ steps.changes.outputs.changed_cloud_p0 }}" \
           "${{ steps.parse.outputs.PULL_REQUEST_NUM }}" \
           "${{ steps.parse.outputs.TARGET_BRANCH }}" \
           "${{ steps.parse.outputs.COMMIT_ID_FROM_TRIGGER }}" \
@@ -316,7 +364,7 @@ jobs:
         fi
         set +x
         trigger_or_skip_build \
-          "true" \
+          "${{ steps.changes.outputs.changed_vault_p0 }}" \
           "${{ steps.parse.outputs.PULL_REQUEST_NUM }}" \
           "${{ steps.parse.outputs.TARGET_BRANCH }}" \
           "${{ steps.parse.outputs.COMMIT_ID_FROM_TRIGGER }}" \
@@ -332,7 +380,7 @@ jobs:
         fi
         set +x
         trigger_or_skip_build \
-          "true" \
+          "${{ steps.changes.outputs.changed_nonconcurrent }}" \
           "${{ steps.parse.outputs.PULL_REQUEST_NUM }}" \
           "${{ steps.parse.outputs.TARGET_BRANCH }}" \
           "${{ steps.parse.outputs.COMMIT_ID_FROM_TRIGGER }}" \
@@ -345,7 +393,7 @@ jobs:
         source ./regression-test/pipeline/common/teamcity-utils.sh
         set +x
         trigger_or_skip_build \
-          "true" \
+          "${{ steps.changes.outputs.changed_performance }}" \
           "${{ steps.parse.outputs.PULL_REQUEST_NUM }}" \
           "${{ steps.parse.outputs.TARGET_BRANCH }}" \
           "${{ steps.parse.outputs.COMMIT_ID_FROM_TRIGGER }}" \

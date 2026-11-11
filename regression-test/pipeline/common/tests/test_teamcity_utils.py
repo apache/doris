@@ -97,11 +97,19 @@ class TeamCityUtilsTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         (self.root / 'mock.py').write_text(MOCK)
+        (self.root / 'status_mock.py').write_text('''import json, os, sys
+from pathlib import Path
+p=Path(os.environ['FIXTURE_ROOT'])/'statuses.json'
+rows=json.loads(p.read_text()) if p.exists() else []
+assert '-d' in sys.argv and '-X' in sys.argv
+if os.environ.get('STATUS_FAIL')=='true': sys.exit(22)
+rows.append(json.loads(sys.argv[sys.argv.index('-d')+1]));p.write_text(json.dumps(rows))
+''')
         self.save({})
         (self.root / 'event.json').write_text(json.dumps({'comment': {
             'id': 45, 'body': 'run cloudut', 'updated_at': '2026-11-11T00:00:00Z'}}))
         self.env = {**os.environ, 'TARGET_BRANCH': 'master', 'TEAMCITY_CURRENT_URL': 'https://ci.example',
-                    'TEAMCITY_CURRENT_TOKEN': 'test-current-token', 'FIXTURE_ROOT': str(self.root),
+                    'TEAMCITY_CURRENT_TOKEN': 'test-current-token', 'GITHUB_TOKEN': 'test-github-token', 'FIXTURE_ROOT': str(self.root),
                     'GITHUB_EVENT_PATH': str(self.root / 'event.json')}
 
     def save(self, value):
@@ -115,6 +123,7 @@ class TeamCityUtilsTests(unittest.TestCase):
         if mock:
             prefix += '''teamcity_request(){ python3 "$FIXTURE_ROOT/mock.py" "$@"; }
 teamcity_current_pr(){ [[ ${PR_FRESH:-true} == true ]]; }
+curl(){ python3 "$FIXTURE_ROOT/status_mock.py" "$@"; }
 '''
         result = subprocess.run(['bash', '-c', prefix + command, 'test', str(HELPER)],
                                 env={**self.env, **(env or {})}, text=True, capture_output=True)
@@ -124,6 +133,85 @@ teamcity_current_pr(){ [[ ${PR_FRESH:-true} == true ]]; }
 
     def trigger(self, lane='cloudut', count=1, **kwargs):
         return self.run_shell('trigger_or_skip_build true 123 master ' + HEAD + ' ' + lane + ' ' + str(count), **kwargs)
+
+    def skipped_contexts(self):
+        p = self.root / 'statuses.json'
+        return [row['context'] for row in json.loads(p.read_text())] if p.exists() else []
+
+    def test_unrelated_files_skip_without_submitting(self):
+        self.run_shell('trigger_or_skip_build false 123 master ' + HEAD + ' feut 1')
+        self.assertEqual(self.skipped_contexts(), ['TeamCity/feut'])
+        self.assertFalse(self.state().get('posts'))
+
+    def test_compile_skip_covers_downstream_checks(self):
+        self.run_shell('trigger_or_skip_build false 123 master ' + HEAD + ' compile 1')
+        self.assertEqual(self.skipped_contexts(), ['TeamCity/compile', 'TeamCity/p0', 'TeamCity/cloud_p0',
+                                                  'TeamCity/vault_p0', 'TeamCity/external', 'TeamCity/nonconcurrent'])
+        self.assertFalse(self.state().get('posts'))
+
+    def test_failed_skip_and_stale_head_do_not_succeed(self):
+        for env in [{'STATUS_FAIL': 'true'}, {'PR_FRESH': 'false'}]:
+            result = self.run_shell('trigger_or_skip_build false 123 master ' + HEAD + ' feut 1', check=False, env=env)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertFalse(self.skipped_contexts())
+
+    def file_filter_outputs(self, files, failed=False):
+        workflow = (HELPER.parents[3] / '.github/workflows/comment-to-trigger-teamcity.yml').read_text()
+        block = workflow.split('    - name: "Check if pr need run build"\n', 1)[1].split('    # - name:', 1)[0]
+        script = textwrap.dedent(block.split('      run: |\n', 1)[1])
+        github_helper = HELPER.with_name('github-utils.sh')
+        override = 'source "' + str(github_helper) + '"\n'
+        override += '_get_pr_changed_files(){ return 1; }' if failed else '_get_pr_changed_files(){ return 0; }'
+        script = script.replace('source regression-test/pipeline/common/github-utils.sh', override)
+        script = script.replace('${{ steps.parse.outputs.PULL_REQUEST_NUM }}', '123')
+        for name in ['all_files', 'modified_files']:
+            (self.root / name).write_text('\n'.join(files) + '\n')
+        for name in ['added_files', 'removed_files']:
+            (self.root / name).write_text('')
+        output = self.root / 'filter-output'; output.write_text('')
+        result = subprocess.run(['bash', '-eo', 'pipefail', '-c', script], cwd=self.root,
+                                env={**self.env, 'GITHUB_OUTPUT': str(output)}, text=True, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        return dict(line.split('=', 1) for line in output.read_text().splitlines())
+
+    def test_original_file_filters_and_workflow_wiring(self):
+        for files, expected in [(['fe/fe-core/src/main/java/Test.java'], {'feut', 'p0', 'cloud_p0', 'vault_p0', 'external', 'nonconcurrent', 'performance', 'compile'}),
+                                (['cloud/src/meta-service/meta_service.cpp'], {'cloudut', 'cloud_p0', 'vault_p0', 'compile'}),
+                                (['README.md'], set()),
+                                (['regression-test/pipeline/p0/conf/regression-conf.groovy'], set())]:
+            flags = self.file_filter_outputs(files)
+            workflow = (HELPER.parents[3] / '.github/workflows/comment-to-trigger-teamcity.yml').read_text()
+            selected = set()
+            for lane in ['compile', 'feut', 'beut', 'cloudut', 'p0', 'cloud_p0', 'vault_p0', 'external', 'nonconcurrent', 'performance']:
+                block = workflow.split('    - name: "Trigger ' + lane + '"\n', 1)[1].split('    - name:', 1)[0]
+                script = textwrap.dedent(block.split('      run: |\n', 1)[1])
+                script = script.replace('source ./regression-test/pipeline/common/teamcity-utils.sh', 'trigger_or_skip_build(){ echo "SELECTED=$1"; }')
+                values = {'COMMENT_TRIGGER_TYPE': lane, 'PULL_REQUEST_NUM': '123', 'TARGET_BRANCH': 'master',
+                          'COMMIT_ID_FROM_TRIGGER': HEAD, 'COMMENT_REPEAT_TIMES': '1'}
+                for key, value in flags.items(): script = script.replace('${{ steps.changes.outputs.' + key + ' }}', value)
+                for key, value in values.items(): script = script.replace('${{ steps.parse.outputs.' + key + ' }}', value)
+                result = subprocess.run(['bash', '-eo', 'pipefail', '-c', script], text=True, capture_output=True)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                if 'SELECTED=true' in result.stdout: selected.add(lane)
+            self.assertEqual(selected, expected)
+
+    def test_file_lookup_does_not_trace_github_token(self):
+        helper = HELPER.with_name('github-utils.sh')
+        script = 'source "$1"\n' + '''curl(){
+            if [[ "$*" == *--version* ]]; then return 0;
+            elif [[ "$*" == *'/files?'* ]]; then echo '[{"filename":"README.md","status":"modified"}]';
+            else echo '{"changed_files":1}'; fi
+        }
+        _get_pr_changed_files 123
+'''
+        result = subprocess.run(['bash', '-c', script, 'test', str(helper)], cwd=self.root,
+                                env=self.env, text=True, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn('test-github-token', result.stdout + result.stderr)
+
+    def test_failed_file_lookup_does_not_select_skip(self):
+        flags = self.file_filter_outputs([], failed=True)
+        self.assertTrue(flags and all(value == 'true' for value in flags.values()))
 
     def test_keywords_match_required_checks(self):
         repo = HELPER.parents[3]
@@ -226,10 +314,11 @@ teamcity_request --fail https://ci.example
         self.assertEqual(body['branchName'], 'pull/123')
         self.assertEqual(body['properties']['property'][0]['name'], 'env.PR_NUMBER')
 
-    def test_active_build_reused_without_cancel(self):
+    def test_active_build_does_not_prevent_submission(self):
         self.save({'builds': [build()]})
         self.trigger()
-        self.assertFalse(self.state().get('posts'))
+        self.assertEqual(len(self.state()['posts']), 1)
+        self.assertEqual(self.state()['builds'][0]['state'], 'running')
 
     def test_other_revision_is_preserved_and_not_reused(self):
         self.save({'builds': [build(head='f' * 40)]})
@@ -237,21 +326,17 @@ teamcity_request --fail https://ci.example
         self.assertEqual(len(self.state()['posts']), 1)
         self.assertEqual(self.state()['builds'][0]['state'], 'running')
 
-    def test_repeat_count_and_workflow_retry(self):
+    def test_each_request_is_submitted_to_teamcity(self):
         self.trigger(count=2)
         self.trigger(count=2)
-        self.assertEqual(len(self.state()['posts']), 2)
+        self.assertEqual(len(self.state()['posts']), 4)
+        for body in self.state()['posts']:
+            self.assertNotIn('env.CI_COMMENT_REQUEST_KEY', {p['name'] for p in body['properties']['property']})
 
-    def test_uncertain_post_reconciled_on_retry(self):
+    def test_uncertain_post_does_not_automatically_retry(self):
         self.save({'lose_response': True})
         self.assertNotEqual(self.trigger(check=False).returncode, 0)
-        self.trigger()
         self.assertEqual(len(self.state()['posts']), 1)
-
-    def test_lookup_failure_does_not_submit(self):
-        self.save({'lookup_failure': True})
-        self.assertNotEqual(self.trigger(check=False).returncode, 0)
-        self.assertFalse(self.state().get('posts'))
 
     def test_changed_pr_does_not_submit(self):
         self.assertNotEqual(self.trigger(check=False, env={'PR_FRESH': 'false'}).returncode, 0)
@@ -273,11 +358,6 @@ teamcity_request --fail https://ci.example
         self.assertEqual(body['buildType']['id'], 'Doris_Compile')
         params = {p['name']: p['value'] for p in body['properties']['property']}
         self.assertEqual(params['regression_targets'], 'p0')
-
-    def test_compile_active_scope_must_cover_requested_lane(self):
-        self.save({'builds': [build(lane='Doris_Compile', params={'regression_targets': 'external', 'is_debug': 'false'})]})
-        self.trigger('p0')
-        self.assertEqual(len(self.state()['posts']), 1)
 
     def with_producer(self, doc):
         self.save({'builds': [build(lane='Doris_Compile', state='finished')],
