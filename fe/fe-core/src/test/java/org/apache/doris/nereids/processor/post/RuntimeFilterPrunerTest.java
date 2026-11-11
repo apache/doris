@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.processor.post;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
@@ -34,14 +35,19 @@ import org.apache.doris.utframe.TestWithFeService;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 import java.util.List;
 import java.util.Set;
 
 class RuntimeFilterPrunerTest extends TestWithFeService {
+    private boolean originalEnableFeatureChangelog;
+
     @Override
     protected void runBeforeAll() throws Exception {
+        originalEnableFeatureChangelog = Config.enable_feature_changelog;
+        Config.enable_feature_changelog = true;
         createDatabase("rf_pruner_test");
         useDatabase("rf_pruner_test");
         connectContext.getSessionVariable().setDisableJoinReorder(true);
@@ -59,6 +65,15 @@ class RuntimeFilterPrunerTest extends TestWithFeService {
         createTable("CREATE TABLE rf_prune_bloc (id INT, bloc_code VARCHAR(32)) "
                 + "DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1 "
                 + "PROPERTIES('replication_num'='1')");
+        createTable("CREATE TABLE rf_prune_stream_base (id INT, agent_code INT) "
+                + "UNIQUE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1 "
+                + "PROPERTIES('replication_num'='1', 'enable_unique_key_merge_on_write'='true', "
+                + "'changelog.enable'='true', 'changelog.need_historical_value'='true')");
+    }
+
+    @Override
+    protected void runAfterAll() {
+        Config.enable_feature_changelog = originalEnableFeatureChangelog;
     }
 
     @ParameterizedTest
@@ -103,8 +118,46 @@ class RuntimeFilterPrunerTest extends TestWithFeService {
         Assertions.assertTrue(context.prunedRF.isEmpty());
     }
 
+    @ParameterizedTest
+    @CsvSource({"true, MIN_DELTA", "false, MIN_DELTA", "true, APPEND_ONLY", "false, APPEND_ONLY"})
+    void testStreamSourceKeepsRuntimeFilter(boolean knownStats, String streamType) {
+        RuntimeFilterContext context = getRuntimeFilterContext(
+                "SELECT f.id FROM rf_prune_fact f "
+                        + "JOIN [broadcast] rf_prune_stream_base@incr('incrementType'='" + streamType + "') s "
+                        + "ON f.agent_code = s.agent_code", knownStats);
+
+        Assertions.assertEquals(1, context.getNereidsRuntimeFilter().size());
+        Assertions.assertTrue(context.prunedRF.isEmpty());
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void testStreamSourceKeepsRuntimeFilterThroughAggregate(boolean knownStats) {
+        RuntimeFilterContext context = getRuntimeFilterContext(
+                "SELECT f.id FROM rf_prune_fact f JOIN [broadcast] "
+                        + "(SELECT agent_code FROM rf_prune_stream_base@incr('incrementType'='MIN_DELTA') "
+                        + "GROUP BY agent_code) s ON f.agent_code = s.agent_code", knownStats);
+
+        Assertions.assertEquals(1, context.getNereidsRuntimeFilter().size());
+        Assertions.assertTrue(context.prunedRF.isEmpty());
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void testStreamProbeDoesNotKeepIneffectiveRuntimeFilter(boolean knownStats) {
+        RuntimeFilterContext context = getRuntimeFilterContext(
+                "SELECT s.id FROM rf_prune_stream_base@incr('incrementType'='MIN_DELTA') s "
+                        + "JOIN [broadcast] rf_prune_fact f ON s.agent_code = f.agent_code", knownStats);
+
+        Assertions.assertTrue(context.getNereidsRuntimeFilter().isEmpty());
+        Assertions.assertEquals(1, context.prunedRF.size());
+    }
+
     private RuntimeFilterContext getRuntimeFilterContext(String sql, boolean knownStats) {
-        PlanChecker checker = PlanChecker.from(connectContext).analyze(sql).rewrite().optimize();
+        PlanChecker checker = PlanChecker.from(connectContext).parse(sql);
+        // PlanChecker bypasses the planner's statement reference initialization for changelog scans.
+        checker.getCascadesContext().getStatementContext().getOrRegisterChangelogReferenceTso(() -> 2000L);
+        checker.analyze().rewrite().optimize();
         PhysicalPlan plan = checker.getBestPlanTree();
         ColumnStatistic nonSelectiveStats = new ColumnStatisticBuilder(100)
                 .setNdv(100)

@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.processor.post;
 
+import org.apache.doris.catalog.OlapChangelogTableWrapper;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
@@ -33,6 +34,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalIntersect;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRecursiveUnion;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
@@ -56,7 +58,8 @@ import java.util.Set;
  * 2. the build column ndv is less than that of probe column, OR
  * 3. the build column's ColumnStats.selectivity < 1, OR
  * 4. the build column is reduced by another RF, which satisfies above criterions, OR
- * 5. the RF can eliminate whole scan ranges.
+ * 5. the RF can eliminate whole scan ranges, OR
+ * 6. the build side scans a table stream's incremental data.
  *
  * TODO: item 2 is not used since the estimation is not accurate now.
  */
@@ -223,6 +226,17 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
             context.getRuntimeFilterContext().addEffectiveSrcNode(filter, RuntimeFilterContext.EffectiveSrcType.NATIVE);
         }
         return filter;
+    }
+
+    @Override
+    public PhysicalOlapScan visitPhysicalOlapScan(PhysicalOlapScan scan, CascadesContext context) {
+        if (scan.getTable() instanceof OlapChangelogTableWrapper) {
+            // Base-table statistics do not describe the stream's incremental data.
+            context.getRuntimeFilterContext().addEffectiveSrcNode(scan, RuntimeFilterContext.EffectiveSrcType.NATIVE);
+        } else {
+            visitPhysicalRelation(scan, context);
+        }
+        return scan;
     }
 
     @Override
