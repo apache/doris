@@ -49,6 +49,7 @@ class DataTypeVariant : public IDataType {
 private:
     int32_t _max_subcolumns_count = 0;
     bool _enable_doc_mode = false;
+    bool _has_doc_value_serialization = true;
     std::string name = "Variant";
 
 public:
@@ -56,7 +57,8 @@ public:
     PrimitiveType get_primitive_type() const override { return PrimitiveType::TYPE_VARIANT; }
     DataTypeVariant() = default;
     DataTypeVariant(int32_t max_subcolumns_count);
-    DataTypeVariant(int32_t max_subcolumns_count, bool enable_doc_mode);
+    DataTypeVariant(int32_t max_subcolumns_count, bool enable_doc_mode,
+                    bool has_doc_value_serialization = true);
     String do_get_name() const override { return name; }
     const std::string get_family_name() const override { return "Variant"; }
 
