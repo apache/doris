@@ -60,6 +60,15 @@ public class DatasourcePrintableMapTest {
     }
 
     @Test
+    public void testMongoCredentialsAreMasked() {
+        String result = new DatasourcePrintableMap<>(Map.of(
+                "mongodb.uri", "mongodb://fixture-user:fixture-secret@localhost:27017",
+                "mongodb.password", "fixture-secret"), "=", true, true, true).toString();
+        Assertions.assertFalse(result.contains("fixture-secret"));
+        Assertions.assertFalse(result.contains("mongodb://"));
+    }
+
+    @Test
     public void testBasicConstructor() {
         Map<String, String> testMap = new HashMap<>();
         testMap.put("key1", "value1");

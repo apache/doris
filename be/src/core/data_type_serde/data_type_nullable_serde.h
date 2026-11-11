@@ -34,6 +34,9 @@ public:
     DataTypeNullableSerDe(const DataTypeSerDeSPtr& _nested_serde, int nesting_level = 1)
             : DataTypeSerDe(nesting_level), nested_serde(_nested_serde) {}
 
+    Status decode_bson_value(IColumn& column, const BsonValueView& value,
+                             const BsonDecodeContext& context) const override;
+
     std::string get_name() const override { return "Nullable(" + nested_serde->get_name() + ")"; }
 
     Status from_string_as_nested(StringRef& str, IColumn& column, const FormatOptions& options,

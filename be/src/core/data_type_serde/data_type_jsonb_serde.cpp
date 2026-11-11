@@ -26,6 +26,7 @@
 #include "common/exception.h"
 #include "common/status.h"
 #include "core/data_type_serde/arrow_validation.h"
+#include "core/data_type_serde/bson_value_view.h"
 #include "core/value/jsonb_value.h"
 #include "exprs/json_functions.h"
 #include "util/jsonb_parser_simd.h"
@@ -376,6 +377,17 @@ bool DataTypeJsonbSerDe::write_column_to_presto_text(const IColumn& column, Buff
         bw.write("NULL", 4);
     }
     return true;
+}
+
+Status DataTypeJsonbSerDe::decode_bson_value(IColumn& column, const BsonValueView& value,
+                                             const BsonDecodeContext& context) const {
+    RETURN_IF_ERROR(context.validate(value));
+    std::string json;
+    RETURN_IF_ERROR(bson_canonical_json(value, &json));
+    Slice slice(json);
+    Status status = deserialize_one_cell_from_json(column, slice, FormatOptions());
+    return status.ok() ? status
+                       : Status::InvalidArgument("BSON Extended JSON exceeds JSONB limits");
 }
 
 } // namespace doris
