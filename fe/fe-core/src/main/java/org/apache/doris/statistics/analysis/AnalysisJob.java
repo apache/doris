@@ -121,7 +121,8 @@ public class AnalysisJob {
                 synchronized (this) {
                     finished = queryingTask.isEmpty() && queryFinished.isEmpty();
                     if (!finished && !queryingTask.isEmpty()
-                            && buf.size() < StatisticsUtil.getInsertMergeCount()) {
+                            && (buf.isEmpty() || buf.size() < StatisticsUtil.getInsertMergeCount())) {
+                        // Even a non-positive merge threshold must yield when there is no buffered data.
                         // Release ownership before another task appends the final batch.
                         flushing = false;
                         ownsFlush = false;
@@ -138,7 +139,7 @@ public class AnalysisJob {
             }
         } catch (RuntimeException | Error e) {
             try {
-                taskFailed(null, Util.getRootCauseMessage(e));
+                taskFailed(null, AnalysisTaskWrapper.appendStatisticsAnalyzeOOMHint(Util.getRootCauseMessage(e)));
             } catch (RuntimeException cleanupFailure) {
                 if (cleanupFailure != e) {
                     e.addSuppressed(cleanupFailure);

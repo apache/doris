@@ -101,7 +101,7 @@ public class AnalysisTaskWrapper extends FutureTask<Void> {
         return super.cancel(false);
     }
 
-    private String appendStatisticsAnalyzeOOMHint(String msg) {
+    static String appendStatisticsAnalyzeOOMHint(String msg) {
         if (msg == null || !msg.contains("MEM_LIMIT_EXCEEDED")
                 || msg.contains("statistics_sql_mem_limit_in_bytes")) {
             return msg;

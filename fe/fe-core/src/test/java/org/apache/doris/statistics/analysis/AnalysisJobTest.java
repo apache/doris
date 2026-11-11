@@ -28,6 +28,8 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -137,6 +139,57 @@ public class AnalysisJobTest {
         job.cancel();
         Mockito.verify(job, Mockito.times(1)).executeWithExceptionOnFail(Mockito.any());
         Mockito.verify(manager, Mockito.times(1)).removeJob(1L);
+        assertReleased();
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {0, -1})
+    @Timeout(20)
+    public void testNonPositiveMergeCountAllowsQueuedTasksToProgress(int mergeCount) throws Exception {
+        Mockito.doNothing().when(job).executeWithExceptionOnFail(Mockito.any());
+        threads.shutdownNow();
+        threads = Executors.newSingleThreadExecutor();
+        Future<?> completion = threads.submit(() -> {
+            try (MockedStatic<StatisticsUtil> stats = Mockito.mockStatic(
+                    StatisticsUtil.class, Mockito.CALLS_REAL_METHODS)) {
+                stats.when(StatisticsUtil::getInsertMergeCount).thenReturn(mergeCount);
+                for (BaseAnalysisTask task : tasks) {
+                    job.appendBuf(task, List.of(new ColStatsData()));
+                }
+            }
+        });
+        try {
+            completion.get(5, TimeUnit.SECONDS);
+            Assertions.assertEquals(AnalysisState.FINISHED, info.state);
+            Mockito.verify(job, Mockito.times(2)).executeWithExceptionOnFail(Mockito.any());
+            assertReleased();
+        } finally {
+            // A regression must not leave a busy worker behind after the progress assertion fails.
+            job.cancel();
+        }
+    }
+
+    @Test
+    public void testBufferedInsertOOMRetainsTuningHintThroughWrapper() throws Exception {
+        Mockito.doThrow(new RuntimeException("[MEM_LIMIT_EXCEEDED] statistics insert failed"))
+                .when(job).executeWithExceptionOnFail(Mockito.any());
+        job.appendBuf(tasks.get(0), List.of(new ColStatsData()));
+        BaseAnalysisTask lastTask = tasks.get(1);
+        lastTask.info = new AnalysisInfoBuilder(lastTask.info)
+                .setScheduleType(AnalysisInfo.ScheduleType.ONCE).build();
+        Mockito.doAnswer(call -> {
+            job.appendBuf(lastTask, List.of(new ColStatsData()));
+            return null;
+        }).when(lastTask).execute();
+        new AnalysisTaskWrapper(Mockito.mock(AnalysisTaskExecutor.class), lastTask).run();
+        Assertions.assertEquals(AnalysisState.FAILED, info.state);
+        for (BaseAnalysisTask task : tasks) {
+            Assertions.assertTrue(task.info.message.contains("[MEM_LIMIT_EXCEEDED] statistics insert failed"));
+            Assertions.assertTrue(task.info.message.contains("statistics_sql_mem_limit_in_bytes"));
+            Assertions.assertTrue(task.info.message.contains("huge_table_default_sample_rows"));
+            Assertions.assertTrue(task.info.message.contains("statistics_max_string_column_length"));
+        }
+        Assertions.assertTrue(info.message.contains("statistics_sql_mem_limit_in_bytes"));
         assertReleased();
     }
 
