@@ -74,7 +74,9 @@ public class OrExpansion extends DefaultPlanRewriter<OrExpandsionContext> implem
             .Builder<JoinType>()
             .add(JoinType.INNER_JOIN)
             .add(JoinType.LEFT_ANTI_JOIN)
+            .add(JoinType.RIGHT_ANTI_JOIN)
             .add(JoinType.LEFT_OUTER_JOIN)
+            .add(JoinType.RIGHT_OUTER_JOIN)
             .add(JoinType.FULL_OUTER_JOIN)
             .build();
 
@@ -160,19 +162,23 @@ public class OrExpansion extends DefaultPlanRewriter<OrExpandsionContext> implem
             joins.addAll(expandInnerJoin(ctx.cascadesContext, hashOtherConditions,
                     join, leftProducer, rightProducer, leftCloneToLeft, rightCloneToRight));
         } else if (join.getJoinType().isOuterJoin()) {
-            // left outer join = inner join union left anti join
+            // Outer join = matching rows union unmatched rows from each preserved side.
             joins.addAll(expandInnerJoin(ctx.cascadesContext, hashOtherConditions,
                     join, leftProducer, rightProducer, leftCloneToLeft, rightCloneToRight));
-            joins.add(expandLeftAntiJoin(ctx.cascadesContext,
-                    hashOtherConditions, join, leftProducer, rightProducer, leftCloneToLeft, rightCloneToRight));
-            if (join.getJoinType().equals(JoinType.FULL_OUTER_JOIN)) {
-                // full outer join = inner join union left anti join union right anti join
+            if (join.getJoinType().isLeftOuterJoin() || join.getJoinType().isFullOuterJoin()) {
+                joins.add(expandLeftAntiJoin(ctx.cascadesContext,
+                        hashOtherConditions, join, leftProducer, rightProducer, leftCloneToLeft, rightCloneToRight));
+            }
+            if (join.getJoinType().isRightOuterJoin() || join.getJoinType().isFullOuterJoin()) {
                 joins.add(expandLeftAntiJoin(ctx.cascadesContext, hashOtherConditions,
                         join, rightProducer, leftProducer, rightCloneToRight, leftCloneToLeft));
             }
         } else if (join.getJoinType().equals(JoinType.LEFT_ANTI_JOIN)) {
             joins.add(expandLeftAntiJoin(ctx.cascadesContext, hashOtherConditions,
                     join, leftProducer, rightProducer, leftCloneToLeft, rightCloneToRight));
+        } else if (join.getJoinType().isRightAntiJoin()) {
+            joins.add(expandLeftAntiJoin(ctx.cascadesContext, hashOtherConditions,
+                    join, rightProducer, leftProducer, rightCloneToRight, leftCloneToLeft));
         } else {
             throw new RuntimeException("or-expansion is not supported for " + join);
         }
