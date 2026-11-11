@@ -442,15 +442,37 @@ static DataTypePtr create_variant_storage_type(const TabletColumn& target_col) {
 Status VariantColumnReader::_build_read_plan_flat_leaves(
         ReadPlan* plan, const TabletColumn& target_col, const StorageReadOptions* opts,
         ColumnReaderCache* column_reader_cache, PathToBinaryColumnCache* binary_column_cache_ptr) {
-    // make sure external meta is loaded otherwise can't find any meta data for extracted columns
-    // TODO(lhy): this will load all external meta if not loaded, and memory will be consumed.
     DCHECK(opts != nullptr);
+    const int32_t col_uid = variant_root_uid(target_col);
+    auto relative_path = target_col.path_info_ptr()->copy_pop_front();
+    // A vertical group usually needs only a few exact physical leaves. For 2,000 paths in
+    // five-column groups, bulk loading the entire external metadata tree for every group
+    // rebuilds it about 400 times per input segment. Reuse the indexed exact-path lookup.
+    // Sparse/doc storage paths and NestedGroup plans still need the metadata-driven planner.
+    const std::string& path = relative_path.get_path();
+    if (_ext_meta_reader && _ext_meta_reader->available() && !relative_path.empty() &&
+        !target_col.is_nested_subcolumn() && !_can_use_nested_group_read_path() &&
+        !path.starts_with(SPARSE_COLUMN_PATH) &&
+        path.find(DOC_VALUE_COLUMN_PATH) == std::string::npos) {
+        std::shared_ptr<ColumnReader> leaf_reader;
+        Status status = column_reader_cache->get_path_column_reader(
+                col_uid, relative_path, &leaf_reader, opts->stats, nullptr, &opts->io_ctx);
+        if (status.ok()) {
+            plan->kind = ReadKind::LEAF;
+            plan->type = leaf_reader->get_vec_data_type();
+            plan->relative_path = relative_path;
+            plan->leaf_column_reader = std::move(leaf_reader);
+            return Status::OK();
+        }
+        if (!status.is<ErrorCode::NOT_FOUND>()) {
+            return status;
+        }
+    }
+    // Missing or non-leaf paths need the complete tree and sparse statistics to preserve
+    // default filling and sparse-to-materialized promotion during compaction.
     RETURN_IF_ERROR(load_external_meta_once(opts->stats, &opts->io_ctx));
 
     std::shared_lock<std::shared_mutex> lock(_subcolumns_meta_mutex);
-
-    const int32_t col_uid = variant_root_uid(target_col);
-    auto relative_path = target_col.path_info_ptr()->copy_pop_front();
     const auto* node = (!relative_path.empty() && target_col.has_path_info())
                                ? _subcolumns_meta_info->find_leaf(relative_path)
                                : nullptr;

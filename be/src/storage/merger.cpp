@@ -358,7 +358,7 @@ void Merger::vertical_split_columns(const TabletSchema& tablet_schema,
 }
 
 Status Merger::vertical_compact_one_group(
-        BaseTabletSPtr tablet, ReaderType reader_type, const TabletSchema& tablet_schema,
+        BaseTabletSPtr tablet, ReaderType reader_type, const TabletSchemaSPtr& tablet_schema,
         bool is_key, const std::vector<uint32_t>& column_group, RowSourcesBuffer* row_source_buf,
         const std::vector<RowsetReaderSharedPtr>& src_rowset_readers,
         RowsetWriter* dst_rowset_writer, uint32_t max_rows_per_segment, Statistics* stats_output,
@@ -378,7 +378,7 @@ Status Merger::vertical_compact_one_group(
     reader_params.runtime_state = runtime_state;
     reader_params.enable_sparse_optimization = enable_sparse_optimization;
     if (key_range.has_value()) {
-        RETURN_IF_ERROR(set_key_range(&reader_params, tablet_schema, *key_range));
+        RETURN_IF_ERROR(set_key_range(&reader_params, *tablet_schema, *key_range));
     }
 
     TabletReadSource read_source;
@@ -395,8 +395,7 @@ Status Merger::vertical_compact_one_group(
 
     reader_params.version = dst_rowset_writer->version();
 
-    reader_params.tablet_schema = std::make_shared<TabletSchema>();
-    reader_params.tablet_schema->copy_from(tablet_schema);
+    reader_params.tablet_schema = tablet_schema;
     reader_params.variant_compaction_paths = dst_rowset_writer->context().variant_compaction_paths;
     bool has_cluster_key = false;
     if (!tablet->tablet_schema()->cluster_key_uids().empty()) {
@@ -406,7 +405,7 @@ Status Merger::vertical_compact_one_group(
     // Apply the same snapshot-bounded bitmap in every column group, including values,
     // so rows hidden before TTL reclamation cannot reappear during full compaction.
     if (reader_params.read_changelog ||
-        (reader_type == ReaderType::READER_FULL_COMPACTION && tablet_schema.has_ttl_col() &&
+        (reader_type == ReaderType::READER_FULL_COMPACTION && tablet_schema->has_ttl_col() &&
          tablet->enable_unique_key_merge_on_write())) {
         reader_params.delete_bitmap = tablet->tablet_meta()->delete_bitmap_ptr();
     }
@@ -414,14 +413,14 @@ Status Merger::vertical_compact_one_group(
     const bool convert_rowids =
             is_key && stats_output != nullptr && stats_output->rowid_conversion != nullptr;
     if (convert_rowids) {
-        DORIS_CHECK_NE(tablet_schema.keys_type(), KeysType::AGG_KEYS);
-        DORIS_CHECK(!tablet_schema.has_seq_map());
+        DORIS_CHECK_NE(tablet_schema->keys_type(), KeysType::AGG_KEYS);
+        DORIS_CHECK(!tablet_schema->has_seq_map());
         reader_params.rowid_conversion = stats_output->rowid_conversion;
         stats_output->rowid_conversion->set_dst_rowset_id(dst_rowset_writer->rowset_id());
     }
 
     reader_params.read_schema = std::make_shared<ReadSchema>(
-            project_columns_by_ordinal(tablet_schema.columns(), column_group));
+            project_columns_by_ordinal(tablet_schema->columns(), column_group));
     if (convert_rowids) {
         reader_params.read_schema->append_compaction_rowid_column();
     }
@@ -855,6 +854,12 @@ Status Merger::vertical_merge_rowsets(
         group_footer_fallback[i] = need_fallback;
     }
 
+    // Readers only inspect this schema; each group owns its projected ReadSchema separately.
+    // Copy once to isolate the readers from the writer's evolving schema. Rebuilding all N
+    // columns for each of N/5 groups otherwise makes wide VARIANT compaction quadratic in N.
+    auto reader_tablet_schema = std::make_shared<TabletSchema>();
+    reader_tablet_schema->copy_from(tablet_schema);
+
     // compact group one by one
     for (auto i = 0; i < column_groups.size(); ++i) {
         if (runtime_state != nullptr) {
@@ -872,10 +877,11 @@ Status Merger::vertical_merge_rowsets(
         group_stats.rowid_conversion = total_stats.rowid_conversion;
         Merger::Statistics* group_stats_ptr = stats_output != nullptr ? &group_stats : nullptr;
         Status st = vertical_compact_one_group(
-                tablet, reader_type, tablet_schema, is_key, column_groups[i], &row_sources_buf,
-                src_rowset_readers, dst_rowset_writer, max_rows_per_segment, group_stats_ptr,
-                key_group_cluster_key_idxes, batch_size, &sample_info, &context_stats,
-                enable_sparse_optimization, segment_range, key_range, runtime_state);
+                tablet, reader_type, reader_tablet_schema, is_key, column_groups[i],
+                &row_sources_buf, src_rowset_readers, dst_rowset_writer, max_rows_per_segment,
+                group_stats_ptr, key_group_cluster_key_idxes, batch_size, &sample_info,
+                &context_stats, enable_sparse_optimization, segment_range, key_range,
+                runtime_state);
         {
             std::unique_lock<std::mutex> lock(sample_info_lock);
             sample_infos[i] = sample_info;
