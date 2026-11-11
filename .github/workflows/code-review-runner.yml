@@ -45,7 +45,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     env:
-      CANARY_AUTH_OBJECT: oss://doris-community-ci/codex/auth.json.5
+      CANARY_AUTH_OBJECT: oss://doris-community-ci/codex/auth.json.1
     permissions:
       contents: read
     steps:
