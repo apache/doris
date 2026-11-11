@@ -50,8 +50,8 @@ Status feed_array_index(IndexColumnWriter* writer, FieldType item_type, const IC
         const size_t num_items = row_offsets[num_rows] - row_offsets[0];
         const uint8_t* null_map = nullptr;
         const IColumn& nested = peel_nullable(items, first_item, &null_map);
-        // The storage cells of the elements. The index writers skip NULL elements through
-        // null_map, so those are converted like the others, except CHAR, whose padding must not
+        // The storage cells of the elements. Index writers use null_map to skip or reject NULL
+        // elements, so those are converted like the others, except CHAR, whose padding must not
         // read them.
         const uint8_t* values = nullptr;
         if (num_items == 0) {
