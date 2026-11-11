@@ -15,10 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <faiss/IndexFlat.h>
 #include <faiss/IndexHNSW.h>
 #include <faiss/IndexIVFFlat.h>
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
+#include <omp.h>
 
 #include <algorithm>
 #include <atomic>
@@ -35,12 +37,14 @@
 
 #include "common/config.h"
 #include "common/metrics/doris_metrics.h"
+#include "faiss/impl/FaissException.h"
 #include "storage/index/ann/ann_index.h"
 #include "storage/index/ann/ann_search_params.h"
 #include "storage/index/ann/faiss_ann_index.h"
 // metrics.h not used directly here
 #include "storage/cache/ann_index_ivf_list_cache.h"
 #include "storage/index/ann/vector_search_utils.h"
+#include "util/cpu_info.h"
 #include "util/defer_op.h"
 
 using namespace doris::segment_v2;
@@ -299,6 +303,200 @@ TEST_F(VectorSearchTest, OmpThreadBudgetNeverExceedsLimit) {
     EXPECT_EQ(finished.load(std::memory_order_acquire), kWorkers);
     EXPECT_LE(observed_peak, 1);
     EXPECT_EQ(budget_metric->value(), 0);
+}
+
+namespace {
+
+class MockFaissBuildIndex : public faiss::IndexFlatL2 {
+public:
+    MockFaissBuildIndex() : faiss::IndexFlatL2(1) {}
+    MOCK_METHOD(void, train, (faiss::idx_t, const float*), (override));
+    MOCK_METHOD(void, add, (faiss::idx_t, const float*), (override));
+};
+
+class AnnOmpThreadBudgetTest : public VectorSearchTest {
+public:
+    void SetUp() override {
+        VectorSearchTest::SetUp();
+        _old_limit = config::omp_threads_limit;
+        _old_threads_per_task = config::ann_index_build_threads_per_task;
+        _old_num_cores = CpuInfo::num_cores_;
+        _old_omp_threads = omp_get_max_threads();
+    }
+
+    void TearDown() override {
+        EXPECT_EQ(DorisMetrics::instance()->ann_index_build_index_threads->value(), 0);
+        config::omp_threads_limit = _old_limit;
+        config::ann_index_build_threads_per_task = _old_threads_per_task;
+        CpuInfo::num_cores_ = _old_num_cores;
+        omp_set_num_threads(_old_omp_threads);
+        VectorSearchTest::TearDown();
+    }
+
+private:
+    int _old_limit = 0;
+    int _old_threads_per_task = 0;
+    int _old_num_cores = 0;
+    int _old_omp_threads = 0;
+};
+
+} // namespace
+
+TEST_F(AnnOmpThreadBudgetTest, ConfigurationRejectsInvalidReservations) {
+    const auto& field = config::Register::_s_field_map->at("ann_index_build_threads_per_task");
+    EXPECT_FALSE(field.valmutable);
+    const auto& validate = config::RegisterConfValidator::_s_field_validator->at(
+            "ann_index_build_threads_per_task");
+    for (int value : {-2, 0}) {
+        config::ann_index_build_threads_per_task = value;
+        EXPECT_FALSE(validate()) << value;
+    }
+    for (int value : {-1, 1, 4}) {
+        config::ann_index_build_threads_per_task = value;
+        EXPECT_TRUE(validate()) << value;
+    }
+}
+
+TEST_F(AnnOmpThreadBudgetTest, FixedAndAutomaticReservations) {
+    struct TestCase {
+        int total;
+        int per_task;
+        int expected;
+    };
+    const int auto_threads = CpuInfo::num_cores() < 32 ? 1 : 4;
+    const TestCase cases[] = {{10, 4, 4},
+                              {2, 8, 2},
+                              {100, -1, auto_threads},
+                              {2, -1, std::min(2, auto_threads)},
+                              {-1, -1, auto_threads}};
+    float value = 0;
+    for (const auto& test : cases) {
+        SCOPED_TRACE(testing::Message()
+                     << "total=" << test.total << ", per_task=" << test.per_task);
+        config::omp_threads_limit = test.total;
+        config::ann_index_build_threads_per_task = test.per_task;
+        FaissVectorIndex index;
+        auto mock = std::make_unique<testing::StrictMock<MockFaissBuildIndex>>();
+        auto check_budget = [&](faiss::idx_t, const float*) {
+            EXPECT_EQ(omp_get_max_threads(), test.expected);
+            EXPECT_EQ(DorisMetrics::instance()->ann_index_build_index_threads->value(),
+                      test.expected);
+        };
+        EXPECT_CALL(*mock, train(0, &value)).WillOnce(check_budget);
+        EXPECT_CALL(*mock, add(0, &value)).WillOnce(check_budget);
+        index._index = std::move(mock);
+        EXPECT_TRUE(index.train(0, &value).ok());
+        EXPECT_EQ(DorisMetrics::instance()->ann_index_build_index_threads->value(), 0);
+        EXPECT_TRUE(index.add(0, &value).ok());
+        EXPECT_EQ(DorisMetrics::instance()->ann_index_build_index_threads->value(), 0);
+    }
+}
+
+TEST_F(AnnOmpThreadBudgetTest, AutomaticReservationsKeepFirstCpuSnapshot) {
+    config::omp_threads_limit = -1;
+    config::ann_index_build_threads_per_task = -1;
+    const int expected_threads = CpuInfo::num_cores() < 32 ? 1 : 4;
+    const int expected_limit = std::max(1, CpuInfo::num_cores() * 4 / 5);
+    float value = 0;
+    FaissVectorIndex index;
+    auto mock = std::make_unique<testing::StrictMock<MockFaissBuildIndex>>();
+    EXPECT_CALL(*mock, train(0, &value)).Times(3).WillRepeatedly([&](faiss::idx_t, const float*) {
+        EXPECT_EQ(omp_get_max_threads(), expected_threads);
+        EXPECT_EQ(DorisMetrics::instance()->ann_index_build_index_threads->value(),
+                  expected_threads);
+    });
+    EXPECT_CALL(*mock, add(0, &value)).Times(2).WillRepeatedly([&](faiss::idx_t, const float*) {
+        EXPECT_EQ(omp_get_max_threads(), expected_limit);
+        EXPECT_EQ(DorisMetrics::instance()->ann_index_build_index_threads->value(), expected_limit);
+    });
+    index._index = std::move(mock);
+    ASSERT_TRUE(index.train(0, &value).ok());
+    // Cross the 32-core default boundary in both directions after the first reservation.
+    // Also request the whole budget to verify that auto total sizing uses the same snapshot.
+    for (int cores : {1, 64}) {
+        CpuInfo::num_cores_ = cores;
+        config::ann_index_build_threads_per_task = -1;
+        EXPECT_TRUE(index.train(0, &value).ok());
+        config::ann_index_build_threads_per_task = std::numeric_limits<int>::max();
+        EXPECT_TRUE(index.add(0, &value).ok());
+    }
+}
+
+TEST_F(AnnOmpThreadBudgetTest, ConcurrentCallsKeepFixedReservations) {
+    config::ann_index_build_threads_per_task = 4;
+    float value = 0;
+    auto* metric = DorisMetrics::instance()->ann_index_build_index_threads;
+    // Two calls fit in 10 slots. With 7 slots, the second must wait rather than take 3.
+    for (int total : {10, 7}) {
+        SCOPED_TRACE(total);
+        config::omp_threads_limit = total;
+        std::promise<void> first_entered;
+        auto first_entered_future = first_entered.get_future();
+        std::promise<void> release_first;
+        auto release_first_future = release_first.get_future();
+        std::promise<void> second_started;
+        auto second_started_future = second_started.get_future();
+        std::promise<void> second_entered;
+        auto second_entered_future = second_entered.get_future();
+
+        FaissVectorIndex first;
+        auto first_mock = std::make_unique<testing::StrictMock<MockFaissBuildIndex>>();
+        EXPECT_CALL(*first_mock, train(0, &value)).WillOnce([&](faiss::idx_t, const float*) {
+            EXPECT_EQ(omp_get_max_threads(), 4);
+            EXPECT_EQ(metric->value(), 4);
+            first_entered.set_value();
+            release_first_future.wait();
+        });
+        first._index = std::move(first_mock);
+        auto first_result = std::async(std::launch::async, [&] { return first.train(0, &value); });
+        EXPECT_EQ(first_entered_future.wait_for(std::chrono::seconds(5)),
+                  std::future_status::ready);
+
+        FaissVectorIndex second;
+        auto second_mock = std::make_unique<testing::StrictMock<MockFaissBuildIndex>>();
+        EXPECT_CALL(*second_mock, add(0, &value)).WillOnce([&](faiss::idx_t, const float*) {
+            EXPECT_EQ(omp_get_max_threads(), 4);
+            EXPECT_EQ(metric->value(), total == 10 ? 8 : 4);
+            second_entered.set_value();
+        });
+        second._index = std::move(second_mock);
+        auto second_result = std::async(std::launch::async, [&] {
+            second_started.set_value();
+            return second.add(0, &value);
+        });
+        second_started_future.wait();
+        if (total == 10) {
+            EXPECT_EQ(second_entered_future.wait_for(std::chrono::seconds(5)),
+                      std::future_status::ready);
+        } else {
+            EXPECT_EQ(second_entered_future.wait_for(std::chrono::milliseconds(100)),
+                      std::future_status::timeout);
+            EXPECT_EQ(metric->value(), 4);
+        }
+        release_first.set_value();
+        EXPECT_TRUE(first_result.get().ok());
+        EXPECT_TRUE(second_result.get().ok());
+        EXPECT_EQ(metric->value(), 0);
+    }
+}
+
+TEST_F(AnnOmpThreadBudgetTest, FailedTrainingReleasesReservation) {
+    config::omp_threads_limit = 4;
+    config::ann_index_build_threads_per_task = 4;
+    float value = 0;
+    FaissVectorIndex index;
+    auto mock = std::make_unique<testing::StrictMock<MockFaissBuildIndex>>();
+    EXPECT_CALL(*mock, train(0, &value)).WillOnce([](faiss::idx_t, const float*) {
+        throw faiss::FaissException("injected training failure");
+    });
+    EXPECT_CALL(*mock, add(0, &value)).WillOnce([](faiss::idx_t, const float*) {
+        EXPECT_EQ(omp_get_max_threads(), 4);
+        EXPECT_EQ(DorisMetrics::instance()->ann_index_build_index_threads->value(), 4);
+    });
+    index._index = std::move(mock);
+    EXPECT_FALSE(index.train(0, &value).ok());
+    EXPECT_EQ(DorisMetrics::instance()->ann_index_build_index_threads->value(), 0);
+    EXPECT_TRUE(index.add(0, &value).ok());
 }
 
 TEST_F(VectorSearchTest, CompareResultWithNativeFaiss1) {
