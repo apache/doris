@@ -22,11 +22,11 @@
 #include <algorithm>
 #include <cstdint>
 #include <cstring>
-#include <deque>
 #include <functional>
 #include <limits>
 #include <ranges>
 #include <string>
+#include <type_traits>
 #include <utility>
 
 #include "common/exception.h"
@@ -141,15 +141,38 @@ void release_batch_vector(DorisVector<T>& buffer) noexcept {
     DorisVector<T>().swap(buffer);
 }
 
+using MetadataKeyBytes = DorisVector<char>;
+using MetadataKeys = DorisVector<MetadataKeyBytes>;
+
+// A key map entry points at the bytes owned by one MetadataKeyBytes. Growing MetadataKeys moves
+// the inner vectors, so that move must only transfer the byte buffer. For example, reallocating
+// 1024 keys to 2048 entries must not copy any key bytes or leave a map entry pointing at freed
+// storage.
+static_assert(std::is_nothrow_move_constructible_v<MetadataKeyBytes>,
+              "Variant metadata key bytes must move without allocating");
+
+// An empty key owns no bytes, but its map entry still needs a stable, non-null address for both
+// hashing and comparison. One sentinel byte serves every empty key.
+constexpr char EMPTY_METADATA_KEY = '\0';
+
+StringRef metadata_key_ref(const MetadataKeyBytes& bytes) noexcept {
+    DCHECK(bytes.empty() || bytes.data() != nullptr);
+    return {bytes.empty() ? &EMPTY_METADATA_KEY : bytes.data(), bytes.size()};
+}
+
 } // namespace
 
 struct VariantMetadataBuilder::Impl {
     using KeyMapValue = std::pair<const StringRef, uint32_t>;
     using KeyMap = phmap::flat_hash_map<StringRef, uint32_t, StringRefHash, std::equal_to<>,
                                         CustomStdAllocator<KeyMapValue>>;
-    using Keys = std::deque<PaddedPODArray<char>, CustomStdAllocator<PaddedPODArray<char>>>;
+    // register_key() publishes a map entry before appending the key, so a failed map allocation
+    // must not leave a half-inserted entry behind. phmap only moves entries after allocating a
+    // larger table, and moving this value type cannot throw, so a rejected growth leaves the map
+    // unchanged.
+    static_assert(std::is_nothrow_move_constructible_v<KeyMapValue>);
 
-    Keys keys;
+    MetadataKeys keys;
     KeyMap key_to_temporary_id;
     DorisVector<uint32_t> temporary_to_final_id;
     PaddedPODArray<char> encoded;
@@ -183,22 +206,32 @@ uint32_t VariantMetadataBuilder::register_key(StringRef key) {
     }
 
     const auto temporary_id = static_cast<uint32_t>(_impl->keys.size());
-    _impl->keys.emplace_back();
-    auto& key_bytes = _impl->keys.back();
-    const size_t old_capacity = _impl->key_to_temporary_id.capacity();
-    try {
-        if (key.size != 0) {
-            key_bytes.insert(key.data, key.data + key.size);
-        }
-        const auto [unused, inserted] = _impl->key_to_temporary_id.emplace(
-                StringRef {key_bytes.data(), key_bytes.size()}, temporary_id);
-        static_cast<void>(unused);
-        DCHECK(inserted);
-    } catch (...) {
-        // Row rollback only sees keys that were successfully added to the map.
-        _impl->keys.pop_back();
-        throw;
+
+    // Prepare every fallible step first: copy the bytes into a local owner and make room in the
+    // outer key vector. Only then publish the map entry and append the owner, so a rejected
+    // allocation leaves both containers untouched instead of needing a catch block.
+    MetadataKeyBytes owned_key;
+    if (key.size != 0) {
+        owned_key.insert(owned_key.end(), key.data, key.data + key.size);
     }
+    // reserve() allocates exactly the requested capacity, so reserving size+1 every time would
+    // reallocate and move all previous keys on every registration. Grow geometrically only when
+    // the vector is full; the append below then needs no allocation.
+    if (_impl->keys.size() == _impl->keys.capacity()) {
+        _impl->keys.reserve(_impl->keys.capacity() == 0 ? 1 : _impl->keys.capacity() * 2);
+    }
+
+    const size_t old_capacity = _impl->key_to_temporary_id.capacity();
+    // The entry is visible while `owned_key` still owns the bytes; the move below transfers that
+    // same buffer into `keys`, so the stored StringRef stays valid.
+    const auto [unused, inserted] =
+            _impl->key_to_temporary_id.emplace(metadata_key_ref(owned_key), temporary_id);
+    static_cast<void>(unused);
+    DCHECK(inserted);
+
+    // Commit: the outer vector has capacity for one more key and the move only transfers the byte
+    // buffer, so nothing below this point can allocate or throw.
+    _impl->keys.emplace_back(std::move(owned_key));
     _impl->key_capacity_growths += old_capacity != _impl->key_to_temporary_id.capacity();
     return temporary_id;
 }
@@ -224,8 +257,9 @@ void VariantMetadataBuilder::_abort_row() noexcept {
     DCHECK(_impl->row_active);
     DCHECK_LE(_impl->row_start_key_count, _impl->keys.size());
     while (_impl->keys.size() > _impl->row_start_key_count) {
-        const StringRef key {_impl->keys.back().data(), _impl->keys.back().size()};
-        const size_t erased = _impl->key_to_temporary_id.erase(key);
+        // Erase the map entry before releasing the bytes it points at; neither step allocates.
+        const size_t erased =
+                _impl->key_to_temporary_id.erase(metadata_key_ref(_impl->keys.back()));
         DCHECK_EQ(erased, 1);
         _impl->keys.pop_back();
     }
@@ -237,12 +271,13 @@ void VariantMetadataBuilder::_reserve_keys(size_t count) {
         throw Exception(ErrorCode::INVALID_ARGUMENT,
                         "Cannot reserve Variant metadata keys after seal");
     }
+    _impl->keys.reserve(count);
     _impl->key_to_temporary_id.reserve(count);
 }
 
 StringRef VariantMetadataBuilder::_temporary_key(uint32_t temporary_id) const noexcept {
     DCHECK_LT(temporary_id, _impl->keys.size());
-    return {_impl->keys[temporary_id].data(), _impl->keys[temporary_id].size()};
+    return metadata_key_ref(_impl->keys[temporary_id]);
 }
 
 size_t VariantMetadataBuilder::_key_capacity() const noexcept {
@@ -268,8 +303,8 @@ void VariantMetadataBuilder::seal() {
         sorted_temporary_ids.push_back(temporary_id);
     }
     std::ranges::sort(sorted_temporary_ids, [this](uint32_t left, uint32_t right) {
-        const StringRef left_key {_impl->keys[left].data(), _impl->keys[left].size()};
-        const StringRef right_key {_impl->keys[right].data(), _impl->keys[right].size()};
+        const StringRef left_key = metadata_key_ref(_impl->keys[left]);
+        const StringRef right_key = metadata_key_ref(_impl->keys[right]);
         return left_key.compare(right_key) < 0;
     });
 
@@ -310,8 +345,12 @@ void VariantMetadataBuilder::seal() {
         append_unsigned(_impl->encoded, offset, offset_width);
     }
     for (uint32_t temporary_id : sorted_temporary_ids) {
-        const auto& key = _impl->keys[temporary_id];
-        _impl->encoded.insert(key.data(), key.data() + key.size());
+        const StringRef key = metadata_key_ref(_impl->keys[temporary_id]);
+        // PaddedPODArray::insert must not receive a null source pointer, and an empty key has no
+        // bytes to append.
+        if (key.size != 0) {
+            _impl->encoded.insert(key.data, key.data + key.size);
+        }
     }
     DCHECK_EQ(_impl->encoded.size(), encoded_size);
     _impl->sealed_key_count = count;
@@ -355,7 +394,9 @@ StringRef VariantMetadataBuilder::encoded_metadata() const {
 PaddedPODArray<char> VariantMetadataBuilder::_take_encoded_metadata() noexcept {
     DCHECK(_impl->sealed);
     PaddedPODArray<char> encoded = std::move(_impl->encoded);
-    // Destroy the scratch state directly. Constructing an empty deque can allocate.
+    // Destroy the scratch state directly: the encoded bytes were moved out first, and destroying
+    // the key map and key vectors only releases memory. Rebuilding empty containers here would
+    // allocate inside a noexcept cleanup path.
     _impl.reset();
     return encoded;
 }

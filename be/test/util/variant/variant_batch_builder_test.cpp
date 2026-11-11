@@ -687,6 +687,147 @@ TEST(VariantMetadataBuilderTest, RegisterKeyPreservesValidationOnDictionaryMiss)
     EXPECT_EQ(metadata.metadata_ref().key_at(0), string_ref("valid"));
 }
 
+TEST(VariantMetadataBuilderTest, EmptyKeyRoundTripsThroughMetadataEncoding) {
+    VariantMetadataBuilder metadata;
+    EXPECT_EQ(metadata.register_key(string_ref("")), 0);
+    EXPECT_EQ(metadata.register_key(string_ref("")), 0);
+    EXPECT_EQ(metadata.register_key(string_ref("a")), 1);
+
+    metadata.seal();
+    ASSERT_EQ(metadata.metadata_ref().dict_size(), 2);
+    // The empty key has no bytes to append but still occupies the first dictionary slot.
+    EXPECT_EQ(metadata.metadata_ref().key_at(0), string_ref(""));
+    EXPECT_EQ(metadata.metadata_ref().key_at(1), string_ref("a"));
+    EXPECT_EQ(metadata.final_id(0), 0);
+    EXPECT_EQ(metadata.final_id(1), 1);
+}
+
+TEST(VariantMetadataBuilderTest, KeyReferencesStayValidAcrossKeyStorageGrowth) {
+    constexpr uint32_t KEY_COUNT = 8'192;
+    VariantMetadataBuilder metadata;
+    std::vector<std::string> keys;
+    keys.reserve(KEY_COUNT);
+    for (uint32_t index = 0; index < KEY_COUNT; ++index) {
+        keys.push_back(numbered_key(index));
+    }
+    for (uint32_t index = 0; index < KEY_COUNT; ++index) {
+        ASSERT_EQ(metadata.register_key(StringRef(keys[index])), index);
+    }
+    // Re-registering after several outer vector growths must still find the original entry. A
+    // dangling StringRef in the map would either read freed bytes or return a different id.
+    for (uint32_t index = 0; index < KEY_COUNT; index += 97) {
+        EXPECT_EQ(metadata.register_key(StringRef(keys[index])), index);
+    }
+
+    metadata.seal();
+    ASSERT_EQ(metadata.metadata_ref().dict_size(), KEY_COUNT);
+    for (uint32_t index = 0; index < KEY_COUNT; ++index) {
+        EXPECT_EQ(metadata.metadata_ref().key_at(metadata.final_id(index)), StringRef(keys[index]));
+    }
+}
+
+// Reject exactly one allocation inside register_key and verify that the failed registration
+// publishes nothing and can be retried with the same temporary id. Sweeping the allowance covers
+// the byte copy, the outer vector reservation and the first key-map insertion.
+TEST(VariantMetadataBuilderTest, RegisterKeyFailureIsAtomicAcrossAllocationSizes) {
+    auto tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::QUERY,
+                                                    "VariantMetadataBuilderKeyFailure");
+    auto scoped_tracker = SwitchThreadMemTrackerLimiter(tracker);
+    ++enable_thread_catch_bad_alloc;
+    Defer restore_bad_alloc {[] { --enable_thread_catch_bad_alloc; }};
+
+    const std::string key = "a metadata key long enough to own a buffer";
+    for (const int64_t allowance :
+         {int64_t {0}, int64_t {1}, int64_t {4}, int64_t {16}, int64_t {32}, int64_t {64},
+          int64_t {128}, int64_t {1'024}, int64_t {8'192}}) {
+        VariantMetadataBuilder metadata;
+        thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
+        const int64_t baseline = tracker->consumption();
+        tracker->set_limit(baseline + allowance);
+        bool failed = false;
+        try {
+            metadata.register_key(StringRef(key));
+        } catch (const Exception& exception) {
+            failed = true;
+            EXPECT_EQ(exception.code(), ErrorCode::MEM_ALLOC_FAILED);
+        }
+        EXPECT_EQ(metadata.num_keys(), failed ? 0 : 1);
+        tracker->set_limit(-1);
+        ASSERT_EQ(metadata.num_keys(), failed ? 0 : 1);
+        // A rejected registration must leave no key and no map entry behind.
+        EXPECT_EQ(metadata.register_key(StringRef(key)), 0);
+        EXPECT_EQ(metadata.num_keys(), 1);
+    }
+}
+
+// Fill to the point where the outer key vector has no spare capacity, then reject the growth
+// allocation. The key bytes have already been copied at that point, so this also proves the
+// copy is discarded without leaving an unindexed key.
+TEST(VariantMetadataBuilderTest, RegisterKeyFailureDuringKeyStorageGrowthIsAtomic) {
+    // The key vector grows geometrically and is full at every power of two.
+    constexpr uint32_t FILLED = 1'024;
+    auto tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::QUERY,
+                                                    "VariantMetadataBuilderKeyGrowth");
+    auto scoped_tracker = SwitchThreadMemTrackerLimiter(tracker);
+    VariantMetadataBuilder metadata;
+    for (uint32_t index = 0; index < FILLED; ++index) {
+        ASSERT_EQ(metadata.register_key(StringRef(numbered_key(index))), index);
+    }
+    ASSERT_EQ(metadata.num_keys(), FILLED);
+
+    const std::string next = numbered_key(FILLED);
+    thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
+    const int64_t baseline = tracker->consumption();
+    // The next key copies its bytes first and then grows the outer vector; allow only the copy.
+    tracker->set_limit(baseline + static_cast<int64_t>(next.size()));
+    ++enable_thread_catch_bad_alloc;
+    Defer restore_bad_alloc {[] { --enable_thread_catch_bad_alloc; }};
+    expect_builder_exception_code(ErrorCode::MEM_ALLOC_FAILED,
+                                  [&] { metadata.register_key(StringRef(next)); });
+    EXPECT_EQ(metadata.num_keys(), FILLED);
+    // Existing entries remain reachable through their map StringRefs.
+    for (uint32_t index = 0; index < FILLED; index += 61) {
+        EXPECT_EQ(metadata.register_key(StringRef(numbered_key(index))), index);
+    }
+
+    tracker->set_limit(-1);
+    EXPECT_EQ(metadata.register_key(StringRef(next)), FILLED);
+    EXPECT_EQ(metadata.num_keys(), FILLED + 1);
+}
+
+// Fill just below the flat_hash_map growth threshold with spare capacity in the outer key vector,
+// so the rejected allocation is the map table growth rather than a key buffer or vector growth.
+TEST(VariantMetadataBuilderTest, RegisterKeyFailureDuringKeyMapGrowthIsAtomic) {
+    // phmap keeps a 7/8 load factor: a 2047-slot table grows on its 1793rd entry, where the outer
+    // key vector still has room, so only the map table allocation can fail.
+    constexpr uint32_t FILLED = 1'792;
+    auto tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::QUERY,
+                                                    "VariantMetadataBuilderMapGrowth");
+    auto scoped_tracker = SwitchThreadMemTrackerLimiter(tracker);
+    VariantMetadataBuilder metadata;
+    for (uint32_t index = 0; index < FILLED; ++index) {
+        ASSERT_EQ(metadata.register_key(StringRef(numbered_key(index))), index);
+    }
+    ASSERT_EQ(metadata.num_keys(), FILLED);
+
+    const std::string next = numbered_key(FILLED);
+    thread_context()->thread_mem_tracker_mgr->flush_untracked_mem();
+    const int64_t baseline = tracker->consumption();
+    tracker->set_limit(baseline + static_cast<int64_t>(next.size()));
+    ++enable_thread_catch_bad_alloc;
+    Defer restore_bad_alloc {[] { --enable_thread_catch_bad_alloc; }};
+    expect_builder_exception_code(ErrorCode::MEM_ALLOC_FAILED,
+                                  [&] { metadata.register_key(StringRef(next)); });
+    EXPECT_EQ(metadata.num_keys(), FILLED);
+    for (uint32_t index = 0; index < FILLED; index += 61) {
+        EXPECT_EQ(metadata.register_key(StringRef(numbered_key(index))), index);
+    }
+
+    tracker->set_limit(-1);
+    EXPECT_EQ(metadata.register_key(StringRef(next)), FILLED);
+    EXPECT_EQ(metadata.num_keys(), FILLED + 1);
+}
+
 std::string build_array_with_nulls(uint32_t count, uint8_t* value_header_out) {
     const OwnedBuilderValue owned = build_owned_value([count](VariantBatchBuilder::Row& row) {
         auto array = row.start_array();
@@ -1581,6 +1722,36 @@ TEST(VariantBatchBuilderTest, AbortAndRowErrorsRollbackBeforeTheNextRow) {
     EXPECT_EQ(required_field(block.value_at(0), "retained").get_int(), 9);
 }
 
+TEST(VariantBatchBuilderTest, AbortedRowReleasesItsKeysAndTemporaryIds) {
+    VariantBatchBuilder builder;
+    {
+        auto row = builder.begin_row();
+        auto object = row.start_object();
+        object.add_key(string_ref("first"));
+        row.add_int(1);
+        object.add_key(string_ref("second"));
+        row.add_int(2);
+        object.finish();
+        row.abort();
+    }
+    {
+        auto row = builder.begin_row();
+        auto object = row.start_object();
+        // Aborting the first row must remove its keys from both the dictionary and the map, so
+        // this key starts a fresh key vector at temporary id 0.
+        object.add_key(string_ref("third"));
+        row.add_int(3);
+        object.finish();
+        row.finish();
+    }
+
+    VariantBatchBuilder block = builder.finish_batch();
+    ASSERT_EQ(block.num_rows(), 1);
+    ASSERT_EQ(block.metadata_ref().dict_size(), 1);
+    EXPECT_EQ(block.metadata_ref().key_at(0), string_ref("third"));
+    EXPECT_EQ(required_field(block.value_at(0), "third").get_int(), 3);
+}
+
 TEST(VariantBatchBuilderTest, CopiesBorrowedKeysStringsAndBinaryBeforeRowReturns) {
     VariantBatchBuilder builder;
     std::string key = "borrowed";
@@ -1942,7 +2113,8 @@ TEST(VariantBatchBuilderTest, FailedKeyRegistrationLeavesNoUnindexedKey) {
     auto tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::QUERY,
                                                     "VariantBatchBuilderKeyRegistration");
     auto scoped_tracker = SwitchThreadMemTrackerLimiter(tracker);
-    // A nonempty key first allocates bytes. An empty key goes straight to map allocation.
+    // A nonempty key first allocates its bytes; an empty key still needs room in the key vector.
+    // Neither may publish a map entry before the key is committed.
     for (const auto key : {string_ref("new key"), string_ref("")}) {
         VariantMetadataBuilder metadata;
         {
@@ -1959,6 +2131,32 @@ TEST(VariantBatchBuilderTest, FailedKeyRegistrationLeavesNoUnindexedKey) {
         EXPECT_EQ(metadata.register_key(key), 0);
         EXPECT_EQ(metadata.num_keys(), 1);
     }
+}
+
+TEST(VariantBatchBuilderTest, FailedSealLeavesTheBatchTerminal) {
+    auto tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::QUERY,
+                                                    "VariantBatchBuilderFailedSeal");
+    auto scoped_tracker = SwitchThreadMemTrackerLimiter(tracker);
+    VariantBatchBuilder builder;
+    {
+        auto row = builder.begin_row();
+        row.add_int(1);
+        row.finish();
+    }
+
+    tracker->set_limit(1);
+    ++enable_thread_catch_bad_alloc;
+    Defer restore {[&] {
+        --enable_thread_catch_bad_alloc;
+        tracker->set_limit(-1);
+    }};
+    expect_builder_exception_code(ErrorCode::MEM_ALLOC_FAILED, [&] { builder.finish_batch(); });
+    tracker->set_limit(-1);
+
+    // finish_batch marks the encoding unit terminal before seal(), so a failed seal cannot be
+    // retried or extended with another row.
+    EXPECT_THROW(builder.begin_row(), Exception);
+    EXPECT_THROW(builder.finish_batch(), Exception);
 }
 
 TEST(VariantBatchBuilderTest, BatchLifetimeAllocationsAreMemTrackerVisible) {
