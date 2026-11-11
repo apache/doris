@@ -130,9 +130,9 @@ void append_unsigned(String& output, uint64_t value, uint8_t width) {
     }
 }
 
-template <typename Container>
-void release_batch_container(Container& container) noexcept {
-    Container().swap(container);
+template <typename T>
+void release_batch_vector(DorisVector<T>& buffer) noexcept {
+    DorisVector<T>().swap(buffer);
 }
 
 } // namespace
@@ -178,15 +178,22 @@ uint32_t VariantMetadataBuilder::register_key(StringRef key) {
 
     const auto temporary_id = static_cast<uint32_t>(_impl->keys.size());
     _impl->keys.emplace_back();
-    if (key.size != 0) {
-        _impl->keys.back().insert(key.data, key.data + key.size);
-    }
-    const StringRef owned_key {_impl->keys.back().data(), _impl->keys.back().size()};
+    auto& key_bytes = _impl->keys.back();
     const size_t old_capacity = _impl->key_to_temporary_id.capacity();
-    const auto [unused, inserted] = _impl->key_to_temporary_id.emplace(owned_key, temporary_id);
+    try {
+        if (key.size != 0) {
+            key_bytes.insert(key.data, key.data + key.size);
+        }
+        const auto [unused, inserted] = _impl->key_to_temporary_id.emplace(
+                StringRef {key_bytes.data(), key_bytes.size()}, temporary_id);
+        static_cast<void>(unused);
+        DCHECK(inserted);
+    } catch (...) {
+        // Row rollback only sees keys that were successfully added to the map.
+        _impl->keys.pop_back();
+        throw;
+    }
     _impl->key_capacity_growths += old_capacity != _impl->key_to_temporary_id.capacity();
-    static_cast<void>(unused);
-    DCHECK(inserted);
     return temporary_id;
 }
 
@@ -342,9 +349,8 @@ StringRef VariantMetadataBuilder::encoded_metadata() const {
 PaddedPODArray<char> VariantMetadataBuilder::_take_encoded_metadata() noexcept {
     DCHECK(_impl->sealed);
     PaddedPODArray<char> encoded = std::move(_impl->encoded);
-    release_batch_container(_impl->keys);
-    release_batch_container(_impl->key_to_temporary_id);
-    release_batch_container(_impl->temporary_to_final_id);
+    // Destroy the scratch state directly. Constructing an empty deque can allocate.
+    _impl.reset();
     return encoded;
 }
 
@@ -1237,14 +1243,14 @@ public:
     }
 
     void release_scratch() noexcept {
-        release_batch_container(scalar_bytes);
-        release_batch_container(nodes);
-        release_batch_container(containers);
-        release_batch_container(children);
-        release_batch_container(scope_stack);
-        release_batch_container(object_id_scratch);
-        release_batch_container(container_plans);
-        release_batch_container(planned_object_children);
+        release_batch_vector(scalar_bytes);
+        release_batch_vector(nodes);
+        release_batch_vector(containers);
+        release_batch_vector(children);
+        release_batch_vector(scope_stack);
+        release_batch_vector(object_id_scratch);
+        release_batch_vector(container_plans);
+        release_batch_vector(planned_object_children);
         previous_object_tokens = nullptr;
         pending_object_tokens = nullptr;
         active_container = INVALID_INDEX;
@@ -1578,9 +1584,9 @@ VariantBatchBuilder VariantBatchBuilder::finish_batch() {
 #endif
     PaddedPODArray<char> metadata = _impl->metadata._take_encoded_metadata();
     _impl->collection.release_scratch();
-    release_batch_container(_impl->roots);
-    release_batch_container(_impl->previous_object_tokens);
-    release_batch_container(_impl->pending_object_tokens);
+    release_batch_vector(_impl->roots);
+    release_batch_vector(_impl->previous_object_tokens);
+    release_batch_vector(_impl->pending_object_tokens);
     return {std::move(metadata), std::move(values), std::move(offsets)};
 }
 
