@@ -17,6 +17,9 @@
 
 #include "format_v2/table/load_reader.h"
 
+#include <algorithm>
+#include <set>
+
 #include "core/column/column_complex.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_vector.h"
@@ -24,6 +27,7 @@
 #include "core/data_type_serde/data_type_serde.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
+#include "exprs/vslot_ref.h"
 #include "format_v2/arrow/arrow_stream_reader.h"
 #include "format_v2/wal/wal_reader.h"
 #include "runtime/descriptors.h"
@@ -85,6 +89,12 @@ Status LoadTableReader::init(TableReadOptions&& options) {
             _sequence_uid = slot->col_unique_id();
         }
     }
+    if (_format == FileFormat::PARQUET &&
+        std::ranges::any_of(_destination_tuple->slots(), [](const SlotDescriptor* slot) {
+            return slot->type()->get_primitive_type() == TYPE_VARIANT;
+        })) {
+        _init_parquet_variant_projections();
+    }
     // Destination predicates must run after conversions and error accounting. Passing them to
     // the source reader would both bind the wrong slots and change rejected-row statistics.
     return TableReader::init({.projected_columns = std::move(_source_columns),
@@ -97,6 +107,54 @@ Status LoadTableReader::init(TableReadOptions&& options) {
                               .file_slot_descs = &_source_file_slots,
                               .push_down_agg_type = TPushAggOp::NONE,
                               .condition_cache_digest = 0});
+}
+
+void LoadTableReader::_init_parquet_variant_projections() {
+    // A native source slot can replace the planned text slot only if no other expression reads
+    // it. For example, a pre-filter using string operations must still see its planned type.
+    std::map<int, size_t> consumers;
+    for (const auto* expressions : {&_pre_filters, &_destination_exprs}) {
+        for (const auto& expression : *expressions) {
+            std::set<int> positions;
+            expression->root()->collect_slot_column_ids(positions);
+            for (int position : positions) {
+                ++consumers[position];
+            }
+        }
+    }
+
+    _parquet_variant_source_positions.resize(_destination_exprs.size(), -1);
+    for (size_t i = 0; i < _destination_exprs.size(); ++i) {
+        const int position = _direct_source_positions[i];
+        const auto& root = _destination_exprs[i]->root();
+        if (position < 0 || consumers[position] != 1 ||
+            _source_columns[position].is_partition_key ||
+            root->fn().name.function_name != "try_parse_to_variant" ||
+            root->children().size() != 1) {
+            continue;
+        }
+        const auto* slot = dynamic_cast<const VSlotRef*>(root->children()[0].get());
+        if (slot != nullptr && slot->column_id() == position) {
+            _parquet_variant_source_positions[i] = position;
+        }
+    }
+}
+
+Status LoadTableReader::annotate_file_schema(std::vector<ColumnDefinition>* file_schema) {
+    for (int position : _parquet_variant_source_positions) {
+        if (position < 0) {
+            continue;
+        }
+        auto& projected = _projected_columns[position];
+        const auto* file_column = find_column_by_name(projected, *file_schema);
+        // A LOAD may mix native Variant files and older UTF-8 files. Choose the source type per
+        // file so the latter still use the original try_parse_to_variant expression.
+        projected.type =
+                file_column != nullptr && file_column->type->get_primitive_type() == TYPE_VARIANT
+                        ? make_nullable(file_column->type)
+                        : _source_tuple->slots()[position]->type();
+    }
+    return Status::OK();
 }
 
 Status LoadTableReader::_init_source_columns() {
@@ -280,7 +338,17 @@ Status LoadTableReader::_convert(Block* output) {
     for (size_t i = 0; i < _destination_exprs.size(); ++i) {
         const auto* slot = _destination_tuple->slots()[i];
         ColumnPtr column;
-        RETURN_IF_ERROR(_destination_exprs[i]->execute(&_source, column));
+        const int variant_position = _parquet_variant_source_positions.empty()
+                                             ? -1
+                                             : _parquet_variant_source_positions[i];
+        if (variant_position >= 0 &&
+            _projected_columns[variant_position].type->get_primitive_type() == TYPE_VARIANT) {
+            // Casting a native Variant through the planned VARCHAR changes root scalars, e.g.
+            // boolean true becomes "1" and then an integer when parsed as JSON.
+            column = _source.get_by_position(variant_position).column;
+        } else {
+            RETURN_IF_ERROR(_destination_exprs[i]->execute(&_source, column));
+        }
         column = column->convert_to_full_column_if_const();
         for (size_t row = 0; row < rows; ++row) {
             if (!keep->get_data()[row] || !column->is_null_at(row) ||
@@ -328,6 +396,14 @@ Status LoadTableReader::validate_file_mapping(const TableColumnMapper& mapper) c
 
 Status LoadTableReader::finalize_chunk(Block* block, size_t physical_rows) {
     _source = Block(_source_tuple->slots(), 0);
+    for (int position : _parquet_variant_source_positions) {
+        if (position >= 0 &&
+            _projected_columns[position].type->get_primitive_type() == TYPE_VARIANT) {
+            auto& source = _source.get_by_position(position);
+            source.type = _projected_columns[position].type;
+            source.column = source.type->create_column();
+        }
+    }
     RETURN_IF_ERROR(TableReader::finalize_chunk(&_source, physical_rows));
     RETURN_IF_ERROR(_materialize_missing_values());
     const auto rows = _source.rows();
