@@ -44,6 +44,8 @@ jobs:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.runtime_canary == true }}
     runs-on: ubuntu-24.04
     timeout-minutes: 25
+    env:
+      CANARY_AUTH_OBJECT: oss://doris-community-ci/codex/auth.json.5
     permissions:
       contents: read
     steps:
@@ -87,7 +89,7 @@ jobs:
           home="$RUNNER_TEMP/codex-canary-home"
           install -m 700 -d "$home"
           ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" \
-            cp -f oss://doris-community-ci/codex/auth.json.4 "$home/auth.json" >/dev/null
+            cp -f "$CANARY_AUTH_OBJECT" "$home/auth.json" >/dev/null
           jq -e '
             .auth_mode == "chatgpt"
             and (.tokens.access_token | type == "string" and length > 0)
@@ -174,7 +176,6 @@ jobs:
           OSS_ENDPOINT: oss-cn-hongkong.aliyuncs.com
         run: |
           set -euo pipefail
-          auth_object=oss://doris-community-ci/codex/auth.json.4
           jq -e '
             .auth_mode == "chatgpt"
             and (.tokens.access_token | type == "string" and length > 0)
@@ -189,14 +190,14 @@ jobs:
           remote_auth="$(mktemp "$RUNNER_TEMP/codex-canary-current.XXXXXX")"
           trap 'rm -f "$remote_auth"' EXIT
           ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" \
-            cp -f "$auth_object" "$remote_auth" >/dev/null
+            cp -f "$CANARY_AUTH_OBJECT" "$remote_auth" >/dev/null
           remote_hash="$(sha256sum "$remote_auth" | awk '{print $1}')"
           if [ "$remote_hash" != "$original_hash" ]; then
             echo "::error::Auth changed concurrently; refusing to overwrite it."
             exit 1
           fi
           ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" \
-            cp -f "$CODEX_HOME/auth.json" "$auth_object" >/dev/null
+            cp -f "$CODEX_HOME/auth.json" "$CANARY_AUTH_OBJECT" >/dev/null
           echo "Synced refreshed canary auth."
 
   code-review:
