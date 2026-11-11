@@ -938,11 +938,16 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
     }
 
     /**
-     * The endpoint of a result this FE holds itself (a statement answered without a BE, a metadata
-     * request). The result lives in the session on this FE, so its DoGet must reach this FE: by this
-     * FE's own address, or, with {@link Config#arrow_flight_fe_result_empty_location}, by no location
-     * at all, which a Flight client redeems on the service that issued the ticket, over the connection
-     * it already holds. The setting is read per request, so a runtime change applies to the next one.
+     * The endpoint of a result only this FE can serve: the result of a statement that is not a query
+     * (SHOW, EXPLAIN, USE, SET, DDL, DML), which is cached in the session on this FE, and the answer
+     * to a metadata request, which this FE computes at DoGet for the session that presents the ticket.
+     * Either way the DoGet has to come back to this FE, where the session and its bearer token exist:
+     * by this FE's own address, or, with {@link Config#arrow_flight_fe_result_empty_location}, by no
+     * location at all, which the Flight protocol defines as redeemable only on the service that issued
+     * the ticket. A client that redeems such an endpoint on its own connection fetches over the one it
+     * already holds to this FE; code that connects to an endpoint's first location must fall back to
+     * its FE connection when the list is empty. The setting is read per request, so a runtime change
+     * applies to the next one.
      */
     private FlightEndpoint localResultEndpoint(Ticket ticket) {
         if (Config.arrow_flight_fe_result_empty_location) {

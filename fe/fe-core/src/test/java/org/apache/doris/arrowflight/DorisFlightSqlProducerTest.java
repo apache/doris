@@ -23,15 +23,20 @@ import org.apache.doris.arrowflight.protocol.FlightProtocolAdapter;
 import org.apache.doris.arrowflight.results.FlightSqlChannel;
 import org.apache.doris.arrowflight.results.FlightSqlEndpointsLocation;
 import org.apache.doris.arrowflight.sessions.FlightSessionsManager;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.IncrWindowNotReadyException;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectPoolTestSupport;
 import org.apache.doris.qe.ConnectScheduler;
 import org.apache.doris.qe.QueryState;
+import org.apache.doris.qe.ShowResultSet;
+import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TUniqueId;
@@ -79,6 +84,7 @@ import org.mockito.Mockito;
 import java.io.ByteArrayInputStream;
 import java.nio.channels.Channels;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
@@ -583,10 +589,11 @@ public class DorisFlightSqlProducerTest {
         return info.getEndpoints().get(0);
     }
 
-    // A metadata request's result is held by this FE. By default its endpoint names this FE's own
-    // address; with arrow_flight_fe_result_empty_location it carries no location, which a client
-    // redeems over the connection it already holds. The setting is read per request: the same
-    // producer follows a change between two requests, both ways, and the ticket does not change.
+    // A metadata request is answered by this FE at DoGet, for the session that presents the ticket. By
+    // default its endpoint names this FE's own address; with arrow_flight_fe_result_empty_location it
+    // carries no location, which a client redeems on the connection that issued the ticket. The
+    // setting is read per request: the same producer follows a change between two requests, both
+    // ways, and the ticket does not change.
     @Test
     public void testMetadataResultEndpointFollowsTheSettingPerRequest() throws Exception {
         DorisFlightSqlProducer producer = new DorisFlightSqlProducer(THIS_FE,
@@ -614,8 +621,8 @@ public class DorisFlightSqlProducerTest {
         }
     }
 
-    // A statement the FE answers without a backend (SHOW, USE, SET) leaves its result in the session
-    // on this FE: its endpoint follows the setting the same way.
+    // A statement answered with a status (USE, SET): the processor caches no result, so the producer
+    // synthesizes the status row in the session on this FE. Its endpoint follows the setting the same way.
     @Test
     public void testFrontendAnsweredStatementEndpointFollowsTheSetting() throws Exception {
         ConnectContext ctx = ConnectContext.forFlight("token");
@@ -633,6 +640,44 @@ public class DorisFlightSqlProducerTest {
             Config.arrow_flight_fe_result_empty_location = false;
             Assertions.assertEquals(ImmutableList.of(THIS_FE),
                     onlyEndpoint(producer.getFlightInfoStatement(request, callOf("token"), descriptor)).getLocations());
+        } finally {
+            producer.close();
+            ctx.getFlightSqlChannel().close();
+        }
+    }
+
+    // A statement that caches its own result (SHOW, EXPLAIN): the processor leaves one result on the
+    // session's channel under the statement's query id, and the producer serves it from there. Its
+    // endpoint follows the setting like the status row does.
+    @Test
+    public void testCachedShowResultEndpointFollowsTheSetting() throws Exception {
+        ConnectContext ctx = ConnectContext.forFlight("token");
+        DorisFlightSqlProducer producer = new DorisFlightSqlProducer(THIS_FE, sessionsOf(ctx));
+        try (MockedConstruction<FlightSqlConnectProcessor> mocked = Mockito.mockConstruction(
+                FlightSqlConnectProcessor.class, (mock, context) -> {
+                    Mockito.doAnswer(invocation -> {
+                        ctx.getState().reset();
+                        FlightProtocolAdapter.of(ctx).beforeStatement(ctx);
+                        ShowResultSetMetaData.Builder header = ShowResultSetMetaData.builder();
+                        header.addColumn(new Column("Database", Type.STRING));
+                        ctx.setQueryId(new TUniqueId(48, 1));
+                        ctx.getFlightSqlChannel().addResult(DebugUtil.printId(ctx.queryId()),
+                                invocation.getArgument(0), new ShowResultSet(header.build(), Collections.emptyList()));
+                        return null;
+                    }).when(mock).handleQuery(Mockito.anyString());
+                })) {
+            CommandStatementQuery request = CommandStatementQuery.newBuilder().setQuery("show databases").build();
+            FlightDescriptor descriptor = FlightDescriptor.command(new byte[0]);
+
+            Config.arrow_flight_fe_result_empty_location = false;
+            Assertions.assertEquals(ImmutableList.of(THIS_FE),
+                    onlyEndpoint(producer.getFlightInfoStatement(request, callOf("token"), descriptor)).getLocations());
+
+            Config.arrow_flight_fe_result_empty_location = true;
+            FlightEndpoint noLocation = onlyEndpoint(producer.getFlightInfoStatement(request, callOf("token"),
+                    descriptor));
+            Assertions.assertTrue(noLocation.getLocations().isEmpty(), "locations " + noLocation.getLocations());
+            Assertions.assertEquals(1, ctx.getFlightSqlChannel().resultNum(), "the SHOW result is cached, once");
         } finally {
             producer.close();
             ctx.getFlightSqlChannel().close();
@@ -657,13 +702,15 @@ public class DorisFlightSqlProducerTest {
                     }).when(mock).handleQuery(Mockito.anyString());
                     Mockito.when(mock.getArrowSchema()).thenReturn(new Schema(new ArrayList<>()));
                 })) {
-            Config.arrow_flight_fe_result_empty_location = true;
             CommandStatementQuery request = CommandStatementQuery.newBuilder().setQuery("select 1").build();
-            FlightEndpoint endpoint = onlyEndpoint(producer.getFlightInfoStatement(request, callOf("token"),
-                    FlightDescriptor.command(new byte[0])));
-            Assertions.assertEquals(
-                    ImmutableList.of(Location.forGrpcInsecure("doris-be-0.doris-be.svc.cluster.local", 8050)),
-                    endpoint.getLocations());
+            for (boolean emptyLocation : new boolean[] {true, false}) {
+                Config.arrow_flight_fe_result_empty_location = emptyLocation;
+                FlightEndpoint endpoint = onlyEndpoint(producer.getFlightInfoStatement(request, callOf("token"),
+                        FlightDescriptor.command(new byte[0])));
+                Assertions.assertEquals(
+                        ImmutableList.of(Location.forGrpcInsecure("doris-be-0.doris-be.svc.cluster.local", 8050)),
+                        endpoint.getLocations(), "arrow_flight_fe_result_empty_location=" + emptyLocation);
+            }
         } finally {
             producer.close();
             ctx.getFlightSqlChannel().close();
