@@ -1227,16 +1227,19 @@ Status VariantPathBuilder::append(VariantRef value, size_t row,
         try {
             auto& nullable = assert_cast<ColumnNullable&>(*_impl->column);
             append_value(value, _impl->type, &nullable.get_nested_column());
-            nullable.get_null_map_data().push_back(0);
-        } catch (const Exception&) {
-            if (is_array || _impl->type->get_primitive_type() == TYPE_JSONB) {
+        } catch (const Exception& exception) {
+            if (exception.code() == ErrorCode::MEM_ALLOC_FAILED ||
+                exception.code() == ErrorCode::MEM_LIMIT_EXCEEDED || is_array ||
+                _impl->type->get_primitive_type() == TYPE_JSONB) {
                 throw;
             }
             RETURN_IF_ERROR(_impl->promote(jsonb_type(), false, on_promotion));
             auto& nullable = assert_cast<ColumnNullable&>(*_impl->column);
             append_value(value, _impl->type, &nullable.get_nested_column());
-            nullable.get_null_map_data().push_back(0);
         }
+
+        auto& nullable = assert_cast<ColumnNullable&>(*_impl->column);
+        nullable.get_null_map_data().push_back(0);
         _impl->rowids.push_back(static_cast<uint32_t>(row));
         _impl->logical_rows = row + 1;
 #if defined(BE_TEST) && !defined(BE_BENCHMARK)
