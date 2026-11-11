@@ -28,6 +28,7 @@
 #include "common/status.h"
 #include "exec/spill/spill_data_dir.h"
 #include "exec/spill/spill_file.h"
+#include "io/fs/file_reader_writer_fwd.h"
 #include "util/stopwatch.hpp"
 #include "util/threadpool.h"
 
@@ -44,6 +45,7 @@ struct MetricPrototype;
 class QueryContext;
 class ResourceContext;
 
+class LocalSpillDataDir;
 class RemoteSpillDataDir;
 class SpillFileManager;
 struct StorePath;
@@ -88,7 +90,7 @@ class SpillFileManager {
 public:
     ~SpillFileManager();
     // Builds the spill stores from the configuration: the remote store when
-    // spill_storage_type is "s3", and one local store per configured spill path.
+    // spill_storage_type is "remote", and one local store per configured spill path.
     explicit SpillFileManager(const std::vector<StorePath>& spill_store_paths);
     SpillFileManager(
             std::unordered_map<std::string, std::unique_ptr<SpillDataDir>>&& spill_store_map);
@@ -112,21 +114,22 @@ public:
     /// Get a unique ID for constructing spill file paths.
     uint64_t next_id() { return id_++; }
 
-    // Delete SpillFile data synchronously.
+    // Enqueue SpillFile data for background deletion.
     void delete_spill_file(SpillFileSPtr spill_file);
 
-    // Recursively delete a per-query spill directory of a local store during query teardown.
-    // Failed deletions are retained by the manager and retried by its GC and shutdown paths.
+    // Enqueue a per-query local directory during query teardown, without filesystem I/O.
+    // This also removes empty query directories and residual files left by external writers.
     // A no-op for the remote store: its spill is deleted per spill file only.
     void delete_query_spill_directory(const std::string& query_id, SpillDataDir* data_dir);
 
-    // Take over a spill file directory whose deletion failed. Its objects are still stored, so
+    // Take over a spill file directory for background deletion. Its objects are still stored, so
     // `charged_bytes` stay charged to `data_dir` until a retry deletes them; otherwise a
     // deletion outage would free capacity that is still in use.
-    void retry_spill_directory_deletion(SpillDataDir* data_dir, io::FileSystemSPtr fs,
+    void queue_spill_directory_deletion(SpillDataDir* data_dir, io::FileSystemSPtr fs,
                                         std::string dir, int64_t charged_bytes,
                                         int64_t persisted_bytes, std::string query_id,
-                                        std::vector<std::string> file_log_contexts = {});
+                                        std::vector<std::string> file_log_contexts = {},
+                                        io::FileWriterPtr unfinished_writer = nullptr);
 
     void gc(int32_t max_work_time_ms);
 
@@ -140,7 +143,7 @@ public:
     /// Bytes and GET requests issued by spill against object storage.
     void update_spill_remote_read(int64_t bytes, int64_t get_requests);
 
-    /// Number of spill directories whose deletion failed and is being retried.
+    /// Number of spill directories waiting for initial deletion or retry.
     size_t pending_delete_dir_count();
 
     /// Bytes of completed spill objects this process currently holds in object storage;
@@ -164,6 +167,9 @@ private:
         int64_t persisted_bytes {0};
         // Per-file identities/sizes survive directory merging, until successful deletion.
         std::vector<std::string> file_log_contexts;
+        // GC drains detached writers before deleting their prefixes. No query context or
+        // RuntimeProfile is retained; upload callbacks reference only these I/O writers.
+        std::vector<io::FileWriterPtr> unfinished_writers = {};
     };
 
     struct SpillGcStats {
@@ -176,16 +182,12 @@ private:
 
     void _init_metrics();
     Status _init_spill_store_map();
+    Status _init_local_spill_directories();
     void _spill_gc_thread_callback();
-    Status _try_delete_spill_directory(const PendingSpillDirectory& pending_directory);
-    /// Retry the queued failed deletions, at least one, until `max_work_time_ns` has passed on
-    /// `watch`; a remote one can take longer, since it waits for the object store. Remote ones
-    /// are only retried when `retry_remote` is set. The rest stay queued for the next round.
-    void _retry_pending_spill_directories(const MonotonicStopWatch& watch, int64_t max_work_time_ns,
-                                          bool retry_remote);
-    /// Retry every queued failed deletion of a local store, for shutdown: it does not wait for
-    /// the object store.
-    void _retry_pending_local_spill_directories();
+    Status _try_delete_spill_directory(PendingSpillDirectory& pending_directory);
+    /// Process queued deletions within the GC work budget, retaining failures for retry.
+    void _retry_pending_spill_directories(const MonotonicStopWatch& watch,
+                                          int64_t max_work_time_ns);
     void _gc_spill_store(LocalSpillDataDir* store_dir, const MonotonicStopWatch& watch,
                          int64_t max_work_time_ns, SpillGcStats* stats);
     /// Queue a failed deletion, merged with a pending ancestor or absorbing pending descendants
@@ -198,7 +200,7 @@ private:
     SpillDataDir* _get_local_store_for_external_spill();
 
     std::unordered_map<std::string, std::unique_ptr<SpillDataDir>> _spill_store_map;
-    // Views of _spill_store_map by kind. With spill_storage_type=s3 a BE has the remote store
+    // Views of _spill_store_map by kind. With spill_storage_type=remote a BE has the remote store
     // for query spill and keeps its local stores for external writers.
     std::vector<LocalSpillDataDir*> _local_stores;
     RemoteSpillDataDir* _remote_store = nullptr;

@@ -38,6 +38,7 @@
 #include "core/data_type/data_type_string.h"
 #include "exec/operator/spill_counters.h"
 #include "exec/pipeline/pipeline_fragment_context.h"
+#include "exec/spill/local_spill_data_dir.h"
 #include "exec/spill/spill_file_manager.h"
 #include "exec/spill/spill_file_reader.h"
 #include "exec/spill/spill_file_writer.h"
@@ -57,6 +58,16 @@
 #include "vec/spill/spill_log_sink.h"
 
 namespace doris::vectorized {
+
+namespace {
+Status create_empty_spill_test_file(const std::string& path) {
+    auto* fs = io::global_local_filesystem().get();
+    RETURN_IF_ERROR(fs->create_directory(std::filesystem::path(path).parent_path(), false));
+    io::FileWriterPtr writer;
+    RETURN_IF_ERROR(fs->create_file(path, &writer));
+    return writer->close();
+}
+} // namespace
 
 class SpillFileTest : public testing::Test {
 protected:
@@ -112,11 +123,13 @@ protected:
         ExecEnv::GetInstance()->_spill_file_mgr = spill_file_manager;
         st = spill_file_manager->init();
         ASSERT_TRUE(st.ok()) << "init spill file manager failed: " << st.to_string();
+        spill_file_manager->stop();
     }
 
     void TearDown() override {
         ExecEnv::GetInstance()->spill_file_mgr()->stop();
         _runtime_state.reset();
+        ExecEnv::GetInstance()->spill_file_mgr()->gc(10000);
         SAFE_DELETE(ExecEnv::GetInstance()->_spill_file_mgr);
         // Clean up test directory
         auto st = io::global_local_filesystem()->delete_directory(_spill_dir);
@@ -160,14 +173,8 @@ protected:
     }
 
     void _create_residual_file(const std::string& file_path) {
-        auto st = io::global_local_filesystem()->create_directory(
-                std::filesystem::path(file_path).parent_path(), false);
-        ASSERT_TRUE(st.ok()) << st.to_string();
-        io::FileWriterPtr writer;
-        st = io::global_local_filesystem()->create_file(file_path, &writer);
-        ASSERT_TRUE(st.ok()) << st.to_string();
-        st = writer->close();
-        ASSERT_TRUE(st.ok()) << st.to_string();
+        auto status = create_empty_spill_test_file(file_path);
+        ASSERT_TRUE(status.ok()) << status;
     }
 
     std::set<std::string> _gc_subdirectories(LocalSpillDataDir* data_dir) {
@@ -265,6 +272,7 @@ TEST_F(SpillFileTest, LocalLifecycleCountsWrittenAndUnwrittenFilesOnce) {
     auto unwritten = std::make_shared<SpillFile>(_data_dir_ptr, "query_local_lifecycle/sort-2");
     unwritten->gc();
     unwritten.reset();
+    ExecEnv::GetInstance()->spill_file_mgr()->gc(10000);
     EXPECT_EQ(_data_dir_ptr->spill_file_created_total->value(), created + 2);
     EXPECT_EQ(_data_dir_ptr->spill_file_deleted_total->value(), deleted + 2);
     EXPECT_EQ(logs.count(google::INFO, "[spill][create] query_id=query_local_lifecycle,"), 2);
@@ -298,9 +306,14 @@ TEST_F(SpillFileTest, LocalFailedDeletionCountsOnlySuccessfulRetry) {
     DebugPoints::instance()->add(gc_error, debug_point);
     file->gc();
     file->gc();
+    manager->gc(1000);
     EXPECT_EQ(_data_dir_ptr->spill_file_deleted_total->value(), deleted);
     EXPECT_EQ(manager->pending_delete_dir_count(), 1);
-    EXPECT_EQ(logs.count(google::WARNING, "[spill][delete] query_id=query_local_retry,"), 1);
+    // Retry warnings share a process-wide rate limit; the retained path and counters prove
+    // the failed deletion even when another store used this warning's log slot first.
+    EXPECT_TRUE(std::filesystem::exists(_data_dir_ptr->get_spill_data_path() +
+                                        "/query_local_retry/sort-1"));
+    EXPECT_LE(logs.count(google::WARNING, "[spill][delete_retry] query_id=query_local_retry,"), 1);
     DebugPoints::instance()->remove(gc_error);
     manager->gc(1000);
     file.reset();
@@ -1032,7 +1045,8 @@ TEST_F(SpillFileTest, GCCleansUpFiles) {
         // spill_file goes out of scope here, destructor calls gc()
     }
 
-    // After SpillFile is destroyed, the directory should be cleaned up
+    ExecEnv::GetInstance()->spill_file_mgr()->gc(10000);
+    // GC deletes the directory after the file has been released
     bool exists = false;
     auto st = io::global_local_filesystem()->exists(spill_file_dir, &exists);
     ASSERT_TRUE(st.ok());
@@ -1162,6 +1176,7 @@ TEST_F(SpillFileTest, QueryContextDeletesEmptySpillDirectory) {
     ASSERT_TRUE(exists);
 
     query_ctx.reset();
+    ExecEnv::GetInstance()->spill_file_mgr()->gc(10000);
 
     st = io::global_local_filesystem()->exists(query_dir, &exists);
     ASSERT_TRUE(st.ok());
@@ -1193,6 +1208,7 @@ TEST_F(SpillFileTest, QueryContextCleansUpNestedSpillDirectory) {
     ASSERT_TRUE(exists);
 
     query_ctx.reset();
+    ExecEnv::GetInstance()->spill_file_mgr()->gc(10000);
 
     st = io::global_local_filesystem()->exists(query_dir, &exists);
     ASSERT_TRUE(st.ok());
@@ -1221,6 +1237,7 @@ TEST_F(SpillFileTest, QueryContextDeletesResidualSpillDirectory) {
     ASSERT_TRUE(exists);
 
     query_ctx.reset();
+    ExecEnv::GetInstance()->spill_file_mgr()->gc(10000);
 
     st = io::global_local_filesystem()->exists(query_dir, &exists);
     ASSERT_TRUE(st.ok());
@@ -1253,6 +1270,7 @@ TEST_F(SpillFileTest, QueryContextCleansUpAllTouchedSpillDirectories) {
     ASSERT_TRUE(second_exists);
 
     query_ctx.reset();
+    ExecEnv::GetInstance()->spill_file_mgr()->gc(10000);
 
     st = io::global_local_filesystem()->exists(first_query_dir, &first_exists);
     ASSERT_TRUE(st.ok());
@@ -1308,6 +1326,7 @@ TEST_F(SpillFileTest, QueryContextContinuesCleanupAfterRootFailure) {
     DebugPoints::instance()->add(debug_point_name, debug_point);
 
     query_ctx.reset();
+    ExecEnv::GetInstance()->spill_file_mgr()->gc(10000);
 
     st = io::global_local_filesystem()->exists(first_query_dir, &first_exists);
     ASSERT_TRUE(st.ok());
@@ -1367,7 +1386,7 @@ TEST_F(SpillFileTest, QueryContextRetriesSpillDirectoryDeletionUntilSuccess) {
     ASSERT_TRUE(st.ok());
     ASSERT_TRUE(exists);
 
-    for (int i = 0; i < 4; ++i) {
+    for (int i = 0; i < 5; ++i) {
         ExecEnv::GetInstance()->spill_file_mgr()->gc(10000);
         st = io::global_local_filesystem()->exists(query_dir, &exists);
         ASSERT_TRUE(st.ok());
@@ -1528,6 +1547,7 @@ TEST_F(SpillFileTest, FinalCloseReleasesRerunnableQueryContextAndDeletesSpillDir
         EXPECT_TRUE(fragment_mgr->_rerunnable_params_map.empty());
     }
     EXPECT_TRUE(weak_query_ctx.expired());
+    ExecEnv::GetInstance()->spill_file_mgr()->gc(10000);
 
     st = io::global_local_filesystem()->exists(query_dir, &exists);
     ASSERT_TRUE(st.ok());
@@ -1556,7 +1576,7 @@ TEST_F(SpillFileTest, QueryContextSkipsCleanupWithoutSpill) {
     ASSERT_TRUE(exists);
 }
 
-TEST_F(SpillFileTest, DeleteSpillFileThroughManagerSynchronously) {
+TEST_F(SpillFileTest, DeleteSpillFileThroughManagerAsynchronously) {
     SpillFileSPtr spill_file;
     auto st = ExecEnv::GetInstance()->spill_file_mgr()->create_spill_file("test_query/mgr_delete",
                                                                           spill_file);
@@ -1587,6 +1607,10 @@ TEST_F(SpillFileTest, DeleteSpillFileThroughManagerSynchronously) {
     ASSERT_TRUE(exists);
 
     ExecEnv::GetInstance()->spill_file_mgr()->delete_spill_file(spill_file);
+    st = io::global_local_filesystem()->exists(spill_file_dir, &exists);
+    ASSERT_TRUE(st.ok());
+    ASSERT_TRUE(exists); // Query teardown only queues work; it does no filesystem I/O.
+    ExecEnv::GetInstance()->spill_file_mgr()->gc(10000);
 
     st = io::global_local_filesystem()->exists(spill_file_dir, &exists);
     ASSERT_TRUE(st.ok());
@@ -1680,8 +1704,8 @@ TEST_F(SpillFileTest, ExternalSpillSessionSkipsFullManagedRoot) {
     auto query_ctx = MockQueryContext::create(query_id);
 
     const int64_t unavailable_bytes = _data_dir_ptr->get_spill_data_limit() + 1;
-    _data_dir_ptr->update_spill_data_usage(unavailable_bytes);
-    Defer release_full_root([&]() { _data_dir_ptr->update_spill_data_usage(-unavailable_bytes); });
+    _data_dir_ptr->reserve(unavailable_bytes);
+    Defer release_full_root([&]() { _data_dir_ptr->release(unavailable_bytes); });
 
     std::unique_ptr<ExternalSpillSession> spill_session;
     auto st = ExecEnv::GetInstance()->spill_file_mgr()->create_external_spill_session(
@@ -1753,11 +1777,11 @@ TEST_F(SpillFileTest, ExternalSpillSessionIsLazyWhenNoRootAvailable) {
 
     const int64_t first_unavailable_bytes = _data_dir_ptr->get_spill_data_limit() + 1;
     const int64_t second_unavailable_bytes = _second_data_dir_ptr->get_spill_data_limit() + 1;
-    _data_dir_ptr->update_spill_data_usage(first_unavailable_bytes);
-    _second_data_dir_ptr->update_spill_data_usage(second_unavailable_bytes);
+    _data_dir_ptr->reserve(first_unavailable_bytes);
+    _second_data_dir_ptr->reserve(second_unavailable_bytes);
     Defer release_full_roots([&]() {
-        _data_dir_ptr->update_spill_data_usage(-first_unavailable_bytes);
-        _second_data_dir_ptr->update_spill_data_usage(-second_unavailable_bytes);
+        _data_dir_ptr->release(first_unavailable_bytes);
+        _second_data_dir_ptr->release(second_unavailable_bytes);
     });
 
     std::unique_ptr<ExternalSpillSession> spill_session;
@@ -1989,6 +2013,80 @@ TEST_F(SpillFileTest, DataDirCapacityTracking) {
     auto after_write_bytes =
             _data_dir_ptr->get_spill_data_bytes() + _second_data_dir_ptr->get_spill_data_bytes();
     ASSERT_GT(after_write_bytes, initial_bytes);
+}
+
+TEST_F(SpillFileTest, QueryTeardownOnlyQueuesCleanup) {
+    const TUniqueId query_id = UniqueId::gen_uid().to_thrift();
+    auto query = MockQueryContext::create(query_id);
+    std::weak_ptr<QueryContext> weak_query = query;
+    const auto query_dir = _data_dir_ptr->get_spill_data_path(print_id(query_id));
+    _write_and_release_spill_file(query_id, query.get(), _data_dir_ptr, "sort-1");
+    _create_residual_file(query_dir + "/residual");
+    const auto charged = _data_dir_ptr->get_spill_data_bytes();
+    ASSERT_GT(charged, 0);
+    query.reset();
+    EXPECT_TRUE(weak_query.expired());
+    EXPECT_TRUE(std::filesystem::exists(query_dir + "/sort-1"));
+    EXPECT_TRUE(std::filesystem::exists(query_dir + "/residual"));
+    EXPECT_EQ(_data_dir_ptr->get_spill_data_bytes(), charged);
+    auto* manager = ExecEnv::GetInstance()->spill_file_mgr();
+    manager->stop();
+    EXPECT_TRUE(std::filesystem::exists(query_dir));
+    manager->gc(10000);
+    EXPECT_FALSE(std::filesystem::exists(query_dir));
+    EXPECT_EQ(_data_dir_ptr->get_spill_data_bytes(), 0);
+}
+
+TEST(SpillFileManagerTest, ShutdownLeavesPendingLocalDirectoriesForStartupGc) {
+    const std::string root = "./ut_dir/spill_shutdown_test";
+    Defer cleanup {[&]() {
+        WARN_IF_ERROR(io::global_local_filesystem()->delete_directory(root), "clean shutdown test");
+    }};
+    auto make_manager = [&]() {
+        std::unordered_map<std::string, std::unique_ptr<SpillDataDir>> stores;
+        stores.emplace(root, std::make_unique<LocalSpillDataDir>(root, 128L * 1024 * 1024));
+        return std::make_unique<SpillFileManager>(std::move(stores));
+    };
+    ASSERT_TRUE(io::global_local_filesystem()->create_directory(root, false).ok());
+    auto manager = make_manager();
+    ASSERT_TRUE(manager->init().ok());
+    manager->stop();
+    auto* store = manager->_local_stores.front();
+    const auto directory = store->get_spill_data_path("shutdown_query");
+    ASSERT_TRUE(create_empty_spill_test_file(directory + "/data").ok());
+    manager->delete_query_spill_directory("shutdown_query", store);
+    manager->stop();
+    EXPECT_TRUE(std::filesystem::exists(directory + "/data"));
+    manager.reset();
+    EXPECT_TRUE(std::filesystem::exists(directory + "/data"));
+    manager = make_manager();
+    ASSERT_TRUE(manager->init().ok());
+    manager->stop();
+    EXPECT_FALSE(std::filesystem::exists(directory));
+    const auto gc_root = manager->_local_stores.front()->get_spill_data_gc_path();
+    EXPECT_FALSE(std::filesystem::is_empty(gc_root));
+    manager->gc(10000);
+    // The first pass removes query directories; the next prunes their now-empty GC parent.
+    manager->gc(10000);
+    EXPECT_TRUE(std::filesystem::is_empty(gc_root));
+}
+
+TEST(SpillFileManagerTest, StartupDoesNotReuseRootWhenQuarantineFails) {
+    const std::string root = "./ut_dir/spill_startup_rename_failure";
+    auto* fs = io::global_local_filesystem().get();
+    ASSERT_TRUE(fs->delete_directory(root).ok());
+    ASSERT_TRUE(fs->create_directory(root + "/spill", false).ok());
+    Defer cleanup {
+            [&]() { WARN_IF_ERROR(fs->delete_directory(root), "clean rename failure test"); }};
+    // spill_gc is a file, so renaming the active root underneath it must fail with ENOTDIR.
+    ASSERT_TRUE(create_empty_spill_test_file(root + "/spill_gc").ok());
+    std::unordered_map<std::string, std::unique_ptr<SpillDataDir>> stores;
+    stores.emplace(root, std::make_unique<LocalSpillDataDir>(root, 128L * 1024 * 1024));
+    auto manager = std::make_unique<SpillFileManager>(std::move(stores));
+    auto status = manager->init();
+    EXPECT_FALSE(status.ok())
+            << "startup must not silently reuse a spill root it could not quarantine";
+    EXPECT_TRUE(std::filesystem::exists(root + "/spill"));
 }
 
 } // namespace doris::vectorized

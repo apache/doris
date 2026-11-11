@@ -36,16 +36,17 @@ class QueryProfileActionTest {
         NodeAction.NodeInfo current = new NodeAction.NodeInfo(currentTitles, List.of(currentRow));
         Assertions.assertEquals(List.of(currentRow), QueryProfileAction.normalizeCurrentQueryRows(current));
 
-        List<String> oldTitles = currentTitles.subList(0, currentTitles.size() - 2);
+        List<String> oldTitles = Lists.newArrayList(currentTitles);
+        oldTitles.remove("SpillWriteBytesToRemoteStorage");
+        oldTitles.remove("SpillReadBytesFromRemoteStorage");
         List<String> oldRow = Lists.newArrayList(oldTitles);
         NodeAction.NodeInfo old = new NodeAction.NodeInfo(oldTitles, List.of(oldRow));
         List<String> normalizedOld = QueryProfileAction.normalizeCurrentQueryRows(old).get(0);
         Assertions.assertEquals(currentTitles.size(), normalizedOld.size());
-        Assertions.assertEquals(oldRow, normalizedOld.subList(0, oldRow.size()));
-        Assertions.assertEquals(QueryStatisticsFormatter.getScanBytes(0),
-                normalizedOld.get(currentTitles.size() - 2));
-        Assertions.assertEquals(QueryStatisticsFormatter.getScanBytes(0),
-                normalizedOld.get(currentTitles.size() - 1));
+        for (String title : currentTitles) {
+            String expected = oldTitles.contains(title) ? title : QueryStatisticsFormatter.getScanBytes(0);
+            Assertions.assertEquals(expected, normalizedOld.get(currentTitles.indexOf(title)), title);
+        }
 
         List<String> reversedTitles = Lists.newArrayList(currentTitles);
         Collections.reverse(reversedTitles);
