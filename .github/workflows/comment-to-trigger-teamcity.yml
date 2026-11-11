@@ -27,7 +27,7 @@ permissions:
   statuses: write
 
 jobs:
-  route-comment:
+  check-comment-if-need-to-trigger-teamcity:
 
     # Keep this server-side filter aligned with the supported commands parsed below.
     # A generic "run" match also catches performance reports such as "Total hot run time".
@@ -55,95 +55,18 @@ jobs:
         )
       }}
 
-    runs-on: ubuntu-latest
-    outputs:
-      route: ${{ steps.route.outputs.route }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.repository.default_branch }}
-          persist-credentials: false
-      - id: route
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: python3 regression-test/pipeline/common/teamcity-current.py --phase route
-
-  trigger-current-teamcity:
-    needs: route-comment
-    if: needs.route-comment.outputs.route == 'current'
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    concurrency:
-      group: current-teamcity-comment-${{ github.event.issue.number }}
-      cancel-in-progress: false
-    outputs:
-      head: ${{ steps.trigger.outputs.head }}
-      performance_requested: ${{ steps.trigger.outputs.performance_requested }}
-    steps:
-      # issue_comment runs trusted default-branch code, never PR-provided scripts.
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.repository.default_branch }}
-          persist-credentials: false
-      - id: trigger
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TEAMCITY_CURRENT_URL: ${{ vars.TEAMCITY_CURRENT_URL }}
-          TEAMCITY_CURRENT_TOKEN: ${{ secrets.TEAMCITY_CURRENT_TOKEN }}
-        run: python3 regression-test/pipeline/common/teamcity-current.py --phase standard
-
-  trigger-current-performance:
-    needs: trigger-current-teamcity
-    if: needs.trigger-current-teamcity.outputs.performance_requested == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 200
-    concurrency:
-      group: current-teamcity-performance-comment-${{ github.event.issue.number }}
-      cancel-in-progress: false
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.repository.default_branch }}
-          persist-credentials: false
-      - env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TEAMCITY_CURRENT_URL: ${{ vars.TEAMCITY_CURRENT_URL }}
-          TEAMCITY_CURRENT_TOKEN: ${{ secrets.TEAMCITY_CURRENT_TOKEN }}
-          EXPECTED_PR_HEAD: ${{ needs.trigger-current-teamcity.outputs.head }}
-        run: python3 regression-test/pipeline/common/teamcity-current.py --phase performance
-
-  check-comment-if-need-to-trigger-teamcity:
-    needs: route-comment
-    if: needs.route-comment.outputs.route == 'legacy'
-
     # Serialize duplicate commands for one PR. The next run then sees the build
     # queued by the previous run and can safely skip an identical PR revision.
     concurrency:
-      group: >-
-        comment-to-trigger-teamcity-${{ github.event.issue.number }}-${{
-          contains(github.event.comment.body, 'run buildall') && 'buildall' ||
-          contains(github.event.comment.body, 'run compile') && 'compile' ||
-          contains(github.event.comment.body, 'run beut') && 'beut' ||
-          contains(github.event.comment.body, 'run feut') && 'feut' ||
-          contains(github.event.comment.body, 'run cloudut') && 'cloudut' ||
-          contains(github.event.comment.body, 'run p0') && 'p0' ||
-          contains(github.event.comment.body, 'run p1') && 'p1' ||
-          contains(github.event.comment.body, 'run external') && 'external' ||
-          contains(github.event.comment.body, 'run cloud_p0') && 'cloud-p0' ||
-          contains(github.event.comment.body, 'run cloud_p1') && 'cloud-p1' ||
-          contains(github.event.comment.body, 'run vault_p0') && 'vault-p0' ||
-          contains(github.event.comment.body, 'run nonConcurrent') && 'non-concurrent' ||
-          contains(github.event.comment.body, 'run check_coverage') && 'check-coverage' ||
-          contains(github.event.comment.body, 'run performance') && 'performance' ||
-          contains(github.event.comment.body, 'skip buildall') && 'skip-buildall' ||
-          'skip-check-coverage'
-        }}
+      group: comment-to-trigger-teamcity-${{ github.event.issue.number }}
       cancel-in-progress: false
 
     runs-on: ubuntu-latest
     env:
       COMMENT_BODY: ${{ github.event.comment.body }}
       COMMENT_USER_ID: ${{ github.event.comment.user.id }}
+      TEAMCITY_CURRENT_URL: ${{ vars.TEAMCITY_CURRENT_URL }}
+      TEAMCITY_CURRENT_TOKEN: ${{ secrets.TEAMCITY_CURRENT_TOKEN }}
       TEAMCITY_LEGACY_USER: ${{ secrets.TEAMCITY_LEGACY_USER }}
       TEAMCITY_LEGACY_PASSWORD: ${{ secrets.TEAMCITY_LEGACY_PASSWORD }}
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -237,6 +160,19 @@ jobs:
         echo "PULL_REQUEST_NUM=${PULL_REQUEST_NUM}" | tee -a "$GITHUB_OUTPUT"
         echo "COMMIT_ID_FROM_TRIGGER=${COMMIT_ID_FROM_TRIGGER}" | tee -a "$GITHUB_OUTPUT"
         echo "TARGET_BRANCH=${TARGET_BRANCH}" | tee -a "$GITHUB_OUTPUT"
+        echo "TARGET_BRANCH=${TARGET_BRANCH}" >> "$GITHUB_ENV"
+        case "$TARGET_BRANCH" in
+          master|branch-4.2|branch-4.1)
+            if [[ "$COMMENT_BODY" == *'run '* ]]; then
+              permission=$(curl --fail --silent --show-error \
+                -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+                "https://api.github.com/repos/${{ github.repository }}/collaborators/${{ github.event.comment.user.login }}/permission" | jq -r .permission)
+              [[ "$permission" == write || "$permission" == maintain || "$permission" == admin ]] || {
+                echo 'Repository write access is required to trigger current TeamCity'; exit 1;
+              }
+            fi
+            ;;
+        esac
         COMMENT_BODY_DELIMITER=$(dd if=/dev/urandom bs=15 count=1 status=none | base64)
         {
           echo "COMMENT_BODY<<${COMMENT_BODY_DELIMITER}"
@@ -257,6 +193,9 @@ jobs:
     - name: "Checkout master"
       if: ${{ fromJSON(steps.parse.outputs.comment_trigger) || fromJSON(steps.parse.outputs.comment_skip) || fromJSON(steps.parse.outputs.comment_skip_coverage) }}
       uses: actions/checkout@v4
+      with:
+        ref: ${{ github.event.repository.default_branch }}
+        persist-credentials: false
 
     - name: "Check if pr need run build"
       if: ${{ fromJSON(steps.parse.outputs.comment_trigger) }}
@@ -569,7 +508,7 @@ jobs:
           "${{ steps.parse.outputs.COMMENT_REPEAT_TIMES }}"
 
     - name: "Trigger or Skip performance"
-      if: ${{ fromJSON(steps.parse.outputs.comment_trigger) && contains(fromJSON('["performance", "buildall"]'), steps.parse.outputs.COMMENT_TRIGGER_TYPE) }}
+      if: ${{ fromJSON(steps.parse.outputs.comment_trigger) && contains(fromJSON('["performance", "buildall"]'), steps.parse.outputs.COMMENT_TRIGGER_TYPE) && (steps.parse.outputs.COMMENT_TRIGGER_TYPE == 'performance' || !contains(fromJSON('["branch-4.2", "branch-4.1"]'), steps.parse.outputs.TARGET_BRANCH)) }}
       run: |
         source ./regression-test/pipeline/common/teamcity-utils.sh
         set +x
