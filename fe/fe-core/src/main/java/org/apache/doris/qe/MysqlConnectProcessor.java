@@ -37,11 +37,16 @@ import org.apache.doris.mysql.authenticate.password.NativePasswordResolver;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
+import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Placeholder;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.VarBinaryLiteral;
 import org.apache.doris.nereids.trees.plans.PlaceholderId;
 import org.apache.doris.nereids.trees.plans.commands.ExecuteCommand;
 import org.apache.doris.nereids.trees.plans.commands.PrepareCommand;
+import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Preconditions;
@@ -175,7 +180,24 @@ public class MysqlConnectProcessor extends ConnectProcessor {
                     }
                     MysqlColType type = prepareCommand.getPlaceholders().get(i).getMysqlColType();
                     boolean isUnsigned = prepareCommand.getPlaceholders().get(i).isUnsigned();
-                    Literal l = Literal.getLiteralByMysqlType(type, isUnsigned, packetBuf);
+                    Expression l = Literal.getLiteralByMysqlType(type, isUnsigned, packetBuf);
+                    // A string wire type still has string semantics, including in predicates. BE can
+                    // cast its original bytes to a string without the lossy Java UTF-8 decoding.
+                    if (l instanceof VarBinaryLiteral) {
+                        VarBinaryLiteral binary = (VarBinaryLiteral) l;
+                        switch (type) {
+                            case MYSQL_TYPE_STRING:
+                            case MYSQL_TYPE_VARSTRING:
+                                l = new Cast(binary, StringType.INSTANCE);
+                                break;
+                            case MYSQL_TYPE_VARCHAR:
+                                l = new Cast(binary,
+                                        VarcharType.createVarcharType(((byte[]) binary.getValue()).length));
+                                break;
+                            default:
+                                break;
+                        }
+                    }
                     statementContext.getIdToPlaceholderRealExpr().put(exprId, l);
                 }
             }
