@@ -42,6 +42,8 @@ github:
     merge:   false
     rebase:  false
   protected_branches:
+    # master, branch-4.2 and branch-4.1 use the migrated TeamCity contexts.
+    # External and Performance report results without gating these branches.
     master:
       required_status_checks:
         strict: false
