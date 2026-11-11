@@ -73,7 +73,6 @@ public class InsertIntoValuesAnalyzer extends AbstractBatchJobExecutor {
     );
 
     private static final List<RewriteJob> BATCH_INSERT_POST_BIND_JOBS = jobs(
-            custom(RuleType.TYPE_VARIANT_TEMPLATE_PARSE, TypeVariantTemplateParse::new),
             bottomUp(
                     new MergeProjectable(),
 

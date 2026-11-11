@@ -23,7 +23,10 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ParseToVariant;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.TryParseToVariant;
+import org.apache.doris.nereids.trees.plans.Explainable;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.insert.AbstractInsertExecutor;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
@@ -53,6 +56,7 @@ public class TypeVariantTemplateParseTest extends TestWithFeService {
     private static final String DATABASE = "variant_template_parse_db";
     private static final String TABLE = "variant_template_parse_t";
     private static final String SOURCE = "variant_template_parse_src";
+    private static final String UNIQUE_TABLE = "variant_template_parse_mow";
     private static final String DOCUMENT = "{\"money\":{\"amount\":188118222.011121933},\"name\":\"n\"}";
 
     @Override
@@ -69,6 +73,13 @@ public class TypeVariantTemplateParseTest extends TestWithFeService {
                 + "duplicate key(id)\n"
                 + "distributed by hash(id) buckets 1\n"
                 + "properties(\"replication_num\"=\"1\")");
+        createTable("create table " + UNIQUE_TABLE + " (\n"
+                + "    id int,\n"
+                + "    v variant<'money.amount':decimal(20,6),'ratio*':decimal(30,18),'name':string>\n"
+                + ")\n"
+                + "unique key(id)\n"
+                + "distributed by hash(id) buckets 1\n"
+                + "properties(\"replication_num\"=\"1\", \"enable_unique_key_merge_on_write\"=\"true\")");
         createTable("create table " + SOURCE + " (\n"
                 + "    id int,\n"
                 + "    j string\n"
@@ -125,6 +136,54 @@ public class TypeVariantTemplateParseTest extends TestWithFeService {
     }
 
     @Test
+    public void testCallsUnderAnExpressionThatReturnsAnArgumentAreTyped() throws Exception {
+        VariantType template = templateOfTargetColumn();
+        String from = " from " + SOURCE;
+        List<String> shapes = new ArrayList<>();
+        shapes.add("insert into " + TABLE + " select id, if(id > 0, parse_to_variant(j), null)" + from);
+        shapes.add("insert into " + TABLE + " select id, case when id > 0 then parse_to_variant(j)"
+                + " when id < 0 then try_parse_to_variant(j) else parse_to_variant(j) end" + from);
+        shapes.add("insert into " + TABLE + " select id, coalesce(try_parse_to_variant(j), parse_to_variant(j))"
+                + from);
+        shapes.add("insert into " + TABLE + " select id, nvl(try_parse_to_variant(j), parse_to_variant(j))" + from);
+        // MERGE INTO selects every value it assigns with a short-circuit IF of its own
+        shapes.add("merge into " + UNIQUE_TABLE + " t using " + SOURCE + " s on t.id = s.id"
+                + " when matched then update set v = parse_to_variant(s.j)"
+                + " when not matched then insert (id, v) values (s.id, try_parse_to_variant(s.j))");
+        for (String sql : shapes) {
+            List<VariantType> types = callReturnTypes(rewrittenPlan(sql));
+            Assertions.assertFalse(types.isEmpty(), sql);
+            for (VariantType type : types) {
+                Assertions.assertEquals(template, type, sql);
+            }
+        }
+    }
+
+    @Test
+    public void testATypedArgumentKeepsTheTypeItsExpressionWasBoundWith() throws Exception {
+        // the IF was bound as a plain VARIANT: right after the rule its typed call sits under a relabel back to it
+        String sql = "insert into " + TABLE + " select id, if(id > 0, parse_to_variant(j), null) from " + SOURCE;
+        createStatementCtx(sql);
+        Explainable command = (Explainable) new NereidsParser().parseSingle(sql);
+        Plan plan = PlanChecker.from(connectContext)
+                .analyze(command.getExplainPlan(connectContext))
+                .applyCustom(new TypeVariantTemplateParse())
+                .getPlan();
+        List<If> ifs = new ArrayList<>();
+        plan.foreach(node -> {
+            for (Expression expression : ((Plan) node).getExpressions()) {
+                ifs.addAll(expression.<If>collectToList(If.class::isInstance));
+            }
+        });
+        Assertions.assertEquals(1, ifs.size());
+        Expression value = ifs.get(0).child(1);
+        Assertions.assertInstanceOf(Cast.class, value, value.toString());
+        Assertions.assertEquals(VariantType.INSTANCE, value.getDataType());
+        Assertions.assertInstanceOf(ParseToVariant.class, value.child(0), value.toString());
+        Assertions.assertEquals(templateOfTargetColumn(), ((ParseToVariant) value.child(0)).getReturnType());
+    }
+
+    @Test
     public void testCteReferencedTwiceStaysUntyped() throws Exception {
         // the consumer's producer is not below the sink and the CTE is not inlined: a documented limitation
         String sql = "insert into " + TABLE + " with c as (select id, parse_to_variant(j) as v from " + SOURCE
@@ -164,6 +223,30 @@ public class TypeVariantTemplateParseTest extends TestWithFeService {
                 .analyze(command.getExplainPlan(connectContext))
                 .rewrite()
                 .getPlan();
+    }
+
+    private Plan rewrittenPlan(String sql) throws Exception {
+        createStatementCtx(sql);
+        Explainable command = (Explainable) new NereidsParser().parseSingle(sql);
+        return PlanChecker.from(connectContext)
+                .analyze(command.getExplainPlan(connectContext))
+                .rewrite()
+                .getPlan();
+    }
+
+    /** The result type of every parse_to_variant and try_parse_to_variant call in {@code plan}. */
+    private static List<VariantType> callReturnTypes(Plan plan) {
+        List<VariantType> types = new ArrayList<>();
+        plan.foreach(node -> {
+            for (Expression expression : ((Plan) node).getExpressions()) {
+                for (Expression call : expression.<Expression>collectToList(
+                        e -> e instanceof ParseToVariant || e instanceof TryParseToVariant)) {
+                    types.add(call instanceof ParseToVariant
+                            ? ((ParseToVariant) call).getReturnType() : ((TryParseToVariant) call).getReturnType());
+                }
+            }
+        });
+        return types;
     }
 
     private VariantType templateOfTargetColumn() throws Exception {

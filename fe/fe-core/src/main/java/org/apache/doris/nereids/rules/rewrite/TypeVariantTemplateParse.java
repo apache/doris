@@ -19,12 +19,19 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.WhenClause;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Coalesce;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.NonNullable;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Nvl;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ParseToVariant;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.TryParseToVariant;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -45,17 +52,19 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Types every {@code parse_to_variant} / {@code try_parse_to_variant} call that feeds a VARIANT column whose
- * Schema Template declares a DECIMAL or LARGEINT path with that column's type, so the BE parses the JSON text
- * with the template's fields in hand (see {@code VariantType#toThrift}): a cast after the parse can only relabel
- * a value already read through a binary64, and comes too late for an integer beyond 64 bits, which fails the
- * parse of the whole document.
+ * Types every {@code parse_to_variant} / {@code try_parse_to_variant} call that feeds a VARIANT column whose type
+ * carries a Schema Template with that column's type, so the BE parses the JSON text with the template's fields in
+ * hand. Only a template that declares a DECIMAL or LARGEINT path rides to the BE (see
+ * {@code VariantType#toThrift}): a cast after the parse can only relabel a value already read through a binary64,
+ * and comes too late for an integer beyond 64 bits, which fails the parse of the whole document.
  *
  * <p>A template applies at the sink and nowhere else, so the typing starts from each {@link LogicalOlapTableSink}
  * and follows a templated column's slot down to the alias that computes it: through projects, the constant rows
- * and the children of a set operation, and every node that passes its child's slots through. It therefore reaches
- * every INSERT shape alike, including the fast VALUES planner, which runs no expression rewrite, and it never
- * touches a call outside a sink. A call behind a CTE consumer is not reached (its producer is not below the sink;
+ * and the children of a set operation, and every node that passes its child's slots through; and inside the
+ * expression, through a variant to variant cast and the arguments an IF, CASE WHEN, COALESCE, NVL, NULLABLE or
+ * NON_NULLABLE can return, as in the short-circuit IF that MERGE INTO wraps around every value it assigns. It
+ * therefore reaches every INSERT shape alike, including the fast VALUES planner, which runs no Rewriter, and it
+ * never touches a call outside a sink. A call behind a CTE consumer is not reached (its producer is not below the sink;
  * a CTE inlined by {@link CTEInline} is), a slot feeding several templated columns takes the first column's
  * template, and the slots above a typed call keep the plain VARIANT type they were bound with: the template is an
  * ingestion hint on the call's own result type, which the BE reads from the function node, and a variant to
@@ -223,7 +232,63 @@ public class TypeVariantTemplateParse extends DefaultPlanRewriter<Void> implemen
         }
         if (expression instanceof Slot) {
             childTemplates.putIfAbsent(((Slot) expression).getExprId(), template);
+            return expression;
+        }
+        if (expression.getDataType() instanceof VariantType && returnsAnArgument(expression)) {
+            return typeValueArguments(expression, template, childTemplates);
         }
         return expression;
+    }
+
+    /**
+     * Whether {@code expression}'s result is one of its arguments: IF (and the short-circuit IF that MERGE INTO
+     * selects every assigned value with), CASE WHEN, COALESCE, NVL, NULLABLE and NON_NULLABLE.
+     */
+    private static boolean returnsAnArgument(Expression expression) {
+        return expression instanceof If || expression instanceof CaseWhen || expression instanceof Coalesce
+                || expression instanceof Nvl || expression instanceof Nullable || expression instanceof NonNullable;
+    }
+
+    /** Types the calls among the arguments {@code expression} can return; a condition is left as it is. */
+    private static Expression typeValueArguments(Expression expression, VariantType template,
+            Map<ExprId, VariantType> childTemplates) {
+        List<Expression> children = expression.children();
+        ImmutableList.Builder<Expression> typed = ImmutableList.builderWithExpectedSize(children.size());
+        boolean changed = false;
+        for (int i = 0; i < children.size(); i++) {
+            Expression child = children.get(i);
+            Expression result = child;
+            if (child instanceof WhenClause) {
+                WhenClause clause = (WhenClause) child;
+                Expression value = typeArgument(clause.getResult(), template, childTemplates);
+                if (value != clause.getResult()) {
+                    result = clause.withChildren(ImmutableList.of(clause.getOperand(), value));
+                }
+            } else if (expression instanceof If) {
+                // the first argument is the condition
+                if (i > 0) {
+                    result = typeArgument(child, template, childTemplates);
+                }
+            } else if (!(expression instanceof CaseWhen) || i > 0) {
+                // every argument of the others; of CASE WHEN, the ELSE value after its WHEN clauses
+                result = typeArgument(child, template, childTemplates);
+            }
+            changed |= result != child;
+            typed.add(result);
+        }
+        return changed ? expression.withChildren(typed.build()) : expression;
+    }
+
+    /**
+     * {@code argument} with its calls typed, kept at the type the enclosing expression was bound with: the typed
+     * call goes under a variant to variant cast, a passthrough on the BE like the sink's own.
+     */
+    private static Expression typeArgument(Expression argument, VariantType template,
+            Map<ExprId, VariantType> childTemplates) {
+        Expression typed = typeCall(argument, template, childTemplates);
+        if (typed == argument || typed.getDataType().equals(argument.getDataType())) {
+            return typed;
+        }
+        return new Cast(typed, argument.getDataType());
     }
 }
