@@ -422,7 +422,7 @@ public class FileTypeExpressionTest extends TestWithFeService {
                     ? "data type " + sql + " could not used in ComparisonPredicate"
                     : "comparison predicate could not contains complex type",
                     () -> TypeCoercionUtils.processComparisonPredicate(new EqualTo(value, value)));
-            assertAnalysisError("does not support FILE",
+            assertAnalysisError("in predicate could not contains complex type",
                     () -> TypeCoercionUtils.processInPredicate(
                             new InPredicate(value, Collections.singletonList(value))));
             assertAnalysisError("does not support FILE",
@@ -446,12 +446,13 @@ public class FileTypeExpressionTest extends TestWithFeService {
         for (String sqlType : Arrays.asList("FILE", "ARRAY<FILE>", "STRUCT<f:FILE>",
                 "STRUCT<a:ARRAY<FILE>>", "MAP<STRING,FILE>")) {
             Expression value = new SlotReference("f", type(sqlType));
-            assertAnalysisError("IN does not support FILE",
-                    () -> TypeCoercionUtils.processInPredicate(
-                            new InPredicate(value, Collections.singletonList(value))), sqlType);
-            assertAnalysisError("IN does not support FILE",
-                    () -> TypeCoercionUtils.processInPredicate(
-                            new InPredicate(new NullLiteral(), Collections.singletonList(value))), sqlType);
+            for (InPredicate predicate : Arrays.asList(new InPredicate(value, Collections.singletonList(value)),
+                    new InPredicate(new NullLiteral(), Collections.singletonList(value)))) {
+                assertAnalysisError("in predicate could not contains complex type",
+                        predicate::checkLegalityBeforeTypeCoercion, sqlType);
+                assertAnalysisError("in predicate could not contains complex type",
+                        () -> TypeCoercionUtils.processInPredicate(predicate), sqlType);
+            }
         }
     }
 
@@ -676,6 +677,8 @@ public class FileTypeExpressionTest extends TestWithFeService {
                 expectedMessage = "the specified field name missing was not found";
             } else if (sql.contains(" = ")) {
                 expectedMessage = "comparison predicate could not contains complex type";
+            } else if (sql.contains(" in (")) {
+                expectedMessage = "in predicate could not contains complex type";
             } else if (sql.startsWith("select min(")) {
                 expectedMessage = "column must use with specific function";
             }
