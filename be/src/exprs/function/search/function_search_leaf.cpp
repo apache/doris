@@ -177,6 +177,9 @@ Status ScalarLeafCompiler::compile(const logical::Node& leaf, const SearchLeafCo
     param.query_type = segment_v2::InvertedIndexQueryType::EQUAL_QUERY;
     param.num_rows = ctx.num_rows;
     param.roaring = std::make_shared<roaring::Roaring>();
+    // SEARCH has no row-by-row fallback, so a BKD leaf must not take the
+    // inverted_index_skip_threshold bypass: a bypassed leaf would fail the whole query.
+    param.skip_try = true;
     RETURN_IF_ERROR(_iterator->read_from_index(segment_v2::IndexParam {&param}));
 
     // Physical NULL postings are excluded by the shared SEARCH leaf mask. Never
