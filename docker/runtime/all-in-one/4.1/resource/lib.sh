@@ -63,9 +63,12 @@ my_ip() {
     fi
 }
 
-# sql <host> <statement>: root, no password, batch output, no header.
+# Client credentials are supplied by the container entrypoint.
+doris_root_mysql() { MYSQL_PWD="${DORIS_BOOTSTRAP_PASSWORD:-}" command mysql "$@"; }
+
+# sql <host> <statement>: root, batch output, no header.
 sql() {
-    mysql -uroot -h"$1" -P"${FE_QUERY_PORT}" -N --batch --connect-timeout=2 -e "$2" 2>/dev/null
+    doris_root_mysql -uroot -h"$1" -P"${FE_QUERY_PORT}" -N --batch --connect-timeout=2 -e "$2" 2>/dev/null
 }
 
 # The node probes go through SHOW FRONTENDS / SHOW BACKENDS, which FE answers
@@ -81,7 +84,7 @@ node_alive() {
         frontends) portcol=EditLogPort ;;
         backends)  portcol=HeartbeatPort ;;
     esac
-    mysql -uroot -h"${fe}" -P"${FE_QUERY_PORT}" --batch --connect-timeout=2 -e "show ${what}" 2>/dev/null \
+    doris_root_mysql -uroot -h"${fe}" -P"${FE_QUERY_PORT}" --batch --connect-timeout=2 -e "show ${what}" 2>/dev/null \
         | awk -F'\t' -v ip="${ip}" -v port="${port}" -v pc="${portcol}" '
             NR == 1 { for (i = 1; i <= NF; i++) col[$i] = i; next }
             $col["Host"] == ip && $col[pc] == port { print $col["Alive"]; exit }'
@@ -89,7 +92,7 @@ node_alive() {
 
 # alive_count <fe host> <frontends|backends>: how many nodes report Alive.
 alive_count() {
-    mysql -uroot -h"$1" -P"${FE_QUERY_PORT}" --batch --connect-timeout=2 -e "show $2" 2>/dev/null \
+    doris_root_mysql -uroot -h"$1" -P"${FE_QUERY_PORT}" --batch --connect-timeout=2 -e "show $2" 2>/dev/null \
         | awk -F'\t' 'NR == 1 { for (i = 1; i <= NF; i++) col[$i] = i; next }
                       $col["Alive"] == "true" { n++ } END { print n + 0 }'
 }

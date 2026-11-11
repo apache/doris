@@ -63,6 +63,7 @@ class ScriptContext implements Closeable {
         def outputRelativePath = path.substring(0, path.lastIndexOf(".")) + ".out"
         this.outputFile = new File(new File(config.dataPath), outputRelativePath)
         this.dataPath = this.outputFile.getParentFile().getCanonicalFile()
+        Http.configureCredentials(config.feHttpUser, config.feHttpPassword)
         Http.configure(
                 (config.otherConfigs.get("enableTLS")?.toString()?.equalsIgnoreCase("true")) ?: false,
                 config.otherConfigs.get("tlsVerifyMode")?.toString()?.toLowerCase() ?: "strict",

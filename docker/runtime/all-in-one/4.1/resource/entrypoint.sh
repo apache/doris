@@ -40,6 +40,12 @@ CI_HOME="${CI_HOME:-/opt/doris-ci}"
 # shellcheck source=lib.sh
 source "${CI_HOME}/lib.sh"
 
+# Older released FE artifacts do not ship the secure-initialization helper.
+if [[ -f "${FE_HOME}/bin/bootstrap_auth_fe.sh" ]]; then
+    source "${FE_HOME}/bin/bootstrap_auth_fe.sh"
+    doris_read_root_password || exit 1
+fi
+
 MY_IP="$(my_ip)"
 PRIORITY_NETWORKS="${PRIORITY_NETWORKS:-${MY_IP}/32}"
 MASTER_IP=
@@ -173,6 +179,12 @@ park() {
 # ------------------------------------------------------------------ roles ---
 
 start_fe() {
+    if declare -F doris_configure_test_mode >/dev/null; then
+        doris_configure_test_mode "${FE_HOME}/conf/fe.conf" || exit 1
+    fi
+    if [[ $# -eq 0 ]] && declare -F doris_prepare_bootstrap_auth >/dev/null; then
+        doris_prepare_bootstrap_auth "${FE_HOME}/conf/fe.conf" "${FE_HOME}/doris-meta" || exit 1
+    fi
     info "starting FE${*:+ $*}"
     "${FE_HOME}/bin/start_fe.sh" "$@" --console &
     FE_PID=$!

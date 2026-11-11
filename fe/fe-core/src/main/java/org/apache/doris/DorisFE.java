@@ -259,6 +259,7 @@ public class DorisFE {
             // init catalog and wait it be ready
             Env.getCurrentEnv().initialize(args);
             Env.getCurrentEnv().waitForReady();
+            Env.getCurrentEnv().logBootstrapAuthenticationState();
 
             if (Config.enable_file_cache_admission_control) {
                 FileCacheAdmissionManager.getInstance().loadOnStartup();

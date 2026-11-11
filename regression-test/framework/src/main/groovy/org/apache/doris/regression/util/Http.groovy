@@ -47,6 +47,13 @@ class Http {
     final static Logger logger = LoggerFactory.getLogger(this.class)
 
     static Boolean enableTls = false
+    static String defaultUser = 'root'
+    static String defaultPassword = ''
+
+    static void configureCredentials(String user, String password) {
+        defaultUser = user ?: 'root'
+        defaultPassword = password ?: ''
+    }
     static String tlsVerifyMode = "strict"
     static String trustStorePath = null
     static String trustStorePassword = null
@@ -126,7 +133,7 @@ class Http {
     }
 
     static Object GET(url, isJson = false, printText = true) {
-        return GET(url, isJson, printText, 'root', '')
+        return GET(url, isJson, printText, defaultUser, defaultPassword)
     }
 
     static Object GET(url, isJson, printText, String user, String password) {
@@ -151,7 +158,7 @@ class Http {
     }
 
     static Object POST(url, data = null, isJson = false) {
-        return POST(url, data, isJson, 'root', '')
+        return POST(url, data, isJson, defaultUser, defaultPassword)
     }
 
     static Object POST(url, data, isJson, String user, String password) {

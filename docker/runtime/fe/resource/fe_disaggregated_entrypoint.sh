@@ -178,11 +178,11 @@ function show_frontends_with_no_tls()
 {
     local addr=$1
     # fist start use root and no password check. avoid use pre setted username and password.
-    frontends=`timeout 15 mysql --connect-timeout 2 -h $addr -P $QUERY_PORT -uroot --batch -e 'show frontends;' 2>&1`
+    frontends=`DORIS_BOOTSTRAP_PASSWORD="${DORIS_BOOTSTRAP_PASSWORD:-}" timeout 15 bash -c 'doris_root_mysql "$@"' -- --connect-timeout 2 -h $addr -P $QUERY_PORT -uroot --batch -e 'show frontends;' 2>&1`
     log_stderr "[info] use root no password show frontends result '$frontends'"
     if echo $frontends | grep -w "1045" | grep -q -w "28000" &>/dev/null ; then
         log_stderr "[info] use username and password that configured show frontends."
-        frontends=`timeout 15 mysql --connect-timeout 2 -h $addr -P $QUERY_PORT -u$DB_ADMIN_USER -p$DB_ADMIN_PASSWD --batch -e 'show frontends;' 2>&1`
+        frontends=`MYSQL_PWD="$DB_ADMIN_PASSWD" timeout 15 mysql --connect-timeout 2 -h $addr -P $QUERY_PORT -u"$DB_ADMIN_USER" --batch -e 'show frontends;' 2>&1`
     fi
    echo "$frontends"
 
@@ -193,32 +193,32 @@ show_frontends_with_tls()
 {
     local addr=$1
     #first start use root and not password check. avoid use pre setted username and password.
-    frontends=`timeout 15 mysql --ssl-mode=VERIFY_CA --tls-version="TLSv1.2" --ssl-ca=$TLS_CA_CERTIFICATE_PATH --ssl-cert=$TLS_CERTIFICATE_PATH --ssl-key=$TLS_PRIVATE_KEY_PATH --connect-timeout 2 -h $addr -P $QUERY_PORT -uroot --batch -e 'show frontends;' 2>&1`
+    frontends=`DORIS_BOOTSTRAP_PASSWORD="${DORIS_BOOTSTRAP_PASSWORD:-}" timeout 15 bash -c 'doris_root_mysql "$@"' -- --ssl-mode=VERIFY_CA --tls-version="TLSv1.2" --ssl-ca=$TLS_CA_CERTIFICATE_PATH --ssl-cert=$TLS_CERTIFICATE_PATH --ssl-key=$TLS_PRIVATE_KEY_PATH --connect-timeout 2 -h $addr -P $QUERY_PORT -uroot --batch -e 'show frontends;' 2>&1`
     log_stderr "[info] use root no password show frontends result '$frontends'"
     if echo $frontends | grep -w "1045" | grep -q -w "28000" &>/dev/null ; then
         log_stderr "[info] use username and password that configured show frontends."
-        frontends=`timeout 15 mysql --ssl-mode=VERIFY_CA --tls-version="TLSv1.2" --ssl-ca=$TLS_CA_CERTIFICATE_PATH --ssl-cert=$TLS_CERTIFICATE_PATH --ssl-key=$TLS_PRIVATE_KEY_PATH --connect-timeout 2 -h $addr -P $QUERY_PORT -u$DB_ADMIN_USER -p$DB_ADMIN_PASSWD --batch -e 'show frontends;' 2>&1`
+        frontends=`MYSQL_PWD="$DB_ADMIN_PASSWD" timeout 15 mysql --ssl-mode=VERIFY_CA --tls-version="TLSv1.2" --ssl-ca=$TLS_CA_CERTIFICATE_PATH --ssl-cert=$TLS_CERTIFICATE_PATH --ssl-key=$TLS_PRIVATE_KEY_PATH --connect-timeout 2 -h $addr -P $QUERY_PORT -u"$DB_ADMIN_USER" --batch -e 'show frontends;' 2>&1`
     fi
    echo "$frontends"
 }
 
 add_self_follower_with_tls()
 {
-  add_result=`mysql --ssl-mode=VERIFY_CA --tls-version="TLSv1.2" --ssl-ca=$TLS_CA_CERTIFICATE_PATH --ssl-cert=$TLS_CERTIFICATE_PATH --ssl-key=$TLS_PRIVATE_KEY_PATH --connect-timeout 2 -h $FE_MASTER -P $QUERY_PORT -uroot --skip-column-names --batch -e "ALTER SYSTEM ADD FOLLOWER \"$MYSELF:$EDIT_LOG_PORT\";" 2>&1`
+  add_result=`doris_root_mysql --ssl-mode=VERIFY_CA --tls-version="TLSv1.2" --ssl-ca=$TLS_CA_CERTIFICATE_PATH --ssl-cert=$TLS_CERTIFICATE_PATH --ssl-key=$TLS_PRIVATE_KEY_PATH --connect-timeout 2 -h $FE_MASTER -P $QUERY_PORT -uroot --skip-column-names --batch -e "ALTER SYSTEM ADD FOLLOWER \"$MYSELF:$EDIT_LOG_PORT\";" 2>&1`
     log_stderr "[info] use root no password to add follower result '$add_result'"
     if echo $add_result | grep -w "1045" | grep -q -w "28000" &>/dev/null ; then
         log_stderr "[info] use username and password that configured to add self as follower."
-        mysql --ssl-mode=VERIFY_CA --tls-version="TLSv1.2" --ssl-ca=$TLS_CA_CERTIFICATE_PATH --ssl-cert=$TLS_CERTIFICATE_PATH --ssl-key=$TLS_PRIVATE_KEY_PATH --connect-timeout 2 -h $FE_MASTER -P $QUERY_PORT -u$DB_ADMIN_USER -p$DB_ADMIN_PASSWD --skip-column-names --batch -e "ALTER SYSTEM ADD FOLLOWER \"$MYSELF:$EDIT_LOG_PORT\";"
+        MYSQL_PWD="$DB_ADMIN_PASSWD" mysql --ssl-mode=VERIFY_CA --tls-version="TLSv1.2" --ssl-ca=$TLS_CA_CERTIFICATE_PATH --ssl-cert=$TLS_CERTIFICATE_PATH --ssl-key=$TLS_PRIVATE_KEY_PATH --connect-timeout 2 -h $FE_MASTER -P $QUERY_PORT -u"$DB_ADMIN_USER" --skip-column-names --batch -e "ALTER SYSTEM ADD FOLLOWER \"$MYSELF:$EDIT_LOG_PORT\";"
     fi
 }
 
 add_self_follower_with_no_tls()
 {
-    add_result=`mysql --connect-timeout 2 -h $FE_MASTER -P $QUERY_PORT -uroot --skip-column-names --batch -e "ALTER SYSTEM ADD FOLLOWER \"$MYSELF:$EDIT_LOG_PORT\";" 2>&1`
+    add_result=`doris_root_mysql --connect-timeout 2 -h $FE_MASTER -P $QUERY_PORT -uroot --skip-column-names --batch -e "ALTER SYSTEM ADD FOLLOWER \"$MYSELF:$EDIT_LOG_PORT\";" 2>&1`
     log_stderr "[info] use root no password to add follower result '$add_result'"
     if echo $add_result | grep -w "1045" | grep -q -w "28000" &>/dev/null ; then
         log_stderr "[info] use username and password that configured to add self as follower."
-        mysql --connect-timeout 2 -h $FE_MASTER -P $QUERY_PORT -u$DB_ADMIN_USER -p$DB_ADMIN_PASSWD --skip-column-names --batch -e "ALTER SYSTEM ADD FOLLOWER \"$MYSELF:$EDIT_LOG_PORT\";"
+        MYSQL_PWD="$DB_ADMIN_PASSWD" mysql --connect-timeout 2 -h $FE_MASTER -P $QUERY_PORT -u"$DB_ADMIN_USER" --skip-column-names --batch -e "ALTER SYSTEM ADD FOLLOWER \"$MYSELF:$EDIT_LOG_PORT\";"
     fi
 }
 
@@ -234,21 +234,21 @@ add_self_follower()
 
 add_self_observer_with_tls()
 {
-    add_result=`mysql --ssl-mode=VERIFY_CA --tls-version="TLSv1.2" --ssl-ca=$TLS_CA_CERTIFICATE_PATH --ssl-cert=$TLS_CERTIFICATE_PATH --ssl-key=$TLS_PRIVATE_KEY_PATH --connect-timeout 2 -h $FE_MASTER -P $QUERY_PORT -uroot --skip-column-names --batch -e "ALTER SYSTEM ADD OBSERVER \"$MYSELF:$EDIT_LOG_PORT\";" 2>&1`
+    add_result=`doris_root_mysql --ssl-mode=VERIFY_CA --tls-version="TLSv1.2" --ssl-ca=$TLS_CA_CERTIFICATE_PATH --ssl-cert=$TLS_CERTIFICATE_PATH --ssl-key=$TLS_PRIVATE_KEY_PATH --connect-timeout 2 -h $FE_MASTER -P $QUERY_PORT -uroot --skip-column-names --batch -e "ALTER SYSTEM ADD OBSERVER \"$MYSELF:$EDIT_LOG_PORT\";" 2>&1`
     log_stderr "[info] use root no password to add self as observer result '$add_result'."
     if echo $add_result | grep -w "1045" | grep -q -w "28000" &>/dev/null ; then
         log_stderr "[info] use username and password that configed to add self as observer."
-        mysql --ssl-mode=VERIFY_CA --tls-version="TLSv1.2" --ssl-ca=$TLS_CA_CERTIFICATE_PATH --ssl-cert=$TLS_CERTIFICATE_PATH --ssl-key=$TLS_PRIVATE_KEY_PATH --connect-timeout 2 -h $FE_MASTER -P $QUERY_PORT -u$DB_ADMIN_USER -p$DB_ADMIN_PASSWD --skip-column-names --batch -e "ALTER SYSTEM ADD OBSERVER \"$MYSELF:$EDIT_LOG_PORT\";"
+        MYSQL_PWD="$DB_ADMIN_PASSWD" mysql --ssl-mode=VERIFY_CA --tls-version="TLSv1.2" --ssl-ca=$TLS_CA_CERTIFICATE_PATH --ssl-cert=$TLS_CERTIFICATE_PATH --ssl-key=$TLS_PRIVATE_KEY_PATH --connect-timeout 2 -h $FE_MASTER -P $QUERY_PORT -u"$DB_ADMIN_USER" --skip-column-names --batch -e "ALTER SYSTEM ADD OBSERVER \"$MYSELF:$EDIT_LOG_PORT\";"
     fi
 }
 
 add_self_observer_with_no_tls()
 {
-    add_result=`mysql --connect-timeout 2 -h $FE_MASTER -P $QUERY_PORT -uroot --skip-column-names --batch -e "ALTER SYSTEM ADD OBSERVER \"$MYSELF:$EDIT_LOG_PORT\";" 2>&1`
+    add_result=`doris_root_mysql --connect-timeout 2 -h $FE_MASTER -P $QUERY_PORT -uroot --skip-column-names --batch -e "ALTER SYSTEM ADD OBSERVER \"$MYSELF:$EDIT_LOG_PORT\";" 2>&1`
     log_stderr "[info] use root no password to add self as observer result '$add_result'."
     if echo $add_result | grep -w "1045" | grep -q -w "28000" &>/dev/null ; then
         log_stderr "[info] use username and password that configed to add self as observer."
-        mysql --connect-timeout 2 -h $FE_MASTER -P $QUERY_PORT -u$DB_ADMIN_USER -p$DB_ADMIN_PASSWD --skip-column-names --batch -e "ALTER SYSTEM ADD OBSERVER \"$MYSELF:$EDIT_LOG_PORT\";"
+        MYSQL_PWD="$DB_ADMIN_PASSWD" mysql --connect-timeout 2 -h $FE_MASTER -P $QUERY_PORT -u"$DB_ADMIN_USER" --skip-column-names --batch -e "ALTER SYSTEM ADD OBSERVER \"$MYSELF:$EDIT_LOG_PORT\";"
     fi
 }
 
@@ -298,6 +298,9 @@ function start_fe_no_meta()
             log_stderr "Sleep a while and retry adding ..."
             sleep $PROBE_INTERVAL
         done
+    fi
+    if [[ -z "$FE_MASTER" ]] && declare -F doris_prepare_bootstrap_auth >/dev/null; then
+        doris_prepare_bootstrap_auth "$FE_CONFFILE" "${doris_meta_dir}" || exit 1
     fi
     log_stderr "first start with no meta run start_fe.sh with additional options: '$opts'"
     $DORIS_HOME/bin/start_fe.sh $opts
@@ -481,7 +484,7 @@ create_account_with_tls()
         return 0
     fi
 
-    users=`timeout 15 mysql --ssl-mode=VERIFY_CA --tls-version="TLSv1.2" --ssl-ca=$TLS_CA_CERTIFICATE_PATH --ssl-cert=$TLS_CERTIFICATE_PATH --ssl-key=$TLS_PRIVATE_KEY_PATH --connect-timeout 2 -h $FE_MASTER -P$QUERY_PORT -uroot --skip-column-names --batch -e 'SHOW ALL GRANTS;' 2>&1`
+    users=`DORIS_BOOTSTRAP_PASSWORD="${DORIS_BOOTSTRAP_PASSWORD:-}" timeout 15 bash -c 'doris_root_mysql "$@"' -- --ssl-mode=VERIFY_CA --tls-version="TLSv1.2" --ssl-ca=$TLS_CA_CERTIFICATE_PATH --ssl-cert=$TLS_CERTIFICATE_PATH --ssl-key=$TLS_PRIVATE_KEY_PATH --connect-timeout 2 -h $FE_MASTER -P$QUERY_PORT -uroot --skip-column-names --batch -e 'SHOW ALL GRANTS;' 2>&1`
     if echo $users | grep -w "1045" | grep -q -w "28000" &>/dev/null; then
         log_stderr "tls the 'root' account have set paasword! not need auto create management account."
         return 0
@@ -492,7 +495,7 @@ create_account_with_tls()
        return 0
     fi
 
-    `mysql --ssl-mode=VERIFY_CA --tls-version="TLSv1.2" --ssl-ca=$TLS_CA_CERTIFICATE_PATH --ssl-cert=$TLS_CERTIFICATE_PATH --ssl-key=$TLS_PRIVATE_KEY_PATH --connect-timeout 2 -h $FE_MASTER -P$QUERY_PORT -uroot --skip-column-names --batch -e "CREATE USER '$DB_ADMIN_USER' IDENTIFIED BY '$DB_ADMIN_PASSWD';GRANT NODE_PRIV ON *.*.* TO $DB_ADMIN_USER;" 2>&1`
+    `doris_root_mysql --ssl-mode=VERIFY_CA --tls-version="TLSv1.2" --ssl-ca=$TLS_CA_CERTIFICATE_PATH --ssl-cert=$TLS_CERTIFICATE_PATH --ssl-key=$TLS_PRIVATE_KEY_PATH --connect-timeout 2 -h $FE_MASTER -P$QUERY_PORT -uroot --skip-column-names --batch -e "CREATE USER '$DB_ADMIN_USER' IDENTIFIED BY '$DB_ADMIN_PASSWD';GRANT NODE_PRIV ON *.*.* TO $DB_ADMIN_USER;" 2>&1`
     log_stderr "tls created new account and grant NODE_PRIV!"
 }
 
@@ -508,7 +511,7 @@ create_account_with_no_tls()
         return 0
     fi
 
-    users=`timeout 15 mysql --connect-timeout 2 -h $FE_MASTER -P$QUERY_PORT -uroot --skip-column-names --batch -e 'SHOW ALL GRANTS;' 2>&1`
+    users=`DORIS_BOOTSTRAP_PASSWORD="${DORIS_BOOTSTRAP_PASSWORD:-}" timeout 15 bash -c 'doris_root_mysql "$@"' -- --connect-timeout 2 -h $FE_MASTER -P$QUERY_PORT -uroot --skip-column-names --batch -e 'SHOW ALL GRANTS;' 2>&1`
     if echo $users | grep -w "1045" | grep -q -w "28000" &>/dev/null; then
         log_stderr "the 'root' account have set paasword! not need auto create management account."
         return 0
@@ -519,7 +522,7 @@ create_account_with_no_tls()
        return 0
     fi
 
-    `mysql --connect-timeout 2 -h $FE_MASTER -P$QUERY_PORT -uroot --skip-column-names --batch -e "CREATE USER '$DB_ADMIN_USER' IDENTIFIED BY '$DB_ADMIN_PASSWD';GRANT NODE_PRIV ON *.*.* TO $DB_ADMIN_USER;" 2>&1`
+    `doris_root_mysql --connect-timeout 2 -h $FE_MASTER -P$QUERY_PORT -uroot --skip-column-names --batch -e "CREATE USER '$DB_ADMIN_USER' IDENTIFIED BY '$DB_ADMIN_PASSWD';GRANT NODE_PRIV ON *.*.* TO $DB_ADMIN_USER;" 2>&1`
     log_stderr "created new account and grant NODE_PRIV!"
 }
 
@@ -543,6 +546,13 @@ check_and_modify_fqdn_config
 link_config_files
 # resolve password for root to manage nodes in doris.
 resolve_password_from_secret
+doris_root_mysql() { command mysql "$@"; }
+if [[ -f "$DORIS_HOME/bin/bootstrap_auth_fe.sh" ]]; then
+    source "$DORIS_HOME/bin/bootstrap_auth_fe.sh"
+    doris_read_root_password || exit 1
+    doris_configure_test_mode "$FE_CONFFILE" || exit 1
+fi
+export -f doris_root_mysql
 #parse tls connection config
 parse_tls_connection_variables
 

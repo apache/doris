@@ -2535,6 +2535,10 @@ public class Config extends ConfigBase {
     @ConfField(mutable = false)
     public static boolean skip_localhost_auth_check = false;
 
+    @ConfField(mutable = false, description = "Allow empty root and admin passwords on securely initialized "
+            + "clusters. This restores empty-password access from any host and is intended only for tests.")
+    public static boolean allow_empty_password_for_root_admin = false;
+
     @ConfField(mutable = true)
     public static boolean enable_round_robin_create_tablet = true;
 

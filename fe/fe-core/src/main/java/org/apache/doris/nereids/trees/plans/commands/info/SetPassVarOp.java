@@ -81,6 +81,18 @@ public class SetPassVarOp extends SetVarOp {
     @Override
     public void run(ConnectContext ctx) throws Exception {
         ctx.getEnv().getAuth().setPassword(userIdent, passVar.getScrambled());
+        ctx.getEnv().getAuth().afterPasswordChange(ctx, userIdent, passVar.getScrambled());
+    }
+
+    @Override
+    public void afterForwardToMaster(ConnectContext ctx) {
+        if (userIdent.equals(ctx.getCurrentUserIdentity()) && passVar.getScrambled().length != 0) {
+            ctx.setPasswordResetRequired(false);
+        }
+    }
+
+    public byte[] getPassword() {
+        return passVar.getScrambled();
     }
 
     @Override

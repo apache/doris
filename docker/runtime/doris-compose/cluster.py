@@ -435,6 +435,9 @@ class Node(object):
         if self.cluster.is_cloud:
             envs["META_SERVICE_ENDPOINT"] = self.cluster.get_meta_server_addr()
 
+        if getattr(self.cluster, "root_password_file", None) and self.node_type() in (Node.TYPE_FE, Node.TYPE_BE):
+            envs["DORIS_ROOT_PASSWORD_FILE"] = DOCKER_DORIS_PATH + "/root-password"
+
         # run as host user
         if not self.cluster.is_root_user:
             envs["HOST_USER"] = getpass.getuser()
@@ -516,6 +519,9 @@ class Node(object):
             for path in ("/etc/localtime", "/etc/timezone",
                          "/usr/share/zoneinfo") if os.path.exists(path)
         ]
+
+        if getattr(self.cluster, "root_password_file", None) and self.node_type() in (Node.TYPE_FE, Node.TYPE_BE):
+            volumes.append("{}:{}/root-password:ro".format(self.cluster.root_password_file, DOCKER_DORIS_PATH))
 
         if self.cluster.coverage_dir:
             volumes.append("{}:{}/coverage".format(self.cluster.coverage_dir,

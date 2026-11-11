@@ -29,6 +29,7 @@ import org.apache.doris.common.ConnectionException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.CachingSha2PasswordExchange;
 import org.apache.doris.mysql.MysqlChannel;
@@ -289,6 +290,8 @@ public class MysqlConnectProcessor extends ConnectProcessor {
                 stmtStr = executeStmt.toSql();
                 stmtStr = stmtStr + " /*originalSql = " + prepareCommand.getOriginalStmt().originStmt + "*/";
             }
+        } catch (UserException e) {
+            ctx.getState().setError(e.getMysqlErrorCode(), e.getMessage());
         } catch (Throwable e) {
             // Catch all throwable.
             // If reach here, maybe doris bug.
@@ -393,6 +396,11 @@ public class MysqlConnectProcessor extends ConnectProcessor {
             LOG.debug("handle command {}", command);
         }
         ctx.setCommand(command);
+        if (ctx.isPasswordResetRequired() && !BootstrapPasswordGuard.isAllowedCommand(command)) {
+            ctx.getState().setError(ErrorCode.ERR_MUST_CHANGE_PASSWORD,
+                    ErrorCode.ERR_MUST_CHANGE_PASSWORD.formatErrorMsg());
+            return;
+        }
         ctx.setStartTime();
         resolveWorkloadGroupName();
 
@@ -561,6 +569,7 @@ public class MysqlConnectProcessor extends ConnectProcessor {
             return;
         }
         ctx.setCurrentUserIdentity(currentUserIdentity.get(0));
+        ctx.setPasswordResetRequired(false);
 
         // Change default db if set.
         if (Strings.isNullOrEmpty(db)) {

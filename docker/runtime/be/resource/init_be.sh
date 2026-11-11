@@ -16,6 +16,18 @@
 # specific language governing permissions and limitations
 # under the License.
 
+# Root credentials for client connections; never passed as command-line passwords.
+doris_root_mysql() {
+    local password="${DORIS_ROOT_PASSWORD:-}"
+    if [[ -n "${DORIS_ROOT_PASSWORD_FILE:-}" ]]; then
+        password=$(cat -- "$DORIS_ROOT_PASSWORD_FILE") || return 1
+    elif [[ -z "$password" && "${DB_ADMIN_USER:-root}" == root ]]; then
+        password="${DB_ADMIN_PASSWD:-}"
+    fi
+    MYSQL_PWD="$password" command mysql "$@"
+}
+export -f doris_root_mysql
+
 set -eo pipefail
 shopt -s nullglob
 
@@ -71,7 +83,7 @@ check_be_registered() {
     # First, ensure that the FE node is available
     local retry_count=0
     while [ $retry_count -lt $MAX_RETRY_TIMES ]; do
-        if mysql -uroot -P"${MYSQL_PORT}" -h"${MASTER_FE_IP}" \
+        if doris_root_mysql -uroot -P"${MYSQL_PORT}" -h"${MASTER_FE_IP}" \
             -N -e "SHOW FRONTENDS" 2>/dev/null | grep -w "${MASTER_FE_IP}" &>/dev/null; then
             log_info "Master FE is ready"
             break
@@ -90,7 +102,7 @@ check_be_registered() {
 
     # Check if BE is registered
     local query_result
-    query_result=$(mysql -uroot -P"${MYSQL_PORT}" -h"${MASTER_FE_IP}" \
+    query_result=$(doris_root_mysql -uroot -P"${MYSQL_PORT}" -h"${MASTER_FE_IP}" \
         -N -e "SHOW BACKENDS" 2>/dev/null | grep -w "${CURRENT_BE_IP}" | grep -w "${CURRENT_BE_PORT}" )
     
     if [ -n "$query_result" ]; then
@@ -111,13 +123,13 @@ register_be() {
     # Try to register BE node
     local retry_count=0
     while [ $retry_count -lt $MAX_RETRY_TIMES ]; do
-        if mysql -uroot -P"${MYSQL_PORT}" -h"${MASTER_FE_IP}" \
+        if doris_root_mysql -uroot -P"${MYSQL_PORT}" -h"${MASTER_FE_IP}" \
             -e "ALTER SYSTEM ADD BACKEND '${CURRENT_BE_IP}:${CURRENT_BE_PORT}'" 2>/dev/null; then
             
             # Wait for the BE node to become registered
             local check_count=0
             while [ $check_count -lt 30 ]; do
-                if mysql -uroot -P"${MYSQL_PORT}" -h"${MASTER_FE_IP}" \
+                if doris_root_mysql -uroot -P"${MYSQL_PORT}" -h"${MASTER_FE_IP}" \
                     -N -e "SHOW BACKENDS" 2>/dev/null | grep -w "${CURRENT_BE_IP}" | grep -w "${CURRENT_BE_PORT}" &>/dev/null; then
                     log_info "Successfully registered BE node"
                     return 0

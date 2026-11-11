@@ -60,8 +60,9 @@ class BEState(object):
 
 class DBManager(object):
 
-    def __init__(self, all_node_net_infos):
+    def __init__(self, all_node_net_infos, root_password_file=None):
         self.all_node_net_infos = all_node_net_infos
+        self.root_password_file = root_password_file
         self.fe_states = {}
         self.be_states = {}
         self.conn = None
@@ -301,7 +302,12 @@ class DBManager(object):
         self._reset_conn()
 
     def _reset_conn(self, read_timeout=10, connect_timeout=3):
+        password = ""
+        if self.root_password_file:
+            with open(self.root_password_file, encoding="utf-8") as secret:
+                password = secret.read().rstrip("\n")
         self.conn = pymysql.connect(user="root",
+                                    password=password,
                                     host=self.fe_ip,
                                     read_timeout=read_timeout,
                                     connect_timeout=connect_timeout,
@@ -310,7 +316,8 @@ class DBManager(object):
 
 def get_db_mgr(cluster_name, all_node_net_infos, required_load_succ=True):
     assert cluster_name
-    db_mgr = DBManager(all_node_net_infos)
+    cluster = CLUSTER.Cluster.load(cluster_name)
+    db_mgr = DBManager(all_node_net_infos, getattr(cluster, "root_password_file", None))
     master_fe_query_addr_file = CLUSTER.get_master_fe_addr_path(cluster_name)
     master_fe_query_addr = None
     if os.path.exists(master_fe_query_addr_file):
@@ -327,7 +334,6 @@ def get_db_mgr(cluster_name, all_node_net_infos, required_load_succ=True):
     chose_fe_ip = ""
     chose_fe_port = -1
     alive_fe = None
-    cluster = CLUSTER.Cluster.load(cluster_name)
     containers = utils.get_doris_containers(cluster_name).get(cluster_name, [])
     for container in containers:
         if utils.is_container_running(container):

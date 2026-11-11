@@ -58,7 +58,7 @@ q() { docker exec "${CID}" mysql -uroot -h127.0.0.1 -P9030 -N --batch -e "$1"; }
 in_image() { docker exec "${CID}" test -d "/opt/apache-doris/$1"; }
 
 step "starting ${IMAGE}"
-CID=$(docker run -d ${DOCKER_RUN_OPTS:-} "${IMAGE}")
+CID=$(docker run -d -e DORIS_ALLOW_EMPTY_PASSWORD=true ${DOCKER_RUN_OPTS:-} "${IMAGE}")
 # Record what was actually exercised: the image is multi-arch capable and this
 # is the one line that says which variant this run proves anything about.
 echo "  image arch : $(docker image inspect "${IMAGE}" --format '{{.Os}}/{{.Architecture}}')"

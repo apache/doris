@@ -32,6 +32,18 @@ and MinIO. See [Multi-node and cloud clusters](#multi-node-and-cloud-clusters).
 This directory targets the **4.1 release line only**. Other lines differ enough
 in payload layout to deserve their own directory rather than a version switch.
 
+When using newer FE artifacts that include secure account initialization, a new
+cluster needs a root password. Mount a secret file and set
+`DORIS_ROOT_PASSWORD_FILE` to its container path on every container that probes
+or registers nodes. The FE entrypoint hashes the secret before initialization;
+existing cluster metadata is never reinitialized. `DORIS_ROOT_PASSWORD` is also
+supported by the entrypoint. For disposable test clusters, explicitly set
+`DORIS_ALLOW_EMPTY_PASSWORD=true` on every FE instead. That setting is written
+to `fe_custom.conf`; remove the configuration and restart all FEs to restore
+protection. An empty-password admin is unavailable to clients until root sets
+its password; internal JOB, MTMV and statistics tasks do not need that password.
+Older released FE artifacts keep their existing startup behavior.
+
 ## Two tags
 
 | tag | covers | size |
