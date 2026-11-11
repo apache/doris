@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions.literal;
 
 import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.nereids.exceptions.UnboundException;
@@ -34,7 +35,11 @@ import com.google.common.base.Preconditions;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
+import java.time.ZonedDateTime;
 import java.util.Objects;
 
 /**
@@ -363,8 +368,30 @@ public class TimestampTzLiteral extends DateTimeLiteral {
         return fromJavaDateType(toJavaDateType().plusWeeks(weeks), getDataType().getScale());
     }
 
+    /**
+     * Add calendar years in the session time zone and return the UTC result.
+     */
     public Expression plusYears(long years) {
-        return fromJavaDateType(toJavaDateType().plusYears(years), getDataType().getScale());
+        // Use the session date for calendar years. For example, 2024-02-29 00:00 in
+        // +08:00 must become 2025-02-28 00:00, although its UTC date is February 28.
+        ZoneId zone = TimeUtils.getOrSystemTimeZone(getSessionTimeZone()).toZoneId();
+        ZonedDateTime local = toJavaDateType().atZone(ZoneOffset.UTC).withZoneSameInstant(zone);
+        LocalDateTime target = local.toLocalDateTime().plusYears(years);
+        // The BE requires valid local dates as well as a valid UTC result.
+        // For example, 9999-12-31 20:00 UTC is in local year 10000 in +08:00.
+        if (isDateOutOfRange(local.toLocalDateTime()) || isDateOutOfRange(target)) {
+            throw new AnalysisException("datetime out of range in time zone " + zone);
+        }
+        Instant result;
+        // Keep the input offset if the target time occurs twice. Adding zero years
+        // must keep the same instant in both parts of the repeated hour.
+        if (zone.getRules().getValidOffsets(target).contains(local.getOffset())) {
+            result = target.toInstant(local.getOffset());
+        } else {
+            // Use the BE rule for a changed offset or a time skipped by a DST change.
+            result = convertLocalToInstantPreservingFraction(target, zone);
+        }
+        return fromJavaDateType(LocalDateTime.ofInstant(result, ZoneOffset.UTC), getDataType().getScale());
     }
 
     public Expression plusHours(long hours) {
