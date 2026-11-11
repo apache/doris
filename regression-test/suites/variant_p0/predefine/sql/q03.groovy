@@ -36,7 +36,7 @@ select id from test_predefine_decimal where cast(v['d10_2'] as decimal(10, 2)) =
 select id, cast(v as string) from test_predefine_bigint order by id;
 select id, cast(v['id'] as largeint), cast(v['n'] as bigint), cast(v['obj']['id'] as largeint), cast(v['big_a'] as largeint), cast(v['big_b'] as largeint) from test_predefine_bigint order by id;
 select id, cast(v['id'] as string), cast(v['n'] as string), cast(v['other'] as string) from test_predefine_bigint order by id;
-select id, cast(v['ids'] as array<largeint>), cast(v['ids'] as string) from test_predefine_bigint where id % 1000 in (14, 15) order by id;
+select id, cast(v['ids'] as array<largeint>), cast(v['ids'] as string) from test_predefine_bigint where id % 1000 in (14, 15, 43) order by id;
 select id from test_predefine_bigint where cast(v['id'] as largeint) = 18446744073709551616 order by id;
 select id from test_predefine_bigint where cast(v['id'] as largeint) = 170141183460469231731687303715884105727 order by id;
 select id from test_predefine_bigint where cast(v['id'] as largeint) = -170141183460469231731687303715884105727 order by id;

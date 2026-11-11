@@ -423,7 +423,8 @@ suite("regression_test_variant_predefine_schema", "p0,nonConcurrent"){
     """
 
     // [id, document], grouped by what the declared path receives, so that one load never mixes a
-    // value the declared type holds with one only the template's cast can judge.
+    // value the declared type holds with one only the template's cast can judge; bigint_mixed
+    // mixes the kinds a LARGEINT path stores on purpose.
     def numberDocs = [
         // numbers the declared DECIMAL holds
         "decimal": [
@@ -508,10 +509,13 @@ suite("regression_test_variant_predefine_schema", "p0,nonConcurrent"){
             [34, '{"objs":[{"id":18446744073709551616}]}'],
             [35, '{"ids":[[18446744073709551616]]}'],
         ],
-        // LARGEINT values on both sides of 10^38 - 1 in one load
+        // LARGEINT values on both sides of 10^38 - 1 in one load: a scale-0 decimal and digits on
+        // the same path, both inside one array, and 2^127 - 1 as a number beside its string form
         "bigint_mixed": [
             [41, '{"id":18446744073709551616}'],
             [42, '{"id":170141183460469231731687303715884105727}'],
+            [43, '{"ids":[1,170141183460469231731687303715884105727]}'],
+            [44, '{"id":"170141183460469231731687303715884105727"}'],
         ],
     ]
     numberDocs.each { kind, docs ->
@@ -564,9 +568,9 @@ suite("regression_test_variant_predefine_schema", "p0,nonConcurrent"){
     sql """insert into test_predefine_bigint values (3010, parse_to_variant('{"id":-170141183460469231731687303715884105728}'))"""
     sql """insert into test_predefine_bigint values (3011, parse_to_variant('{"id":170141183460469231731687303715884105728}'))"""
 
-    // The rejected documents: parse_to_variant fails the statement and try_parse_to_variant
-    // loads NULL. Whether Stream Load stores such a row as NULL or filters it is the load's own
-    // rule, so the filter ratio is left open and sql/q03 records which rows arrived.
+    // The rejected documents: parse_to_variant fails the statement, and try_parse_to_variant and
+    // Stream Load store the row with a NULL variant (sql/q03_18); with a filter ratio of 0 a
+    // Stream Load that filtered such a row instead would fail here.
     test {
         sql """insert into test_predefine_bigint
                select id, parse_to_variant(j) from test_predefine_number_src where kind = 'bigint_rejected'"""
@@ -574,7 +578,7 @@ suite("regression_test_variant_predefine_schema", "p0,nonConcurrent"){
     }
     sql """insert into test_predefine_bigint
            select id + 1000, try_parse_to_variant(j) from test_predefine_number_src where kind = 'bigint_rejected'"""
-    load_number_docs.call("test_predefine_bigint", "bigint_rejected", 1)
+    load_number_docs.call("test_predefine_bigint", "bigint_rejected", 0)
 
     sql """insert into test_predefine_bigint
            select id, parse_to_variant(j) from test_predefine_number_src where kind = 'bigint_mixed'"""
