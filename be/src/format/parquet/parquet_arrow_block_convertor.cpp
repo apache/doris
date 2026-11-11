@@ -19,6 +19,8 @@
 
 #include <arrow/type.h>
 
+#include "core/data_type/data_type.h"
+#include "core/data_type_serde/data_type_serde.h"
 #include "format/arrow/arrow_row_batch.h"
 
 namespace doris {
@@ -27,6 +29,15 @@ std::string ParquetArrowSchemaConvertor::timestamp_timezone(PrimitiveType type) 
     return type == TYPE_DATETIMEV2 && !_enable_int96_timestamps
                    ? ""
                    : DorisArrowSchemaConvertor::timestamp_timezone(type);
+}
+
+Status ParquetArrowSchemaConvertor::convert_to_arrow_type(
+        const DataTypePtr& type, std::shared_ptr<arrow::DataType>* result) const {
+    if (type->get_primitive_type() == TYPE_VARIANT) {
+        *result = unshredded_arrow_variant_type();
+        return Status::OK();
+    }
+    return DorisArrowSchemaConvertor::convert_to_arrow_type(type, result);
 }
 
 Status ParquetArrowSchemaConvertor::get_arrow_schema(std::shared_ptr<arrow::Schema>* result) const {
@@ -47,8 +58,7 @@ Status ParquetArrowSchemaConvertor::get_arrow_schema(std::shared_ptr<arrow::Sche
 }
 
 Status ParquetArrowBlockConvertor::init() {
-    return ParquetArrowSchemaConvertor(_types, _names, _timezone_name, _enable_int96_timestamps)
-            .get_arrow_schema(&_arrow_schema);
+    return _schema_convertor.get_arrow_schema(&_arrow_schema);
 }
 
 Status ParquetArrowBlockConvertor::write_column(const DataTypePtr& type, const DataTypeSerDe& serde,
@@ -57,8 +67,16 @@ Status ParquetArrowBlockConvertor::write_column(const DataTypePtr& type, const D
                                                 arrow::ArrayBuilder* builder, int64_t start,
                                                 int64_t end,
                                                 const cctz::time_zone& timezone) const {
-    return write_plain_arrow_column(type, serde, column, null_map, field, builder, start, end,
-                                    timezone);
+    // Check against the same schema rules used at open, including Variant leaves in containers.
+    // The builder uses extension storage, so its struct type alone cannot establish this binding.
+    std::shared_ptr<arrow::DataType> expected_type;
+    RETURN_IF_ERROR(_schema_convertor.convert_to_arrow_type(type, &expected_type));
+    if (!field->type()->Equals(expected_type)) {
+        return Status::InvalidArgument(
+                "Parquet writer is not bound for Doris type {} and Arrow field {}",
+                type->get_name(), field->ToString());
+    }
+    return serde.write_column_to_arrow(column, null_map, builder, start, end, timezone);
 }
 
 } // namespace doris
