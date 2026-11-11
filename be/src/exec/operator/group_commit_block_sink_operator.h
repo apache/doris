@@ -112,7 +112,7 @@ private:
     friend class GroupCommitBlockSinkLocalState;
 
     Status _init_ann_validation();
-    Status _validate_ann_dimensions(const Block& block) const;
+    Status _validate_ann_vectors(const Block& block) const;
 
     struct AnnColumn {
         size_t position;

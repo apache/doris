@@ -113,6 +113,22 @@ Status AnnIndexColumnWriter::add_array_values(size_t field_size, const uint8_t* 
         }
     }
 
+    // ARRAY NOT NULL still permits NULL elements, e.g. [NULL, 1, 2, 3]. Reject the
+    // entire batch before buffering: skipping an element/row would change dimensions/row IDs.
+    // The caller has already advanced null_map to this batch; offsets[0] may be nonzero.
+    if (null_map != nullptr) {
+        const auto num_items = offsets[num_rows] - offsets[0];
+        const auto* null_element = std::find_if(null_map, null_map + num_items,
+                                                [](uint8_t value) { return value != 0; });
+        // A nullable element type with an all-zero map is a valid vector.
+        if (null_element != null_map + num_items) {
+            return Status::InvalidArgument(
+                    "ANN vector cannot contain NULL elements. Index: {}, row: {}, element: {}",
+                    _index_meta->index_name(), (null_element - null_map) / dim,
+                    (null_element - null_map) % dim);
+        }
+    }
+
     const float* p = reinterpret_cast<const float*>(value_ptr);
 
     // The offsets check above guarantees every array row matches the ANN index dimension.

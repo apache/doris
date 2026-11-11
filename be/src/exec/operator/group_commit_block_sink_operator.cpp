@@ -19,6 +19,7 @@
 
 #include <gen_cpp/DataSinks_types.h>
 
+#include <algorithm>
 #include <charconv>
 #include <chrono>
 #include <thread>
@@ -354,10 +355,11 @@ Status GroupCommitBlockSinkOperatorX::_init_ann_validation() {
     return Status::OK();
 }
 
-Status GroupCommitBlockSinkOperatorX::_validate_ann_dimensions(const Block& block) const {
+Status GroupCommitBlockSinkOperatorX::_validate_ann_vectors(const Block& block) const {
     for (const auto& ann : _ann_columns) {
         auto column = block.get_by_position(ann.position).column->convert_to_full_column_if_const();
         const auto& array = assert_cast<const ColumnArray&>(*remove_nullable(column));
+        const auto* nullable_items = check_and_get_column<ColumnNullable>(array.get_data());
         for (size_t row = 0; row < block.rows(); ++row) {
             const auto dimension = array.size_at(row);
             // A bad dimension would abort the shared background transaction after async success.
@@ -366,6 +368,22 @@ Status GroupCommitBlockSinkOperatorX::_validate_ann_dimensions(const Block& bloc
                 return Status::InvalidArgument(
                         "Ann index expect array with {} dim, got {}. Column: {}, row: {}",
                         ann.dimension, dimension, ann.name, row);
+            }
+            // The outer ARRAY NOT NULL constraint does not forbid NULL coordinates. Check the
+            // retained, converted elements before WAL; rejecting them only in the writer is too late.
+            if (nullable_items != nullptr) {
+                const auto* begin =
+                        nullable_items->get_null_map_data().data() + array.offset_at(row);
+                const auto* end = begin + dimension;
+                const auto* null_element =
+                        std::find_if(begin, end, [](uint8_t value) { return value != 0; });
+                // Most arrays have a nullable nested type even when every coordinate is present.
+                if (null_element != end) {
+                    return Status::InvalidArgument(
+                            "ANN vector cannot contain NULL elements. Column: {}, row: {}, "
+                            "element: {}",
+                            ann.name, row, null_element - begin);
+                }
             }
         }
     }
@@ -480,8 +498,8 @@ Status GroupCommitBlockSinkOperatorX::sink_impl(RuntimeState* state, Block* inpu
             block->swap(res_block.to_block());
         }
         // Check retained rows before buffering/enqueueing: async success only guarantees WAL storage,
-        // and a dimension error discovered by the segment writer cannot be repaired by WAL replay.
-        RETURN_IF_ERROR(_validate_ann_dimensions(*block));
+        // and an invalid vector discovered by the segment writer cannot be repaired by WAL replay.
+        RETURN_IF_ERROR(_validate_ann_vectors(*block));
         // add block into block queue
         RETURN_IF_ERROR(local_state._add_block(state, block));
     }

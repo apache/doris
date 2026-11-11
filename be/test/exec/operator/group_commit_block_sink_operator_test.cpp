@@ -38,7 +38,8 @@ protected:
     GroupCommitBlockSinkOperatorX sink {0, row_desc, expressions};
 
     static ColumnWithTypeAndName array_column(const std::vector<size_t>& dimensions,
-                                              const std::string& name) {
+                                              const std::string& name,
+                                              const std::vector<size_t>& null_positions = {}) {
         auto values = ColumnFloat32::create();
         auto offsets = ColumnArray::ColumnOffsets::create();
         size_t total = 0;
@@ -47,7 +48,12 @@ protected:
             total += dimension;
             offsets->insert_value(total);
         }
-        return {ColumnArray::create(std::move(values), std::move(offsets)),
+        auto nulls = ColumnUInt8::create(total, 0);
+        for (auto position : null_positions) {
+            nulls->get_data()[position] = 1;
+        }
+        return {ColumnArray::create(ColumnNullable::create(std::move(values), std::move(nulls)),
+                                    std::move(offsets)),
                 std::make_shared<DataTypeArray>(std::make_shared<DataTypeFloat32>()), name};
     }
 };
@@ -55,26 +61,26 @@ protected:
 TEST_F(GroupCommitAnnValidationTest, ValidateEveryRowAndEveryBlock) {
     sink._ann_columns = {{0, 3, "vec"}};
     Block valid {array_column({3, 3}, "vec")};
-    ASSERT_TRUE(sink._validate_ann_dimensions(valid).ok());
+    ASSERT_TRUE(sink._validate_ann_vectors(valid).ok());
     for (size_t dimension : {0, 2, 4}) {
         Block invalid {array_column({3, dimension}, "vec")};
-        auto status = sink._validate_ann_dimensions(invalid);
+        auto status = sink._validate_ann_vectors(invalid);
         ASSERT_FALSE(status.ok());
         EXPECT_NE(status.to_string().find("row: 1"), std::string::npos);
     }
     // An empty retained batch can occur after ordinary load filtering.
     Block empty {array_column({}, "vec")};
-    EXPECT_TRUE(sink._validate_ann_dimensions(empty).ok());
+    EXPECT_TRUE(sink._validate_ann_vectors(empty).ok());
 }
 
 TEST_F(GroupCommitAnnValidationTest, OnlyIndexedColumnsHaveFixedDimensions) {
     Block block {array_column({0, 1}, "ordinary_array"), array_column({3, 3}, "vec"),
                  array_column({2, 1}, "vec2")};
-    EXPECT_TRUE(sink._validate_ann_dimensions(block).ok());
+    EXPECT_TRUE(sink._validate_ann_vectors(block).ok());
     sink._ann_columns = {{1, 3, "vec"}};
-    EXPECT_TRUE(sink._validate_ann_dimensions(block).ok());
+    EXPECT_TRUE(sink._validate_ann_vectors(block).ok());
     sink._ann_columns.push_back({2, 2, "vec2"});
-    auto status = sink._validate_ann_dimensions(block);
+    auto status = sink._validate_ann_vectors(block);
     ASSERT_FALSE(status.ok());
     EXPECT_NE(status.to_string().find("Column: vec2"), std::string::npos);
 }
@@ -84,13 +90,46 @@ TEST_F(GroupCommitAnnValidationTest, ConstantAndNullableWrappers) {
     auto column = array_column({3}, "vec");
     column.column = ColumnConst::create(column.column, 2);
     Block constant {column};
-    EXPECT_TRUE(sink._validate_ann_dimensions(constant).ok());
+    EXPECT_TRUE(sink._validate_ann_vectors(constant).ok());
 
     column = array_column({3, 2}, "vec");
     column.column = make_nullable(column.column);
     column.type = make_nullable(column.type);
     Block nullable {column};
-    EXPECT_FALSE(sink._validate_ann_dimensions(nullable).ok());
+    EXPECT_FALSE(sink._validate_ann_vectors(nullable).ok());
+
+    column = array_column({3}, "vec", {1});
+    column.column = ColumnConst::create(column.column, 2);
+    Block constant_null_element {column};
+    EXPECT_FALSE(sink._validate_ann_vectors(constant_null_element).ok());
+}
+
+TEST_F(GroupCommitAnnValidationTest, RejectNullCoordinatesOnlyInIndexedColumns) {
+    sink._ann_columns = {{1, 3, "vec"}, {2, 2, "vec2"}};
+    Block valid {array_column({1, 0}, "ordinary_array", {0}), array_column({3, 3}, "vec"),
+                 array_column({2, 2}, "vec2")};
+    EXPECT_TRUE(sink._validate_ann_vectors(valid).ok());
+
+    for (size_t position : {0, 5}) {
+        Block invalid {array_column({1, 0}, "ordinary_array", {0}),
+                       array_column({3, 3}, "vec", {position}), array_column({2, 2}, "vec2")};
+        auto status = sink._validate_ann_vectors(invalid);
+        ASSERT_FALSE(status.ok());
+        EXPECT_NE(status.to_string().find("ANN vector cannot contain NULL elements. Column: vec,"),
+                  std::string::npos);
+    }
+    Block invalid_second {array_column({1, 0}, "ordinary_array", {0}), array_column({3, 3}, "vec"),
+                          array_column({2, 2}, "vec2", {3})};
+    auto status = sink._validate_ann_vectors(invalid_second);
+    ASSERT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("Column: vec2, row: 1, element: 1"), std::string::npos);
+
+    // Ordinary load filtering can remove the bad row before the ANN validator runs.
+    auto retained = invalid_second.clone_empty();
+    auto mutable_retained = MutableBlock::build_mutable_block(std::move(retained));
+    const uint32_t row = 0;
+    ASSERT_TRUE(mutable_retained.add_rows(&invalid_second, &row, &row + 1).ok());
+    EXPECT_TRUE(sink._validate_ann_vectors(mutable_retained.to_block()).ok());
 }
 
 TEST_F(GroupCommitAnnValidationTest, ResolveIndexMetadataByName) {

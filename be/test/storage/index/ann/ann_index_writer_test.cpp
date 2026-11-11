@@ -247,7 +247,9 @@ TEST_F(AnnIndexWriterTest, TestAddArrayValuesFromFirstItem) {
     for (int i = 1; i <= 12; ++i) {
         floats->insert_value(static_cast<float>(i));
     }
-    const auto items = ColumnNullable::create(std::move(floats), ColumnUInt8::create(12, 0));
+    auto nulls = ColumnUInt8::create(12, 0);
+    nulls->get_data()[0] = 1; // A NULL in an earlier batch must not reject rows [1, 3).
+    const auto items = ColumnNullable::create(std::move(floats), std::move(nulls));
     const std::vector<uint64_t> offsets {100, 104, 108};
     auto stored_offsets = ColumnOffset64::create();
     stored_offsets->get_data().assign(offsets.begin(), offsets.end());
@@ -259,6 +261,55 @@ TEST_F(AnnIndexWriterTest, TestAddArrayValuesFromFirstItem) {
     const std::vector<float> buffered(writer->_buffered_vectors.begin(),
                                       writer->_buffered_vectors.end());
     EXPECT_EQ(buffered, (std::vector<float> {5, 6, 7, 8, 9, 10, 11, 12}));
+}
+
+TEST_F(AnnIndexWriterTest, TestRejectNullElementsBeforeBuffering) {
+    TestAnnIndexColumnWriter writer(_index_file_writer.get(), _tablet_index.get());
+    writer.set_vector_index(std::make_shared<MockVectorIndex>());
+    const std::vector<float> values {1, 2, 3, 4, 5, 6, 7, 8};
+    const std::vector<uint64_t> offsets {100, 104, 108};
+    std::vector<uint8_t> nulls(8, 0);
+    ASSERT_TRUE(writer.add_array_values(sizeof(float),
+                                        reinterpret_cast<const uint8_t*>(values.data()),
+                                        nulls.data(), offsets.data(), 2)
+                        .ok());
+    EXPECT_EQ(writer._total_rows, 2);
+
+    for (const size_t position : {0, 7}) {
+        nulls[position] = 1;
+        auto status = writer.add_array_values(sizeof(float),
+                                              reinterpret_cast<const uint8_t*>(values.data()),
+                                              nulls.data(), offsets.data(), 2);
+        ASSERT_FALSE(status.ok());
+        EXPECT_NE(status.to_string().find("ANN vector cannot contain NULL elements"),
+                  std::string::npos);
+        // Even a NULL at the end must leave both counters and buffered payload unchanged.
+        EXPECT_EQ(writer._total_rows, 2);
+        EXPECT_EQ(std::vector<float>(writer._buffered_vectors.begin(),
+                                     writer._buffered_vectors.end()),
+                  values);
+        nulls[position] = 0;
+    }
+}
+
+TEST_F(AnnIndexWriterTest, TestRejectNullElementsFromFirstItem) {
+    TestAnnIndexColumnWriter writer(_index_file_writer.get(), _tablet_index.get());
+    writer.set_vector_index(std::make_shared<MockVectorIndex>());
+    auto floats = ColumnFloat32::create(12, 1.0f);
+    auto nulls = ColumnUInt8::create(12, 0);
+    nulls->get_data()[11] = 1;
+    const auto items = ColumnNullable::create(std::move(floats), std::move(nulls));
+    auto offsets = ColumnOffset64::create();
+    for (uint64_t offset : {100, 104, 108}) {
+        offsets->insert_value(offset);
+    }
+    StorageBuffers buffer;
+    auto status = feed_array_index(&writer, FieldType::OLAP_FIELD_TYPE_FLOAT, *items, 4, *offsets,
+                                   nullptr, buffer);
+    ASSERT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("row: 1, element: 3"), std::string::npos);
+    EXPECT_EQ(writer._total_rows, 0);
+    EXPECT_TRUE(writer._buffered_vectors.empty());
 }
 
 // Every NaN is buffered as the quiet NaN, as the item writer stores it.
@@ -277,7 +328,6 @@ TEST_F(AnnIndexWriterTest, TestAddArrayValuesBuffersTheQuietNaN) {
         floats->insert_value(value);
     }
     auto nulls = ColumnUInt8::create(4, 0);
-    nulls->get_data()[1] = 1; // ANN retains this component and normalizes its NaN payload.
     const auto items = ColumnNullable::create(std::move(floats), std::move(nulls));
     const std::vector<uint64_t> offsets {0, 4};
     auto stored_offsets = ColumnOffset64::create();
