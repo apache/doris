@@ -17,11 +17,11 @@
 
 #include "format/parquet/parquet_arrow_block_convertor.h"
 
+#include <arrow/extension/parquet_variant.h>
 #include <arrow/type.h>
 
 #include "core/data_type/data_type.h"
 #include "core/data_type_serde/data_type_serde.h"
-#include "format/arrow/arrow_row_batch.h"
 
 namespace doris {
 
@@ -34,7 +34,10 @@ std::string ParquetArrowSchemaConvertor::timestamp_timezone(PrimitiveType type) 
 Status ParquetArrowSchemaConvertor::convert_to_arrow_type(
         const DataTypePtr& type, std::shared_ptr<arrow::DataType>* result) const {
     if (type->get_primitive_type() == TYPE_VARIANT) {
-        *result = unshredded_arrow_variant_type();
+        static const auto parquet_variant = arrow::extension::variant(
+                arrow::struct_({arrow::field("metadata", arrow::binary(), false),
+                                arrow::field("value", arrow::binary(), false)}));
+        *result = parquet_variant;
         return Status::OK();
     }
     return DorisArrowSchemaConvertor::convert_to_arrow_type(type, result);

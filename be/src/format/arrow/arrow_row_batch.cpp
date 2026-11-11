@@ -53,13 +53,6 @@
 
 namespace doris {
 
-std::shared_ptr<arrow::DataType> unshredded_arrow_variant_type() {
-    static const auto type = arrow::extension::variant(
-            arrow::struct_({arrow::field("metadata", arrow::binary(), false),
-                            arrow::field("value", arrow::binary(), false)}));
-    return type;
-}
-
 Status register_arrow_variant_extension() {
     // Remote Flight readers must restore the extension before decoding the result schema.
     static const auto status = [] {
@@ -67,7 +60,9 @@ Status register_arrow_variant_extension() {
             return arrow::Status::OK();
         }
         return arrow::RegisterExtensionType(
-                std::static_pointer_cast<arrow::ExtensionType>(unshredded_arrow_variant_type()));
+                std::static_pointer_cast<arrow::ExtensionType>(arrow::extension::variant(
+                        arrow::struct_({arrow::field("metadata", arrow::binary(), false),
+                                        arrow::field("value", arrow::binary(), false)}))));
     }();
     return status.ok() ? Status::OK() : Status::InternalError(status.ToString());
 }
@@ -275,7 +270,9 @@ Status ArrowFlightSchemaConvertor::convert_to_arrow_type(
                     "cast the result to STRING for text output");
         }
         RETURN_IF_ERROR(register_arrow_variant_extension());
-        *result = unshredded_arrow_variant_type();
+        *result = arrow::extension::variant(
+                arrow::struct_({arrow::field("metadata", arrow::binary(), false),
+                                arrow::field("value", arrow::binary(), false)}));
         return Status::OK();
     }
     return DorisArrowSchemaConvertor::convert_to_arrow_type(type, result);

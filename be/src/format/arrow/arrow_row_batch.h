@@ -110,7 +110,6 @@ protected:
 };
 
 Status register_arrow_variant_extension();
-std::shared_ptr<arrow::DataType> unshredded_arrow_variant_type();
 
 std::shared_ptr<arrow::Field> create_arrow_field_with_metadata(
         const std::string& field_name, const std::shared_ptr<arrow::DataType>& arrow_type,
