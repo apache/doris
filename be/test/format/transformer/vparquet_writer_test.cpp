@@ -471,6 +471,7 @@ TEST_F(VParquetWriterTest, WritesUnshreddedParquetVariant) {
     }
     auto variants = ColumnVariantV2::create();
     variants->insert_encoded_batch(encoder.finish_batch());
+    ASSERT_EQ(variants->get_value_ref(0).metadata.dict_size(), 2);
     auto nulls = ColumnUInt8::create();
     nulls->get_data().assign({0, 0, 0, 1});
     const ColumnPtr column = ColumnNullable::create(std::move(variants), std::move(nulls));
@@ -501,6 +502,22 @@ TEST_F(VParquetWriterTest, WritesUnshreddedParquetVariant) {
     EXPECT_EQ(wrapper.field(1)->name(), "value");
     EXPECT_TRUE(wrapper.field(0)->is_required());
     EXPECT_TRUE(wrapper.field(1)->is_required());
+
+    // The Parquet writer writes just the key used by the row.
+    auto metadata_column = physical_reader->RowGroup(0)->Column(0);
+    auto* metadata_reader = dynamic_cast<::parquet::ByteArrayReader*>(metadata_column.get());
+    ASSERT_NE(metadata_reader, nullptr);
+    ::parquet::ByteArray metadata_bytes;
+    int16_t definition_level = 0;
+    int64_t values_read = 0;
+    ASSERT_EQ(metadata_reader->ReadBatch(1, &definition_level, nullptr, &metadata_bytes,
+                                         &values_read),
+              1);
+    ASSERT_EQ(values_read, 1);
+    const VariantMetadataRef metadata {.data = reinterpret_cast<const char*>(metadata_bytes.ptr),
+                                       .size = metadata_bytes.len};
+    ASSERT_EQ(metadata.dict_size(), 1);
+    EXPECT_EQ(metadata.key_at(0).to_string(), "a");
 
     const auto input = arrow::io::ReadableFile::Open(_file_path);
     ASSERT_TRUE(input.ok()) << input.status();
