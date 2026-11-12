@@ -76,6 +76,11 @@ ownership of unfinished writers. Reservations and retained-object statistics dec
 successful physical deletion. A failed delete is retried in later GC rounds; query-directory
 cleanup also removes empty local directories and residual external-writer files.
 
+Enqueueing appends one request without scanning the backlog. GC drains and returns batches
+with constant-time list transfers, and coalesces duplicate/ancestor paths using a per-batch
+index outside the queue mutex. The pending-deletion metric counts queued requests, so it may
+include duplicates until the next GC pass coalesces them.
+
 Shutdown does not start an additional deletion/retry pass. It still joins a GC pass already
 running, and outstanding I/O writers must remain alive until their callbacks finish. After a
 restart, local leftovers are recovered by startup GC. Remote leftovers are **not** scanned by
