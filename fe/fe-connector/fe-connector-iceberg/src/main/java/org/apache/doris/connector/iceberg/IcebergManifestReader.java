@@ -47,6 +47,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.function.Predicate;
+import java.util.function.UnaryOperator;
 
 /** Reads immutable manifest contents independently of whether the result is retained in a cache. */
 final class IcebergManifestReader {
@@ -98,7 +99,7 @@ final class IcebergManifestReader {
 
     static ManifestCacheValue read(ManifestFile manifest, Table table,
             ManifestContent content, boolean estimateWeight) {
-        return read(manifest, table, table.io(), content, estimateWeight, null, null, () -> { });
+        return read(manifest, table, table.io(), content, estimateWeight, null, null, DataFile::copy, () -> { });
     }
 
     static Function<ManifestFile, ManifestCacheValue> uncachedLoader(Table table, List<String> columns,
@@ -108,14 +109,20 @@ final class IcebergManifestReader {
 
     static Function<ManifestFile, ManifestCacheValue> uncachedLoader(Table table, List<String> columns,
             Function<ManifestFile, ReadFilter> filters, Runnable checkCancelled) {
+        return uncachedLoader(table, columns, filters, DataFile::copy, checkCancelled);
+    }
+
+    static Function<ManifestFile, ManifestCacheValue> uncachedLoader(Table table, List<String> columns,
+            Function<ManifestFile, ReadFilter> filters, UnaryOperator<DataFile> copyDataFile, Runnable checkCancelled) {
         // One request-local IO view, shared by this scan's loads, never by the catalog/cache.
         FileIO io = new IcebergScanFileIO(table.io(), checkCancelled);
-        return manifest -> read(manifest, table, io, manifest.content(), false, columns, filters, checkCancelled);
+        return manifest -> read(manifest, table, io, manifest.content(), false,
+                columns, filters, copyDataFile, checkCancelled);
     }
 
     private static ManifestCacheValue read(ManifestFile manifest, Table table, FileIO io,
             ManifestContent content, boolean estimateWeight, List<String> columns,
-            Function<ManifestFile, ReadFilter> filters, Runnable checkCancelled) {
+            Function<ManifestFile, ReadFilter> filters, UnaryOperator<DataFile> copyDataFile, Runnable checkCancelled) {
         checkCancelled.run();
         ReadFilter filter = filters == null ? null : filters.apply(manifest);
         try {
@@ -124,14 +131,15 @@ final class IcebergManifestReader {
                         loadDeleteFiles(manifest, table, io, filter, checkCancelled), estimateWeight);
             }
             return ManifestCacheValue.forDataFiles(
-                    loadDataFiles(manifest, table, io, columns, filter, checkCancelled), estimateWeight);
+                    loadDataFiles(manifest, table, io, columns, filter, copyDataFile, checkCancelled), estimateWeight);
         } catch (IOException e) {
             throw new RuntimeException("Failed to read iceberg manifest " + manifest.path(), e);
         }
     }
 
     private static List<DataFile> loadDataFiles(ManifestFile manifest, Table table, FileIO io,
-            List<String> columns, ReadFilter filter, Runnable checkCancelled) throws IOException {
+            List<String> columns, ReadFilter filter, UnaryOperator<DataFile> copyDataFile,
+            Runnable checkCancelled) throws IOException {
         List<DataFile> dataFiles = new ArrayList<>();
         // .copy() is mandatory: the ManifestReader iterator reuses the same object across iterations.
         try (ManifestReader<DataFile> reader = ManifestFiles.read(manifest, io,
@@ -143,7 +151,7 @@ final class IcebergManifestReader {
                 checkCancelled.run();
                 DataFile file = filter == null ? borrowed : filter.adapt(borrowed);
                 if (filter == null || filter.matches(file)) {
-                    dataFiles.add(file.copy());
+                    dataFiles.add(copyDataFile.apply(file));
                 }
             }
         }

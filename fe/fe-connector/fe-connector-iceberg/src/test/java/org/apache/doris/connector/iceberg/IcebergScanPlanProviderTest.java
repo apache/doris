@@ -122,6 +122,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.IdentityHashMap;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
@@ -5580,16 +5581,133 @@ public class IcebergScanPlanProviderTest {
             for (FileScanTask task : closeable) {
                 count++;
                 Assertions.assertEquals(1, task.deletes().size());
-                if (cacheEnabled || equality || filtered || explicitStats) {
+                if (cacheEnabled || explicitStats) {
                     Assertions.assertEquals(bounds, task.file().lowerBounds());
                 } else {
                     Assertions.assertNull(task.file().lowerBounds(),
-                            "an unfiltered position-delete scan must not retain per-column statistics");
+                            "unrequested evaluation statistics must not remain on the task");
                     Assertions.assertNull(task.file().upperBounds());
                 }
             }
         }
         Assertions.assertEquals(2, count);
+    }
+
+    @ParameterizedTest
+    @CsvSource({"false,none", "false,position", "false,equality", "true,none", "true,position", "true,equality"})
+    public void survivorStatisticsMatchRequestedProjection(boolean cached, String deletes) throws Exception {
+        List<Types.NestedField> fields = new ArrayList<>();
+        for (int id = 1; id <= 65; id++) {
+            fields.add(Types.NestedField.required(id,
+                    id == 1 ? "id" : id == 65 ? "p" : "column_" + id, Types.IntegerType.get()));
+        }
+        Schema schema = new Schema(fields);
+        PartitionSpec spec = PartitionSpec.builderFor(schema).identity("p").build();
+        Table table = createTable("survivor_stats", schema, spec, Map.of("format-version", "2"));
+        for (int value : new int[] {1, 100}) {
+            Map<Integer, ByteBuffer> bounds = new HashMap<>();
+            for (int id = 1; id <= 65; id++) {
+                bounds.put(id, Conversions.toByteBuffer(Types.IntegerType.get(), id == 1 ? value : 1));
+            }
+            table.newFastAppend().appendFile(DataFiles.builder(spec).withPath("/d/survivor_" + value + ".parquet")
+                    .withPartitionPath("p=1").withFormat(FileFormat.PARQUET).withFileSizeInBytes(100)
+                    .withMetrics(new Metrics(1L, null, null, null, null, bounds, bounds)).build()).commit();
+        }
+        if (!deletes.equals("none")) {
+            FileMetadata.Builder delete = FileMetadata.deleteFileBuilder(spec);
+            if (deletes.equals("equality")) {
+                delete.ofEqualityDeletes(1);
+                Map<Integer, ByteBuffer> bounds = Map.of(1, Conversions.toByteBuffer(Types.IntegerType.get(), 100));
+                delete.withMetrics(new Metrics(1L, null, null, null, null, bounds, bounds));
+            } else {
+                delete.ofPositionDeletes().withRecordCount(1).withReferencedDataFile("/d/survivor_100.parquet");
+            }
+            table.newRowDelta().addDeletes(delete.withPath("/d/survivor_delete.parquet").withPartitionPath("p=1")
+                    .withFormat(FileFormat.PARQUET).withFileSizeInBytes(100).build()).commit();
+        }
+        IcebergManifestCache cache = new IcebergManifestCache();
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(
+                IcebergCatalogProperties.of(cached ? manifestCacheProps() : Collections.emptyMap()),
+                opsReturning(table), new RecordingConnectorContext(), cache);
+        for (boolean rowFilter : new boolean[] {false, true}) {
+            for (String stats : new String[] {"none", "partial", "key", "all", "empty", "none"}) {
+                TableScan scan = table.newScan();
+                if (stats.equals("partial")) {
+                    scan = scan.includeColumnStats(List.of("column_2"));
+                } else if (stats.equals("key")) {
+                    scan = scan.includeColumnStats(List.of("id"));
+                } else if (stats.equals("all")) {
+                    scan = scan.includeColumnStats();
+                } else if (stats.equals("empty")) {
+                    scan = scan.includeColumnStats(Collections.emptyList());
+                }
+                String filteredColumn = rowFilter ? "column_2" : "p";
+                Map<String, FileScanTask> nativeTasks = new HashMap<>();
+                try (CloseableIterable<FileScanTask> sdk =
+                        scan.filter(Expressions.equal(filteredColumn, 1)).planFiles()) {
+                    for (FileScanTask task : sdk) {
+                        nativeTasks.put(task.file().path().toString(), task);
+                    }
+                }
+                try (CloseableIterable<FileScanTask> tasks = manifestTasks(provider, table, scan,
+                        Optional.of(eqInt(filteredColumn, 1)), "survivor_stats");
+                        CloseableIterator<FileScanTask> iterator = tasks.iterator()) {
+                    Function<ManifestFile, ManifestCacheValue> loader = manifestLoader(iterator);
+                    for (ManifestFile manifest : table.currentSnapshot().dataManifests(table.io())) {
+                        List<DataFile> retained = loader.apply(manifest).getDataFiles();
+                        Assertions.assertEquals(1, retained.size());
+                        Map<Integer, ByteBuffer> bounds = retained.get(0).lowerBounds();
+                        if (cached || stats.equals("all")) {
+                            Assertions.assertEquals(65, bounds.size());
+                        } else {
+                            Set<Integer> expected = new HashSet<>();
+                            if (stats.equals("partial")) {
+                                expected.add(2);
+                            } else if (stats.equals("key")) {
+                                expected.add(1);
+                            }
+                            if (deletes.equals("equality")) {
+                                expected.add(1);
+                            }
+                            if (expected.isEmpty()) {
+                                if (stats.equals("empty")) {
+                                    Assertions.assertEquals(nativeTasks.get(retained.get(0).path().toString())
+                                            .file().lowerBounds(), bounds);
+                                } else {
+                                    Assertions.assertNull(bounds, "filtering statistics must not remain in the window");
+                                }
+                            } else {
+                                Assertions.assertEquals(expected, bounds.keySet());
+                            }
+                        }
+                    }
+                    int count = 0;
+                    while (iterator.hasNext()) {
+                        FileScanTask task = iterator.next();
+                        FileScanTask sdk = nativeTasks.get(task.file().path().toString());
+                        count++;
+                        Assertions.assertNotNull(sdk);
+                        Assertions.assertEquals(sdk.deletes().size(), task.deletes().size(),
+                                "equality key statistics must survive until delete association");
+                        if (!cached) {
+                            Assertions.assertEquals(sdk.file().lowerBounds(), task.file().lowerBounds());
+                            Assertions.assertEquals(sdk.file().upperBounds(), task.file().upperBounds());
+                        }
+                    }
+                    Assertions.assertEquals(2, count);
+                }
+            }
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Function<ManifestFile, ManifestCacheValue> manifestLoader(CloseableIterator<FileScanTask> iterator)
+            throws Exception {
+        java.lang.reflect.Field prefetchField = iterator.getClass().getDeclaredField("manifestIt");
+        prefetchField.setAccessible(true);
+        java.lang.reflect.Field loaderField = IcebergManifestPrefetcher.class.getDeclaredField("loader");
+        loaderField.setAccessible(true);
+        return (Function<ManifestFile, ManifestCacheValue>) loaderField.get(prefetchField.get(iterator));
     }
 
     @ParameterizedTest
@@ -5647,7 +5765,7 @@ public class IcebergScanPlanProviderTest {
                     DataFile file = value.getDataFiles().get(0);
                     Assertions.assertTrue(file.path().toString().endsWith("_1.parquet"),
                             "retained files must own a copy before the SDK reuses its entry");
-                    Assertions.assertEquals(64, file.lowerBounds().size());
+                    Assertions.assertNull(file.lowerBounds(), "pruning has finished and no statistics were requested");
                     if (evolved) {
                         Assertions.assertEquals(1L, file.partition().get(0, Long.class));
                     }
