@@ -45,12 +45,12 @@ public class TopnFilterContext {
     /**
      * add topN filter
      */
-    public void addTopnFilter(TopN topn, PhysicalRelation scan, Expression expr) {
+    public void addTopnFilter(TopN topn, PhysicalRelation scan, Expression expr, boolean strictEligible) {
         TopnFilter filter = filters.get(topn.getObjectId());
         if (filter == null) {
-            filters.put(topn.getObjectId(), new TopnFilter(topn, scan, expr));
+            filters.put(topn.getObjectId(), new TopnFilter(topn, scan, expr, strictEligible));
         } else {
-            filter.addTarget(scan, expr);
+            filter.addTarget(scan, expr, strictEligible);
         }
     }
 
@@ -97,7 +97,7 @@ public class TopnFilterContext {
             return;
         }
         filter.legacySortNode = sortNode;
-        sortNode.setUseTopnOpt(true);
+        sortNode.setTopnFilter(filter);
         Preconditions.checkArgument(!filter.legacyTargets.isEmpty(), "missing targets: " + filter);
         for (ScanNode scan : filter.legacyTargets.keySet()) {
             scan.addTopnFilterSortNode(sortNode);

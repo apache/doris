@@ -58,8 +58,9 @@ suite("topn_runtime_filter_target_mode") {
             if (sqlAggregate) {
                 contains "AGGREGATE"
             }
-            // Both targets remain enabled. BE keeps equality only on the aggregate path.
+            // Both targets remain enabled, and an aggregate target keeps the entire source inclusive.
             multiContains "TOPN OPT:", 2
+            contains "TOPN filter boundary: ${query.contains('DESC') ? '>=' : '<='}"
         }
         "order_qt_${name}_enabled"(checked)
     }
@@ -89,6 +90,22 @@ suite("topn_runtime_filter_target_mode") {
         SELECT CAST(1 AS INT) AS k,SUM(v) AS v FROM topn_target_input
         UNION ALL SELECT k,v FROM topn_target_control
     ) u ORDER BY k NULLS LAST LIMIT 1""", "135", true)
+
+    for (String direction : ["ASC", "DESC"]) {
+        explain {
+            sql "SELECT k AS alias_key,v FROM topn_target_control WHERE v=999 " +
+                    "ORDER BY alias_key ${direction} NULLS LAST LIMIT 1 OFFSET 1"
+            contains "TOPN OPT:"
+            contains "TOPN filter boundary: ${direction == 'ASC' ? '<' : '>'}\n"
+        }
+        for (String orderKey : ["k ${direction},v", "ABS(k) ${direction}"]) {
+            explain {
+                sql "SELECT k,v FROM topn_target_control ORDER BY ${orderKey} LIMIT 1"
+                contains "TOPN OPT:"
+                contains "TOPN filter boundary: ${direction == 'ASC' ? '<=' : '>='}"
+            }
+        }
+    }
 
     // An aggregate result is not a grouping key. It cannot become a scan predicate.
     explain {

@@ -26,6 +26,7 @@ import org.apache.doris.analysis.SortInfo;
 import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
+import org.apache.doris.nereids.trees.plans.physical.TopnFilter;
 import org.apache.doris.planner.LocalExchangeNode.LocalExchangeType;
 import org.apache.doris.planner.LocalExchangeNode.LocalExchangeTypeRequire;
 import org.apache.doris.qe.ConnectContext;
@@ -52,6 +53,7 @@ public class SortNode extends PlanNode {
     private final SortInfo info;
     private final boolean useTopN;
     private boolean useTopnOpt = false;
+    private TopnFilter topnFilter;
     private boolean hasRuntimePredicate = false;
 
     // If mergeByexchange is set to true, the sort information is pushed to the
@@ -142,8 +144,9 @@ public class SortNode extends PlanNode {
         }
     }
 
-    public void setUseTopnOpt(boolean useTopnOpt) {
-        this.useTopnOpt = useTopnOpt;
+    public void setTopnFilter(TopnFilter topnFilter) {
+        this.topnFilter = topnFilter;
+        this.useTopnOpt = true;
     }
 
     @Override
@@ -170,6 +173,10 @@ public class SortNode extends PlanNode {
 
         if (useTopnOpt) {
             output.append(detailPrefix + "TOPN filter targets: ").append(topnFilterTargets).append("\n");
+            boolean strict = topnFilter.allowsStrictBounds();
+            output.append(detailPrefix).append("TOPN filter boundary: ")
+                    .append(info.getIsAscOrder().get(0) ? (strict ? "<" : "<=") : (strict ? ">" : ">="))
+                    .append("\n");
         }
         output.append(detailPrefix + "algorithm: ");
         if (algorithm == TSortAlgorithm.HEAP_SORT) {

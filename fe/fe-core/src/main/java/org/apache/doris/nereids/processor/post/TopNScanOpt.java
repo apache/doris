@@ -19,11 +19,13 @@ package org.apache.doris.nereids.processor.post;
 
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.processor.post.TopnFilterPushDownVisitor.PushDownContext;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.SortPhase;
 import org.apache.doris.nereids.trees.plans.algebra.TopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.util.Utils;
 
 /**
  * topN opt
@@ -42,10 +44,21 @@ public class TopNScanOpt extends PlanPostProcessor {
             TopnFilterPushDownVisitor pusher = new TopnFilterPushDownVisitor(ctx.getTopnFilterContext());
             TopnFilterPushDownVisitor.PushDownContext pushdownContext = new PushDownContext(topN,
                     topN.getOrderKeys().get(0).getExpr(),
-                    topN.getOrderKeys().get(0).isNullFirst());
+                    topN.getOrderKeys().get(0).isNullFirst(), checkStrictTopN(topN));
             topN.accept(pusher, pushdownContext);
         }
         return topN;
+    }
+
+    // Strict eligibility refines the existing filter; multiple keys still get inclusive bounds.
+    static boolean checkStrictTopN(TopN topN) {
+        return topN instanceof PhysicalTopN
+                && ((PhysicalTopN<?>) topN).getSortPhase() == SortPhase.LOCAL_SORT
+                && topN.getOrderKeys().size() == 1
+                && topN.getOrderKeys().get(0).getExpr() instanceof Slot
+                && isSupportedTopNRuntimeFilterType(topN.getOrderKeys().get(0).getExpr().getDataType())
+                && topN.getLimit() > 0 && topN.getOffset() >= 0
+                && !Utils.addOverflows(topN.getLimit(), topN.getOffset());
     }
 
     boolean checkTopN(TopN topN) {
@@ -65,7 +78,7 @@ public class TopNScanOpt extends PlanPostProcessor {
         return isSupportedTopNRuntimeFilterType(firstKeyType);
     }
 
-    private boolean isSupportedTopNRuntimeFilterType(DataType dataType) {
+    private static boolean isSupportedTopNRuntimeFilterType(DataType dataType) {
         return dataType.isBooleanType()
                 || dataType.isIntegralType()
                 || dataType.isDecimalLikeType()

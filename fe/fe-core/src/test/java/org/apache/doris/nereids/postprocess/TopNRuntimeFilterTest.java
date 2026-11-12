@@ -52,7 +52,6 @@ import org.apache.doris.nereids.trees.plans.physical.TopnFilter;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
-import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TSortAlgorithm;
@@ -142,12 +141,9 @@ public class TopNRuntimeFilterTest extends SSBTestBase implements MemoPatternMat
                                 .translatePlan(plan);
                         TTopnFilterDesc desc = filter.toThrift();
                         Assertions.assertEquals(2, desc.getTargetNodeIdToTargetExprSize());
-                        for (ScanNode target : filter.legacyTargets.keySet()) {
-                            String tableName = ((OlapScanNode) target).getOlapTable().getName();
-                            boolean strict = tableName.equals("topn_storage_dup") || source.equals("topn_storage_mow");
-                            Assertions.assertEquals(strict, desc.getStrictTargetNodeIds().contains(target.getId().asInt()),
-                                    sql + "\n" + plan.treeString());
-                        }
+                        boolean strict = source.equals("topn_storage_mow") && key.equals("k");
+                        Assertions.assertEquals(strict ? 2 : 0, desc.getStrictTargetNodeIdsSize(),
+                                sql + "\n" + plan.treeString());
                     }
                 }
             }
@@ -169,7 +165,8 @@ public class TopNRuntimeFilterTest extends SSBTestBase implements MemoPatternMat
                     .analyze("SELECT k,v FROM topn_storage_dup ORDER BY k LIMIT 1").rewrite().implement();
             PhysicalPlan plan = checker.getPhysicalPlan();
             PhysicalOlapScan scan = plan.<PhysicalOlapScan>collectToList(PhysicalOlapScan.class::isInstance).get(0);
-            PhysicalTopN<?> topn = plan.<PhysicalTopN<?>>collectToList(PhysicalTopN.class::isInstance).get(0);
+            PhysicalTopN<?> topn = plan.<PhysicalTopN<?>>collectToList(node -> node instanceof PhysicalTopN
+                    && ((PhysicalTopN<?>) node).getSortPhase() == SortPhase.LOCAL_SORT).get(0);
             OlapTable table = PlanConstructor.newOlapTable(10001, "topn_index_model", 0, KeysType.DUP_KEYS);
             table.setIndexMeta(10002, "aggregate_index", table.getFullSchema(), 0, 0, (short) 0,
                     TStorageType.COLUMN, KeysType.AGG_KEYS);
@@ -184,6 +181,8 @@ public class TopNRuntimeFilterTest extends SSBTestBase implements MemoPatternMat
                             new PushDownContext(topn, scan.getOutput().get(0), false));
                     Assertions.assertTrue(accepted);
                     Assertions.assertEquals(1, context.getTopnFilters().size());
+                    Assertions.assertEquals(indexId == table.getBaseIndexId(),
+                            context.getTopnFilters().get(0).isStrictEligible());
                 }
             }
         } finally {
@@ -229,6 +228,55 @@ public class TopNRuntimeFilterTest extends SSBTestBase implements MemoPatternMat
         } finally {
             connectContext.getSessionVariable().forceSortAlgorithm = previousAlgorithm;
             connectContext.getSessionVariable().topnFilterRatio = previousRatio;
+        }
+    }
+
+    @Test
+    public void testStrictBoundaryExplainAndMixedUnionPaths() {
+        double previousRatio = connectContext.getSessionVariable().topnFilterRatio;
+        String previousAlgorithm = connectContext.getSessionVariable().forceSortAlgorithm;
+        boolean previousPushTopn = connectContext.getSessionVariable().pushTopnToAgg;
+        String previousRules = String.join(",", connectContext.getSessionVariable().getDisableNereidsRuleNames());
+        connectContext.getSessionVariable().topnFilterRatio = 1000000;
+        connectContext.getSessionVariable().forceSortAlgorithm = "heap";
+        connectContext.getSessionVariable().pushTopnToAgg = false;
+        connectContext.getSessionVariable().setDisableNereidsRules(previousRules
+                + ",PRUNE_EMPTY_PARTITION,PUSH_DOWN_TOP_N_THROUGH_UNION");
+        try {
+            String scan = "SELECT k,ts AS v FROM topn_safety";
+            String aggregate = "SELECT k,SUM(ts) AS v FROM topn_safety GROUP BY k HAVING SUM(ts)>0";
+            Map<String, Boolean> queries = Map.of(
+                    "SELECT k AS alias_key,ts FROM topn_safety WHERE ts=999 ORDER BY alias_key %s LIMIT 1 OFFSET 1", true,
+                    "SELECT k,ts FROM topn_safety ORDER BY ABS(k) %s LIMIT 1", false,
+                    "SELECT k,ts FROM topn_safety ORDER BY k %s,ts LIMIT 1", false,
+                    "SELECT k,v FROM (" + scan + " UNION ALL " + scan + ") u ORDER BY k %s LIMIT 1", true,
+                    "SELECT k,v FROM (" + scan + " UNION ALL " + aggregate + ") u ORDER BY k %s LIMIT 1", false,
+                    "SELECT k,v FROM (" + aggregate + " UNION ALL " + scan + ") u ORDER BY k %s LIMIT 1", false);
+            for (Map.Entry<String, Boolean> query : queries.entrySet()) {
+                for (String direction : List.of("ASC", "DESC")) {
+                    PlanChecker.from(connectContext).checkPlannerResult(String.format(query.getKey(), direction),
+                            planner -> {
+                                String explain = planner.getFragments().stream()
+                                        .map(fragment -> fragment.getExplainString(TExplainLevel.NORMAL))
+                                        .collect(Collectors.joining("\n"));
+                                Assertions.assertTrue(explain.contains("TOPN OPT:"), explain);
+                                String boundary = direction.equals("ASC") ? "<" : ">";
+                                boundary += query.getValue() ? "" : "=";
+                                Assertions.assertTrue(explain.contains("TOPN filter boundary: " + boundary + "\n"),
+                                        explain);
+                                for (TopnFilter filter : planner.getTopnFilters()) {
+                                    TTopnFilterDesc desc = filter.toThrift();
+                                    Assertions.assertEquals(query.getValue() ? filter.legacyTargets.size() : 0,
+                                            desc.getStrictTargetNodeIdsSize(), explain);
+                                }
+                            });
+                }
+            }
+        } finally {
+            connectContext.getSessionVariable().topnFilterRatio = previousRatio;
+            connectContext.getSessionVariable().forceSortAlgorithm = previousAlgorithm;
+            connectContext.getSessionVariable().pushTopnToAgg = previousPushTopn;
+            connectContext.getSessionVariable().setDisableNereidsRules(previousRules);
         }
     }
 
@@ -420,7 +468,7 @@ public class TopNRuntimeFilterTest extends SSBTestBase implements MemoPatternMat
                                 .collect(Collectors.toList());
                         Assertions.assertEquals(1, outerFilters.size(), plan.treeString());
                         // An inner TopN remains a barrier for the outer source. Otherwise BE
-                        // keeps equality on the aggregate target and may prune ties on its sibling.
+                        // keeps equality on every target of the source.
                         int expectedTargets = innerOrder.isEmpty() ? 2 : 1;
                         Assertions.assertEquals(expectedTargets, outerFilters.get(0).targets.size(), plan.treeString());
                         Assertions.assertEquals(innerOrder.isEmpty(), outerFilters.get(0).targets.keySet().stream()
@@ -436,6 +484,7 @@ public class TopNRuntimeFilterTest extends SSBTestBase implements MemoPatternMat
                                 .translatePlan(plan);
                         Assertions.assertEquals(expectedTargets, outerFilters.get(0).legacyTargets.size());
                         Assertions.assertFalse(outerFilters.get(0).toThrift().getTargetNodeIdToTargetExpr().isEmpty());
+                        Assertions.assertTrue(outerFilters.get(0).toThrift().getStrictTargetNodeIds().isEmpty());
                     }
                 }
             }
@@ -534,7 +583,7 @@ public class TopNRuntimeFilterTest extends SSBTestBase implements MemoPatternMat
         Expression probeExpr = filter.targets.get(lazyScan);
 
         TopnFilterContext topnFilterContext = new TopnFilterContext();
-        topnFilterContext.addTopnFilter(filter.topn, lazyScan.getScan(), probeExpr);
+        topnFilterContext.addTopnFilter(filter.topn, lazyScan.getScan(), probeExpr, false);
         PlanTranslatorContext translatorContext = new PlanTranslatorContext();
         probeExpr.getInputSlots().forEach(slot -> translatorContext
                 .createSlotDesc(translatorContext.generateTupleDesc(), (SlotReference) slot));
@@ -542,6 +591,10 @@ public class TopNRuntimeFilterTest extends SSBTestBase implements MemoPatternMat
         topnFilterContext.translateTarget(lazyScan, legacyScan, translatorContext);
 
         Assertions.assertTrue(topnFilterContext.getTopnFilter(filter.topn).legacyTargets.containsKey(legacyScan));
+        topnFilterContext.addTopnFilter(filter.topn, lazyScan, probeExpr, true);
+        topnFilterContext.translateTarget(lazyScan, legacyScan, translatorContext);
+        Assertions.assertFalse(topnFilterContext.getTopnFilter(filter.topn).isStrictEligible());
+        Assertions.assertEquals(1, topnFilterContext.getTopnFilter(filter.topn).legacyTargets.size());
     }
 
     @Test
@@ -647,8 +700,13 @@ public class TopNRuntimeFilterTest extends SSBTestBase implements MemoPatternMat
             Assertions.assertTrue(sort.isSetAlgorithm());
             Assertions.assertEquals(expectedAlgorithm, sort.getAlgorithm(), plan.treeString());
             Assertions.assertEquals(expectedKeyCount, sort.getSortInfo().getOrderingExprsSize());
+            // The local heap must retain the final LIMIT + OFFSET candidates (3 + 2).
+            Assertions.assertEquals(5L, filter.legacySortNode.getLimit() + filter.legacySortNode.getOffset());
             TTopnFilterDesc desc = filter.toThrift();
             Assertions.assertTrue(desc.isSetStrictTargetNodeIds());
+            boolean strict = expectedAlgorithm == TSortAlgorithm.HEAP_SORT && expectedKeyCount == 1;
+            Assertions.assertTrue(filter.legacySortNode.getNodeExplainString("", TExplainLevel.NORMAL)
+                    .contains("TOPN filter boundary: " + (strict ? "<\n" : "<=\n")));
             Assertions.assertEquals(expectedAlgorithm == TSortAlgorithm.HEAP_SORT && expectedKeyCount == 1
                     ? desc.getTargetNodeIdToTargetExprSize() : 0, desc.getStrictTargetNodeIdsSize());
         }

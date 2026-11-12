@@ -43,7 +43,6 @@ import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PartitionSortNode;
 import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.PlanNodeId;
-import org.apache.doris.planner.RepeatNode;
 import org.apache.doris.planner.ScanContext;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.planner.SelectNode;
@@ -69,15 +68,23 @@ public class TopnFilterStrictBoundsTest {
         return node;
     }
 
+    private OlapScanNode scan(int id) {
+        OlapScanNode scan = node(OlapScanNode.class, id);
+        Mockito.when(scan.getSelectedIndexKeyType()).thenReturn(KeysType.DUP_KEYS);
+        return scan;
+    }
+
     private TopnFilter filter(PlanNode child, ScanNode... targets) {
         TopN topn = Mockito.mock(TopN.class);
         Mockito.when(topn.getOrderKeys()).thenReturn(List.of(new OrderKey(new IntegerLiteral(1), true, false)));
-        TopnFilter filter = new TopnFilter(topn, Mockito.mock(PhysicalRelation.class), new IntegerLiteral(1));
+        TopnFilter filter = new TopnFilter(topn, Mockito.mock(PhysicalRelation.class), new IntegerLiteral(1), true);
         SortNode source = node(SortNode.class, 10, child);
         SortInfo sortInfo = Mockito.mock(SortInfo.class);
         Mockito.when(sortInfo.getOrderingExprs()).thenReturn(List.<Expr>of(new IntLiteral(1)));
         Mockito.when(source.getSortInfo()).thenReturn(sortInfo);
         Mockito.when(source.getSortAlgorithm()).thenReturn(TSortAlgorithm.HEAP_SORT);
+        Mockito.when(source.getLimit()).thenReturn(3L);
+        Mockito.when(source.getOffset()).thenReturn(2L);
         filter.legacySortNode = source;
         for (ScanNode target : targets) {
             filter.legacyTargets.put(target, new IntLiteral(1));
@@ -86,21 +93,49 @@ public class TopnFilterStrictBoundsTest {
     }
 
     @Test
-    public void testCompletePathsAcrossExchangesKeepAggregateTiesAndPruneSiblingTies() {
-        ScanNode aggregateScan = node(FileQueryScanNode.class, 20);
-        ScanNode siblingScan = node(FileQueryScanNode.class, 30);
-        ScanNode disconnectedScan = node(FileQueryScanNode.class, 99);
+    public void testEveryActualTargetMustAllowStrictBounds() {
+        ScanNode aggregateScan = scan(20);
+        ScanNode siblingScan = scan(30);
+        ScanNode disconnectedScan = scan(99);
         PlanNode aggregate = node(AggregationNode.class, 21, aggregateScan);
         PlanNode union = node(UnionNode.class, 11, node(ExchangeNode.class, 12, aggregate),
                 node(ExchangeNode.class, 13, siblingScan));
         TopnFilter filter = filter(union, aggregateScan, siblingScan, disconnectedScan);
-        Assertions.assertEquals(List.of(30), filter.toThrift().getStrictTargetNodeIds());
+        Assertions.assertTrue(filter.toThrift().getStrictTargetNodeIds().isEmpty());
         Assertions.assertEquals(3, filter.toThrift().getTargetNodeIdToTargetExprSize());
     }
 
     @Test
+    public void testExternalTargetsAndUnreachableTargetsKeepSourceInclusive() {
+        ScanNode scan = scan(20);
+        ScanNode file = node(FileQueryScanNode.class, 30);
+        Assertions.assertTrue(filter(file, file).toThrift().getStrictTargetNodeIds().isEmpty());
+        Assertions.assertTrue(filter(node(UnionNode.class, 11, scan, file), scan, file)
+                .toThrift().getStrictTargetNodeIds().isEmpty());
+        Assertions.assertTrue(filter(scan, scan, scan(99)).toThrift().getStrictTargetNodeIds().isEmpty());
+        // A non-target branch must not disable the only actual target.
+        Assertions.assertEquals(List.of(20), filter(node(UnionNode.class, 11, scan,
+                node(AggregationNode.class, 31, scan(30))), scan).toThrift().getStrictTargetNodeIds());
+    }
+
+    @Test
+    public void testRepeatedTargetRegistrationNeverRestoresStrictEligibility() {
+        ScanNode scan = scan(20);
+        for (boolean unsafeFirst : List.of(false, true)) {
+            TopnFilter filter = filter(scan, scan);
+            PhysicalRelation target = filter.targets.keySet().iterator().next();
+            filter.addTarget(target, new IntegerLiteral(1), !unsafeFirst);
+            filter.addTarget(target, new IntegerLiteral(1), unsafeFirst);
+            filter.addTarget(target, new IntegerLiteral(1), true);
+            Assertions.assertFalse(filter.isStrictEligible());
+            Assertions.assertTrue(filter.toThrift().getStrictTargetNodeIds().isEmpty());
+            Assertions.assertEquals(1, filter.targets.size());
+        }
+    }
+
+    @Test
     public void testFinalAlgorithmAndOrderingKeys() {
-        ScanNode scan = node(FileQueryScanNode.class, 20);
+        ScanNode scan = scan(20);
         TopnFilter filter = filter(scan, scan);
         for (TSortAlgorithm algorithm : TSortAlgorithm.values()) {
             Mockito.when(filter.legacySortNode.getSortAlgorithm()).thenReturn(algorithm);
@@ -122,7 +157,7 @@ public class TopnFilterStrictBoundsTest {
 
     @Test
     public void testLimitsAndRowChangingOperatorsRetainTies() {
-        ScanNode scan = node(FileQueryScanNode.class, 20);
+        ScanNode scan = scan(20);
         PlanNode select = node(SelectNode.class, 11, scan);
         TopnFilter filter = filter(select, scan);
         Assertions.assertEquals(List.of(20), filter.toThrift().getStrictTargetNodeIds());
@@ -132,7 +167,15 @@ public class TopnFilterStrictBoundsTest {
         Mockito.when(scan.hasLimit()).thenReturn(true);
         Assertions.assertTrue(filter.toThrift().getStrictTargetNodeIds().isEmpty());
         Mockito.when(scan.hasLimit()).thenReturn(false);
-        for (Class<? extends PlanNode> type : List.of(AggregationNode.class, RepeatNode.class,
+        Mockito.when(select.getOffset()).thenReturn(1L);
+        Assertions.assertTrue(filter.toThrift().getStrictTargetNodeIds().isEmpty());
+        Mockito.when(select.getOffset()).thenReturn(0L);
+        PlanNode limitedPath = node(SelectNode.class, 12, scan);
+        Mockito.when(limitedPath.hasLimit()).thenReturn(true);
+        // The same target reached by an unsafe path cannot be rescued by its safe occurrence.
+        Assertions.assertTrue(filter(node(UnionNode.class, 13, select, limitedPath), scan)
+                .toThrift().getStrictTargetNodeIds().isEmpty());
+        for (Class<? extends PlanNode> type : List.of(AggregationNode.class,
                 AnalyticEvalNode.class, AssertNumRowsNode.class, PartitionSortNode.class, PlanNode.class)) {
             Assertions.assertTrue(filter(node(type, 11, scan), scan).toThrift().getStrictTargetNodeIds().isEmpty(),
                     type.getSimpleName());
@@ -142,12 +185,10 @@ public class TopnFilterStrictBoundsTest {
     @Test
     public void testJoinModes() {
         Set<JoinOperator> allowed = Set.of(JoinOperator.INNER_JOIN, JoinOperator.CROSS_JOIN,
-                JoinOperator.LEFT_OUTER_JOIN, JoinOperator.LEFT_SEMI_JOIN, JoinOperator.LEFT_ANTI_JOIN,
-                JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN, JoinOperator.NULL_AWARE_LEFT_SEMI_JOIN,
-                JoinOperator.ASOF_LEFT_INNER_JOIN, JoinOperator.ASOF_LEFT_OUTER_JOIN);
+                JoinOperator.LEFT_OUTER_JOIN, JoinOperator.LEFT_SEMI_JOIN, JoinOperator.LEFT_ANTI_JOIN);
         for (Class<? extends JoinNodeBase> type : List.of(HashJoinNode.class, NestedLoopJoinNode.class)) {
             for (JoinOperator join : JoinOperator.values()) {
-                ScanNode scan = node(FileQueryScanNode.class, 20);
+                ScanNode scan = scan(20);
                 JoinNodeBase joinNode = node(type, 11, scan, node(PlanNode.class, 31));
                 Mockito.when(joinNode.getJoinOp()).thenReturn(join);
                 Assertions.assertEquals(allowed.contains(join) ? List.of(20) : List.of(),

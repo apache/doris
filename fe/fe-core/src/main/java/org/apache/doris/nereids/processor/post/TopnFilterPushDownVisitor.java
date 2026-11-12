@@ -17,6 +17,9 @@
 
 package org.apache.doris.nereids.processor.post;
 
+import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.MaterializedIndexMeta;
+import org.apache.doris.catalog.OlapChangelogTableWrapper;
 import org.apache.doris.nereids.processor.post.TopnFilterPushDownVisitor.PushDownContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -26,22 +29,27 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitors;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.algebra.TopN;
 import org.apache.doris.nereids.trees.plans.algebra.Union;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterializeOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOdbcScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRepeat;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalWindow;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -72,28 +80,63 @@ public class TopnFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownCont
         final Expression probeExpr;
         final TopN topn;
         final boolean nullsFirst;
+        final boolean strictEligible;
 
         public PushDownContext(TopN topn, Expression probeExpr, boolean nullsFirst) {
+            this(topn, probeExpr, nullsFirst, TopNScanOpt.checkStrictTopN(topn));
+        }
+
+        public PushDownContext(TopN topn, Expression probeExpr, boolean nullsFirst, boolean strictEligible) {
             this.topn = topn;
             this.probeExpr = probeExpr;
             this.nullsFirst = nullsFirst;
+            this.strictEligible = strictEligible;
         }
 
         public PushDownContext withNewProbeExpression(Expression newProbe) {
-            return new PushDownContext(topn, newProbe, nullsFirst);
+            return new PushDownContext(topn, newProbe, nullsFirst, strictEligible
+                    && newProbe instanceof Slot && newProbe.getDataType().equals(probeExpr.getDataType()));
         }
 
+        public PushDownContext disableStrict() {
+            return new PushDownContext(topn, probeExpr, nullsFirst, false);
+        }
     }
 
     @Override
     public Boolean visit(Plan plan, PushDownContext ctx) {
         // A bound on a grouping key can exclude whole groups. Stopping at unlisted operators
         // here would disable existing scan filters below aggregates and their join inputs.
+        // A late strict bound could remove only part of a group and change its aggregate values.
+        // Unlisted operators therefore preserve closed pushdown without certifying strict paths.
         boolean pushed = false;
+        PushDownContext inclusiveContext = ctx.disableStrict();
         for (Plan child : plan.children()) {
-            pushed |= child.accept(this, ctx);
+            pushed |= child.accept(this, inclusiveContext);
         }
         return pushed;
+    }
+
+    @Override
+    public Boolean visitPhysicalFilter(PhysicalFilter<? extends Plan> filter, PushDownContext ctx) {
+        return filter.child().accept(this, ctx);
+    }
+
+    @Override
+    public Boolean visitPhysicalDistribute(PhysicalDistribute<? extends Plan> distribute, PushDownContext ctx) {
+        return distribute.child().accept(this, ctx);
+    }
+
+    @Override
+    public Boolean visitPhysicalQuickSort(PhysicalQuickSort<? extends Plan> sort, PushDownContext ctx) {
+        // PhysicalQuickSort is a full sort; truncation and OFFSET are represented by other nodes.
+        return sort.child().accept(this, ctx);
+    }
+
+    @Override
+    public Boolean visitPhysicalStorageLayerAggregate(PhysicalStorageLayerAggregate aggregate, PushDownContext ctx) {
+        // The base visitor unwraps this relation directly, bypassing visit(Plan, ...).
+        return aggregate.getRelation().accept(this, ctx.disableStrict());
     }
 
     @Override
@@ -118,6 +161,9 @@ public class TopnFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownCont
     @Override
     public Boolean visitPhysicalSetOperation(
             PhysicalSetOperation setOperation, PushDownContext ctx) {
+        if (!(setOperation instanceof Union) || setOperation.getQualifier() != Qualifier.ALL) {
+            ctx = ctx.disableStrict();
+        }
         boolean pushedDown = false;
         if (setOperation.arity() > 0) {
             pushedDown = pushDownFilterToSetOperatorChild(setOperation, ctx, 0);
@@ -233,6 +279,26 @@ public class TopnFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownCont
         return true;
     }
 
+    private PushDownContext strictJoinContext(AbstractPhysicalJoin<? extends Plan, ? extends Plan> join,
+            PushDownContext ctx) {
+        if (join.isMarkJoin() || !(ctx.probeExpr instanceof Slot)
+                || !join.left().getOutputSet().contains(ctx.probeExpr)) {
+            return ctx.disableStrict();
+        }
+        // Existing pushdown only targets the left input. Equality-key substitution from the right
+        // and all ASOF, null-aware, mark and non-preserved-side paths remain inclusive.
+        switch (join.getJoinType()) {
+            case INNER_JOIN:
+            case CROSS_JOIN:
+            case LEFT_OUTER_JOIN:
+            case LEFT_SEMI_JOIN:
+            case LEFT_ANTI_JOIN:
+                return ctx;
+            default:
+                return ctx.disableStrict();
+        }
+    }
+
     @Override
     public Boolean visitPhysicalHashJoin(PhysicalHashJoin<? extends Plan, ? extends Plan> join,
             PushDownContext ctx) {
@@ -246,6 +312,7 @@ public class TopnFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownCont
         if (!canPushDownToLeftChild(join, ctx.probeExpr)) {
             return false;
         }
+        ctx = strictJoinContext(join, ctx);
         if (join.left().getOutputSet().containsAll(ctx.probeExpr.getInputSlots())) {
             PushDownContext childPushDownContext = adjustProbeExprNullableThroughOuterJoin(join.left(), ctx);
             return join.left().accept(this, childPushDownContext);
@@ -282,7 +349,7 @@ public class TopnFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownCont
         // push to left child. right child is blocking operator, do not need topn-filter
         if (join.left().getOutputSet().containsAll(ctx.probeExpr.getInputSlots())
                 && canPushDownToLeftChild(join, ctx.probeExpr)) {
-            return join.left().accept(this, ctx);
+            return join.left().accept(this, strictJoinContext(join, ctx));
         }
         return false;
     }
@@ -301,11 +368,33 @@ public class TopnFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownCont
                     || Math.max(relation.getStats().getRowCount(), 1)
                             * ConnectContext.get().getSessionVariable().topnFilterRatio > ctx.topn.getLimit()
                                     + ctx.topn.getOffset()) {
-                topnFilterContext.addTopnFilter(ctx.topn, relation, ctx.probeExpr);
+                topnFilterContext.addTopnFilter(ctx.topn, relation, ctx.probeExpr,
+                        ctx.strictEligible && ctx.probeExpr instanceof Slot && allowsStrictScan(relation));
                 return true;
             }
         }
         return false;
+    }
+
+    private boolean allowsStrictScan(PhysicalRelation relation) {
+        if (relation instanceof PhysicalLazyMaterializeOlapScan) {
+            relation = ((PhysicalLazyMaterializeOlapScan) relation).getScan();
+        }
+        if (!(relation instanceof PhysicalOlapScan)) {
+            return false;
+        }
+        PhysicalOlapScan scan = (PhysicalOlapScan) relation;
+        if (scan.getTable() instanceof OlapChangelogTableWrapper || scan.getScanParams().isPresent()
+                || scan.getTableSample().isPresent() || scan.getAnnLimit().isPresent()
+                || scan.getScoreLimit().isPresent()) {
+            return false;
+        }
+        // The selected rollup can aggregate even when the base table uses DUP_KEYS.
+        MaterializedIndexMeta index = scan.getTable().getIndexMetaByIndexId(scan.getSelectedIndexId());
+        KeysType keysType = index.getKeysType();
+        return !index.isChangelogIndex()
+                && (keysType == KeysType.DUP_KEYS || (keysType == KeysType.UNIQUE_KEYS
+                        && scan.getTable().getEnableUniqueKeyMergeOnWrite()));
     }
 
     @Override
