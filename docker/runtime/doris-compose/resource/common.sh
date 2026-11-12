@@ -24,14 +24,6 @@ export LOG_FILE=$DORIS_HOME/log/health.out
 export LOCK_FILE=$DORIS_HOME/status/token
 export MY_TYPE_ID="${MY_TYPE}-${MY_ID}"
 
-mysql() {
-    local root_password=""
-    if [[ -n "${DORIS_ROOT_PASSWORD_FILE:-}" ]]; then
-        root_password=$(cat -- "$DORIS_ROOT_PASSWORD_FILE") || return 1
-    fi
-    MYSQL_PWD="$root_password" command mysql "$@"
-}
-
 health_log() {
     echo "$(date +'%Y-%m-%d %H:%M:%S') $@" | tee -a $LOG_FILE
 }

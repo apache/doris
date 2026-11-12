@@ -1226,17 +1226,7 @@ class Config {
     }
 
     String getRootPassword() {
-        def passwordFile = otherConfigs.get('rootPasswordFile')
-        if (passwordFile) {
-            return new File(passwordFile.toString()).getText('UTF-8').replaceAll(/\n+$/, '')
-        }
-        if (jdbcUser == 'root') {
-            return jdbcPassword ?: ''
-        }
-        if (feHttpUser == 'root') {
-            return feHttpPassword ?: ''
-        }
-        return ''
+        return (jdbcUser == 'root' && jdbcPassword) ? jdbcPassword : ''
     }
 
     Connection getRootConnection() {

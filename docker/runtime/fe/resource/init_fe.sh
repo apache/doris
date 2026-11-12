@@ -26,12 +26,6 @@ readonly RETRY_INTERVAL=1
 readonly MYSQL_PORT=9030
 readonly FE_CONFIG_FILE="${DORIS_HOME}/fe/conf/fe.conf"
 
-doris_root_mysql() { command mysql "$@"; }
-if [[ -f "${DORIS_HOME}/fe/bin/bootstrap_auth_fe.sh" ]]; then
-    source "${DORIS_HOME}/fe/bin/bootstrap_auth_fe.sh"
-    doris_read_root_password || exit 1
-fi
-
 # Log Function
 log_message() {
     local level="$1"
@@ -305,9 +299,6 @@ setup_fe_node() {
 
 # Start FE node
 start_fe() {
-    if declare -F doris_prepare_bootstrap_auth >/dev/null; then
-        doris_prepare_bootstrap_auth "$FE_CONFIG_FILE" "${DORIS_HOME}/fe/doris-meta" || exit 1
-    fi
     if [ "$run_mode" = "RECOVERY" ]; then
         log_info "Starting FE node in recovery mode"
         ${DORIS_HOME}/fe/bin/start_fe.sh --metadata_failure_recovery
@@ -329,7 +320,7 @@ check_fe_registered() {
     while [ $retry_count -lt $MAX_RETRY_TIMES ]; do
         # Query the existing FE node list
         local query_result
-        query_result=$(doris_root_mysql -uroot -P"${MYSQL_PORT}" -h"${master_fe_ip}" \
+        query_result=$(mysql -uroot -P"${MYSQL_PORT}" -h"${master_fe_ip}" \
             -N -e "SHOW FRONTENDS" 2>/dev/null | grep -w "${current_fe_ip}" | grep -w "${current_fe_port}" || true)
         
         if [ -n "$query_result" ]; then
@@ -371,7 +362,7 @@ register_fe() {
 
     local retry_count=0
     while [ $retry_count -lt $MAX_RETRY_TIMES ]; do
-        if doris_root_mysql -uroot -P"${MYSQL_PORT}" -h"${master_fe_ip}" \
+        if mysql -uroot -P"${MYSQL_PORT}" -h"${master_fe_ip}" \
             -e "ALTER SYSTEM ADD FOLLOWER '${current_fe_ip}:${current_fe_port}'" 2>/dev/null; then
             log_info "Successfully registered FE node"
             return
@@ -399,10 +390,6 @@ main() {
     trap cleanup SIGTERM SIGINT
     
     if [ "$run_mode" = "K8S" ]; then
-        # Cloud MS may discover a remote helper after JVM startup; only the FE can identify its creator.
-        if declare -F doris_prepare_bootstrap_auth >/dev/null; then
-            doris_prepare_bootstrap_auth "$FE_CONFIG_FILE" "${DORIS_HOME}/fe/doris-meta" || exit 1
-        fi
         ${DORIS_HOME}/fe/bin/start_fe.sh --console &
         wait $!
     elif [ "$run_mode" = "RECOVERY" ]; then

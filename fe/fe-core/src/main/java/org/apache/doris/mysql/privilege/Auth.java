@@ -1955,12 +1955,7 @@ public class Auth implements Writable {
     }
 
     public static byte[] parseInitialRootPassword(String initialRootPassword) throws AnalysisException {
-        boolean empty = StringUtils.isEmpty(initialRootPassword);
-        if (empty && Config.require_initial_root_password && !Config.allow_empty_password_for_root_admin) {
-            throw new AnalysisException("initial_root_password is required when creating a cluster; "
-                    + "provide a hashed password or explicitly enable allow_empty_password_for_root_admin for tests");
-        }
-        if (empty) {
+        if (StringUtils.isEmpty(initialRootPassword)) {
             return new byte[0];
         }
         try {
@@ -1972,15 +1967,16 @@ public class Auth implements Writable {
     }
 
     public void setInitialRootPassword(String initialRootPassword) throws DdlException {
+        // Skip set root password if `initial_root_password` set to empty string
+        if (StringUtils.isEmpty(initialRootPassword)) {
+            return;
+        }
         byte[] scramble;
         try {
             scramble = parseInitialRootPassword(initialRootPassword);
         } catch (AnalysisException e) {
             // Invalid input may be plaintext: preserve neither the value nor its original exception.
-            throw new DdlException(e.getMessage());
-        }
-        if (scramble.length == 0) {
-            return;
+            throw new DdlException("initial_root_password must be a two-stage SHA-1 hash");
         }
         UserIdentity rootUser = new UserIdentity(ROOT_USER, "%");
         rootUser.setIsAnalyzed();

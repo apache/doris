@@ -16,18 +16,6 @@
 # specific language governing permissions and limitations
 # under the License.
 
-# Root credentials for client connections; never passed as command-line passwords.
-doris_root_mysql() {
-    local password="${DORIS_ROOT_PASSWORD:-}"
-    if [[ -n "${DORIS_ROOT_PASSWORD_FILE:-}" ]]; then
-        password=$(cat -- "$DORIS_ROOT_PASSWORD_FILE") || return 1
-    elif [[ -z "$password" && "${DB_ADMIN_USER:-root}" == root ]]; then
-        password="${DB_ADMIN_PASSWD:-}"
-    fi
-    MYSQL_PWD="$password" command mysql "$@"
-}
-export -f doris_root_mysql
-
 
 # the fe query port for mysql.
 FE_QUERY_PORT=${FE_QUERY_PORT:-9030}
@@ -186,11 +174,11 @@ show_backends(){
 
 show_backends_with_no_tls(){
     local svc=$1
-    backends=`DB_ADMIN_USER="${DB_ADMIN_USER:-root}" DB_ADMIN_PASSWD="${DB_ADMIN_PASSWD:-}" timeout 15 bash -c 'doris_root_mysql "$@"' -- --connect-timeout 2 -h $svc -P $FE_QUERY_PORT -uroot --skip-column-names --batch -e 'SHOW BACKENDS;' 2>&1`
+    backends=`timeout 15 mysql --connect-timeout 2 -h $svc -P $FE_QUERY_PORT -uroot --skip-column-names --batch -e 'SHOW BACKENDS;' 2>&1`
     log_stderr "[info] [NO-TLS] show backends result $backends ."
     if echo $backends | grep -w "1045" | grep -q -w "28000" &>/dev/null; then
         log_stderr "[info] use username and password that configured to show backends."
-        backends=`MYSQL_PWD="$DB_ADMIN_PASSWD" timeout 15 mysql --connect-timeout 2 -h $svc -P $FE_QUERY_PORT -u"$DB_ADMIN_USER" --skip-column-names --batch -e 'SHOW BACKENDS;'`
+        backends=`timeout 15 mysql --connect-timeout 2 -h $svc -P $FE_QUERY_PORT -u$DB_ADMIN_USER -p$DB_ADMIN_PASSWD --skip-column-names --batch -e 'SHOW BACKENDS;'`
     fi
 
     echo "$backends"
@@ -198,11 +186,11 @@ show_backends_with_no_tls(){
 
 show_backends_with_tls(){
     local svc=$1
-    backends=`DB_ADMIN_USER="${DB_ADMIN_USER:-root}" DB_ADMIN_PASSWD="${DB_ADMIN_PASSWD:-}" timeout 15 bash -c 'doris_root_mysql "$@"' -- --ssl-mode=VERIFY_CA --tls-version="TLSv1.2" --ssl-ca=$TLS_CA_CERTIFICATE_PATH --ssl-cert=$TLS_CERTIFICATE_PATH --ssl-key=$TLS_PRIVATE_KEY_PATH --connect-timeout 2 -h $svc -P $FE_QUERY_PORT -uroot --skip-column-names --batch -e 'SHOW BACKENDS;' 2>&1`
+    backends=`timeout 15 mysql --ssl-mode=VERIFY_CA --tls-version="TLSv1.2" --ssl-ca=$TLS_CA_CERTIFICATE_PATH --ssl-cert=$TLS_CERTIFICATE_PATH --ssl-key=$TLS_PRIVATE_KEY_PATH --connect-timeout 2 -h $svc -P $FE_QUERY_PORT -uroot --skip-column-names --batch -e 'SHOW BACKENDS;' 2>&1`
     log_stderr "[info] [TLS] show backends result $backends ."
     if echo $backends | grep -w "1045" | grep -q -w "28000" &>/dev/null; then
         log_stderr "[info] use username and password that configured to show backends."
-        backends=`MYSQL_PWD="$DB_ADMIN_PASSWD" timeout 15 mysql --ssl-mode=VERIFY_CA --tls-version="TLSv1.2" --ssl-ca=$TLS_CA_CERTIFICATE_PATH --ssl-cert=$TLS_CERTIFICATE_PATH --ssl-key=$TLS_PRIVATE_KEY_PATH --connect-timeout 2 -h $svc -P $FE_QUERY_PORT -u"$DB_ADMIN_USER" --skip-column-names --batch -e 'SHOW BACKENDS;'`
+        backends=`timeout 15 mysql --ssl-mode=VERIFY_CA --tls-version="TLSv1.2" --ssl-ca=$TLS_CA_CERTIFICATE_PATH --ssl-cert=$TLS_CERTIFICATE_PATH --ssl-key=$TLS_PRIVATE_KEY_PATH --connect-timeout 2 -h $svc -P $FE_QUERY_PORT -u$DB_ADMIN_USER -p$DB_ADMIN_PASSWD --skip-column-names --batch -e 'SHOW BACKENDS;'`
     fi
 
     echo "$backends"
@@ -221,11 +209,11 @@ function show_frontends()
 show_frontends_with_no_tls()
 {
     local addr=$1
-    frontends=`DB_ADMIN_USER="${DB_ADMIN_USER:-root}" DB_ADMIN_PASSWD="${DB_ADMIN_PASSWD:-}" timeout 15 bash -c 'doris_root_mysql "$@"' -- --connect-timeout 2 -h $addr -P $FE_QUERY_PORT -uroot --batch -e 'show frontends;' 2>&1`
+    frontends=`timeout 15 mysql --connect-timeout 2 -h $addr -P $FE_QUERY_PORT -uroot --batch -e 'show frontends;' 2>&1`
     log_stderr "[info] [NO-TLS] show frontends result $frontends ."
     if echo $frontends | grep -w "1045" | grep -q -w "28000" &>/dev/null; then
         log_stderr "[info] use username and passwore that configured to show frontends."
-        frontends=`MYSQL_PWD="$DB_ADMIN_PASSWD" timeout 15 mysql --connect-timeout 2 -h $addr -P $FE_QUERY_PORT -u"$DB_ADMIN_USER" --batch -e 'show frontends;'`
+        frontends=`timeout 15 mysql --connect-timeout 2 -h $addr -P $FE_QUERY_PORT -u$DB_ADMIN_USER -p$DB_ADMIN_PASSWD --batch -e 'show frontends;'`
     fi
 
     echo "$frontends"
@@ -234,11 +222,11 @@ show_frontends_with_no_tls()
 show_frontends_with_tls()
 {
     local addr=$1
-    frontends=`DB_ADMIN_USER="${DB_ADMIN_USER:-root}" DB_ADMIN_PASSWD="${DB_ADMIN_PASSWD:-}" timeout 15 bash -c 'doris_root_mysql "$@"' -- --ssl-mode=VERIFY_CA --tls-version="TLSv1.2" --ssl-ca=$TLS_CA_CERTIFICATE_PATH --ssl-cert=$TLS_CERTIFICATE_PATH --ssl-key=$TLS_PRIVATE_KEY_PATH --connect-timeout 2 -h $addr -P $FE_QUERY_PORT -uroot --batch -e 'show frontends;' 2>&1`
+    frontends=`timeout 15 mysql --ssl-mode=VERIFY_CA --tls-version="TLSv1.2" --ssl-ca=$TLS_CA_CERTIFICATE_PATH --ssl-cert=$TLS_CERTIFICATE_PATH --ssl-key=$TLS_PRIVATE_KEY_PATH --connect-timeout 2 -h $addr -P $FE_QUERY_PORT -uroot --batch -e 'show frontends;' 2>&1`
     log_stderr "[info] [TLS] show frontends result $frontends ."
     if echo $frontends | grep -w "1045" | grep -q -w "28000" &>/dev/null; then
         log_stderr "[info] use username and password that configured to show frontends."
-        frontends=`MYSQL_PWD="$DB_ADMIN_PASSWD" timeout 15 mysql --ssl-mode=VERIFY_CA --tls-version="TLSv1.2" --ssl-ca=$TLS_CA_CERTIFICATE_PATH --ssl-cert=$TLS_CERTIFICATE_PATH --ssl-key=$TLS_PRIVATE_KEY_PATH --connect-timeout 2 -h $addr -P $FE_QUERY_PORT -u"$DB_ADMIN_USER" --batch -e 'show frontends;'`
+        frontends=`timeout 15 mysql --ssl-mode=VERIFY_CA --tls-version="TLSv1.2" --ssl-ca=$TLS_CA_CERTIFICATE_PATH --ssl-cert=$TLS_CERTIFICATE_PATH --ssl-key=$TLS_PRIVATE_KEY_PATH --connect-timeout 2 -h $addr -P $FE_QUERY_PORT -u$DB_ADMIN_USER -p$DB_ADMIN_PASSWD --batch -e 'show frontends;'`
     fi
 
     echo "$frontends"
@@ -331,10 +319,10 @@ add_self_as_backend_with_no_tls()
     local svc=$1
     local add_sql="ALTER SYSTEM ADD BACKEND \"$MY_SELF:$HEARTBEAT_PORT\";"
     log_stderr "[info] add backend sql: $add_sql"
-    add_result=`DB_ADMIN_USER="${DB_ADMIN_USER:-root}" DB_ADMIN_PASSWD="${DB_ADMIN_PASSWD:-}" timeout 15 bash -c 'doris_root_mysql "$@"' -- --connect-timeout 2 -h $svc -P $FE_QUERY_PORT -uroot --skip-column-names --batch -e "$add_sql" 2>&1`
+    add_result=`timeout 15 mysql --connect-timeout 2 -h $svc -P $FE_QUERY_PORT -uroot --skip-column-names --batch -e "$add_sql" 2>&1`
     add_status=$?
     if echo $add_result | grep -w "1045" | grep -q -w "28000" &>/dev/null ; then
-        add_result=`MYSQL_PWD="$DB_ADMIN_PASSWD" timeout 15 mysql --connect-timeout 2 -h $svc -P $FE_QUERY_PORT -u"$DB_ADMIN_USER" --skip-column-names --batch -e "$add_sql" 2>&1`
+        add_result=`timeout 15 mysql --connect-timeout 2 -h $svc -P $FE_QUERY_PORT -u$DB_ADMIN_USER -p$DB_ADMIN_PASSWD --skip-column-names --batch -e "$add_sql" 2>&1`
         add_status=$?
     fi
     log_stderr "[info] add backend result: $add_result"
@@ -349,10 +337,10 @@ add_self_as_backend_with_tls()
     local svc=$1
     local add_sql="ALTER SYSTEM ADD BACKEND \"$MY_SELF:$HEARTBEAT_PORT\";"
     log_stderr "[info] add backend sql: $add_sql"
-    add_result=`DB_ADMIN_USER="${DB_ADMIN_USER:-root}" DB_ADMIN_PASSWD="${DB_ADMIN_PASSWD:-}" timeout 15 bash -c 'doris_root_mysql "$@"' -- --ssl-mode=VERIFY_CA --tls-version="TLSv1.2" --ssl-ca=$TLS_CA_CERTIFICATE_PATH --ssl-cert=$TLS_CERTIFICATE_PATH --ssl-key=$TLS_PRIVATE_KEY_PATH --connect-timeout 2 -h $svc -P $FE_QUERY_PORT -uroot --skip-column-names --batch -e "$add_sql" 2>&1`
+    add_result=`timeout 15 mysql --ssl-mode=VERIFY_CA --tls-version="TLSv1.2" --ssl-ca=$TLS_CA_CERTIFICATE_PATH --ssl-cert=$TLS_CERTIFICATE_PATH --ssl-key=$TLS_PRIVATE_KEY_PATH --connect-timeout 2 -h $svc -P $FE_QUERY_PORT -uroot --skip-column-names --batch -e "$add_sql" 2>&1`
     add_status=$?
     if echo $add_result | grep -w "1045" | grep -q -w "28000" &>/dev/null ; then
-        add_result=`MYSQL_PWD="$DB_ADMIN_PASSWD" timeout 15 mysql --ssl-mode=VERIFY_CA --tls-version="TLSv1.2" --ssl-ca=$TLS_CA_CERTIFICATE_PATH --ssl-cert=$TLS_CERTIFICATE_PATH --ssl-key=$TLS_PRIVATE_KEY_PATH --connect-timeout 2 -h $svc -P $FE_QUERY_PORT -u"$DB_ADMIN_USER" --skip-column-names --batch -e "$add_sql" 2>&1`
+        add_result=`timeout 15 mysql --ssl-mode=VERIFY_CA --tls-version="TLSv1.2" --ssl-ca=$TLS_CA_CERTIFICATE_PATH --ssl-cert=$TLS_CERTIFICATE_PATH --ssl-key=$TLS_PRIVATE_KEY_PATH --connect-timeout 2 -h $svc -P $FE_QUERY_PORT -u$DB_ADMIN_USER -p$DB_ADMIN_PASSWD --skip-column-names --batch -e "$add_sql" 2>&1`
         add_status=$?
     fi
     log_stderr "[info] add backend result: $add_result"
@@ -425,7 +413,7 @@ function create_account()
 create_account_with_no_tls()
 {
     master=$1
-    users=`doris_root_mysql --connect-timeout 2 -h $master -P $FE_QUERY_PORT -uroot --skip-column-names --batch -e 'SHOW ALL GRANTS;' 2>&1`
+    users=`mysql --connect-timeout 2 -h $master -P $FE_QUERY_PORT -uroot --skip-column-names --batch -e 'SHOW ALL GRANTS;' 2>&1`
     if echo $users | grep -w "1045" | grep -q -w "28000" &>/dev/null; then
         log_stderr "the 'root' account have set password! not need auto create management account."
         return 0
@@ -434,14 +422,14 @@ create_account_with_no_tls()
        log_stderr "the $DB_ADMIN_USER have exist in doris."
        return 0
     fi
-    doris_root_mysql --connect-timeout 2 -h $master -P$FE_QUERY_PORT -uroot --skip-column-names --batch -e "CREATE USER '$DB_ADMIN_USER' IDENTIFIED BY '$DB_ADMIN_PASSWD';GRANT NODE_PRIV ON *.*.* TO $DB_ADMIN_USER;" 2>&1
+    mysql --connect-timeout 2 -h $master -P$FE_QUERY_PORT -uroot --skip-column-names --batch -e "CREATE USER '$DB_ADMIN_USER' IDENTIFIED BY '$DB_ADMIN_PASSWD';GRANT NODE_PRIV ON *.*.* TO $DB_ADMIN_USER;" 2>&1
     log_stderr "[NO-TLS] created new account and grant NODE_PRIV!"
 }
 
 create_account_with_tls()
 {
     master=$1
-    users=`doris_root_mysql --ssl-mode=VERIFY_CA --tls-version="TLSv1.2" --ssl-ca=$TLS_CA_CERTIFICATE_PATH --ssl-cert=$TLS_CERTIFICATE_PATH --ssl-key=$TLS_PRIVATE_KEY_PATH --connect-timeout 2 -h $master -P $FE_QUERY_PORT -uroot --skip-column-names --batch -e 'SHOW ALL GRANTS;' 2>&1`
+    users=`mysql --ssl-mode=VERIFY_CA --tls-version="TLSv1.2" --ssl-ca=$TLS_CA_CERTIFICATE_PATH --ssl-cert=$TLS_CERTIFICATE_PATH --ssl-key=$TLS_PRIVATE_KEY_PATH --connect-timeout 2 -h $master -P $FE_QUERY_PORT -uroot --skip-column-names --batch -e 'SHOW ALL GRANTS;' 2>&1`
     if echo $users | grep -w "1045" | grep -q -w "28000" &>/dev/null; then
         log_stderr "the 'root' account have set password! not need auto create management account."
         return 0
@@ -450,7 +438,7 @@ create_account_with_tls()
        log_stderr "the $DB_ADMIN_USER have exist in doris."
        return 0
     fi
-    doris_root_mysql --ssl-mode=VERIFY_CA --tls-version="TLSv1.2" --ssl-ca=$TLS_CA_CERTIFICATE_PATH --ssl-cert=$TLS_CERTIFICATE_PATH --ssl-key=$TLS_PRIVATE_KEY_PATH --connect-timeout 2 -h $master -P$FE_QUERY_PORT -uroot --skip-column-names --batch -e "CREATE USER '$DB_ADMIN_USER' IDENTIFIED BY '$DB_ADMIN_PASSWD';GRANT NODE_PRIV ON *.*.* TO $DB_ADMIN_USER;" 2>&1
+    mysql --ssl-mode=VERIFY_CA --tls-version="TLSv1.2" --ssl-ca=$TLS_CA_CERTIFICATE_PATH --ssl-cert=$TLS_CERTIFICATE_PATH --ssl-key=$TLS_PRIVATE_KEY_PATH --connect-timeout 2 -h $master -P$FE_QUERY_PORT -uroot --skip-column-names --batch -e "CREATE USER '$DB_ADMIN_USER' IDENTIFIED BY '$DB_ADMIN_PASSWD';GRANT NODE_PRIV ON *.*.* TO $DB_ADMIN_USER;" 2>&1
     log_stderr "[TLS] created new account and grant NODE_PRIV!"
 }
 

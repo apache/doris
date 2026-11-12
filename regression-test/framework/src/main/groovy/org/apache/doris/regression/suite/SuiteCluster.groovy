@@ -44,7 +44,6 @@ class ClusterOptions {
     Boolean beClusterId = false
 
     int waitTimeout = 180
-    String rootPasswordFile = ''
 
     // don't add whitespace in feConfigs items,
     // for example, ' xx = yy ' is bad, should use 'xx=yy'
@@ -345,9 +344,6 @@ class SuiteCluster {
         def cmd = [
             'up', name, config.image
         ]
-        if (options.rootPasswordFile) {
-            cmd += ['--root-password-file', options.rootPasswordFile]
-        }
 
         if (options.feNum > 0) {
             cmd += ['--add-fe-num', String.valueOf(options.feNum)]
@@ -974,10 +970,6 @@ class SuiteCluster {
             if (maskNext) {
                 masked += '***'
                 maskNext = false
-                continue
-            }
-            if (arg ==~ /(?i)\s*initial_root_password\s*=.*/) {
-                masked += 'initial_root_password=***'
                 continue
             }
             masked += arg

@@ -88,10 +88,11 @@ source $CURDIR/conf/doris-cluster.conf
 echo "FE_HOST: $FE_HOST"
 echo "FE_QUERY_PORT: $FE_QUERY_PORT"
 echo "USER: $USER"
+echo "PASSWORD: $PASSWORD"
 echo "DB: $DB"
 
-MYSQL_PWD="$PASSWORD" mysql -h$FE_HOST -u$USER -P$FE_QUERY_PORT -e "CREATE DATABASE IF NOT EXISTS $DB"
-MYSQL_PWD="$PASSWORD" mysql -h$FE_HOST -u$USER -P$FE_QUERY_PORT -D$DB <$CURDIR/sql/create-clickbench-table.sql
-MYSQL_PWD="$PASSWORD" mysql -h$FE_HOST -u$USER -P$FE_QUERY_PORT -D$DB -e "show create table hits;"
+mysql -h$FE_HOST -u$USER -P$FE_QUERY_PORT -e "CREATE DATABASE IF NOT EXISTS $DB"
+mysql -h$FE_HOST -u$USER -P$FE_QUERY_PORT -D$DB <$CURDIR/sql/create-clickbench-table.sql
+mysql -h$FE_HOST -u$USER -P$FE_QUERY_PORT -D$DB -e "show create table hits;"
 
 echo "DONE."

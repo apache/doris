@@ -22,10 +22,8 @@ import org.apache.doris.auth.certificate.CertificateAuthDecision;
 import org.apache.doris.auth.certificate.ForwardedCertificateInfo;
 import org.apache.doris.auth.certificate.StreamLoadCertificateAuthHelper;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
@@ -75,16 +73,13 @@ class BootstrapAuthenticationTest {
     private MockedStatic<MetricRepo> metrics;
     private boolean previousAllowEmpty;
     private boolean previousRecovery;
-    private boolean previousRequireInitial;
 
     @BeforeEach
     void setUp() {
         previousAllowEmpty = Config.allow_empty_password_for_root_admin;
         previousRecovery = Config.skip_localhost_auth_check;
-        previousRequireInitial = Config.require_initial_root_password;
         Config.allow_empty_password_for_root_admin = false;
         Config.skip_localhost_auth_check = false;
-        Config.require_initial_root_password = false;
         env = Mockito.mock(Env.class);
         envStatic = Mockito.mockStatic(Env.class);
         envStatic.when(Env::getCurrentEnv).thenReturn(env);
@@ -112,7 +107,6 @@ class BootstrapAuthenticationTest {
         metrics.close();
         Config.allow_empty_password_for_root_admin = previousAllowEmpty;
         Config.skip_localhost_auth_check = previousRecovery;
-        Config.require_initial_root_password = previousRequireInitial;
     }
 
     @Test
@@ -362,24 +356,6 @@ class BootstrapAuthenticationTest {
                         identity.getQualifiedUser()));
             }
         }
-    }
-
-    @Test
-    void testRequiredInitialPasswordNeedsCredentialsOrExplicitTestMode() throws Exception {
-        Config.require_initial_root_password = true;
-        Assertions.assertThrows(AnalysisException.class, () -> Auth.parseInitialRootPassword(""));
-        Assertions.assertThrows(DdlException.class, () -> auth.setInitialRootPassword(""));
-        Config.skip_localhost_auth_check = true;
-        Assertions.assertThrows(AnalysisException.class, () -> Auth.parseInitialRootPassword(""));
-        String hash = new String(MysqlPassword.makeScrambledPassword("configured-password"),
-                java.nio.charset.StandardCharsets.UTF_8);
-        Assertions.assertArrayEquals(MysqlPassword.makeScrambledPassword("configured-password"),
-                Auth.parseInitialRootPassword(hash));
-        Config.allow_empty_password_for_root_admin = true;
-        Assertions.assertEquals(0, Auth.parseInitialRootPassword("").length);
-        Config.allow_empty_password_for_root_admin = false;
-        Config.require_initial_root_password = false;
-        Assertions.assertEquals(0, Auth.parseInitialRootPassword("").length);
     }
 
     @Test

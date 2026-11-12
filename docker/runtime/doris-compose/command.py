@@ -361,8 +361,6 @@ class UpCommand(Command):
             help=
             "Specify add recycle num, default: 1 for a new cloud cluster, 0 for a existing cluster. Only use in cloud cluster"
         )
-        group1.add_argument("--root-password-file", type=str,
-                            help="Read root client credentials from this file and hash them for new FE initialization.")
         group1.add_argument("--fe-config",
                             nargs="*",
                             type=str,
@@ -716,17 +714,6 @@ class UpCommand(Command):
                 enable_storage_vault)
             LOG.info("Create new cluster {} succ, cluster path is {}".format(
                 args.NAME, cluster.get_path()))
-
-        if args.root_password_file:
-            import hashlib
-            password_file = os.path.abspath(os.path.expanduser(args.root_password_file))
-            with open(password_file, encoding="utf-8", newline="") as secret:
-                root_password = secret.read().rstrip("\n")
-            if not root_password:
-                raise ValueError("--root-password-file must contain a nonempty password")
-            password_hash = "*" + hashlib.sha1(hashlib.sha1(root_password.encode("utf-8")).digest()).hexdigest().upper()
-            cluster.root_password_file = password_file
-            cluster.fe_config = list(cluster.fe_config or []) + ["initial_root_password=" + password_hash]
 
         if args.be_cluster and cluster.is_cloud:
             cluster.be_cluster = args.be_cluster

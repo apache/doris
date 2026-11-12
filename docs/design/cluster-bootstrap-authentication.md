@@ -8,7 +8,9 @@
 认证策略。配置文件中的显式测试开关可以恢复空密码访问。
 
 范围包括 FE 的 MySQL、HTTP、Stream Load、Thrift 转发认证、Arrow Flight 认证，
-以及使用这些入口的部署脚本和回归测试。BE 的执行代码、Thrift 和 Protobuf 定义不变。
+以及覆盖核心逻辑的 FE 单测和既有 CI 环境所需的测试兼容开关。
+部署脚本、镜像、工具、回归框架的凭据支持和新增 Docker 用例不在本次提交范围。
+BE 的执行代码、Thrift 和 Protobuf 定义不变。
 
 ## 新老集群判定与持久化
 
@@ -99,7 +101,6 @@ MTMV、INSERT JOB、统计任务等由 FE 直接建立内部执行上下文，�
 | 配置 | 默认值 | 用途 |
 |---|---|---|
 | `initial_root_password` | 空 | 第一次创建集群时设置 root，仍只接受两阶段 SHA-1 哈希 |
-| `require_initial_root_password` | false；镜像默认 true | 首次建群必须给 root 初始密码，由 FE 确认是否创建集群 |
 | `allow_empty_password_for_root_admin` | false | 测试兼容：允许空密码 root/admin 从客户端正常访问 |
 | `skip_localhost_auth_check` | false | 密码恢复：显式跳过本机 MySQL 的 root/admin 密码校验 |
 
@@ -112,36 +113,16 @@ MTMV、INSERT JOB、统计任务等由 FE 直接建立内部执行上下文，�
 的默认值改回 true。
 
 `initial_root_password` 在已初始化集群上被忽略，启动日志说明可以删除该配置。
-FE 不读取明文密码环境变量；镜像入口脚本负责读取 secret、计算哈希并写入有效配置。
+FE 不读取明文密码环境变量；自动化部署可预先计算哈希并写入有效的 `initial_root_password` 配置。
+未配置初始密码时，FE 仍可启动，root 需要从本机完成首次改密。
 
-## Docker、Kubernetes 与工具
+## 部署与本地验证边界
 
-官方镜像默认在首次创建集群时需要提供 root 密码或有效的 `initial_root_password`；否则
-拒绝启动。测试容器可显式设置 `DORIS_ALLOW_EMPTY_PASSWORD=true`，或者在有效 FE 配置中
-明确设置 `allow_empty_password_for_root_admin=true`。已有元数据的节点
-重启和新增 FE 加入既有集群，不重新初始化账号。
+本次不修改部署、镜像和工具脚本，也不新增 Docker 回归用例。
+依赖新集群远程 root/admin 空密码登录的部署工具需要另行适配，不能绕过 FE 的默认规则。
 
-K8S 云 FE 可能在启动 JVM 后才从 MS 发现远端 helper；没有本地 VERSION 或 CLI helper
-不代表创建新集群。镜像入口通过非敏感的 `DORIS_REQUIRE_INITIAL_ROOT_PASSWORD=true`
-设置该配置的启动默认值并准备已有凭据，无须为此修改只读 ConfigMap。配置文件可覆盖默认值。
-由 FE 在确认创建首个 ROLE/VERSION 前检查密码要求。加入已有集群或已有本地元数据时
-不执行该检查；显式测试兼容仍允许空密码初始化。这个配置只控制初始化，不改变登录规则。
-
-入口脚本支持 `DORIS_ROOT_PASSWORD_FILE`，也支持显式提供 `DORIS_ROOT_PASSWORD`。
-root 类型的已有 basic-auth secret 可以复用；非 root 的节点管理账号凭据不能被当成
-root 初始密码。所有节点探测和注册连接使用各自配置的凭据。
-
-secret 不作为命令行密码打印或记录，不写入集群描述；初始化配置仅保存哈希。
-密码文件的各读取端仅去掉末尾 LF，不转换 CR 或文件内部换行。
-配置判断必须考虑 `fe_custom.conf` 对 `fe.conf` 的覆盖以及实际 `meta_dir`。
-
-doris-compose 支持 `--root-password-file`，集群描述只保存文件路径和初始化哈希，连接
-时从该文件读取密码。回归框架 HTTP 请求使用配置的 HTTP 凭据，root 连接也使用已提供
-的 root 凭据；当 JDBC 和 HTTP 都使用其他账号时，可用 `rootPasswordFile` 单独提供 root 凭据。
-CI 和普通 Docker 回归套件显式开启测试兼容；验证安全规则的套件关闭它。
-
-仓库外的 operator、管理工具、快速上手文档和本地部署配置需要在发布时同步调整，不能
-继续假设新集群的 root/admin 可以通过空密码远程登录。
+既有 CI FE 配置与 Docker 回归默认配置显式开启 `allow_empty_password_for_root_admin`，
+以保持现有空密码用例的测试条件；它们不改变生产默认配置。
 
 ## 提示与日志
 
@@ -163,6 +144,6 @@ root 给自己设置密码成功时，如 admin 仍为空密码，OK 包说明 a
 - 本机 IPv4/IPv6 的真实客户端首次改密，以及连接 follower 改密后的限制解除。
 - 无测试兼容、root 有密码、admin 空密码时，定时 JOB、MTMV 刷新和统计任务正常；FE 重启
   后后台任务继续运行。容器内执行 mysql 或共享 FE 网络命名空间可用于本机端到端测试。
-- 镜像缺少初始凭据时拒绝创建新集群；已有集群升级和新增成员不重新设密码。
+- 未配置初始密码时可启动并从本机完成首次改密；已有集群升级和新增成员不重新设密码。
 - group commit 与集群 token 审计导入不受客户端密码限制影响。
 - 具体受支持版本间的旧二进制回放检查；不能只用新版兼容性检查模式代替真实版本验证。

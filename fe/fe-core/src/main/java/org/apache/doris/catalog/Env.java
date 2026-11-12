@@ -1393,7 +1393,7 @@ public class Env {
                 try {
                     Auth.parseInitialRootPassword(Config.initial_root_password);
                 } catch (AnalysisException e) {
-                    throw new IOException(e.getMessage(), e);
+                    throw new IOException("initial_root_password must be a two-stage SHA-1 hash", e);
                 }
                 // The very first time to start the first node of the cluster.
                 // It should became a Master node (Master node's role is also FOLLOWER, which means electable)

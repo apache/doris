@@ -2922,12 +2922,6 @@ public class Config extends ConfigBase {
             + "password `*A00C34073A26B40AB4307650BFB9309D6BFA6999`")
     public static String initial_root_password = "";
 
-    @ConfField(mutable = false, description = "Require an initial root password when creating a cluster, unless "
-            + "allow_empty_password_for_root_admin is explicitly enabled. Joining and initialized FEs ignore this "
-            + "requirement. Container entrypoints enable the default with DORIS_REQUIRE_INITIAL_ROOT_PASSWORD.")
-    public static boolean require_initial_root_password =
-            Boolean.parseBoolean(System.getenv("DORIS_REQUIRE_INITIAL_ROOT_PASSWORD"));
-
     @ConfField(mutable = true, masterOnly = true, description = "The maximum number of snapshots assigned to an "
             + "upload task during the backup process. The default " + "value is 10.")
     public static int backup_upload_snapshot_batch_size = 10;

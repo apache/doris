@@ -19,8 +19,6 @@ package org.apache.doris.regression
 
 import org.junit.jupiter.api.Test
 
-import java.nio.file.Files
-import java.nio.file.Path
 import java.sql.Connection
 import java.sql.Driver
 import java.sql.DriverManager
@@ -28,24 +26,6 @@ import java.sql.DriverManager
 import static org.junit.jupiter.api.Assertions.*
 
 class ConfigRootPasswordTest {
-    @Test
-    void rootCredentialsCanBeProvidedIndependentlyOfTheTestUser() {
-        Config config = new Config(jdbcUser: 'test_user', jdbcPassword: 'test-user-password',
-                feHttpUser: 'root', feHttpPassword: 'http-root-password')
-        assertEquals('http-root-password', config.getRootPassword())
-        config.feHttpUser = 'http_user'
-        assertEquals('', config.getRootPassword())
-
-        Path secret = Files.createTempFile(Path.of('target'), 'root-password-', '.secret')
-        try {
-            Files.writeString(secret, 'file-root-password with spaces \n')
-            config.otherConfigs.rootPasswordFile = secret.toString()
-            assertEquals('file-root-password with spaces ', config.getRootPassword())
-        } finally {
-            Files.delete(secret)
-        }
-    }
-
     @Test
     void rootConnectionsOnlyReusePasswordsConfiguredForRoot() {
         def calls = []
