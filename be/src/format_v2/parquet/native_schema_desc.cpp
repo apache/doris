@@ -826,7 +826,11 @@ std::pair<DataTypePtr, bool> NativeFieldDescriptor::get_doris_type(
         const tparquet::SchemaElement& physical_schema, bool nullable) {
     std::pair<DataTypePtr, bool> ans = {std::make_shared<DataTypeNothing>(), false};
     if (physical_schema.__isset.logicalType) {
-        ans = convert_to_doris_type(physical_schema.logicalType, nullable);
+        const auto& logical_type = physical_schema.logicalType;
+        if (!(_spatial_annotations_as_bytes &&
+              (logical_type.__isset.GEOMETRY || logical_type.__isset.GEOGRAPHY))) {
+            ans = convert_to_doris_type(logical_type, nullable);
+        }
     } else if (physical_schema.__isset.converted_type) {
         ans = convert_to_doris_type(physical_schema, nullable);
     }

@@ -50,7 +50,8 @@ public:
                   bool enable_mapping_timestamp_tz = false, bool enable_mapping_varbinary = false,
                   std::optional<std::string> hive_parquet_time_zone = std::nullopt,
                   bool preserve_binary_uuid = false, ParquetProfileCache* profile_cache = nullptr,
-                  std::optional<TFileEncryptionInfo> encryption_info = std::nullopt);
+                  std::optional<TFileEncryptionInfo> encryption_info = std::nullopt,
+                  bool spatial_annotations_as_bytes = false);
     ~ParquetReader() override;
 
     Status init(RuntimeState* state) override;
@@ -105,6 +106,7 @@ private:
     // nullopt preserves legacy session conversion; an engaged empty value explicitly disables it.
     std::optional<std::string> _hive_parquet_time_zone;
     std::optional<TFileEncryptionInfo> _encryption_info;
+    bool _spatial_annotations_as_bytes = false;
 };
 
 } // namespace doris::format::parquet

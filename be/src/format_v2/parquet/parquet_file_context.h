@@ -55,7 +55,8 @@ public:
     ~NativeParquetMetadata();
 
     Status init_schema(bool enable_mapping_varbinary, bool enable_mapping_timestamp_tz,
-                       bool preserve_binary_uuid = false);
+                       bool preserve_binary_uuid = false,
+                       bool spatial_annotations_as_bytes = false);
     const tparquet::FileMetaData& to_thrift() const { return _metadata; }
     const NativeFieldDescriptor& schema() const { return _schema; }
     size_t get_mem_size() const { return _parsed_size; }
@@ -152,7 +153,8 @@ struct ParquetFileContext {
                 const io::FileDescription& file_description,
                 bool enable_mapping_timestamp_tz = false, bool enable_mapping_varbinary = false,
                 bool preserve_binary_uuid = false,
-                const TFileEncryptionInfo* encryption_info = nullptr);
+                const TFileEncryptionInfo* encryption_info = nullptr,
+                bool spatial_annotations_as_bytes = false);
     Status load_native_offset_indexes(
             int row_group_id, const std::unordered_set<int>& leaf_column_ids,
             std::unordered_map<int, tparquet::OffsetIndex>* offset_indexes) const;

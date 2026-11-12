@@ -43,6 +43,9 @@ public:
 #endif
 
 protected:
+    // Hive has no native spatial column types. A Parquet WKB annotation does not change
+    // the existing Hive contract that these bytes are read without spatial validation.
+    bool parquet_spatial_annotations_as_bytes() const override { return true; }
     Status annotate_file_schema(std::vector<format::ColumnDefinition>* file_schema) override;
 };
 

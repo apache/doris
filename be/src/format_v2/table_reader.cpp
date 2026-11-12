@@ -1349,7 +1349,8 @@ Status TableReader::create_file_reader(std::unique_ptr<FileReader>* reader) {
         *reader = std::make_unique<format::parquet::ParquetReader>(
                 _system_properties, _current_task->data_file, _io_ctx, _scanner_profile,
                 _global_rowid_context, enable_mapping_timestamp_tz, enable_mapping_varbinary,
-                hive_parquet_time_zone, preserve_binary_uuid(), _parquet_profile_cache);
+                hive_parquet_time_zone, preserve_binary_uuid(), _parquet_profile_cache,
+                std::nullopt, parquet_spatial_annotations_as_bytes());
         return Status::OK();
     }
     if (_format == FileFormat::ORC) {

@@ -108,6 +108,7 @@ private:
     bool _enable_mapping_varbinary = false;
     bool _enable_mapping_timestamp_tz = false;
     bool _preserve_binary_uuid = false;
+    bool _spatial_annotations_as_bytes = false;
 
 private:
     void parse_physical_field(const tparquet::SchemaElement& physical_schema, bool is_nullable,
@@ -191,6 +192,7 @@ public:
     void set_enable_mapping_varbinary(bool enable) { _enable_mapping_varbinary = enable; }
     void set_enable_mapping_timestamp_tz(bool enable) { _enable_mapping_timestamp_tz = enable; }
     void set_preserve_binary_uuid(bool preserve) { _preserve_binary_uuid = preserve; }
+    void set_spatial_annotations_as_bytes(bool enable) { _spatial_annotations_as_bytes = enable; }
 };
 
 } // namespace doris::format::parquet
