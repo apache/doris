@@ -42,6 +42,7 @@ under the License.
             <excludes>
                 <exclude>org.apache.logging.log4j:*</exclude>
                 <exclude>org.slf4j:*</exclude>
+                <exclude>org.apache.doris:*</exclude>
             </excludes>
         </dependencySet>
     </dependencySets>

@@ -132,7 +132,8 @@ enum TFileFormatType {
     FORMAT_TEXT = 17,
     FORMAT_NATIVE = 18,
     FORMAT_LANCE = 19,
-    FORMAT_ES_HTTP = 20
+    FORMAT_ES_HTTP = 20,
+    FORMAT_MONGODB = 21
 }
 
 // In previous versions, the data compression format and file format were stored together, as TFileFormatType,
@@ -676,6 +677,64 @@ struct TLanceFileDesc {
     6: optional bool use_scalar_index
 }
 
+// Stable single-cursor read contract. Driver objects and active sessions remain local to FE/BE.
+// The reader validates the required version-1 fields before opening the logical namespace.
+struct TMongoScanDesc {
+    // Descriptor layout understood by the native reader; currently 1.
+    1: optional i32 version
+    // Doris catalog identity used to isolate authenticated BE client pools.
+    2: optional i64 catalog_id
+    // Fingerprint of pinned connection/authentication settings; pool reuse requires a matching value.
+    3: optional string configuration_version
+    // Remote MongoDB database name, preserving the source spelling.
+    4: optional string database
+    // Public logical collection/view/time-series name; never an internal system.buckets namespace.
+    5: optional string collection
+    // Source object kind: "collection", "view", or "timeseries".
+    6: optional string object_kind
+    // Available source collection UUID as lowercase hex. Empty means metadata did not provide one;
+    // a nonempty value must match before BE scans, preventing reads after DROP/CREATE name reuse.
+    7: optional string collection_uuid
+    // Fingerprint of the statement-pinned schema/source definition, also carried by column handles.
+    8: optional string schema_version
+    // Versioned JSON containing owned field names, exact path segments, BSON tags/subtypes and
+    // child bindings. BE uses it for decoding; it does not sample or infer a schema from rows.
+    9: optional string bindings_json
+    // MongoDB connection URI (including optional TLS/SRV/compression settings). May contain secrets;
+    // keep it out of EXPLAIN, profiles, and error messages.
+    10: optional string uri
+    // Optional separate authentication user; empty uses URI credentials or unauthenticated access.
+    11: optional string username
+    // Secret for the separate username, carried only in the typed scan RPC descriptor.
+    12: optional string password
+    // Authentication database for separate credentials, normally "admin"; not the data database.
+    13: optional string auth_database
+    // Data-read routing: primary, primaryPreferred, secondary, secondaryPreferred, or nearest.
+    // URI tag sets and max staleness remain in uri and are preserved by the native driver.
+    // Metadata/UUID checks use primary independently of this data-read preference.
+    14: optional string read_preference
+    // Data-read concern: local, majority, or available. Majority alone is not a shared snapshot.
+    15: optional string read_concern
+    // Replace top-level conversion mismatches with SQL NULL after rollback. Transport, cancellation,
+    // allocation and document-limit errors still fail the scan.
+    16: optional bool type_mismatch_as_null
+    // Positive document count requested per find/getMore driver batch (1..65536), from the session.
+    // Doris output blocks also obey a separate row/byte budget in MongoFileReader.
+    17: optional i32 batch_size
+    // Native scan lifetime in milliseconds, derived from session query_timeout; bounds pool waits
+    // and driver operations and is also checked before/after advancing the cursor.
+    18: optional i64 timeout_ms
+    // Connection establishment timeout in milliseconds; bounded by timeout_ms when creating a pool.
+    19: optional i32 connect_timeout_ms
+    // Server-selection timeout in milliseconds; bounded by timeout_ms when creating a pool.
+    20: optional i32 server_selection_timeout_ms
+    // Socket I/O timeout in milliseconds; the leased client is bounded by the remaining scan time.
+    21: optional i32 socket_timeout_ms
+    // Maximum simultaneously leased clients in this pool, keyed by catalog/configuration and
+    // connection policy. This is not a query-wide or source-wide scanner-concurrency budget.
+    22: optional i32 pool_max_clients
+}
+
 struct TTableFormatFileDesc {
     1: optional string table_format_type
     2: optional TIcebergFileDesc iceberg_params
@@ -710,7 +769,8 @@ struct TTableFormatFileDesc {
     // straight to the Java scanner, so a typed struct would only add a transcription step (see
     // es_params, jdbc_params).
     15: optional map<string, string> fluss_params
-    16: optional TDeltaLakeFileDesc deltalake_params
+    16: optional TMongoScanDesc mongodb_params
+    17: optional TDeltaLakeFileDesc deltalake_params
 }
 
 // Deprecated, hive text talbe is a special format, not a serde type

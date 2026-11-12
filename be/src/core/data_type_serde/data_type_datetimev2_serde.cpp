@@ -30,6 +30,7 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/primitive_type.h"
 #include "core/data_type_serde/arrow_validation.h"
+#include "core/data_type_serde/bson_value_view.h"
 #include "core/data_type_serde/decoded_column_view.h"
 #include "core/data_type_serde/orc_serde_utils.h"
 #include "core/data_type_serde/orc_timestamp_decode_context.h"
@@ -1074,6 +1075,45 @@ Status DataTypeDateTimeV2SerDe::read_column_from_orc(IColumn& column,
         return Status::OK();
     }
     return decode_timestamp_orc_values(column, view);
+}
+
+Status DataTypeDateTimeV2SerDe::decode_bson_value(IColumn& column, const BsonValueView& value,
+                                                  const BsonDecodeContext& context) const {
+    RETURN_IF_ERROR(context.validate(value));
+    if (value.missing || value.value.value_type != BSON_TYPE_DATE_TIME) {
+        return Status::InvalidArgument("BSON DATETIME requires a date source");
+    }
+    int64_t millis = value.value.value.v_datetime;
+    int64_t seconds = millis / 1000;
+    int64_t remainder = millis % 1000;
+    if (remainder < 0) {
+        --seconds;
+        remainder += 1000;
+    }
+    int64_t quantum = 1;
+    for (int i = _scale; i < 3; ++i) {
+        quantum *= 10;
+    }
+    if (remainder % quantum != 0) {
+        return Status::InvalidArgument("BSON date requires rounding at the target datetime scale");
+    }
+    const auto civil = cctz::convert(cctz::time_point<cctz::seconds>(cctz::seconds(seconds)),
+                                     cctz::utc_time_zone());
+    if (civil.year() < 0 || civil.year() > 9999) {
+        return Status::InvalidArgument("BSON date is outside the DATETIMEV2 range");
+    }
+    DateV2Value<DateTimeV2ValueType> result;
+    result.unchecked_set_time(
+            static_cast<uint16_t>(civil.year()), static_cast<uint8_t>(civil.month()),
+            static_cast<uint8_t>(civil.day()), static_cast<uint8_t>(civil.hour()),
+            static_cast<uint8_t>(civil.minute()), static_cast<uint16_t>(civil.second()),
+            static_cast<uint32_t>(remainder * 1000));
+    if (!result.is_valid_date()) {
+        return Status::InvalidArgument("BSON date is not representable as DATETIMEV2");
+    }
+    assert_cast<ColumnDateTimeV2&>(column).insert_value(
+            binary_cast<decltype(result), UInt64>(result));
+    return Status::OK();
 }
 
 } // namespace doris

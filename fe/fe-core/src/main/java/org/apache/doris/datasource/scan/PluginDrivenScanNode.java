@@ -2807,6 +2807,8 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                 return TFileFormatType.FORMAT_AVRO;
             case "es_http":
                 return TFileFormatType.FORMAT_ES_HTTP;
+            case "mongodb":
+                return TFileFormatType.FORMAT_MONGODB;
             case "arrow":
                 // A connector whose reader hands BE Arrow record batches rather than a file (adbc, and the
                 // remote_doris scan node already outside this switch). Without this the format falls to

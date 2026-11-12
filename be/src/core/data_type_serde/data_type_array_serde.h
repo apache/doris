@@ -46,6 +46,9 @@ public:
         nested_serde = std::move(nullable_serde);
     }
 
+    Status decode_bson_value(IColumn& column, const BsonValueView& value,
+                             const BsonDecodeContext& context) const override;
+
     std::string get_name() const override { return "Array(" + nested_serde->get_name() + ")"; }
 
     Status from_string(StringRef& str, IColumn& column,

@@ -832,14 +832,12 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     # Keep this list identical to the deploy loop's (search CONN_PLUGIN_DIR). A module missing here
     # but present there is not a no-op: the deploy step unzips whatever archive is left in the
     # module's target/ from some earlier build, so the plugin silently ships stale.
-    for _conn_mod in es jdbc maxcompute trino hms hive paimon hudi iceberg adbc fluss deltalake; do
+    for _conn_mod in es jdbc maxcompute trino hms hive paimon hudi iceberg adbc fluss mongodb deltalake; do
         if [[ -d "${DORIS_HOME}/fe/fe-connector/fe-connector-${_conn_mod}" ]]; then
             modules+=("fe-connector/fe-connector-${_conn_mod}")
         fi
     done
     unset _conn_mod
-    # Build the dependency bundle before the native connector provider is implemented.
-    modules+=("fe-connector/fe-connector-mongodb")
     # Authorization plugin modules (loaded at runtime from plugins/authorization/). Keep this list
     # identical to the deploy loop's (search AUTHZ_PLUGIN_DIR), for the same reason as the connectors:
     # the deploy step unzips whatever archive is left in the module's target/, so a module built here
@@ -1350,11 +1348,7 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     # Deploy connector provider plugins as independent plugin directories.
     # Each sub-directory is one connector backend loaded at runtime by ConnectorPluginManager.
     CONN_PLUGIN_DIR="${DORIS_OUTPUT}/fe/plugins/connector"
-    # Keep this dependency-only archive out of auto-discovery, which requires a provider class.
-    mkdir -p "${CONN_PLUGIN_DIR}"
-    cp -p "${DORIS_HOME}/fe/fe-connector/fe-connector-mongodb/target/doris-fe-connector-mongodb.zip" \
-        "${CONN_PLUGIN_DIR}/mongodb.zip"
-    for conn_module in es jdbc maxcompute trino hms hive paimon hudi iceberg adbc fluss deltalake; do
+    for conn_module in es jdbc maxcompute trino hms hive paimon hudi iceberg adbc fluss mongodb deltalake; do
         conn_plugin_target="${CONN_PLUGIN_DIR}/${conn_module}"
         conn_module_dir="${DORIS_HOME}/fe/fe-connector/fe-connector-${conn_module}"
         if [ ! -d "${conn_module_dir}" ]; then

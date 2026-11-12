@@ -20,6 +20,7 @@ package org.apache.doris.job.extensions.insert.streaming;
 import org.apache.doris.analysis.StmtType;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.cache.NereidsSqlCacheManager;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.datasource.CatalogMgr;
@@ -327,6 +328,7 @@ public class StreamingInsertTaskAuditTest {
     private AuditEvent runTask(RuntimeException commandFailure, String sql,
             SourceOffsetProvider offsetProvider, Offset offset, boolean expectAudit) throws Exception {
         Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getSqlCacheManager()).thenReturn(new NereidsSqlCacheManager());
         CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
         InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
         WorkloadRuntimeStatusMgr statusMgr = Mockito.mock(WorkloadRuntimeStatusMgr.class);
