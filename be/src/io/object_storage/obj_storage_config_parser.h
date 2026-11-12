@@ -28,17 +28,16 @@ namespace doris {
 namespace cloud {
 class ObjectStoreInfoPB;
 }
+
 class S3URI;
 class TS3StorageParam;
 
-void apply_be_obj_storage_defaults(ObjStorageClientConfig& config);
-
 class ObjStorageConfigParser {
 public:
-    static Result<ObjStorageResourceConfig> from_vault(const cloud::ObjectStoreInfoPB&);
-    static Result<ObjStorageResourceConfig> from_storage_param(const TS3StorageParam&);
-    static Result<ObjStorageResourceConfig> from_properties(
-            const std::map<std::string, std::string>& properties, const S3URI& uri);
+    static Result<ObjStorageConfig> from_vault(const cloud::ObjectStoreInfoPB&);
+    static Result<ObjStorageConfig> from_storage_param(const TS3StorageParam&);
+    static Status from_properties(const std::map<std::string, std::string>& properties,
+                                  const S3URI& uri, ObjStorageConfig* config);
 };
 
 } // namespace doris

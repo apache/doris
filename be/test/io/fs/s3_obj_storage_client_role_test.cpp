@@ -49,12 +49,13 @@ protected:
             S3ObjStorageClientRoleTest::prefix = std::getenv("AWS_PREFIX");
         }
 
-        AwsObjStorageConfig config;
-        config.connection.endpoint = endpoint;
+        AwsConfig config;
+        config.endpoint = endpoint;
         config.region = region;
-        config.use_path_style = true;
-        config.auth.source = AwsCredentialChainType::InstanceProfile;
-        config.auth.assume_role = AwsAssumeRole {.role_arn = role_arn, .external_id = external_id};
+        config.use_virtual_addressing = false;
+        config.cred_provider_type = CredProviderType::InstanceProfile;
+        config.role_arn = role_arn;
+        config.external_id = external_id;
         auto client_result = ObjStorageClientFactory::instance().create(config);
         ASSERT_TRUE(client_result.has_value()) << client_result.error();
         S3ObjStorageClientRoleTest::obj_storage_client = std::move(client_result).value();

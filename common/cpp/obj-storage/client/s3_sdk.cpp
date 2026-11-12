@@ -19,6 +19,8 @@
 
 #include <aws/s3/S3Client.h>
 
+#include <algorithm>
+
 #include "cpp/aws_common.h"
 #include "cpp/obj-storage/obj_storage_config.h"
 #include "cpp/obj_retry_strategy.h"
@@ -26,48 +28,49 @@
 
 namespace doris {
 
-Aws::Client::ClientConfiguration s3_sdk_config(const ObjStorageConnectionConfig& connection,
-                                               const std::string& region, bool retry_slow_down,
-                                               bool use_sdk_endpoint, bool sdk_endpoint_http) {
+Aws::Client::ClientConfiguration s3_sdk_config(const S3CompatibleConfig& config) {
     auto sdk = default_aws_client_configuration();
-    if (!use_sdk_endpoint) {
-        sdk.endpointOverride = connection.endpoint;
+    if (config.need_override_endpoint) {
+        sdk.endpointOverride = config.endpoint;
     }
-    sdk.scheme =
-            sdk_endpoint_http || (!use_sdk_endpoint && connection.endpoint.starts_with("http://"))
-                    ? Aws::Http::Scheme::HTTP
-                    : Aws::Http::Scheme::HTTPS;
-    sdk.region = region;
-    if (connection.ca_cert_file) {
-        sdk.caFile = *connection.ca_cert_file;
+    sdk.region = config.region;
+    if (!config.s3.ca_cert_path.empty()) {
+        sdk.caFile = config.s3.ca_cert_path;
     }
-    if (connection.max_connections) {
-        sdk.maxConnections = static_cast<unsigned>(*connection.max_connections);
+    if (config.max_connections > 0) {
+        sdk.maxConnections = static_cast<unsigned int>(config.max_connections);
+    } else if (config.s3.min_connections) {
+        sdk.maxConnections = static_cast<unsigned int>(
+                std::max<int64_t>(sdk.maxConnections, *config.s3.min_connections));
+    } else {
+        constexpr unsigned int default_max_connections = 102400;
+        sdk.maxConnections = default_max_connections;
     }
-    if (connection.request_timeout) {
-        sdk.requestTimeoutMs = connection.request_timeout->count();
+    sdk.requestTimeoutMs = config.request_timeout_ms > 0 ? config.request_timeout_ms : 30000;
+    if (config.connect_timeout_ms > 0) {
+        sdk.connectTimeoutMs = config.connect_timeout_ms;
     }
-    if (connection.connect_timeout) {
-        sdk.connectTimeoutMs = connection.connect_timeout->count();
-    }
-    if (connection.max_retries) {
-        sdk.retryStrategy =
-                std::make_shared<S3CustomRetryStrategy>(*connection.max_retries, retry_slow_down);
-    }
+    set_s3_client_default_http_scheme(sdk, config.s3.http_scheme);
+    sdk.retryStrategy = std::make_shared<S3CustomRetryStrategy>(config.s3.max_retries,
+                                                                config.s3.retry_slow_down);
     return sdk;
 }
 
+ObjStorageEndpointInfo endpoint_info(const ObjStorageConfigBase& config) {
+    return {.endpoint = config.endpoint, .ak = config.ak, .sk = config.sk};
+}
+
 std::pair<std::shared_ptr<Aws::S3::S3Client>, std::string> make_s3_sdk_client(
-        const Aws::Client::ClientConfiguration& sdk, bool use_path_style,
-        const AwsCredentialOptions& credential_options) {
+        const S3CompatibleConfig& config, const AwsCredentialOptions& credential_options) {
     auto credentials = AwsCredentialFactory::create(credential_options);
     if (!credentials) {
         return {nullptr, std::move(credentials.error)};
     }
     TEST_SYNC_POINT_CALLBACK("S3ObjStorageClient::credentials_provider", &credentials.provider);
     return {std::make_shared<Aws::S3::S3Client>(
-                    std::move(credentials.provider), sdk,
-                    Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never, !use_path_style),
+                    std::move(credentials.provider), s3_sdk_config(config),
+                    Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never,
+                    config.use_virtual_addressing),
             {}};
 }
 

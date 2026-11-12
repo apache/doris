@@ -21,12 +21,12 @@
 
 namespace doris {
 
-struct CosObjStorageConfig;
+struct CosConfig;
 
 class CosObjStorageClient final : public S3CompatibleObjStorageClient {
 public:
     using S3CompatibleObjStorageClient::S3CompatibleObjStorageClient;
-    static ObjStorageClientBuildResult create(const CosObjStorageConfig& config);
+    static ObjStorageClientBuildResult create(const CosConfig& config);
 };
 
 } // namespace doris

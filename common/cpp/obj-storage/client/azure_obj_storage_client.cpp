@@ -17,7 +17,6 @@
 
 #include "azure_obj_storage_client.h"
 
-#include <absl/strings/escaping.h>
 #include <butil/guid.h>
 
 #include <azure/core/diagnostics/logger.hpp>
@@ -60,14 +59,16 @@ std::string to_lower_ascii(std::string_view input) {
 std::string encode_azure_block_id(std::string_view upload_id, int part_num) {
     // Azure has no multipart upload namespace. Include the writer UUID in every block ID so
     // concurrent writers for the same key cannot stage interchangeable blocks.
-    std::string raw_id(upload_id);
+    std::vector<unsigned char> raw_id(upload_id.begin(), upload_id.end());
     auto part = static_cast<uint32_t>(part_num);
     for (size_t i = 0; i < sizeof(part); ++i) {
-        raw_id.push_back(static_cast<char>(part >> (i * 8)));
+        raw_id.push_back(static_cast<unsigned char>(part >> (i * 8)));
     }
-    return absl::Base64Escape(raw_id);
+    Aws::Utils::ByteBuffer bytes(raw_id.data(), raw_id.size());
+    return Aws::Utils::HashingUtils::Base64Encode(bytes);
 }
 
+constexpr char SAS_TOKEN_URL_TEMPLATE[] = "{}/{}/{}{}";
 constexpr char BlobNotFound[] = "BlobNotFound";
 } // namespace
 
@@ -147,7 +148,7 @@ struct AzureBatchDeleter {
         deferred_resps.emplace_back(DeferredDeleteResponse {
                 .key = blob_name, .response = _batch.DeleteBlob(blob_name)});
     }
-    ObjStorageResponse execute(const Azure::Core::Context& context) {
+    ObjStorageResponse execute() {
         if (deferred_resps.empty()) {
             return ObjStorageResponse::OK();
         }
@@ -155,7 +156,7 @@ struct AzureBatchDeleter {
                 [&]() {
                     client_bvar::ScopedLatency scoped_latency(
                             client_bvar::s3_delete_objects_latency);
-                    _client->SubmitBatch(_batch, {}, context);
+                    _client->SubmitBatch(_batch);
                 },
                 _opts, _tls_debug_context);
         if (resp.status.code != ObjStorageStatus::OK) {
@@ -218,7 +219,8 @@ std::string env_or_empty(const char* env_name) {
     return "";
 }
 
-std::string build_azure_tls_debug_context(const std::string& selected_ca_file) {
+std::string build_azure_tls_debug_context(const std::string& selected_ca_file,
+                                          const std::string& configured_paths) {
     bool selected_ca_exists = false;
     bool selected_ca_readable = false;
     if (!selected_ca_file.empty()) {
@@ -229,9 +231,9 @@ std::string build_azure_tls_debug_context(const std::string& selected_ca_file) {
     }
 
     return fmt::format(
-            "tls_debug(selected_ca_file='{}', selected_ca_exists={}, "
+            "tls_debug(ca_cert_file_paths='{}', selected_ca_file='{}', selected_ca_exists={}, "
             "selected_ca_readable={}, SSL_CERT_FILE='{}', CURL_CA_BUNDLE='{}', SSL_CERT_DIR='{}')",
-            selected_ca_file, selected_ca_exists, selected_ca_readable,
+            configured_paths, selected_ca_file, selected_ca_exists, selected_ca_readable,
             env_or_empty("SSL_CERT_FILE"), env_or_empty("CURL_CA_BUNDLE"),
             env_or_empty("SSL_CERT_DIR"));
 }
@@ -264,46 +266,47 @@ void init_azure_logging(int log_level) {
 
 } // namespace
 
-void initialize_azure_logging(int log_level) {
-    static std::once_flag init_logging;
-    std::call_once(init_logging, init_azure_logging, log_level);
+std::string AzureObjStorageClient::container_url(const AzureConfig& config) {
+    std::string uri = fmt::format("{}/{}", config.endpoint, config.bucket);
+    if (uri.find("://") == std::string::npos) {
+        uri = "https://" + uri;
+    }
+    return normalize_http_uri(uri);
 }
 
-ObjStorageClientBuildResult AzureObjStorageClient::create(const AzureObjStorageConfig& config) {
-    const auto& connection = config.connection;
+ObjStorageClientBuildResult AzureObjStorageClient::create(const AzureConfig& config) {
+    static std::once_flag init_logging;
+    std::call_once(init_logging, init_azure_logging, config.azure_log_level);
     Azure::Storage::Blobs::BlobClientOptions options;
-    if (connection.max_retries) {
-        options.Retry.MaxRetries = *connection.max_retries;
-    }
+    options.Retry.MaxRetries = config.max_retries;
     if (config.retry_too_many_requests) {
         options.Retry.StatusCodes.insert(Azure::Core::Http::HttpStatusCode::TooManyRequests);
     }
     options.PerRetryPolicies.emplace_back(std::make_unique<AzureRetryRecordPolicy>());
-    if (connection.ca_cert_file || connection.connect_timeout) {
+    if (!config.ca_cert_path.empty()) {
         Azure::Core::Http::CurlTransportOptions curl_options;
-        curl_options.CAInfo = connection.ca_cert_file.value_or("");
-        if (connection.connect_timeout) {
-            curl_options.ConnectionTimeout = *connection.connect_timeout;
-        }
+        curl_options.CAInfo = config.ca_cert_path;
         options.Transport.Transport =
                 std::make_shared<Azure::Core::Http::CurlTransport>(std::move(curl_options));
     }
-    ObjStorageEndpointInfo endpoint_info {.endpoint = connection.endpoint,
-                                          .tls_debug_context = build_azure_tls_debug_context(
-                                                  connection.ca_cert_file.value_or(""))};
-    auto built = AzureAuthFactory::create(connection.endpoint, config.auth, std::move(options));
+    ObjStorageEndpointInfo endpoint_info {
+            .endpoint = config.endpoint, .ak = config.ak, .sk = config.sk};
+    if (config.ca_cert_file_paths) {
+        endpoint_info.tls_debug_context =
+                build_azure_tls_debug_context(config.ca_cert_path, *config.ca_cert_file_paths);
+    }
+    auto url = container_url(config);
+    auto built = AzureAuthFactory::create(url,
+                                          {.type = AzureCredentialType::SHARED_KEY,
+                                           .account_name = endpoint_info.ak,
+                                           .account_key = endpoint_info.sk},
+                                          std::move(options));
     if (!built) {
         return {.error = std::move(built.error)};
     }
     return {.client = std::make_shared<AzureObjStorageClient>(
-                    std::move(built.service_client), std::move(endpoint_info),
-                    std::move(built.shared_key_credential), connection.request_timeout)};
-}
-
-Azure::Core::Context AzureObjStorageClient::request_context() const {
-    return _request_timeout
-                   ? Azure::Core::Context(std::chrono::system_clock::now() + *_request_timeout)
-                   : Azure::Core::Context();
+                    std::move(built.container_client), std::move(endpoint_info),
+                    std::move(built.shared_key_credential))};
 }
 
 ObjStorageUploadResult AzureObjStorageClient::create_multipart_upload(const ObjStoragePath&) {
@@ -322,12 +325,11 @@ ObjStorageUploadResult AzureObjStorageClient::create_multipart_upload(const ObjS
 
 ObjStorageResponse AzureObjStorageClient::put_object(const ObjStoragePath& opts,
                                                      std::string_view stream) {
-    auto client = _client->GetBlobContainerClient(opts.bucket).GetBlockBlobClient(opts.key);
+    auto client = _client->GetBlockBlobClient(opts.key);
     return do_azure_client_call(
             [&]() {
                 client_bvar::ScopedLatency scoped_latency(client_bvar::s3_put_latency);
-                client.UploadFrom(reinterpret_cast<const uint8_t*>(stream.data()), stream.size(),
-                                  {}, request_context());
+                client.UploadFrom(reinterpret_cast<const uint8_t*>(stream.data()), stream.size());
             },
             opts, _config.tls_debug_context);
 }
@@ -336,14 +338,14 @@ ObjStorageUploadResult AzureObjStorageClient::upload_part(const ObjStoragePath& 
                                                           const std::string& upload_id,
                                                           std::string_view stream, int part_num) {
     DCHECK(!upload_id.empty());
-    auto client = _client->GetBlobContainerClient(opts.bucket).GetBlockBlobClient(opts.key);
+    auto client = _client->GetBlockBlobClient(opts.key);
     std::string block_id = azure_multipart_block_id(upload_id, part_num);
     try {
         Azure::Core::IO::MemoryBodyStream memory_body(
                 reinterpret_cast<const uint8_t*>(stream.data()), stream.size());
         // The blockId must be base64 encoded
         client_bvar::ScopedLatency scoped_latency(client_bvar::s3_multi_part_upload_latency);
-        client.StageBlock(block_id, memory_body, {}, request_context());
+        client.StageBlock(block_id, memory_body);
     } catch (Azure::Core::RequestFailedException& e) {
         record_object_request_failed(static_cast<int>(e.StatusCode));
         auto tls_debug_suffix = build_azure_tls_debug_suffix(
@@ -373,7 +375,7 @@ ObjStorageResponse AzureObjStorageClient::complete_multipart_upload(
         const ObjStoragePath& opts, const std::string& upload_id,
         const std::vector<ObjStorageCompletedPart>& completed_parts) {
     DCHECK(!upload_id.empty());
-    auto client = _client->GetBlobContainerClient(opts.bucket).GetBlockBlobClient(opts.key);
+    auto client = _client->GetBlockBlobClient(opts.key);
     std::vector<std::string> string_block_ids;
     std::ranges::transform(completed_parts, std::back_inserter(string_block_ids),
                            [&upload_id](const ObjStorageCompletedPart& i) {
@@ -383,7 +385,7 @@ ObjStorageResponse AzureObjStorageClient::complete_multipart_upload(
             [&]() {
                 client_bvar::ScopedLatency scoped_latency(
                         client_bvar::s3_multi_part_upload_latency);
-                client.CommitBlockList(string_block_ids, {}, request_context());
+                client.CommitBlockList(string_block_ids);
             },
             opts, _config.tls_debug_context);
 }
@@ -392,10 +394,7 @@ ObjStorageHeadResult AzureObjStorageClient::head_object(const ObjStoragePath& op
     try {
         Models::BlobProperties properties = [&]() {
             client_bvar::ScopedLatency scoped_latency(client_bvar::s3_head_latency);
-            return _client->GetBlobContainerClient(opts.bucket)
-                    .GetBlockBlobClient(opts.key)
-                    .GetProperties({}, request_context())
-                    .Value;
+            return _client->GetBlockBlobClient(opts.key).GetProperties().Value;
         }();
         return {.resp = ObjStorageResponse::OK(), .file_size = properties.BlobSize};
     } catch (Azure::Core::RequestFailedException& e) {
@@ -429,7 +428,7 @@ ObjStorageHeadResult AzureObjStorageClient::head_object(const ObjStoragePath& op
 ObjStorageResponse AzureObjStorageClient::get_object(const ObjStoragePath& opts, void* buffer,
                                                      size_t offset, size_t bytes_read,
                                                      size_t* size_return) {
-    auto client = _client->GetBlobContainerClient(opts.bucket).GetBlockBlobClient(opts.key);
+    auto client = _client->GetBlockBlobClient(opts.key);
     auto response = do_azure_client_call(
             [&]() {
                 DownloadBlobToOptions download_opts;
@@ -438,7 +437,7 @@ ObjStorageResponse AzureObjStorageClient::get_object(const ObjStoragePath& opts,
                 download_opts.Range = range;
                 client_bvar::ScopedLatency scoped_latency(client_bvar::s3_get_latency);
                 auto resp = client.DownloadTo(reinterpret_cast<uint8_t*>(buffer), bytes_read,
-                                              download_opts, request_context());
+                                              download_opts);
                 *size_return = resp.Value.ContentRange.Length.Value();
             },
             opts, _config.tls_debug_context);
@@ -468,8 +467,7 @@ ObjStorageListPageResult AzureObjStorageClient::list_objects_page(
     try {
         auto response = [&]() {
             client_bvar::ScopedLatency scoped_latency(client_bvar::s3_list_latency);
-            return _client->GetBlobContainerClient(opts.bucket)
-                    .ListBlobs(request, request_context());
+            return _client->ListBlobs(request);
         }();
         const bool has_more = response.NextPageToken.HasValue();
         auto next_token = has_more ? response.NextPageToken.Value() : std::string {};
@@ -523,20 +521,18 @@ ObjStorageListPageResult AzureObjStorageClient::list_objects_page(
 
 ObjStorageResponse AzureObjStorageClient::delete_objects_batch(const ObjStoragePath& opts,
                                                                std::span<std::string> objs) {
-    auto container = _client->GetBlobContainerClient(opts.bucket);
-    AzureBatchDeleter deleter(&container, opts, objs.front(), _config.tls_debug_context);
+    AzureBatchDeleter deleter(_client.get(), opts, objs.front(), _config.tls_debug_context);
     for (const auto& key : objs) {
         deleter.delete_blob(key);
     }
-    return deleter.execute(request_context());
+    return deleter.execute();
 }
 
 ObjStorageResponse AzureObjStorageClient::delete_object(const ObjStoragePath& opts) {
     try {
         auto resp = [&]() {
             client_bvar::ScopedLatency scoped_latency(client_bvar::s3_delete_object_latency);
-            return _client->GetBlobContainerClient(opts.bucket)
-                    .DeleteBlob(opts.key, {}, request_context());
+            return _client->DeleteBlob(opts.key);
         }();
         if (!resp.Value.Deleted) {
             return {
@@ -590,8 +586,19 @@ std::string AzureObjStorageClient::generate_presigned_url(const ObjStoragePath& 
     sas_builder.Protocol = Azure::Storage::Sas::SasProtocol::HttpsOnly;
     sas_builder.SetPermissions(Azure::Storage::Sas::BlobSasPermissions::Read);
 
-    auto blob = _client->GetBlobContainerClient(opts.bucket).GetBlobClient(opts.key);
-    return blob.GetUrl() + sas_builder.GenerateSasToken(*_credential);
+    auto credential = _credential;
+    if (credential == nullptr) {
+        credential = std::make_shared<Azure::Storage::StorageSharedKeyCredential>(_config.ak,
+                                                                                  _config.sk);
+    }
+    std::string sasToken = sas_builder.GenerateSasToken(*credential);
+
+    auto sasURL =
+            fmt::format(SAS_TOKEN_URL_TEMPLATE, _config.endpoint, opts.bucket, opts.key, sasToken);
+    if (sasURL.find("://") == std::string::npos) {
+        sasURL = "https://" + sasURL;
+    }
+    return sasURL;
 }
 
 ObjStorageResponse AzureObjStorageClient::get_lifecycle(const std::string& /*bucket*/,

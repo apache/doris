@@ -35,14 +35,14 @@ namespace doris::io {
 // share the active client so a storage resource can refresh its credentials.
 class ObjStorageFileSystem final : public RemoteFileSystem {
 public:
-    static Result<std::shared_ptr<ObjStorageFileSystem>> create(
-            ObjStorageResourceConfig storage_config, std::string id);
+    static Result<std::shared_ptr<ObjStorageFileSystem>> create(ObjStorageConfig storage_config,
+                                                                std::string id);
 
     ~ObjStorageFileSystem() override;
 
     const std::shared_ptr<ObjStorageClientHolder>& client_holder() const { return _client; }
 
-    bool same_target(const ObjStorageResourceConfig& config) const;
+    bool same_target(const ObjStorageConfig& config) const;
 
     const std::string& bucket() const { return _bucket; }
     const std::string& prefix() const { return _prefix; }
@@ -84,7 +84,7 @@ protected:
     }
 
 private:
-    ObjStorageFileSystem(ObjStorageResourceConfig storage_config, std::string id);
+    ObjStorageFileSystem(ObjStorageConfig storage_config, std::string id);
 
     Status init();
 
@@ -93,8 +93,6 @@ private:
 
     std::string _bucket;
     std::string _prefix;
-    bool _is_internal_bucket;
-    bool _sse_enabled;
     std::shared_ptr<ObjStorageClientHolder> _client;
 };
 

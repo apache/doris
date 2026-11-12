@@ -23,17 +23,19 @@
 #include "common/logging.h"
 #include "cpp/obj-storage/rate_limited_obj_storage_client.h"
 #include "io/object_storage/obj_storage_client_factory.h"
+#include "io/object_storage/obj_storage_rate_limiter_manager.h"
 
 namespace doris::io {
 
-ObjStorageClientHolder::ObjStorageClientHolder(
-        ObjStorageClientConfig conf, std::shared_ptr<const ObjStorageRateLimitPolicy> policy)
-        : _rate_limit_policy(std::move(policy)), _conf(std::move(conf)) {}
+ObjStorageClientHolder::ObjStorageClientHolder(ObjStorageConfig conf)
+        : _rate_limit_policy(ObjStorageRateLimiterManager::policy_for(
+                  storage_config_base(conf).is_internal_bucket)),
+          _conf(std::move(conf)) {}
 
 ObjStorageClientHolder::~ObjStorageClientHolder() = default;
 
 Result<std::shared_ptr<ObjStorageClient>> ObjStorageClientHolder::create_client(
-        const ObjStorageClientConfig& conf) const {
+        const ObjStorageConfig& conf) const {
     auto client = ObjStorageClientFactory::instance().create(conf);
     if (client && _rate_limit_policy) {
         *client = std::make_shared<RateLimitedObjStorageClient>(std::move(*client),
@@ -47,9 +49,9 @@ Status ObjStorageClientHolder::init() {
     return Status::OK();
 }
 
-Status ObjStorageClientHolder::reset(const ObjStorageClientConfig& conf) {
+Status ObjStorageClientHolder::reset(const ObjStorageConfig& conf) {
     std::lock_guard update_lock(_update_mutex);
-    if (!same_client_target(_conf, conf)) {
+    if (!same_storage_target(_conf, conf)) {
         return Status::InvalidArgument(
                 "Cannot change storage target on an open object storage filesystem");
     }

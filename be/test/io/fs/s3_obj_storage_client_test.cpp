@@ -55,11 +55,12 @@ protected:
 
         S3ObjStorageClientTest::bucket = std::getenv("AWS_BUCKET");
 
-        AwsObjStorageConfig config;
-        config.connection.endpoint = endpoint;
+        AwsConfig config;
+        config.endpoint = endpoint;
         config.region = "dummy-region";
-        config.auth.source = AccessKeyObjStorageAuth {access_key, secret_key, {}};
-        config.use_path_style = true;
+        config.ak = access_key;
+        config.sk = secret_key;
+        config.use_virtual_addressing = false;
         auto client_result = ObjStorageClientFactory::instance().create(config);
         ASSERT_TRUE(client_result.has_value()) << client_result.error();
         S3ObjStorageClientTest::obj_storage_client = std::move(client_result).value();

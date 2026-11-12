@@ -40,7 +40,6 @@
 #include <chrono>
 #include <ranges>
 
-#include "cpp/aws_common.h"
 #include "cpp/obj-storage/client/s3_common.h"
 #include "cpp/obj-storage/client_bvar.h"
 #include "cpp/obj_retry_strategy.h"
@@ -91,20 +90,9 @@ ObjStorageStatus s3fs_error(const Aws::S3::S3Error& err, std::string_view msg) {
                                              s3_error_message(err, msg));
 }
 
-S3CompatibleObjStorageClient::S3CompatibleObjStorageClient(
-        std::shared_ptr<Aws::S3::S3Client> client, ObjStorageEndpointInfo endpoint,
-        bool supports_s3_sse)
-        : _sdk_lifetime(acquire_aws_sdk()),
-          _supports_s3_sse(supports_s3_sse),
-          _config(std::move(endpoint)),
-          _client(std::move(client)) {}
-
 ObjStorageUploadResult S3CompatibleObjStorageClient::create_multipart_upload(
         const ObjStoragePath& opts) {
     CreateMultipartUploadRequest request;
-    if (opts.sse_enabled && _supports_s3_sse) {
-        request.SetServerSideEncryption(Aws::S3::Model::ServerSideEncryption::AES256);
-    }
     request.WithBucket(opts.bucket).WithKey(opts.key);
     request.SetContentType("application/octet-stream");
 
@@ -145,9 +133,6 @@ ObjStorageUploadResult S3CompatibleObjStorageClient::create_multipart_upload(
 ObjStorageResponse S3CompatibleObjStorageClient::put_object(const ObjStoragePath& opts,
                                                             std::string_view stream) {
     Aws::S3::Model::PutObjectRequest request;
-    if (opts.sse_enabled && _supports_s3_sse) {
-        request.SetServerSideEncryption(Aws::S3::Model::ServerSideEncryption::AES256);
-    }
     request.WithBucket(opts.bucket).WithKey(opts.key);
     auto string_view_stream = std::make_shared<StringViewStream>(stream.data(), stream.size());
     Aws::Utils::ByteBuffer part_md5(Aws::Utils::HashingUtils::CalculateMD5(*string_view_stream));

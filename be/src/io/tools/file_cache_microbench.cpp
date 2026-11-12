@@ -56,8 +56,6 @@
 #include "io/file_factory.h"
 #include "io/fs/obj_storage_file_system.h"
 #include "io/fs/obj_storage_file_writer.h"
-#include "io/object_storage/obj_storage_config_parser.h"
-#include "io/object_storage/obj_storage_rate_limiter_manager.h"
 #include "rapidjson/document.h"
 #include "rapidjson/stringbuffer.h"
 #include "rapidjson/writer.h"
@@ -68,7 +66,6 @@
 #include "util/cpu_info.h"
 #include "util/disk_info.h"
 #include "util/mem_info.h"
-#include "util/s3_uri.h"
 
 #ifdef __clang__
 #pragma clang diagnostic push
@@ -1492,33 +1489,27 @@ private:
         return static_cast<size_t>(dis(gen));
     }
 
-    std::map<std::string, std::string> create_client_properties(const JobConfig& config) {
-        return {{"provider", "AWS"},
-                {"AWS_ACCESS_KEY", doris::config::test_s3_ak},
-                {"AWS_SECRET_KEY", doris::config::test_s3_sk},
-                {"AWS_ENDPOINT", doris::config::test_s3_endpoint},
-                {"AWS_REGION", doris::config::test_s3_region},
-                {"AWS_MAX_CONNECTIONS", std::to_string(std::max(256, config.num_threads * 4))},
-                {"AWS_REQUEST_TIMEOUT_MS", "60000"},
-                {"AWS_CONNECTION_TIMEOUT_MS", "3000"}};
+    doris::AwsConfig create_client_config(const JobConfig& config) {
+        doris::AwsConfig client_config;
+        client_config.bucket = doris::config::test_s3_bucket;
+        client_config.max_connections = std::max(256, config.num_threads * 4);
+        client_config.request_timeout_ms = 60000;
+        client_config.connect_timeout_ms = 3000;
+        client_config.ak = doris::config::test_s3_ak;
+        client_config.sk = doris::config::test_s3_sk;
+        client_config.region = doris::config::test_s3_region;
+        client_config.endpoint = doris::config::test_s3_endpoint;
+        return client_config;
     }
 
     // Execute write tasks
     void execute_write_tasks(const std::vector<std::string>& keys, Job& job,
                              const JobConfig& config) {
-        doris::S3URI uri("s3://" + doris::config::test_s3_bucket);
-        auto status = uri.parse();
-        if (!status.ok()) {
-            throw std::runtime_error(status.to_string());
-        }
-        auto resource = doris::ObjStorageConfigParser::from_properties(
-                create_client_properties(config), uri);
-        if (!resource) {
-            throw std::runtime_error(resource.error().to_string());
-        }
-        auto client = std::make_shared<doris::io::ObjStorageClientHolder>(
-                std::move(resource->client),
-                doris::ObjStorageRateLimiterManager::policy_for(resource->is_internal_bucket));
+        // Create S3 client configuration
+        auto client_config = create_client_config(config);
+
+        // Initialize S3 client
+        auto client = std::make_shared<doris::io::ObjStorageClientHolder>(client_config);
         doris::Status init_status = client->init();
         if (!init_status.ok()) {
             throw std::runtime_error("Failed to initialize S3 client: " + init_status.to_string());
@@ -1749,7 +1740,7 @@ private:
         doris::MonotonicStopWatch read_stopwatch; // Add read task timer
 
         // Create S3 client configuration
-        const auto properties = create_client_properties(config);
+        auto client_config = create_client_config(config);
         std::vector<std::string> read_files;
         if (exist_job_perfile_size != -1) {
             // read exist files
@@ -1791,7 +1782,20 @@ private:
                     doris::io::FileSystemProperties fs_props;
                     fs_props.system_type = doris::TFileType::FILE_S3;
 
-                    fs_props.properties = properties;
+                    std::map<std::string, std::string> props;
+                    props["AWS_ACCESS_KEY"] = client_config.ak;
+                    props["AWS_SECRET_KEY"] = client_config.sk;
+                    props["AWS_ENDPOINT"] = client_config.endpoint;
+                    props["AWS_REGION"] = client_config.region;
+                    props["AWS_MAX_CONNECTIONS"] = std::to_string(client_config.max_connections);
+                    props["AWS_REQUEST_TIMEOUT_MS"] =
+                            std::to_string(client_config.request_timeout_ms);
+                    props["AWS_CONNECT_TIMEOUT_MS"] =
+                            std::to_string(client_config.connect_timeout_ms);
+                    props["use_path_style"] =
+                            client_config.use_virtual_addressing ? "false" : "true";
+
+                    fs_props.properties = std::move(props);
 
                     int read_retry_count = 0;
                     const int max_read_retries = 50;

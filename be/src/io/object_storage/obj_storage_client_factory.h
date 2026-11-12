@@ -31,12 +31,11 @@ class ObjStorageClientFactory {
 public:
     static ObjStorageClientFactory& instance();
 
-    Result<std::shared_ptr<io::ObjStorageClient>> create(const ObjStorageClientConfig& config);
+    Result<std::shared_ptr<io::ObjStorageClient>> create(const ObjStorageConfig& config);
 
 #ifdef BE_TEST
     void set_client_creator_for_test(
-            std::function<std::shared_ptr<io::ObjStorageClient>(const ObjStorageClientConfig&)>
-                    creator);
+            std::function<std::shared_ptr<io::ObjStorageClient>(const ObjStorageConfig&)> creator);
 
     void clear_client_creator_for_test();
 #endif
@@ -45,11 +44,11 @@ private:
     ObjStorageClientFactory() = default;
 
     std::mutex _lock;
-    std::unordered_map<ObjStorageClientConfig, std::shared_ptr<io::ObjStorageClient>,
+    std::unordered_map<ObjStorageConfig, std::shared_ptr<io::ObjStorageClient>,
                        ObjStorageClientHash>
             _cache;
 #ifdef BE_TEST
-    std::function<std::shared_ptr<io::ObjStorageClient>(const ObjStorageClientConfig&)>
+    std::function<std::shared_ptr<io::ObjStorageClient>(const ObjStorageConfig&)>
             _test_client_creator;
 #endif
 };

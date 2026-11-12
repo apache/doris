@@ -67,11 +67,12 @@
 #endif
 #include "common/bvars.h"
 #include "common/config.h"
+#include "common/encryption_util.h"
 #include "common/logging.h"
 #include "common/rowset_segment_id.h"
 #include "common/simple_thread_pool.h"
 #include "common/util.h"
-#include "cpp/obj-storage/client/obj_storage_sdk.h"
+#include "cpp/aws_common.h"
 #include "cpp/sync_point.h"
 #include "meta-store/codec.h"
 #include "meta-store/document_message.h"
@@ -495,7 +496,7 @@ void Recycler::check_recycle_tasks() {
 
 int Recycler::start(brpc::Server* server) {
     g_bvar_recycler_task_max_concurrency.set_value(config::recycle_concurrency);
-    initialize_obj_storage_sdks(config::aws_log_level, config::azure_log_level);
+    ensure_aws_sdk_initialized(config::aws_log_level);
 
     if (config::enable_checker) {
         checker_ = std::make_unique<Checker>(txn_kv_);
@@ -7598,20 +7599,44 @@ int InstanceRecycler::init_copy_job_accessor(const std::string& stage_id,
     const auto& object_store_info = stage_it->obj_info();
     auto stage_access_type = stage_it->has_access_type() ? stage_it->access_type() : StagePB::AKSK;
 
-    ObjStorageResourceConfig s3_conf;
+    ObjStorageConfig s3_conf;
     if (stage_type == StagePB::EXTERNAL) {
-        if (stage_access_type != StagePB::AKSK && stage_access_type != StagePB::BUCKET_ACL) {
+        if (stage_access_type == StagePB::AKSK) {
+            auto conf = S3Accessor::parse_config(object_store_info);
+            if (!conf) {
+                return -1;
+            }
+
+            s3_conf = std::move(*conf);
+        } else if (stage_access_type == StagePB::BUCKET_ACL) {
+            auto conf = S3Accessor::parse_config(object_store_info, true /* skip_aksk */);
+            if (!conf) {
+                return -1;
+            }
+
+            s3_conf = std::move(*conf);
+            auto& fields = storage_config_base(s3_conf);
+            if (instance_info_.ram_user().has_encryption_info()) {
+                AkSkPair plain_ak_sk_pair;
+                int ret = decrypt_ak_sk_helper(
+                        instance_info_.ram_user().ak(), instance_info_.ram_user().sk(),
+                        instance_info_.ram_user().encryption_info(), &plain_ak_sk_pair);
+                if (ret != 0) {
+                    LOG(WARNING) << "fail to decrypt ak sk. instance_id: " << instance_id_
+                                 << " ram_user: " << proto_to_json(instance_info_.ram_user());
+                    return -1;
+                }
+                fields.ak = std::move(plain_ak_sk_pair.first);
+                fields.sk = std::move(plain_ak_sk_pair.second);
+            } else {
+                fields.ak = instance_info_.ram_user().ak();
+                fields.sk = instance_info_.ram_user().sk();
+            }
+        } else {
             LOG(INFO) << "Unsupported stage access type=" << stage_access_type
                       << ", instance_id=" << instance_id_ << ", stage_id=" << stage_id;
             return -1;
         }
-        auto conf = S3Accessor::parse_config(
-                object_store_info,
-                stage_access_type == StagePB::BUCKET_ACL ? &instance_info_.ram_user() : nullptr);
-        if (!conf) {
-            return -1;
-        }
-        s3_conf = std::move(*conf);
     } else if (stage_type == StagePB::INTERNAL) {
         int idx = stoi(object_store_info.id());
         if (idx > instance_info_.obj_info().size() || idx < 1) {
@@ -7626,7 +7651,7 @@ int InstanceRecycler::init_copy_job_accessor(const std::string& stage_id,
         }
 
         s3_conf = std::move(*conf);
-        s3_conf.prefix = object_store_info.prefix();
+        storage_config_base(s3_conf).prefix = object_store_info.prefix();
     } else {
         LOG(WARNING) << "unknown stage type " << stage_type;
         return -1;
@@ -7696,7 +7721,8 @@ int InstanceRecycler::recycle_stage() {
                         return -1;
                     }
 
-                    s3_conf->prefix = recycle_stage.stage().obj_info().prefix();
+                    storage_config_base(*s3_conf).prefix =
+                            recycle_stage.stage().obj_info().prefix();
                     std::shared_ptr<S3Accessor> s3_accessor;
                     int ret = S3Accessor::create(std::move(s3_conf.value()), &s3_accessor);
                     if (ret != 0) {
@@ -7799,7 +7825,7 @@ int InstanceRecycler::recycle_expired_stage_objects() {
             continue;
         }
 
-        s3_conf->prefix = stage.obj_info().prefix();
+        storage_config_base(*s3_conf).prefix = stage.obj_info().prefix();
         std::shared_ptr<S3Accessor> accessor;
         int ret1 = S3Accessor::create(*s3_conf, &accessor);
         if (ret1 != 0) {
@@ -7808,7 +7834,7 @@ int InstanceRecycler::recycle_expired_stage_objects() {
             continue;
         }
 
-        if (s3_conf->prefix.find("/stage/") == std::string::npos) {
+        if (storage_config_base(*s3_conf).prefix.find("/stage/") == std::string::npos) {
             LOG(WARNING) << "try to delete illegal prefix, which is catastrophic, " << ss.str();
             ret = -1;
             continue;
@@ -8318,7 +8344,8 @@ int InstanceRecycler::scan_and_statistics_stage() {
                         return 0;
                     }
 
-                    s3_conf->prefix = recycle_stage.stage().obj_info().prefix();
+                    storage_config_base(*s3_conf).prefix =
+                            recycle_stage.stage().obj_info().prefix();
                     std::shared_ptr<S3Accessor> s3_accessor;
                     int ret = S3Accessor::create(std::move(s3_conf.value()), &s3_accessor);
                     if (ret != 0) {
@@ -8366,13 +8393,13 @@ int InstanceRecycler::scan_and_statistics_expired_stage_objects() {
             if (!s3_conf) {
                 continue;
             }
-            s3_conf->prefix = stage.obj_info().prefix();
+            storage_config_base(*s3_conf).prefix = stage.obj_info().prefix();
             std::shared_ptr<S3Accessor> accessor;
             int ret1 = S3Accessor::create(*s3_conf, &accessor);
             if (ret1 != 0) {
                 continue;
             }
-            if (s3_conf->prefix.find("/stage/") == std::string::npos) {
+            if (storage_config_base(*s3_conf).prefix.find("/stage/") == std::string::npos) {
                 continue;
             }
             metrics_context.total_need_recycle_num++;

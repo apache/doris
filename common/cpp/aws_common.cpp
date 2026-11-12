@@ -156,17 +156,11 @@ private:
 };
 } // namespace
 
-std::shared_ptr<void> acquire_aws_sdk(int log_level) {
-    static auto sdk = std::make_shared<AwsSdkLifetime>(log_level);
-    return sdk;
-}
-
 void ensure_aws_sdk_initialized(int log_level) {
-    acquire_aws_sdk(log_level);
+    static AwsSdkLifetime sdk(log_level);
 }
 
 const Aws::Client::ClientConfiguration& default_aws_client_configuration() {
-    static const auto lifetime = acquire_aws_sdk();
     static const Aws::Client::ClientConfiguration configuration;
     return configuration;
 }

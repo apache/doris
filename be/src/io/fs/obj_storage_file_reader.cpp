@@ -79,7 +79,7 @@ Result<int64_t> ObjStorageFileReader::head_object_size(const ObjStorageClientHol
     if (!resp.resp.ok()) {
         auto status = Status(resp.resp.status.code, std::move(resp.resp.status.msg));
         status.append(fmt::format("failed to head s3 file {}/{}/{}",
-                                  obj_storage_connection(holder.config()).endpoint, bucket, key));
+                                  storage_config_base(holder.config()).endpoint, bucket, key));
         return ResultError(std::move(status));
     }
     return resp.file_size;

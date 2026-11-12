@@ -46,7 +46,6 @@
 #include "io/fs/obj_storage_file_writer.h"
 #include "io/fs/remote_file_system.h"
 #include "io/object_storage/obj_storage_client_factory.h"
-#include "io/object_storage/obj_storage_rate_limiter_manager.h"
 #include "runtime/exec_env.h"
 #include "runtime/thread_context.h"
 #include "util/s3_uri.h"
@@ -73,32 +72,26 @@ Result<std::string> get_key(const Path& full_path) {
 } // namespace
 
 std::string ObjStorageFileSystem::full_object_path(std::string_view key) const {
-    return fmt::format("{}/{}/{}", obj_storage_connection(_client->config()).endpoint, _bucket,
-                       key);
+    return fmt::format("{}/{}/{}", storage_config_base(_client->config()).endpoint, _bucket, key);
 }
 
 Result<std::shared_ptr<ObjStorageFileSystem>> ObjStorageFileSystem::create(
-        ObjStorageResourceConfig storage_config, std::string id) {
+        ObjStorageConfig storage_config, std::string id) {
     std::shared_ptr<ObjStorageFileSystem> fs(
             new ObjStorageFileSystem(std::move(storage_config), std::move(id)));
     RETURN_IF_ERROR_RESULT(fs->init());
     return fs;
 }
 
-ObjStorageFileSystem::ObjStorageFileSystem(ObjStorageResourceConfig storage_config, std::string id)
-        : RemoteFileSystem(storage_config.prefix, std::move(id), FileSystemType::OBJECT_STORAGE),
-          _bucket(std::move(storage_config.bucket)),
-          _prefix(storage_config.normalized_prefix()),
-          _is_internal_bucket(storage_config.is_internal_bucket),
-          _sse_enabled(storage_config.sse_enabled),
-          _client(std::make_shared<ObjStorageClientHolder>(
-                  std::move(storage_config.client),
-                  ObjStorageRateLimiterManager::policy_for(_is_internal_bucket))) {}
+ObjStorageFileSystem::ObjStorageFileSystem(ObjStorageConfig storage_config, std::string id)
+        : RemoteFileSystem(storage_config_base(storage_config).prefix, std::move(id),
+                           FileSystemType::OBJECT_STORAGE),
+          _bucket(storage_config_base(storage_config).bucket),
+          _prefix(storage_config_base(storage_config).normalized_prefix()),
+          _client(std::make_shared<ObjStorageClientHolder>(std::move(storage_config))) {}
 
-bool ObjStorageFileSystem::same_target(const ObjStorageResourceConfig& config) const {
-    return _bucket == config.bucket && _prefix == config.normalized_prefix() &&
-           _is_internal_bucket == config.is_internal_bucket && _sse_enabled == config.sse_enabled &&
-           same_client_target(_client->config(), config.client);
+bool ObjStorageFileSystem::same_target(const ObjStorageConfig& config) const {
+    return same_storage_target(_client->config(), config);
 }
 
 Status ObjStorageFileSystem::init() {
@@ -112,8 +105,7 @@ Status ObjStorageFileSystem::create_file_impl(const Path& file, FileWriterPtr* w
     auto client = _client->get();
     CHECK_OBJ_STORAGE_CLIENT(client);
     auto key = DORIS_TRY(get_key(file));
-    *writer = std::make_unique<ObjStorageFileWriter>(_client, _bucket, std::move(key), opts,
-                                                     _sse_enabled);
+    *writer = std::make_unique<ObjStorageFileWriter>(_client, _bucket, std::move(key), opts);
     return Status::OK();
 }
 
@@ -378,7 +370,7 @@ std::string ObjStorageFileSystem::generate_presigned_url(const Path& path, int64
             _prefix.empty() ? path.native() : fmt::format("{}/{}", _prefix, path.native());
     std::shared_ptr<ObjStorageClient> client;
     auto updated_config = _client->config();
-    auto& endpoint = obj_storage_connection(updated_config).endpoint;
+    auto& endpoint = storage_config_base(updated_config).endpoint;
     if (is_public_endpoint && endpoint.ends_with(OSS_PRIVATE_ENDPOINT_SUFFIX)) {
         endpoint.erase(endpoint.size() - OSS_PRIVATE_ENDPOINT_SUFFIX.size(),
                        LEN_OF_OSS_PRIVATE_SUFFIX);

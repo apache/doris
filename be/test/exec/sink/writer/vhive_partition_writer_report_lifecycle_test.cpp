@@ -111,7 +111,7 @@ public:
 std::unique_ptr<VHivePartitionWriter> create_closed_hive_writer(
         RuntimeState* state, const VExprContextSPtrs& output_exprs,
         const std::shared_ptr<RecordingObjStorageClient>& client,
-        ObjStorageClientConfig config = AwsObjStorageConfig {}, std::string staged_block_id = {}) {
+        ObjStorageConfig config = AwsConfig {}, std::string staged_block_id = {}) {
     THiveTableSink hive_sink;
     TDataSink sink;
     sink.__set_type(TDataSinkType::HIVE_TABLE_SINK);
@@ -202,7 +202,8 @@ TEST(VHivePartitionWriterReportLifecycleTest, AzureFinalReportCarriesExactBlockI
     MockRuntimeState state;
     VExprContextSPtrs output_exprs;
     auto client = std::make_shared<RecordingObjStorageClient>();
-    AzureObjStorageConfig config;
+    AzureConfig config;
+    config.bucket = "bucket";
     auto writer = create_closed_hive_writer(&state, output_exprs, client, std::move(config),
                                             "exact-block-id");
     auto context = create_fragment_context(TUniqueId());

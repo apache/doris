@@ -124,14 +124,14 @@ CloudStorageEngine::~CloudStorageEngine() {
     stop();
 }
 
-static Status vault_process_error(
-        std::string_view id, std::variant<ObjStorageResourceConfig, cloud::HdfsVaultInfo>& vault,
-        Status err) {
+static Status vault_process_error(std::string_view id,
+                                  std::variant<ObjStorageConfig, cloud::HdfsVaultInfo>& vault,
+                                  Status err) {
     std::stringstream ss;
     std::visit(
             [&]<typename T>(T& val) {
-                if constexpr (std::is_same_v<T, ObjStorageResourceConfig>) {
-                    ss << obj_storage_config_to_string(val.client);
+                if constexpr (std::is_same_v<T, ObjStorageConfig>) {
+                    ss << obj_storage_config_to_string(val);
                 } else if constexpr (std::is_same_v<T, cloud::HdfsVaultInfo>) {
                     val.SerializeToOstream(&ss);
                 }
@@ -144,19 +144,19 @@ struct VaultCreateFSVisitor {
     VaultCreateFSVisitor(const std::string& id, const cloud::StorageVaultPB_PathFormat& path_format,
                          bool check_fs)
             : id(id), path_format(path_format), check_fs(check_fs) {}
-    Status operator()(const ObjStorageResourceConfig& storage_config) const {
-        LOG(INFO) << "get new s3 info: " << obj_storage_config_to_string(storage_config.client)
+    Status operator()(const ObjStorageConfig& storage_config) const {
+        LOG(INFO) << "get new s3 info: " << obj_storage_config_to_string(storage_config)
                   << " resource_id=" << id << " check_fs: " << check_fs;
 
         auto fs = DORIS_TRY(io::ObjStorageFileSystem::create(storage_config, id));
-        const auto* aws = std::get_if<AwsObjStorageConfig>(&storage_config.client);
-        if (check_fs && aws && aws->auth.assume_role.has_value()) {
+        const auto* aws = std::get_if<AwsConfig>(&storage_config);
+        if (check_fs && aws && !aws->role_arn.empty()) {
             bool res = false;
             // just check connectivity, not care object if exist
             auto st = fs->exists("not_exist_object", &res);
             if (!st.ok()) {
                 LOG(FATAL) << "failed to check s3 fs, resource_id: " << id << " st: " << st
-                           << "s3_conf: " << obj_storage_config_to_string(storage_config.client)
+                           << "s3_conf: " << obj_storage_config_to_string(storage_config)
                            << "add enable_check_storage_vault=false to be.conf to skip the check";
             }
         }
@@ -186,14 +186,14 @@ struct RefreshFSVaultVisitor {
                           const cloud::StorageVaultPB_PathFormat& path_format)
             : id(id), fs(std::move(fs)), path_format(path_format) {}
 
-    Status operator()(const ObjStorageResourceConfig& storage_config) const {
+    Status operator()(const ObjStorageConfig& storage_config) const {
         DCHECK_EQ(fs->type(), io::FileSystemType::OBJECT_STORAGE) << id;
         auto obj_fs = std::static_pointer_cast<io::ObjStorageFileSystem>(fs);
         if (!obj_fs->same_target(storage_config)) {
             return VaultCreateFSVisitor {id, path_format, false}(storage_config);
         }
         auto client_holder = obj_fs->client_holder();
-        auto st = client_holder->reset(storage_config.client);
+        auto st = client_holder->reset(storage_config);
         if (!st.ok()) {
             LOG(WARNING) << "failed to update s3 fs, resource_id=" << id << ": " << st;
         }

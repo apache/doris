@@ -618,7 +618,7 @@ TEST_P(JsonReaderPrefetchTest, ClosePublishesReadStatisticsOnce) {
     config::in_memory_file_size = 0;
     auto client = std::make_shared<JsonPrefetchS3Client>();
     ObjStorageClientFactory::instance().set_client_creator_for_test(
-            [client](const ObjStorageClientConfig&) { return client; });
+            [client](const ObjStorageConfig&) { return client; });
     auto properties = std::make_shared<io::FileSystemProperties>();
     properties->system_type = TFileType::FILE_S3;
     properties->properties = {{"AWS_ENDPOINT", "http://json-prefetch.invalid"},

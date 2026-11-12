@@ -18,52 +18,37 @@
 #include "gcp_obj_storage_client.h"
 
 #include "cpp/obj-storage/auth/gcp/gcp_s3_client.h"
-#include "cpp/obj-storage/auth/gcp/gcs_signed_url_provider.h"
 #include "cpp/obj-storage/client/s3_sdk.h"
 #include "cpp/obj-storage/obj_storage_config.h"
 #include "cpp/sync_point.h"
 
 namespace doris {
 
-ObjStorageClientBuildResult GcpObjStorageClient::create(const GcpObjStorageConfig& config) {
-    ObjStorageEndpointInfo endpoint {.endpoint = config.connection.endpoint};
+ObjStorageClientBuildResult GcpObjStorageClient::create(const GcpConfig& config) {
     TEST_SYNC_POINT_RETURN_WITH_VALUE(
             "s3_client_factory::create",
             (ObjStorageClientBuildResult {
                     .client = std::make_shared<GcpObjStorageClient>(
-                            std::make_shared<Aws::S3::S3Client>(), endpoint)}));
-    auto sdk_config = s3_sdk_config(config.connection, config.region, config.retry_slow_down);
-    if (const auto* native = std::get_if<GcpNativeObjStorageAuth>(&config.auth)) {
-        GcpCredentialConfig credential {
-                .provider_type = native->source == GcpCredentialSource::ComputeEngine
-                                         ? GcpCredentialProviderType::ComputeEngine
-                                         : GcpCredentialProviderType::Default,
-                .impersonation_service_account =
-                        native->impersonation_service_account.value_or("")};
-        auto ca_file = config.connection.ca_cert_file.value_or("");
+                            std::make_shared<Aws::S3::S3Client>(), endpoint_info(config))}));
+    if (const auto& gcp = config.credential) {
+        // Both providers can read the ADC file. Initialize object I/O before signing.
         auto sdk = std::make_shared<GcpS3Client>(
-                credential, ca_file, sdk_config,
-                Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never, !config.use_path_style);
-        auto signer = make_gcs_signed_url_generator(
-                credential, config.connection.endpoint,
-                config.connection.request_timeout.value_or(std::chrono::seconds(10)).count(),
-                std::move(ca_file));
-        return {.client = std::make_shared<GcpObjStorageClient>(std::move(sdk), std::move(endpoint),
-                                                                std::move(signer))};
+                *gcp, config.s3.ca_cert_path, s3_sdk_config(config),
+                Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never,
+                config.use_virtual_addressing);
+        ObjStorageSignedUrlGenerator signer;
+        if (config.gcs_signer) {
+            signer = config.gcs_signer(*gcp, config.endpoint, config.request_timeout_ms,
+                                       config.s3.ca_cert_path);
+        }
+        return {.client = std::make_shared<GcpObjStorageClient>(
+                        std::move(sdk), endpoint_info(config), std::move(signer))};
     }
-    AccessKeyOrAnonymousObjStorageAuth auth;
-    if (const auto* hmac = std::get_if<GcpHmacObjStorageAuth>(&config.auth)) {
-        auth = AccessKeyObjStorageAuth {hmac->access_id, hmac->secret_key, hmac->session_token};
-    } else if (const auto* chain = std::get_if<ObjStorageCredentialChain>(&config.auth)) {
-        auth = *chain;
-    }
-    auto [sdk, error] =
-            make_s3_sdk_client(sdk_config, config.use_path_style,
-                               AwsCredentialOptions::from_auth(auth, config.connection));
+    auto [sdk, error] = make_s3_sdk_client(config, AwsCredentialOptions::from_config(config));
     if (!sdk) {
         return {.error = std::move(error)};
     }
-    return {.client = std::make_shared<GcpObjStorageClient>(std::move(sdk), endpoint)};
+    return {.client = std::make_shared<GcpObjStorageClient>(std::move(sdk), endpoint_info(config))};
 }
 
 std::string GcpObjStorageClient::generate_presigned_url(const ObjStoragePath& opts,

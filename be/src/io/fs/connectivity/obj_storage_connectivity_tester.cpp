@@ -19,7 +19,6 @@
 
 #include "io/object_storage/obj_storage_client_holder.h"
 #include "io/object_storage/obj_storage_config_parser.h"
-#include "io/object_storage/obj_storage_rate_limiter_manager.h"
 #include "util/s3_uri.h"
 
 namespace doris::io {
@@ -38,11 +37,10 @@ Status ObjStorageConnectivityTester::test(const std::map<std::string, std::strin
         return Status::InvalidArgument("Failed to extract bucket from location: {}", it->second);
     }
 
-    auto storage_config = DORIS_TRY(ObjStorageConfigParser::from_properties(properties, s3_uri));
+    ObjStorageConfig storage_config;
+    RETURN_IF_ERROR(ObjStorageConfigParser::from_properties(properties, s3_uri, &storage_config));
 
-    ObjStorageClientHolder holder(
-            std::move(storage_config.client),
-            ObjStorageRateLimiterManager::policy_for(storage_config.is_internal_bucket));
+    ObjStorageClientHolder holder(std::move(storage_config));
     RETURN_IF_ERROR(holder.init());
 
     auto resp = holder.get()->head_object({.bucket = bucket, .key = ""});

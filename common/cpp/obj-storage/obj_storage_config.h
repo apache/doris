@@ -17,204 +17,166 @@
 
 #pragma once
 
-#include <chrono>
+#include <functional>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <variant>
 
+#include "cpp/aws_common.h"
+#include "cpp/obj-storage/auth/gcp/gcp_auth.h"
 #include "cpp/obj-storage/client/obj_storage_client.h"
 
 namespace doris {
 
-struct ObjStorageConnectionConfig {
-    std::string endpoint;
-    std::optional<std::string> ca_cert_file;
-    std::optional<int> max_connections;
-    std::optional<std::chrono::milliseconds> connect_timeout;
-    std::optional<std::chrono::milliseconds> request_timeout;
-    std::optional<int> max_retries;
-    bool operator==(const ObjStorageConnectionConfig&) const = default;
-};
-
-struct AnonymousObjStorageAuth {
-    bool operator==(const AnonymousObjStorageAuth&) const = default;
-};
-
-struct AccessKeyObjStorageAuth {
-    std::string access_key;
-    std::string secret_key;
-    std::string session_token;
-    bool operator==(const AccessKeyObjStorageAuth&) const = default;
-};
-
-enum class AwsCredentialChainType {
-    Default,
-    Environment,
-    Profile,
-    WebIdentity,
-    Container,
-    InstanceProfile
-};
-enum class AwsCredentialImplementation { V1, V2 };
-
-using AwsCredentialSource =
-        std::variant<AnonymousObjStorageAuth, AccessKeyObjStorageAuth, AwsCredentialChainType>;
-
-struct AwsAssumeRole {
-    std::string role_arn;
-    std::optional<std::string> external_id;
-    std::optional<std::chrono::milliseconds> request_timeout;
-    bool operator==(const AwsAssumeRole&) const = default;
-};
-
-struct AwsObjStorageAuthConfig {
-    AwsCredentialSource source;
-    std::optional<AwsAssumeRole> assume_role;
-    AwsCredentialImplementation implementation = AwsCredentialImplementation::V1;
-    bool operator==(const AwsObjStorageAuthConfig&) const = default;
-};
-
-// Older resources can explicitly select the credential chain of their S3-compatible SDK.
-// The v1 default uses the SDK chain and the v2 default uses the Doris chain.
-struct ObjStorageCredentialChain {
-    AwsCredentialChainType type = AwsCredentialChainType::Default;
-    AwsCredentialImplementation implementation = AwsCredentialImplementation::V1;
-    bool operator==(const ObjStorageCredentialChain&) const = default;
-};
-
-using AccessKeyOrAnonymousObjStorageAuth =
-        std::variant<AnonymousObjStorageAuth, AccessKeyObjStorageAuth, ObjStorageCredentialChain>;
-
-struct GcpHmacObjStorageAuth {
-    std::string access_id;
-    std::string secret_key;
-    std::string session_token;
-    bool operator==(const GcpHmacObjStorageAuth&) const = default;
-};
-
-enum class GcpCredentialSource { Default, ComputeEngine };
-
-struct GcpNativeObjStorageAuth {
-    GcpCredentialSource source = GcpCredentialSource::Default;
-    std::optional<std::string> impersonation_service_account;
-    bool operator==(const GcpNativeObjStorageAuth&) const = default;
-};
-
-using GcpObjStorageAuthConfig = std::variant<AnonymousObjStorageAuth, GcpHmacObjStorageAuth,
-                                             GcpNativeObjStorageAuth, ObjStorageCredentialChain>;
-
-struct AzureObjStorageAuthConfig {
-    std::string account_name;
-    std::string account_key;
-    bool operator==(const AzureObjStorageAuthConfig&) const = default;
-};
-
-struct AwsObjStorageConfig {
-    ObjStorageConnectionConfig connection;
-    AwsObjStorageAuthConfig auth;
-    std::string region;
-    bool use_path_style = false;
-    bool use_sdk_endpoint = false;
-    bool sdk_endpoint_http = false;
-    bool retry_slow_down = false;
-    std::optional<std::string> validate() const;
-    bool operator==(const AwsObjStorageConfig&) const = default;
-};
-
-struct OssObjStorageConfig {
-    ObjStorageConnectionConfig connection;
-    AccessKeyOrAnonymousObjStorageAuth auth;
-    std::string region;
-    bool use_path_style = false;
-    bool retry_slow_down = false;
-    std::optional<std::string> validate() const;
-    bool operator==(const OssObjStorageConfig&) const = default;
-};
-
-struct CosObjStorageConfig {
-    ObjStorageConnectionConfig connection;
-    AccessKeyOrAnonymousObjStorageAuth auth;
-    std::string region;
-    bool use_path_style = false;
-    bool retry_slow_down = false;
-    std::optional<std::string> validate() const;
-    bool operator==(const CosObjStorageConfig&) const = default;
-};
-
-struct BosObjStorageConfig {
-    ObjStorageConnectionConfig connection;
-    AccessKeyOrAnonymousObjStorageAuth auth;
-    std::string region;
-    bool use_path_style = false;
-    bool retry_slow_down = false;
-    std::optional<std::string> validate() const;
-    bool operator==(const BosObjStorageConfig&) const = default;
-};
-
-struct ObsObjStorageConfig {
-    ObjStorageConnectionConfig connection;
-    AccessKeyOrAnonymousObjStorageAuth auth;
-    std::string region;
-    bool use_path_style = false;
-    bool retry_slow_down = false;
-    std::optional<std::string> validate() const;
-    bool operator==(const ObsObjStorageConfig&) const = default;
-};
-
-struct TosObjStorageConfig {
-    ObjStorageConnectionConfig connection;
-    AccessKeyOrAnonymousObjStorageAuth auth;
-    std::string region;
-    bool use_path_style = false;
-    bool retry_slow_down = false;
-    std::optional<std::string> validate() const;
-    bool operator==(const TosObjStorageConfig&) const = default;
-};
-
-struct GcpObjStorageConfig {
-    ObjStorageConnectionConfig connection;
-    GcpObjStorageAuthConfig auth;
-    std::string region;
-    bool use_path_style = false;
-    bool retry_slow_down = false;
-    std::optional<std::string> validate() const;
-    bool operator==(const GcpObjStorageConfig&) const = default;
-};
-
-struct AzureObjStorageConfig {
-    ObjStorageConnectionConfig connection;
-    AzureObjStorageAuthConfig auth;
-    bool retry_too_many_requests = false;
-    std::optional<std::string> validate() const;
-    bool operator==(const AzureObjStorageConfig&) const = default;
-};
-
-using ObjStorageClientConfig =
-        std::variant<AwsObjStorageConfig, OssObjStorageConfig, CosObjStorageConfig,
-                     BosObjStorageConfig, ObsObjStorageConfig, TosObjStorageConfig,
-                     GcpObjStorageConfig, AzureObjStorageConfig>;
-
-struct ObjStorageResourceConfig {
-    std::string bucket;
-    std::string prefix;
-    ObjStorageClientConfig client;
-    bool is_internal_bucket = false;
+// Fields carried by the FE object-storage properties, storage resource and vault protocols.
+struct ObjStorageConfigBase {
+    std::string bucket {};
+    std::string prefix {};
     bool sse_enabled = false;
+    bool is_internal_bucket = false;
+
+    std::string endpoint {};
+    std::string region {};
+    std::string ak {};
+    std::string sk {};
     std::string_view normalized_prefix() const;
-    bool operator==(const ObjStorageResourceConfig&) const = default;
+    bool operator==(const ObjStorageConfigBase&) const = default;
 };
 
-const ObjStorageConnectionConfig& obj_storage_connection(const ObjStorageClientConfig& config);
-ObjStorageConnectionConfig& obj_storage_connection(ObjStorageClientConfig& config);
-ObjStorageProvider storage_provider(const ObjStorageClientConfig& config);
-bool same_client_target(const ObjStorageClientConfig& lhs, const ObjStorageClientConfig& rhs);
-std::optional<std::string> validate_obj_storage_config(const ObjStorageClientConfig& config);
-std::string obj_storage_config_to_string(const ObjStorageClientConfig& config);
-std::string hide_access_key(const std::string& ak);
+// SDK defaults supplied by the process when it opens an S3-compatible connection.
+struct S3ClientSettings {
+    std::string credential_provider_version {};
+    EmptyCredentialsBehavior empty_credentials = EmptyCredentialsBehavior::DEFAULT_CHAIN;
+    std::string ca_cert_path {};
+    std::string http_scheme {};
+    int max_retries = 0;
+    bool retry_slow_down = false;
+    std::optional<int64_t> min_connections {};
+    bool operator==(const S3ClientSettings&) const = default;
+};
+
+struct S3CompatibleConfig : ObjStorageConfigBase {
+    std::string token {};
+    // FE sends this AWS SDK credential mode for every S3-compatible provider.
+    CredProviderType cred_provider_type = CredProviderType::Default;
+    int max_connections = -1;
+    int request_timeout_ms = -1;
+    int connect_timeout_ms = -1;
+    bool use_virtual_addressing = true;
+    bool need_override_endpoint = true;
+    S3ClientSettings s3 {};
+    bool operator==(const S3CompatibleConfig&) const = default;
+};
+
+using ObjStorageSignedUrlGenerator = std::function<std::string(const ObjStoragePath&, int64_t)>;
+
+struct AwsConfig : S3CompatibleConfig {
+    static constexpr ObjStorageProvider provider = ObjStorageProvider::AWS;
+    std::optional<long> sts_request_timeout_ms {};
+    std::string role_arn {};
+    std::string external_id {};
+    bool operator==(const AwsConfig&) const = default;
+};
+
+struct OssConfig : S3CompatibleConfig {
+    static constexpr ObjStorageProvider provider = ObjStorageProvider::OSS;
+    bool operator==(const OssConfig&) const = default;
+};
+
+struct CosConfig : S3CompatibleConfig {
+    static constexpr ObjStorageProvider provider = ObjStorageProvider::COS;
+    bool operator==(const CosConfig&) const = default;
+};
+
+struct BosConfig : S3CompatibleConfig {
+    static constexpr ObjStorageProvider provider = ObjStorageProvider::BOS;
+    bool operator==(const BosConfig&) const = default;
+};
+
+struct ObsConfig : S3CompatibleConfig {
+    static constexpr ObjStorageProvider provider = ObjStorageProvider::OBS;
+    bool operator==(const ObsConfig&) const = default;
+};
+
+struct GcpConfig : S3CompatibleConfig {
+    static constexpr ObjStorageProvider provider = ObjStorageProvider::GCP;
+    std::optional<GcpCredentialConfig> credential {};
+    ObjStorageSignedUrlGenerator (*gcs_signer)(const GcpCredentialConfig&, std::string, int,
+                                               std::string) = nullptr;
+    std::optional<std::string> validate_credential(std::string_view aws_role_arn = {},
+                                                   std::string_view aws_external_id = {}) const;
+    bool operator==(const GcpConfig&) const = default;
+};
+
+struct TosConfig : S3CompatibleConfig {
+    static constexpr ObjStorageProvider provider = ObjStorageProvider::TOS;
+    bool operator==(const TosConfig&) const = default;
+};
+
+struct AzureConfig : ObjStorageConfigBase {
+    static constexpr ObjStorageProvider provider = ObjStorageProvider::AZURE;
+    int max_retries = 0;
+    int azure_log_level = 4;
+    bool retry_too_many_requests = false;
+    std::string ca_cert_path {};
+    std::optional<std::string> ca_cert_file_paths {};
+    bool operator==(const AzureConfig&) const = default;
+};
+
+using ObjStorageConfig = std::variant<AwsConfig, OssConfig, CosConfig, BosConfig, ObsConfig,
+                                      GcpConfig, TosConfig, AzureConfig>;
+
+ObjStorageClientBuildResult build_obj_storage_client(const ObjStorageConfig& config);
+const ObjStorageConfigBase& storage_config_base(const ObjStorageConfig& config);
+ObjStorageConfigBase& storage_config_base(ObjStorageConfig& config);
+ObjStorageProvider storage_provider(const ObjStorageConfig& config);
+std::optional<std::string> validate_obj_storage_config(const ObjStorageConfig& config);
+bool same_storage_target(const ObjStorageConfig& lhs, const ObjStorageConfig& rhs);
+std::string obj_storage_config_to_string(const ObjStorageConfig& config);
+
+// The cache key retains all provider fields and only the location bound to the SDK client.
+ObjStorageConfig obj_storage_client_cache_key(const ObjStorageConfig& config);
 
 struct ObjStorageClientHash {
-    size_t operator()(const ObjStorageClientConfig& config) const;
+    size_t operator()(const ObjStorageConfig& config) const;
 };
+
+std::string hide_access_key(const std::string& ak);
+
+// Unknown endpoints use the S3-compatible client.
+cloud::ObjectStoreInfoPB::Provider storage_provider_from_endpoint(std::string_view endpoint);
+
+// BE and Recycler resolve the same persisted vault to the same provider.
+cloud::ObjectStoreInfoPB::Provider vault_storage_provider(const cloud::ObjectStoreInfoPB& info);
+std::optional<std::string> parse_vault_storage_config(const cloud::ObjectStoreInfoPB& info,
+                                                      ObjStorageConfig* result);
+
+// Invoke the input parser with the selected provider's concrete configuration.
+template <typename Parser>
+std::optional<std::string> parse_storage_provider(cloud::ObjectStoreInfoPB::Provider provider,
+                                                  Parser parse) {
+    using Vault = cloud::ObjectStoreInfoPB;
+    switch (provider) {
+    case Vault::S3:
+        return parse(AwsConfig {});
+    case Vault::OSS:
+        return parse(OssConfig {});
+    case Vault::COS:
+        return parse(CosConfig {});
+    case Vault::BOS:
+        return parse(BosConfig {});
+    case Vault::OBS:
+        return parse(ObsConfig {});
+    case Vault::GCP:
+        return parse(GcpConfig {});
+    case Vault::TOS:
+        return parse(TosConfig {});
+    case Vault::AZURE:
+        return parse(AzureConfig {});
+    default:
+        return "Unknown object storage provider " + std::to_string(provider);
+    }
+}
 
 } // namespace doris

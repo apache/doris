@@ -53,27 +53,20 @@ namespace doris {
 static const char* MOCK_S3_FS_ID = "mock_s3_fs_id_6";
 
 TEST(ObjStorageFileSystemTest, RefreshUsesExistingFilesystemOnlyForSameTarget) {
-    AwsObjStorageConfig aws;
-    aws.connection.endpoint = "endpoint";
-    aws.region = "region";
-    ObjStorageResourceConfig config {
-            .bucket = "bucket", .prefix = "/warehouse/", .client = std::move(aws)};
+    AwsConfig config;
+    config.bucket = "bucket";
+    config.prefix = "/warehouse/";
+    config.endpoint = "endpoint";
+    config.region = "region";
     io::ObjStorageFileSystem fs(config, MOCK_S3_FS_ID);
 
     config.prefix = "warehouse";
-    std::get<AwsObjStorageConfig>(config.client).auth.source =
-            AccessKeyObjStorageAuth {"ak", "rotated", {}};
+    config.sk = "rotated";
     EXPECT_TRUE(fs.same_target(config));
     config.prefix = "archive";
     EXPECT_FALSE(fs.same_target(config));
     config.prefix = "warehouse";
     config.bucket = "other-bucket";
-    EXPECT_FALSE(fs.same_target(config));
-    config.bucket = "bucket";
-    config.sse_enabled = true;
-    EXPECT_FALSE(fs.same_target(config));
-    config.sse_enabled = false;
-    config.is_internal_bucket = true;
     EXPECT_FALSE(fs.same_target(config));
 }
 
@@ -220,8 +213,9 @@ protected:
         }
         S3URI uri("s3://" + config_->get_bucket() + '/' + config_->get_prefix());
         RETURN_IF_ERROR(uri.parse());
-        auto s3_conf = DORIS_TRY(ObjStorageConfigParser::from_properties(properties, uri));
-        s3_conf.prefix = config_->get_prefix();
+        ObjStorageConfig s3_conf;
+        RETURN_IF_ERROR(ObjStorageConfigParser::from_properties(properties, uri, &s3_conf));
+        storage_config_base(s3_conf).prefix = config_->get_prefix();
 
         s3_fs_ = DORIS_TRY(io::ObjStorageFileSystem::create(s3_conf, MOCK_S3_FS_ID));
         return Status::OK();

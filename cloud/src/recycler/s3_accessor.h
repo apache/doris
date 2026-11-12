@@ -22,6 +22,7 @@
 #include <memory>
 #include <optional>
 
+#include "cpp/obj-storage/ca_bundle_cache.h"
 #include "cpp/obj-storage/obj_storage_config.h"
 #include "recycler/storage_vault_accessor.h"
 
@@ -32,7 +33,6 @@ using S3RateLimiterHolder = TokenBucketRateLimiterHolder;
 enum class ObjStorageRateLimitType;
 namespace cloud {
 class ObjectStoreInfoPB;
-class RamUserPB;
 class SimpleThreadPool;
 
 struct AccessorRateLimiter {
@@ -48,15 +48,15 @@ private:
 
 class S3Accessor : public StorageVaultAccessor {
 public:
-    explicit S3Accessor(ObjStorageResourceConfig conf);
+    explicit S3Accessor(ObjStorageConfig conf);
     ~S3Accessor() override;
 
     // Decode the persisted vault, including the Recycler's encrypted and stage credentials.
-    static std::optional<ObjStorageResourceConfig> parse_config(
-            ObjectStoreInfoPB info, const RamUserPB* stage_user = nullptr);
+    static std::optional<ObjStorageConfig> parse_config(ObjectStoreInfoPB info,
+                                                        bool skip_aksk = false);
 
     // returns 0 for success otherwise error
-    static int create(ObjStorageResourceConfig conf, std::shared_ptr<S3Accessor>* accessor);
+    static int create(ObjStorageConfig conf, std::shared_ptr<S3Accessor>* accessor);
 
     // returns 0 for success otherwise error
     int init();
@@ -100,13 +100,16 @@ protected:
     std::string get_key(const std::string& relative_path) const;
     std::string to_uri(const std::string& relative_path) const;
 
-    ObjStorageResourceConfig conf_;
+    const ObjStorageConfigBase& location() const { return storage_config_base(conf_); }
+
+    ObjStorageConfig conf_;
     std::shared_ptr<ObjStorageClient> obj_client_;
+    CaBundleCache _ca_bundle;
 };
 
 class GcsAccessor final : public S3Accessor {
 public:
-    explicit GcsAccessor(ObjStorageResourceConfig conf) : S3Accessor(std::move(conf)) {}
+    explicit GcsAccessor(ObjStorageConfig conf) : S3Accessor(std::move(conf)) {}
     ~GcsAccessor() override = default;
 
     int delete_files(const std::vector<std::string>& paths) override;

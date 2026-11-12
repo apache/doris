@@ -24,7 +24,6 @@
 #include <string_view>
 
 #include "cpp/aws_common.h"
-#include "cpp/obj-storage/obj_storage_config.h"
 
 namespace Aws::Auth {
 class AWSCredentialsProvider;
@@ -37,14 +36,15 @@ enum class AwsCredentialProviderVersion {
     V2,
 };
 
+struct AwsConfig;
+struct S3CompatibleConfig;
+
 struct AwsCredentialOptions {
     static AwsCredentialOptions from_sdk_defaults(
             std::string_view provider_version, const Aws::Client::ClientConfiguration& sdk_defaults,
             const std::string& ca_cert_path, EmptyCredentialsBehavior empty_credentials);
-    static AwsCredentialOptions from_auth(const AwsObjStorageAuthConfig& auth,
-                                          const ObjStorageConnectionConfig& connection);
-    static AwsCredentialOptions from_auth(const AccessKeyOrAnonymousObjStorageAuth& auth,
-                                          const ObjStorageConnectionConfig& connection);
+    static AwsCredentialOptions from_config(const S3CompatibleConfig& config);
+    static AwsCredentialOptions from_config(const AwsConfig& config);
 
     AwsCredentialProviderVersion version = AwsCredentialProviderVersion::V1;
     std::string access_key {};
