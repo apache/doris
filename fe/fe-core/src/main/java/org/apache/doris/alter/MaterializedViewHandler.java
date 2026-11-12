@@ -629,10 +629,6 @@ public class MaterializedViewHandler extends AlterHandler {
         }
 
         for (Column column : newMVColumns) {
-            if (column.getType().typeContainsFile()) {
-                throw new DdlException(
-                        "Do not support FILE type or types containing FILE in materialized view columns");
-            }
             // check c.2
             if (column.isKey() && column.getType().isFloatingPointType()) {
                 throw new DdlException("Do not support float/double type on key column, you can change it to decimal");

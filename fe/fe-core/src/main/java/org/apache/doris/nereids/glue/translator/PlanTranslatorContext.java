@@ -173,6 +173,25 @@ public class PlanTranslatorContext {
 
     private final Set<SlotId> virtualColumnIds = Sets.newHashSet();
 
+    /**
+     * Constructor for testing purposes with default values.
+     */
+    @VisibleForTesting
+    public PlanTranslatorContext() {
+        this(Config.be_exec_version);
+    }
+
+    @VisibleForTesting
+    PlanTranslatorContext(int beExecVersion) {
+        this.connectContext = null;
+        this.statementContext = new StatementContext();
+        this.statementContext.initializeBeExecVersion(beExecVersion);
+        this.scanContext = ScanContext.builder().beExecVersion(beExecVersion).build();
+        this.translator = null;
+        this.topnFilterContext = new TopnFilterContext();
+        this.descTable = new DescriptorTable();
+    }
+
     /** PlanTranslatorContext */
     public PlanTranslatorContext(CascadesContext ctx) {
         this(ctx, new DescriptorTable());
@@ -205,25 +224,6 @@ public class PlanTranslatorContext {
         Map<String, TS3Resource> resources = Maps.newLinkedHashMap();
         s3Resources.forEach((name, resource) -> resources.put(name, resource.deepCopy()));
         return resources;
-    }
-
-    /**
-     * Constructor for testing purposes with default values.
-     */
-    @VisibleForTesting
-    public PlanTranslatorContext() {
-        this(Config.be_exec_version);
-    }
-
-    @VisibleForTesting
-    PlanTranslatorContext(int beExecVersion) {
-        this.connectContext = null;
-        this.statementContext = new StatementContext();
-        this.statementContext.initializeBeExecVersion(beExecVersion);
-        this.scanContext = ScanContext.builder().beExecVersion(beExecVersion).build();
-        this.translator = null;
-        this.topnFilterContext = new TopnFilterContext();
-        this.descTable = new DescriptorTable();
     }
 
     public int getBeExecVersion() {

@@ -390,6 +390,18 @@ public class ColumnDefinition {
         }
     }
 
+    private void validateDataType() {
+        try {
+            type.validateDataType();
+            if (type.typeContainsFile()) {
+                throw new AnalysisException("FILE and types containing FILE cannot be used as table columns");
+            }
+        } catch (AnalysisException e) {
+            throw new AnalysisException("Invalid type " + type.toCatalogDataType().toSql()
+                    + " for column '" + name + "': " + e.getMessage(), e);
+        }
+    }
+
     /**
      * validate column definition and analyze
      */
@@ -433,11 +445,7 @@ public class ColumnDefinition {
             throw new AnalysisException(
                     "Cannot use `VARIANT` type column named with a `.` character: " + name);
         }
-        type.validateDataType();
-        if (type.typeContainsFile()) {
-            throw new AnalysisException(isOlap ? "FILE columns are not supported in internal tables"
-                    : "FILE columns are not supported in external tables");
-        }
+        validateDataType();
         type = updateCharacterTypeLength(type);
         if (!isSystemGeneratedTable && isOlap && keysType != KeysType.AGG_KEYS && isAggregateTableOnlyType()
                 && !Config.enable_non_aggregate_table_state_types) {
