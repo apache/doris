@@ -17,12 +17,39 @@
 
 #include "cpp/obj-storage/auth/gcp/gcp_auth.h"
 
+#include <gen_cpp/cloud.pb.h>
+
 #include <algorithm>
 #include <cctype>
 #include <regex>
 #include <utility>
 
 namespace doris {
+
+GcpCredentialConfig to_gcp_credential_config(const cloud::GcpCredentialPB& credential) {
+    GcpCredentialConfig config;
+    switch (credential.credential_provider_type()) {
+    case cloud::GcpCredentialPB::DEFAULT:
+        config.provider_type = GcpCredentialProviderType::Default;
+        break;
+    case cloud::GcpCredentialPB::COMPUTE_ENGINE:
+        config.provider_type = GcpCredentialProviderType::ComputeEngine;
+        break;
+    }
+    config.impersonation_service_account = credential.impersonation_service_account();
+    return config;
+}
+
+std::optional<std::string> validate_gcp_credential(const GcpCredentialConfig& credential,
+                                                   const ObjCredentialValidationContext& context) {
+    if (context.provider != ObjCredentialProvider::Gcp) {
+        return "GCP credentials require provider=GCP";
+    }
+    if (context.has_conflicting_credentials()) {
+        return "GCP credentials cannot be combined with other credentials";
+    }
+    return validate_gcp_credential(credential);
+}
 
 bool is_valid_gcp_storage_endpoint(std::string_view endpoint) {
     // Only service-base XML API endpoints: the S3 clients add the bucket themselves.

@@ -34,8 +34,8 @@ class TS3StorageParam;
 
 class ObjStorageConfigParser {
 public:
-    static ObjStorageConfig from_vault(const cloud::ObjectStoreInfoPB&);
-    static ObjStorageConfig from_storage_param(const TS3StorageParam&);
+    static Result<ObjStorageConfig> from_vault(const cloud::ObjectStoreInfoPB&);
+    static Result<ObjStorageConfig> from_storage_param(const TS3StorageParam&);
     static Status from_properties(const std::map<std::string, std::string>& properties,
                                   const S3URI& uri, ObjStorageConfig* config);
 };

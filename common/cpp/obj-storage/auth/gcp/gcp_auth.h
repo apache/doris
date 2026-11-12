@@ -25,6 +25,11 @@
 
 namespace doris {
 
+class TGcpCredential;
+namespace cloud {
+class GcpCredentialPB;
+}
+
 // Provider-specific authentication lives under cpp/obj-storage/auth/<provider>. Future
 // providers should use sibling packages and expose only their normalized config,
 // validation, and client-setup entry points there.
@@ -50,6 +55,11 @@ struct GcpCredentialParseResult {
     std::optional<std::string> error = std::nullopt;
 };
 
+GcpCredentialConfig to_gcp_credential_config(const cloud::GcpCredentialPB& credential);
+GcpCredentialConfig to_gcp_credential_config(const TGcpCredential& credential);
+
+std::optional<std::string> validate_gcp_credential(const GcpCredentialConfig& credential,
+                                                   const ObjCredentialValidationContext& context);
 bool is_valid_gcp_service_account_email(std::string_view email);
 bool is_valid_gcp_storage_endpoint(std::string_view endpoint);
 std::optional<GcpCredentialProviderType> parse_gcp_credential_provider_type(

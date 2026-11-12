@@ -17,85 +17,58 @@
 
 #include "io/object_storage/obj_storage_client_factory.h"
 
+#include <type_traits>
 #include <variant>
 
 #include "common/config.h"
 #include "common/logging.h"
 #include "cpp/aws_common.h"
-#include "cpp/obj-storage/client/bos_obj_storage_client.h"
-#include "cpp/obj-storage/client/cos_obj_storage_client.h"
-#include "cpp/obj-storage/client/gcp_obj_storage_client.h"
-#include "cpp/obj-storage/client/obj_storage_client_runtime.h"
-#include "cpp/obj-storage/client/obs_obj_storage_client.h"
-#include "cpp/obj-storage/client/oss_obj_storage_client.h"
-#include "cpp/obj-storage/client/s3_obj_storage_client.h"
-#include "cpp/obj-storage/client/tos_obj_storage_client.h"
 #include "io/fs/gcs_signed_url_provider.h"
 #include "io/object_storage/aws_client_settings.h"
-#ifdef USE_AZURE
-#include "cpp/obj-storage/client/azure_obj_storage_client.h"
-#endif
 
 namespace doris {
 namespace {
 
 using ClientResult = Result<std::shared_ptr<io::ObjStorageClient>>;
 
-ClientResult checked_client(ObjStorageClientBuildResult built) {
+ClientResult create_provider_client(ObjStorageConfig storage_config) {
+#ifndef USE_AZURE
+    if (std::holds_alternative<AzureConfig>(storage_config)) {
+        return ResultError(
+                Status::NotSupported("BE is not compiled with azure support, export "
+                                     "BUILD_AZURE=ON before building"));
+    }
+#endif
+    std::visit(
+            []<typename Config>(Config& provider) {
+                if constexpr (std::is_same_v<Config, AzureConfig>) {
+                    provider.azure_log_level = config::azure_log_level;
+                    provider.max_retries = config::max_s3_client_retry;
+                    provider.retry_too_many_requests = true;
+                    provider.ca_cert_path = be_ca_bundle_path();
+                    provider.ca_cert_file_paths = config::ca_cert_file_paths;
+                } else {
+                    provider.s3.credential_provider_version =
+                            config::aws_credentials_provider_version;
+                    provider.s3.empty_credentials = EmptyCredentialsBehavior::ANONYMOUS;
+                    provider.s3.ca_cert_path = be_ca_bundle_path();
+                    provider.s3.http_scheme = config::s3_client_http_scheme;
+                    provider.s3.max_retries = config::max_s3_client_retry;
+                    provider.s3.retry_slow_down = true;
+                    if constexpr (std::is_same_v<Config, AwsConfig>) {
+                        provider.sts_request_timeout_ms = config::aws_client_request_timeout_ms;
+                    } else if constexpr (std::is_same_v<Config, GcpConfig>) {
+                        provider.gcs_signer = io::make_gcs_signed_url_generator;
+                    }
+                }
+            },
+            storage_config);
+    auto built = build_obj_storage_client(storage_config);
     if (!built.client) {
         return ResultError(
                 Status::InvalidArgument("failed to create object storage client: {}", built.error));
     }
     return std::move(built.client);
-}
-
-ObjStorageClientRuntime client_runtime() {
-    return {.credential_provider_version = config::aws_credentials_provider_version,
-            .empty_credentials = EmptyCredentialsBehavior::ANONYMOUS,
-            .sts_request_timeout_ms = config::aws_client_request_timeout_ms,
-            .ca_cert_path = be_ca_bundle_path(),
-            .http_scheme = config::s3_client_http_scheme,
-            .max_retries = config::max_s3_client_retry,
-            .retry_slow_down = true,
-            .gcs_signer = io::make_gcs_signed_url_generator,
-            .azure_log_level = config::azure_log_level,
-            .retry_too_many_requests = true,
-            .ca_cert_file_paths = config::ca_cert_file_paths};
-}
-
-ClientResult create_provider_client(const ObjStorageConfig& storage_config) {
-    const auto runtime = client_runtime();
-    if (const auto* aws = std::get_if<AwsConfig>(&storage_config)) {
-        return checked_client(S3ObjStorageClient::create(*aws, runtime));
-    }
-    if (const auto* oss = std::get_if<OssConfig>(&storage_config)) {
-        return checked_client(OssObjStorageClient::create(*oss, runtime));
-    }
-    if (const auto* cos = std::get_if<CosConfig>(&storage_config)) {
-        return checked_client(CosObjStorageClient::create(*cos, runtime));
-    }
-    if (const auto* bos = std::get_if<BosConfig>(&storage_config)) {
-        return checked_client(BosObjStorageClient::create(*bos, runtime));
-    }
-    if (const auto* obs = std::get_if<ObsConfig>(&storage_config)) {
-        return checked_client(ObsObjStorageClient::create(*obs, runtime));
-    }
-    if (const auto* gcp = std::get_if<GcpConfig>(&storage_config)) {
-        return checked_client(GcpObjStorageClient::create(*gcp, runtime));
-    }
-    if (const auto* tos = std::get_if<TosConfig>(&storage_config)) {
-        return checked_client(TosObjStorageClient::create(*tos, runtime));
-    }
-    if (const auto* azure = std::get_if<AzureConfig>(&storage_config)) {
-#ifdef USE_AZURE
-        return checked_client(AzureObjStorageClient::create(*azure, runtime));
-#else
-        return ResultError(
-                Status::NotSupported("BE is not compiled with azure support, export "
-                                     "BUILD_AZURE=ON before building"));
-#endif
-    }
-    return ResultError(Status::NotSupported("Unsupported object storage provider"));
 }
 
 } // namespace

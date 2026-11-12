@@ -23,37 +23,11 @@
 #include <algorithm>
 #include <cctype>
 #include <functional>
-#include <tuple>
+#include <type_traits>
 #include <utility>
 
 namespace doris {
 namespace {
-
-// Adapter between the IO storage-domain enum and the credential layer. Keep it
-// local: neither layer should own or depend on the other's enum definition.
-ObjCredentialProvider to_obj_credential_provider(ObjStorageProvider provider) {
-    switch (provider) {
-    case ObjStorageProvider::AWS:
-        return ObjCredentialProvider::Aws;
-    case ObjStorageProvider::AZURE:
-        return ObjCredentialProvider::Azure;
-    case ObjStorageProvider::BOS:
-        return ObjCredentialProvider::Bos;
-    case ObjStorageProvider::COS:
-        return ObjCredentialProvider::Cos;
-    case ObjStorageProvider::GCP:
-        return ObjCredentialProvider::Gcp;
-    case ObjStorageProvider::OBS:
-        return ObjCredentialProvider::Obs;
-    case ObjStorageProvider::OSS:
-        return ObjCredentialProvider::Oss;
-    case ObjStorageProvider::TOS:
-        return ObjCredentialProvider::Tos;
-    case ObjStorageProvider::UNKNOWN:
-        return ObjCredentialProvider::Unknown;
-    }
-    return ObjCredentialProvider::Unknown;
-}
 
 std::string_view pop_dns_label(std::string_view& name) {
     const auto dot = name.rfind('.');
@@ -75,14 +49,22 @@ std::string_view ObjStorageConfigBase::normalized_prefix() const {
     return std::string_view(prefix).substr(first, prefix.find_last_not_of('/') - first + 1);
 }
 
-bool AzureConfig::operator==(const AzureConfig& other) const {
-    // The role affects AK/SK validation when refreshing a holder.
-    auto fields = [](const AzureConfig& config) {
-        return std::tie(config.bucket, config.prefix, config.sse_enabled, config.is_internal_bucket,
-                        config.endpoint, config.region, config.ak, config.sk, config.credential,
-                        config.role_arn);
-    };
-    return fields(*this) == fields(other);
+std::optional<std::string> GcpConfig::validate_credential(std::string_view aws_role_arn,
+                                                          std::string_view aws_external_id) const {
+    if (!credential) {
+        return std::nullopt;
+    }
+    return validate_gcp_credential(
+            *credential,
+            {
+                    .provider = ObjCredentialProvider::Gcp,
+                    .ak = ak,
+                    .sk = sk,
+                    .token = token,
+                    .has_aws_role_arn = !aws_role_arn.empty(),
+                    .has_aws_external_id = !aws_external_id.empty(),
+                    .has_aws_credential_provider = cred_provider_type != CredProviderType::Default,
+            });
 }
 
 const ObjStorageConfigBase& storage_config_base(const ObjStorageConfig& config) {
@@ -106,40 +88,41 @@ std::optional<std::string> validate_obj_storage_config(const ObjStorageConfig& c
     if (fields.region.empty()) {
         return "Invalid s3 conf, empty region";
     }
-    ObjCredentialValidationContext context {
-            .provider = to_obj_credential_provider(storage_provider(config)),
-            .ak = fields.ak,
-            .sk = fields.sk,
-            .token = fields.token,
-            .has_aws_role_arn = !fields.role_arn.empty(),
-            .has_aws_external_id = !fields.external_id.empty(),
-            .has_aws_credential_provider = fields.cred_provider_type != CredProviderType::Default};
-    if (auto error = validate_obj_credential_config(fields.credential, context)) {
-        return error;
+    if (auto* gcp = std::get_if<GcpConfig>(&config)) {
+        if (auto error = gcp->validate_credential()) {
+            return error;
+        }
     }
-    if (!context.has_aws_role_arn && fields.ak.empty() != fields.sk.empty()) {
+    const auto* aws = std::get_if<AwsConfig>(&config);
+    if ((!aws || aws->role_arn.empty()) && fields.ak.empty() != fields.sk.empty()) {
         return fields.ak.empty() ? "Invalid s3 conf, empty ak" : "Invalid s3 conf, empty sk";
     }
     return std::nullopt;
 }
 
 bool same_storage_target(const ObjStorageConfig& lhs, const ObjStorageConfig& rhs) {
-    const auto& left = storage_config_base(lhs);
-    const auto& right = storage_config_base(rhs);
-    return lhs.index() == rhs.index() && left.bucket == right.bucket &&
-           left.normalized_prefix() == right.normalized_prefix() &&
-           left.is_internal_bucket == right.is_internal_bucket && left.endpoint == right.endpoint &&
-           left.region == right.region &&
-           (std::holds_alternative<AzureConfig>(lhs) ||
-            left.need_override_endpoint == right.need_override_endpoint);
+    return std::visit(
+            [&](const auto& left) {
+                using Config = std::decay_t<decltype(left)>;
+                const auto* right = std::get_if<Config>(&rhs);
+                if (!right || left.bucket != right->bucket ||
+                    left.normalized_prefix() != right->normalized_prefix() ||
+                    left.is_internal_bucket != right->is_internal_bucket ||
+                    left.endpoint != right->endpoint || left.region != right->region) {
+                    return false;
+                }
+                if constexpr (std::is_base_of_v<S3CompatibleConfig, Config>) {
+                    return left.need_override_endpoint == right->need_override_endpoint;
+                }
+                return true;
+            },
+            lhs);
 }
 
 ObjStorageConfig obj_storage_client_cache_key(const ObjStorageConfig& config) {
     auto key = config;
     auto& fields = storage_config_base(key);
-    if (std::holds_alternative<AzureConfig>(key)) {
-        fields.role_arn.clear(); // The shared-key SDK client does not consume the role.
-    } else {
+    if (!std::holds_alternative<AzureConfig>(key)) {
         fields.bucket.clear();
     }
     fields.prefix.clear();
@@ -156,19 +139,30 @@ size_t ObjStorageClientHash::operator()(const ObjStorageConfig& config) const {
     hash_code ^= hash_string(fields.region);
     hash_code ^= static_cast<int>(storage_provider(config));
     hash_code ^= hash_string(fields.bucket);
-    hash_combine_credential(&hash_code, fields.credential);
-    if (std::holds_alternative<AzureConfig>(config)) {
-        return hash_code;
-    }
-    hash_code ^= hash_string(fields.token);
-    hash_code ^= fields.max_connections;
-    hash_code ^= fields.request_timeout_ms;
-    hash_code ^= fields.connect_timeout_ms;
-    hash_code ^= fields.use_virtual_addressing;
-    hash_code ^= fields.need_override_endpoint;
-    hash_code ^= static_cast<int>(fields.cred_provider_type);
-    hash_code ^= hash_string(fields.role_arn);
-    hash_code ^= hash_string(fields.external_id);
+    std::visit(
+            [&](const auto& provider) {
+                using Config = std::decay_t<decltype(provider)>;
+                if constexpr (std::is_base_of_v<S3CompatibleConfig, Config>) {
+                    hash_code ^= static_cast<int>(provider.cred_provider_type);
+                    hash_code ^= hash_string(provider.token);
+                    hash_code ^= provider.max_connections;
+                    hash_code ^= provider.request_timeout_ms;
+                    hash_code ^= provider.connect_timeout_ms;
+                    hash_code ^= provider.use_virtual_addressing;
+                    hash_code ^= provider.need_override_endpoint;
+                }
+                if constexpr (std::is_same_v<Config, AwsConfig>) {
+                    hash_code ^= hash_string(provider.role_arn);
+                    hash_code ^= hash_string(provider.external_id);
+                } else if constexpr (std::is_same_v<Config, GcpConfig>) {
+                    if (provider.credential) {
+                        hash_code ^= static_cast<size_t>(provider.credential->provider_type) + 1;
+                        hash_code ^=
+                                hash_string(provider.credential->impersonation_service_account);
+                    }
+                }
+            },
+            config);
     return hash_code;
 }
 
@@ -179,16 +173,28 @@ std::string obj_storage_config_to_string(const ObjStorageConfig& config) {
             "ak={}, endpoint={}, region={}",
             fields.bucket, fields.prefix, fields.sse_enabled, fields.is_internal_bucket,
             hide_access_key(fields.ak), fields.endpoint, fields.region);
-    if (!std::holds_alternative<AzureConfig>(config)) {
-        description += fmt::format(
-                ", token={}, max_connections={}, request_timeout_ms={}, connect_timeout_ms={}, "
-                "use_virtual_addressing={}, cred_provider_type={}, role_arn={}, external_id={}, "
-                "credential_type={}",
-                fields.token.empty() ? "" : "******", fields.max_connections,
-                fields.request_timeout_ms, fields.connect_timeout_ms, fields.use_virtual_addressing,
-                static_cast<int>(fields.cred_provider_type), fields.role_arn, fields.external_id,
-                credential_type_name(fields.credential));
-    }
+    std::visit(
+            [&](const auto& provider) {
+                using Config = std::decay_t<decltype(provider)>;
+                if constexpr (std::is_base_of_v<S3CompatibleConfig, Config>) {
+                    description += fmt::format(
+                            ", token={}, max_connections={}, request_timeout_ms={}, "
+                            "connect_timeout_ms={}, "
+                            "use_virtual_addressing={}, cred_provider_type={}",
+                            provider.token.empty() ? "" : "******", provider.max_connections,
+                            provider.request_timeout_ms, provider.connect_timeout_ms,
+                            provider.use_virtual_addressing,
+                            static_cast<int>(provider.cred_provider_type));
+                }
+                if constexpr (std::is_same_v<Config, AwsConfig>) {
+                    description += fmt::format(", role_arn={}, external_id={}", provider.role_arn,
+                                               provider.external_id);
+                } else if constexpr (std::is_same_v<Config, GcpConfig>) {
+                    description += fmt::format(", credential_type={}",
+                                               provider.credential ? "gcp" : "none");
+                }
+            },
+            config);
     return description;
 }
 
@@ -282,29 +288,70 @@ cloud::ObjectStoreInfoPB::Provider storage_provider_from_endpoint(std::string_vi
     return Vault::S3;
 }
 
-std::optional<ObjStorageConfig> make_vault_storage_config(
-        cloud::ObjectStoreInfoPB::Provider provider) {
-    using Vault = cloud::ObjectStoreInfoPB;
-    switch (provider) {
-    case Vault::S3:
-        return AwsConfig {};
-    case Vault::OSS:
-        return OssConfig {};
-    case Vault::COS:
-        return CosConfig {};
-    case Vault::BOS:
-        return BosConfig {};
-    case Vault::OBS:
-        return ObsConfig {};
-    case Vault::GCP:
-        return GcpConfig {};
-    case Vault::TOS:
-        return TosConfig {};
-    case Vault::AZURE:
-        return AzureConfig {};
-    default:
+namespace {
+
+using VaultInfo = cloud::ObjectStoreInfoPB;
+
+void parse_vault_location(const VaultInfo& info, ObjStorageConfigBase& config) {
+    config.bucket = info.bucket();
+    config.prefix = info.prefix();
+    config.sse_enabled = info.sse_enabled();
+    config.is_internal_bucket = true;
+    config.endpoint = info.endpoint();
+    config.region = info.region();
+    config.ak = info.ak();
+    config.sk = info.sk();
+}
+
+std::optional<std::string> parse_vault(const VaultInfo& info, AzureConfig& config) {
+    parse_vault_location(info, config);
+    return std::nullopt;
+}
+
+void parse_s3_vault(const VaultInfo& info, S3CompatibleConfig& config) {
+    parse_vault_location(info, config);
+    config.use_virtual_addressing = !info.use_path_style();
+    if (info.has_cred_provider_type()) {
+        config.cred_provider_type = cred_provider_type_from_pb(info.cred_provider_type());
+    }
+}
+
+std::optional<std::string> parse_vault(const VaultInfo& info, S3CompatibleConfig& config) {
+    parse_s3_vault(info, config);
+    return std::nullopt;
+}
+
+std::optional<std::string> parse_vault(const VaultInfo& info, AwsConfig& config) {
+    parse_s3_vault(info, config);
+    config.role_arn = info.role_arn();
+    config.external_id = info.external_id();
+    return std::nullopt;
+}
+
+std::optional<std::string> parse_vault(const VaultInfo& info, GcpConfig& config) {
+    parse_s3_vault(info, config);
+    if (!info.credential().has_gcp_credential()) {
         return std::nullopt;
     }
+    config.credential = to_gcp_credential_config(info.credential().gcp_credential());
+    return config.validate_credential(info.role_arn(), info.external_id());
+}
+
+} // namespace
+
+std::optional<std::string> parse_vault_storage_config(const cloud::ObjectStoreInfoPB& info,
+                                                      ObjStorageConfig* result) {
+    const auto provider = vault_storage_provider(info);
+    if (provider != VaultInfo::GCP && info.credential().has_gcp_credential()) {
+        return "GCP credentials require provider=GCP";
+    }
+    return parse_storage_provider(provider, [&](auto config) -> std::optional<std::string> {
+        if (auto error = parse_vault(info, config)) {
+            return error;
+        }
+        *result = std::move(config);
+        return std::nullopt;
+    });
 }
 
 } // namespace doris

@@ -23,6 +23,7 @@
 #include <cstdlib>
 #include <execution>
 #include <memory>
+#include <type_traits>
 #include <utility>
 #include <variant>
 
@@ -34,15 +35,6 @@
 #ifdef USE_AZURE
 #include "cpp/obj-storage/client/azure_obj_storage_client.h"
 #endif
-#include "cpp/obj-storage/auth/obj_credential.h"
-#include "cpp/obj-storage/client/bos_obj_storage_client.h"
-#include "cpp/obj-storage/client/cos_obj_storage_client.h"
-#include "cpp/obj-storage/client/gcp_obj_storage_client.h"
-#include "cpp/obj-storage/client/obj_storage_client_runtime.h"
-#include "cpp/obj-storage/client/obs_obj_storage_client.h"
-#include "cpp/obj-storage/client/oss_obj_storage_client.h"
-#include "cpp/obj-storage/client/s3_obj_storage_client.h"
-#include "cpp/obj-storage/client/tos_obj_storage_client.h"
 #include "cpp/obj-storage/obj_storage_config.h"
 #include "cpp/obj-storage/rate_limited_obj_storage_client.h"
 #include "cpp/sync_point.h"
@@ -196,95 +188,61 @@ private:
     size_t prefix_length_;
 };
 
-std::optional<S3Conf> S3Conf::from_obj_store_info(const ObjectStoreInfoPB& obj_info,
-                                                  bool skip_aksk) {
-    S3Conf s3_conf;
+std::optional<ObjStorageConfig> S3Accessor::parse_config(ObjectStoreInfoPB info, bool skip_aksk) {
+    if (skip_aksk) {
+        // BUCKET_ACL stages use the instance's RAM user keys.
+        info.clear_role_arn();
+        info.clear_external_id();
+        info.clear_cred_provider_type();
+    }
+    if (skip_aksk || info.ak().empty() || info.sk().empty()) {
+        info.clear_ak();
+        info.clear_sk();
+    } else if (info.has_encryption_info()) {
+        AkSkPair keys;
+        if (decrypt_ak_sk_helper(info.ak(), info.sk(), info.encryption_info(), &keys) != 0) {
+            LOG_WARNING("fail to decrypt ak sk").tag("object_store_id", info.id());
+            return std::nullopt;
+        }
+        info.set_ak(std::move(keys.first));
+        info.set_sk(std::move(keys.second));
+    }
 
-    const auto provider = vault_storage_provider(obj_info);
-    switch (provider) {
-    case ObjectStoreInfoPB_Provider_OSS:
-    case ObjectStoreInfoPB_Provider_S3:
-    case ObjectStoreInfoPB_Provider_COS:
-    case ObjectStoreInfoPB_Provider_OBS:
-    case ObjectStoreInfoPB_Provider_BOS:
-    case ObjectStoreInfoPB_Provider_GCP:
-    case ObjectStoreInfoPB_Provider_AZURE:
-    case ObjectStoreInfoPB_Provider_TOS:
-        s3_conf.provider = provider;
-        break;
-    default:
-        LOG_WARNING("unknown object storage provider {}", provider);
+    ObjStorageConfig parsed;
+    if (auto error = parse_vault_storage_config(info, &parsed)) {
+        LOG_WARNING("failed to parse object storage vault")
+                .tag("object_store_id", info.id())
+                .tag("error", *error);
         return std::nullopt;
     }
-
-    if (!skip_aksk) {
-        if (!obj_info.ak().empty() && !obj_info.sk().empty()) {
-            if (obj_info.has_encryption_info()) {
-                AkSkPair plain_ak_sk_pair;
-                int ret = decrypt_ak_sk_helper(obj_info.ak(), obj_info.sk(),
-                                               obj_info.encryption_info(), &plain_ak_sk_pair);
-                if (ret != 0) {
-                    LOG_WARNING("fail to decrypt ak sk").tag("object_store_id", obj_info.id());
-                    return std::nullopt;
-                } else {
-                    s3_conf.ak = std::move(plain_ak_sk_pair.first);
-                    s3_conf.sk = std::move(plain_ak_sk_pair.second);
-                }
-            } else {
-                s3_conf.ak = obj_info.ak();
-                s3_conf.sk = obj_info.sk();
-            }
-        }
-        if (obj_info.has_cred_provider_type()) {
-            s3_conf.cred_provider_type = cred_provider_type_from_pb(obj_info.cred_provider_type());
-        }
-
-        if (obj_info.has_role_arn() && !obj_info.role_arn().empty()) {
-            s3_conf.role_arn = obj_info.role_arn();
-            s3_conf.external_id = obj_info.external_id();
-            if (!obj_info.has_cred_provider_type()) {
-                s3_conf.cred_provider_type = CredProviderType::InstanceProfile;
-            }
-        }
+    if (auto* aws = std::get_if<AwsConfig>(&parsed);
+        aws && !aws->role_arn.empty() && !info.has_cred_provider_type()) {
+        aws->cred_provider_type = CredProviderType::InstanceProfile;
     }
-
-    convert_obj_credential(obj_info, &s3_conf.credential);
-
-    s3_conf.endpoint = obj_info.endpoint();
-    s3_conf.region = obj_info.region();
-    s3_conf.bucket = obj_info.bucket();
-    s3_conf.prefix = obj_info.prefix();
-    s3_conf.use_virtual_addressing = !obj_info.use_path_style();
-
-    return s3_conf;
+    return parsed;
 }
 
-S3Accessor::S3Accessor(S3Conf conf)
+S3Accessor::S3Accessor(ObjStorageConfig conf)
         : StorageVaultAccessor(AccessorType::S3), conf_(std::move(conf)) {}
 
 S3Accessor::~S3Accessor() = default;
 
 std::string S3Accessor::get_key(const std::string& relative_path) const {
-    return conf_.prefix.empty() ? relative_path : conf_.prefix + '/' + relative_path;
+    const auto& prefix = location().prefix;
+    return prefix.empty() ? relative_path : prefix + '/' + relative_path;
 }
 
 std::string S3Accessor::to_uri(const std::string& relative_path) const {
     return uri_ + '/' + relative_path;
 }
 
-int S3Accessor::create(S3Conf conf, std::shared_ptr<S3Accessor>* accessor) {
+int S3Accessor::create(ObjStorageConfig conf, std::shared_ptr<S3Accessor>* accessor) {
     TEST_SYNC_POINT_RETURN_WITH_VALUE("S3Accessor::init.s3_init_failed", (int)-1);
-    switch (conf.provider) {
-    case ObjectStoreInfoPB::GCP:
-        if (!config::enable_gcs_batch_delete_object) {
-            *accessor = std::make_shared<GcsAccessor>(conf);
-            break;
-        }
-    default:
-        *accessor = std::make_shared<S3Accessor>(conf);
-        break;
+    if (std::holds_alternative<GcpConfig>(conf) && !config::enable_gcs_batch_delete_object) {
+        *accessor = std::make_shared<GcsAccessor>(std::move(conf));
+    } else {
+        *accessor = std::make_shared<S3Accessor>(std::move(conf));
     }
-
     return (*accessor)->init();
 }
 
@@ -308,41 +266,6 @@ ObjStorageRecursiveDeleteOptions S3Accessor::make_recursive_delete_options(
     return options;
 }
 
-static ObjStorageClientRuntime recycler_client_runtime(std::string ca_cert_path) {
-    return {.credential_provider_version = config::aws_credentials_provider_version,
-            .ca_cert_path = std::move(ca_cert_path),
-            .http_scheme = config::s3_client_http_scheme,
-            .max_retries = static_cast<int>(config::max_s3_client_retry),
-            .min_connections = static_cast<int64_t>(config::recycle_pool_parallelism) +
-                               config::instance_recycler_worker_pool_size};
-}
-
-static ObjStorageClientBuildResult create_recycler_client(const ObjStorageConfig& config,
-                                                          const ObjStorageClientRuntime& runtime) {
-    if (const auto* aws = std::get_if<AwsConfig>(&config)) {
-        return S3ObjStorageClient::create(*aws, runtime);
-    }
-    if (const auto* oss = std::get_if<OssConfig>(&config)) {
-        return OssObjStorageClient::create(*oss, runtime);
-    }
-    if (const auto* cos = std::get_if<CosConfig>(&config)) {
-        return CosObjStorageClient::create(*cos, runtime);
-    }
-    if (const auto* bos = std::get_if<BosConfig>(&config)) {
-        return BosObjStorageClient::create(*bos, runtime);
-    }
-    if (const auto* obs = std::get_if<ObsConfig>(&config)) {
-        return ObsObjStorageClient::create(*obs, runtime);
-    }
-    if (const auto* gcp = std::get_if<GcpConfig>(&config)) {
-        return GcpObjStorageClient::create(*gcp, runtime);
-    }
-    if (const auto* tos = std::get_if<TosConfig>(&config)) {
-        return TosObjStorageClient::create(*tos, runtime);
-    }
-    return {.error = "Unsupported object storage provider"};
-}
-
 int S3Accessor::init() {
     static std::once_flag log_annotated_tags_key_once;
     std::call_once(log_annotated_tags_key_once, [&]() {
@@ -352,48 +275,39 @@ int S3Accessor::init() {
         worker_pool->start();
     });
     ensure_aws_sdk_initialized(config::aws_log_level);
-    auto storage_config = make_vault_storage_config(conf_.provider);
-    if (!storage_config) {
-        LOG_WARNING("unknown object storage provider {}", conf_.provider);
-        return -1;
-    }
-
-    auto& fields = storage_config_base(*storage_config);
-    fields.bucket = conf_.bucket;
-    fields.prefix = conf_.prefix;
-    fields.endpoint = conf_.endpoint;
-    fields.region = conf_.region;
-    fields.ak = conf_.ak;
-    fields.sk = conf_.sk;
-    fields.connect_timeout_ms = 5000;
-    fields.use_virtual_addressing = conf_.use_virtual_addressing;
-    fields.cred_provider_type = conf_.cred_provider_type;
-    fields.role_arn = conf_.role_arn;
-    fields.external_id = conf_.external_id;
-    fields.credential = conf_.credential;
-
-    ObjStorageClientBuildResult built;
-    if (const auto* azure = std::get_if<AzureConfig>(&*storage_config)) {
+    std::visit(
+            [this]<typename Config>(Config& provider) {
+                if constexpr (std::is_same_v<Config, AzureConfig>) {
 #ifdef USE_AZURE
-        uri_ = normalize_http_uri(AzureObjStorageClient::container_url(*azure) + '/' +
-                                  azure->prefix);
-        built = AzureObjStorageClient::create(
-                *azure, {.max_retries = static_cast<int>(config::max_s3_client_retry),
-                         .azure_log_level = config::azure_log_level});
+                    uri_ = normalize_http_uri(AzureObjStorageClient::container_url(provider) + '/' +
+                                              provider.prefix);
+                    provider.max_retries = static_cast<int>(config::max_s3_client_retry);
+                    provider.azure_log_level = config::azure_log_level;
 #else
-        LOG_FATAL(
-                "Recycler is not compiled with Azure support, export BUILD_AZURE=ON before "
-                "building");
-        __builtin_unreachable();
+                    LOG_FATAL(
+                            "Recycler is not compiled with Azure support, export "
+                            "BUILD_AZURE=ON before building");
+                    __builtin_unreachable();
 #endif
-    } else {
-        uri_ = normalize_http_uri(conf_.prefix.empty() ? conf_.endpoint + '/' + conf_.bucket
-                                                       : conf_.endpoint + '/' + conf_.bucket + '/' +
-                                                                 conf_.prefix);
-        built = create_recycler_client(
-                *storage_config,
-                recycler_client_runtime(_ca_bundle.path(config::ca_cert_file_paths)));
-    }
+                } else {
+                    auto uri = provider.endpoint + '/' + provider.bucket;
+                    if (!provider.prefix.empty()) {
+                        uri += '/' + provider.prefix;
+                    }
+                    uri_ = normalize_http_uri(uri);
+                    provider.connect_timeout_ms = 5000;
+                    provider.s3.credential_provider_version =
+                            config::aws_credentials_provider_version;
+                    provider.s3.ca_cert_path = _ca_bundle.path(config::ca_cert_file_paths);
+                    provider.s3.http_scheme = config::s3_client_http_scheme;
+                    provider.s3.max_retries = static_cast<int>(config::max_s3_client_retry);
+                    provider.s3.min_connections =
+                            static_cast<int64_t>(config::recycle_pool_parallelism) +
+                            config::instance_recycler_worker_pool_size;
+                }
+            },
+            conf_);
+    auto built = build_obj_storage_client(conf_);
     if (!built.client) {
         LOG_WARNING("failed to create object storage client").tag("error", built.error);
         return -1;
@@ -406,7 +320,7 @@ int S3Accessor::init() {
 int S3Accessor::delete_prefix_impl(const std::string& path_prefix, int64_t expiration_time) {
     LOG_INFO("delete prefix").tag("uri", to_uri(path_prefix));
     ObjStoragePath delete_path {
-            .bucket = conf_.bucket,
+            .bucket = location().bucket,
             .prefix = get_key(path_prefix),
     };
     return delete_objects_recursively(obj_client_, delete_path,
@@ -452,13 +366,13 @@ int S3Accessor::delete_files(const std::vector<std::string>& paths) {
         keys.emplace_back(get_key(path));
     }
 
-    return obj_client_->delete_objects({.bucket = conf_.bucket}, std::move(keys)).status.code;
+    return obj_client_->delete_objects({.bucket = location().bucket}, std::move(keys)).status.code;
 }
 
 int S3Accessor::delete_file(const std::string& path) {
     LOG_INFO("delete file").tag("uri", to_uri(path));
-    int ret =
-            obj_client_->delete_object({.bucket = conf_.bucket, .key = get_key(path)}).status.code;
+    int ret = obj_client_->delete_object({.bucket = location().bucket, .key = get_key(path)})
+                      .status.code;
     static_assert(ObjStorageStatus::OK == 0);
     if (ret == ObjStorageStatus::OK || ret == ObjStorageStatus::NOT_FOUND) {
         return 0;
@@ -467,14 +381,15 @@ int S3Accessor::delete_file(const std::string& path) {
 }
 
 int S3Accessor::put_file(const std::string& path, const std::string& content) {
-    return obj_client_->put_object({.bucket = conf_.bucket, .key = get_key(path)}, content)
+    return obj_client_->put_object({.bucket = location().bucket, .key = get_key(path)}, content)
             .status.code;
 }
 
 int S3Accessor::list_prefix(const std::string& path_prefix, std::unique_ptr<ListIterator>* res) {
     *res = std::make_unique<S3ListIterator>(
-            obj_client_->list_objects({.bucket = conf_.bucket, .prefix = get_key(path_prefix)}),
-            conf_.prefix.empty() ? 0 : conf_.prefix.length() + 1);
+            obj_client_->list_objects(
+                    {.bucket = location().bucket, .prefix = get_key(path_prefix)}),
+            location().prefix.empty() ? 0 : location().prefix.length() + 1);
     return 0;
 }
 
@@ -494,7 +409,8 @@ int S3Accessor::list_all(std::unique_ptr<ListIterator>* res) {
 }
 
 int S3Accessor::exists(const std::string& path) {
-    auto response = obj_client_->head_object({.bucket = conf_.bucket, .key = get_key(path)}).resp;
+    auto response =
+            obj_client_->head_object({.bucket = location().bucket, .key = get_key(path)}).resp;
     if (response.ok()) {
         return 0;
     }
@@ -507,7 +423,7 @@ int S3Accessor::exists(const std::string& path) {
 int S3Accessor::abort_multipart_upload(const std::string& path, const std::string& upload_id) {
     LOG_INFO("abort multipart upload").tag("uri", to_uri(path)).tag("upload_id", upload_id);
     int ret = obj_client_
-                      ->abort_multipart_upload({.bucket = conf_.bucket, .key = get_key(path)},
+                      ->abort_multipart_upload({.bucket = location().bucket, .key = get_key(path)},
                                                upload_id)
                       .status.code;
     static_assert(ObjStorageStatus::OK == 0);
@@ -522,11 +438,11 @@ int S3Accessor::abort_multipart_upload(const std::string& path, const std::strin
 }
 
 int S3Accessor::get_lifecycle(int64_t* expiration_days) {
-    return obj_client_->get_lifecycle(conf_.bucket, expiration_days).status.code;
+    return obj_client_->get_lifecycle(location().bucket, expiration_days).status.code;
 }
 
 int S3Accessor::check_versioning() {
-    return obj_client_->check_versioning(conf_.bucket).status.code;
+    return obj_client_->check_versioning(location().bucket).status.code;
 }
 
 int GcsAccessor::delete_prefix_impl(const std::string& path_prefix, int64_t expiration_time) {
@@ -537,7 +453,8 @@ int GcsAccessor::delete_prefix_impl(const std::string& path_prefix, int64_t expi
     int skip = 0;
     int64_t del_nonexisted = 0;
     int del = 0;
-    auto iter = obj_client_->list_objects({.bucket = conf_.bucket, .prefix = get_key(path_prefix)});
+    auto iter = obj_client_->list_objects(
+            {.bucket = location().bucket, .prefix = get_key(path_prefix)});
     for (;;) {
         auto result = iter->next();
         if (!result.object.has_value()) {
@@ -563,8 +480,8 @@ int GcsAccessor::delete_prefix_impl(const std::string& path_prefix, int64_t expi
         del++;
 
         // FIXME(plat1ko): Delete objects by batch with genuine GCS client
-        int del_ret =
-                obj_client_->delete_object({.bucket = conf_.bucket, .key = obj.key}).status.code;
+        int del_ret = obj_client_->delete_object({.bucket = location().bucket, .key = obj.key})
+                              .status.code;
         del_nonexisted += (del_ret == ObjStorageStatus::NOT_FOUND);
         static_assert(ObjStorageStatus::OK == 0);
         if (del_ret != ObjStorageStatus::OK && del_ret != ObjStorageStatus::NOT_FOUND) {

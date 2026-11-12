@@ -193,22 +193,26 @@ protected:
     }
 
     int create_client() {
-        S3Conf s3_conf;
-        s3_conf.ak = config_->get_access_key();
-        s3_conf.sk = config_->get_secret_key();
-        s3_conf.endpoint = config_->get_endpoint();
-        s3_conf.region = config_->get_region();
-        s3_conf.bucket = config_->get_bucket();
-        s3_conf.prefix = config_->get_prefix();
-        s3_conf.provider = convert_provider(config_->get_provider());
+        ObjectStoreInfoPB info;
+        info.set_ak(config_->get_access_key());
+        info.set_sk(config_->get_secret_key());
+        info.set_endpoint(config_->get_endpoint());
+        info.set_region(config_->get_region());
+        info.set_bucket(config_->get_bucket());
+        info.set_prefix(config_->get_prefix());
+        info.set_provider(convert_provider(config_->get_provider()));
         if (config_->use_instance_profile()) {
-            s3_conf.cred_provider_type = CredProviderType::InstanceProfile;
-            s3_conf.role_arn = config_->get_role_arn();
-            s3_conf.external_id = config_->get_external_id();
+            info.set_cred_provider_type(CredProviderTypePB::INSTANCE_PROFILE);
+            info.set_role_arn(config_->get_role_arn());
+            info.set_external_id(config_->get_external_id());
         }
 
+        auto config = S3Accessor::parse_config(info);
+        if (!config) {
+            return -1;
+        }
         std::shared_ptr<S3Accessor> accessor;
-        int ret = S3Accessor::create(s3_conf, &accessor);
+        int ret = S3Accessor::create(std::move(*config), &accessor);
         if (ret != 0) {
             return ret;
         }

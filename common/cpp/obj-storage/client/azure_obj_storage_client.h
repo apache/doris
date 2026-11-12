@@ -47,7 +47,6 @@
 #include <ranges>
 
 #include "cpp/obj-storage/client/obj_storage_client.h"
-#include "cpp/obj-storage/client/obj_storage_client_runtime.h"
 #include "cpp/obj-storage/client/s3_common.h"
 #include "cpp/obj-storage/client_bvar.h"
 #include "cpp/obj_retry_strategy.h"
@@ -74,8 +73,7 @@ std::string build_azure_batch_delete_failure_message(const ObjStoragePath& opts,
 class AzureObjStorageClient final : public ObjStorageClient {
 public:
     static std::string container_url(const AzureConfig& config);
-    static ObjStorageClientBuildResult create(const AzureConfig& config,
-                                              const ObjStorageClientRuntime& runtime);
+    static ObjStorageClientBuildResult create(const AzureConfig& config);
 
     AzureObjStorageClient(
             std::shared_ptr<Azure::Storage::Blobs::BlobContainerClient> client,

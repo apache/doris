@@ -104,11 +104,11 @@ std::shared_ptr<Aws::Auth::AWSCredentialsProvider> container_provider() {
                         *try_any_cast<std::shared_ptr<Aws::Auth::AWSCredentialsProvider>*>(args[0]);
             },
             &guard);
-    S3Conf conf {.endpoint = "example.com",
-                 .region = "us-east-1",
-                 .bucket = "bucket",
-                 .cred_provider_type = CredProviderType::Container,
-                 .provider = ObjectStoreInfoPB::S3};
+    AwsConfig conf;
+    conf.endpoint = "example.com";
+    conf.region = "us-east-1";
+    conf.bucket = "bucket";
+    conf.cred_provider_type = CredProviderType::Container;
     std::shared_ptr<S3Accessor> accessor;
     EXPECT_EQ(S3Accessor::create(std::move(conf), &accessor), 0);
     sp->disable_processing();

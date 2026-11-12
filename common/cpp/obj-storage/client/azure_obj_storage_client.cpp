@@ -274,30 +274,26 @@ std::string AzureObjStorageClient::container_url(const AzureConfig& config) {
     return normalize_http_uri(uri);
 }
 
-ObjStorageClientBuildResult AzureObjStorageClient::create(const AzureConfig& config,
-                                                          const ObjStorageClientRuntime& runtime) {
-    if (!std::holds_alternative<std::monostate>(config.credential)) {
-        return {.error = "Azure requires shared key credentials"};
-    }
+ObjStorageClientBuildResult AzureObjStorageClient::create(const AzureConfig& config) {
     static std::once_flag init_logging;
-    std::call_once(init_logging, init_azure_logging, runtime.azure_log_level);
+    std::call_once(init_logging, init_azure_logging, config.azure_log_level);
     Azure::Storage::Blobs::BlobClientOptions options;
-    options.Retry.MaxRetries = runtime.max_retries;
-    if (runtime.retry_too_many_requests) {
+    options.Retry.MaxRetries = config.max_retries;
+    if (config.retry_too_many_requests) {
         options.Retry.StatusCodes.insert(Azure::Core::Http::HttpStatusCode::TooManyRequests);
     }
     options.PerRetryPolicies.emplace_back(std::make_unique<AzureRetryRecordPolicy>());
-    if (!runtime.ca_cert_path.empty()) {
+    if (!config.ca_cert_path.empty()) {
         Azure::Core::Http::CurlTransportOptions curl_options;
-        curl_options.CAInfo = runtime.ca_cert_path;
+        curl_options.CAInfo = config.ca_cert_path;
         options.Transport.Transport =
                 std::make_shared<Azure::Core::Http::CurlTransport>(std::move(curl_options));
     }
     ObjStorageEndpointInfo endpoint_info {
             .endpoint = config.endpoint, .ak = config.ak, .sk = config.sk};
-    if (runtime.ca_cert_file_paths) {
+    if (config.ca_cert_file_paths) {
         endpoint_info.tls_debug_context =
-                build_azure_tls_debug_context(runtime.ca_cert_path, *runtime.ca_cert_file_paths);
+                build_azure_tls_debug_context(config.ca_cert_path, *config.ca_cert_file_paths);
     }
     auto url = container_url(config);
     auto built = AzureAuthFactory::create(url,

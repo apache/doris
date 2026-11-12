@@ -53,7 +53,7 @@ class HostLevelMSRpcRateLimiters;
 class MSBackpressureHandler;
 
 using StorageVaultInfos =
-        std::vector<std::tuple<std::string, std::variant<ObjStorageConfig, HdfsVaultInfo>,
+        std::vector<std::tuple<std::string, Result<std::variant<ObjStorageConfig, HdfsVaultInfo>>,
                                StorageVaultPB_PathFormat>>;
 
 // run tasks in bthread with concurrency and wait until all tasks done

@@ -21,36 +21,7 @@
 
 #include <string_view>
 
-#include "cpp/obj-storage/auth/obj_credential.h"
-
-namespace doris {
-namespace {
-
-GcpCredentialConfig to_gcp_credential_config(const cloud::GcpCredentialPB& credential) {
-    GcpCredentialConfig config;
-    switch (credential.credential_provider_type()) {
-    case cloud::GcpCredentialPB::DEFAULT:
-        config.provider_type = GcpCredentialProviderType::Default;
-        break;
-    case cloud::GcpCredentialPB::COMPUTE_ENGINE:
-        config.provider_type = GcpCredentialProviderType::ComputeEngine;
-        break;
-    }
-    config.impersonation_service_account = credential.impersonation_service_account();
-    return config;
-}
-
-} // namespace
-
-void convert_obj_credential(const cloud::ObjectStoreInfoPB& source, CredentialConfig* credential) {
-    if (!source.has_credential() || !source.credential().has_gcp_credential()) {
-        *credential = std::monostate {};
-        return;
-    }
-    *credential = to_gcp_credential_config(source.credential().gcp_credential());
-}
-
-} // namespace doris
+#include "cpp/obj-storage/auth/gcp/gcp_auth.h"
 
 namespace doris::cloud {
 namespace {
@@ -127,9 +98,8 @@ std::optional<std::string> validate_gcp_obj_credential(const ObjectStoreInfoPB& 
         return error;
     }
 
-    CredentialConfig config;
-    convert_obj_credential(obj, &config);
-    return validate_obj_credential_config(config, credential_validation_context(obj));
+    return validate_gcp_credential(to_gcp_credential_config(credential),
+                                   credential_validation_context(obj));
 }
 
 } // namespace

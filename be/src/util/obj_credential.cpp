@@ -15,27 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "cpp/obj-storage/auth/obj_credential.h"
-
 #include <gen_cpp/AgentService_types.h>
-#include <gen_cpp/cloud.pb.h>
+
+#include "cpp/obj-storage/auth/gcp/gcp_auth.h"
 
 namespace doris {
-namespace {
-
-GcpCredentialConfig to_gcp_credential_config(const cloud::GcpCredentialPB& credential) {
-    GcpCredentialConfig config;
-    switch (credential.credential_provider_type()) {
-    case cloud::GcpCredentialPB::DEFAULT:
-        config.provider_type = GcpCredentialProviderType::Default;
-        break;
-    case cloud::GcpCredentialPB::COMPUTE_ENGINE:
-        config.provider_type = GcpCredentialProviderType::ComputeEngine;
-        break;
-    }
-    config.impersonation_service_account = credential.impersonation_service_account();
-    return config;
-}
 
 GcpCredentialConfig to_gcp_credential_config(const TGcpCredential& credential) {
     GcpCredentialConfig config;
@@ -53,24 +37,6 @@ GcpCredentialConfig to_gcp_credential_config(const TGcpCredential& credential) {
         config.impersonation_service_account = credential.impersonation_service_account;
     }
     return config;
-}
-
-} // namespace
-
-void convert_obj_credential(const cloud::ObjectStoreInfoPB& source, CredentialConfig* credential) {
-    if (!source.has_credential() || !source.credential().has_gcp_credential()) {
-        *credential = std::monostate {};
-        return;
-    }
-    *credential = to_gcp_credential_config(source.credential().gcp_credential());
-}
-
-void convert_obj_credential(const TCredential& source, CredentialConfig* credential) {
-    if (!source.__isset.gcp_credential) {
-        *credential = std::monostate {};
-        return;
-    }
-    *credential = to_gcp_credential_config(source.gcp_credential);
 }
 
 } // namespace doris

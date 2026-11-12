@@ -17,7 +17,7 @@
 
 #include "io/fs/obj_storage_file_writer.h"
 
-#include <aws/s3/model/CompletedPart.h>
+#include <aws/core/http/URI.h>
 #include <bvar/recorder.h>
 #include <bvar/reducer.h>
 #include <bvar/window.h>
@@ -30,7 +30,6 @@
 
 #include "common/config.h"
 #include "common/status.h"
-#include "cpp/obj-storage/client/s3_obj_storage_client.h"
 #include "cpp/sync_point.h"
 #include "io/cache/block_file_cache.h"
 #include "io/cache/block_file_cache_factory.h"

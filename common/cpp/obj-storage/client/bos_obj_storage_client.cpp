@@ -17,13 +17,17 @@
 
 #include "bos_obj_storage_client.h"
 
+#include "cpp/obj-storage/client/s3_sdk.h"
 #include "cpp/obj-storage/obj_storage_config.h"
 
 namespace doris {
 
-ObjStorageClientBuildResult BosObjStorageClient::create(const BosConfig& config,
-                                                        const ObjStorageClientRuntime& runtime) {
-    return create_s3_client<BosObjStorageClient>(config, runtime);
+ObjStorageClientBuildResult BosObjStorageClient::create(const BosConfig& config) {
+    auto [sdk, error] = make_s3_sdk_client(config, AwsCredentialOptions::from_config(config));
+    if (!sdk) {
+        return {.error = std::move(error)};
+    }
+    return {.client = std::make_shared<BosObjStorageClient>(std::move(sdk), endpoint_info(config))};
 }
 
 } // namespace doris
