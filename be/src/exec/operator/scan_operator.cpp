@@ -237,9 +237,12 @@ Status ScanLocalState<Derived>::open(RuntimeState* state) {
         RETURN_IF_ERROR(_on_runtime_filter_update(new_conjuncts));
     }
 
-    // Disable condition cache in topn filter valid. TODO:: Try to support the topn filter in condition cache
+    // Disable condition cache when TopN filters can shrink the segment row bitmap before caching.
+    // Otherwise an ANN top-K query can cache only its neighbors as predicate survivors, causing
+    // a later query with the same predicate to skip other matching rows.
+    // TODO: Try to support TopN filters in condition cache.
     if (p._enable_condition_cache && state->query_options().condition_cache_digest &&
-        p._topn_filter_source_node_ids.empty()) {
+        p._topn_filter_source_node_ids.empty() && _ann_topn_runtime == nullptr) {
         _condition_cache_digest = state->query_options().condition_cache_digest;
         for (auto& conjunct : _conjuncts) {
             _condition_cache_digest = conjunct->get_digest(_condition_cache_digest);

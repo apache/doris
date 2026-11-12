@@ -389,6 +389,46 @@ protected:
         ASSERT_TRUE(st.ok()) << st;
     }
 
+    void check_ann_prefilter_runtime_columns(const std::shared_ptr<Segment>& segment,
+                                             const Version& version) {
+        constexpr int64_t kCommitTso = 466872251335573505L;
+        const auto read_schema = make_read_schema(_tablet_schema);
+        roaring::Roaring candidates;
+        for (uint32_t row : {0, 2, 3, 6, 7}) {
+            candidates.add(row);
+        }
+        for (auto cid : {kVersionCid, kChangelogTimestampCid, kCommitTsoCid}) {
+            SCOPED_TRACE(version.to_string() + ":" + _tablet_schema->column(cid).name());
+            StorageReadOptions read_options(_stats);
+            read_options.version = version;
+            read_options.commit_tso = TsoRange(kCommitTso, kCommitTso);
+            read_options.read_changelog = true;
+            read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
+            // Five candidates span two batches, exercising both scattered and contiguous
+            // reads through the same iterators as the normal scan.
+            read_options.block_row_max = 3;
+            read_options.column_predicates.push_back(
+                    std::make_shared<ComparisonPredicateBase<TYPE_BIGINT, PredicateType::GT>>(
+                            cid, _tablet_schema->column(cid).name(),
+                            Field::create_field<TYPE_BIGINT>(0)));
+
+            SegmentIterator iter(segment, read_schema, read_options);
+            auto st = iter.init(read_options);
+            ASSERT_TRUE(st.ok()) << st;
+            st = iter._vec_init_lazy_materialization();
+            ASSERT_TRUE(st.ok()) << st;
+            iter._row_bitmap = candidates;
+            st = iter._eager_filter_predicates_into_bitmap();
+            ASSERT_TRUE(st.ok()) << st;
+
+            // Singleton rowsets expose their publish version/TSO; range rowsets retain
+            // the physical 0/NULL values written by build_runtime_column_segment.
+            const roaring::Roaring expected =
+                    version.first == version.second ? candidates : roaring::Roaring();
+            EXPECT_TRUE(iter._row_bitmap == expected);
+        }
+    }
+
     TabletSchemaSPtr _tablet_schema;
     OlapReaderStatistics _stats;
     RuntimeState _runtime_state;
@@ -558,6 +598,23 @@ TEST_F(SegmentIteratorExprZonemapTest, RuntimeColumnsUseCurrentReadOptions) {
     ASSERT_NO_FATAL_FAILURE(expect_bigint_values(version_column, 9));
     ASSERT_NO_FATAL_FAILURE(expect_bigint_values(changelog_timestamp_column, kCommitTso2));
     ASSERT_NO_FATAL_FAILURE(expect_bigint_values(commit_tso_column, kCommitTso2));
+}
+
+TEST_F(SegmentIteratorExprZonemapTest, AnnPrefilterReadsVisibleRuntimeColumns) {
+    _tablet_schema = make_runtime_column_tablet_schema();
+    std::shared_ptr<Segment> segment;
+    ASSERT_NO_FATAL_FAILURE(build_runtime_column_segment(&segment));
+
+    ASSERT_NO_FATAL_FAILURE(check_ann_prefilter_runtime_columns(segment, Version(7, 7)));
+    ASSERT_NO_FATAL_FAILURE(check_ann_prefilter_runtime_columns(segment, Version(0, 9)));
+}
+
+TEST_F(SegmentIteratorExprZonemapTest, AnnPrefilterSynthesizesMissingRuntimeColumns) {
+    _tablet_schema = make_runtime_column_tablet_schema();
+    std::shared_ptr<Segment> segment;
+    ASSERT_NO_FATAL_FAILURE(build_runtime_column_segment(&segment, false));
+
+    ASSERT_NO_FATAL_FAILURE(check_ann_prefilter_runtime_columns(segment, Version(7, 7)));
 }
 
 TEST_F(SegmentIteratorExprZonemapTest, RangeVersionUsesPhysicalValues) {
