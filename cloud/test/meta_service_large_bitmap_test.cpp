@@ -276,6 +276,65 @@ protected:
         }
     }
 
+    void check_overlapping_retry(bool after_validation, bool different_value = false) {
+        const bool old_retry = config::enable_txn_store_retry;
+        config::enable_txn_store_retry = false;
+        DORIS_CLOUD_DEFER {
+            config::enable_txn_store_retry = old_retry;
+        };
+        auto* sp = SyncPoint::get_instance();
+        for (size_t size : {8UL * 1024 * 1024, 32UL * 1024 * 1024}) {
+            for (bool v2 : {false, true}) {
+                SCOPED_TRACE(testing::Message() << "size=" << size << " v2=" << v2);
+                lock();
+                const auto value = large_value(size);
+                auto req = request(value, 1001, v2);
+                bool delayed_handler = false;
+                bool injected = false;
+                size_t active_commits = 0;
+                size_t delayed_commits = 0;
+                auto run_delayed_handler = [&] {
+                    injected = true;
+                    delayed_handler = true;
+                    auto delayed_req =
+                            different_value ? request(std::string(size, 'r'), 1001, v2) : req;
+                    // Reenter the RPC while the active handler is paused. Let the
+                    // delayed handler commit pending cleanup, optionally rewrite a
+                    // prefix, then stop it before it can finish the bitmap.
+                    auto delayed_res = update(delayed_req);
+                    EXPECT_EQ(delayed_res.status().code(), MetaServiceCode::KV_TXN_CONFLICT)
+                            << delayed_res.status().msg();
+                    delayed_handler = false;
+                };
+                sp->set_call_back("update_delete_bitmap:commit:err", [&](auto&& args) {
+                    if (delayed_handler) {
+                        if (++delayed_commits == (different_value ? 2 : 1)) {
+                            *try_any_cast<TxnErrorCode*>(args[2]) = TxnErrorCode::TXN_CONFLICT;
+                        }
+                    } else if (++active_commits == 2 && !after_validation) {
+                        run_delayed_handler();
+                    }
+                });
+                sp->set_call_back("update_delete_bitmap:check_prefix:after", [&](auto&&) {
+                    if (after_validation && !injected) {
+                        run_delayed_handler();
+                    }
+                });
+                sp->enable_processing();
+                auto res = update(req);
+                EXPECT_TRUE(injected);
+                EXPECT_EQ(res.status().code(), MetaServiceCode::KV_TXN_CONFLICT)
+                        << res.status().msg();
+                sp->clear_call_back("update_delete_bitmap:commit:err");
+                sp->clear_call_back("update_delete_bitmap:check_prefix:after");
+
+                res = update(req);
+                ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+                check_value(value, v2);
+            }
+        }
+    }
+
     int64_t old_limit_ = 0;
     std::string old_cluster_file_;
     std::shared_ptr<TxnKv> kv_;
@@ -336,6 +395,21 @@ TEST_P(LargeDeleteBitmapTest, SchemaChangeBitmapExceedsTransactionLimit) {
     auto res = update(request(value, -2));
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
     check_value(value);
+}
+
+TEST_P(LargeDeleteBitmapTest, PendingCleanupBeforePrefixValidation) {
+    check_overlapping_retry(false);
+}
+
+TEST_P(LargeDeleteBitmapTest, PendingCleanupAfterPrefixValidation) {
+    if (!GetParam()) {
+        GTEST_SKIP() << "MemTxnKv does not detect read conflicts with covering range clears";
+    }
+    check_overlapping_retry(true);
+}
+
+TEST_P(LargeDeleteBitmapTest, ChangedPrefixBeforePrefixValidation) {
+    check_overlapping_retry(false, true);
 }
 
 TEST_P(LargeDeleteBitmapTest, MaybeCommittedFragmentRetriesIdempotently) {

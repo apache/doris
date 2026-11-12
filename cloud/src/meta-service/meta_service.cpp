@@ -4171,6 +4171,36 @@ static bool remove_delete_bitmap_before_update(MetaServiceCode& code, std::strin
     return true;
 }
 
+static bool check_delete_bitmap_prefix(MetaServiceCode& code, std::string& msg, Transaction* txn,
+                                       const std::string& key, std::string_view prefix) {
+    auto end_key = encode_blob_key(key, 0, prefix.size() / DEFAULT_BLOB_SPLIT_SIZE);
+    // Read the committed prefix through the last data transaction, without
+    // snapshot reads, so pending cleanup also conflicts with its final commit.
+    auto it = txn->full_range_get(key, end_key);
+    size_t offset = 0;
+    TxnErrorCode err = TxnErrorCode::TXN_OK;
+    for (auto kv = it->next(); kv.has_value(); kv = it->next()) {
+        auto [fragment_key, fragment] = *kv;
+        if (fragment_key != encode_blob_key(key, 0, offset / DEFAULT_BLOB_SPLIT_SIZE) ||
+            fragment != prefix.substr(offset, DEFAULT_BLOB_SPLIT_SIZE)) {
+            err = TxnErrorCode::TXN_CONFLICT;
+            break;
+        }
+        offset += fragment.size();
+    }
+    if (!it->is_valid()) {
+        err = it->error_code();
+    } else if (offset != prefix.size()) {
+        err = TxnErrorCode::TXN_CONFLICT;
+    }
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::READ>(err);
+        msg = fmt::format("failed to verify delete bitmap prefix, key={} err={}", hex(key), err);
+        return false;
+    }
+    return true;
+}
+
 bool _write_delete_bitmap_kvs(MetaServiceCode& code, std::string& msg, std::stringstream& ss,
                               std::shared_ptr<TxnKv> txn_kv, std::unique_ptr<Transaction>& txn,
                               std::string& use_version, std::set<std::string>& non_exist_rowset_ids,
@@ -4215,6 +4245,7 @@ bool _write_delete_bitmap_kvs(MetaServiceCode& code, std::string& msg, std::stri
         // blob_put splits a value into KVs, but keeps them in one transaction.
         // Preserve its key format while batching this single logical value too.
         bool counted_in_txn = false;
+        size_t committed_size = 0;
         for (size_t offset = 0, sequence = 0; offset < val.size(); ++sequence) {
             auto fragment = std::string_view(val).substr(offset, DEFAULT_BLOB_SPLIT_SIZE);
             auto fragment_key = encode_blob_key(key, 0, sequence);
@@ -4226,6 +4257,7 @@ bool _write_delete_bitmap_kvs(MetaServiceCode& code, std::string& msg, std::stri
                     return false;
                 }
                 counted_in_txn = false;
+                committed_size = offset;
             }
             txn->put(fragment_key, fragment);
             if (!counted_in_txn) {
@@ -4234,6 +4266,13 @@ bool _write_delete_bitmap_kvs(MetaServiceCode& code, std::string& msg, std::stri
             }
             txn_stats.current_value_count += fragment.size();
             offset += fragment.size();
+        }
+        if (committed_size > 0) {
+            if (!check_delete_bitmap_prefix(code, msg, txn.get(), key,
+                                            std::string_view(val).substr(0, committed_size))) {
+                return false;
+            }
+            TEST_SYNC_POINT("update_delete_bitmap:check_prefix:after");
         }
     } else {
         cloud::blob_put(txn.get(), key, val, 0);
