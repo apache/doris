@@ -230,11 +230,11 @@ public class TypeVariantTemplateParse extends DefaultPlanRewriter<Void> implemen
         }
         if (expression instanceof ParseToVariant) {
             ParseToVariant call = (ParseToVariant) expression;
-            return call.getReturnType().equals(template) ? call : call.withReturnType(template);
+            return call.getReturnType().equalsWithPatternTypes(template) ? call : call.withReturnType(template);
         }
         if (expression instanceof TryParseToVariant) {
             TryParseToVariant call = (TryParseToVariant) expression;
-            return call.getReturnType().equals(template) ? call : call.withReturnType(template);
+            return call.getReturnType().equalsWithPatternTypes(template) ? call : call.withReturnType(template);
         }
         if (expression instanceof Slot) {
             childTemplates.putIfAbsent(((Slot) expression).getExprId(), template);

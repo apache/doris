@@ -219,6 +219,24 @@ public class VariantType extends PrimitiveType {
                     && Objects.equals(predefinedFields, other.predefinedFields);
     }
 
+    /**
+     * Whether {@code other} is this type with every template field matching its pattern the same way.
+     * {@link #equals} compares a field by its pattern and type, so two templates that differ only in MATCH_NAME
+     * against a glob are one type wherever types are compared. A parse call typed with a template has to tell
+     * them apart: the BE matches the one pattern literally and the other with fnmatch.
+     */
+    public boolean equalsWithPatternTypes(VariantType other) {
+        if (!equals(other)) {
+            return false;
+        }
+        for (int i = 0; i < predefinedFields.size(); i++) {
+            if (predefinedFields.get(i).getPatternType() != other.predefinedFields.get(i).getPatternType()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     @Override
     public boolean equalsForRecursiveCte(Object o) {
         if (this == o) {

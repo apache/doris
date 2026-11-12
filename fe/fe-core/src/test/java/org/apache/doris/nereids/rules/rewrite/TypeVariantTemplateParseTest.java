@@ -28,14 +28,18 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ParseToVariant;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.TryParseToVariant;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.Explainable;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.insert.AbstractInsertExecutor;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DecimalV3Type;
+import org.apache.doris.nereids.types.VariantField;
 import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.util.PlanChecker;
+import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TExprNode;
@@ -45,11 +49,13 @@ import org.apache.doris.thrift.TScalarType;
 import org.apache.doris.thrift.TVariantTemplatePath;
 import org.apache.doris.utframe.TestWithFeService;
 
+import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * The sink types parse_to_variant with the target column's VARIANT template for every INSERT shape, the fast
@@ -219,6 +225,28 @@ public class TypeVariantTemplateParseTest extends TestWithFeService {
             }
         }
         Assertions.assertTrue(filterReadsTheCall, filters.get(0).toString());
+    }
+
+    @Test
+    public void testACallIsToldApartByHowItsTemplateMatchesAndATypeIsNot() {
+        DataType amount = DecimalV3Type.createDecimalV3Type(20, 6);
+        VariantType literal = new VariantType(ImmutableList.of(new VariantField("a", amount, "", "MATCH_NAME")));
+        VariantType glob = new VariantType(ImmutableList.of(new VariantField("a", amount, "")));
+        // One type wherever types are compared, as before the template rode to the BE: the common type of a
+        // set operation over the two, which a CTAS takes its column from, keeps the template.
+        Assertions.assertEquals(literal, glob);
+        Assertions.assertEquals(literal.hashCode(), glob.hashCode());
+        Assertions.assertEquals(Optional.of(literal),
+                TypeCoercionUtils.findWiderTypeForTwo(literal, glob, false, false));
+        // Not one call: the BE matches a MATCH_NAME pattern literally and a glob with fnmatch.
+        Assertions.assertFalse(literal.equalsWithPatternTypes(glob));
+        Assertions.assertTrue(literal.equalsWithPatternTypes(
+                new VariantType(ImmutableList.of(new VariantField("a", amount, "", "MATCH_NAME")))));
+        Expression text = new StringLiteral("{}");
+        Assertions.assertNotEquals(new ParseToVariant(text, literal), new ParseToVariant(text, glob));
+        Assertions.assertEquals(new ParseToVariant(text, literal), new ParseToVariant(text, literal));
+        Assertions.assertNotEquals(new TryParseToVariant(text, literal), new TryParseToVariant(text, glob));
+        Assertions.assertEquals(new TryParseToVariant(text, glob), new TryParseToVariant(text, glob));
     }
 
     @Test

@@ -68,6 +68,10 @@ public class VariantField {
         return comment;
     }
 
+    public PatternType getPatternType() {
+        return patternType;
+    }
+
     public org.apache.doris.catalog.VariantField toCatalogDataType() {
         return new org.apache.doris.catalog.VariantField(
                 pattern, dataType.toCatalogDataType(), comment, patternType);
@@ -104,14 +108,15 @@ public class VariantField {
             return false;
         }
         VariantField that = (VariantField) o;
-        // the pattern type decides how the pattern matches (literally or as a glob), on the BE too
-        return Objects.equals(pattern, that.pattern) && Objects.equals(dataType, that.dataType)
-                && patternType == that.patternType;
+        // The pattern type is left out: two templates that differ only there are one type wherever types are
+        // compared, as in the common type of a set operation. See VariantType#equalsWithPatternTypes.
+        return Objects.equals(pattern, that.pattern) && Objects.equals(dataType,
+                that.dataType);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(pattern, dataType, patternType);
+        return Objects.hash(pattern, dataType);
     }
 
     @Override

@@ -117,14 +117,12 @@ public class VariantField {
             return false;
         }
         VariantField otherFiled = (VariantField) other;
-        // the pattern type decides how the pattern matches (literally or as a glob), on the BE too
-        return otherFiled.pattern.equals(pattern) && otherFiled.type.equals(type)
-                && otherFiled.patternType == patternType;
+        return otherFiled.pattern.equals(pattern) && otherFiled.type.equals(type);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(pattern, type, patternType);
+        return Objects.hash(pattern, type);
     }
 
     @Override

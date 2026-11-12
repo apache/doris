@@ -116,14 +116,26 @@ public class VariantTypeTemplatePathsThriftTest {
     }
 
     @Test
-    public void thePatternTypeIsPartOfAFieldsIdentity() {
-        // is_glob rides the wire from it, so two templates differing only here type a path differently
-        VariantField literal = new VariantField("a*", ScalarType.createStringType(), "", PatternType.MATCH_NAME);
-        VariantField glob = new VariantField("a*", ScalarType.createStringType(), "");
-        Assertions.assertNotEquals(literal, glob);
-        Assertions.assertNotEquals(literal.hashCode(), glob.hashCode());
-        Assertions.assertEquals(literal, new VariantField("a*", ScalarType.createStringType(), "",
-                PatternType.MATCH_NAME));
+    public void thePatternTypeRidesTheWireAndStaysOutOfAFieldsIdentity() {
+        // Two fields that differ only in how the pattern matches are equal, as they were before the template
+        // rode to the BE: the common type of a set operation over two such templates keeps the template.
+        VariantField literal = new VariantField("a*", ScalarType.createDecimalV3Type(10, 2), "",
+                PatternType.MATCH_NAME);
+        VariantField glob = new VariantField("a*", ScalarType.createDecimalV3Type(10, 2), "");
+        Assertions.assertEquals(literal, glob);
+        Assertions.assertEquals(literal.hashCode(), glob.hashCode());
+        Assertions.assertNotEquals(literal, new VariantField("b*", ScalarType.createDecimalV3Type(10, 2), ""));
+        Assertions.assertNotEquals(literal, new VariantField("a*", ScalarType.createDecimalV3Type(10, 3), ""));
+
+        // is_glob still tells the BE which is which
+        ArrayList<VariantField> literalFields = new ArrayList<>();
+        literalFields.add(literal);
+        ArrayList<VariantField> globFields = new ArrayList<>();
+        globFields.add(glob);
+        assertPath(scalarTypeOf(new VariantType(literalFields)).getVariantTemplatePaths().get(0),
+                "a*", false, TPrimitiveType.DECIMAL64);
+        assertPath(scalarTypeOf(new VariantType(globFields)).getVariantTemplatePaths().get(0),
+                "a*", true, TPrimitiveType.DECIMAL64);
     }
 
     @Test

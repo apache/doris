@@ -107,9 +107,10 @@ public class ParseToVariant extends ScalarFunction
         return ImmutableList.of(FunctionSignature.ret(returnType).args(VarcharType.SYSTEM_DEFAULT));
     }
 
+    /** Two calls typed with templates that match a pattern differently are not the same call. */
     @Override
     protected boolean extraEquals(Expression that) {
-        return super.extraEquals(that) && returnType.equals(((ParseToVariant) that).returnType);
+        return super.extraEquals(that) && returnType.equalsWithPatternTypes(((ParseToVariant) that).returnType);
     }
 
     @Override
