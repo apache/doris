@@ -1451,9 +1451,16 @@ public abstract class ExternalCatalog
 
     void handleDatabaseMetaCacheRemoval(Optional<ExternalDatabase<? extends ExternalTable>> value,
             RemovalCause cause) {
-        value.ifPresent(v -> v.resetMetaToUninitialized(
-                shouldInvalidateRoutedCacheOnDatabaseRemoval(),
-                !cause.wasEvicted() && shouldInvalidateRowCountOnDatabaseRemoval()));
+        value.ifPresent(database -> {
+            if (cause.wasEvicted()) {
+                // MetaCache objects are local representatives. Capacity/expiry retirement is not
+                // a schema or data change and must not invalidate a query that is loading its DBs.
+                database.resetMetaToUninitializedOnEviction(shouldInvalidateRoutedCacheOnDatabaseRemoval());
+            } else {
+                database.resetMetaToUninitialized(shouldInvalidateRoutedCacheOnDatabaseRemoval(),
+                        shouldInvalidateRowCountOnDatabaseRemoval());
+            }
+        });
     }
 
     /**

@@ -75,7 +75,7 @@ public class CatalogMgrTest {
         ExternalDatabase<? extends ExternalTable> db = Mockito.mock(ExternalDatabase.class);
 
         catalog.handleDatabaseMetaCacheRemoval(Optional.of(db), RemovalCause.SIZE);
-        Mockito.verify(db).resetMetaToUninitialized(true, false);
+        Mockito.verify(db).resetMetaToUninitializedOnEviction(true);
 
         catalog.handleDatabaseMetaCacheRemoval(Optional.of(db), RemovalCause.EXPLICIT);
         Mockito.verify(db).resetMetaToUninitialized(true, true);
