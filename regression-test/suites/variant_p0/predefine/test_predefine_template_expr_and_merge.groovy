@@ -23,6 +23,8 @@
 // 0.13; a binary64 gives 1.00 and 0.12 or 0.13), 188118222.011121933 keeps its digits, and an
 // integer beyond 64 bits loads instead of failing the document.
 suite("test_predefine_template_expr_and_merge", "p0") {
+    // the p0 pipelines fuzz this session variable, and a doc-mode VARIANT refuses a DECIMAL template field
+    sql """ set default_variant_enable_doc_mode = false """
     def docs = [
         [1, '{"amount":1.005,"price":188118222.011121933,"id":18446744073709551616}'],
         [2, '{"amount":0.125,"price":0.123456789,"id":170141183460469231731687303715884105727}'],
