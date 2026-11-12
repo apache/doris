@@ -858,11 +858,14 @@ Status DataTypeArraySerDe::deserialize_one_cell_from_simdjson(
     auto& target = assert_cast<ColumnArray&>(column);
     auto& data = target.get_data();
 
+    size_t field_count = 0;
     for (simdjson::ondemand::value element : input.get_array()) {
         RETURN_IF_ERROR(nested_serde->deserialize_one_cell_from_simdjson(
                 data, element, options, context, column_name + ".element"));
+        ++field_count;
     }
-    target.get_offsets().push_back(data.size());
+    auto& offsets = target.get_offsets();
+    offsets.push_back(offsets.back() + field_count);
     return Status::OK();
 }
 

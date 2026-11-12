@@ -33,6 +33,8 @@
 #include "common/object_pool.h"
 #include "core/assert_cast.h"
 #include "core/block/block.h"
+#include "core/column/column_array.h"
+#include "core/column/column_map.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/column/column_vector.h"
@@ -971,6 +973,61 @@ TEST(JsonReaderTest, IgnoresMalformedJsonAsNullRowsWhenConfigured) {
     EXPECT_TRUE(nullable_is_null_at(*result.block.get_by_position(1).column, 0));
     EXPECT_EQ(nullable_int_at(*result.block.get_by_position(0).column, 1), 11);
     EXPECT_EQ(nullable_string_at(*result.block.get_by_position(1).column, 1), "judy");
+}
+
+TEST(JsonReaderTest, IgnoredMalformedNestedArrayDoesNotPopulateFollowingEmptyArray) {
+    for (const auto& paths : {std::string(), std::string(R"(["$.a"])")}) {
+        SCOPED_TRACE(paths);
+        ObjectPool pool;
+        auto inner = make_nullable(
+                std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeInt32>())));
+        auto type = make_nullable(std::make_shared<DataTypeArray>(inner));
+        std::vector<SlotDescriptor*> slots {make_test_slot(&pool, 0, 0, type, "a")};
+        auto result =
+                read_once("ignored_nested_array.jsonl",
+                          R"({"a":[[1],2]})"
+                          "\n"
+                          R"({"a":[]})"
+                          "\n",
+                          json_scan_params(true, false, paths, "", true), slots, {0}, false, true);
+        ASSERT_TRUE(result.status.ok()) << result.status;
+        ASSERT_EQ(result.rows, 2);
+        const auto& nullable =
+                assert_cast<const ColumnNullable&>(*result.block.get_by_position(0).column);
+        EXPECT_TRUE(nullable.is_null_at(0));
+        EXPECT_FALSE(nullable.is_null_at(1));
+        const auto& array = assert_cast<const ColumnArray&>(nullable.get_nested_column());
+        EXPECT_EQ(array.get_offsets()[0], 0);
+        EXPECT_EQ(array.get_offsets()[1], 0);
+    }
+}
+
+TEST(JsonReaderTest, IgnoredMalformedMapDoesNotPopulateFollowingEmptyMap) {
+    for (const auto& paths : {std::string(), std::string(R"(["$.m"])")}) {
+        SCOPED_TRACE(paths);
+        ObjectPool pool;
+        auto values = make_nullable(
+                std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeInt32>())));
+        auto type = make_nullable(std::make_shared<DataTypeMap>(
+                make_nullable(std::make_shared<DataTypeString>()), values));
+        std::vector<SlotDescriptor*> slots {make_test_slot(&pool, 0, 0, type, "m")};
+        auto result =
+                read_once("ignored_map.jsonl",
+                          R"({"m":{"good":[1],"bad":2}})"
+                          "\n"
+                          R"({"m":{}})"
+                          "\n",
+                          json_scan_params(true, false, paths, "", true), slots, {0}, false, true);
+        ASSERT_TRUE(result.status.ok()) << result.status;
+        ASSERT_EQ(result.rows, 2);
+        const auto& nullable =
+                assert_cast<const ColumnNullable&>(*result.block.get_by_position(0).column);
+        EXPECT_TRUE(nullable.is_null_at(0));
+        EXPECT_FALSE(nullable.is_null_at(1));
+        const auto& map = assert_cast<const ColumnMap&>(nullable.get_nested_column());
+        EXPECT_EQ(map.get_offsets()[0], 0);
+        EXPECT_EQ(map.get_offsets()[1], 0);
+    }
 }
 
 TEST(JsonReaderTest, SkipsEmptyJsonLine) {

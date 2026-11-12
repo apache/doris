@@ -929,6 +929,7 @@ Status DataTypeMapSerDe::deserialize_one_cell_from_simdjson(IColumn& column,
     auto& keys = *keys_owner;
     auto& values = *values_owner;
 
+    size_t field_count = 0;
     for (simdjson::ondemand::field field : input.get_object()) {
         const auto key = context.decoded_key(field);
         Slice slice {key.data(), key.size()};
@@ -945,8 +946,10 @@ Status DataTypeMapSerDe::deserialize_one_cell_from_simdjson(IColumn& column,
         auto value = field.value();
         RETURN_IF_ERROR(value_serde->deserialize_one_cell_from_simdjson(
                 values, value, options, context, column_name + ".value"));
+        ++field_count;
     }
-    target.get_offsets().push_back(keys.size());
+    auto& offsets = target.get_offsets();
+    offsets.push_back(offsets.back() + field_count);
     return Status::OK();
 }
 
