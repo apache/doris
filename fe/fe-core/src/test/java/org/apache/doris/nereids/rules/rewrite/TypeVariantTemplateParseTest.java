@@ -64,7 +64,8 @@ import java.util.Optional;
 
 /**
  * The sink types parse_to_variant with the target column's VARIANT template for every INSERT shape, the fast
- * VALUES path included, and leaves a call outside a sink alone.
+ * VALUES path included, when that column is the one reader of the call's value. It leaves a call with another
+ * reader, and a call outside a sink, alone.
  */
 public class TypeVariantTemplateParseTest extends TestWithFeService {
     private static final String DATABASE = "variant_template_parse_db";
@@ -72,6 +73,8 @@ public class TypeVariantTemplateParseTest extends TestWithFeService {
     private static final String SOURCE = "variant_template_parse_src";
     private static final String UNIQUE_TABLE = "variant_template_parse_mow";
     private static final String PLAIN_TEMPLATE_TABLE = "variant_template_parse_plain";
+    private static final String WIDE_TABLE = "variant_template_parse_wide";
+    private static final String TWO_TEMPLATES_TABLE = "variant_template_parse_two";
     private static final String DOCUMENT = "{\"money\":{\"amount\":188118222.011121933},\"name\":\"n\"}";
 
     @Override
@@ -98,6 +101,23 @@ public class TypeVariantTemplateParseTest extends TestWithFeService {
         createTable("create table " + PLAIN_TEMPLATE_TABLE + " (\n"
                 + "    id int,\n"
                 + "    v variant<'name':string,'count':bigint>\n"
+                + ")\n"
+                + "duplicate key(id)\n"
+                + "distributed by hash(id) buckets 1\n"
+                + "properties(\"replication_num\"=\"1\")");
+        createTable("create table " + WIDE_TABLE + " (\n"
+                + "    id int,\n"
+                + "    v variant<'money.amount':decimal(20,6),'ratio*':decimal(30,18),'name':string>,\n"
+                + "    raw variant,\n"
+                + "    txt string\n"
+                + ")\n"
+                + "duplicate key(id)\n"
+                + "distributed by hash(id) buckets 1\n"
+                + "properties(\"replication_num\"=\"1\")");
+        createTable("create table " + TWO_TEMPLATES_TABLE + " (\n"
+                + "    id int,\n"
+                + "    v variant<'money.amount':decimal(20,6),'ratio*':decimal(30,18),'name':string>,\n"
+                + "    w variant<'money.amount':decimal(10,2)>\n"
                 + ")\n"
                 + "duplicate key(id)\n"
                 + "distributed by hash(id) buckets 1\n"
@@ -168,6 +188,9 @@ public class TypeVariantTemplateParseTest extends TestWithFeService {
         shapes.add("insert into " + TABLE + " select id, coalesce(try_parse_to_variant(j), parse_to_variant(j))"
                 + from);
         shapes.add("insert into " + TABLE + " select id, nvl(try_parse_to_variant(j), parse_to_variant(j))" + from);
+        shapes.add("insert into " + TABLE + " select id, nullable(parse_to_variant(j))" + from);
+        shapes.add("insert into " + TABLE + " select id, non_nullable(try_parse_to_variant(j))" + from);
+        shapes.add("update " + UNIQUE_TABLE + " set v = parse_to_variant('" + DOCUMENT + "') where id = 1");
         // MERGE INTO selects every value it assigns with a short-circuit IF of its own
         shapes.add("merge into " + UNIQUE_TABLE + " t using " + SOURCE + " s on t.id = s.id"
                 + " when matched then update set v = parse_to_variant(s.j)"
@@ -206,8 +229,114 @@ public class TypeVariantTemplateParseTest extends TestWithFeService {
     }
 
     @Test
-    public void testAReaderBetweenTheCallAndTheSinkSeesTheTypedCall() throws Exception {
-        // the call is typed where it is computed, so the filter over its slot reads what the column will store
+    public void testACallOnlyItsColumnReadsIsTypedThroughTheNodesThatHandItOn() throws Exception {
+        VariantType template = templateOfTargetColumn();
+        String parsed = "(select id, parse_to_variant(j) as v from " + SOURCE + ")";
+        List<String> shapes = new ArrayList<>();
+        // a filter, a sort key and a join condition that do not name the value
+        shapes.add("insert into " + TABLE + " select id, v from " + parsed + " s where id > 0 order by id");
+        shapes.add("insert into " + TABLE + " select a.id, a.v from " + parsed + " a join " + SOURCE
+                + " b on a.id = b.id");
+        // a window over other columns
+        shapes.add("insert into " + TABLE + " select id, v from (select id, v, row_number() over"
+                + " (partition by id order by id) as rn from " + parsed + " s) w where rn = 1");
+        // the value taken from one slot in two places, by the one column: both branches of a MERGE INTO
+        shapes.add("merge into " + UNIQUE_TABLE + " t using (select id, parse_to_variant(j) as p from " + SOURCE
+                + ") s on t.id = s.id when matched then update set v = s.p"
+                + " when not matched then insert (id, v) values (s.id, s.p)");
+        // the other columns of the table take their defaults
+        shapes.add("insert into " + WIDE_TABLE + " (id, v) select id, v from " + parsed + " s");
+        for (String sql : shapes) {
+            List<VariantType> types = callReturnTypes(rewrittenPlan(sql));
+            Assertions.assertFalse(types.isEmpty(), sql);
+            for (VariantType type : types) {
+                Assertions.assertTrue(template.equalsWithPatternTypes(type), sql);
+            }
+        }
+    }
+
+    @Test
+    public void testACallSomethingElseReadsStaysAsItIs() throws Exception {
+        // The template applies to the value its column stores and to nothing else. When anything else in the
+        // statement reads the call's value, the call is left untyped: that reader sees what it always saw, and
+        // two reads of one text still agree.
+        String parsed = "(select id, parse_to_variant(j) as v from " + SOURCE + ")";
+        String limited = "(select id, parse_to_variant(j) as v from " + SOURCE + " limit 10)";
+        List<String> shapes = new ArrayList<>();
+        // a filter, a sort key, a join condition
+        shapes.add("insert into " + TABLE + " select id, v from " + parsed
+                + " s where cast(v['money']['amount'] as string) = '1.5'");
+        shapes.add("insert into " + TABLE + " select id, v from " + parsed + " s order by cast(v['name'] as string)");
+        shapes.add("insert into " + TABLE + " select a.id, a.v from " + parsed + " a join " + parsed
+                + " b on cast(a.v['name'] as string) = cast(b.v['name'] as string)");
+        // a filter that holds a subquery as well stays above the subquery's join, and still names the slot
+        shapes.add("insert into " + TABLE + " select id, v from " + parsed
+                + " s where cast(v['money']['amount'] as string) = '1.5' and id in (select id from " + SOURCE + ")");
+        // the condition of the IF that returns it
+        shapes.add("insert into " + TABLE + " select id, if(v is null, null, v) from " + limited + " s");
+        // other columns of the same sink: a plain VARIANT, a STRING
+        shapes.add("insert into " + WIDE_TABLE + " select id, v, v, cast(v as string) from " + limited + " s");
+        shapes.add("insert into " + WIDE_TABLE + " (id, v, txt) select id, v, cast(v['name'] as string) from "
+                + limited + " s");
+        // a second templated column with another template
+        shapes.add("insert into " + TWO_TEMPLATES_TABLE + " select id, v, v from " + limited + " s");
+        // a value that is grouped or compared before it is stored
+        shapes.add("insert into " + TABLE + " select distinct id, v from " + parsed + " s");
+        for (String operation : ImmutableList.of("union", "intersect", "except")) {
+            shapes.add("insert into " + TABLE + " select id, v from " + parsed + " a " + operation
+                    + " select id, v from " + parsed + " b");
+        }
+        // MERGE INTO: the ON clause, and the condition of a WHEN clause
+        shapes.add("merge into " + UNIQUE_TABLE + " t using (select id, parse_to_variant(j) as p from " + SOURCE
+                + ") s on t.id = s.id and cast(t.v['name'] as string) = cast(s.p['name'] as string)"
+                + " when matched then update set v = s.p");
+        shapes.add("merge into " + UNIQUE_TABLE + " t using (select id, parse_to_variant(j) as p from " + SOURCE
+                + ") s on t.id = s.id when matched and cast(s.p['name'] as string) = 'n' then update set v = s.p");
+        for (String sql : shapes) {
+            List<VariantType> types = callReturnTypes(rewrittenPlan(sql));
+            Assertions.assertFalse(types.isEmpty(), sql);
+            for (VariantType type : types) {
+                Assertions.assertTrue(type.getPredefinedFields().isEmpty(), sql);
+            }
+        }
+    }
+
+    @Test
+    public void testAReaderWithItsOwnCopyOfTheCallIsNotAReaderOfTheColumns() throws Exception {
+        VariantType template = templateOfTargetColumn();
+        // Other columns that parse the text themselves: the templated column's call is typed, theirs are not.
+        assertTypedAndUntypedCalls(template, 1, "insert into " + WIDE_TABLE
+                + " select id, parse_to_variant(j), parse_to_variant(j), cast(parse_to_variant(j)['name'] as string)"
+                + " from " + SOURCE);
+        // A filter the planner has already given its own copy of the call. With a subquery in the statement,
+        // subquery unnesting pushes a filter that sits directly on the alias's project below it, and
+        // substitutes the alias, before this rule runs. The filter no longer names the slot: the column's call
+        // is typed, and the filter's copy reads what it always read.
+        assertTypedAndUntypedCalls(template, 1, "insert into " + TABLE
+                + " select id, v from (select id, v from (select id, parse_to_variant(j) as v from " + SOURCE
+                + ") x where cast(v['money']['amount'] as string) = '1.5') b"
+                + " where id in (select id from " + SOURCE + ")");
+    }
+
+    /** {@code sql} holds {@code typed} calls with the template and at least one call without it. */
+    private void assertTypedAndUntypedCalls(VariantType template, int typed, String sql) throws Exception {
+        int withTemplate = 0;
+        int withoutTemplate = 0;
+        for (VariantType type : callReturnTypes(rewrittenPlan(sql))) {
+            if (type.getPredefinedFields().isEmpty()) {
+                withoutTemplate++;
+            } else {
+                Assertions.assertTrue(template.equalsWithPatternTypes(type), sql);
+                withTemplate++;
+            }
+        }
+        Assertions.assertEquals(typed, withTemplate, sql);
+        Assertions.assertTrue(withoutTemplate >= 1, sql);
+    }
+
+    @Test
+    public void testAReaderOfTheSlotIsSeenRightAfterAnalysis() throws Exception {
+        // the same decision without the Rewriter's other rules: the filter names the slot, so the call stays
         String sql = "insert into " + TABLE + " select id, v from (select id, parse_to_variant(j) as v from "
                 + SOURCE + ") s where cast(v['money']['amount'] as string) = '1.5'";
         createStatementCtx(sql);
@@ -229,7 +358,6 @@ public class TypeVariantTemplateParseTest extends TestWithFeService {
             }
         });
         Assertions.assertEquals(1, calls.size());
-        Assertions.assertEquals(templateOfTargetColumn(), ((ParseToVariant) calls.get(0).child()).getReturnType());
         Assertions.assertEquals(1, filters.size());
         boolean filterReadsTheCall = false;
         for (Expression conjunct : filters.get(0).getConjuncts()) {
@@ -238,6 +366,9 @@ public class TypeVariantTemplateParseTest extends TestWithFeService {
             }
         }
         Assertions.assertTrue(filterReadsTheCall, filters.get(0).toString());
+        ParseToVariant call = (ParseToVariant) calls.get(0).child();
+        Assertions.assertTrue(call.getReturnType().getPredefinedFields().isEmpty(), call.toString());
+        Assertions.assertFalse(call.toString().contains("template<"), call.toString());
     }
 
     @Test
