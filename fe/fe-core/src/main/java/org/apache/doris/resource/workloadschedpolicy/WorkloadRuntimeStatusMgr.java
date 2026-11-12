@@ -89,7 +89,7 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
             int missedLogCount = 0;
             int succLogCount = 0;
             for (AuditEvent auditEvent : auditEventList) {
-                TQueryStatistics queryStats = queryStatisticsMap.get(auditEvent.queryId);
+                TQueryStatistics queryStats = queryStatisticsMap.get(auditEvent.getStatisticsQueryId());
                 if (queryStats != null) {
                     auditEvent.scanRows = queryStats.scan_rows;
                     auditEvent.scanBytes = queryStats.scan_bytes;
@@ -194,7 +194,7 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
         // BE lookups are O(events * participants), so keep them outside the queue lock that
         // statement threads need in order to submit unrelated audit events.
         for (Map.Entry<AuditEvent, Set<Long>> entry : dueEventsAwaitingBackends.entrySet()) {
-            if (haveAllBackendsReportedFinalStatistics(entry.getKey().queryId, entry.getValue())) {
+            if (haveAllBackendsReportedFinalStatistics(entry.getKey().getStatisticsQueryId(), entry.getValue())) {
                 readyEvents.add(entry.getKey());
             }
         }

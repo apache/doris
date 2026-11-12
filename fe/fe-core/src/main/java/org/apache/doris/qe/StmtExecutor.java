@@ -216,6 +216,8 @@ public class StmtExecutor {
     // Pair the snapshot with its query id atomically so a retried attempt cannot inherit
     // stale BEs even when audit and query retry run on different threads.
     private volatile AuditBackendSnapshot dispatchedAuditBackends;
+    // A filtered SHOW keeps its own audit ID while its embedded SELECT reports BE stats under this ID.
+    private TUniqueId embeddedQueryIdForAuditStatistics;
 
     private static final class AuditBackendSnapshot {
         private final TUniqueId queryId;
@@ -602,6 +604,10 @@ public class StmtExecutor {
             backendIds.addAll(coord.getDispatchedBackendIdsForAudit());
         }
         return backendIds;
+    }
+
+    public TUniqueId getEmbeddedQueryIdForAuditStatistics() {
+        return embeddedQueryIdForAuditStatistics;
     }
 
     private void rememberDispatchedAuditBackends(Coordinator executedCoordinator) {
@@ -2312,6 +2318,9 @@ public class StmtExecutor {
             return executeInternalQueryWithoutAudit().stream()
                     .map(ResultRow::getValues).collect(Collectors.toList());
         } finally {
+            if (coord != null && !coord.getDispatchedBackendIdsForAudit().isEmpty()) {
+                embeddedQueryIdForAuditStatistics = context.queryId().deepCopy();
+            }
             setParsedStmt(originalStmt);
             context.setQueryId(originalQueryId);
             context.setSqlHash(originalSqlHash);

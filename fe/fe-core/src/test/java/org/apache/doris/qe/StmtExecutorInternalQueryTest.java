@@ -19,26 +19,123 @@ package org.apache.doris.qe;
 
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.StmtType;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.EnvFactory;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.common.profile.ExecutionProfile;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.plugin.AuditEvent;
 import org.apache.doris.resource.workloadschedpolicy.WorkloadRuntimeStatusMgr;
 import org.apache.doris.thrift.TQueryOptions;
+import org.apache.doris.thrift.TQueryStatistics;
+import org.apache.doris.thrift.TQueryStatisticsResult;
+import org.apache.doris.thrift.TReportWorkloadRuntimeStatusParams;
 import org.apache.doris.thrift.TUniqueId;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.MockedConstruction;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 
 public class StmtExecutorInternalQueryTest {
+    @Test
+    public void testEmbeddedShowAuditUsesActualExecutionIdForBeStatistics() throws Exception {
+        String showSql = "SHOW FULL TABLES WHERE Table_type = 'BASE TABLE'";
+        ConnectContext ctx = new ConnectContext();
+        ctx.setStartTime();
+        ctx.setCurrentUserIdentity(UserIdentity.ROOT);
+        TUniqueId showId = new TUniqueId(1, 2);
+        ctx.setQueryId(showId);
+        StmtExecutor executor = new StmtExecutor(ctx, showSql);
+        ctx.setExecutor(executor);
+        NereidsParser parser = new NereidsParser();
+        LogicalPlanAdapter showStmt = new LogicalPlanAdapter(parser.parseSingle(showSql), ctx.getStatementContext());
+        executor.setParsedStmt(showStmt);
+
+        Env env = Env.getCurrentEnv();
+        WorkloadRuntimeStatusMgr originalMgr = env.getWorkloadRuntimeStatusMgr();
+        AuditEventProcessor originalProcessor = env.getAuditEventProcessor();
+        int originalAuditTimeout = Config.query_audit_log_timeout_ms;
+        WorkloadRuntimeStatusMgr mgr = new WorkloadRuntimeStatusMgr();
+        AuditEventProcessor processor = Mockito.mock(AuditEventProcessor.class);
+        EnvFactory factory = Mockito.mock(EnvFactory.class);
+        TUniqueId[] executionId = new TUniqueId[1];
+        Mockito.when(factory.createCoordinator(Mockito.eq(ctx), Mockito.any(NereidsPlanner.class), Mockito.any()))
+                .thenAnswer(invocation -> {
+                    executionId[0] = ctx.queryId().deepCopy();
+                    Coordinator coordinator = Mockito.mock(Coordinator.class);
+                    Mockito.when(coordinator.getQueryOptions()).thenReturn(new TQueryOptions());
+                    Mockito.when(coordinator.getExecutionProfile())
+                            .thenReturn(new ExecutionProfile(executionId[0], List.of(0)));
+                    Mockito.when(coordinator.getDispatchedBackendIdsForAudit()).thenReturn(Set.of(10001L));
+                    Mockito.when(coordinator.getNext()).thenReturn(new RowBatch());
+                    return coordinator;
+                });
+
+        Deencapsulation.setField(env, "workloadRuntimeStatusMgr", mgr);
+        Deencapsulation.setField(env, "auditEventProcessor", processor);
+        Config.query_audit_log_timeout_ms = 10;
+        try (MockedStatic<EnvFactory> factories = Mockito.mockStatic(EnvFactory.class);
+                MockedConstruction<NereidsPlanner> planners = Mockito.mockConstruction(NereidsPlanner.class,
+                        (planner, construction) -> Mockito.when(planner.handleQueryInFe(Mockito.any()))
+                                .thenReturn(Optional.empty()))) {
+            factories.when(EnvFactory::getInstance).thenReturn(factory);
+            executor.executeEmbeddedQuery(parser.parseSingle("SELECT TABLE_NAME FROM information_schema.tables"));
+            Assertions.assertNotNull(executionId[0]);
+            Assertions.assertNotEquals(showId, executionId[0]);
+            Assertions.assertEquals(showId, ctx.queryId());
+
+            ctx.getState().setOk();
+            AuditLogHelper.logAuditLog(ctx, showSql, showStmt, executor.getQueryStatisticsForAuditLog(), true);
+            List<AuditEvent> events = Deencapsulation.getField(mgr, "queryAuditEventList");
+            Assertions.assertEquals(1, events.size());
+            AuditEvent event = events.get(0);
+            Assertions.assertEquals(DebugUtil.printId(showId), event.queryId);
+            Assertions.assertEquals("SHOW", event.stmtType);
+            Assertions.assertEquals(DebugUtil.printId(executionId[0]), event.getStatisticsQueryId());
+
+            TQueryStatistics statistics = new TQueryStatistics();
+            statistics.setScanRows(17);
+            statistics.setScanBytes(19);
+            statistics.setCpuMs(23);
+            statistics.setMaxPeakMemoryBytes(29);
+            TQueryStatisticsResult result = new TQueryStatisticsResult();
+            result.setStatistics(statistics);
+            result.setQueryFinished(true);
+            TReportWorkloadRuntimeStatusParams report = new TReportWorkloadRuntimeStatusParams();
+            report.setBackendId(10001L);
+            report.setQueryStatisticsResultMap(Map.of(DebugUtil.printId(executionId[0]), result));
+            mgr.updateBeQueryStats(report);
+            event.pushToAuditLogQueueTime = System.currentTimeMillis() - 20;
+            Deencapsulation.invoke(mgr, "runAfterCatalogReady");
+
+            Mockito.verify(processor).handleAuditEvent(event);
+            Assertions.assertEquals(17, event.scanRows);
+            Assertions.assertEquals(19, event.scanBytes);
+            Assertions.assertEquals(23, event.cpuTimeMs);
+            Assertions.assertEquals(29, event.peakMemoryBytes);
+            Assertions.assertTrue(((List<?>) Deencapsulation.getField(mgr, "queryAuditEventList")).isEmpty());
+        } finally {
+            Config.query_audit_log_timeout_ms = originalAuditTimeout;
+            Deencapsulation.setField(env, "workloadRuntimeStatusMgr", originalMgr);
+            Deencapsulation.setField(env, "auditEventProcessor", originalProcessor);
+        }
+    }
+
     @Test
     public void testSetSqlHash() {
         StmtExecutor executor = new StmtExecutor(new ConnectContext(), "select * from table1");
