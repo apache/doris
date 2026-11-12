@@ -26,7 +26,8 @@
 // The template applies to the value its column stores and to nothing else. When something else in
 // the statement reads the call's value (a filter, a join condition, another column), the call is
 // left as it is: that reader sees what it sees in a SELECT, and the column stores what it stored
-// before.
+// before. A reader may name the value or hold its own copy of the call: a second call the
+// statement wrote, a generated column or a materialized view's column over the templated column.
 suite("test_predefine_template_expr_and_merge", "p0") {
     // the p0 pipelines fuzz this session variable, and a doc-mode VARIANT refuses a DECIMAL template field
     sql """ set default_variant_enable_doc_mode = false """
@@ -152,12 +153,21 @@ suite("test_predefine_template_expr_and_merge", "p0") {
             select id + 30, v, v, cast(v['amount'] as string)
             from (select id, try_parse_to_variant(j) as v from test_predefine_template_src
                     where id >= 3 limit 10) s"""
-    // Two more columns that parse the text themselves are no readers of v's call: v reads 1.005
-    // from its text, and they store what they stored before.
+    // Two more columns that parse the text themselves hold copies of v's call. A call that is
+    // read anywhere else in the statement stays as it is, so v stores what it stored before, as
+    // they do.
     sql """insert into test_predefine_template_readers
             select id + 60, try_parse_to_variant(j), try_parse_to_variant(j),
                     cast(try_parse_to_variant(j)['amount'] as string)
             from test_predefine_template_src where id >= 3"""
+    // The planner makes such copies too. With a subquery in the statement it merges the derived
+    // table's project into the sink's, through a filtered LIMIT as well, and the two columns that
+    // named v then hold the call. All three store what they stored before.
+    sql """insert into test_predefine_template_readers
+            select id + 70, v, v, cast(v['amount'] as string)
+            from (select id, try_parse_to_variant(j) as v from test_predefine_template_src
+                    where id in (select id from test_predefine_template_src where id >= 3) limit 10) s
+            where id > 0"""
     // the value is grouped before it is stored
     sql """insert into test_predefine_template_readers (id, v)
             select distinct id + 40, v from ${parsed} s where id >= 3"""
@@ -294,9 +304,9 @@ suite("test_predefine_template_expr_and_merge", "p0") {
         PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true");
     """
     def load_docs = '{"id":1,"v":{"amount":1.005}}\n{"id":2,"v":{"amount":1.50}}\n'
-    def stream_load = { String columns, String where ->
+    def stream_load = { String table_name, String docs_text, String columns, String where ->
         streamLoad {
-            table "test_predefine_template_load"
+            table table_name
             set 'format', 'json'
             set 'read_json_by_line', 'true'
             set 'jsonpaths', '["$.id", "$.v"]'
@@ -304,7 +314,7 @@ suite("test_predefine_template_expr_and_merge", "p0") {
             if (where != null) {
                 set 'where', where
             }
-            inputText load_docs
+            inputText docs_text
             time 10000
 
             check { result, exception, startTime, endTime ->
@@ -317,12 +327,157 @@ suite("test_predefine_template_expr_and_merge", "p0") {
         }
     }
     // a derived column over the parsed column
-    stream_load("tid, v, id = tid, txt = cast(v['amount'] as string)", null)
+    stream_load("test_predefine_template_load", load_docs,
+            "tid, v, id = tid, txt = cast(v['amount'] as string)", null)
     // a WHERE over it: '1.5' selects neither document, '1.50' selects the second
-    stream_load("tid, v, id = tid + 10", "cast(v['amount'] as string) = '1.5'")
-    stream_load("tid, v, id = tid + 20", "cast(v['amount'] as string) = '1.50'")
+    stream_load("test_predefine_template_load", load_docs, "tid, v, id = tid + 10",
+            "cast(v['amount'] as string) = '1.5'")
+    stream_load("test_predefine_template_load", load_docs, "tid, v, id = tid + 20",
+            "cast(v['amount'] as string) = '1.50'")
+    // A column mapping that calls the parse itself is the load's own expression over a source
+    // field, not the parse the load plans for the column: it is read as before, 1.00 for 1.005.
+    stream_load("test_predefine_template_load", load_docs,
+            "tid, tmp, id = tid + 30, v = try_parse_to_variant(tmp)", null)
     quickTest("load", """select id, cast(v['amount'] as decimal(10, 2)), txt
             from test_predefine_template_load order by id""", false)
+
+    // A generated column over the templated column is computed from that column's own expression,
+    // so in an INSERT it reads the call's value or holds a copy of the call. The call stays as it
+    // is, and the row keeps g = f(v): 1.00 beside 1.00 for 1.005. That holds for a constant row
+    // whether the planner folds constants on the BE or not, and for VALUES of one row and of two
+    // through the fast VALUES planner and through the full one. A load parses the column once and
+    // the generated column reads that value: 1.01 beside 1.01.
+    sql "DROP TABLE IF EXISTS test_predefine_template_generated"
+    sql """
+        CREATE TABLE `test_predefine_template_generated` (
+            `id` bigint NOT NULL,
+            `v` variant<match_name 'amount' : decimal(10, 2)> NULL,
+            `g` decimal(10, 2) GENERATED ALWAYS AS (cast(v['amount'] as decimal(10, 2))) NULL
+        ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 1
+        PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true");
+    """
+    sql """insert into test_predefine_template_generated (id, v)
+            select id, try_parse_to_variant(j) from test_predefine_template_src where id >= 3"""
+    def fold_by_be = sql "select @@enable_fold_constant_by_be"
+    sql "set enable_fold_constant_by_be = false"
+    sql """insert into test_predefine_template_generated (id, v)
+            select 5, parse_to_variant('{"amount":1.005}')"""
+    sql "set enable_fold_constant_by_be = true"
+    sql """insert into test_predefine_template_generated (id, v)
+            select 6, parse_to_variant('{"amount":1.005}')"""
+    sql "set enable_fold_constant_by_be = ${fold_by_be[0][0]}"
+    def fast_values = sql "select @@enable_fast_analyze_into_values"
+    sql "set enable_fast_analyze_into_values = true"
+    sql """insert into test_predefine_template_generated (id, v) values
+            (7, parse_to_variant('{"amount":1.005}'))"""
+    sql """insert into test_predefine_template_generated (id, v) values
+            (21, parse_to_variant('{"amount":1.005}')), (22, parse_to_variant('{"amount":1.50}'))"""
+    sql "set enable_fast_analyze_into_values = false"
+    sql """insert into test_predefine_template_generated (id, v) values
+            (8, parse_to_variant('{"amount":1.005}'))"""
+    sql """insert into test_predefine_template_generated (id, v) values
+            (23, parse_to_variant('{"amount":1.005}')), (24, parse_to_variant('{"amount":1.50}'))"""
+    sql "set enable_fast_analyze_into_values = ${fast_values[0][0]}"
+    stream_load("test_predefine_template_generated", load_docs, "tid, v, id = tid + 10", null)
+    quickTest("generated", """select id, cast(v['amount'] as decimal(10, 2)), g,
+            g = cast(v['amount'] as decimal(10, 2))
+            from test_predefine_template_generated order by id""", false)
+
+    // With the generated column in a UNIQUE KEY, the stored key is what a later statement computes
+    // again from the stored column. A MERGE INTO that updates another column lands on the same key
+    // and replaces the row, and one that deletes finds it.
+    sql "DROP TABLE IF EXISTS test_predefine_template_generated_key"
+    sql """
+        CREATE TABLE `test_predefine_template_generated_key` (
+            `id` bigint NOT NULL,
+            `g` decimal(10, 2) GENERATED ALWAYS AS (cast(v['amount'] as decimal(10, 2))) NULL,
+            `v` variant<match_name 'amount' : decimal(10, 2)> NULL,
+            `x` int NULL
+        ) ENGINE=OLAP UNIQUE KEY(`id`, `g`) DISTRIBUTED BY HASH(`id`) BUCKETS 1
+        PROPERTIES ( "replication_allocation" = "tag.location.default: 1",
+                "enable_unique_key_merge_on_write" = "true", "disable_auto_compaction" = "true");
+    """
+    sql """insert into test_predefine_template_generated_key (id, v, x)
+            select id, try_parse_to_variant(j), 0 from test_predefine_template_src where id = 3"""
+    sql """
+        MERGE INTO test_predefine_template_generated_key t
+        USING (select id, 5 as x from test_predefine_template_src where id = 3) s
+        ON t.id = s.id
+        WHEN MATCHED THEN UPDATE SET x = s.x
+    """
+    quickTest("generated_key", """select id, g, cast(v['amount'] as decimal(10, 2)), x
+            from test_predefine_template_generated_key order by id, g, x""", false)
+    sql """
+        MERGE INTO test_predefine_template_generated_key t
+        USING (select id from test_predefine_template_src where id = 3) s
+        ON t.id = s.id
+        WHEN MATCHED THEN DELETE
+    """
+    quickTest("generated_key_deleted", "select count(*) from test_predefine_template_generated_key", false)
+
+    // A materialized view's column over the templated column is such a copy as well: the base row
+    // and the view's row hold the same read. The base row is read as a string, which the view
+    // cannot answer: the same expression as the view's column would be answered from the view.
+    sql "DROP TABLE IF EXISTS test_predefine_template_mv"
+    sql """
+        CREATE TABLE `test_predefine_template_mv` (
+            `id` bigint NOT NULL,
+            `v` variant<match_name 'amount' : decimal(10, 2)> NULL
+        ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 1
+        PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true");
+    """
+    createMV("""create materialized view test_predefine_template_mv_amount as
+            select id as mid, cast(v['amount'] as decimal(10, 2)) as mamount from test_predefine_template_mv""")
+    sql """insert into test_predefine_template_mv (id, v)
+            select id, try_parse_to_variant(j) from test_predefine_template_src where id >= 3"""
+    def mv_base = "select id, cast(v['amount'] as string) from test_predefine_template_mv order by id"
+    explain {
+        sql(mv_base)
+        notContains "(test_predefine_template_mv_amount)"
+    }
+    quickTest("mv_base", mv_base, false)
+    quickTest("mv_index", """select mid, mamount
+            from test_predefine_template_mv index test_predefine_template_mv_amount order by mid""", false)
+
+    // A cast does not read by a template: the target of a CAST carries none to the BE. A JSON
+    // string cast to an ARRAY of a VARIANT reads 1.50 as it always did, the double 1.5, whether
+    // the template names the key or not, so two casts that differ only in the template agree.
+    sql "DROP TABLE IF EXISTS test_predefine_template_cast"
+    sql """
+        CREATE TABLE `test_predefine_template_cast` (
+            `k` int NOT NULL,
+            `txt` string NULL
+        ) ENGINE=OLAP DUPLICATE KEY(`k`) DISTRIBUTED BY HASH(`k`) BUCKETS 1
+        PROPERTIES ( "replication_allocation" = "tag.location.default: 1");
+    """
+    sql """insert into test_predefine_template_cast values (1, '[{"a":1.50}]')"""
+    def json_string = "json_extract(json_object('s', txt), '\$.s')"
+    quickTest("cast_target", """select
+            cast(cast(${json_string} as array<variant<match_name 'a' : decimal(10, 2)>>) as string),
+            cast(cast(${json_string} as array<variant<match_name 'b' : decimal(10, 2)>>) as string)
+            from test_predefine_template_cast""", false)
+
+    // A DECIMAL256 field declares a scale up to 76, so a number is below every scale it has only
+    // below 10^-77. decimal(76, 45) holds 1.25e-40: its text is kept for the template's cast, as
+    // the text of any number beyond 38 digits is, and a derived column of the load sees that text.
+    // 1e-78 is the 0 it rounds to. The stored cell itself is not read back here: a DECIMAL256
+    // typed path cannot be read from storage yet (variant_decimal256_storage_error).
+    def decimal256 = sql "select @@enable_decimal256"
+    sql "set enable_decimal256 = true"
+    sql "DROP TABLE IF EXISTS test_predefine_template_decimal256"
+    sql """
+        CREATE TABLE `test_predefine_template_decimal256` (
+            `id` bigint NOT NULL,
+            `v` variant<match_name 'd' : decimal(76, 45)> NULL,
+            `txt` string NULL
+        ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 1
+        PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "disable_auto_compaction" = "true");
+    """
+    stream_load("test_predefine_template_decimal256",
+            '{"id":1,"v":{"d":1.25e-40}}\n{"id":2,"v":{"d":1e-78}}\n{"id":3,"v":{"d":1.50}}\n',
+            "tid, v, id = tid, txt = cast(v['d'] as string)", null)
+    quickTest("decimal256", "select id, txt from test_predefine_template_decimal256 order by id", false)
+    sql "set enable_decimal256 = ${decimal256[0][0]}"
 
     // collect_list keeps its state as JSON text between the phases of an aggregation, and the
     // column's type reads that text back with the template: the result of two phases is the result
