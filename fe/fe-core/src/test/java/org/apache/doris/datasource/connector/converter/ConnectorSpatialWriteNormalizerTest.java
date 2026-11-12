@@ -185,6 +185,37 @@ public class ConnectorSpatialWriteNormalizerTest {
     }
 
     @Test
+    public void testUnionAllReconcilesOrdinaryStructFieldsAfterRetagging() {
+        Type target = new StructType(new StructField("k", Type.BIGINT),
+                new StructField("g", ScalarType.createGeometryType("OGC:CRS84")));
+        Expression struct = new CreateNamedStruct(new StringLiteral("k"), new IntegerLiteral(1),
+                new StringLiteral("g"), new Cast(NullLiteral.INSTANCE, IntegerType.INSTANCE));
+        Expression wholeNull = new Cast(NullLiteral.INSTANCE, struct.getDataType());
+        LogicalPlan input = row(new IntegerLiteral(0));
+        LogicalPlan nullBranch = new LogicalProject<>(ImmutableList.of(new Alias(wholeNull, "shape")), input);
+        LogicalPlan structBranch = new LogicalProject<>(ImmutableList.of(new Alias(struct, "shape")), input);
+        for (LogicalUnion source : ImmutableList.of(
+                union(Qualifier.ALL, nullBranch, structBranch),
+                union(Qualifier.ALL, structBranch, nullBranch),
+                new LogicalUnion(Qualifier.ALL, ImmutableList.of(new SlotReference("shape", struct.getDataType())),
+                        ImmutableList.of(ImmutableList.of((SlotReference) nullBranch.getOutput().get(0))),
+                        ImmutableList.of(ImmutableList.of(new Alias(struct, "shape"))),
+                        false, ImmutableList.of(nullBranch)))) {
+            LogicalUnion normalized = (LogicalUnion) ConnectorSpatialWriteNormalizer.normalize(
+                    ImmutableList.of(new Column("shape", target)), source, new CTEContext());
+            DataType expected = DataType.fromCatalogType(target);
+            Assertions.assertEquals(expected, normalized.getOutput().get(0).getDataType());
+            Assertions.assertTrue(normalized.getOutput().get(0).nullable());
+            Assertions.assertEquals(2, normalized.arity());
+            for (int i = 0; i < normalized.arity(); i++) {
+                SlotReference output = normalized.getRegularChildOutput(i).get(0);
+                Assertions.assertEquals(expected, output.getDataType());
+                Assertions.assertEquals(output, normalized.child(i).getOutput().get(0));
+            }
+        }
+    }
+
+    @Test
     public void testUnionAllDoesNotRetagActualNonspatialValues() {
         LogicalPlan nulls = row(new Array(new Cast(NullLiteral.INSTANCE, IntegerType.INSTANCE)));
         LogicalPlan values = row(new Array(new IntegerLiteral(1)));

@@ -508,18 +508,24 @@ public class CreateIcebergSpatialV3Table {
                 "map_contains_value(map(id, ${column}), NULL)",
                 "map_contains_value(map(id, id), ${column})",
                 "map_contains_value(map(id, array(${column})), array(${column}))",
-                "map_contains_key(map(${column}, id), ${column})",
-                "map_contains_key(map(${column}, id), NULL)",
                 "map_contains_key(map(id, ${column}), ${column})",
                 "map_contains_entry(map(id, ${column}), id, ${column})",
                 "map_contains_entry(map(id, ${column}), id, NULL)",
                 "map_contains_entry(map(id, id), id, ${column})",
                 "map_contains_entry(map(id, id), ${column}, id)",
-                "map_contains_entry(map(${column}, id), NULL, id)",
                 "map_contains_entry(map(id, array(${column})), id, array(${column}))"]) {
             test {
                 sql """select ${expression} from geometry_values"""
                 exception "does not support spatial comparison"
+            }
+        }
+        for (String expression : [
+                "map_contains_key(map(${column}, id), ${column})",
+                "map_contains_key(map(${column}, id), NULL)",
+                "map_contains_entry(map(${column}, id), NULL, id)"]) {
+            test {
+                sql """select ${expression} from geometry_values"""
+                exception "map does not support spatial keys"
             }
         }
         "order_qt_spatial_map_key_lookup_${column}"("""select id,
@@ -582,7 +588,7 @@ public class CreateIcebergSpatialV3Table {
             for (String function : ["count_map", "sum_map", "avg_map", "min_map", "max_map"]) {
                 test {
                     sql """select ${function}${suffix}(map(${column}, id)) from geometry_values"""
-                    exception "${function} does not support spatial MAP keys"
+                    exception "map does not support spatial keys"
                 }
             }
         }

@@ -54,6 +54,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSetOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
@@ -267,14 +268,45 @@ public final class ConnectorSpatialWriteNormalizer {
         if (!changed) {
             return source;
         }
+        // A whole STRUCT NULL can adopt the sink's ordinary field types while a constructed
+        // STRUCT only retags its spatial leaves. Reconcile the branches before exposing UNION outputs.
+        List<DataType> commonTypes = new ArrayList<>();
+        for (int i = 0; i < source.getOutput().size(); i++) {
+            DataType common = childOutputs.get(0).get(i).getDataType();
+            for (int j = 1; j < childOutputs.size(); j++) {
+                common = LogicalSetOperation.getAssignmentCompatibleType(
+                        common, childOutputs.get(j).get(i).getDataType());
+            }
+            commonTypes.add(common);
+        }
+        for (int i = 0; i < children.size(); i++) {
+            List<SlotReference> slots = childOutputs.get(i);
+            List<NamedExpression> projects = new ArrayList<>();
+            boolean castNeeded = false;
+            for (int j = 0; j < slots.size(); j++) {
+                SlotReference slot = slots.get(j);
+                Expression cast = TypeCoercionUtils.castForCommonTypeWithExactTarget(slot, commonTypes.get(j));
+                projects.add(cast == slot ? slot : new Alias(cast, slot.getName()));
+                castNeeded |= cast != slot;
+            }
+            if (castNeeded) {
+                LogicalProject<?> project = new LogicalProject<>(projects, children.get(i));
+                children.set(i, project);
+                childOutputs.set(i, project.getOutput().stream().map(SlotReference.class::cast)
+                        .collect(ImmutableList.toImmutableList()));
+            }
+        }
+
         List<NamedExpression> outputs = new ArrayList<>();
         for (int i = 0; i < source.getOutput().size(); i++) {
             SlotReference slot = (SlotReference) source.getOutput().get(i);
-            DataType type = childOutputs.get(0).get(i).getDataType();
+            DataType type = commonTypes.get(i);
+            int ordinal = i;
+            boolean nullable = slot.nullable() || childOutputs.stream().anyMatch(row -> row.get(ordinal).nullable());
             // A forwarding project can repeat one slot for ordinary and spatial targets.
             // Retagged outputs need distinct identities, just like the scalar projection path.
-            outputs.add(slot.getDataType().equals(type) ? slot : slot
-                    .withExprId(StatementScopeIdGenerator.newExprId()).withNullableAndDataType(slot.nullable(), type));
+            outputs.add(slot.getDataType().equals(type) ? slot.withNullable(nullable) : slot
+                    .withExprId(StatementScopeIdGenerator.newExprId()).withNullableAndDataType(nullable, type));
         }
         return source.withNewOutputsChildrenAndConstExprsList(outputs, children, childOutputs, ImmutableList.of());
     }

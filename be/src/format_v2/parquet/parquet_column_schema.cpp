@@ -178,13 +178,13 @@ void propagate_native_max_levels(ParquetColumnSchema* schema) {
     }
 }
 
-void rebuild_logical_complex_type(ParquetColumnSchema* schema) {
+void rebuild_logical_complex_type(ParquetColumnSchema* schema, bool force = false) {
     DORIS_CHECK(schema != nullptr);
     schema->contains_variant = schema->kind == ParquetColumnSchemaKind::VARIANT;
     for (const auto& child : schema->children) {
         schema->contains_variant |= child->contains_variant;
     }
-    if (schema->kind == ParquetColumnSchemaKind::VARIANT || !schema->contains_variant) {
+    if (schema->kind == ParquetColumnSchemaKind::VARIANT || (!force && !schema->contains_variant)) {
         return;
     }
 
@@ -327,6 +327,29 @@ Status build_parquet_column_schema(const NativeFieldDescriptor& schema,
                 build_native_node_schema(native_fields[field_idx], cast_set<int32_t>(field_idx)));
     }
     return Status::OK();
+}
+
+bool apply_spatial_binary_types(format::ColumnDefinition* column, ParquetColumnSchema* schema) {
+    DORIS_CHECK(column->local_id == schema->local_id);
+    // A table-mapped BINARY leaf may have a spatial native annotation. Update the split-local
+    // reader schema used by both dictionary and plain-page readers, leaving the footer cache alone.
+    const auto physical_type = remove_nullable(schema->type)->get_primitive_type();
+    if ((physical_type == TYPE_GEOMETRY || physical_type == TYPE_GEOGRAPHY) &&
+        remove_nullable(column->type)->get_primitive_type() == TYPE_VARBINARY) {
+        schema->type = schema->type->is_nullable() ? column->type : remove_nullable(column->type);
+        schema->type_descriptor.doris_type = schema->type;
+        return true;
+    }
+    bool changed = false;
+    for (size_t i = 0; i < column->children.size(); ++i) {
+        changed |= apply_spatial_binary_types(&column->children[i], schema->children[i].get());
+    }
+    // A STRUCT containing an overridden leaf needs the same field type in both schemas.
+    if (changed) {
+        rebuild_logical_complex_type(schema, true);
+        column->type = make_nullable(schema->type);
+    }
+    return changed;
 }
 
 Status apply_variant_schema_overrides(

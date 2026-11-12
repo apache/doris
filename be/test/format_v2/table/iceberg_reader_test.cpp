@@ -490,7 +490,8 @@ TColumnType spatial_schema_carrier(const DataTypeSpatial& type) {
 void write_iceberg_spatial_key_parquet_file(const std::string& file_path,
                                             const DataTypeSpatial& spatial,
                                             const std::vector<std::optional<std::string>>& values,
-                                            bool include_id, bool spatial_annotation = true) {
+                                            bool include_id, bool spatial_annotation = true,
+                                            bool nested = false) {
     ::parquet::schema::NodeVector fields;
     if (include_id) {
         fields.push_back(::parquet::schema::PrimitiveNode::Make(
@@ -506,9 +507,13 @@ void write_iceberg_spatial_key_parquet_file(const std::string& file_path,
                     : (spatial.get_primitive_type() == TYPE_GEOMETRY
                                ? ::parquet::LogicalType::Geometry(spatial.crs())
                                : ::parquet::LogicalType::Geography(spatial.crs(), algorithm));
-    fields.push_back(
+    auto shape =
             ::parquet::schema::PrimitiveNode::Make("shape", ::parquet::Repetition::OPTIONAL,
-                                                   annotation, ::parquet::Type::BYTE_ARRAY, -1, 1));
+                                                   annotation, ::parquet::Type::BYTE_ARRAY, -1, 1);
+    fields.push_back(
+            nested ? ::parquet::schema::GroupNode::Make("payload", ::parquet::Repetition::REQUIRED,
+                                                        {shape}, ::parquet::ConvertedType::NONE, 2)
+                   : shape);
     auto schema = std::static_pointer_cast<::parquet::schema::GroupNode>(
             ::parquet::schema::GroupNode::Make("schema", ::parquet::Repetition::REQUIRED, fields));
     auto out = arrow::io::FileOutputStream::Open(file_path).ValueOrDie();
@@ -6899,6 +6904,93 @@ TEST(IcebergV2ReaderTest, UuidEqualityDeleteMatchesMissingColumnInitialDefault) 
         }
     }
     std::filesystem::remove_all(test_dir);
+}
+
+void expect_opaque_binary_rows(const Block& block, bool nested,
+                               const std::vector<std::optional<std::string>>& values, size_t* row) {
+    const IColumn* shape = block.get_by_position(1).column.get();
+    if (nested) {
+        const auto& payload = assert_cast<const ColumnNullable&>(*shape);
+        const auto& fields = assert_cast<const ColumnStruct&>(payload.get_nested_column());
+        shape = &fields.get_column(0);
+    }
+    const auto& nullable = assert_cast<const ColumnNullable&>(*shape);
+    const auto* binary = check_and_get_column<ColumnVarbinary>(nullable.get_nested_column());
+    ASSERT_NE(binary, nullptr);
+    for (size_t i = 0; i < block.rows(); ++i, ++*row) {
+        ASSERT_LT(*row, values.size());
+        const auto& value = values[*row];
+        EXPECT_EQ(nullable.is_null_at(i), !value.has_value());
+        if (value.has_value()) {
+            const auto bytes = binary->get_data_at(i);
+            EXPECT_EQ(std::string_view(bytes.data, bytes.size), *value);
+        }
+    }
+}
+
+void check_iceberg_opaque_binary_read(const std::string& file_path,
+                                      const DataTypeSpatial& annotation, bool nested,
+                                      const std::vector<std::optional<std::string>>& values) {
+    ASSERT_NO_FATAL_FAILURE(write_iceberg_spatial_key_parquet_file(file_path, annotation, values,
+                                                                   true, true, nested));
+    auto scan_params = make_local_parquet_scan_params();
+    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_2);
+    auto binary = make_table_column(1, "renamed_shape", std::make_shared<DataTypeVarbinary>());
+    std::vector<ColumnDefinition> columns {
+            make_table_column(0, "id", std::make_shared<DataTypeInt32>())};
+    if (nested) {
+        auto payload = make_table_column(
+                2, "payload",
+                std::make_shared<DataTypeStruct>(DataTypes {binary.type}, Strings {binary.name}));
+        payload.children.push_back(std::move(binary));
+        columns.push_back(std::move(payload));
+    } else {
+        columns.push_back(std::move(binary));
+    }
+
+    RuntimeProfile profile("iceberg_binary_spatial_annotation");
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    io::FileReaderStats stats;
+    io::FileCacheStatistics cache_stats;
+    auto io_ctx = make_io_context(&stats, &cache_stats);
+    iceberg::IcebergTableReader reader;
+    init_iceberg_reader(&reader, columns, &scan_params, io_ctx, &state, &profile);
+    ASSERT_TRUE(reader.prepare_split(build_split_options(file_path)).ok());
+    bool eos = false;
+    size_t row = 0;
+    while (!eos) {
+        Block block = build_table_block(columns);
+        const auto status = reader.get_block(&block, &eos);
+        ASSERT_TRUE(status.ok()) << status;
+        ASSERT_NO_FATAL_FAILURE(expect_opaque_binary_rows(block, nested, values, &row));
+    }
+    EXPECT_EQ(row, values.size());
+    ASSERT_TRUE(reader.close().ok());
+}
+
+TEST(IcebergV2ReaderTest, BinaryColumnReadsOpaqueAnnotatedParquetWkb) {
+    const auto test_dir =
+            std::filesystem::temp_directory_path() / "doris_iceberg_binary_spatial_annotation";
+    std::filesystem::create_directories(test_dir);
+    Defer cleanup([&] { std::filesystem::remove_all(test_dir); });
+    // TRIANGLE is valid WKB but is outside Doris's supported typed spatial subset.
+    const std::string triangle(
+            "\x01\x11\x00\x00\x00\x01\x00\x00\x00\x04\x00\x00\x00"
+            "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+            "\x00\x00\x00\x00\x00\x00\xf0\x3f\x00\x00\x00\x00\x00\x00\x00\x00"
+            "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xf0\x3f"
+            "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00",
+            77);
+    const std::vector<std::optional<std::string>> values {triangle, std::nullopt, triangle};
+    for (const auto& type : schema_evolution_spatial_types()) {
+        for (bool nested : {false, true}) {
+            SCOPED_TRACE(::testing::Message() << type->get_name() << " nested=" << nested);
+            const auto file_path =
+                    (test_dir / (nested ? "nested.parquet" : "scalar.parquet")).string();
+            ASSERT_NO_FATAL_FAILURE(check_iceberg_opaque_binary_read(
+                    file_path, assert_cast<const DataTypeSpatial&>(*type), nested, values));
+        }
+    }
 }
 
 TEST(IcebergV2ReaderTest, MissingOptionalSpatialColumnKeepsTypedNullDefault) {

@@ -170,6 +170,12 @@ const char* file_format_name(FileFormat format) {
     return "UNKNOWN";
 }
 
+bool has_spatial_file_leaf(const format::ColumnDefinition& column) {
+    const auto type = remove_nullable(column.type)->get_primitive_type();
+    return type == TYPE_GEOMETRY || type == TYPE_GEOGRAPHY ||
+           std::ranges::any_of(column.children, has_spatial_file_leaf);
+}
+
 const format::ColumnDefinition* find_matched_file_column(
         const format::ColumnDefinition& table_column,
         const std::vector<format::ColumnDefinition>& file_columns,
@@ -180,42 +186,35 @@ const format::ColumnDefinition* find_matched_file_column(
                    : format::find_column_by_name(table_column, file_columns);
 }
 
-// Copy the table field's timestamp marker onto the file column TableColumnMapper selects for it,
-// descending the way the mapper does: ARRAY and MAP children by position, STRUCT children by the
-// mapping mode, through an ID-less wrapper at any depth when the mapper allows one. Only a
-// DATETIMEV2 or TIMESTAMPTZ leaf takes the marker. A TIMESTAMP_NS leaf (an INT64 NANOS column
-// without the UTC annotation) keeps its nanoseconds: the Parquet reader rewrites any marked
-// timestamp leaf, so a marker there would make it decode TIMESTAMPTZ while the file schema still
-// says TIMESTAMP_NS. Returns whether any leaf took a marker.
-bool annotate_matched_timestamp_semantics(const format::ColumnDefinition& table_column,
-                                          format::ColumnDefinition* file_column,
-                                          format::TableColumnMappingMode mode,
-                                          bool allow_idless_complex_wrapper_projection) {
+// Descend the way TableColumnMapper does: ARRAY/MAP by position and STRUCT by identity,
+// including ID-less wrappers when the Iceberg scan contract allows them.
+template <typename AnnotateLeaf>
+bool annotate_matched_file_leaves(const format::ColumnDefinition& table_column,
+                                  format::ColumnDefinition* file_column,
+                                  format::TableColumnMappingMode mode,
+                                  bool allow_idless_complex_wrapper_projection,
+                                  const AnnotateLeaf& annotate_leaf) {
     DORIS_CHECK(file_column != nullptr);
     DORIS_CHECK(file_column->type != nullptr);
     switch (remove_nullable(file_column->type)->get_primitive_type()) {
-    case TYPE_DATETIMEV2:
-    case TYPE_TIMESTAMPTZ:
-        file_column->timestamp_is_adjusted_to_utc = table_column.timestamp_is_adjusted_to_utc;
-        return file_column->timestamp_is_adjusted_to_utc.has_value();
     case TYPE_ARRAY:
         DORIS_CHECK(file_column->children.size() == 1);
         // FE omits nested metadata for a field it describes only by its root.
         return table_column.children.size() == 1 &&
-               annotate_matched_timestamp_semantics(table_column.children[0],
-                                                    &file_column->children[0], mode,
-                                                    allow_idless_complex_wrapper_projection);
+               annotate_matched_file_leaves(table_column.children[0], file_column->children.data(),
+                                            mode, allow_idless_complex_wrapper_projection,
+                                            annotate_leaf);
     case TYPE_MAP: {
         DORIS_CHECK(file_column->children.size() == 2);
         if (table_column.children.size() != 2) {
             return false;
         }
-        const bool key = annotate_matched_timestamp_semantics(
-                table_column.children[0], &file_column->children[0], mode,
-                allow_idless_complex_wrapper_projection);
-        const bool value = annotate_matched_timestamp_semantics(
+        const bool key = annotate_matched_file_leaves(
+                table_column.children[0], file_column->children.data(), mode,
+                allow_idless_complex_wrapper_projection, annotate_leaf);
+        const bool value = annotate_matched_file_leaves(
                 table_column.children[1], &file_column->children[1], mode,
-                allow_idless_complex_wrapper_projection);
+                allow_idless_complex_wrapper_projection, annotate_leaf);
         return key || value;
     }
     case TYPE_STRUCT: {
@@ -225,15 +224,15 @@ bool annotate_matched_timestamp_semantics(const format::ColumnDefinition& table_
             const auto* matched = find_matched_file_column(table_child, file_column->children, mode,
                                                            allow_idless_complex_wrapper_projection);
             if (matched != nullptr) {
-                annotated |= annotate_matched_timestamp_semantics(
+                annotated |= annotate_matched_file_leaves(
                         table_child, &file_column->children[matched - file_column->children.data()],
-                        mode, allow_idless_complex_wrapper_projection);
+                        mode, allow_idless_complex_wrapper_projection, annotate_leaf);
             }
         }
         return annotated;
     }
     default:
-        return false;
+        return annotate_leaf(table_column, file_column);
     }
 }
 
@@ -290,7 +289,40 @@ Status IcebergTableReader::annotate_file_schema(
         return Status::OK();
     }
     _apply_positional_id_fallback(file_schema);
-    return _apply_table_timestamp_semantics(file_schema, _mapping_mode(*file_schema));
+    const auto mode = _mapping_mode(*file_schema);
+    // Ordinary files have no annotation to override. Avoid another field-matching pass for them.
+    if (std::ranges::any_of(*file_schema, has_spatial_file_leaf)) {
+        const bool allow_idless_wrappers = supports_iceberg_scan_semantics_v1(_scan_params);
+        for (const auto& table_column : _projected_columns) {
+            const auto* matched = find_matched_file_column(table_column, *file_schema, mode,
+                                                           allow_idless_wrappers);
+            if (matched == nullptr) {
+                continue;
+            }
+            auto* file_column = &(*file_schema)[matched - file_schema->data()];
+            const auto preserve_binary = [](const format::ColumnDefinition& target,
+                                            format::ColumnDefinition* file) {
+                // An imported BINARY can retain a Parquet GEOMETRY/GEOGRAPHY annotation. Decode its
+                // bytes without WKB validation, e.g. for a TRIANGLE unsupported by typed columns.
+                const auto file_type = remove_nullable(file->type)->get_primitive_type();
+                if (target.type == nullptr ||
+                    remove_nullable(target.type)->get_primitive_type() != TYPE_VARBINARY ||
+                    (file_type != TYPE_GEOMETRY && file_type != TYPE_GEOGRAPHY)) {
+                    return false;
+                }
+                const auto binary = remove_nullable(target.type);
+                file->type = file->type->is_nullable() ? make_nullable(binary) : binary;
+                return true;
+            };
+            if (annotate_matched_file_leaves(table_column, file_column, mode, allow_idless_wrappers,
+                                             preserve_binary)) {
+                // Apply the same types to the Parquet reader's split-local schema before mapping.
+                static_cast<format::parquet::ParquetReader&>(*_data_reader.reader)
+                        .apply_spatial_binary_types(file_column);
+            }
+        }
+    }
+    return _apply_table_timestamp_semantics(file_schema, mode);
 }
 
 void IcebergTableReader::_apply_positional_id_fallback(
@@ -360,8 +392,19 @@ Status IcebergTableReader::_apply_table_timestamp_semantics(
         auto* file_column = &(*file_schema)[matched - file_schema->data()];
         // Rebuilding a container recreates its type from the children, so leave every column
         // without a marked leaf exactly as the file reader reported it.
-        if (annotate_matched_timestamp_semantics(table_column, file_column, mode,
-                                                 allow_idless_complex_wrapper_projection)) {
+        const auto annotate_timestamp = [](const format::ColumnDefinition& table,
+                                           format::ColumnDefinition* file) {
+            const auto type = remove_nullable(file->type)->get_primitive_type();
+            // TIMESTAMP_NS still carries nanoseconds, so it must keep its own decoder.
+            if (type != TYPE_DATETIMEV2 && type != TYPE_TIMESTAMPTZ) {
+                return false;
+            }
+            file->timestamp_is_adjusted_to_utc = table.timestamp_is_adjusted_to_utc;
+            return file->timestamp_is_adjusted_to_utc.has_value();
+        };
+        if (annotate_matched_file_leaves(table_column, file_column, mode,
+                                         allow_idless_complex_wrapper_projection,
+                                         annotate_timestamp)) {
             RETURN_IF_ERROR(format::apply_file_timestamp_semantics(file_column));
         }
     }
