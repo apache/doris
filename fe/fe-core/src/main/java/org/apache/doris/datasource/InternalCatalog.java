@@ -539,13 +539,16 @@ public class InternalCatalog implements CatalogIf<Database> {
 
                 Env.getCurrentRecycleBin().recycleDatabase(db, tableNames, tableIds, false, force, 0);
                 recycleTime = Env.getCurrentRecycleBin().getRecycleTimeById(db.getId());
-                functionSignatures = FunctionUtil.collectPythonFunctions(db);
+                // Recoverable databases keep function IDs until permanent erasure.
+                if (force) {
+                    functionSignatures = FunctionUtil.collectPythonFunctions(db);
+                    db.unregisterFunctionsById();
+                }
             } finally {
                 db.writeUnlock();
             }
 
             // 3. remove db from catalog
-            db.unregisterFunctionsById();
             idToDb.remove(db.getId());
             fullNameToDb.remove(db.getFullName());
             Env.getCurrentEnv().getFunctionRegistry().dropUdfByDb(db.getFullName());
@@ -606,7 +609,9 @@ public class InternalCatalog implements CatalogIf<Database> {
                 db.writeUnlock();
             }
 
-            db.unregisterFunctionsById();
+            if (isForceDrop) {
+                db.unregisterFunctionsById();
+            }
             fullNameToDb.remove(dbName);
             idToDb.remove(db.getId());
             Env.getCurrentEnv().getFunctionRegistry().dropUdfByDb(dbName);

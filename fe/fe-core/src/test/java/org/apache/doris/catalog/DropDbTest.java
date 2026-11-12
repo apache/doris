@@ -70,7 +70,10 @@ public class DropDbTest extends TestWithFeService {
         List<Function> originalFunctions = db.getFunctions();
         Set<Long> functionIds = functionIds(db);
         dropDatabaseWithSql("drop database drop_function_cache_db");
-        assertFunctionCacheCleanupQueued(db);
+        assertFunctionCacheCleanupAbsent(db);
+        for (Function function : originalFunctions) {
+            Assertions.assertSame(function, Env.getCurrentEnv().getFunctionById(function.getId()));
+        }
         RecoverDatabaseCommand recover = (RecoverDatabaseCommand) new NereidsParser()
                 .parseSingle("recover database drop_function_cache_db");
         recover.run(connectContext, null);
@@ -97,18 +100,18 @@ public class DropDbTest extends TestWithFeService {
     }
 
     @Test
-    public void testExpiredDbPreservesPendingFunctionCacheCleanup() throws Exception {
-        assertErasedDbPreservesPendingFunctionCacheCleanup("expired");
+    public void testExpiredDbSubmitsFunctionCacheCleanup() throws Exception {
+        assertErasedDbSubmitsFunctionCacheCleanup("expired");
     }
 
     @Test
-    public void testSameNameErasedDbPreservesPendingFunctionCacheCleanup() throws Exception {
-        assertErasedDbPreservesPendingFunctionCacheCleanup("same_name");
+    public void testSameNameErasedDbSubmitsFunctionCacheCleanup() throws Exception {
+        assertErasedDbSubmitsFunctionCacheCleanup("same_name");
     }
 
     @Test
-    public void testInstantlyErasedDbPreservesPendingFunctionCacheCleanup() throws Exception {
-        assertErasedDbPreservesPendingFunctionCacheCleanup("instantly");
+    public void testInstantlyErasedDbSubmitsFunctionCacheCleanup() throws Exception {
+        assertErasedDbSubmitsFunctionCacheCleanup("instantly");
     }
 
     @Test
@@ -119,11 +122,13 @@ public class DropDbTest extends TestWithFeService {
         Assertions.assertEquals(tasks, cleanupTasks());
     }
 
-    private void assertErasedDbPreservesPendingFunctionCacheCleanup(String kind) throws Exception {
+    private void assertErasedDbSubmitsFunctionCacheCleanup(String kind) throws Exception {
         Database db = createDatabaseWithPythonFunctions("erase_" + kind + "_function_cache_db");
         dropDatabaseWithSql("drop database " + db.getFullName());
-        assertFunctionCacheCleanupQueued(db);
-        List<AgentTask> tasks = cleanupTasks();
+        assertFunctionCacheCleanupAbsent(db);
+        for (Function function : db.getFunctions()) {
+            Assertions.assertSame(function, Env.getCurrentEnv().getFunctionById(function.getId()));
+        }
         CatalogRecycleBin recycleBin = Env.getCurrentRecycleBin();
         switch (kind) {
             case "expired":
@@ -142,7 +147,10 @@ public class DropDbTest extends TestWithFeService {
                 throw new AssertionError(kind);
         }
         Assertions.assertFalse(recycleBin.isRecycleDatabase(db.getId()));
-        Assertions.assertEquals(tasks, cleanupTasks());
+        assertFunctionCacheCleanupQueued(db);
+        for (Function function : db.getFunctions()) {
+            Assertions.assertNull(Env.getCurrentEnv().getFunctionById(function.getId()));
+        }
     }
 
     private Database createDatabaseWithPythonFunctions(String dbName) throws Exception {
@@ -166,6 +174,11 @@ public class DropDbTest extends TestWithFeService {
 
     private List<AgentTask> cleanupTasks() {
         return AgentTaskQueue.getTask(cleanupBackend.getId(), TTaskType.CLEAN_UDF_CACHE);
+    }
+
+    private void assertFunctionCacheCleanupAbsent(Database db) {
+        Set<Long> functionIds = functionIds(db);
+        Assertions.assertTrue(cleanupTasks().stream().noneMatch(task -> functionIds.contains(task.getSignature())));
     }
 
     private void assertFunctionCacheCleanupQueued(Database db) {

@@ -92,7 +92,7 @@ suite("test_pythonudf_database_cleanup_retry", "nonConcurrent") {
             } else if (mode == "recycle") {
                 sql "USE ${originalDb}"
                 sql "DROP DATABASE ${db}"
-                assertEquals(beIds.size() * functionCount, cleanupTasks().TotalNum.toInteger())
+                assertEquals(0, cleanupTasks().TotalNum.toInteger())
                 sql "DROP CATALOG RECYCLE BIN WHERE 'DbId' = ${dbId}"
                 assertTrue(sql_return_maparray("SHOW CATALOG RECYCLE BIN WHERE NAME = '${db}'")
                         .every { it.DbId.toString() != dbId.toString() })
