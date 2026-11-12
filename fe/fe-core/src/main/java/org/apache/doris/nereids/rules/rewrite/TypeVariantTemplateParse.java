@@ -52,11 +52,12 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Types every {@code parse_to_variant} / {@code try_parse_to_variant} call that feeds a VARIANT column whose type
- * carries a Schema Template with that column's type, so the BE parses the JSON text with the template's fields in
- * hand. Only a template that declares a DECIMAL or LARGEINT path rides to the BE (see
- * {@code VariantType#toThrift}): a cast after the parse can only relabel a value already read through a binary64,
- * and comes too late for an integer beyond 64 bits, which fails the parse of the whole document.
+ * Types every {@code parse_to_variant} / {@code try_parse_to_variant} call that feeds a VARIANT column whose
+ * Schema Template declares a DECIMAL or LARGEINT path with that column's type, so the BE parses the JSON text
+ * with the template's fields in hand. Only such a template rides to the BE (see {@code VariantType#toThrift}),
+ * and a call that feeds any other column is left exactly as it was. A cast after the parse can only relabel a
+ * value already read through a binary64, and comes too late for an integer beyond 64 bits, which fails the
+ * parse of the whole document.
  *
  * <p>A template applies at the sink and nowhere else, so the typing starts from each {@link LogicalOlapTableSink}
  * and follows a templated column's slot down to the alias that computes it: through projects, the constant rows
@@ -90,7 +91,10 @@ public class TypeVariantTemplateParse extends DefaultPlanRewriter<Void> implemen
         Map<ExprId, VariantType> templates = Maps.newHashMap();
         for (int i = 0; i < targets.size(); i++) {
             DataType targetType = targets.get(i).getDataType();
-            if (targetType instanceof VariantType && !((VariantType) targetType).getPredefinedFields().isEmpty()) {
+            // Only a template the BE reads numbers by. Any other sends nothing, and typing the call for it
+            // would change nothing but the call's identity: two copies of one parse would stop being one
+            // common sub-expression, and stop matching a materialized view that computes it.
+            if (targetType instanceof VariantType && ((VariantType) targetType).readsNumbersFromText()) {
                 templates.putIfAbsent(inputs.get(i).getExprId(), (VariantType) targetType);
             }
         }

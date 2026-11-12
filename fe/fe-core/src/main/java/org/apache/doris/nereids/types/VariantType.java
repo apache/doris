@@ -220,6 +220,24 @@ public class VariantType extends PrimitiveType {
     }
 
     /**
+     * Whether the template declares a DECIMAL or LARGEINT field, an ARRAY of one included: the two types that
+     * change how the BE reads a JSON number, and the only templates that ride to it. The catalog type decides
+     * the same way what it sends (collectTemplatePaths).
+     */
+    public boolean readsNumbersFromText() {
+        for (VariantField field : predefinedFields) {
+            DataType leafType = field.getDataType();
+            if (leafType instanceof ArrayType) {
+                leafType = ((ArrayType) leafType).getItemType();
+            }
+            if (leafType instanceof DecimalV3Type || leafType instanceof LargeIntType) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
      * Whether {@code other} is this type with every template field matching its pattern the same way.
      * {@link #equals} compares a field by its pattern and type, so two templates that differ only in MATCH_NAME
      * against a glob are one type wherever types are compared. A parse call typed with a template has to tell

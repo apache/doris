@@ -34,8 +34,13 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.insert.AbstractInsertExecutor;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.types.ArrayType;
+import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DecimalV3Type;
+import org.apache.doris.nereids.types.DoubleType;
+import org.apache.doris.nereids.types.LargeIntType;
+import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.VariantField;
 import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.util.PlanChecker;
@@ -66,6 +71,7 @@ public class TypeVariantTemplateParseTest extends TestWithFeService {
     private static final String TABLE = "variant_template_parse_t";
     private static final String SOURCE = "variant_template_parse_src";
     private static final String UNIQUE_TABLE = "variant_template_parse_mow";
+    private static final String PLAIN_TEMPLATE_TABLE = "variant_template_parse_plain";
     private static final String DOCUMENT = "{\"money\":{\"amount\":188118222.011121933},\"name\":\"n\"}";
 
     @Override
@@ -89,6 +95,13 @@ public class TypeVariantTemplateParseTest extends TestWithFeService {
                 + "unique key(id)\n"
                 + "distributed by hash(id) buckets 1\n"
                 + "properties(\"replication_num\"=\"1\", \"enable_unique_key_merge_on_write\"=\"true\")");
+        createTable("create table " + PLAIN_TEMPLATE_TABLE + " (\n"
+                + "    id int,\n"
+                + "    v variant<'name':string,'count':bigint>\n"
+                + ")\n"
+                + "duplicate key(id)\n"
+                + "distributed by hash(id) buckets 1\n"
+                + "properties(\"replication_num\"=\"1\")");
         createTable("create table " + SOURCE + " (\n"
                 + "    id int,\n"
                 + "    j string\n"
@@ -247,6 +260,38 @@ public class TypeVariantTemplateParseTest extends TestWithFeService {
         Assertions.assertEquals(new ParseToVariant(text, literal), new ParseToVariant(text, literal));
         Assertions.assertNotEquals(new TryParseToVariant(text, literal), new TryParseToVariant(text, glob));
         Assertions.assertEquals(new TryParseToVariant(text, glob), new TryParseToVariant(text, glob));
+    }
+
+    @Test
+    public void testATemplateThatSendsNothingLeavesTheCallAsItIs() throws Exception {
+        // A template with no DECIMAL or LARGEINT field does not ride to the BE, which parses as without one.
+        // Typing the call for it would only make it unequal to the other copies of itself in the statement.
+        for (String sql : ImmutableList.of(
+                "insert into " + PLAIN_TEMPLATE_TABLE + " select id, parse_to_variant(j) from " + SOURCE,
+                "insert into " + PLAIN_TEMPLATE_TABLE + " select id, if(id > 0, try_parse_to_variant(j), null) from "
+                        + SOURCE)) {
+            List<VariantType> types = callReturnTypes(rewrittenPlan(sql));
+            Assertions.assertFalse(types.isEmpty(), sql);
+            for (VariantType type : types) {
+                Assertions.assertTrue(type.getPredefinedFields().isEmpty(), sql);
+            }
+        }
+    }
+
+    @Test
+    public void testTheRuleAndTheWireAgreeOnWhichTemplatesRide() {
+        DataType decimal = DecimalV3Type.createDecimalV3Type(20, 6);
+        for (DataType fieldType : ImmutableList.of(StringType.INSTANCE, BigIntType.INSTANCE, DoubleType.INSTANCE,
+                ArrayType.of(BigIntType.INSTANCE), LargeIntType.INSTANCE, decimal,
+                DecimalV3Type.createDecimalV3Type(38, 10), ArrayType.of(LargeIntType.INSTANCE),
+                ArrayType.of(decimal))) {
+            VariantType type = new VariantType(ImmutableList.of(new VariantField("name", StringType.INSTANCE, ""),
+                    new VariantField("f", fieldType, "")));
+            boolean rides = !((org.apache.doris.catalog.VariantType) type.toCatalogDataType())
+                    .collectTemplatePaths().isEmpty();
+            Assertions.assertEquals(rides, type.readsNumbersFromText(), fieldType.toSql());
+        }
+        Assertions.assertFalse(VariantType.INSTANCE.readsNumbersFromText());
     }
 
     @Test
