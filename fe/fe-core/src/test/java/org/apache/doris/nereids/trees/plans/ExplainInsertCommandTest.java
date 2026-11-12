@@ -166,6 +166,33 @@ public class ExplainInsertCommandTest extends TestWithFeService {
         }
     }
 
+    @Test
+    public void testMergeGuardedAggStateCast() throws Exception {
+        boolean enableAggState = connectContext.getSessionVariable().enableAggState;
+        String disabled = String.join(",", connectContext.getSessionVariable().getDisableNereidsRuleNames());
+        try {
+            // The mock tables have no rowsets. Keep their scans and the guarded assignment in the plan.
+            connectContext.getSessionVariable().setDisableNereidsRules(disabled + ",PRUNE_EMPTY_PARTITION");
+            connectContext.getSessionVariable().enableAggState = true;
+            createTable("create table merge_min_target (k int, v bigint) "
+                    + "unique key(k) distributed by hash(k) buckets 1 "
+                    + "properties('replication_num'='1', 'enable_unique_key_merge_on_write'='true')");
+            createTable("create table merge_min_src (k int, d double not null, b bigint not null) "
+                    + "duplicate key(k) distributed by hash(k) buckets 1 properties('replication_num'='1')");
+            String merge = "explain merge into merge_min_target t using "
+                    + "(select k, min_combine(%s) as s from merge_min_src group by k) q on t.k=q.k "
+                    + "when matched and t.k >= 0 then update set v=min_finalize(cast(q.s as "
+                    + "agg_state<min(bigint not null)>)) when matched then update set v=t.v";
+            getOutputFragment(String.format(merge, "b"));
+            AnalysisException error = Assertions.assertThrows(AnalysisException.class,
+                    () -> getOutputFragment(String.format(merge, "d")));
+            Assertions.assertTrue(error.getMessage().contains("cannot cast agg_state<min("), error.getMessage());
+        } finally {
+            connectContext.getSessionVariable().setDisableNereidsRules(disabled);
+            connectContext.getSessionVariable().enableAggState = enableAggState;
+        }
+    }
+
     private void planFastValues(String sql, boolean batch) throws Exception {
         StatementContext context = MemoTestUtils.createStatementContext(connectContext, sql);
         LogicalPlan logical = (LogicalPlan) ((Explainable) parser.parseSingle(sql)).getExplainPlan(connectContext);
