@@ -128,6 +128,22 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     }
 
     public void resetMetaToUninitialized(boolean invalidateEngineCache, boolean invalidateRowCountCache) {
+        resetMetaToUninitialized(invalidateRowCountCache, () -> {
+            if (invalidateEngineCache) {
+                Env.getCurrentEnv().getExtMetaCacheMgr().invalidateDb(this);
+            }
+        });
+    }
+
+    void resetMetaToUninitializedOnEviction(boolean invalidateEngineCache) {
+        resetMetaToUninitialized(false, () -> {
+            if (invalidateEngineCache) {
+                Env.getCurrentEnv().getExtMetaCacheMgr().invalidateDbMetadataCache(this);
+            }
+        });
+    }
+
+    private void resetMetaToUninitialized(boolean invalidateRowCountCache, Runnable engineInvalidation) {
         if (LOG.isDebugEnabled()) {
             LOG.debug("resetToUninitialized db name {}, id {}, isInitializing: {}, initialized: {}",
                     this.name, this.id, isInitializing, initialized, new Exception());
@@ -156,12 +172,8 @@ public abstract class ExternalDatabase<T extends ExternalTable>
             }
         }
         try {
-            if (invalidateEngineCache) {
-                // Route through the typed overload: connector-specific caches (for example Paimon's
-                // table loader) are keyed by the database object and are not fully covered by the
-                // name-based scan in invalidateDb(long, String).
-                Env.getCurrentEnv().getExtMetaCacheMgr().invalidateDb(this);
-            }
+            // Keep typed database identity for connector caches keyed by the retired object.
+            engineInvalidation.run();
         } finally {
             if (invalidateRowCountCache) {
                 // Independent of the routed invalidation: a connector cache failure (for example
