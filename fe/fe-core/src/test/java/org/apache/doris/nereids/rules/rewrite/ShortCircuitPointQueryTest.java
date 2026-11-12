@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.rewrite;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.S3Resource;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.doris.RemoteOlapTable;
@@ -33,8 +34,11 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.utframe.TestWithFeService;
 
+import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.lang.reflect.Field;
 
@@ -282,4 +286,16 @@ class ShortCircuitPointQueryTest extends TestWithFeService
         Assertions.assertTrue(connectContext.getStatementContext().isShortCircuitQuery());
     }
 
+    @Test
+    void testToFilePointQueryUsesNormalExecution() {
+        try (MockedStatic<S3Resource> resources = Mockito.mockStatic(S3Resource.class)) {
+            for (String projection : ImmutableList.of("to_file('resource', v1)",
+                    "element_at(to_file('resource', v1), 'size')")) {
+                rewrite("select " + projection + " from tbl_point_query where `key` = 1");
+                Assertions.assertFalse(connectContext.getStatementContext().isShortCircuitQuery(), projection);
+            }
+        }
+        rewrite("select v1 from tbl_point_query where `key` = 1");
+        Assertions.assertTrue(connectContext.getStatementContext().isShortCircuitQuery());
+    }
 }
