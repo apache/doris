@@ -24,6 +24,8 @@
 #include <aws/identity-management/auth/STSAssumeRoleCredentialsProvider.h>
 #include <aws/sts/STSClient.h>
 
+#include <type_traits>
+
 #include "cpp/custom_aws_credentials_provider_chain.h"
 #include "cpp/obj-storage/obj_storage_config.h"
 
@@ -81,19 +83,80 @@ AwsCredentialOptions AwsCredentialOptions::from_sdk_defaults(
     return options;
 }
 
-AwsCredentialOptions AwsCredentialOptions::from_config(
-        std::string_view provider_version, const Aws::Client::ClientConfiguration& sdk_defaults,
-        const std::string& ca_cert_path, const ObjStorageConfigBase& config,
-        EmptyCredentialsBehavior empty_credentials) {
-    auto options =
-            from_sdk_defaults(provider_version, sdk_defaults, ca_cert_path, empty_credentials);
-    options.access_key = config.ak;
-    options.secret_key = config.sk;
-    options.session_token = config.token;
-    options.provider_type = config.cred_provider_type;
-    options.role_arn = config.role_arn;
-    options.external_id = config.external_id;
-    return options;
+namespace {
+std::shared_ptr<Provider> sdk_credentials(const AccessKeyObjStorageAuth& keys) {
+    Aws::Auth::AWSCredentials credentials(keys.access_key, keys.secret_key, keys.session_token);
+    return std::make_shared<Aws::Auth::SimpleAWSCredentialsProvider>(std::move(credentials));
+}
+std::shared_ptr<Provider> sdk_credentials(AwsCredentialChainType chain,
+                                          AwsCredentialImplementation implementation) {
+    switch (chain) {
+    case AwsCredentialChainType::Default:
+        if (implementation == AwsCredentialImplementation::V1)
+            return std::make_shared<Aws::Auth::DefaultAWSCredentialsProviderChain>();
+        return create_v2_base_provider(CredProviderType::Default);
+    case AwsCredentialChainType::Environment:
+        return create_v2_base_provider(CredProviderType::Env);
+    case AwsCredentialChainType::Profile:
+        return create_v2_base_provider(CredProviderType::SystemProperties);
+    case AwsCredentialChainType::WebIdentity:
+        return create_v2_base_provider(CredProviderType::WebIdentity);
+    case AwsCredentialChainType::Container:
+        return create_v2_base_provider(CredProviderType::Container);
+    case AwsCredentialChainType::InstanceProfile:
+        return create_v2_base_provider(CredProviderType::InstanceProfile);
+    }
+    __builtin_unreachable();
+}
+} // namespace
+
+AwsCredentialResult AwsCredentialFactory::create(const AwsObjStorageAuthConfig& auth,
+                                                 const ObjStorageConnectionConfig& connection) {
+    auto source = std::visit(
+            [&]<typename T>(const T& value) -> std::shared_ptr<Provider> {
+                if constexpr (std::is_same_v<T, AnonymousObjStorageAuth>) {
+                    return std::make_shared<Aws::Auth::AnonymousAWSCredentialsProvider>();
+                } else if constexpr (std::is_same_v<T, AccessKeyObjStorageAuth>) {
+                    return sdk_credentials(value);
+                } else {
+                    return sdk_credentials(value, auth.implementation);
+                }
+            },
+            auth.source);
+    if (!auth.assume_role) {
+        return {.provider = std::move(source)};
+    }
+    auto options = default_aws_client_configuration();
+    if (connection.ca_cert_file) {
+        options.caFile = *connection.ca_cert_file;
+    }
+    if (auth.assume_role->request_timeout) {
+        options.requestTimeoutMs = auth.assume_role->request_timeout->count();
+    }
+    return assume_role({.role_arn = auth.assume_role->role_arn,
+                        .external_id = auth.assume_role->external_id.value_or(""),
+                        .sts_client_config = std::move(options)},
+                       std::move(source));
+}
+
+AwsCredentialResult AwsCredentialFactory::create(const S3CompatibleObjStorageAuth& auth,
+                                                 const ObjStorageConnectionConfig& connection) {
+    return std::visit(
+            [&]<typename T>(const T& value) -> AwsCredentialResult {
+                if constexpr (std::is_same_v<T, S3CredentialChain>) {
+                    AwsObjStorageAuthConfig aws;
+                    std::visit([&](auto source) { aws.source = source; }, value.source);
+                    aws.implementation = value.implementation;
+                    aws.assume_role = value.assume_role;
+                    return create(aws, connection);
+                } else if constexpr (std::is_same_v<T, AccessKeyObjStorageAuth>) {
+                    return {.provider = sdk_credentials(value)};
+                } else {
+                    return {.provider =
+                                    std::make_shared<Aws::Auth::AnonymousAWSCredentialsProvider>()};
+                }
+            },
+            auth);
 }
 
 AwsCredentialResult AwsCredentialFactory::create(const AwsCredentialOptions& options) {

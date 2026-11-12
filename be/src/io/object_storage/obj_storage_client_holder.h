@@ -33,32 +33,35 @@ namespace doris::io {
 // Shares the active backend client across a file system and its open files.
 class ObjStorageClientHolder {
 public:
-    explicit ObjStorageClientHolder(ObjStorageConfig conf);
+    explicit ObjStorageClientHolder(
+            ObjStorageClientConfig conf,
+            std::shared_ptr<const ObjStorageRateLimitPolicy> policy = nullptr);
     ~ObjStorageClientHolder();
 
     Status init();
 
     // Readers keep using the current client while a credential update is being built.
-    Status reset(const ObjStorageConfig& conf);
+    Status reset(const ObjStorageClientConfig& conf);
 
     std::shared_ptr<ObjStorageClient> get() const {
         std::shared_lock lock(_mtx);
         return _client;
     }
 
-    ObjStorageConfig config() const {
+    ObjStorageClientConfig config() const {
         std::shared_lock lock(_mtx);
         return _conf;
     }
 
 private:
-    Result<std::shared_ptr<ObjStorageClient>> create_client(const ObjStorageConfig& conf) const;
+    Result<std::shared_ptr<ObjStorageClient>> create_client(
+            const ObjStorageClientConfig& conf) const;
 
     std::shared_ptr<const ObjStorageRateLimitPolicy> _rate_limit_policy;
     std::mutex _update_mutex;
     mutable std::shared_mutex _mtx;
     std::shared_ptr<ObjStorageClient> _client;
-    ObjStorageConfig _conf;
+    ObjStorageClientConfig _conf;
 };
 
 } // namespace doris::io

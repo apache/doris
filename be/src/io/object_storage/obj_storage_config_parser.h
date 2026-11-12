@@ -34,10 +34,10 @@ class TS3StorageParam;
 
 class ObjStorageConfigParser {
 public:
-    static ObjStorageConfig from_vault(const cloud::ObjectStoreInfoPB&);
-    static ObjStorageConfig from_storage_param(const TS3StorageParam&);
-    static Status from_properties(const std::map<std::string, std::string>& properties,
-                                  const S3URI& uri, ObjStorageConfig* config);
+    static Result<ObjStorageResourceConfig> from_vault(const cloud::ObjectStoreInfoPB&);
+    static Result<ObjStorageResourceConfig> from_storage_param(const TS3StorageParam&);
+    static Result<ObjStorageResourceConfig> from_properties(
+            const std::map<std::string, std::string>& properties, const S3URI& uri);
 };
 
 } // namespace doris

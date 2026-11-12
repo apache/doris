@@ -407,7 +407,7 @@ public:
         _mock_client = std::make_shared<MockObjStorageClient>(&mock_store());
         std::shared_ptr<io::ObjStorageClient> client = _mock_client;
         ObjStorageClientFactory::instance().set_client_creator_for_test(
-                [client](const ObjStorageConfig&) { return client; });
+                [client](const ObjStorageClientConfig&) { return client; });
 
         auto* exec_env = ExecEnv::GetInstance();
         if (exec_env->obj_storage_upload_thread_pool() == nullptr) {
@@ -431,13 +431,14 @@ public:
             _owned_close_pool = true;
         }
 
-        AwsConfig s3_conf;
-        s3_conf.bucket = kBucket;
-        s3_conf.prefix = kVaultPrefix;
-        s3_conf.ak = "ak";
-        s3_conf.sk = "sk";
-        s3_conf.endpoint = "http://spill-mock-endpoint";
-        s3_conf.region = "region";
+        ObjStorageResourceConfig s3_conf {
+                .bucket = kBucket,
+                .prefix = kVaultPrefix,
+                .client = AwsObjStorageConfig {
+                        .connection = {.endpoint = "http://spill-mock-endpoint"},
+                        .auth = {.source = AccessKeyObjStorageAuth {.access_key = "ak",
+                                                                    .secret_key = "sk"}},
+                        .region = "region"}};
         auto fs_or = io::ObjStorageFileSystem::create(s3_conf, "spill_s3_test_vault");
         ASSERT_TRUE(fs_or.has_value()) << fs_or.error();
         _s3_fs = fs_or.value();
@@ -878,13 +879,14 @@ TEST_F(SpillFileS3Test, RemoteStoreLayout) {
 // newest one. A configured ID always wins.
 TEST_F(SpillFileS3Test, SelectVaultFileSystem) {
     auto make_fs = [](const std::string& id) {
-        AwsConfig conf;
-        conf.bucket = kBucket;
-        conf.prefix = "vault_" + id;
-        conf.ak = "ak";
-        conf.sk = "sk";
-        conf.endpoint = "http://spill-mock-endpoint";
-        conf.region = "region";
+        ObjStorageResourceConfig conf {
+                .bucket = kBucket,
+                .prefix = "vault_" + id,
+                .client = AwsObjStorageConfig {
+                        .connection = {.endpoint = "http://spill-mock-endpoint"},
+                        .auth = {.source = AccessKeyObjStorageAuth {.access_key = "ak",
+                                                                    .secret_key = "sk"}},
+                        .region = "region"}};
         auto fs = io::ObjStorageFileSystem::create(conf, id);
         EXPECT_TRUE(fs.has_value()) << fs.error();
         return io::RemoteFileSystemSPtr(fs.value());
@@ -927,13 +929,14 @@ TEST_F(SpillFileS3Test, VaultChangeKeepsExistingFilesAndPendingDeletesPinned) {
     ASSERT_TRUE(status.ok()) << status;
     const auto first_values = _read_all(first);
 
-    AwsConfig second_conf;
-    second_conf.bucket = kBucket;
-    second_conf.prefix = "spill_s3_second_vault";
-    second_conf.ak = "ak";
-    second_conf.sk = "sk";
-    second_conf.endpoint = "http://spill-mock-endpoint";
-    second_conf.region = "region";
+    ObjStorageResourceConfig second_conf {
+            .bucket = kBucket,
+            .prefix = "spill_s3_second_vault",
+            .client = AwsObjStorageConfig {
+                    .connection = {.endpoint = "http://spill-mock-endpoint"},
+                    .auth = {.source = AccessKeyObjStorageAuth {.access_key = "ak",
+                                                                .secret_key = "sk"}},
+                    .region = "region"}};
     auto second_fs_or = io::ObjStorageFileSystem::create(second_conf, "spill_s3_second_vault");
     ASSERT_TRUE(second_fs_or.has_value()) << second_fs_or.error();
     _data_dir->init_remote_fs(second_fs_or.value(), kEndpoint);

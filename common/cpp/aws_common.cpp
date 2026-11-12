@@ -24,6 +24,8 @@
 #include <aws/core/utils/memory/AWSMemory.h>
 #include <glog/logging.h>
 
+#include <filesystem>
+
 #include "cpp/aws_logger.h"
 
 namespace doris {
@@ -31,32 +33,6 @@ namespace doris {
 namespace {
 const char CONTAINER_CREDENTIALS_PROVIDER_TAG[] = "ContainerCredentialsProvider";
 } // namespace
-
-CredProviderType cred_provider_type_from_pb(cloud::CredProviderTypePB cred_provider_type) {
-    switch (cred_provider_type) {
-    case cloud::CredProviderTypePB::DEFAULT:
-        return CredProviderType::Default;
-    case cloud::CredProviderTypePB::SIMPLE:
-        return CredProviderType::Simple;
-    case cloud::CredProviderTypePB::INSTANCE_PROFILE:
-        return CredProviderType::InstanceProfile;
-    case cloud::CredProviderTypePB::ENV:
-        return CredProviderType::Env;
-    case cloud::CredProviderTypePB::SYSTEM_PROPERTIES:
-        return CredProviderType::SystemProperties;
-    case cloud::CredProviderTypePB::WEB_IDENTITY:
-        return CredProviderType::WebIdentity;
-    case cloud::CredProviderTypePB::CONTAINER:
-        return CredProviderType::Container;
-    case cloud::CredProviderTypePB::ANONYMOUS:
-        return CredProviderType::Anonymous;
-    default:
-        __builtin_unreachable();
-        LOG(WARNING) << "Invalid CredProviderTypePB value: " << cred_provider_type
-                     << ", use default instead.";
-        return CredProviderType::Default;
-    }
-}
 
 CredProviderType cred_provider_type_from_string(const std::string& type) {
     if (type.empty() || type == "DEFAULT") {
@@ -138,7 +114,6 @@ std::shared_ptr<Aws::Auth::AWSCredentialsProvider> create_container_credentials_
     return provider;
 }
 
-namespace {
 class AwsSdkLifetime {
 public:
     explicit AwsSdkLifetime(int log_level) {
@@ -154,13 +129,18 @@ public:
 private:
     Aws::SDKOptions _options;
 };
-} // namespace
+
+std::shared_ptr<AwsSdkLifetime> acquire_aws_sdk(int log_level) {
+    static auto lifetime = std::make_shared<AwsSdkLifetime>(log_level);
+    return lifetime;
+}
 
 void ensure_aws_sdk_initialized(int log_level) {
-    static AwsSdkLifetime sdk(log_level);
+    acquire_aws_sdk(log_level);
 }
 
 const Aws::Client::ClientConfiguration& default_aws_client_configuration() {
+    static const auto lifetime = acquire_aws_sdk();
     static const Aws::Client::ClientConfiguration configuration;
     return configuration;
 }
@@ -174,12 +154,4 @@ std::string get_valid_ca_cert_path(const std::vector<std::string>& ca_cert_file_
     return "";
 }
 
-void set_s3_client_default_http_scheme(Aws::Client::ClientConfiguration& client_config,
-                                       const std::string& scheme) {
-    if (client_config.endpointOverride.starts_with("http://") ||
-        client_config.endpointOverride.starts_with("https://")) {
-        return;
-    }
-    client_config.scheme = scheme == "http" ? Aws::Http::Scheme::HTTP : Aws::Http::Scheme::HTTPS;
-}
 } // namespace doris

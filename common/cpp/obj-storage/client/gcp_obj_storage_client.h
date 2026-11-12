@@ -17,17 +17,24 @@
 
 #pragma once
 
-#include "cpp/obj-storage/client/s3_obj_storage_client.h"
+#include <functional>
+
+#include "cpp/obj-storage/client/s3_compatible_obj_storage_client.h"
 
 namespace doris {
-
-struct GcpConfig;
-
-class GcpObjStorageClient final : public S3ObjStorageClient {
+struct GcpObjStorageConfig;
+class GcpObjStorageClient final : public S3CompatibleObjStorageClient {
 public:
-    using S3ObjStorageClient::S3ObjStorageClient;
-    static ObjStorageClientBuildResult create(const GcpConfig& config,
-                                              const ObjStorageClientRuntime& runtime);
+    static ObjStorageClientBuildResult create(const GcpObjStorageConfig& config);
+    using Signer = std::function<std::string(const ObjStoragePath&, int64_t)>;
+    GcpObjStorageClient(std::shared_ptr<Aws::S3::S3Client> sdk,
+                        ObjStorageEndpointInfo endpoint = {}, Signer signer = {})
+            : S3CompatibleObjStorageClient(std::move(sdk), std::move(endpoint), false),
+              _signer(std::move(signer)) {}
+    std::string generate_presigned_url(const ObjStoragePath&, int64_t) override;
+
+private:
+    Signer _signer;
 };
 
 } // namespace doris

@@ -41,7 +41,7 @@ class ObjStorageClientHolder;
 class ObjStorageFileWriter final : public FileWriter {
 public:
     ObjStorageFileWriter(std::shared_ptr<ObjStorageClientHolder> client, std::string bucket,
-                         std::string key, const FileWriterOptions* opts);
+                         std::string key, const FileWriterOptions* opts, bool sse_enabled = false);
     ~ObjStorageFileWriter() override;
 
     Status appendv(const Slice* data, size_t data_cnt) override;

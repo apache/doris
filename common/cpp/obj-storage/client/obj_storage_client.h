@@ -54,12 +54,11 @@ struct ObjStoragePath {
     std::string bucket {}; // blob container in azure
     std::string key {};    // blob name in azure
     std::string prefix {}; // for list and recursive delete
+    bool sse_enabled = false;
 };
 
 struct ObjStorageEndpointInfo {
     std::string endpoint {};
-    std::string ak {};
-    std::string sk {};
     std::string tls_debug_context {};
 };
 
@@ -172,6 +171,7 @@ class ObjStorageClient;
 struct ObjStorageClientBuildResult {
     std::shared_ptr<ObjStorageClient> client {};
     std::string error {};
+    bool unsupported = false;
 };
 
 class ObjStorageListIterator;

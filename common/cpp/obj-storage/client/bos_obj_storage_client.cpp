@@ -17,13 +17,20 @@
 
 #include "bos_obj_storage_client.h"
 
-#include "cpp/obj-storage/obj_storage_config.h"
+#include "s3_transport.h"
 
 namespace doris {
 
-ObjStorageClientBuildResult BosObjStorageClient::create(const BosConfig& config,
-                                                        const ObjStorageClientRuntime& runtime) {
-    return create_s3_client<BosObjStorageClient>(config, runtime);
+ObjStorageClientBuildResult BosObjStorageClient::create(const BosObjStorageConfig& config) {
+    auto options = s3_transport_options(config.connection, config.region, config.retry_slow_down);
+    auto credentials = AwsCredentialFactory::create(config.auth, config.connection);
+    if (!credentials) {
+        return {.error = std::move(credentials.error)};
+    }
+    auto sdk = make_s3_transport(std::move(credentials.provider), options, config.use_path_style);
+    return {.client = std::make_shared<BosObjStorageClient>(
+                    std::move(sdk),
+                    ObjStorageEndpointInfo {.endpoint = config.connection.endpoint})};
 }
 
 } // namespace doris

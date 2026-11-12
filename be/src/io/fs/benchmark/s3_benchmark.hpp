@@ -41,9 +41,7 @@ public:
     Status get_fs(const std::string& path, std::shared_ptr<io::ObjStorageFileSystem>* fs) {
         S3URI s3_uri(path);
         RETURN_IF_ERROR(s3_uri.parse());
-        ObjStorageConfig storage_config;
-        RETURN_IF_ERROR(
-                ObjStorageConfigParser::from_properties(_conf_map, s3_uri, &storage_config));
+        auto storage_config = DORIS_TRY(ObjStorageConfigParser::from_properties(_conf_map, s3_uri));
         *fs = DORIS_TRY(io::ObjStorageFileSystem::create(std::move(storage_config),
                                                          io::FileSystem::TMP_FS_ID));
         return Status::OK();

@@ -17,52 +17,16 @@
 
 #pragma once
 
-#include <aws/core/utils/Array.h>
-#include <aws/core/utils/HashingUtils.h>
-#include <cpp/sync_point.h>
-#include <fmt/core.h>
-#include <gen_cpp/Status_types.h>
-#include <glog/logging.h>
-
-#include <algorithm>
-#include <azure/core/http/http.hpp>
-#include <azure/core/http/http_status_code.hpp>
-#include <azure/core/io/body_stream.hpp>
-#include <azure/storage/blobs.hpp>
-#include <azure/storage/blobs/blob_batch.hpp>
-#include <azure/storage/blobs/blob_client.hpp>
-#ifdef USE_AZURE
-#include <azure/core/diagnostics/logger.hpp>
-#include <azure/storage/blobs/blob_container_client.hpp>
-#endif
-#include <azure/storage/blobs/blob_sas_builder.hpp>
-#include <azure/storage/blobs/rest_client.hpp>
-#include <azure/storage/common/account_sas_builder.hpp>
+#include <azure/storage/blobs/blob_service_client.hpp>
 #include <azure/storage/common/storage_credential.hpp>
-#include <azure/storage/common/storage_exception.hpp>
 #include <chrono>
-#include <exception>
-#include <iterator>
 #include <optional>
-#include <ranges>
 
 #include "cpp/obj-storage/client/obj_storage_client.h"
-#include "cpp/obj-storage/client/obj_storage_client_runtime.h"
-#include "cpp/obj-storage/client/s3_common.h"
-#include "cpp/obj-storage/client_bvar.h"
-#include "cpp/obj_retry_strategy.h"
-#include "cpp/util.h"
-
-namespace Azure::Storage::Blobs {
-class BlobContainerClient;
-} // namespace Azure::Storage::Blobs
 
 namespace doris {
-struct AzureConfig;
-
-using namespace Azure::Storage::Blobs;
-
-static const Azure::DateTime SystemClockEpoch {1970, 1, 1};
+struct AzureObjStorageConfig;
+void initialize_azure_sdk(int log_level);
 
 bool is_azure_tls_ca_error_message(std::string_view message);
 std::string build_azure_tls_debug_suffix(std::string_view error_message,
@@ -73,17 +37,16 @@ std::string build_azure_batch_delete_failure_message(const ObjStoragePath& opts,
 
 class AzureObjStorageClient final : public ObjStorageClient {
 public:
-    static std::string container_url(const AzureConfig& config);
-    static ObjStorageClientBuildResult create(const AzureConfig& config,
-                                              const ObjStorageClientRuntime& runtime);
+    static ObjStorageClientBuildResult create(const AzureObjStorageConfig& config);
 
-    AzureObjStorageClient(
-            std::shared_ptr<Azure::Storage::Blobs::BlobContainerClient> client,
-            ObjStorageEndpointInfo config,
-            std::shared_ptr<Azure::Storage::StorageSharedKeyCredential> credential = nullptr)
-            : _config(std::move(config)),
-              _client(std::move(client)),
-              _credential(std::move(credential)) {}
+    AzureObjStorageClient(Azure::Storage::Blobs::BlobServiceClient service,
+                          std::shared_ptr<Azure::Storage::StorageSharedKeyCredential> key,
+                          ObjStorageEndpointInfo endpoint,
+                          std::optional<std::chrono::milliseconds> request_timeout = {})
+            : _service(std::move(service)),
+              _credential(std::move(key)),
+              _config(std::move(endpoint)),
+              _request_timeout(request_timeout) {}
     ~AzureObjStorageClient() override = default;
     ObjStorageUploadResult create_multipart_upload(const ObjStoragePath& opts) override;
     ObjStorageResponse put_object(const ObjStoragePath& opts, std::string_view stream) override;
@@ -115,9 +78,11 @@ protected:
                                                std::string_view continuation_token) override;
 
 private:
-    ObjStorageEndpointInfo _config;
-    std::shared_ptr<Azure::Storage::Blobs::BlobContainerClient> _client;
+    Azure::Core::Context request_context() const;
+    Azure::Storage::Blobs::BlobServiceClient _service;
     std::shared_ptr<Azure::Storage::StorageSharedKeyCredential> _credential;
+    ObjStorageEndpointInfo _config;
+    std::optional<std::chrono::milliseconds> _request_timeout;
 };
 
 } // namespace doris

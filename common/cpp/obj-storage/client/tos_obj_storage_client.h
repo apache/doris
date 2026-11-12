@@ -17,17 +17,14 @@
 
 #pragma once
 
-#include "cpp/obj-storage/client/s3_obj_storage_client.h"
+#include "cpp/obj-storage/client/s3_compatible_obj_storage_client.h"
 
 namespace doris {
-
-struct TosConfig;
-
-class TosObjStorageClient final : public S3ObjStorageClient {
+struct TosObjStorageConfig;
+class TosObjStorageClient final : public S3CompatibleObjStorageClient {
 public:
-    using S3ObjStorageClient::S3ObjStorageClient;
-    static ObjStorageClientBuildResult create(const TosConfig& config,
-                                              const ObjStorageClientRuntime& runtime);
+    static ObjStorageClientBuildResult create(const TosObjStorageConfig& config);
+    using S3CompatibleObjStorageClient::S3CompatibleObjStorageClient;
 };
 
 } // namespace doris

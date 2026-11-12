@@ -357,7 +357,7 @@ void install_mock_environment() {
     g_mock_obj_provider_client = std::make_shared<MockObjStorageClient>(&mock_s3_store());
     std::shared_ptr<ObjStorageClient> client = g_mock_obj_provider_client;
     ObjStorageClientFactory::instance().set_client_creator_for_test(
-            [client](const ObjStorageConfig&) { return client; });
+            [client](const ObjStorageClientConfig&) { return client; });
 
     auto* sp = SyncPoint::get_instance();
     sp->enable_processing();
@@ -574,13 +574,14 @@ protected:
         reset_mock_s3_store();
         ensure_non_block_close_pool();
         ensure_upload_pool();
-        AwsConfig s3_conf;
-        s3_conf.bucket = "mock-bucket";
-        s3_conf.prefix = "merge-file-concurrency";
-        s3_conf.ak = "ak";
-        s3_conf.sk = "sk";
-        s3_conf.endpoint = "http://endpoint";
-        s3_conf.region = "region";
+        ObjStorageResourceConfig s3_conf {
+                .bucket = "mock-bucket",
+                .prefix = "merge-file-concurrency",
+                .client = AwsObjStorageConfig {
+                        .connection = {.endpoint = "http://endpoint"},
+                        .auth = {.source = AccessKeyObjStorageAuth {.access_key = "ak",
+                                                                    .secret_key = "sk"}},
+                        .region = "region"}};
         auto fs_or = ObjStorageFileSystem::create(s3_conf, FileSystem::TMP_FS_ID);
         ASSERT_TRUE(fs_or.has_value()) << fs_or.error();
         _s3_fs = fs_or.value();

@@ -286,14 +286,15 @@ public:
                           sp->set_call_back(mockcallback.point_name, mockcallback.callback);
                       });
         std::string cur_path = std::filesystem::current_path();
-        AwsConfig s3_conf;
-        s3_conf.ak = "fake_ak";
-        s3_conf.sk = "fake_sk";
-        s3_conf.endpoint = "fake_s3_endpoint";
-        s3_conf.region = "fake_s3_region";
-        s3_conf.bucket = "fake_s3_bucket";
-        s3_conf.prefix = "s3_file_writer_test";
-        LOG_INFO("s3 conf is {}", obj_storage_config_to_string(s3_conf));
+        ObjStorageResourceConfig s3_conf {
+                .bucket = "fake_s3_bucket",
+                .prefix = "s3_file_writer_test",
+                .client = AwsObjStorageConfig {
+                        .connection = {.endpoint = "fake_s3_endpoint"},
+                        .auth = {.source = AccessKeyObjStorageAuth {.access_key = "fake_ak",
+                                                                    .secret_key = "fake_sk"}},
+                        .region = "fake_s3_region"}};
+        LOG_INFO("s3 conf is {}", obj_storage_config_to_string(s3_conf.client));
         auto res = io::ObjStorageFileSystem::create(std::move(s3_conf), io::FileSystem::TMP_FS_ID);
         ASSERT_TRUE(res.has_value()) << res.error();
         obj_fs = res.value();
@@ -1331,7 +1332,7 @@ create_s3_client(const std::string& path) {
     EXPECT_TRUE(st.ok()) << st;
     std::shared_ptr<ObjStorageFileWriter> s3_file_writer(
             static_cast<ObjStorageFileWriter*>(file_writer.release()));
-    auto holder = std::make_shared<ObjStorageClientHolder>(ObjStorageConfig {});
+    auto holder = std::make_shared<ObjStorageClientHolder>(ObjStorageClientConfig {});
     auto mock_client = std::make_shared<SimpleMockObjStorageClient>();
     holder->_client = mock_client;
     s3_file_writer->_obj_client = holder;
@@ -1525,6 +1526,27 @@ TEST_F(S3FileWriterTest, write_buffer_boundary) {
     // clang-format on
 }
 
+TEST_F(S3FileWriterTest, EncryptionFollowsEachWriterOnASharedClient) {
+    auto holder = std::make_shared<ObjStorageClientHolder>(ObjStorageClientConfig {});
+    auto raw = std::make_shared<SimpleMockObjStorageClient>();
+    holder->_client = raw;
+    const std::string multipart_data(config::s3_write_buffer_size, 'x');
+
+    for (bool encrypt : {true, false}) {
+        ObjStorageFileWriter single(holder, "bucket", "single", nullptr, encrypt);
+        ASSERT_TRUE(single.append("x").ok());
+        ASSERT_TRUE(single.close().ok());
+        ASSERT_FALSE(raw->put_object_params.empty());
+        EXPECT_EQ(raw->put_object_params.back().first.sse_enabled, encrypt);
+
+        ObjStorageFileWriter multipart(holder, "bucket", "multipart", nullptr, encrypt);
+        ASSERT_TRUE(multipart.append(multipart_data).ok());
+        ASSERT_TRUE(multipart.close().ok());
+        ASSERT_FALSE(raw->create_multipart_params.empty());
+        EXPECT_EQ(raw->create_multipart_params.back().sse_enabled, encrypt);
+    }
+}
+
 TEST_F(S3FileWriterTest, test_empty_file) {
     std::vector<StorePath> paths;
     paths.emplace_back(std::string("tmp_dir"), 1024000000);
@@ -1535,7 +1557,7 @@ TEST_F(S3FileWriterTest, test_empty_file) {
     io::FileWriterPtr file_writer;
     auto st = obj_fs->create_file("test_empty_file.idx", &file_writer, &opts);
     ASSERT_TRUE(st.ok()) << st;
-    auto holder = std::make_shared<ObjStorageClientHolder>(ObjStorageConfig {});
+    auto holder = std::make_shared<ObjStorageClientHolder>(ObjStorageClientConfig {});
     auto mock_client = std::make_shared<SimpleMockObjStorageClient>();
     holder->_client = mock_client;
     dynamic_cast<io::ObjStorageFileWriter*>(file_writer.get())->_obj_client = holder;

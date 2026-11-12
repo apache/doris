@@ -21,39 +21,19 @@
 #include <gen_cpp/cloud.pb.h>
 
 #include <algorithm>
-#include <charconv>
-#include <iterator>
-#include <string_view>
-#include <utility>
+#include <chrono>
+#include <type_traits>
 
+#include "common/config.h"
+#include "cpp/obj-storage/auth/gcp/gcp_auth.h"
+#include "cpp/obj-storage/obj_storage_properties.h"
+#include "io/object_storage/aws_client_settings.h"
 #include "util/s3_uri.h"
 #include "util/string_util.h"
 
 namespace doris {
 namespace {
-
-// Return true is convert `str` to int successfully
-bool to_int(std::string_view str, int& res) {
-    auto [_, ec] = std::from_chars(str.data(), str.data() + str.size(), res);
-    return ec == std::errc {};
-}
-
-constexpr char USE_PATH_STYLE[] = "use_path_style";
-
-constexpr char S3_PROVIDER[] = "provider";
-constexpr char S3_AK[] = "AWS_ACCESS_KEY";
-constexpr char S3_SK[] = "AWS_SECRET_KEY";
-constexpr char S3_ENDPOINT[] = "AWS_ENDPOINT";
-constexpr char S3_REGION[] = "AWS_REGION";
-constexpr char S3_TOKEN[] = "AWS_TOKEN";
-constexpr char S3_MAX_CONN_SIZE[] = "AWS_MAX_CONNECTIONS";
-constexpr char S3_REQUEST_TIMEOUT_MS[] = "AWS_REQUEST_TIMEOUT_MS";
-constexpr char S3_CONN_TIMEOUT_MS[] = "AWS_CONNECTION_TIMEOUT_MS";
-constexpr char S3_NEED_OVERRIDE_ENDPOINT[] = "AWS_NEED_OVERRIDE_ENDPOINT";
-
-constexpr char S3_ROLE_ARN[] = "AWS_ROLE_ARN";
-constexpr char S3_EXTERNAL_ID[] = "AWS_EXTERNAL_ID";
-constexpr char S3_CREDENTIALS_PROVIDER_TYPE[] = "AWS_CREDENTIALS_PROVIDER_TYPE";
+using Vault = cloud::ObjectStoreInfoPB;
 
 struct ProviderMapping {
     std::string_view name;
@@ -74,207 +54,165 @@ constexpr ProviderMapping PROVIDERS[] = {
         {"AZURE", TObjStorageType::AZURE, cloud::ObjectStoreInfoPB::AZURE},
 };
 
-ObjStorageConfig make_config(cloud::ObjectStoreInfoPB::Provider provider) {
-    auto config = make_vault_storage_config(provider);
-    if (!config) {
-        LOG_FATAL("unknown object storage provider {}", provider);
-        __builtin_unreachable();
+void set_sts_timeout(std::optional<AwsAssumeRole>& role) {
+    if (role && !role->request_timeout) {
+        role->request_timeout = std::chrono::milliseconds(config::aws_client_request_timeout_ms);
     }
-    return std::move(*config);
 }
 
-ObjStorageConfig select_provider_config(const StringCaseMap<std::string>& properties,
-                                        const ObjStorageConfig& defaults) {
-    cloud::ObjectStoreInfoPB::Provider provider;
-    const auto name = properties.find(S3_PROVIDER);
+void apply_be_defaults(ObjStorageClientConfig& client) {
+    normalize_obj_storage_endpoint(client, config::s3_client_http_scheme);
+    auto& conn = obj_storage_connection(client);
+    if (auto ca = be_ca_bundle_path(); !ca.empty()) {
+        conn.ca_cert_file = std::move(ca);
+    }
+    conn.max_retries = config::max_s3_client_retry;
+    std::visit(
+            []<class C>(C& settings) {
+                if constexpr (std::is_same_v<C, AzureObjStorageConfig>) {
+                    settings.retry_too_many_requests = true;
+                } else {
+                    if (!settings.connection.max_connections) {
+                        settings.connection.max_connections = 102400;
+                    }
+                    if (!settings.connection.request_timeout) {
+                        settings.connection.request_timeout = std::chrono::seconds(30);
+                    }
+                    settings.retry_slow_down = true;
+                    if constexpr (std::is_same_v<C, AwsObjStorageConfig>) {
+                        set_sts_timeout(settings.auth.assume_role);
+                    } else if (auto* chain = std::get_if<S3CredentialChain>(&settings.auth)) {
+                        set_sts_timeout(chain->assume_role);
+                    }
+                }
+            },
+            client);
+}
+
+Result<ObjStorageResourceConfig> parse_be_resource(const ObjStorageProperties& properties,
+                                                   Vault::Provider provider, std::string bucket,
+                                                   std::string prefix) {
+    ObjStorageResourceConfig resource {.bucket = std::move(bucket), .prefix = std::move(prefix)};
+    if (auto error = parse_obj_storage_client_config(
+                provider, properties,
+                aws_credential_implementation(config::aws_credentials_provider_version),
+                EmptyCredentialsBehavior::ANONYMOUS, &resource.client)) {
+        return ResultError(Status::InvalidArgument<false>(*error));
+    }
+    if (resource.bucket.empty()) {
+        return ResultError(
+                Status::InvalidArgument<false>("object storage bucket is not specified"));
+    }
+    apply_be_defaults(resource.client);
+    return resource;
+}
+} // namespace
+
+Result<ObjStorageResourceConfig> ObjStorageConfigParser::from_properties(
+        const std::map<std::string, std::string>& input, const S3URI& uri) {
+    ObjStorageProperties properties;
+    for (const auto& [key, v] : input) {
+        auto normalized = to_upper(key);
+        if (!normalized.starts_with("AWS_")) {
+            normalized = to_lower(key);
+        }
+        properties.try_emplace(std::move(normalized), v);
+    }
+    auto provider = Vault::S3;
+    const auto name = properties.find("provider");
     if (name != properties.end() && !trim(name->second).empty()) {
         const auto entry = std::ranges::find(PROVIDERS, to_upper(std::string(trim(name->second))),
                                              &ProviderMapping::name);
+        if (entry != std::end(PROVIDERS)) {
+            provider = entry->vault;
+        }
+    } else if (auto endpoint = properties.find("AWS_ENDPOINT"); endpoint != properties.end()) {
+        provider = storage_provider_from_endpoint(endpoint->second);
+    }
+    return parse_be_resource(properties, provider, uri.get_bucket(), {});
+}
+
+Result<ObjStorageResourceConfig> ObjStorageConfigParser::from_vault(const Vault& info) {
+    ObjStorageResourceConfig resource;
+    if (auto error = parse_vault_storage_config(
+                info, aws_credential_implementation(config::aws_credentials_provider_version),
+                EmptyCredentialsBehavior::ANONYMOUS, &resource)) {
+        return ResultError(Status::InvalidArgument<false>(*error));
+    }
+    resource.is_internal_bucket = true;
+    apply_be_defaults(resource.client);
+    return resource;
+}
+
+Result<ObjStorageResourceConfig> ObjStorageConfigParser::from_storage_param(
+        const TS3StorageParam& param) {
+    Vault::Provider provider;
+    if (param.provider == TObjStorageType::UNKNOWN) {
+        provider = storage_provider_from_endpoint(param.endpoint);
+    } else {
+        auto entry = std::ranges::find(PROVIDERS, param.provider, &ProviderMapping::resource);
         if (entry == std::end(PROVIDERS)) {
-            return defaults;
+            return ResultError(Status::InvalidArgument("unknown storage resource provider {}",
+                                                       param.provider));
         }
         provider = entry->vault;
-    } else {
-        const auto endpoint = properties.find(S3_ENDPOINT);
-        if (endpoint == properties.end()) {
-            return defaults;
-        }
-        provider = storage_provider_from_endpoint(endpoint->second);
-        if (provider == cloud::ObjectStoreInfoPB::S3) {
-            // A generic S3 endpoint carries no information about the cloud.
-            return defaults;
-        }
     }
 
-    auto selected = make_config(provider);
-    if (selected.index() == defaults.index()) {
-        return defaults;
+    // The generated Thrift fields carry their protocol defaults even when omitted.
+    ObjStorageProperties properties {
+            {"AWS_REQUEST_TIMEOUT_MS", std::to_string(param.request_timeout_ms)},
+            {"AWS_CONNECTION_TIMEOUT_MS", std::to_string(param.conn_timeout_ms)},
+            {"use_path_style", param.use_path_style ? "true" : "false"},
+    };
+    // S3ThriftAdapter always writes the Thrift default pool size, including for Azure.
+    // Only a non-default value on that wire represents an Azure pool-size request.
+    if (provider != Vault::AZURE || param.max_conn != TS3StorageParam {}.max_conn) {
+        properties["AWS_MAX_CONNECTIONS"] = std::to_string(param.max_conn);
     }
-    storage_config_base(selected) = storage_config_base(defaults);
-    return selected;
-}
-
-} // namespace
-
-Status ObjStorageConfigParser::from_properties(const std::map<std::string, std::string>& prop,
-                                               const S3URI& s3_uri,
-                                               ObjStorageConfig* storage_config) {
-    StringCaseMap<std::string> properties(prop.begin(), prop.end());
-    auto parsed = select_provider_config(properties, *storage_config);
-    auto& config = storage_config_base(parsed);
-    if (auto endpoint = properties.find(S3_ENDPOINT); endpoint != properties.end()) {
-        config.endpoint = endpoint->second;
+    if (param.__isset.endpoint || !param.endpoint.empty()) {
+        properties["AWS_ENDPOINT"] = param.endpoint;
     }
-    if (auto it = properties.find(S3_AK); it != properties.end()) {
-        config.ak = it->second;
+    if (param.__isset.region || !param.region.empty()) {
+        properties["AWS_REGION"] = param.region;
     }
-    if (auto it = properties.find(S3_SK); it != properties.end()) {
-        config.sk = it->second;
+    if (param.__isset.ak || !param.ak.empty()) {
+        properties["AWS_ACCESS_KEY"] = param.ak;
     }
-    if (auto it = properties.find(S3_TOKEN); it != properties.end()) {
-        config.token = it->second;
+    if (param.__isset.sk || !param.sk.empty()) {
+        properties["AWS_SECRET_KEY"] = param.sk;
     }
-    if (auto it = properties.find(S3_NEED_OVERRIDE_ENDPOINT); it != properties.end()) {
-        config.need_override_endpoint = (it->second == "true");
+    if (param.__isset.role_arn || !param.role_arn.empty()) {
+        properties["AWS_ROLE_ARN"] = param.role_arn;
     }
-    if (auto it = properties.find(S3_REGION); it != properties.end()) {
-        config.region = it->second;
+    if (param.__isset.external_id || !param.external_id.empty()) {
+        properties["AWS_EXTERNAL_ID"] = param.external_id;
     }
-    if (auto it = properties.find(S3_MAX_CONN_SIZE); it != properties.end()) {
-        if (!to_int(it->second, config.max_connections)) {
-            return Status::InvalidArgument("invalid {} value \"{}\"", S3_MAX_CONN_SIZE, it->second);
-        }
-    }
-    if (auto it = properties.find(S3_REQUEST_TIMEOUT_MS); it != properties.end()) {
-        if (!to_int(it->second, config.request_timeout_ms)) {
-            return Status::InvalidArgument("invalid {} value \"{}\"", S3_REQUEST_TIMEOUT_MS,
-                                           it->second);
-        }
-    }
-    if (auto it = properties.find(S3_CONN_TIMEOUT_MS); it != properties.end()) {
-        if (!to_int(it->second, config.connect_timeout_ms)) {
-            return Status::InvalidArgument("invalid {} value \"{}\"", S3_CONN_TIMEOUT_MS,
-                                           it->second);
-        }
-    }
-    if (s3_uri.get_bucket().empty()) {
-        return Status::InvalidArgument("Invalid S3 URI {}, bucket is not specified",
-                                       s3_uri.to_string());
-    }
-    config.bucket = s3_uri.get_bucket();
-    config.prefix.clear();
-    config.use_virtual_addressing = true;
-    if (auto it = properties.find(USE_PATH_STYLE); it != properties.end()) {
-        config.use_virtual_addressing = it->second != "true";
+    if (param.__isset.token || !param.token.empty()) {
+        properties["AWS_TOKEN"] = param.token;
     }
 
-    if (auto it = properties.find(S3_ROLE_ARN); it != properties.end()) {
-        // Keep provider type as Default unless explicitly configured by
-        // AWS_CREDENTIALS_PROVIDER_TYPE, consistent with FE behavior.
-        config.role_arn = it->second;
-    }
-
-    if (auto it = properties.find(S3_EXTERNAL_ID); it != properties.end()) {
-        config.external_id = it->second;
-    }
-
-    if (auto it = properties.find(S3_CREDENTIALS_PROVIDER_TYPE); it != properties.end()) {
-        config.cred_provider_type = cred_provider_type_from_string(it->second);
-    }
-
-    if (auto error = parse_obj_credential_properties(properties, &config.credential);
-        error.has_value()) {
-        return Status::InvalidArgument(*error);
-    }
-
-    if (auto error = validate_obj_storage_config(parsed)) {
-        return Status::InvalidArgument<false>(*error);
-    }
-    *storage_config = std::move(parsed);
-    return Status::OK();
-}
-
-static CredProviderType cred_provider_type_from_thrift(TCredProviderType::type cred_provider_type) {
-    switch (cred_provider_type) {
-    case TCredProviderType::DEFAULT:
-        return CredProviderType::Default;
-    case TCredProviderType::SIMPLE:
-        return CredProviderType::Simple;
-    case TCredProviderType::INSTANCE_PROFILE:
-        return CredProviderType::InstanceProfile;
-    case TCredProviderType::ENV:
-        return CredProviderType::Env;
-    case TCredProviderType::SYSTEM_PROPERTIES:
-        return CredProviderType::SystemProperties;
-    case TCredProviderType::WEB_IDENTITY:
-        return CredProviderType::WebIdentity;
-    case TCredProviderType::CONTAINER:
-        return CredProviderType::Container;
-    case TCredProviderType::ANONYMOUS:
-        return CredProviderType::Anonymous;
-    default:
-        LOG(WARNING) << "Invalid TCredProviderType value: " << cred_provider_type
-                     << ", use default instead.";
-        return CredProviderType::Default;
-    }
-}
-
-ObjStorageConfig ObjStorageConfigParser::from_vault(const cloud::ObjectStoreInfoPB& info) {
-    auto parsed = make_config(vault_storage_provider(info));
-    auto& config = storage_config_base(parsed);
-    config.bucket = info.bucket();
-    config.prefix = info.prefix();
-    config.sse_enabled = info.sse_enabled();
-    config.is_internal_bucket = true;
-    config.endpoint = info.endpoint();
-    config.region = info.region();
-    config.ak = info.ak();
-    config.sk = info.sk();
-    config.use_virtual_addressing = !info.use_path_style();
-    config.role_arn = info.role_arn();
-    config.external_id = info.external_id();
-    if (info.has_cred_provider_type()) {
-        config.cred_provider_type = cred_provider_type_from_pb(info.cred_provider_type());
-    }
-    convert_obj_credential(info, &config.credential);
-    return parsed;
-}
-
-ObjStorageConfig ObjStorageConfigParser::from_storage_param(const TS3StorageParam& param) {
-    cloud::ObjectStoreInfoPB::Provider vault_provider;
-    if (param.provider == TObjStorageType::UNKNOWN) {
-        vault_provider = storage_provider_from_endpoint(param.endpoint);
-    } else {
-        const auto provider =
-                std::ranges::find(PROVIDERS, param.provider, &ProviderMapping::resource);
-        if (provider == std::end(PROVIDERS)) {
-            LOG_FATAL("unknown storage resource provider {}", param.provider);
-            __builtin_unreachable();
-        }
-        vault_provider = provider->vault;
-    }
-    auto parsed = make_config(vault_provider);
-    auto& config = storage_config_base(parsed);
-    config.bucket = param.bucket;
-    config.prefix = param.root_path;
-    config.endpoint = param.endpoint;
-    config.region = param.region;
-    config.ak = param.ak;
-    config.sk = param.sk;
-    config.token = param.token;
-    config.max_connections = param.max_conn;
-    config.request_timeout_ms = param.request_timeout_ms;
-    config.connect_timeout_ms = param.conn_timeout_ms;
-    config.use_virtual_addressing = !param.use_path_style;
-    config.role_arn = param.role_arn;
-    config.external_id = param.external_id;
     if (param.__isset.cred_provider_type) {
-        config.cred_provider_type = cred_provider_type_from_thrift(param.cred_provider_type);
+        auto name = _TCredProviderType_VALUES_TO_NAMES.find(param.cred_provider_type);
+        if (name == _TCredProviderType_VALUES_TO_NAMES.end()) {
+            return ResultError(Status::InvalidArgument("unknown credential provider {}",
+                                                       param.cred_provider_type));
+        }
+        properties["AWS_CREDENTIALS_PROVIDER_TYPE"] = name->second;
     }
-    if (param.__isset.credential) {
-        convert_obj_credential(param.credential, &config.credential);
+    if (param.__isset.credential && param.credential.__isset.gcp_credential) {
+        const auto& gcp = param.credential.gcp_credential;
+        auto type = gcp.__isset.credential_provider_type ? gcp.credential_provider_type
+                                                         : TGcpCredentialProviderType::DEFAULT;
+        auto name = _TGcpCredentialProviderType_VALUES_TO_NAMES.find(type);
+        if (name == _TGcpCredentialProviderType_VALUES_TO_NAMES.end()) {
+            return ResultError(Status::InvalidArgument("unknown GCP credential provider {}", type));
+        }
+        properties[std::string(GCP_CREDENTIAL_PROVIDER_TYPE)] = name->second;
+        if (gcp.__isset.impersonation_service_account) {
+            properties[std::string(GCP_IMPERSONATION_SERVICE_ACCOUNT)] =
+                    gcp.impersonation_service_account;
+        }
     }
-    return parsed;
+    return parse_be_resource(properties, provider, param.bucket, param.root_path);
 }
-
 } // namespace doris

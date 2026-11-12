@@ -22,10 +22,8 @@
 #include <memory>
 #include <optional>
 
-#include "cpp/aws_common.h"
-#include "cpp/obj-storage/auth/obj_credential.h"
-#include "cpp/obj-storage/ca_bundle_cache.h"
 #include "cpp/obj-storage/client/obj_storage_client.h"
+#include "cpp/obj-storage/obj_storage_config.h"
 #include "recycler/storage_vault_accessor.h"
 
 namespace doris {
@@ -35,6 +33,7 @@ using S3RateLimiterHolder = TokenBucketRateLimiterHolder;
 enum class ObjStorageRateLimitType;
 namespace cloud {
 class ObjectStoreInfoPB;
+class RamUserPB;
 class SimpleThreadPool;
 
 struct AccessorRateLimiter {
@@ -48,33 +47,18 @@ private:
     std::array<std::unique_ptr<S3RateLimiterHolder>, 2> _rate_limiters;
 };
 
-struct S3Conf {
-    std::string ak;
-    std::string sk;
-    std::string endpoint;
-    std::string region;
-    std::string bucket;
-    std::string prefix;
-    bool use_virtual_addressing {true};
-
-    CredProviderType cred_provider_type = CredProviderType::Default;
-    std::string role_arn;
-    std::string external_id;
-    doris::CredentialConfig credential {};
-
-    ObjectStoreInfoPB::Provider provider = ObjectStoreInfoPB::S3;
-
-    static std::optional<S3Conf> from_obj_store_info(const ObjectStoreInfoPB& obj_info,
-                                                     bool skip_aksk = false);
-};
+// Recycler reads persisted records. For BUCKET_ACL stages the instance RAM user
+// supplies the key pair and its encryption metadata.
+std::optional<ObjStorageResourceConfig> parse_recycler_storage_config(
+        ObjectStoreInfoPB vault, const RamUserPB* bucket_acl_user = nullptr);
 
 class S3Accessor : public StorageVaultAccessor {
 public:
-    explicit S3Accessor(S3Conf conf);
+    explicit S3Accessor(ObjStorageResourceConfig conf);
     ~S3Accessor() override;
 
     // returns 0 for success otherwise error
-    static int create(S3Conf conf, std::shared_ptr<S3Accessor>* accessor);
+    static int create(ObjStorageResourceConfig conf, std::shared_ptr<S3Accessor>* accessor);
 
     // returns 0 for success otherwise error
     int init();
@@ -118,14 +102,13 @@ protected:
     std::string get_key(const std::string& relative_path) const;
     std::string to_uri(const std::string& relative_path) const;
 
-    S3Conf conf_;
+    ObjStorageResourceConfig conf_;
     std::shared_ptr<ObjStorageClient> obj_client_;
-    CaBundleCache _ca_bundle;
 };
 
 class GcsAccessor final : public S3Accessor {
 public:
-    explicit GcsAccessor(S3Conf conf) : S3Accessor(std::move(conf)) {}
+    explicit GcsAccessor(ObjStorageResourceConfig conf) : S3Accessor(std::move(conf)) {}
     ~GcsAccessor() override = default;
 
     int delete_files(const std::vector<std::string>& paths) override;

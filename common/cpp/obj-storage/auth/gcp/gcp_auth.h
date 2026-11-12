@@ -17,11 +17,10 @@
 
 #pragma once
 
+#include <map>
 #include <optional>
 #include <string>
 #include <string_view>
-
-#include "cpp/obj-storage/auth/obj_credential_common.h"
 
 namespace doris {
 
@@ -56,6 +55,6 @@ std::optional<GcpCredentialProviderType> parse_gcp_credential_provider_type(
         std::string_view provider_type);
 std::optional<std::string> validate_gcp_credential(const GcpCredentialConfig& credential);
 GcpCredentialParseResult parse_gcp_credential_properties(
-        const ObjCredentialPropertyGetter& get_property);
+        const std::map<std::string, std::string>& properties);
 
 } // namespace doris

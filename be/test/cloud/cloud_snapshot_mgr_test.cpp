@@ -31,14 +31,15 @@ namespace doris {
 using namespace cloud;
 using namespace std::chrono;
 
-ObjStorageConfig create_test_s3_conf() {
-    AwsConfig s3_conf;
-    s3_conf.bucket = "test-bucket";
-    s3_conf.prefix = "test-prefix";
-    s3_conf.endpoint = "test-endpoint";
-    s3_conf.region = "test-region";
-    s3_conf.ak = "test-ak";
-    s3_conf.sk = "test-sk";
+ObjStorageResourceConfig create_test_s3_conf() {
+    ObjStorageResourceConfig s3_conf {
+            .bucket = "test-bucket",
+            .prefix = "test-prefix",
+            .client = AwsObjStorageConfig {
+                    .connection = {.endpoint = "test-endpoint"},
+                    .auth = {.source = AccessKeyObjStorageAuth {.access_key = "test-ak",
+                                                                .secret_key = "test-sk"}},
+                    .region = "test-region"}};
     return s3_conf;
 }
 

@@ -31,6 +31,7 @@
 #include <string>
 #include <vector>
 
+#include "cpp/obj-storage/client/obj_storage_client_builder.h"
 #include "cloud/cloud_cluster_info.h"
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_ms_rpc_rate_limit_services.h"
@@ -47,7 +48,6 @@
 #include "common/metrics/doris_metrics.h"
 #include "common/multi_version.h"
 #include "common/status.h"
-#include "cpp/aws_common.h"
 #include "cpp/token_bucket_rate_limiter.h"
 #include "exec/exchange/vdata_stream_mgr.h"
 #include "exec/pipeline/task_queue.h"
@@ -205,6 +205,7 @@ ExecEnv::~ExecEnv() {
 Status ExecEnv::init(ExecEnv* env, const std::vector<StorePath>& store_paths,
                      const std::vector<StorePath>& spill_store_paths,
                      const std::set<std::string>& broken_paths) {
+    initialize_obj_storage_sdks(config::aws_log_level, config::azure_log_level);
     return env->_init(store_paths, spill_store_paths, broken_paths);
 }
 
@@ -507,8 +508,6 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
 
     init_simdjson_parser();
 
-    // Make aws-sdk-cpp InitAPI and ShutdownAPI called in the same thread
-    ensure_aws_sdk_initialized(config::aws_log_level);
     return Status::OK();
 }
 

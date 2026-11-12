@@ -1280,13 +1280,14 @@ TEST_F(CloudCompactionTest, parallel_pick_does_not_advance_from_high_range_delet
 }
 
 TEST_F(CloudCompactionTest, test_set_storage_resource_from_input_rowsets) {
-    AwsConfig s3_conf;
-    s3_conf.bucket = "bucket";
-    s3_conf.prefix = "prefix";
-    s3_conf.endpoint = "endpoint";
-    s3_conf.region = "region";
-    s3_conf.ak = "ak";
-    s3_conf.sk = "sk";
+    ObjStorageResourceConfig s3_conf {
+            .bucket = "bucket",
+            .prefix = "prefix",
+            .client = AwsObjStorageConfig {
+                    .connection = {.endpoint = "endpoint"},
+                    .auth = {.source = AccessKeyObjStorageAuth {.access_key = "ak",
+                                                                .secret_key = "sk"}},
+                    .region = "region"}};
     std::string resource_id = "10000";
     auto res = io::ObjStorageFileSystem::create(std::move(s3_conf), resource_id);
     ASSERT_TRUE(res.has_value()) << res.error();

@@ -591,7 +591,7 @@ TEST_F(CsvV2ReaderTest, S3PrefetchPreservesSplitRowsAndReadStatistics) {
     config::in_memory_file_size = 0;
     auto client = std::make_shared<CsvPrefetchS3Client>();
     ObjStorageClientFactory::instance().set_client_creator_for_test(
-            [client](const ObjStorageConfig&) { return client; });
+            [client](const ObjStorageClientConfig&) { return client; });
     _params.__set_file_type(TFileType::FILE_S3);
     _state._query_options.__set_enable_file_cache(false);
 

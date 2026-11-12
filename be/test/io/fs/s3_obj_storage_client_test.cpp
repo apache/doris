@@ -19,6 +19,7 @@
 
 #include <gtest/gtest.h>
 
+#include "cpp/obj-storage/client/gcp_obj_storage_client.h"
 #include "cpp/obj-storage/client/obj_storage_client.h"
 #include "io/fs/file_system.h"
 #include "io/object_storage/obj_storage_client_factory.h"
@@ -26,7 +27,7 @@
 namespace doris {
 
 TEST(S3ObjStorageSignedUrlTest, DelegatesProviderSpecificSigning) {
-    S3ObjStorageClient client(nullptr, {}, [](const ObjStoragePath& path, int64_t expiration) {
+    GcpObjStorageClient client(nullptr, {}, [](const ObjStoragePath& path, int64_t expiration) {
         EXPECT_EQ(path.bucket, "bucket");
         EXPECT_EQ(path.key, "nested/key");
         EXPECT_EQ(expiration, 300);
@@ -53,12 +54,11 @@ protected:
 
         S3ObjStorageClientTest::bucket = std::getenv("AWS_BUCKET");
 
-        AwsConfig config;
-        config.endpoint = endpoint;
+        AwsObjStorageConfig config;
+        config.connection.endpoint = endpoint;
         config.region = "dummy-region";
-        config.ak = access_key;
-        config.sk = secret_key;
-        config.use_virtual_addressing = false;
+        config.auth.source = AccessKeyObjStorageAuth {access_key, secret_key, {}};
+        config.use_path_style = true;
         auto client_result = ObjStorageClientFactory::instance().create(config);
         ASSERT_TRUE(client_result.has_value()) << client_result.error();
         S3ObjStorageClientTest::obj_storage_client = std::move(client_result).value();

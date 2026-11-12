@@ -21,6 +21,7 @@
 #include <aws/s3/model/ListObjectsV2Request.h>
 #include <aws/s3/model/ListObjectsV2Result.h>
 #include <aws/s3/model/Object.h>
+#include <gen_cpp/cloud.pb.h>
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
@@ -31,6 +32,7 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "cpp/aws_common.h"
+#include "cpp/obj-storage/client/obj_storage_client_builder.h"
 #include "cpp/obj-storage/client/s3_obj_storage_client.h"
 #include "cpp/sync_point.h"
 #include "cpp/test/container_credentials_test_util.h"
@@ -58,7 +60,9 @@ namespace doris::cloud {
 
 class S3AccessorMockTest : public testing::Test {
 protected:
-    static void SetUpTestSuite() { ensure_aws_sdk_initialized(config::aws_log_level); }
+    static void SetUpTestSuite() {
+        initialize_obj_storage_sdks(config::aws_log_level, config::azure_log_level);
+    }
 };
 
 class MockS3Client : public Aws::S3::S3Client {
@@ -104,13 +108,18 @@ std::shared_ptr<Aws::Auth::AWSCredentialsProvider> container_provider() {
                         *try_any_cast<std::shared_ptr<Aws::Auth::AWSCredentialsProvider>*>(args[0]);
             },
             &guard);
-    S3Conf conf {.endpoint = "example.com",
-                 .region = "us-east-1",
-                 .bucket = "bucket",
-                 .cred_provider_type = CredProviderType::Container,
-                 .provider = ObjectStoreInfoPB::S3};
-    std::shared_ptr<S3Accessor> accessor;
-    EXPECT_EQ(S3Accessor::create(std::move(conf), &accessor), 0);
+    ObjectStoreInfoPB vault;
+    vault.set_endpoint("example.com");
+    vault.set_region("us-east-1");
+    vault.set_bucket("bucket");
+    vault.set_provider(ObjectStoreInfoPB::S3);
+    vault.set_cred_provider_type(CredProviderTypePB::CONTAINER);
+    auto config = parse_recycler_storage_config(std::move(vault));
+    EXPECT_TRUE(config.has_value());
+    if (config) {
+        std::shared_ptr<S3Accessor> accessor;
+        EXPECT_EQ(S3Accessor::create(std::move(*config), &accessor), 0);
+    }
     sp->disable_processing();
     return provider;
 }

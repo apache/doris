@@ -80,26 +80,26 @@ std::optional<std::string> validate_gcp_credential(const GcpCredentialConfig& cr
 }
 
 GcpCredentialParseResult parse_gcp_credential_properties(
-        const ObjCredentialPropertyGetter& get_property) {
-    auto provider_type_value = get_property(GCP_CREDENTIAL_PROVIDER_TYPE);
-    auto impersonation_service_account = get_property(GCP_IMPERSONATION_SERVICE_ACCOUNT);
-    if (!provider_type_value.has_value() && !impersonation_service_account.has_value()) {
+        const std::map<std::string, std::string>& properties) {
+    auto source = properties.find(std::string(GCP_CREDENTIAL_PROVIDER_TYPE));
+    auto target = properties.find(std::string(GCP_IMPERSONATION_SERVICE_ACCOUNT));
+    if (source == properties.end() && target == properties.end()) {
         return {};
     }
-    auto provider_type = provider_type_value.has_value()
-                                 ? parse_gcp_credential_provider_type(*provider_type_value)
-                                 : GcpCredentialProviderType::Default;
-    if (!provider_type.has_value()) {
-        return {.error = "invalid " + std::string(GCP_CREDENTIAL_PROVIDER_TYPE) + " value \"" +
-                         *provider_type_value +
-                         "\"; supported values are DEFAULT and COMPUTE_ENGINE"};
+    GcpCredentialConfig config;
+    if (source != properties.end()) {
+        auto mode = parse_gcp_credential_provider_type(source->second);
+        if (!mode) {
+            return {.error = "invalid " + std::string(GCP_CREDENTIAL_PROVIDER_TYPE) + " value \"" +
+                             source->second +
+                             "\"; supported values are DEFAULT and COMPUTE_ENGINE"};
+        }
+        config.provider_type = *mode;
     }
-
-    GcpCredentialConfig config {.provider_type = *provider_type};
-    if (impersonation_service_account.has_value()) {
-        config.impersonation_service_account = std::move(*impersonation_service_account);
+    if (target != properties.end()) {
+        config.impersonation_service_account = target->second;
     }
-    if (auto error = validate_gcp_credential(config); error.has_value()) {
+    if (auto error = validate_gcp_credential(config)) {
         return {.error = std::move(error)};
     }
     return {.credential = std::move(config)};

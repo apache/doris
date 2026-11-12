@@ -969,12 +969,13 @@ protected:
             ExecEnv::GetInstance()->_obj_storage_upload_thread_pool = std::move(pool);
         }
 
-        AwsConfig s3_conf;
-        s3_conf.ak = ak;
-        s3_conf.sk = sk;
-        s3_conf.endpoint = endpoint;
-        s3_conf.region = region;
-        s3_conf.bucket = bucket;
+        ObjStorageResourceConfig s3_conf {
+                .bucket = bucket,
+                .client = AwsObjStorageConfig {
+                        .connection = {.endpoint = endpoint},
+                        .auth = {.source = AccessKeyObjStorageAuth {.access_key = ak,
+                                                                    .secret_key = sk}},
+                        .region = region}};
         // A per-pid prefix cannot be reused across runs, so reuse mode pins a stable one. It is
         // also why teardown must not delete it -- see _teardown_remote.
         s3_conf.prefix = _reuse_rowsets() ? std::string(kS3Prefix) + "reuse"

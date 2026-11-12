@@ -15,12 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "io/fs/gcs_signed_url_provider.h"
+#include "gcs_signed_url_provider.h"
 
+#include <absl/strings/escaping.h>
 #include <fmt/format.h>
+#include <glog/logging.h>
+#include <google/cloud/internal/curl_handle.h>
 #include <rapidjson/document.h>
 
 #include <exception>
+#include <new>
 #include <string_view>
 #include <utility>
 
@@ -28,10 +32,10 @@
 #include "cpp/obj-storage/auth/gcp/gcs_signed_url.h"
 #include "cpp/obj-storage/client/obj_storage_client.h"
 #include "cpp/sync_point.h"
-#include "service/http/http_client.h"
-#include "util/url_coding.h"
 
-namespace doris::io {
+namespace doris {
+using google::cloud::StatusCode;
+using SdkStatus = google::cloud::Status;
 namespace {
 
 constexpr std::string_view IAM_CREDENTIALS_ENDPOINT =
@@ -63,73 +67,89 @@ std::string iam_error_message(const rapidjson::Document& document) {
     return message;
 }
 
-bool is_unreserved(unsigned char c) {
-    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' ||
-           c == '_' || c == '.' || c == '~';
+size_t append_iam_response(char* data, size_t size, size_t count, void* output) noexcept {
+    // libcurl supplies size == 1 for body data; bound the memory used for IAM error replies.
+    auto& response = *static_cast<std::string*>(output);
+    constexpr size_t max_response = 1024 * 1024;
+    if (size != 1 || count > max_response - response.size()) {
+        return 0;
+    }
+    try {
+        response.append(data, count);
+    } catch (const std::bad_alloc&) {
+        return 0;
+    }
+    return count;
 }
 
-std::string percent_encode(std::string_view value) {
-    constexpr char HEX[] = "0123456789ABCDEF";
-    std::string encoded;
-    encoded.reserve(value.size());
-    for (unsigned char c : value) {
-        if (is_unreserved(c)) {
-            encoded.push_back(static_cast<char>(c));
-            continue;
-        }
-        encoded.push_back('%');
-        encoded.push_back(HEX[c >> 4]);
-        encoded.push_back(HEX[c & 0x0F]);
+SdkStatus call_iam_sign_blob(std::string_view access_token, std::string_view service_account,
+                             std::string_view string_to_sign, int64_t request_timeout_ms,
+                             const std::string& ca_cert_file_path, std::string* signature) {
+    namespace rest = google::cloud::rest_internal;
+    rest::CurlHandle http;
+    auto escaped = http.MakeEscapedString(std::string(service_account));
+    if (!escaped) {
+        return SdkStatus {StatusCode::kResourceExhausted, "cannot encode the IAM signer account"};
     }
-    return encoded;
-}
-
-Status call_iam_sign_blob(std::string_view access_token, std::string_view service_account,
-                          std::string_view string_to_sign, int64_t request_timeout_ms,
-                          const std::string& ca_cert_file_path, std::string* signature) {
-    std::string encoded_payload;
-    base64_encode(std::string(string_to_sign), &encoded_payload);
-    std::string request_body = fmt::format(R"({{"payload":"{}"}})", encoded_payload);
-    std::string endpoint =
-            std::string(IAM_CREDENTIALS_ENDPOINT) + percent_encode(service_account) + ":signBlob";
-
-    HttpClient client;
-    // Keep the response body for non-2xx replies so IAM permission and
-    // service-account errors are actionable to operators.
-    RETURN_IF_ERROR(client.init(endpoint, false, HttpClient::AuthTokenMode::NONE));
-    if (!ca_cert_file_path.empty()) {
-        RETURN_IF_ERROR(client.set_ca_cert_file(ca_cert_file_path));
-    }
-    client.set_authorization("Bearer " + std::string(access_token));
-    client.set_content_type("application/json");
-    client.set_timeout_ms(request_timeout_ms > 0 ? request_timeout_ms : 10000);
-
-    TEST_SYNC_POINT_RETURN_WITH_VALUE("GcsV4Signer::sign_blob", Status::OK(), access_token,
-                                      service_account, string_to_sign, signature);
+    std::string endpoint = std::string(IAM_CREDENTIALS_ENDPOINT) + escaped.get() + ":signBlob";
+    auto payload = absl::Base64Escape({string_to_sign.data(), string_to_sign.size()});
+    std::string body = fmt::format(R"({{"payload":"{}"}})", payload);
+    std::string token(access_token);
     std::string response;
-    RETURN_IF_ERROR(client.execute_post_request(request_body, &response));
-
+    rest::CurlHeaders headers(curl_slist_append(nullptr, "Content-Type: application/json"));
+    if (!headers) {
+        return SdkStatus {StatusCode::kResourceExhausted, "cannot allocate signBlob headers"};
+    }
+    for (const auto& status :
+         {http.SetOption(CURLOPT_URL, endpoint.c_str()),
+          http.SetOption(CURLOPT_POSTFIELDS, body.c_str()),
+          http.SetOption(CURLOPT_HTTPHEADER, headers.get()),
+          http.SetOption(CURLOPT_HTTPAUTH, static_cast<long>(CURLAUTH_BEARER)),
+          http.SetOption(CURLOPT_XOAUTH2_BEARER, token.c_str()),
+          http.SetOption(CURLOPT_TIMEOUT_MS, static_cast<long>(request_timeout_ms)),
+          http.SetOption(CURLOPT_NOSIGNAL, 1L),
+          http.SetOption(CURLOPT_WRITEFUNCTION, &append_iam_response),
+          http.SetOption(CURLOPT_WRITEDATA, &response)}) {
+        if (!status.ok()) {
+            return status;
+        }
+    }
+    if (!ca_cert_file_path.empty()) {
+        auto status = http.SetOption(CURLOPT_CAINFO, ca_cert_file_path.c_str());
+        if (!status.ok()) {
+            return status;
+        }
+    }
+    TEST_SYNC_POINT_RETURN_WITH_VALUE("GcsV4Signer::sign_blob", SdkStatus {}, access_token,
+                                      service_account, string_to_sign, signature,
+                                      &ca_cert_file_path);
+    auto sent = http.EasyPerform();
+    if (!sent.ok()) {
+        return sent;
+    }
     rapidjson::Document document;
     document.Parse(response.data(), response.size());
-    const auto http_status = client.get_http_status();
+    const auto http_status = http.GetResponseCode();
     if (http_status < 200 || http_status >= 300) {
-        return Status::HttpError("IAM signBlob failed with HTTP {}: {}", http_status,
-                                 iam_error_message(document));
+        return SdkStatus {StatusCode::kUnknown,
+                          fmt::format("IAM signBlob failed with HTTP {}: {}", http_status,
+                                      iam_error_message(document))};
     }
     if (document.HasParseError() || !document.IsObject() || !document.HasMember("signedBlob") ||
         !document["signedBlob"].IsString()) {
-        return Status::InternalError("IAM signBlob returned an invalid response");
+        return SdkStatus(StatusCode::kInternal, "IAM signBlob returned an invalid response");
     }
-    if (!base64_decode(document["signedBlob"].GetString(), signature)) {
-        return Status::InternalError("IAM signBlob returned an invalid base64 signature");
+    if (!absl::Base64Unescape(document["signedBlob"].GetString(), signature)) {
+        return SdkStatus(StatusCode::kInternal,
+                         "IAM signBlob returned an invalid base64 signature");
     }
-    return Status::OK();
+    return {};
 }
 
 } // namespace
 
 std::function<std::string(const ObjStoragePath&, int64_t)> make_gcs_signed_url_generator(
-        const GcpCredentialConfig& credential, std::string endpoint, int request_timeout_ms,
+        const GcpCredentialConfig& credential, std::string endpoint, int64_t request_timeout_ms,
         std::string ca_cert_path) {
     // signBlob uses the source identity even when object I/O impersonates a target.
     auto source = credential;
@@ -155,42 +175,47 @@ std::function<std::string(const ObjStoragePath&, int64_t)> make_gcs_signed_url_g
     };
 }
 
-Status resolve_gcs_signer_email(const GcpCredentialConfig& credential,
-                                const GcpTokenProvider& token_provider, std::string* signer_email) {
+SdkStatus resolve_gcs_signer_email(const GcpCredentialConfig& credential,
+                                   const GcpTokenProvider& token_provider,
+                                   std::string* signer_email) {
     *signer_email = credential.impersonation_service_account.empty()
                             ? token_provider.get_service_account_email()
                             : credential.impersonation_service_account;
     if (!is_valid_gcp_service_account_email(*signer_email)) {
-        return Status::InvalidArgument(
-                "GCS V4 signing requires a service account identity; configure "
-                "gs.impersonation_service_account for credentials without one");
+        return SdkStatus(StatusCode::kInvalidArgument,
+                         "GCS V4 signing requires a service account identity; configure "
+                         "gs.impersonation_service_account for credentials without one");
     }
-    return Status::OK();
+    return {};
 }
 
-Status generate_gcs_v4_signed_url(const GcsV4SignedUrlProviderOptions& options,
-                                  const GcpCredentialConfig& credential,
-                                  const std::shared_ptr<GcpTokenProvider>& token_provider,
-                                  std::string* signed_url) {
+SdkStatus generate_gcs_v4_signed_url(const GcsV4SignedUrlProviderOptions& options,
+                                     const GcpCredentialConfig& credential,
+                                     const std::shared_ptr<GcpTokenProvider>& token_provider,
+                                     std::string* signed_url) {
     if (signed_url == nullptr) {
-        return Status::InvalidArgument("signed_url output must not be null");
+        return SdkStatus(StatusCode::kInvalidArgument, "signed_url output must not be null");
     }
     signed_url->clear();
 
     if (token_provider == nullptr) {
-        return Status::InternalError("GCS V4 signing token provider is not initialized");
+        return SdkStatus(StatusCode::kInternal, "GCS V4 signing token provider is not initialized");
     }
 
     try {
         auto token = token_provider->get_token();
         if (!token.has_value()) {
-            return Status::InternalError("failed to obtain OAuth token for IAM signBlob");
+            return SdkStatus(StatusCode::kInternal,
+                             "failed to obtain OAuth token for IAM signBlob");
         }
 
         // Resolve identity from the same credentials that supplied the token. DEFAULT may
         // select a VM, a key file, or another ADC source; never infer it from VM presence.
         std::string signer_email;
-        RETURN_IF_ERROR(resolve_gcs_signer_email(credential, *token_provider, &signer_email));
+        auto resolved = resolve_gcs_signer_email(credential, *token_provider, &signer_email);
+        if (!resolved.ok()) {
+            return resolved;
+        }
 
         auto result = build_gcs_v4_signed_url(
                 {.endpoint = options.endpoint,
@@ -204,18 +229,20 @@ Status generate_gcs_v4_signed_url(const GcsV4SignedUrlProviderOptions& options,
                                                      options.request_timeout_ms,
                                                      options.ca_cert_file_path, &signature);
                     if (!status.ok()) {
-                        return GcsSignBlobResult {.error = status.to_string()};
+                        return GcsSignBlobResult {.error = status.message()};
                     }
                     return GcsSignBlobResult {.signature = std::move(signature)};
                 });
         if (!result.ok()) {
-            return Status::InternalError("failed to build GCS V4 signed URL: {}", result.error);
+            return SdkStatus(StatusCode::kInternal,
+                             "failed to build GCS V4 signed URL: " + result.error);
         }
         *signed_url = std::move(result.signed_url);
-        return Status::OK();
+        return {};
     } catch (const std::exception& e) {
-        return Status::InternalError("failed to initialize GCS URL signer: {}", e.what());
+        return SdkStatus(StatusCode::kInternal,
+                         fmt::format("failed to initialize GCS URL signer: {}", e.what()));
     }
 }
 
-} // namespace doris::io
+} // namespace doris

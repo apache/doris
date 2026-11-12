@@ -21,18 +21,18 @@
 
 #include <string_view>
 
-#include "cpp/obj-storage/auth/obj_credential.h"
+#include "cpp/obj-storage/auth/gcp/gcp_auth.h"
 
-namespace doris {
+namespace doris::cloud {
 namespace {
 
-GcpCredentialConfig to_gcp_credential_config(const cloud::GcpCredentialPB& credential) {
+GcpCredentialConfig to_gcp_credential_config(const GcpCredentialPB& credential) {
     GcpCredentialConfig config;
     switch (credential.credential_provider_type()) {
-    case cloud::GcpCredentialPB::DEFAULT:
+    case GcpCredentialPB::DEFAULT:
         config.provider_type = GcpCredentialProviderType::Default;
         break;
-    case cloud::GcpCredentialPB::COMPUTE_ENGINE:
+    case GcpCredentialPB::COMPUTE_ENGINE:
         config.provider_type = GcpCredentialProviderType::ComputeEngine;
         break;
     }
@@ -40,63 +40,12 @@ GcpCredentialConfig to_gcp_credential_config(const cloud::GcpCredentialPB& crede
     return config;
 }
 
-} // namespace
-
-void convert_obj_credential(const cloud::ObjectStoreInfoPB& source, CredentialConfig* credential) {
-    if (!source.has_credential() || !source.credential().has_gcp_credential()) {
-        *credential = std::monostate {};
-        return;
-    }
-    *credential = to_gcp_credential_config(source.credential().gcp_credential());
+bool has_static_credentials(const ObjectStoreInfoPB& obj) {
+    return !obj.ak().empty() || !obj.sk().empty() || obj.has_encryption_info();
 }
 
-} // namespace doris
-
-namespace doris::cloud {
-namespace {
-
-// Extension checklist for a new passwordless provider:
-//  1. add a provider-specific validate_<provider>_obj_credential();
-//  2. dispatch it from validate_obj_credential(); and
-//  3. reject requests that set more than one provider credential.
-// Generic create/alter normalization does not need provider-specific branches.
-ObjCredentialProvider to_obj_credential_provider(const ObjectStoreInfoPB& obj) {
-    if (!obj.has_provider()) {
-        return ObjCredentialProvider::Unknown;
-    }
-    switch (obj.provider()) {
-    case ObjectStoreInfoPB::S3:
-        return ObjCredentialProvider::Aws;
-    case ObjectStoreInfoPB::AZURE:
-        return ObjCredentialProvider::Azure;
-    case ObjectStoreInfoPB::BOS:
-        return ObjCredentialProvider::Bos;
-    case ObjectStoreInfoPB::COS:
-        return ObjCredentialProvider::Cos;
-    case ObjectStoreInfoPB::GCP:
-        return ObjCredentialProvider::Gcp;
-    case ObjectStoreInfoPB::OBS:
-        return ObjCredentialProvider::Obs;
-    case ObjectStoreInfoPB::OSS:
-        return ObjCredentialProvider::Oss;
-    case ObjectStoreInfoPB::TOS:
-        return ObjCredentialProvider::Tos;
-    case ObjectStoreInfoPB::UNKONWN:
-        return ObjCredentialProvider::Unknown;
-    }
-    return ObjCredentialProvider::Unknown;
-}
-
-ObjCredentialValidationContext credential_validation_context(const ObjectStoreInfoPB& obj) {
-    return ObjCredentialValidationContext {
-            .provider = to_obj_credential_provider(obj),
-            .ak = obj.ak(),
-            .sk = obj.sk(),
-            .has_aws_role_arn = !obj.role_arn().empty(),
-            .has_aws_external_id = !obj.external_id().empty(),
-            .has_aws_credential_provider = obj.has_cred_provider_type(),
-            .has_encrypted_access_keys = obj.has_encryption_info(),
-    };
+bool has_aws_authentication(const ObjectStoreInfoPB& obj) {
+    return !obj.role_arn().empty() || !obj.external_id().empty() || obj.has_cred_provider_type();
 }
 
 // A provider-native credential supersedes both common static credentials and
@@ -127,9 +76,13 @@ std::optional<std::string> validate_gcp_obj_credential(const ObjectStoreInfoPB& 
         return error;
     }
 
-    CredentialConfig config;
-    convert_obj_credential(obj, &config);
-    return validate_obj_credential_config(config, credential_validation_context(obj));
+    if (!obj.has_provider() || obj.provider() != ObjectStoreInfoPB::GCP) {
+        return "GCP credentials require provider=GCP";
+    }
+    if (has_static_credentials(obj) || has_aws_authentication(obj)) {
+        return "GCP credentials cannot be combined with other credentials";
+    }
+    return validate_gcp_credential(to_gcp_credential_config(credential));
 }
 
 } // namespace
@@ -145,8 +98,7 @@ std::optional<std::string> validate_obj_credential(const ObjectStoreInfoPB& obj)
 
     // Add one provider-specific branch for every new field in
     // ObjectStoreCredentialPB. Reject multiple fields before dispatch when a
-    // second provider is introduced. The common visitor validates only the
-    // normalized credential itself.
+    // second provider is introduced.
     if (obj.credential().has_gcp_credential()) {
         return validate_gcp_obj_credential(obj);
     }
@@ -161,11 +113,10 @@ std::optional<std::string> validate_obj_authentication(const ObjectStoreInfoPB& 
         return "AWS role ARN cannot be empty";
     }
 
-    const auto context = credential_validation_context(obj);
-    if (context.has_static_credentials() && context.has_aws_authentication()) {
+    if (has_static_credentials(obj) && has_aws_authentication(obj)) {
         return "access keys cannot be combined with AWS role or credential provider";
     }
-    if (!context.has_aws_authentication()) {
+    if (!has_aws_authentication(obj)) {
         return std::nullopt;
     }
     if (!obj.has_provider() || obj.provider() != ObjectStoreInfoPB::S3) {
@@ -190,7 +141,7 @@ std::optional<std::string> apply_obj_credential(const ObjectStoreInfoPB& update,
     if (!has_obj_credential(update)) {
         return "credential is not set";
     }
-    if (credential_validation_context(update).has_conflicting_credentials()) {
+    if (has_static_credentials(update) || has_aws_authentication(update)) {
         return "credentials cannot be combined with other credentials";
     }
 

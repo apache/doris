@@ -17,32 +17,53 @@
 
 #include "gcp_obj_storage_client.h"
 
+#include <aws/core/auth/signer/AWSAuthV4Signer.h>
+
 #include "cpp/obj-storage/auth/gcp/gcp_s3_client.h"
-#include "cpp/obj-storage/obj_storage_config.h"
+#include "cpp/obj-storage/auth/gcp/gcs_signed_url_provider.h"
+#include "s3_transport.h"
 
 namespace doris {
 
-ObjStorageClientBuildResult GcpObjStorageClient::create(const GcpConfig& config,
-                                                        const ObjStorageClientRuntime& runtime) {
-    const auto* gcp = std::get_if<GcpCredentialConfig>(&config.credential);
-    if (!gcp) {
-        return create_s3_client<GcpObjStorageClient>(config, runtime);
+ObjStorageClientBuildResult GcpObjStorageClient::create(const GcpObjStorageConfig& config) {
+    auto options = s3_transport_options(config.connection, config.region, config.retry_slow_down);
+    ObjStorageEndpointInfo endpoint {.endpoint = config.connection.endpoint};
+    if (auto* native = std::get_if<GcpNativeObjStorageAuth>(&config.auth)) {
+        GcpCredentialConfig credential {
+                .provider_type = native->source == GcpCredentialSource::ComputeEngine
+                                         ? GcpCredentialProviderType::ComputeEngine
+                                         : GcpCredentialProviderType::Default,
+                .impersonation_service_account =
+                        native->impersonation_service_account.value_or("")};
+        auto ca_file = config.connection.ca_cert_file.value_or("");
+        auto sdk = std::make_shared<GcpS3Client>(
+                credential, ca_file, options,
+                Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never, !config.use_path_style);
+        auto signer = make_gcs_signed_url_generator(
+                credential, endpoint.endpoint,
+                config.connection.request_timeout.value_or(std::chrono::seconds(10)).count(),
+                std::move(ca_file));
+        return {.client = std::make_shared<GcpObjStorageClient>(std::move(sdk), std::move(endpoint),
+                                                                std::move(signer))};
     }
-    TEST_SYNC_POINT_RETURN_WITH_VALUE(
-            "s3_client_factory::create",
-            (ObjStorageClientBuildResult {.client = std::make_shared<GcpObjStorageClient>(
-                                                  std::make_shared<Aws::S3::S3Client>())}));
-    // Both providers can read the ADC file. Initialize object I/O before signing.
-    auto sdk = std::make_shared<GcpS3Client>(*gcp, runtime.ca_cert_path,
-                                             s3_sdk_config(config, runtime), SIGNING_POLICY,
-                                             config.use_virtual_addressing);
-    ObjStorageSignedUrlGenerator signer;
-    if (runtime.gcs_signer) {
-        signer = runtime.gcs_signer(*gcp, config.endpoint, config.request_timeout_ms,
-                                    runtime.ca_cert_path);
+
+    S3CompatibleObjStorageAuth source = AnonymousObjStorageAuth {};
+    if (auto* key = std::get_if<GcpHmacObjStorageAuth>(&config.auth)) {
+        source = AccessKeyObjStorageAuth {key->access_id, key->secret_key, key->session_token};
+    } else if (auto* chain = std::get_if<S3CredentialChain>(&config.auth)) {
+        source = *chain;
     }
-    return {.client = std::make_shared<GcpObjStorageClient>(std::move(sdk), endpoint_info(config),
-                                                            std::move(signer))};
+    auto credentials = AwsCredentialFactory::create(source, config.connection);
+    if (!credentials) {
+        return {.error = std::move(credentials.error)};
+    }
+    auto sdk = make_s3_transport(std::move(credentials.provider), options, config.use_path_style);
+    return {.client = std::make_shared<GcpObjStorageClient>(std::move(sdk), std::move(endpoint))};
 }
 
+std::string GcpObjStorageClient::generate_presigned_url(const ObjStoragePath& path,
+                                                        int64_t expiration_secs) {
+    return _signer ? _signer(path, expiration_secs)
+                   : S3CompatibleObjStorageClient::generate_presigned_url(path, expiration_secs);
+}
 } // namespace doris
