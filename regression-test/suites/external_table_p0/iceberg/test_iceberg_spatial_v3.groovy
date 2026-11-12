@@ -1428,23 +1428,31 @@ public class CreateIcebergSpatialV3Table {
         id int, geom geometry('EPSG:3857'), geog geography('OGC:CRS84', 'vincenty')
         ) engine=iceberg properties ('format-version' = '3')"""
     sql """insert into projected_copy select id, geom, geog from projected_values"""
-    // A generic file TVF must not infer spatial identity outside the Iceberg catalog contract.
-    def spatialFile = (sql """select file_path from `projected_copy\$files` where content = 0""")[0][0]
-    test {
-        sql """select * from S3(
-            'uri' = '${spatialFile}', 'format' = 'parquet',
+    def parquetTvf = { path ->
+        """S3('uri' = '${path}', 'format' = 'parquet',
             's3.endpoint' = 'http://${externalEnvIp}:${minioPort}',
             's3.access_key' = 'admin', 's3.secret_key' = 'password',
             's3.region' = 'us-east-1')"""
-        exception "Spatial Parquet columns are only supported through an Iceberg catalog"
     }
-    // An unannotated BYTE_ARRAY remains binary when read without Iceberg schema metadata.
+    def spatialFiles = sql """select file_path from `projected_copy\$files` where content = 0"""
+    def selectAnnotatedFiles = { projection ->
+        spatialFiles.collect { """select ${projection} from ${parquetTvf(it[0])}""" }.join(" union all ")
+    }
+
+    // An unselected spatial annotation must not prevent binding the ordinary ID column.
+    check_sqls_result_equal(
+        """select id from (${selectAnnotatedFiles('id')}) file_rows order by id""",
+        """select id from projected_copy order by id""")
+
+    // Direct file reads expose raw WKB whether or not the columns have spatial annotations.
     def rawFile = (sql """select file_path from `projected_values\$files` where content = 0""")[0][0]
-    order_qt_raw_file_bytes """select id, from_binary(geom), from_binary(geog) from S3(
-        'uri' = '${rawFile}', 'format' = 'parquet',
-        's3.endpoint' = 'http://${externalEnvIp}:${minioPort}',
-        's3.access_key' = 'admin', 's3.secret_key' = 'password',
-        's3.region' = 'us-east-1')"""
+    def rawTvf = parquetTvf(rawFile)
+    order_qt_raw_file_bytes """select id, from_binary(geom), from_binary(geog) from ${rawTvf}"""
+    def rawProjection = "id, from_binary(geom) as geom, from_binary(geog) as geog"
+    check_sqls_result_equal(
+        """select id, geom, geog from (${selectAnnotatedFiles(rawProjection)}) file_rows order by id""",
+        """select id, from_binary(ST_AsBinary(geom)), from_binary(ST_AsBinary(geog))
+            from projected_values order by id""")
     // Materialize WKB both with and without Parquet spatial annotations. COUNT alone can
     // bypass payload decoding.
     qt_annotated_spatial_payload """select id,

@@ -1106,21 +1106,69 @@ struct StDistanceFunction {
     static constexpr size_t NUM_ARGS = Within ? 3 : 2;
     using Type = std::conditional_t<Within, DataTypeUInt8, DataTypeFloat64>;
 
+private:
+    struct Operand {
+        const ColumnPtr& column;
+        DataTypePtr type;
+        bool constant;
+        bool decoded = false;
+        std::unique_ptr<GeoShape> shape = nullptr;
+
+        StringRef value_at(size_t row) const { return column->get_data_at(constant ? 0 : row); }
+
+        bool prepare_legacy_constant() {
+            if (!constant) {
+                return true;
+            }
+            if (!column->is_null_at(0)) {
+                const auto value = value_at(0);
+                shape = GeoShape::from_encoded(value.data, value.size);
+            }
+            decoded = true;
+            return shape != nullptr;
+        }
+
+        Status decode(size_t row) {
+            if (!constant || !decoded) {
+                RETURN_IF_ERROR(decode_calculation_shape(value_at(row), type, &shape, NAME));
+                decoded = true;
+            }
+            return Status::OK();
+        }
+    };
+
+public:
     static Status execute(Block& block, const ColumnNumbers& arguments, size_t result) {
         DCHECK_EQ(arguments.size(), NUM_ARGS);
-        auto return_type = block.get_data_type(result);
         const auto& [left_column, left_const] =
                 unpack_if_const(block.get_by_position(arguments[0]).column);
         const auto& [right_column, right_const] =
                 unpack_if_const(block.get_by_position(arguments[1]).column);
-        const auto& left_type = block.get_data_type(arguments[0]);
-        const auto& right_type = block.get_data_type(arguments[1]);
+        Operand left {left_column, block.get_data_type(arguments[0]), left_const};
+        Operand right {right_column, block.get_data_type(arguments[1]), right_const};
 
-        RETURN_IF_ERROR(validate_geography_semantics(left_type, NAME));
-        RETURN_IF_ERROR(validate_geography_semantics(right_type, NAME));
+        RETURN_IF_ERROR(validate_geography_semantics(left.type, NAME));
+        RETURN_IF_ERROR(validate_geography_semantics(right.type, NAME));
 
+        const bool legacy = !is_spatial_type(left.type) && !is_spatial_type(right.type);
+        if constexpr (!Within) {
+            const auto size = block.rows();
+            if (legacy && size != 0 &&
+                (!left.prepare_legacy_constant() || !right.prepare_legacy_constant())) {
+                // An invalid legacy constant makes the whole block NULL.
+                block.replace_by_position(
+                        result,
+                        block.get_data_type(result)->create_column_const_with_default_value(size));
+                return Status::OK();
+            }
+        }
+        return execute_rows(block, arguments, result, left, right, legacy);
+    }
+
+private:
+    static Status execute_rows(Block& block, const ColumnNumbers& arguments, size_t result,
+                               Operand& left, Operand& right, bool legacy) {
         const auto size = block.rows();
-
         auto res = Type::ColumnType::create();
         std::optional<ColumnView<TYPE_DOUBLE>> threshold_column;
         if constexpr (Within) {
@@ -1131,10 +1179,6 @@ struct StDistanceFunction {
         auto null_map = ColumnUInt8::create(size, 0);
         auto& null_map_data = null_map->get_data();
 
-        std::unique_ptr<GeoShape> left_shape;
-        std::unique_ptr<GeoShape> right_shape;
-        bool left_decoded = false;
-        bool right_decoded = false;
         for (size_t row = 0; row < size; ++row) {
             // Propagate NULL before using nested placeholders; a NULL geometry has an
             // empty payload, not a WKB shape.
@@ -1152,29 +1196,20 @@ struct StDistanceFunction {
                             "ST_DWithin distance must be finite and nonnegative");
                 }
             }
-            if (!left_const || !left_decoded) {
-                RETURN_IF_ERROR(
-                        decode_calculation_shape(left_column->get_data_at(left_const ? 0 : row),
-                                                 left_type, &left_shape, NAME));
-                left_decoded = true;
+            RETURN_IF_ERROR(left.decode(row));
+            if (!legacy || left.shape) {
+                RETURN_IF_ERROR(right.decode(row));
             }
-            if (!right_const || !right_decoded) {
-                RETURN_IF_ERROR(
-                        decode_calculation_shape(right_column->get_data_at(right_const ? 0 : row),
-                                                 right_type, &right_shape, NAME));
-                right_decoded = true;
-            }
-            if (!left_shape || !right_shape) {
+            if (!left.shape || !right.shape) {
                 null_map_data[row] = 1;
                 res->insert_default();
                 continue;
             }
             const double distance =
-                    is_spatial_type(left_type)
-                            ? geography_distance(*left_shape, *right_shape,
-                                                 left_column->get_data_at(left_const ? 0 : row),
-                                                 right_column->get_data_at(right_const ? 0 : row))
-                            : left_shape->Distance(right_shape.get());
+                    is_spatial_type(left.type)
+                            ? geography_distance(*left.shape, *right.shape, left.value_at(row),
+                                                 right.value_at(row))
+                            : left.shape->Distance(right.shape.get());
             if (UNLIKELY(distance < 0)) {
                 null_map_data[row] = 1;
                 res->insert_default();

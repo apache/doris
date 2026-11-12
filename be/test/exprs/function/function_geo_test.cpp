@@ -209,6 +209,46 @@ TEST(VGeoFunctionsTest, MixedNanGeometryAndGeographyPreserveRawBinary) {
     expect_nan_spatial_accessors(TYPE_GEOGRAPHY);
 }
 
+static void expect_invalid_legacy_distance_constant(bool constant_on_left) {
+    const auto type = std::make_shared<DataTypeString>();
+    auto constant_value = type->create_column();
+    constant_value->insert_data("bad", 3);
+    auto vector_value = type->create_column();
+    GeoPoint point;
+    ASSERT_EQ(point.from_coord(1, 2), GeoParseStatus::GEO_PARSE_OK);
+    std::string encoded;
+    point.encode_to(&encoded);
+    vector_value->insert_data(encoded.data(), encoded.size());
+    vector_value->insert_data(encoded.data(), encoded.size());
+
+    ColumnWithTypeAndName constant {ColumnConst::create(std::move(constant_value), 2), type,
+                                    "constant"};
+    ColumnWithTypeAndName vector {std::move(vector_value), type, "vector"};
+    ColumnsWithTypeAndName arguments = constant_on_left ? ColumnsWithTypeAndName {constant, vector}
+                                                        : ColumnsWithTypeAndName {vector, constant};
+    const auto result_type = make_nullable(std::make_shared<DataTypeFloat64>());
+    auto function =
+            SimpleFunctionFactory::instance().get_function("st_distance", arguments, result_type);
+    ASSERT_NE(function, nullptr);
+    Block block;
+    block.insert(arguments[0]);
+    block.insert(arguments[1]);
+    block.insert({nullptr, result_type, "result"});
+    const auto status = function->execute(nullptr, block, {0, 1}, 2, 2);
+    ASSERT_TRUE(status.ok()) << status;
+    const auto& result = *block.get_by_position(2).column;
+    EXPECT_EQ(result.size(), 2);
+    // A single NULL result shows the constant was handled outside the per-row decoder.
+    EXPECT_TRUE(is_column_const(result));
+    EXPECT_TRUE(result.is_null_at(0));
+    EXPECT_TRUE(result.is_null_at(1));
+}
+
+TEST(VGeoFunctionsTest, LegacyDistanceShortCircuitsInvalidConstant) {
+    expect_invalid_legacy_distance_constant(false);
+    expect_invalid_legacy_distance_constant(true);
+}
+
 static void expect_constant_geography_distance(bool constant_on_left, bool unsupported_shape) {
     const std::string point(
             "\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\xf0?\x00\x00\x00\x00\x00\x00\x00@", 21);
