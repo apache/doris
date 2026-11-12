@@ -132,6 +132,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Function;
+import java.util.function.Predicate;
 import java.util.function.Supplier;
 import java.util.function.UnaryOperator;
 import java.util.stream.Collectors;
@@ -3262,14 +3263,6 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             scanMetrics.totalDeleteManifests().increment(deletes.size());
         }
         boolean cacheEnabled = isManifestCacheEnabled();
-        Function<ManifestFile, ManifestCacheValue> cached = cacheEnabled
-                ? manifest -> manifestCache.getCachedManifestValue(manifest, statsQueryId) : manifest -> null;
-        Function<ManifestFile, ManifestCacheValue> deleteLoader = cacheEnabled
-                ? manifest -> manifestCacheGet(manifest, table, statsQueryId)
-                : IcebergManifestReader.uncachedLoader(table, null, scanContext::checkCancelled);
-        Function<ManifestFile, CompletionStage<ManifestCacheValue>> sharedDeleteLoader = cacheEnabled
-                ? manifest -> manifestCache.getManifestCacheValueFuture(manifest, table, statsQueryId)
-                : manifest -> CompletableFuture.completedFuture(deleteLoader.apply(manifest));
         Schema scanSchema = scan.schema();
         Expression filterExpr = combineFilter(filter, table, scanSchema, session);
         Map<Integer, PartitionSpec> specsById = SchemaAwareDataTableScan.specsFor(scan);
@@ -3281,6 +3274,31 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         InclusiveMetricsEvaluator metricsEvaluator =
                 new InclusiveMetricsEvaluator(scanSchema, filterExpr, caseSensitive);
         String schemaJson = SchemaParser.toJson(scanSchema);
+
+        Function<ManifestFile, IcebergManifestReader.ReadFilter> filters = manifest -> {
+            PartitionSpec spec = specsById.get(manifest.partitionSpecId());
+            // Evaluators and the lazy type adapter belong to one loading worker, never to a shared cache.
+            InclusiveMetricsEvaluator metrics = new InclusiveMetricsEvaluator(scanSchema, filterExpr, caseSensitive);
+            ResidualEvaluator residual = ResidualEvaluator.of(spec, filterExpr, caseSensitive);
+            Predicate<ContentFile<?>> predicate = file -> matchesFileFilter(file, metrics, residual);
+            return new IcebergManifestReader.ReadFilter(spec, predicate, () -> {
+                if (scanMetrics != null) {
+                    if (manifest.content() == ManifestContent.DATA) {
+                        scanMetrics.skippedDataFiles().increment();
+                    } else {
+                        scanMetrics.skippedDeleteFiles().increment();
+                    }
+                }
+            });
+        };
+        Function<ManifestFile, ManifestCacheValue> cached = cacheEnabled
+                ? manifest -> manifestCache.getCachedManifestValue(manifest, statsQueryId) : manifest -> null;
+        Function<ManifestFile, ManifestCacheValue> deleteLoader = cacheEnabled
+                ? manifest -> manifestCacheGet(manifest, table, statsQueryId)
+                : IcebergManifestReader.uncachedLoader(table, null, filters, scanContext::checkCancelled);
+        Function<ManifestFile, CompletionStage<ManifestCacheValue>> sharedDeleteLoader = cacheEnabled
+                ? manifest -> manifestCache.getManifestCacheValueFuture(manifest, table, statsQueryId)
+                : manifest -> CompletableFuture.completedFuture(deleteLoader.apply(manifest));
 
         // Every scan in this statement shares admission, including eager delete-manifest reads.
         int concurrency = manifestReadConcurrency(session);
@@ -3306,8 +3324,8 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                     // partition pruning before indexing, after type adaptation, without changing cached values.
                     for (DeleteFile file : loaded.files.forScan(specsById.get(specId)).getDeleteFiles()) {
                         scanContext.checkCancelled();
-                        if (matchesFileFilter(file, metricsEvaluator, residual)) {
-                            deleteFiles.add(file);
+                        if (!cacheEnabled || matchesFileFilter(file, metricsEvaluator, residual)) {
+                            deleteFiles.add(cacheEnabled ? IcebergManifestReader.copyDeleteForIndex(file) : file);
                         } else if (scanMetrics != null) {
                             scanMetrics.skippedDeleteFiles().increment();
                         }
@@ -3330,7 +3348,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         List<String> columns = cacheEnabled || filter.isPresent() || deleteIndex.hasEqualityDeletes()
                 ? null : SchemaAwareDataTableScan.manifestColumns(scan);
         Function<ManifestFile, ManifestCacheValue> loader = cacheEnabled ? deleteLoader
-                : IcebergManifestReader.uncachedLoader(table, columns, scanContext::checkCancelled);
+                : IcebergManifestReader.uncachedLoader(table, columns, filters, scanContext::checkCancelled);
         Function<ManifestFile, CompletionStage<ManifestCacheValue>> sharedLoader = cacheEnabled ? sharedDeleteLoader
                 : manifest -> CompletableFuture.completedFuture(loader.apply(manifest));
 
@@ -3361,7 +3379,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                 scanContext.checkCancelled();
                 iterator = new ManifestFileScanTaskIterator(prefetcher, specsById,
                         residualEvaluators, metricsEvaluator, deleteIndex, schemaJson,
-                        scanContext::checkCancelled, scanMetrics);
+                        scanContext::checkCancelled, scanMetrics, cacheEnabled);
                 return iterator;
             }
 
@@ -3441,6 +3459,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         private final String schemaJson;
         private final Runnable checkCancelled;
         private final ScanMetrics scanMetrics;
+        private final boolean filterFiles;
 
         private Iterator<DataFile> dataFileIt;
         private ResidualEvaluator currentResidual;
@@ -3450,7 +3469,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         ManifestFileScanTaskIterator(IcebergManifestPrefetcher manifestIt,
                 Map<Integer, PartitionSpec> specsById, Map<Integer, ResidualEvaluator> residualEvaluators,
                 InclusiveMetricsEvaluator metricsEvaluator, DeleteFileIndex deleteIndex, String schemaJson,
-                Runnable checkCancelled, ScanMetrics scanMetrics) {
+                Runnable checkCancelled, ScanMetrics scanMetrics, boolean filterFiles) {
             this.manifestIt = manifestIt;
             this.specsById = specsById;
             this.residualEvaluators = residualEvaluators;
@@ -3459,6 +3478,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             this.schemaJson = schemaJson;
             this.checkCancelled = checkCancelled;
             this.scanMetrics = scanMetrics;
+            this.filterFiles = filterFiles;
         }
 
         @Override
@@ -3478,14 +3498,13 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             return result;
         }
 
-        // Fill `next` with the next surviving task, draining the current data manifest's files and advancing to
-        // further data manifests as needed. Per-file logic mirrors the pre-PERF-04 materialized Phase 2 exactly.
+        // Cached manifests are pruned here. Uncached readers already pruned before copying their results.
         private void advance() {
             while (!closed && next == null) {
                 checkCancelled.run();
                 if (dataFileIt != null && dataFileIt.hasNext()) {
                     DataFile dataFile = dataFileIt.next();
-                    if (!matchesFileFilter(dataFile, metricsEvaluator, currentResidual)) {
+                    if (filterFiles && !matchesFileFilter(dataFile, metricsEvaluator, currentResidual)) {
                         if (scanMetrics != null) {
                             scanMetrics.skippedDataFiles().increment();
                         }

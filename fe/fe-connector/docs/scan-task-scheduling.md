@@ -94,6 +94,11 @@ partition type adaptation; shared parsed values remain complete. The built index
 determines the uncached data projection: position-only unfiltered scans need no
 extra column statistics, while equality deletes and predicates retain the required
 statistics. Explicitly requested SDK statistics are preserved.
+Uncached readers adapt partition values and evaluate file predicates before copying
+or buffering live entries. Each manifest read owns its predicate and adapter state;
+cached payloads stay complete and are filtered by the scan consumer instead. Delete
+statistics are compacted only after predicates, retaining equality-key statistics or
+the position-delete file-path bounds required by the query-local delete index.
 
 ## Configuration and limits
 
