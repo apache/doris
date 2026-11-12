@@ -92,14 +92,17 @@ enum class JsonNumberToDecimal : uint8_t {
     OK,
     // Not a JSON number.
     MALFORMED,
-    // More than 38 significant digits, or a scale outside [0, 38] once the exponent is folded in.
+    // A value of 10^-39 or more with more than 38 significant digits, or with a scale outside
+    // [0, 38] once the exponent is folded in.
     OUT_OF_RANGE,
 };
 
 // Reads a JSON number token (sign, digits, fraction, exponent) into a decimal of at most 38
 // significant digits with a scale in [0, 38]: an exponent is folded into the scale and a negative
-// scale into the unscaled value. Enforces the JSON number grammar itself (the caller hands it
-// tokens simdjson could not read), so a token it declines is not a JSON number. Never throws.
+// scale into the unscaled value. The value is exact, with one exception: a nonzero value below
+// 10^-39 is read as 0 at scale 38, the value it rounds to at every scale a decimal has. Enforces
+// the JSON number grammar itself (the caller hands it tokens simdjson could not read), so a token
+// it declines as MALFORMED is not a JSON number. Never throws.
 JsonNumberToDecimal parse_json_number_as_decimal(std::string_view token,
                                                  VariantDecimalText& out) noexcept;
 

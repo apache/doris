@@ -272,9 +272,37 @@ TEST(VariantTemplatePathsTest, DeclinesWhatDoesNotFit) {
               parse_json_number_as_decimal("100000000000000000000000000000000000000", out));
     EXPECT_EQ(JsonNumberToDecimal::OUT_OF_RANGE,
               parse_json_number_as_decimal("0.1234567890123456789012345678901234567890123", out));
-    EXPECT_EQ(JsonNumberToDecimal::OUT_OF_RANGE, parse_json_number_as_decimal("1e-40", out));
+    EXPECT_EQ(JsonNumberToDecimal::OUT_OF_RANGE, parse_json_number_as_decimal("1e-39", out));
     EXPECT_EQ(JsonNumberToDecimal::OUT_OF_RANGE, parse_json_number_as_decimal("1e40", out));
     EXPECT_EQ(JsonNumberToDecimal::OUT_OF_RANGE, parse_json_number_as_decimal("1e99999", out));
+}
+
+TEST(VariantTemplatePathsTest, AValueBelowEveryScaleReadsAsZero) {
+    // Below 10^-39 a value rounds to 0 at every scale a decimal has. The cast that decides behind
+    // OUT_OF_RANGE reads no exponent beyond 32 bits and answers NULL for it, so the reader answers
+    // 0 itself, at scale 38, as it does for an exact zero.
+    expect_decimal("1e-40", "0", 38, 16);
+    expect_decimal("-1e-40", "0", 38, 16);
+    expect_decimal("9.99e-40", "0", 38, 16);
+    expect_decimal("1e-2147483647", "0", 38, 16);
+    expect_decimal("5E-2147483648", "0", 38, 16);
+    expect_decimal("1e-3000000000", "0", 38, 16);
+    expect_decimal("-1e-3000000000", "0", 38, 16);
+    // with more than 38 significant digits as well: the smallness is decided first
+    expect_decimal("1234567890123456789012345678901234567890123e-3000000000", "0", 38, 16);
+    expect_decimal("0." + std::string(60, '0') + "1234567890123456789012345678901234567890123", "0",
+                   38, 16);
+    // 10^-39 and up is not below every scale: 5e-39 is 10^-38 at scale 38, and the cast rounds it
+    VariantDecimalText out;
+    EXPECT_EQ(JsonNumberToDecimal::OUT_OF_RANGE, parse_json_number_as_decimal("10e-40", out));
+    EXPECT_EQ(JsonNumberToDecimal::OUT_OF_RANGE, parse_json_number_as_decimal("5e-39", out));
+    EXPECT_EQ(JsonNumberToDecimal::OUT_OF_RANGE,
+              parse_json_number_as_decimal("0." + std::string(38, '0') + "1", out));
+    // and a value that is too large stays too large, whatever its exponent's length
+    EXPECT_EQ(JsonNumberToDecimal::OUT_OF_RANGE, parse_json_number_as_decimal("1e3000000000", out));
+    EXPECT_EQ(JsonNumberToDecimal::OUT_OF_RANGE,
+              parse_json_number_as_decimal("1234567890123456789012345678901234567890123e3000000000",
+                                           out));
 }
 
 TEST(VariantTemplatePathsTest, ReadsAnExponentOfAnyLength) {
@@ -285,21 +313,20 @@ TEST(VariantTemplatePathsTest, ReadsAnExponentOfAnyLength) {
     expect_decimal("0e100000", "0", 0, 4);
     expect_decimal("0e-100000", "0", 38, 16);
     VariantDecimalText out;
-    // 0.<999 zeros>1e10000 is 10^9000 and 0.<999 zeros>1e-10000 is 10^-11000: no decimal holds
-    // either, so the text is kept for the template's cast to decide.
+    // 0.<999 zeros>1e10000 is 10^9000: no decimal holds it, so the text is kept for the template's
+    // cast to decide. 0.<999 zeros>1e-10000 is 10^-11000, which is 0 at every scale.
     EXPECT_EQ(JsonNumberToDecimal::OUT_OF_RANGE,
               parse_json_number_as_decimal("0." + std::string(999, '0') + "1e10000", out));
-    EXPECT_EQ(JsonNumberToDecimal::OUT_OF_RANGE,
-              parse_json_number_as_decimal("0." + std::string(999, '0') + "1e-10000", out));
+    expect_decimal("0." + std::string(999, '0') + "1e-10000", "0", 38, 16);
     // The bound has to clear every exponent a decimal can still hold, not only the token's length:
-    // cut where it first exceeds the five characters of 1e370, the exponent would be read as 37.
+    // cut where it first exceeds the five characters of 1e370, the exponent would be read as 37,
+    // and 1e-370 as the decimal 1e-37.
     EXPECT_EQ(JsonNumberToDecimal::OUT_OF_RANGE, parse_json_number_as_decimal("1e370", out));
-    EXPECT_EQ(JsonNumberToDecimal::OUT_OF_RANGE, parse_json_number_as_decimal("1e-370", out));
+    expect_decimal("1e-370", "0", 38, 16);
     // an exponent past every bound stays there however many digits follow
     EXPECT_EQ(JsonNumberToDecimal::OUT_OF_RANGE,
               parse_json_number_as_decimal("1e" + std::string(400, '9'), out));
-    EXPECT_EQ(JsonNumberToDecimal::OUT_OF_RANGE,
-              parse_json_number_as_decimal("1e-" + std::string(400, '9'), out));
+    expect_decimal("1e-" + std::string(400, '9'), "0", 38, 16);
 }
 
 TEST(VariantTemplatePathsTest, DeclinesMalformedTokens) {

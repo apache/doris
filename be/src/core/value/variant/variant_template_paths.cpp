@@ -159,15 +159,22 @@ JsonNumberToDecimal parse_json_number_as_decimal(std::string_view token,
     if (pos != token.size()) {
         return JsonNumberToDecimal::MALFORMED;
     }
-    if (too_many_digits) {
-        return JsonNumberToDecimal::OUT_OF_RANGE;
-    }
     long scale = static_cast<long>(fraction_digits) - exponent;
-    if (unscaled == 0) {
+    // A value of `significant` digits at this scale is below 10^(significant - scale). Below
+    // 10^-39 it is less than a tenth of the last place of the finest decimal there is, so it rounds
+    // to 0 at every scale a decimal has, as an exact zero does. Reading it as 0 here keeps it away
+    // from the cast behind OUT_OF_RANGE, which reads no exponent beyond 32 bits and would answer
+    // NULL for 1e-3000000000 where every smaller exponent answers 0. The exponent saturates far
+    // past this bound, so a saturated negative exponent always lands here.
+    const bool rounds_to_zero = scale - static_cast<long>(significant) > kMaxDigits;
+    if (unscaled == 0 || rounds_to_zero) {
         out.unscaled = 0;
         out.scale = static_cast<uint8_t>(scale < 0 ? 0 : (scale > kMaxDigits ? kMaxDigits : scale));
         out.width = variant_decimal_width(0, out.scale);
         return JsonNumberToDecimal::OK;
+    }
+    if (too_many_digits) {
+        return JsonNumberToDecimal::OUT_OF_RANGE;
     }
     while (scale < 0) {
         if (++significant > kMaxDigits) {

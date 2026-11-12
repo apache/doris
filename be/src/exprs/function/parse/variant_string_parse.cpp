@@ -310,8 +310,9 @@ private:
         return false;
     }
 
-    // Beyond 38 significant digits the text is kept as it is and the template's cast decides (a
-    // correctly rounded value or NULL).
+    // Beyond 38 significant digits, or at a scale no decimal has, the text is kept as it is and
+    // the template's cast decides (a correctly rounded value or NULL). Only a value below 10^-39
+    // is not kept: the reader answers the 0 it rounds to at every scale.
     bool collect_decimal_text(std::string_view token) {
         VariantDecimalText decimal;
         switch (parse_json_number_as_decimal(token, decimal)) {

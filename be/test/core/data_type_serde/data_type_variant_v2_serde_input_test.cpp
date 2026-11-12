@@ -378,8 +378,8 @@ TEST(DataTypeVariantV2SerdeInputTest, DecimalTemplatePathsAtTheEdgesOfTheTextRea
     // Beyond 38 digits once the exponent is folded in, either way: text as well.
     ASSERT_TRUE(deserialize_json(serde, *column, R"({"money":{"amount":1e40}})").ok());
     EXPECT_NE(std::string::npos, json_at(serde, *column, 1).find(R"("amount":"1e40")"));
-    ASSERT_TRUE(deserialize_json(serde, *column, R"({"money":{"amount":1e-40}})").ok());
-    EXPECT_NE(std::string::npos, json_at(serde, *column, 2).find(R"("amount":"1e-40")"));
+    ASSERT_TRUE(deserialize_json(serde, *column, R"({"money":{"amount":1e-39}})").ok());
+    EXPECT_NE(std::string::npos, json_at(serde, *column, 2).find(R"("amount":"1e-39")"));
     // A decimal has no negative zero; the scale the text carries stays.
     ASSERT_TRUE(deserialize_json(serde, *column, R"({"money":{"amount":-0.0}})").ok());
     EXPECT_NE(std::string::npos, json_at(serde, *column, 3).find(R"("amount":0.0)"));
@@ -399,6 +399,29 @@ TEST(DataTypeVariantV2SerdeInputTest, DecimalTemplatePathsAtTheEdgesOfTheTextRea
     const std::string after_big_integer = json_at(serde, *column, 6);
     EXPECT_EQ('"', after_big_integer.front()) << after_big_integer;
     EXPECT_NE(std::string::npos, after_big_integer.find("amount")) << after_big_integer;
+}
+
+TEST(DataTypeVariantV2SerdeInputTest, ADecimalPathReadsAValueBelowEveryScaleAsZero) {
+    DataTypeVariantV2SerDe serde(
+            1, template_of({{.pattern = "amount", .is_glob = false, .type = TYPE_DECIMAL128I}}));
+    auto column = ColumnVariantV2::create();
+    // Below 10^-39 a number is 0 at every scale a decimal has, and it is stored as that 0. Kept
+    // as text, an exponent beyond 32 bits would be more than the template's cast reads: NULL,
+    // where the same number parsed through a double was 0.
+    const std::string zero = R"("amount":0.)" + std::string(38, '0') + "}";
+    size_t row = 0;
+    for (const char* text :
+         {R"({"amount":1e-3000000000})", R"({"amount":-1e-3000000000})",
+          R"({"amount":5E-2147483648})", R"({"amount":1e-40})",
+          R"({"amount":1234567890123456789012345678901234567890123e-3000000000})"}) {
+        ASSERT_TRUE(deserialize_json(serde, *column, text).ok()) << text;
+        const std::string json = json_at(serde, *column, row++);
+        EXPECT_NE(std::string::npos, json.find(zero)) << text << " -> " << json;
+    }
+    // A number too large for any decimal keeps its text, whatever the length of its exponent: the
+    // cast answers NULL for it either way.
+    ASSERT_TRUE(deserialize_json(serde, *column, R"({"amount":1e3000000000})").ok());
+    EXPECT_NE(std::string::npos, json_at(serde, *column, row).find(R"("amount":"1e3000000000")"));
 }
 
 TEST(DataTypeVariantV2SerdeInputTest, TemplatePathsAreSpelledAndComparedLikeTheShredder) {
