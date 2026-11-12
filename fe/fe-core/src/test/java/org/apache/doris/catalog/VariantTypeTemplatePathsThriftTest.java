@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.thrift.TPrimitiveType;
 import org.apache.doris.thrift.TScalarType;
 import org.apache.doris.thrift.TTypeDesc;
@@ -139,6 +140,36 @@ public class VariantTypeTemplatePathsThriftTest {
     }
 
     @Test
+    public void timestampNsFieldNeverRefusesTheType() {
+        // PrimitiveType#toThrift refuses TIMESTAMP_NS below TIMESTAMP_NS_MIN_BE_EXEC_VERSION, to keep a value of
+        // it from a BE that does not know the type. The template only names the type. A template that sends
+        // nothing maps no field at all, and one that rides names the field for a BE that knows it.
+        int execVersion = Config.be_exec_version;
+        Config.be_exec_version = Config.TIMESTAMP_NS_MIN_BE_EXEC_VERSION - 1;
+        try {
+            Assertions.assertThrows(IllegalStateException.class, PrimitiveType.TIMESTAMP_NS::toThrift);
+
+            ArrayList<VariantField> plain = new ArrayList<>();
+            plain.add(new VariantField("t", Type.TIMESTAMP_NS, ""));
+            VariantType sendsNothing = new VariantType(plain);
+            Assertions.assertFalse(sendsNothing.readsNumbersFromText());
+            Assertions.assertFalse(scalarTypeOf(sendsNothing).isSetVariantTemplatePaths());
+
+            ArrayList<VariantField> withDecimal = new ArrayList<>();
+            withDecimal.add(new VariantField("t", Type.TIMESTAMP_NS, ""));
+            withDecimal.add(new VariantField("amount", ScalarType.createDecimalV3Type(10, 2), ""));
+            VariantType rides = new VariantType(withDecimal);
+            Assertions.assertTrue(rides.readsNumbersFromText());
+            List<TVariantTemplatePath> paths = scalarTypeOf(rides).getVariantTemplatePaths();
+            Assertions.assertEquals(2, paths.size());
+            assertPath(paths.get(0), "t", true, TPrimitiveType.TIMESTAMP_NS);
+            assertPath(paths.get(1), "amount", true, TPrimitiveType.DECIMAL64);
+        } finally {
+            Config.be_exec_version = execVersion;
+        }
+    }
+
+    @Test
     public void typesWithoutDecimalOrLargeIntFieldsLeaveTheFieldUnset() {
         Assertions.assertFalse(scalarTypeOf(new VariantType()).isSetVariantTemplatePaths());
 
@@ -150,6 +181,7 @@ public class VariantTypeTemplatePathsThriftTest {
         fields.add(new VariantField("score", Type.DOUBLE, ""));
         fields.add(new VariantField("counts", new ArrayType(Type.BIGINT), ""));
         VariantType type = new VariantType(fields);
+        Assertions.assertFalse(type.readsNumbersFromText());
         Assertions.assertTrue(type.collectTemplatePaths().isEmpty());
         TScalarType scalarType = scalarTypeOf(type);
         Assertions.assertFalse(scalarType.isSetVariantTemplatePaths());
