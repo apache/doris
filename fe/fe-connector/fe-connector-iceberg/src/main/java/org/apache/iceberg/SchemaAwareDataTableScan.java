@@ -17,7 +17,9 @@
 
 package org.apache.iceberg;
 
+import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.io.FileIO;
+import org.apache.iceberg.metrics.ScanMetrics;
 
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -25,6 +27,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ExecutorService;
+import java.util.function.Function;
 import java.util.function.UnaryOperator;
 
 /** A data-table scan that keeps partition specs bound to the scan's schema. */
@@ -79,6 +82,18 @@ public final class SchemaAwareDataTableScan extends DataTableScan {
     /** Preserve the native scan's requested manifest columns, including explicit column statistics. */
     public static List<String> manifestColumns(TableScan scan) {
         return ((DataTableScan) scan).scanColumns();
+    }
+
+    /** Reuse the native ScanEvent, planning timer and close-time table reporter around local planning. */
+    public static CloseableIterable<FileScanTask> planFilesWithLocalPlanner(TableScan scan,
+            Function<ScanMetrics, CloseableIterable<FileScanTask>> planner) {
+        DataTableScan nativeScan = (DataTableScan) scan;
+        return new DataTableScan(scan.table(), nativeScan.tableSchema(), nativeScan.context()) {
+            @Override
+            public CloseableIterable<FileScanTask> doPlanFiles() {
+                return planner.apply(scanMetrics());
+            }
+        }.planFiles();
     }
 
     /** Returns the selected snapshot's specs bound to the scan schema. */
