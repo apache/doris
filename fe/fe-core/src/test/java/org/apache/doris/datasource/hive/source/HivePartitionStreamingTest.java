@@ -25,6 +25,7 @@ import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.util.LocationPath;
@@ -62,13 +63,14 @@ import org.mockito.Mockito;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Queue;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -76,6 +78,67 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
 class HivePartitionStreamingTest {
+    @Test
+    void lazyDirectoryListingsOverlapForSmallPartitionSets() throws Exception {
+        for (boolean warm : new boolean[] {false, true}) {
+            for (int partitions : new int[] {2, 8, 16, 17}) {
+                assertLazyListingsOverlap(partitions, warm, false);
+            }
+        }
+    }
+
+    @Test
+    void lazyCountPrefetchListingsOverlapForSmallPartitionSets() throws Exception {
+        for (boolean warm : new boolean[] {false, true}) {
+            for (int partitions : new int[] {2, 8, 16, 17}) {
+                assertLazyListingsOverlap(partitions, warm, true);
+            }
+        }
+    }
+
+    private void assertLazyListingsOverlap(int partitions, boolean warm, boolean count) throws Exception {
+        int previous = Config.max_external_cache_loader_thread_pool_size;
+        Config.max_external_cache_loader_thread_pool_size = 2;
+        ExecutorService workers = Executors.newFixedThreadPool(2);
+        CountDownLatch entered = new CountDownLatch(2);
+        CountDownLatch release = new CountDownLatch(1);
+        try (Fixture fixture = new Fixture(partitions, warm, count, workers)) {
+            fixture.session.numPartitionsInBatchMode = 1;
+            fixture.session.splitPartitionBatchSize = 16;
+            fixture.beforeListing = () -> {
+                entered.countDown();
+                try {
+                    Assertions.assertTrue(release.await(10, TimeUnit.SECONDS));
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new RuntimeException(e);
+                }
+            };
+            try {
+                fixture.start();
+                Assertions.assertTrue(entered.await(5, TimeUnit.SECONDS),
+                        "lazy listing overlap: partitions=" + partitions + ", warm=" + warm + ", count=" + count);
+            } finally {
+                release.countDown();
+            }
+            List<Long> actual = new ArrayList<>();
+            while (!fixture.consumer.isLastBatch()) {
+                for (TScanRangeLocations range : fixture.consumer.getNextBatch(128)) {
+                    actual.add(range.getLocations().get(0).getBackendId());
+                }
+            }
+            Assertions.assertEquals(partitions, actual.size());
+            Assertions.assertEquals(partitions, new HashSet<>(actual).size());
+            Assertions.assertEquals(partitions, fixture.listed.size());
+            Assertions.assertTrue(fixture.listed.values().stream().allMatch(visits -> visits == 1));
+        } finally {
+            release.countDown();
+            workers.shutdownNow();
+            Assertions.assertTrue(workers.awaitTermination(10, TimeUnit.SECONDS));
+            Config.max_external_cache_loader_thread_pool_size = previous;
+        }
+    }
+
     @Test
     void choosingBatchModeDoesNotLoadAllPartitionObjects() throws Exception {
         try (Fixture fixture = new Fixture(1000, false, false)) {
@@ -251,7 +314,9 @@ class HivePartitionStreamingTest {
         final HMSCachedClient client = Mockito.mock(HMSCachedClient.class);
         final Backend backend = new Backend(1, "backend", 9050);
         final List<Integer> requests = new ArrayList<>();
-        final Map<String, Integer> listed = new HashMap<>();
+        final Map<String, Integer> listed = new ConcurrentHashMap<>();
+        final SessionVariable session = new SessionVariable();
+        Runnable beforeListing = () -> { };
         final TestNode node;
         final SplitAssignment assignment;
         final SplitSource consumer;
@@ -275,7 +340,6 @@ class HivePartitionStreamingTest {
             Mockito.when(catalog.bindBrokerName()).thenReturn("");
             TupleDescriptor descriptor = new TupleDescriptor(new TupleId(0));
             descriptor.setTable(table);
-            SessionVariable session = new SessionVariable();
             session.parallelPipelineTaskNum = 1;
             node = new TestNode(descriptor, session,
                     worker == null ? splits : worker, worker == null ? metadata : worker, countPolicy);
@@ -296,6 +360,7 @@ class HivePartitionStreamingTest {
                     });
             Mockito.when(cache.getFilesByPartitions(Mockito.anyList(), Mockito.anyBoolean(), Mockito.anyBoolean(),
                     Mockito.isNull(), Mockito.same(table))).thenAnswer(call -> {
+                        beforeListing.run();
                         List<FileCacheValue> files = new ArrayList<>();
                         for (HivePartition partition : call.<List<HivePartition>>getArgument(0)) {
                             String identity = partition.getPartitionValues().get(0);

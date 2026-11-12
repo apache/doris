@@ -280,10 +280,12 @@ public class HiveScanNode extends FileQueryScanNode {
         String broker = catalog.bindBrokerName();
         // Without the file cache, the eager path listed partitions concurrently. Keep that overlap.
         boolean parallelListing = !fileCountBatch || Config.max_external_file_cache_num <= 0;
-        int partitionsPerProducer = partitionInit ? 1 : sessionVariable.splitPartitionBatchSize;
         int producers = parallelListing
-                ? Math.min((partitionCount - 1) / partitionsPerProducer + 1,
-                        Config.max_external_cache_loader_thread_pool_size) : 1;
+                ? Math.min(partitionCount, Config.max_external_cache_loader_thread_pool_size) : 1;
+        // Listing concurrency is independent of the directory claim size. Small selections must leave
+        // work for the other producers; larger scans still amortize claims up to the configured batch.
+        int partitionsPerProducer = Math.min(sessionVariable.splitPartitionBatchSize,
+                (partitionCount - 1) / producers + 1);
         if (!partitionInit) {
             NameMapping mapping = hmsTable.getOrBuildNameMapping();
             List<PartitionItem> items = new ArrayList<>(selectedPartitions.selectedPartitions.values());
@@ -319,7 +321,8 @@ public class HiveScanNode extends FileQueryScanNode {
         AtomicInteger nextPartition = new AtomicInteger();
         long started = System.currentTimeMillis();
         if (!usesCountFileSplitPolicy()) {
-            startSplitProducers(cache, executor, broker, numBackends, producers, nextPartition, null, started);
+            startSplitProducers(cache, executor, broker, numBackends, producers,
+                    partitionsPerProducer, nextPartition, null, started);
             return;
         }
         int parallelism = sessionVariable.getParallelExecInstanceNum(scanContext.getClusterName());
@@ -341,7 +344,7 @@ public class HiveScanNode extends FileQueryScanNode {
                         countPlan.needSplit = FileSplitter.needSplitForCountPushdown(
                                 parallelism, numBackends, countPlan.fileCount.get());
                         startSplitProducers(cache, executor, broker, numBackends,
-                                producers, nextPartition, countPlan, started);
+                                producers, partitionsPerProducer, nextPartition, countPlan, started);
                     } else {
                         closeCountSplitPlan(countPlan);
                         closePartitionBatchLoader();
@@ -447,40 +450,43 @@ public class HiveScanNode extends FileQueryScanNode {
     }
 
     private void startSplitProducers(HiveExternalMetaCache cache, Executor executor, String broker,
-            int numBackends, int producers, AtomicInteger nextPartition, CountSplitPlan countPlan, long started) {
+            int numBackends, int producers, int partitionsPerProducer,
+            AtomicInteger nextPartition, CountSplitPlan countPlan, long started) {
         AtomicInteger remaining = new AtomicInteger(producers);
         for (int i = 0; i < producers; i++) {
-            new SplitProducer(splitAssignment, executor,
-                    createSplitBatchSource(cache, nextPartition, broker, numBackends, countPlan), failure -> {
-                        try {
-                            if (failure != null) {
-                                splitAssignment.setException(createSplitPlanningException(failure));
-                                closePartitionBatchLoader();
-                            }
-                        } finally {
-                            if (remaining.decrementAndGet() == 0) {
-                                if (countPlan != null) {
-                                    closeCountSplitPlan(countPlan);
-                                }
-                                closePartitionBatchLoader();
-                                if (getSummaryProfile() != null) {
-                                    getSummaryProfile().addExternalTableGetPartitionFilesTime(
-                                            System.currentTimeMillis() - started);
-                                }
-                                splitAssignment.finishSchedule();
-                            }
+            SplitProducer.BatchSource source = createSplitBatchSource(cache, nextPartition, broker, numBackends,
+                    countPlan, partitionsPerProducer);
+            new SplitProducer(splitAssignment, executor, source, failure -> {
+                try {
+                    if (failure != null) {
+                        splitAssignment.setException(createSplitPlanningException(failure));
+                        closePartitionBatchLoader();
+                    }
+                } finally {
+                    if (remaining.decrementAndGet() == 0) {
+                        if (countPlan != null) {
+                            closeCountSplitPlan(countPlan);
                         }
-                    }).start();
+                        closePartitionBatchLoader();
+                        if (getSummaryProfile() != null) {
+                            getSummaryProfile().addExternalTableGetPartitionFilesTime(
+                                    System.currentTimeMillis() - started);
+                        }
+                        splitAssignment.finishSchedule();
+                    }
+                }
+            }).start();
         }
     }
 
     SplitProducer.BatchSource createSplitBatchSource(HiveExternalMetaCache cache, AtomicInteger nextPartition,
             String broker, int numBackends) {
-        return createSplitBatchSource(cache, nextPartition, broker, numBackends, null);
+        return createSplitBatchSource(cache, nextPartition, broker, numBackends, null,
+                sessionVariable.splitPartitionBatchSize);
     }
 
     private SplitProducer.BatchSource createSplitBatchSource(HiveExternalMetaCache cache, AtomicInteger nextPartition,
-            String broker, int numBackends, CountSplitPlan countPlan) {
+            String broker, int numBackends, CountSplitPlan countPlan, int partitionsPerProducer) {
         return new SplitProducer.BatchSource() {
             private Iterator<HivePartition> partitions = Collections.emptyIterator();
             private Iterator<FileCacheValue> fileCaches = Collections.emptyIterator();
@@ -550,7 +556,7 @@ public class HiveScanNode extends FileQueryScanNode {
                         loaded = Collections.singletonList(prefetched);
                     } else if (partitionBatchLoader != null) {
                         if (!partitions.hasNext()) {
-                            partitions = partitionBatchLoader.take(sessionVariable.splitPartitionBatchSize).iterator();
+                            partitions = partitionBatchLoader.take(partitionsPerProducer).iterator();
                             if (!partitions.hasNext()) {
                                 blockedOnPartitions = partitionBatchLoader.isBlocked();
                                 if (blockedOnPartitions == null && !partitionBatchLoader.isFinished()) {
