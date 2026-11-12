@@ -100,10 +100,8 @@ Status fetch_file_schema(const TFileScanRangeParams& params, const TFileRangeDes
     // TVF targets must retain file precision before column mapping; a microsecond schema
     // irreversibly rounds nanos even when the subsequent row scan uses the V2 reader.
     if (params.format_type == TFileFormatType::FORMAT_PARQUET) {
-        // Direct file TVFs expose Parquet WKB as bytes, including during schema inference.
-        reader = std::make_unique<parquet::ParquetReader>(
-                properties, file, io_ctx, profile, std::nullopt, timestamp_tz, varbinary,
-                std::nullopt, false, nullptr, std::nullopt, /*spatial_annotations_as_bytes=*/true);
+        reader = std::make_unique<parquet::ParquetReader>(properties, file, io_ctx, profile,
+                                                          std::nullopt, timestamp_tz, varbinary);
     } else if (params.format_type == TFileFormatType::FORMAT_ORC) {
         reader = std::make_unique<orc::OrcReader>(properties, file, io_ctx, profile, std::nullopt,
                                                   timestamp_tz, varbinary);

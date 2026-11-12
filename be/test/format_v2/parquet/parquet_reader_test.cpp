@@ -1851,7 +1851,7 @@ protected:
             bool is_immutable = false, bool enable_mapping_varbinary = false,
             std::string fs_name = {}, int64_t mtime = 0,
             std::optional<std::string> hive_parquet_time_zone = std::nullopt,
-            bool preserve_binary_uuid = false, bool spatial_annotations_as_bytes = false) const {
+            bool preserve_binary_uuid = false, bool spatial_annotations_as_bytes = true) const {
         auto system_properties = std::make_shared<io::FileSystemProperties>();
         system_properties->system_type = TFileType::FILE_LOCAL;
         auto file_description = std::make_unique<io::FileDescription>();

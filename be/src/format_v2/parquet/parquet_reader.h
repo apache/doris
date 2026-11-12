@@ -43,6 +43,7 @@ struct ParquetReaderScanState;
 // ============================================================================
 class ParquetReader : public format::FileReader {
 public:
+    // Generic readers retain the physical bytes. Iceberg opts into typed spatial decoding.
     ParquetReader(std::shared_ptr<io::FileSystemProperties>& system_properties,
                   std::unique_ptr<io::FileDescription>& file_description,
                   std::shared_ptr<io::IOContext> io_ctx, RuntimeProfile* profile,
@@ -51,7 +52,7 @@ public:
                   std::optional<std::string> hive_parquet_time_zone = std::nullopt,
                   bool preserve_binary_uuid = false, ParquetProfileCache* profile_cache = nullptr,
                   std::optional<TFileEncryptionInfo> encryption_info = std::nullopt,
-                  bool spatial_annotations_as_bytes = false);
+                  bool spatial_annotations_as_bytes = true);
     ~ParquetReader() override;
 
     Status init(RuntimeState* state) override;

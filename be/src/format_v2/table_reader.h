@@ -204,8 +204,6 @@ struct SplitReadOptions {
 // split metadata.
 class TableReader {
 public:
-    explicit TableReader(bool parquet_spatial_annotations_as_bytes = false)
-            : _parquet_spatial_annotations_as_bytes(parquet_spatial_annotations_as_bytes) {}
     virtual ~TableReader() = default;
 
     // Initialize common runtime options for the table reader. Subclasses may call this from their
@@ -420,6 +418,7 @@ protected:
     virtual Status create_file_reader(std::unique_ptr<FileReader>* reader);
     // Some table formats expose UUID as raw bytes rather than the native Doris UUID type.
     virtual bool preserve_binary_uuid() const { return false; }
+    virtual bool parquet_spatial_annotations_as_bytes() const { return true; }
     virtual TableColumnMappingMode mapping_mode() const { return TableColumnMappingMode::BY_NAME; }
     virtual void configure_mapper_options(TableColumnMapperOptions*) const {}
     virtual Status annotate_file_schema(std::vector<ColumnDefinition>* file_schema) {
@@ -2249,7 +2248,6 @@ protected:
     RuntimeState* _runtime_state;
     RuntimeProfile* _scanner_profile;
     parquet::ParquetProfileCache* _parquet_profile_cache = nullptr;
-    const bool _parquet_spatial_annotations_as_bytes;
     const std::vector<SlotDescriptor*>* _file_slot_descs = nullptr;
     FileFormat _format;
     TPushAggOp::type _push_down_agg_type = TPushAggOp::type::NONE;

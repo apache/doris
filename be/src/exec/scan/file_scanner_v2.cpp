@@ -651,8 +651,7 @@ Status FileScannerV2::_create_table_reader_for_format(
     }
     const auto table_format = table_format_name(range);
     if (table_format == "NotSet" || table_format == "tvf") {
-        *reader = std::make_unique<format::TableReader>(
-                /*parquet_spatial_annotations_as_bytes=*/true);
+        *reader = std::make_unique<format::TableReader>();
     } else if (table_format == "hive") {
         *reader = format::hive::HiveReader::create_unique();
     } else if (table_format == "iceberg") {

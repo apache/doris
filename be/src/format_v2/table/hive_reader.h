@@ -27,8 +27,6 @@ namespace doris::format::hive {
 class HiveReader final : public format::TableReader {
 public:
     ENABLE_FACTORY_CREATOR(HiveReader);
-    // Hive exposes spatially annotated Parquet columns through its existing BINARY type.
-    HiveReader() : TableReader(/*parquet_spatial_annotations_as_bytes=*/true) {}
     ~HiveReader() final = default;
 
     Status prepare_split(const format::SplitReadOptions& options) override;
