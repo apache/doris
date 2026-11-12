@@ -167,10 +167,46 @@ public class IcebergProcedureOpsTest {
         Assertions.assertEquals(3, g.getDataFileCount());
         Assertions.assertEquals(3 * 1024L, g.getTotalSizeBytes());
         Assertions.assertEquals(0, g.getDeleteFileCount());
+        Assertions.assertEquals(Collections.singletonMap("iceberg_write_target_file_size_bytes", "536870912"),
+                g.getSessionVariableOverrides());
         // WHY: manifest reads run under the catalog auth context (Kerberos), like the procedure bodies.
         // MUTATION: planning outside auth scope -> authCount 0 -> red.
         Assertions.assertEquals(1, ctx.authCount, "planning runs in one auth scope");
         Assertions.assertEquals(1, ops.tableCleanupCount, "rewrite planning releases its operation-owned table");
+    }
+
+    @Test
+    public void planRewriteCarriesTheResolvedWriterTargetOnEveryGroup() {
+        InMemoryCatalog catalog = tableWithThreeSmallFiles();
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.table = catalog.loadTable(TableIdentifier.of("db1", "t"));
+        IcebergProcedureOps procOps = new IcebergProcedureOps(Collections.emptyMap(), ops, null);
+
+        for (String target : new String[] {"134217728", "268435456", "5368709120"}) {
+            List<ConnectorRewriteGroup> groups = procOps.planRewrite(SESSION, new IcebergTableHandle("db1", "t"),
+                    "rewrite_data_files", ImmutableMap.of("rewrite-all", "true",
+                            "target-file-size-bytes", target, "max-file-group-size-bytes", "2048"),
+                    null, Collections.emptyList());
+
+            Assertions.assertEquals(2, groups.size());
+            for (ConnectorRewriteGroup group : groups) {
+                Assertions.assertEquals(Collections.singletonMap("iceberg_write_target_file_size_bytes", target),
+                        group.getSessionVariableOverrides());
+            }
+        }
+    }
+
+    @Test
+    public void invalidWriterTargetsFailBeforePlanning() {
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        IcebergProcedureOps procOps = new IcebergProcedureOps(Collections.emptyMap(), ops, null);
+
+        for (String target : new String[] {"0", "-1", "not-a-number"}) {
+            Assertions.assertThrows(DorisConnectorException.class,
+                    () -> procOps.planRewrite(SESSION, new IcebergTableHandle("db1", "t"), "rewrite_data_files",
+                            ImmutableMap.of("target-file-size-bytes", target), null, Collections.emptyList()));
+        }
+        Assertions.assertTrue(ops.log.isEmpty(), "invalid targets must fail before loading the table");
     }
 
     @Test

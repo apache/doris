@@ -193,6 +193,12 @@ org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot$Builder#schemaId(long)
 org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot$Builder#snapshotId(long):org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot$Builder
 org.apache.doris.connector.spi.mvcc.ConnectorSqlCacheVersion#getUpdateTimeMillis():long
 org.apache.doris.connector.spi.mvcc.ConnectorSqlCacheVersion#getVersion():java.lang.String
+org.apache.doris.connector.spi.procedure.ConnectorRewriteGroup#getDataFileCount():int
+org.apache.doris.connector.spi.procedure.ConnectorRewriteGroup#getDataFilePaths():java.util.Set
+org.apache.doris.connector.spi.procedure.ConnectorRewriteGroup#getDeleteFileCount():int
+org.apache.doris.connector.spi.procedure.ConnectorRewriteGroup#getSessionVariableOverrides():java.util.Map
+org.apache.doris.connector.spi.procedure.ConnectorRewriteGroup#getTotalSizeBytes():long
+org.apache.doris.connector.spi.procedure.ConnectorRewriteGroup#toString():java.lang.String
 org.apache.doris.connector.spi.scan.ConnectorScanContext#cancel():void
 org.apache.doris.connector.spi.scan.ConnectorScanContext#checkCancelled():void
 org.apache.doris.connector.spi.scan.ConnectorScanContext#describeProgress():java.lang.String

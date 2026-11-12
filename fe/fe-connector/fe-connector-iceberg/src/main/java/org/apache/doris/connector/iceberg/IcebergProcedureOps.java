@@ -40,6 +40,7 @@ import org.apache.iceberg.TableOperations;
 
 import java.time.ZoneId;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -64,6 +65,8 @@ import java.util.stream.Collectors;
  * bypasses the single-call action factory.</p>
  */
 public class IcebergProcedureOps implements ConnectorProcedureOps {
+
+    private static final String WRITE_TARGET_FILE_SIZE_BYTES = "iceberg_write_target_file_size_bytes";
 
     // Catalog-level properties seam, retained for structural symmetry with IcebergWritePlanProvider. The
     // per-procedure arguments arrive through execute()'s own {@code properties} parameter (the EXECUTE
@@ -233,7 +236,10 @@ public class IcebergProcedureOps implements ConnectorProcedureOps {
     private List<ConnectorRewriteGroup> planInAuthScopeUntracked(IcebergTableHandle handle,
             IcebergRewriteDataFilesAction action, ConnectorSession session) {
         ZoneId sessionZone = IcebergTimeUtils.resolveSessionZone(session);
-        RewriteDataFilePlanner planner = new RewriteDataFilePlanner(action.buildRewriteParameters(), sessionZone);
+        RewriteDataFilePlanner.Parameters parameters = action.buildRewriteParameters();
+        RewriteDataFilePlanner planner = new RewriteDataFilePlanner(parameters, sessionZone);
+        Map<String, String> sessionVariableOverrides = Collections.singletonMap(
+                WRITE_TARGET_FILE_SIZE_BYTES, Long.toString(parameters.getTargetFileSizeBytes()));
         // Resolve the per-request ops before the auth scope (see runInAuthScope): a session=user fail-closed
         // surfaces verbatim.
         IcebergCatalogOps ops = catalogOpsResolver.apply(session);
@@ -254,7 +260,8 @@ public class IcebergProcedureOps implements ConnectorProcedureOps {
                         + handle.getDbName() + "." + handle.getTableName() + ": " + e.getMessage(), e);
             }
         }
-        return groups.stream().map(IcebergProcedureOps::toConnectorRewriteGroup).collect(Collectors.toList());
+        return groups.stream().map(group -> toConnectorRewriteGroup(group, sessionVariableOverrides))
+                .collect(Collectors.toList());
     }
 
     /**
@@ -302,11 +309,12 @@ public class IcebergProcedureOps implements ConnectorProcedureOps {
      * filters a per-group file scope by (WS-REWRITE R2 [INV-M1]); the counts/size are carried verbatim so the
      * engine sums them into the procedure's result row. {@code LinkedHashSet} keeps a stable iteration order.
      */
-    private static ConnectorRewriteGroup toConnectorRewriteGroup(RewriteDataGroup group) {
+    private static ConnectorRewriteGroup toConnectorRewriteGroup(RewriteDataGroup group,
+            Map<String, String> sessionVariableOverrides) {
         Set<String> dataFilePaths = group.getDataFiles().stream()
                 .map(dataFile -> dataFile.path().toString())
                 .collect(Collectors.toCollection(LinkedHashSet::new));
         return new ConnectorRewriteGroup(dataFilePaths, group.getDataFiles().size(),
-                group.getTotalSize(), group.getDeleteFileCount());
+                group.getTotalSize(), group.getDeleteFileCount(), sessionVariableOverrides);
     }
 }
