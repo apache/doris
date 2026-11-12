@@ -88,6 +88,39 @@ teamcity_current_enqueue() {
     done
 }
 
+# Artifact dependencies resolve before any runner executes. Bind an existing
+# successful Compile here; a direct regression request must never create one.
+teamcity_regression_parameters() (
+    set -euo pipefail
+    local tmp path page candidate id next
+    tmp=$(mktemp -d) || exit 1
+    trap 'rm -rf "$tmp"' EXIT
+    local fields='id,number,buildTypeId,state,status,branchName,canceledInfo,revisions(revision(version))'
+    path="builds?locator=buildType:(id:Doris_Compile),branch:(name:pull/${PULL_REQUEST_NUM}),state:finished,status:SUCCESS,defaultFilter:false,count:100&fields=nextHref,build(${fields})"
+    while :; do
+        page=$(teamcity_rest "$path") || exit 1
+        candidate=$(jq -c --arg head "$COMMIT_ID_FROM_TRIGGER" '
+            [.build[]? | select([.revisions.revision[].version]==[$head])][0] // empty' <<< "$page") || exit 1
+        if [[ -n $candidate ]]; then break; fi
+        next=$(jq -r '.nextHref // empty' <<< "$page") || exit 1
+        if [[ -z $next ]]; then
+            echo "No successful Compile for PR ${PULL_REQUEST_NUM} at ${COMMIT_ID_FROM_TRIGGER}; run compile first" >&2
+            exit 1
+        fi
+        # Only accept TeamCity pagination on this resource, never an external URL.
+        [[ $next == /app/rest/builds\?* && ${next#/app/rest/} != "$path" ]] || exit 1
+        path=${next#/app/rest/}
+    done
+    id=$(jq -er '.id | tostring | select(test("^[1-9][0-9]*$"))' <<< "$candidate") || exit 1
+    # Refresh terminal state instead of trusting the list response.
+    teamcity_rest "builds/id:${id}?fields=${fields}" > "$tmp/build.json" || exit 1
+    teamcity_rest "builds/id:${id}/artifacts/content/regression/manifest.json" > "$tmp/manifest.json" || exit 1
+    teamcity_rest "builds/id:${id}/artifacts/children/regression?fields=file(name,size)" > "$tmp/artifacts.json" || exit 1
+    python3 "$(dirname "${BASH_SOURCE[0]}")/teamcity_artifacts.py" \
+        "$tmp" "$PULL_REQUEST_NUM" "$COMMIT_ID_FROM_TRIGGER" "$PULL_REQUEST_TARGET_BRANCH" || exit 1
+    echo "INFO: Using Compile ${id} for PR ${PULL_REQUEST_NUM} at ${COMMIT_ID_FROM_TRIGGER}" >&2
+)
+
 teamcity_current_trigger() (
     set -euo pipefail
     set +x
@@ -96,9 +129,21 @@ teamcity_current_trigger() (
     [[ " ${targetBranch_to_pipelines[$PULL_REQUEST_TARGET_BRANCH]:-} " == *" $lane "* ]] || {
         echo "No pipeline for $lane on $PULL_REQUEST_TARGET_BRANCH" >&2; exit 1;
     }
-    # Artifact lookup belongs to the pipeline; only submit the requested lane here.
+    # Compile owns buildall fanout; this lookup is only for explicit regressions.
     local TC_FIELDS='id,revisions(revision(version)),properties(property(name,value))'
     params=$(jq -cn --arg pr "$PULL_REQUEST_NUM" --arg branch "$PULL_REQUEST_TARGET_BRANCH" '{"env.PR_NUMBER":$pr,"env.CI_BRANCH":$branch}')
+    case "$lane" in
+        p0|cloud_p0|vault_p0|external|nonconcurrent)
+            teamcity_current_pr || exit 1
+            if ! params=$(teamcity_regression_parameters); then
+                echo "Cannot bind Compile artifacts for ${lane}; no build or Compile submitted" >&2
+                teamcity_current_pr || exit 1
+                TC_BUILD_STATE=failure TC_BUILD_DESCRIPTION='Compile artifacts unavailable or invalid; run compile first' \
+                    skip_build "$COMMIT_ID_FROM_TRIGGER" "$lane" || exit 1
+                exit 1
+            fi
+            ;;
+    esac
     teamcity_current_enqueue "${comment_to_pipeline[$lane]}" "$params" "$count"
 )
 
@@ -121,7 +166,10 @@ skip_build() {
         return 1
     fi
     local state="${TC_BUILD_STATE:-success}" # 可选值 success failure pending
-    local payload="{\"state\":\"${state}\",\"target_url\":\"\",\"description\":\"Skip teamCity build\",\"context\":\"${conment_to_context[${COMMENT_TRIGGER_TYPE}]}\"}"
+    local payload
+    payload=$(jq -cn --arg state "$state" --arg context "${conment_to_context[$COMMENT_TRIGGER_TYPE]}" \
+        --arg description "${TC_BUILD_DESCRIPTION:-Skip teamCity build}" \
+        '{state:$state,target_url:"",description:$description,context:$context}') || return 1
     set +x
     if curl --fail --silent --show-error --max-time 45 \
         -X POST \
@@ -131,7 +179,7 @@ skip_build() {
         "https://api.github.com/repos/apache/doris/statuses/${COMMIT_ID_FROM_TRIGGER:-}" \
         -d "${payload}"; then
         set +x
-        echo "INFO: Skipped ${COMMIT_ID_FROM_TRIGGER} ${COMMENT_TRIGGER_TYPE}"
+        echo "INFO: Reported ${state} for ${COMMIT_ID_FROM_TRIGGER} ${COMMENT_TRIGGER_TYPE}"
     else
         set +x
         return 1
@@ -168,7 +216,7 @@ teamcity_skip_unaffected() {
 
 trigger_or_skip_build() {
     set +x
-    # Preserve the existing per-pipeline file filter.
+    # Preserve file filters for independent jobs and Compile-owned fanout.
     local FILE_CHANGED="${1:-true}"
     local PULL_REQUEST_NUM="${PULL_REQUEST_NUM:-$2}"
     local PULL_REQUEST_TARGET_BRANCH="${PULL_REQUEST_TARGET_BRANCH:-$3}"
@@ -185,6 +233,11 @@ trigger_or_skip_build() {
     [[ " ${targetBranch_to_pipelines[$PULL_REQUEST_TARGET_BRANCH]:-} " == *" $COMMENT_TRIGGER_TYPE "* ]] || {
         echo "No pipeline for $COMMENT_TRIGGER_TYPE on $PULL_REQUEST_TARGET_BRANCH" >&2; return 1;
     }
+    # An explicit regression request must check/run its package, even when its
+    # file filter would otherwise publish a skip. Buildall never calls these lanes.
+    case "$COMMENT_TRIGGER_TYPE" in
+        p0|cloud_p0|vault_p0|external|nonconcurrent) FILE_CHANGED=true ;;
+    esac
     case "$FILE_CHANGED" in
         true) trigger_build "$PULL_REQUEST_NUM" "$COMMIT_ID_FROM_TRIGGER" "$COMMENT_TRIGGER_TYPE" "${COMMENT_REPEAT_TIMES:-1}" ;;
         false) teamcity_skip_unaffected ;;
