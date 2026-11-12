@@ -1,46 +1,47 @@
-# Regression artifact preflight
+# Regression artifact binding
 
-The comment workflow submits only the PR number, requested head SHA and target
-branch. Compile still owns automatic fanout to the five regression consumers.
+Comments submit only the PR number, requested head SHA and target branch.
+Compile continues to trigger P0, CloudP0, VaultP0, External and NonConcurrent
+with its exact producer binding. Direct regression requests never trigger Compile.
 
-Install `teamcity_artifacts.py` as trusted TeamCity runner code, independent of the
-PR checkout. Run it at the beginning of the first shell step of P0, CloudP0,
-VaultP0, External and NonConcurrent, before their existing source/package guards:
+Configure a native `Doris_Compile` artifact dependency in each consumer:
+
+- Get artifacts from: **Latest finished build** (`revisionName=lastFinished`).
+- Build branch filter: `+:pull/%env.PR_NUMBER%` (`revisionBranch`).
+- Artifact rules: `regression/** => <destination>`; clean the destination first.
+- Destinations: `packages` for P0/NonConcurrent, `compile-artifacts` for
+  CloudP0/VaultP0, and `compile-pair` for External.
+
+Do not add a static snapshot dependency: a direct request must not start Compile.
+Automatic Compile fanout already supplies its exact snapshot dependency. TeamCity
+uses that chain when present; otherwise it selects the last finished Compile for
+the requested PR. Missing artifacts fail native dependency resolution.
+
+Install `teamcity_artifacts.py` as trusted pipeline code, independent of the PR
+checkout. Run it in a separate first shell step, before the existing package checks:
 
 ```bash
 set -euo pipefail
 set +x
-umask 077
-binding=$(mktemp)
-trap 'rm -f "$binding"' EXIT
 python3 /trusted/ci/teamcity_artifacts.py \
-  --server '%teamcity.serverUrl%' --environment "$binding"
-source "$binding"
-rm -f "$binding"
-trap - EXIT
-# Existing environment preparation follows in the same shell.
+  --server 'https://<teamcity-host>' \
+  --manifest '<destination>/manifest.json' \
+  --build-id '%dep.Doris_Compile.system.teamcity.build.id%' \
+  --head '%build.vcs.number%' --pr-branch '%teamcity.build.branch%'
 ```
 
-Remove each consumer's static `Doris_Compile` artifact dependency using
-`%env.CI_PREPARED_BUILD_NUMBER%`: it resolves before any step runs and prevents
-unbound direct requests from reaching this preflight. Do not add a static
-snapshot dependency or a fallback Compile trigger. Existing automatic fanout may
-continue to specify its exact snapshot producer and all manifest pins.
+This step checks the downloaded manifest against the actual requested PR/revision
+and the native dependency's terminal status. A failed Compile, different commit,
+or inconsistent automatic fanout binding fails immediately; it does not search
+older builds or rebuild anything. It then fills the parameter aliases expected by
+the existing runners. Those runners retain their full manifest/checksum checks.
 
-The preflight uses TeamCity's build-scoped credentials from
-`TEAMCITY_BUILD_PROPERTIES_FILE`; no personal token is needed. It reads the actual
-consumer revision, finds an existing successful Compile, validates its manifest,
-and downloads the binary, cases and tools with size/SHA256 verification. Missing,
-expired, mismatched or incomplete artifacts fail this TeamCity step. An existing
-fanout binding must match exactly and is never replaced by a newer Compile.
+The single metadata read uses TeamCity's temporary build credentials. Artifact
+selection and download remain entirely native. Use a trusted HTTPS endpoint;
+`teamcity.serverUrl` can be an internal HTTP address. When embedding the Python
+source, escape its literal percent characters as `%%`.
 
-The downloaded directories match the existing runner paths: `packages` for P0
-and NonConcurrent, `compile-artifacts` for CloudP0 and VaultP0, and `compile-pair`
-for External. Only after every download verifies does the helper export bindings
-for the current shell and emit `setParameter` messages for subsequent steps.
-The existing PR-head checks, rootless cluster lifecycle and regression steps
-continue afterward.
-
-When embedding the Python source in an inline TeamCity script, escape literal
-percent characters as `%%`, retaining the `%teamcity.serverUrl%` reference in the
-shell invocation. Keep the source readable in the step settings.
+Gate always-run cleanup on `teamcity.build.step.status.<binding-step-id> == success`.
+A failed binding step cannot create cluster resources; the later preparation has
+not initialized its cleanup tools yet. After binding succeeds, cleanup must still
+run on workload failures and cancellation.

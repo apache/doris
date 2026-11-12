@@ -96,7 +96,7 @@ teamcity_current_trigger() (
     [[ " ${targetBranch_to_pipelines[$PULL_REQUEST_TARGET_BRANCH]:-} " == *" $lane "* ]] || {
         echo "No pipeline for $lane on $PULL_REQUEST_TARGET_BRANCH" >&2; exit 1;
     }
-    # TeamCity resolves and downloads Compile artifacts in its preflight step.
+    # TeamCity owns artifact selection, download and validation.
     local TC_FIELDS='id,revisions(revision(version)),properties(property(name,value))'
     params=$(jq -cn --arg pr "$PULL_REQUEST_NUM" --arg branch "$PULL_REQUEST_TARGET_BRANCH" --arg head "$COMMIT_ID_FROM_TRIGGER" '{"env.PR_NUMBER":$pr,"env.CI_BRANCH":$branch,"env.CI_REQUESTED_PR_HEAD":$head}')
     teamcity_current_enqueue "${comment_to_pipeline[$lane]}" "$params" "$count"
