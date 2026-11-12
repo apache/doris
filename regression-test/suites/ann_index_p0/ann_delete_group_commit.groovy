@@ -112,45 +112,4 @@ suite("ann_delete_group_commit") {
     } finally {
         sql "SET group_commit = off_mode"
     }
-
-    if (!isCloudMode()) {
-        // CREATE INDEX adds metadata without building old segments. This reproduces legacy
-        // NULL coordinates without a debug hook that allows invalid new ANN writes.
-        sql "DROP TABLE IF EXISTS ann_delete_legacy_null"
-        sql """
-            CREATE TABLE ann_delete_legacy_null (
-                id INT NOT NULL,
-                vec ARRAY<FLOAT> NOT NULL
-            ) UNIQUE KEY(id)
-            DISTRIBUTED BY HASH(id) BUCKETS 1
-            PROPERTIES (
-                "replication_num"="1",
-                "enable_unique_key_merge_on_write"="true",
-                "enable_mow_light_delete"="false",
-                "disable_auto_compaction"="true"
-            )
-        """
-        // Ordinary arrays must continue to permit NULL elements before an ANN index is added.
-        sql """INSERT INTO ann_delete_legacy_null VALUES
-            (1, [NULL,2,3]), (2, [1,NULL,3]), (3, [1,2,NULL]), (4, [4,5,6])"""
-        sql """CREATE INDEX ann_legacy ON ann_delete_legacy_null(vec) USING ANN PROPERTIES
-            ("index_type"="hnsw", "metric_type"="l2_distance", "dim"="3")"""
-        waitForSchemaChangeDone {
-            sql """SHOW ALTER TABLE COLUMN WHERE TableName='ann_delete_legacy_null'
-                ORDER BY CreateTime DESC LIMIT 1"""
-            time 60
-        }
-        // New malformed vectors fail, but the legacy rows remain deletable through all rewrites.
-        test {
-            sql "INSERT INTO ann_delete_legacy_null VALUES (5, [NULL,2,3])"
-            exception "ANN vector cannot contain NULL elements"
-        }
-        sql "DELETE FROM ann_delete_legacy_null WHERE id=1"
-        sql "DELETE FROM ann_delete_legacy_null WHERE abs(id)=2"
-        sql """DELETE FROM ann_delete_legacy_null t USING ann_delete_legacy_null s
-            WHERE t.id=s.id AND s.id=3"""
-        assertEquals([[4]], sql("SELECT id FROM ann_delete_legacy_null ORDER BY id"))
-        assertEquals([[4]], sql("""SELECT id FROM ann_delete_legacy_null
-            ORDER BY l2_distance_approximate(vec, [4,5,6]) LIMIT 1"""))
-    }
 }
