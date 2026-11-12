@@ -550,7 +550,8 @@ public final class ConnectorSpatialWriteNormalizer {
             Cast cast = (Cast) value;
             // A text bridge or incompatible container shape must retain its cast error.
             return sameSpatialContainerShape(cast.getDataType(), target)
-                    && canRetargetSpatialNulls(cast.child(), spatialLiteralType(cast.getDataType(), target), sameProducer);
+                    && canRetargetSpatialNulls(cast.child(),
+                            spatialLiteralType(cast.getDataType(), target), sameProducer);
         }
         String constructor = "";
         if (value instanceof UnboundFunction) {
