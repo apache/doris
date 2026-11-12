@@ -22,13 +22,15 @@
 
 namespace doris {
 
+using ObjStorageSignedUrlGenerator = std::function<std::string(const ObjStoragePath&, int64_t)>;
+
 class GcpObjStorageClient final : public S3CompatibleObjStorageClient {
 public:
     GcpObjStorageClient(std::shared_ptr<Aws::S3::S3Client> sdk, ObjStorageEndpointInfo endpoint,
                         ObjStorageSignedUrlGenerator signer = {})
-            : S3CompatibleObjStorageClient(std::move(sdk), std::move(endpoint)),
+            : S3CompatibleObjStorageClient(std::move(sdk), std::move(endpoint), false),
               _signer(std::move(signer)) {}
-    static ObjStorageClientBuildResult create(const GcpConfig& config);
+    static ObjStorageClientBuildResult create(const GcpObjStorageConfig& config);
     std::string generate_presigned_url(const ObjStoragePath& opts,
                                        int64_t expiration_secs) override;
 

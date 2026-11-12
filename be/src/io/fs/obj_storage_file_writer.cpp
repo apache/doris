@@ -59,10 +59,11 @@ bvar::Window<bvar::IntRecorder> s3_file_writer_first_append_to_close_ms_window(
 
 ObjStorageFileWriter::ObjStorageFileWriter(std::shared_ptr<ObjStorageClientHolder> client,
                                            std::string bucket, std::string key,
-                                           const FileWriterOptions* opts)
+                                           const FileWriterOptions* opts, bool sse_enabled)
         : _obj_storage_path_opts({.path = fmt::format("s3://{}/{}", bucket, key),
                                   .bucket = std::move(bucket),
-                                  .key = std::move(key)}),
+                                  .key = std::move(key),
+                                  .sse_enabled = sse_enabled}),
           _used_by_s3_committer(opts ? opts->used_by_s3_committer : false),
           _obj_client(std::move(client)) {
     s3_file_writer_total << 1;

@@ -445,9 +445,8 @@ Status VFileResultWriter::_delete_dir() {
     case TStorageBackendType::S3: {
         S3URI s3_uri(dir);
         RETURN_IF_ERROR(s3_uri.parse());
-        ObjStorageConfig storage_config;
-        RETURN_IF_ERROR(ObjStorageConfigParser::from_properties(_file_opts->broker_properties,
-                                                                s3_uri, &storage_config));
+        auto storage_config = DORIS_TRY(
+                ObjStorageConfigParser::from_properties(_file_opts->broker_properties, s3_uri));
         auto fs = DORIS_TRY(
                 io::ObjStorageFileSystem::create(storage_config, io::FileSystem::TMP_FS_ID));
         return fs->delete_directory(dir);

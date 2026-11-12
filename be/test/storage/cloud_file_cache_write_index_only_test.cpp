@@ -175,13 +175,14 @@ protected:
             _created_upload_pool = true;
         }
 
-        AwsConfig s3_conf;
-        s3_conf.ak = "fake_ak";
-        s3_conf.sk = "fake_sk";
-        s3_conf.endpoint = "fake_s3_endpoint";
-        s3_conf.region = "fake_s3_region";
-        s3_conf.bucket = "fake_s3_bucket";
-        s3_conf.prefix = "cloud_file_cache_write_index_only_e2e";
+        AwsObjStorageConfig aws;
+        aws.connection.endpoint = "fake_s3_endpoint";
+        aws.region = "fake_s3_region";
+        aws.auth.source =
+                AccessKeyObjStorageAuth {.access_key = "fake_ak", .secret_key = "fake_sk"};
+        ObjStorageResourceConfig s3_conf {.bucket = "fake_s3_bucket",
+                                          .prefix = "cloud_file_cache_write_index_only_e2e",
+                                          .client = std::move(aws)};
         auto fs = io::ObjStorageFileSystem::create(std::move(s3_conf),
                                                    "cloud-file-cache-index-only-ut-fs");
         ASSERT_TRUE(fs.has_value()) << fs.error();
@@ -571,13 +572,13 @@ TEST_F(CloudFileCacheWriteIndexOnlyConfigTest,
     config::enable_file_cache_write_index_file_only = true;
     config::cloud_unique_id = "cloud_file_cache_empty_range_ut";
 
-    AwsConfig s3_conf;
-    s3_conf.ak = "fake_ak";
-    s3_conf.sk = "fake_sk";
-    s3_conf.endpoint = "fake_s3_endpoint";
-    s3_conf.region = "fake_s3_region";
-    s3_conf.bucket = "fake_s3_bucket";
-    s3_conf.prefix = "cloud_file_cache_empty_range_ut";
+    AwsObjStorageConfig aws;
+    aws.connection.endpoint = "fake_s3_endpoint";
+    aws.region = "fake_s3_region";
+    aws.auth.source = AccessKeyObjStorageAuth {.access_key = "fake_ak", .secret_key = "fake_sk"};
+    ObjStorageResourceConfig s3_conf {.bucket = "fake_s3_bucket",
+                                      .prefix = "cloud_file_cache_empty_range_ut",
+                                      .client = std::move(aws)};
     auto fs = io::ObjStorageFileSystem::create(std::move(s3_conf),
                                                "cloud-file-cache-empty-range-ut-fs");
     ASSERT_TRUE(fs.has_value()) << fs.error();

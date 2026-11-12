@@ -34,8 +34,7 @@ ObjStorageStatus s3fs_error(const Aws::S3::S3Error& err, std::string_view msg);
 class S3CompatibleObjStorageClient : public ObjStorageClient {
 public:
     S3CompatibleObjStorageClient(std::shared_ptr<Aws::S3::S3Client> client,
-                                 ObjStorageEndpointInfo config = {})
-            : _config(std::move(config)), _client(std::move(client)) {}
+                                 ObjStorageEndpointInfo config = {}, bool supports_s3_sse = true);
     ~S3CompatibleObjStorageClient() override = default;
     ObjStorageUploadResult create_multipart_upload(const ObjStoragePath& opts) override;
     ObjStorageResponse put_object(const ObjStoragePath& opts, std::string_view stream) override;
@@ -67,6 +66,9 @@ protected:
                                                std::string_view continuation_token) override;
 
 private:
+    // Declared first so SDK objects and their credential refresh workers are released first.
+    std::shared_ptr<void> _sdk_lifetime;
+    bool _supports_s3_sse;
     ObjStorageEndpointInfo _config;
     std::shared_ptr<Aws::S3::S3Client> _client;
 };

@@ -25,16 +25,21 @@
 
 namespace doris {
 
-ObjStorageClientBuildResult S3ObjStorageClient::create(const AwsConfig& config) {
+ObjStorageClientBuildResult S3ObjStorageClient::create(const AwsObjStorageConfig& config) {
     TEST_SYNC_POINT_RETURN_WITH_VALUE(
             "s3_client_factory::create",
             (ObjStorageClientBuildResult {.client = std::make_shared<S3ObjStorageClient>(
                                                   std::make_shared<Aws::S3::S3Client>())}));
-    auto [sdk, error] = make_s3_sdk_client(config, AwsCredentialOptions::from_config(config));
+    auto [sdk, error] = make_s3_sdk_client(
+            s3_sdk_config(config.connection, config.region, config.retry_slow_down,
+                          config.use_sdk_endpoint, config.sdk_endpoint_http),
+            config.use_path_style, AwsCredentialOptions::from_auth(config.auth, config.connection));
     if (!sdk) {
         return {.error = std::move(error)};
     }
-    return {.client = std::make_shared<S3ObjStorageClient>(std::move(sdk), endpoint_info(config))};
+    return {.client = std::make_shared<S3ObjStorageClient>(
+                    std::move(sdk),
+                    ObjStorageEndpointInfo {.endpoint = config.connection.endpoint})};
 }
 
 } // namespace doris

@@ -26,6 +26,7 @@
 #include <string>
 #include <vector>
 
+#include "common/config.h"
 #include "core/column/column_const.h"
 #include "core/data_type/data_type_jsonb.h"
 #include "core/data_type/data_type_number.h"
@@ -105,7 +106,7 @@ public:
 
     io::ObjStoragePath last_opts;
     int64_t last_expiration_secs = 0;
-    ObjStorageConfig last_conf;
+    ObjStorageClientConfig last_conf;
 };
 
 class CountingMultimodalMockAdapter : public MockAdapter {
@@ -776,7 +777,7 @@ TEST(EMBED_TEST, embed_function_multimodal_s3_presigned_url) {
 
     auto mock_client = std::make_shared<MockEmbedObjStorageClient>();
     ObjStorageClientFactory::instance().set_client_creator_for_test(
-            [mock_client](const ObjStorageConfig& conf) {
+            [mock_client](const ObjStorageClientConfig& conf) {
                 mock_client->last_conf = conf;
                 return mock_client;
             });
@@ -821,13 +822,14 @@ TEST(EMBED_TEST, embed_function_multimodal_s3_presigned_url) {
     ASSERT_EQ(mock_client->last_opts.bucket, "test-bucket");
     ASSERT_EQ(mock_client->last_opts.key, "path/to/image.png");
     ASSERT_EQ(mock_client->last_expiration_secs, 123);
-    const auto& s3 = std::get<AwsConfig>(mock_client->last_conf);
-    ASSERT_EQ(s3.endpoint, "cos.ap-beijing.myqcloud.com");
-    ASSERT_EQ(s3.region, "ap-beijing");
-    ASSERT_EQ(s3.ak, "test-ak");
-    ASSERT_EQ(s3.sk, "test-sk");
-    ASSERT_EQ(s3.role_arn, "test-role");
-    ASSERT_EQ(s3.external_id, "test-external-id");
+    const auto& s3 = std::get<AwsObjStorageConfig>(mock_client->last_conf);
+    EXPECT_EQ(s3.connection.endpoint,
+              config::s3_client_http_scheme + "://cos.ap-beijing.myqcloud.com");
+    EXPECT_EQ(s3.region, "ap-beijing");
+    const auto& credentials = std::get<AccessKeyObjStorageAuth>(s3.auth.source);
+    EXPECT_EQ(credentials.access_key, "test-ak");
+    EXPECT_EQ(credentials.secret_key, "test-sk");
+    EXPECT_FALSE(s3.auth.assume_role.has_value());
 }
 
 TEST(EMBED_TEST, embed_function_multimodal_s3_missing_endpoint) {

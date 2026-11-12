@@ -26,6 +26,7 @@
 #include "core/data_type/primitive_type.h"
 #include "exprs/function/ai/ai_functions.h"
 #include "io/object_storage/obj_storage_client_factory.h"
+#include "io/object_storage/obj_storage_config_parser.h"
 #include "util/defer_op.h"
 #include "util/jsonb_utils.h"
 #include "util/s3_uri.h"
@@ -430,32 +431,6 @@ private:
         return Status::OK();
     }
 
-    static Status init_s3_client_conf_from_json(const rapidjson::Value& file_input,
-                                                AwsConfig& client_config) {
-        std::string endpoint;
-        RETURN_IF_ERROR(_get_required_string_field(file_input, "endpoint", endpoint));
-        std::string region;
-        RETURN_IF_ERROR(_get_required_string_field(file_input, "region", region));
-
-        auto get_optional_string_field = [&](const char* field_name, std::string& value) {
-            auto iter = file_input.FindMember(field_name);
-            if (iter == file_input.MemberEnd() || iter->value.IsNull()) {
-                return;
-            }
-            DORIS_CHECK(iter->value.IsString());
-            value = iter->value.GetString();
-        };
-
-        get_optional_string_field("ak", client_config.ak);
-        get_optional_string_field("sk", client_config.sk);
-        get_optional_string_field("role_arn", client_config.role_arn);
-        get_optional_string_field("external_id", client_config.external_id);
-        client_config.endpoint = endpoint;
-        client_config.region = region;
-
-        return Status::OK();
-    }
-
     Status _resolve_media_url(const rapidjson::Value& file_input, int64_t ttl_seconds,
                               std::string& media_url) const {
         std::string uri;
@@ -467,16 +442,29 @@ private:
             return Status::OK();
         }
 
-        AwsConfig client_config;
-        RETURN_IF_ERROR(init_s3_client_conf_from_json(file_input, client_config));
         S3URI s3_uri(uri);
         RETURN_IF_ERROR(s3_uri.parse());
-        client_config.bucket = s3_uri.get_bucket();
-        std::string key = s3_uri.get_key();
-        DORIS_CHECK(!client_config.bucket.empty() && !key.empty());
-        auto s3_client = DORIS_TRY(ObjStorageClientFactory::instance().create(client_config));
-        media_url = s3_client->generate_presigned_url(
-                {.bucket = client_config.bucket, .key = key, .prefix = ""}, ttl_seconds);
+        std::map<std::string, std::string> properties {{"provider", "AWS"}};
+        RETURN_IF_ERROR(
+                _get_required_string_field(file_input, "endpoint", properties["AWS_ENDPOINT"]));
+        RETURN_IF_ERROR(_get_required_string_field(file_input, "region", properties["AWS_REGION"]));
+        for (const auto& [field, property] : {std::pair {"ak", "AWS_ACCESS_KEY"},
+                                              {"sk", "AWS_SECRET_KEY"},
+                                              {"role_arn", "AWS_ROLE_ARN"},
+                                              {"external_id", "AWS_EXTERNAL_ID"}}) {
+            auto it = file_input.FindMember(field);
+            if (it != file_input.MemberEnd() && !it->value.IsNull()) {
+                if (!it->value.IsString()) {
+                    return Status::InvalidArgument("EMBED file json field '{}' must be a string",
+                                                   field);
+                }
+                properties[property] = it->value.GetString();
+            }
+        }
+        auto resource = DORIS_TRY(ObjStorageConfigParser::from_properties(properties, s3_uri));
+        auto client = DORIS_TRY(ObjStorageClientFactory::instance().create(resource.client));
+        media_url = client->generate_presigned_url(
+                {.bucket = resource.bucket, .key = s3_uri.get_key(), .prefix = ""}, ttl_seconds);
         return Status::OK();
     }
 };

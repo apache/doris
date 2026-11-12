@@ -52,9 +52,9 @@ class TabletIndexPB;
 class HostLevelMSRpcRateLimiters;
 class MSBackpressureHandler;
 
-using StorageVaultInfos =
-        std::vector<std::tuple<std::string, Result<std::variant<ObjStorageConfig, HdfsVaultInfo>>,
-                               StorageVaultPB_PathFormat>>;
+using StorageVaultInfos = std::vector<
+        std::tuple<std::string, Result<std::variant<ObjStorageResourceConfig, HdfsVaultInfo>>,
+                   StorageVaultPB_PathFormat>>;
 
 // run tasks in bthread with concurrency and wait until all tasks done
 // it stops running tasks if there are any tasks return !ok, leaving some tasks untouched

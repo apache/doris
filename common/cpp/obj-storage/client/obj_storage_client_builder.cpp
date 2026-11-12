@@ -15,12 +15,17 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <aws/core/client/ClientConfiguration.h>
+
+#include <exception>
 #include <variant>
 
 #include "bos_obj_storage_client.h"
 #include "cos_obj_storage_client.h"
+#include "cpp/aws_common.h"
 #include "cpp/obj-storage/obj_storage_config.h"
 #include "gcp_obj_storage_client.h"
+#include "obj_storage_sdk.h"
 #include "obs_obj_storage_client.h"
 #include "oss_obj_storage_client.h"
 #include "s3_obj_storage_client.h"
@@ -33,28 +38,28 @@ namespace doris {
 namespace {
 
 struct BuildClient {
-    ObjStorageClientBuildResult operator()(const AwsConfig& config) const {
+    ObjStorageClientBuildResult operator()(const AwsObjStorageConfig& config) const {
         return S3ObjStorageClient::create(config);
     }
-    ObjStorageClientBuildResult operator()(const OssConfig& config) const {
+    ObjStorageClientBuildResult operator()(const OssObjStorageConfig& config) const {
         return OssObjStorageClient::create(config);
     }
-    ObjStorageClientBuildResult operator()(const CosConfig& config) const {
+    ObjStorageClientBuildResult operator()(const CosObjStorageConfig& config) const {
         return CosObjStorageClient::create(config);
     }
-    ObjStorageClientBuildResult operator()(const BosConfig& config) const {
+    ObjStorageClientBuildResult operator()(const BosObjStorageConfig& config) const {
         return BosObjStorageClient::create(config);
     }
-    ObjStorageClientBuildResult operator()(const ObsConfig& config) const {
+    ObjStorageClientBuildResult operator()(const ObsObjStorageConfig& config) const {
         return ObsObjStorageClient::create(config);
     }
-    ObjStorageClientBuildResult operator()(const GcpConfig& config) const {
+    ObjStorageClientBuildResult operator()(const GcpObjStorageConfig& config) const {
         return GcpObjStorageClient::create(config);
     }
-    ObjStorageClientBuildResult operator()(const TosConfig& config) const {
+    ObjStorageClientBuildResult operator()(const TosObjStorageConfig& config) const {
         return TosObjStorageClient::create(config);
     }
-    ObjStorageClientBuildResult operator()(const AzureConfig& config) const {
+    ObjStorageClientBuildResult operator()(const AzureObjStorageConfig& config) const {
 #ifdef USE_AZURE
         return AzureObjStorageClient::create(config);
 #else
@@ -65,8 +70,23 @@ struct BuildClient {
 
 } // namespace
 
-ObjStorageClientBuildResult build_obj_storage_client(const ObjStorageConfig& config) {
-    return std::visit(BuildClient {}, config);
+void initialize_obj_storage_sdks(int aws_log_level, int azure_log_level) {
+    ensure_aws_sdk_initialized(aws_log_level);
+#ifdef USE_AZURE
+    initialize_azure_logging(azure_log_level);
+#endif
+}
+
+int get_default_s3_max_connections() {
+    return static_cast<int>(default_aws_client_configuration().maxConnections);
+}
+
+ObjStorageClientBuildResult build_obj_storage_client(const ObjStorageClientConfig& config) {
+    try {
+        return std::visit(BuildClient {}, config);
+    } catch (const std::exception& error) {
+        return {.error = error.what()};
+    }
 }
 
 } // namespace doris

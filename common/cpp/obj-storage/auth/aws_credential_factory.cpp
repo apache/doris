@@ -81,26 +81,61 @@ AwsCredentialOptions AwsCredentialOptions::from_sdk_defaults(
     return options;
 }
 
-AwsCredentialOptions AwsCredentialOptions::from_config(const S3CompatibleConfig& config) {
-    auto options = from_sdk_defaults(config.s3.credential_provider_version,
-                                     default_aws_client_configuration(), config.s3.ca_cert_path,
-                                     config.s3.empty_credentials);
-    options.access_key = config.ak;
-    options.secret_key = config.sk;
-    options.session_token = config.token;
-    options.provider_type = config.cred_provider_type;
+AwsCredentialOptions AwsCredentialOptions::from_auth(const AwsObjStorageAuthConfig& auth,
+                                                     const ObjStorageConnectionConfig& connection) {
+    auto options = from_sdk_defaults(
+            auth.implementation == AwsCredentialImplementation::V2 ? "v2" : "v1",
+            default_aws_client_configuration(), connection.ca_cert_file.value_or(""),
+            EmptyCredentialsBehavior::DEFAULT_CHAIN);
+    if (const auto* keys = std::get_if<AccessKeyObjStorageAuth>(&auth.source)) {
+        options.access_key = keys->access_key;
+        options.secret_key = keys->secret_key;
+        options.session_token = keys->session_token;
+    } else if (const auto* chain = std::get_if<AwsCredentialChainType>(&auth.source)) {
+        switch (*chain) {
+        case AwsCredentialChainType::Default:
+            options.provider_type = CredProviderType::Default;
+            break;
+        case AwsCredentialChainType::Environment:
+            options.provider_type = CredProviderType::Env;
+            break;
+        case AwsCredentialChainType::Profile:
+            options.provider_type = CredProviderType::SystemProperties;
+            break;
+        case AwsCredentialChainType::WebIdentity:
+            options.provider_type = CredProviderType::WebIdentity;
+            break;
+        case AwsCredentialChainType::Container:
+            options.provider_type = CredProviderType::Container;
+            break;
+        case AwsCredentialChainType::InstanceProfile:
+            options.provider_type = CredProviderType::InstanceProfile;
+            break;
+        }
+    } else {
+        options.provider_type = CredProviderType::Anonymous;
+        options.empty_credentials = EmptyCredentialsBehavior::ANONYMOUS;
+    }
+    if (auth.assume_role) {
+        options.role_arn = auth.assume_role->role_arn;
+        options.external_id = auth.assume_role->external_id.value_or("");
+        if (auth.assume_role->request_timeout) {
+            options.sts_client_config.requestTimeoutMs = auth.assume_role->request_timeout->count();
+        }
+    }
     return options;
 }
 
-AwsCredentialOptions AwsCredentialOptions::from_config(const AwsConfig& config) {
-    auto options = from_config(static_cast<const S3CompatibleConfig&>(config));
-    // STS uses the process defaults independently of the object endpoint and data timeouts.
-    if (config.sts_request_timeout_ms) {
-        options.sts_client_config.requestTimeoutMs = *config.sts_request_timeout_ms;
+AwsCredentialOptions AwsCredentialOptions::from_auth(const AccessKeyOrAnonymousObjStorageAuth& auth,
+                                                     const ObjStorageConnectionConfig& connection) {
+    AwsObjStorageAuthConfig aws;
+    if (const auto* keys = std::get_if<AccessKeyObjStorageAuth>(&auth)) {
+        aws.source = *keys;
+    } else if (const auto* chain = std::get_if<ObjStorageCredentialChain>(&auth)) {
+        aws.source = chain->type;
+        aws.implementation = chain->implementation;
     }
-    options.role_arn = config.role_arn;
-    options.external_id = config.external_id;
-    return options;
+    return from_auth(aws, connection);
 }
 
 AwsCredentialResult AwsCredentialFactory::create(const AwsCredentialOptions& options) {

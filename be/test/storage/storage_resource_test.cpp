@@ -26,13 +26,12 @@
 namespace doris {
 
 TEST(StorageResourceTest, RemotePath) {
-    AwsConfig s3_conf;
-    s3_conf.bucket = "bucket";
-    s3_conf.prefix = "prefix";
-    s3_conf.endpoint = "endpoint";
-    s3_conf.region = "region";
-    s3_conf.ak = "ak";
-    s3_conf.sk = "sk";
+    AwsObjStorageConfig aws;
+    aws.connection.endpoint = "endpoint";
+    aws.region = "region";
+    aws.auth.source = AccessKeyObjStorageAuth {.access_key = "ak", .secret_key = "sk"};
+    ObjStorageResourceConfig s3_conf {
+            .bucket = "bucket", .prefix = "prefix", .client = std::move(aws)};
     auto res = io::ObjStorageFileSystem::create(std::move(s3_conf), io::FileSystem::TMP_FS_ID);
     ASSERT_TRUE(res.has_value()) << res.error();
 

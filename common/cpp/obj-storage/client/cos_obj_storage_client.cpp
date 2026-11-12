@@ -22,12 +22,16 @@
 
 namespace doris {
 
-ObjStorageClientBuildResult CosObjStorageClient::create(const CosConfig& config) {
-    auto [sdk, error] = make_s3_sdk_client(config, AwsCredentialOptions::from_config(config));
+ObjStorageClientBuildResult CosObjStorageClient::create(const CosObjStorageConfig& config) {
+    auto [sdk, error] = make_s3_sdk_client(
+            s3_sdk_config(config.connection, config.region, config.retry_slow_down),
+            config.use_path_style, AwsCredentialOptions::from_auth(config.auth, config.connection));
     if (!sdk) {
         return {.error = std::move(error)};
     }
-    return {.client = std::make_shared<CosObjStorageClient>(std::move(sdk), endpoint_info(config))};
+    return {.client = std::make_shared<CosObjStorageClient>(
+                    std::move(sdk),
+                    ObjStorageEndpointInfo {.endpoint = config.connection.endpoint})};
 }
 
 } // namespace doris

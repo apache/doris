@@ -17,7 +17,7 @@
 
 #pragma once
 
-#include <azure/storage/blobs/blob_container_client.hpp>
+#include <azure/storage/blobs/blob_service_client.hpp>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -28,28 +28,20 @@ class StorageSharedKeyCredential;
 
 namespace doris {
 
-enum class AzureCredentialType {
-    SHARED_KEY,
-};
-
-struct AzureCredentialOptions {
-    AzureCredentialType type = AzureCredentialType::SHARED_KEY;
-    std::string account_name;
-    std::string account_key;
-};
+struct AzureObjStorageAuthConfig;
 
 struct AzureClientBuildResult {
-    std::shared_ptr<Azure::Storage::Blobs::BlobContainerClient> container_client {};
+    std::shared_ptr<Azure::Storage::Blobs::BlobServiceClient> service_client {};
     std::shared_ptr<Azure::Storage::StorageSharedKeyCredential> shared_key_credential {};
     std::string error {};
 
-    explicit operator bool() const { return container_client != nullptr; }
+    explicit operator bool() const { return service_client != nullptr; }
 };
 
 class AzureAuthFactory {
 public:
-    static AzureClientBuildResult create(std::string_view container_url,
-                                         const AzureCredentialOptions& credential,
+    static AzureClientBuildResult create(std::string_view service_url,
+                                         const AzureObjStorageAuthConfig& credential,
                                          Azure::Storage::Blobs::BlobClientOptions client_options);
 };
 

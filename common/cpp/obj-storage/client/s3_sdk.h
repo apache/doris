@@ -31,13 +31,12 @@ class S3Client;
 
 namespace doris {
 
-struct ObjStorageConfigBase;
-struct ObjStorageEndpointInfo;
-struct S3CompatibleConfig;
-
-ObjStorageEndpointInfo endpoint_info(const ObjStorageConfigBase& config);
-Aws::Client::ClientConfiguration s3_sdk_config(const S3CompatibleConfig& config);
+Aws::Client::ClientConfiguration s3_sdk_config(const ObjStorageConnectionConfig& connection,
+                                               const std::string& region, bool retry_slow_down,
+                                               bool use_sdk_endpoint = false,
+                                               bool sdk_endpoint_http = false);
 std::pair<std::shared_ptr<Aws::S3::S3Client>, std::string> make_s3_sdk_client(
-        const S3CompatibleConfig& config, const AwsCredentialOptions& credential_options);
+        const Aws::Client::ClientConfiguration& sdk, bool use_path_style,
+        const AwsCredentialOptions& credential_options);
 
 } // namespace doris

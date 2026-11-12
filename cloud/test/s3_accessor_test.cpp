@@ -63,16 +63,16 @@ class S3AccessorTest : public testing::Test {
     }
 };
 
-template <typename Config>
-Config accessor_test_config() {
-    Config conf;
-    conf.ak = config::test_s3_ak;
-    conf.sk = config::test_s3_sk;
-    conf.endpoint = config::test_s3_endpoint;
-    conf.region = config::test_s3_region;
-    conf.bucket = config::test_s3_bucket;
-    conf.prefix = config::test_s3_prefix + "/S3AccessorTest/" + butil::GenerateGUID();
-    return conf;
+std::optional<ObjStorageResourceConfig> accessor_test_config(ObjectStoreInfoPB::Provider provider) {
+    ObjectStoreInfoPB info;
+    info.set_provider(provider);
+    info.set_ak(config::test_s3_ak);
+    info.set_sk(config::test_s3_sk);
+    info.set_endpoint(config::test_s3_endpoint);
+    info.set_region(config::test_s3_region);
+    info.set_bucket(config::test_s3_bucket);
+    info.set_prefix(config::test_s3_prefix + "/S3AccessorTest/" + butil::GenerateGUID());
+    return S3Accessor::parse_config(info);
 }
 
 void test_s3_accessor(S3Accessor& accessor) {
@@ -216,7 +216,9 @@ void test_s3_accessor(S3Accessor& accessor) {
 
 TEST_F(S3AccessorTest, s3) {
     std::shared_ptr<S3Accessor> accessor;
-    int ret = S3Accessor::create(accessor_test_config<AwsConfig>(), &accessor);
+    auto resource = accessor_test_config(ObjectStoreInfoPB::S3);
+    ASSERT_TRUE(resource.has_value());
+    int ret = S3Accessor::create(std::move(*resource), &accessor);
     ASSERT_EQ(ret, 0);
 
     auto* sp = SyncPoint::get_instance();
@@ -249,7 +251,9 @@ TEST_F(S3AccessorTest, s3) {
 
 TEST_F(S3AccessorTest, azure) {
     std::shared_ptr<S3Accessor> accessor;
-    int ret = S3Accessor::create(accessor_test_config<AzureConfig>(), &accessor);
+    auto resource = accessor_test_config(ObjectStoreInfoPB::AZURE);
+    ASSERT_TRUE(resource.has_value());
+    int ret = S3Accessor::create(std::move(*resource), &accessor);
     ASSERT_EQ(ret, 0);
 
     auto* sp = SyncPoint::get_instance();
@@ -283,7 +287,9 @@ TEST_F(S3AccessorTest, azure) {
 
 TEST_F(S3AccessorTest, gcs) {
     std::shared_ptr<S3Accessor> accessor;
-    int ret = S3Accessor::create(accessor_test_config<GcpConfig>(), &accessor);
+    auto resource = accessor_test_config(ObjectStoreInfoPB::GCP);
+    ASSERT_TRUE(resource.has_value());
+    int ret = S3Accessor::create(std::move(*resource), &accessor);
     ASSERT_EQ(ret, 0);
 
     auto* sp = SyncPoint::get_instance();
@@ -368,7 +374,8 @@ TEST_F(S3AccessorTest, path_style_test) {
         obj_info.set_use_path_style(std::get<1>(i));
         auto s3_conf = S3Accessor::parse_config(obj_info);
         ASSERT_TRUE(s3_conf.has_value());
-        EXPECT_EQ(std::get<AwsConfig>(*s3_conf).use_virtual_addressing, !obj_info.use_path_style())
+        EXPECT_EQ(std::get<AwsObjStorageConfig>(s3_conf->client).use_path_style,
+                  obj_info.use_path_style())
                 << case_idx;
         std::shared_ptr<S3Accessor> accessor;
         int ret = S3Accessor::create(*s3_conf, &accessor);
@@ -383,6 +390,13 @@ TEST_F(S3AccessorTest, path_style_test) {
 
 TEST(S3AccessorConfigTest, PreservesS3CompatibleVaultProvider) {
     ObjectStoreInfoPB info;
+    info.set_endpoint("objects.example");
+    info.set_region("region");
+    info.set_bucket("bucket");
+    info.set_prefix("root");
+    info.set_sse_enabled(true);
+    info.set_ak("key");
+    info.set_sk("secret");
     const std::pair<ObjectStoreInfoPB::Provider, ObjStorageProvider> providers[] = {
             {ObjectStoreInfoPB::S3, ObjStorageProvider::AWS},
             {ObjectStoreInfoPB::OSS, ObjStorageProvider::OSS},
@@ -393,22 +407,61 @@ TEST(S3AccessorConfigTest, PreservesS3CompatibleVaultProvider) {
             {ObjectStoreInfoPB::TOS, ObjStorageProvider::TOS}};
     for (const auto& [wire, expected] : providers) {
         info.set_provider(wire);
-        const auto config = S3Accessor::parse_config(info);
-        ASSERT_TRUE(config.has_value());
-        EXPECT_EQ(expected, storage_provider(*config));
+        const auto parsed = S3Accessor::parse_config(info);
+        ASSERT_TRUE(parsed.has_value());
+        EXPECT_EQ(expected, storage_provider(parsed->client));
+        EXPECT_EQ("bucket", parsed->bucket);
+        EXPECT_EQ("root", parsed->prefix);
+        EXPECT_TRUE(parsed->sse_enabled);
+        EXPECT_FALSE(parsed->is_internal_bucket);
+
+        const auto& connection = obj_storage_connection(parsed->client);
+        EXPECT_EQ(config::s3_client_http_scheme + "://objects.example", connection.endpoint);
+        EXPECT_EQ(std::chrono::seconds(30), connection.request_timeout);
+        EXPECT_EQ(std::chrono::seconds(5), connection.connect_timeout);
+        EXPECT_GE(connection.max_connections.value(),
+                  config::recycle_pool_parallelism + config::instance_recycler_worker_pool_size);
+        EXPECT_EQ(config::max_s3_client_retry, connection.max_retries);
     }
+}
+
+TEST(S3AccessorConfigTest, AzureKeepsAccountEndpointAndContainerSeparate) {
+    ObjectStoreInfoPB info;
+    info.set_provider(ObjectStoreInfoPB::AZURE);
+    info.set_endpoint("test.blob.core.windows.net");
+    info.set_ak("test");
+    info.set_sk("secret");
+    info.set_bucket("container");
+    info.set_prefix("root");
+
+    auto parsed = S3Accessor::parse_config(info);
+    ASSERT_TRUE(parsed.has_value());
+    const auto& azure = std::get<AzureObjStorageConfig>(parsed->client);
+    EXPECT_EQ("https://test.blob.core.windows.net", azure.connection.endpoint);
+    EXPECT_EQ("test", azure.auth.account_name);
+    EXPECT_EQ("secret", azure.auth.account_key);
+    EXPECT_EQ(config::max_s3_client_retry, azure.connection.max_retries);
+    EXPECT_FALSE(azure.connection.max_connections.has_value());
+    EXPECT_FALSE(azure.connection.request_timeout.has_value());
+    EXPECT_FALSE(azure.connection.connect_timeout.has_value());
+    EXPECT_EQ("container", parsed->bucket);
+    EXPECT_EQ("root", parsed->prefix);
 }
 
 TEST(S3AccessorConfigTest, InfersProviderForLegacyVault) {
     ObjectStoreInfoPB info;
     info.set_endpoint("oss-cn-hangzhou.aliyuncs.com");
+    info.set_bucket("bucket");
+    info.set_region("region");
+    info.set_ak("key");
+    info.set_sk("secret");
     auto config = S3Accessor::parse_config(info);
     ASSERT_TRUE(config.has_value());
-    EXPECT_TRUE(std::holds_alternative<OssConfig>(*config));
+    EXPECT_TRUE(std::holds_alternative<OssObjStorageConfig>(config->client));
     info.set_provider(ObjectStoreInfoPB::S3);
     config = S3Accessor::parse_config(info);
     ASSERT_TRUE(config.has_value());
-    EXPECT_TRUE(std::holds_alternative<AwsConfig>(*config));
+    EXPECT_TRUE(std::holds_alternative<AwsObjStorageConfig>(config->client));
 }
 
 TEST(S3AccessorConfigTest, GcpCredentialFromObjectStoreInfo) {
@@ -421,13 +474,11 @@ TEST(S3AccessorConfigTest, GcpCredentialFromObjectStoreInfo) {
     gcp_credential->set_credential_provider_type(GcpCredentialPB::COMPUTE_ENGINE);
     gcp_credential->set_impersonation_service_account("target@my-project.iam.gserviceaccount.com");
 
-    auto s3_conf = S3Accessor::parse_config(obj_info);
-    ASSERT_TRUE(s3_conf.has_value());
-    ASSERT_TRUE(std::holds_alternative<GcpConfig>(*s3_conf));
-    const auto& gcp = std::get<GcpConfig>(*s3_conf);
-    ASSERT_TRUE(gcp.credential.has_value());
-    const auto& credential = *gcp.credential;
-    EXPECT_EQ(credential.provider_type, doris::GcpCredentialProviderType::ComputeEngine);
+    auto parsed = S3Accessor::parse_config(obj_info);
+    ASSERT_TRUE(parsed.has_value());
+    const auto& config = std::get<GcpObjStorageConfig>(parsed->client);
+    const auto& credential = std::get<GcpNativeObjStorageAuth>(config.auth);
+    EXPECT_EQ(credential.source, GcpCredentialSource::ComputeEngine);
     EXPECT_EQ(credential.impersonation_service_account,
               "target@my-project.iam.gserviceaccount.com");
 }
@@ -435,26 +486,33 @@ TEST(S3AccessorConfigTest, GcpCredentialFromObjectStoreInfo) {
 TEST(S3AccessorConfigTest, LegacyRoleAndBucketAclStageCredentials) {
     ObjectStoreInfoPB info;
     info.set_provider(ObjectStoreInfoPB::S3);
+    info.set_endpoint("objects.example");
+    info.set_region("region");
+    info.set_bucket("bucket");
     info.set_role_arn("role");
     info.set_external_id("external");
-    info.set_ak("key");
-    info.set_sk("secret");
 
     auto parsed = S3Accessor::parse_config(info);
     ASSERT_TRUE(parsed.has_value());
-    const auto& aws = std::get<AwsConfig>(*parsed);
-    EXPECT_EQ(CredProviderType::InstanceProfile, aws.cred_provider_type);
-    EXPECT_EQ("role", aws.role_arn);
-    EXPECT_EQ("external", aws.external_id);
+    const auto& aws = std::get<AwsObjStorageConfig>(parsed->client);
+    EXPECT_EQ(AwsCredentialChainType::InstanceProfile,
+              std::get<AwsCredentialChainType>(aws.auth.source));
+    ASSERT_TRUE(aws.auth.assume_role.has_value());
+    EXPECT_EQ("role", aws.auth.assume_role->role_arn);
+    EXPECT_EQ("external", aws.auth.assume_role->external_id);
 
-    auto stage = S3Accessor::parse_config(info, true);
+    info.set_ak("original-key");
+    info.set_sk("original-secret");
+    RamUserPB user;
+    user.set_ak("ram-key");
+    user.set_sk("ram-secret");
+    auto stage = S3Accessor::parse_config(info, &user);
     ASSERT_TRUE(stage.has_value());
-    const auto& bucket_acl = std::get<AwsConfig>(*stage);
-    EXPECT_TRUE(bucket_acl.ak.empty());
-    EXPECT_TRUE(bucket_acl.sk.empty());
-    EXPECT_TRUE(bucket_acl.role_arn.empty());
-    EXPECT_TRUE(bucket_acl.external_id.empty());
-    EXPECT_EQ(CredProviderType::Default, bucket_acl.cred_provider_type);
+    const auto& stage_aws = std::get<AwsObjStorageConfig>(stage->client);
+    const auto& keys = std::get<AccessKeyObjStorageAuth>(stage_aws.auth.source);
+    EXPECT_EQ("ram-key", keys.access_key);
+    EXPECT_EQ("ram-secret", keys.secret_key);
+    EXPECT_FALSE(stage_aws.auth.assume_role.has_value());
 }
 
 TEST(S3AccessorConfigTest, ValidateGcpStorageVaultCredential) {
@@ -516,15 +574,17 @@ std::string S3AccessorRoleTest::external_id;
 
 TEST_F(S3AccessorRoleTest, s3) {
     std::shared_ptr<S3Accessor> accessor;
-    AwsConfig conf;
-    conf.endpoint = endpoint;
-    conf.region = region;
-    conf.bucket = bucket;
-    conf.prefix = prefix + "/S3AccessorRoleTest/" + butil::GenerateGUID();
-    conf.cred_provider_type = CredProviderType::InstanceProfile;
-    conf.role_arn = role_arn;
-    conf.external_id = external_id;
-    int ret = S3Accessor::create(std::move(conf), &accessor);
+    ObjectStoreInfoPB info;
+    info.set_provider(ObjectStoreInfoPB::S3);
+    info.set_endpoint(endpoint);
+    info.set_region(region);
+    info.set_bucket(bucket);
+    info.set_prefix(prefix + "/S3AccessorRoleTest/" + butil::GenerateGUID());
+    info.set_role_arn(role_arn);
+    info.set_external_id(external_id);
+    auto resource = S3Accessor::parse_config(info);
+    ASSERT_TRUE(resource.has_value());
+    int ret = S3Accessor::create(std::move(*resource), &accessor);
     ASSERT_EQ(ret, 0);
 
     auto* sp = SyncPoint::get_instance();

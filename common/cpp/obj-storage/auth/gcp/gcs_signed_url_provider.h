@@ -17,20 +17,18 @@
 
 #pragma once
 
+#include <google/cloud/status.h>
+
 #include <cstdint>
 #include <functional>
 #include <memory>
 #include <string>
 
-#include "common/status.h"
 #include "cpp/obj-storage/auth/gcp/gcp_auth.h"
 
 namespace doris {
 struct ObjStoragePath;
 class GcpTokenProvider;
-} // namespace doris
-
-namespace doris::io {
 
 struct GcsV4SignedUrlProviderOptions {
     std::string endpoint;
@@ -42,19 +40,19 @@ struct GcsV4SignedUrlProviderOptions {
 };
 
 std::function<std::string(const ObjStoragePath&, int64_t)> make_gcs_signed_url_generator(
-        const GcpCredentialConfig& credential, std::string endpoint, int request_timeout_ms,
+        const GcpCredentialConfig& credential, std::string endpoint, int64_t request_timeout_ms,
         std::string ca_cert_path);
 
 // Resolve the identity selected by ADC or explicit impersonation, without falling back
 // to an unrelated VM service account when the selected credentials have no identity.
-Status resolve_gcs_signer_email(const GcpCredentialConfig& credential,
-                                const GcpTokenProvider& token_provider, std::string* signer_email);
+google::cloud::Status resolve_gcs_signer_email(const GcpCredentialConfig& credential,
+                                               const GcpTokenProvider& token_provider,
+                                               std::string* signer_email);
 
 // Resolves the signing service account, obtains an OAuth token, and invokes
 // IAM Credentials signBlob before delegating URL construction to common auth.
-Status generate_gcs_v4_signed_url(const GcsV4SignedUrlProviderOptions& options,
-                                  const GcpCredentialConfig& credential,
-                                  const std::shared_ptr<GcpTokenProvider>& token_provider,
-                                  std::string* signed_url);
+google::cloud::Status generate_gcs_v4_signed_url(
+        const GcsV4SignedUrlProviderOptions& options, const GcpCredentialConfig& credential,
+        const std::shared_ptr<GcpTokenProvider>& token_provider, std::string* signed_url);
 
-} // namespace doris::io
+} // namespace doris

@@ -19,21 +19,19 @@
 
 #include <azure/storage/common/storage_credential.hpp>
 
+#include "cpp/obj-storage/obj_storage_config.h"
+
 namespace doris {
 
 AzureClientBuildResult AzureAuthFactory::create(
-        std::string_view container_url, const AzureCredentialOptions& credential,
+        std::string_view service_url, const AzureObjStorageAuthConfig& credential,
         Azure::Storage::Blobs::BlobClientOptions client_options) {
-    if (credential.type != AzureCredentialType::SHARED_KEY) {
-        return {.error = "unsupported Azure credential type"};
-    }
-
     auto shared_key = std::make_shared<Azure::Storage::StorageSharedKeyCredential>(
             credential.account_name, credential.account_key);
-    auto client = std::make_shared<Azure::Storage::Blobs::BlobContainerClient>(
-            std::string(container_url), shared_key, std::move(client_options));
+    auto client = std::make_shared<Azure::Storage::Blobs::BlobServiceClient>(
+            std::string(service_url), shared_key, std::move(client_options));
     return {
-            .container_client = std::move(client),
+            .service_client = std::move(client),
             .shared_key_credential = std::move(shared_key),
     };
 }
