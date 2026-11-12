@@ -48,7 +48,8 @@
 #include "common/metrics/doris_metrics.h"
 #include "common/multi_version.h"
 #include "common/status.h"
-#include "cpp/token_bucket_rate_limiter.h"
+#include "cpp/aws_sdk.h"
+#include "cpp/obj-storage/rate_limit/token_bucket_rate_limiter.h"
 #include "exec/exchange/vdata_stream_mgr.h"
 #include "exec/pipeline/task_queue.h"
 #include "exec/pipeline/task_scheduler.h"
@@ -136,6 +137,10 @@
 #include "util/thrift_rpc_helper.h"
 #include "util/timezone_utils.h"
 
+#ifdef USE_AZURE
+#include "cpp/obj-storage/client/azure_obj_storage_client.h"
+#endif
+
 // clang-format off
 // this must after util/brpc_client_cache.h
 // /doris/thirdparty/installed/include/brpc/errno.pb.h:69:3: error: expected identifier
@@ -205,6 +210,10 @@ ExecEnv::~ExecEnv() {
 Status ExecEnv::init(ExecEnv* env, const std::vector<StorePath>& store_paths,
                      const std::vector<StorePath>& spill_store_paths,
                      const std::set<std::string>& broken_paths) {
+    ensure_aws_sdk_initialized(config::aws_log_level);
+#ifdef USE_AZURE
+    initialize_azure_sdk(config::azure_log_level);
+#endif
     return env->_init(store_paths, spill_store_paths, broken_paths);
 }
 
@@ -286,13 +295,13 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
                               .set_max_threads(32)
                               .build(&_send_table_stats_thread_pool));
 
-    auto [s3_file_upload_min_threads, s3_file_upload_max_threads] =
+    auto [upload_min_threads, upload_max_threads] =
             get_num_threads(config::num_s3_file_upload_thread_pool_min_thread,
                             config::num_s3_file_upload_thread_pool_max_thread);
     static_cast<void>(ThreadPoolBuilder("S3FileUploadThreadPool")
-                              .set_min_threads(cast_set<int>(s3_file_upload_min_threads))
-                              .set_max_threads(cast_set<int>(s3_file_upload_max_threads))
-                              .build(&_s3_file_upload_thread_pool));
+                              .set_min_threads(cast_set<int>(upload_min_threads))
+                              .set_max_threads(cast_set<int>(upload_max_threads))
+                              .build(&_obj_storage_upload_thread_pool));
 
     // min num equal to fragment pool's min num
     // max num is useless because it will start as many as requested in the past
@@ -309,7 +318,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     static_cast<void>(ThreadPoolBuilder("S3FileSystemThreadPool")
                               .set_min_threads(config::min_s3_file_system_thread_num)
                               .set_max_threads(config::max_s3_file_system_thread_num)
-                              .build(&_s3_file_system_thread_pool));
+                              .build(&_obj_storage_file_system_thread_pool));
     // Give every race slot an S3 thread; a smaller pool queues S3 legs behind each other.
     const int peer_race_s3_max_threads =
             std::max(config::max_peer_race_s3_thread_num, config::max_concurrent_peer_races);
@@ -518,8 +527,6 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
 
     init_simdjson_parser();
 
-    // Make aws-sdk-cpp InitAPI and ShutdownAPI called in the same thread
-    S3ClientFactory::instance();
     return Status::OK();
 }
 
@@ -815,7 +822,7 @@ void ExecEnv::init_mem_tracker() {
             MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::GLOBAL, "RowIdStorageReader");
     _subcolumns_tree_tracker =
             MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::GLOBAL, "SubcolumnsTree");
-    _s3_file_buffer_tracker =
+    _obj_storage_buffer_tracker =
             MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::GLOBAL, "S3FileBuffer");
     _stream_load_pipe_tracker =
             MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::LOAD, "StreamLoadPipe");
@@ -962,10 +969,10 @@ void ExecEnv::destroy() {
     }
     SAFE_SHUTDOWN(_buffered_reader_prefetch_thread_pool);
     SAFE_SHUTDOWN(_segment_prefetch_thread_pool);
-    SAFE_SHUTDOWN(_s3_file_upload_thread_pool);
+    SAFE_SHUTDOWN(_obj_storage_upload_thread_pool);
     SAFE_SHUTDOWN(_lazy_release_obj_pool);
     SAFE_SHUTDOWN(_non_block_close_thread_pool);
-    SAFE_SHUTDOWN(_s3_file_system_thread_pool);
+    SAFE_SHUTDOWN(_obj_storage_file_system_thread_pool);
     SAFE_SHUTDOWN(_peer_race_s3_thread_pool);
     io::ReadIOTrace::shutdown();
     SAFE_SHUTDOWN(_send_batch_thread_pool);
@@ -1023,13 +1030,13 @@ void ExecEnv::destroy() {
     // TODO(zhiqiang): Maybe we should call shutdown before release thread pool?
     _lazy_release_obj_pool.reset(nullptr);
     _non_block_close_thread_pool.reset(nullptr);
-    _s3_file_system_thread_pool.reset(nullptr);
+    _obj_storage_file_system_thread_pool.reset(nullptr);
     _peer_race_s3_thread_pool.reset(nullptr);
     _send_table_stats_thread_pool.reset(nullptr);
     _buffered_reader_prefetch_thread_pool.reset(nullptr);
     _file_range_read_scheduler.reset(nullptr);
     _segment_prefetch_thread_pool.reset(nullptr);
-    _s3_file_upload_thread_pool.reset(nullptr);
+    _obj_storage_upload_thread_pool.reset(nullptr);
     _send_batch_thread_pool.reset(nullptr);
     _udf_close_workers_thread_pool.reset(nullptr);
     _write_cooldown_meta_executors.reset(nullptr);

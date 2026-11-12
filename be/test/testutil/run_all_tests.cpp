@@ -22,6 +22,7 @@
 #include "common/logging.h"
 #include "common/phdr_cache.h"
 #include "common/status.h"
+#include "cpp/aws_sdk.h"
 #include "format/orc/orc_memory_pool.h"
 #include "gtest/gtest.h"
 #include "runtime/exec_env.h"
@@ -42,6 +43,10 @@
 #include "util/mem_info.h"
 #include "util/threadpool.h"
 #include "util/timezone_utils.h"
+
+#ifdef USE_AZURE
+#include "cpp/obj-storage/client/azure_obj_storage_client.h"
+#endif
 
 int main(int argc, char** argv) {
     SCOPED_INIT_THREAD_CONTEXT();
@@ -87,6 +92,10 @@ int main(int argc, char** argv) {
     }
 
     doris::init_glog("be-test");
+    doris::ensure_aws_sdk_initialized(doris::config::aws_log_level);
+#ifdef USE_AZURE
+    doris::initialize_azure_sdk(doris::config::azure_log_level);
+#endif
     ::testing::InitGoogleTest(&argc, argv);
 
     doris::CpuInfo::init();

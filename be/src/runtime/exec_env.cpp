@@ -68,8 +68,8 @@ void ExecEnv::set_file_cache_open_fd_cache(std::unique_ptr<io::FDCache>&& fd_cac
 void ExecEnv::set_non_block_close_thread_pool(std::unique_ptr<ThreadPool>&& pool) {
     _non_block_close_thread_pool = std::move(pool);
 }
-void ExecEnv::set_s3_file_upload_thread_pool(std::unique_ptr<ThreadPool>&& pool) {
-    _s3_file_upload_thread_pool = std::move(pool);
+void ExecEnv::set_obj_storage_upload_thread_pool(std::unique_ptr<ThreadPool>&& pool) {
+    _obj_storage_upload_thread_pool = std::move(pool);
 }
 #endif // BE_TEST
 
