@@ -76,11 +76,19 @@ loader when the Manifest Cache is disabled; those loads do not look up or publis
 shared parsed results. The first required manifest is read directly. Further demand
 expands the existing window, and cancellation stops admission and wakes the consumer.
 
-The uncached whole-manifest path is used only for multiple manifests with known live
-file counts whose window fits the SDK's default 30,000-file planning buffer. A single
+The uncached whole-manifest path is used only for multiple manifests with known
+added, existing and deleted entry counts. The window is bounded to 30,000 entries,
+following the SDK's default file-planning buffer; deleted entries count toward read
+work even though they are absent from retained live files. A single
 manifest, oversized manifests, unknown counts and custom scans retain SDK file streaming
 so the first Split does not wait for a large manifest to be fully parsed. Parsed-cache
 loads keep their existing behavior and may share an in-flight read across queries.
+
+Delete manifests use the same inclusive row-predicate projection and bounded loader.
+Their complete index is built before producing data splits, without waiting for BE
+demand or a first inline read to enable parallel reads. Native uncached scans retain
+the SDK ScanEvent,
+planning timer and close-time table/catalog ScanReport around local enumeration.
 
 ## Configuration and limits
 

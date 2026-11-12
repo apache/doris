@@ -19,6 +19,7 @@ package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStatementScope;
+import org.apache.doris.connector.spi.ConnectorTaskScheduler;
 import org.apache.doris.connector.spi.ConnectorType;
 import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
@@ -125,8 +126,10 @@ import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.OptionalLong;
+import java.util.Queue;
 import java.util.Set;
 import java.util.concurrent.CancellationException;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -5381,6 +5384,10 @@ public class IcebergScanPlanProviderTest {
     }
 
     private static ManifestFile manifestWithFileCounts(Integer added, Integer existing) {
+        return manifestWithFileCounts(added, existing, 0);
+    }
+
+    private static ManifestFile manifestWithFileCounts(Integer added, Integer existing, Integer deleted) {
         return (ManifestFile) Proxy.newProxyInstance(ManifestFile.class.getClassLoader(),
                 new Class<?>[] {ManifestFile.class}, (proxy, method, args) -> {
                     if (method.getName().equals("addedFilesCount")) {
@@ -5389,8 +5396,242 @@ public class IcebergScanPlanProviderTest {
                     if (method.getName().equals("existingFilesCount")) {
                         return existing;
                     }
+                    if (method.getName().equals("deletedFilesCount")) {
+                        return deleted;
+                    }
                     throw new UnsupportedOperationException(method.getName());
                 });
+    }
+
+    @Test
+    public void uncachedManifestWindowCountsDeletedEntries() {
+        ManifestFile small = manifestWithFileCounts(1, 0, 0);
+        Assertions.assertTrue(IcebergScanPlanProvider.canBufferManifestFiles(
+                List.of(small, manifestWithFileCounts(1, 0, 3749)), 8));
+        Assertions.assertFalse(IcebergScanPlanProvider.canBufferManifestFiles(
+                List.of(small, manifestWithFileCounts(1, 0, 3750)), 8),
+                "whole-manifest reads also traverse deleted entries before returning the first file");
+        Assertions.assertFalse(IcebergScanPlanProvider.canBufferManifestFiles(
+                List.of(small, manifestWithFileCounts(1, 0, null)), 8));
+        Assertions.assertFalse(IcebergScanPlanProvider.canBufferManifestFiles(
+                List.of(small, manifestWithFileCounts(Integer.MAX_VALUE, Integer.MAX_VALUE, Integer.MAX_VALUE)), 8));
+    }
+
+    @ParameterizedTest
+    @CsvSource({"false,false", "false,true", "true,false", "true,true"})
+    public void streamingManifestRowPredicatesWithDeletes(boolean cacheEnabled, boolean transformed)
+            throws IOException {
+        PartitionSpec spec = transformed ? PartitionSpec.builderFor(SCHEMA).bucket("id", 1).build()
+                : PartitionSpec.unpartitioned();
+        Table table = createTable("row_filter_deletes", SCHEMA, spec, Map.of("format-version", "2"));
+        for (int id = 1; id <= 2; id++) {
+            Map<Integer, ByteBuffer> bounds = Map.of(1, Conversions.toByteBuffer(Types.IntegerType.get(), id));
+            DataFiles.Builder file = DataFiles.builder(spec).withPath("/d/predicate_" + id + ".parquet")
+                    .withFormat(FileFormat.PARQUET).withFileSizeInBytes(100)
+                    .withMetrics(new Metrics(1L, null, null, null, null, bounds, bounds));
+            if (transformed) {
+                file.withPartitionPath("id_bucket=0");
+            }
+            table.newFastAppend().appendFile(file.build()).commit();
+        }
+        FileMetadata.Builder delete = FileMetadata.deleteFileBuilder(spec).ofPositionDeletes()
+                .withPath("/d/predicate_delete.parquet").withFormat(FileFormat.PARQUET)
+                .withReferencedDataFile("/d/predicate_1.parquet").withFileSizeInBytes(100).withRecordCount(1);
+        if (transformed) {
+            delete.withPartitionPath("id_bucket=0");
+        }
+        table.newRowDelta().addDeletes(delete.build()).commit();
+        IcebergManifestCache cache = new IcebergManifestCache();
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(
+                IcebergCatalogProperties.of(cacheEnabled ? manifestCacheProps() : Collections.emptyMap()),
+                opsReturning(table), new RecordingConnectorContext(), cache);
+        ConnectorScanRequest request = scanOf(new IcebergTableHandle("db1", "row_filter_deletes"))
+                .filter(Optional.of(eqInt("id", 1))).build();
+        List<ConnectorScanRange> expected = providerOver(table).planScan(null, request);
+        List<ConnectorScanRange> actual = drain(provider.streamSplits(emptySession(), request));
+        Assertions.assertEquals(1, actual.size());
+        Assertions.assertEquals(sortedPaths(expected), sortedPaths(actual));
+        Assertions.assertEquals(1, deleteCount(actual.get(0)));
+        Assertions.assertEquals(cacheEnabled, cache.size() > 0,
+                "cached scans must not silently fall back after failing to bind a row predicate");
+    }
+
+    @ParameterizedTest
+    @CsvSource({"false,false", "false,true", "true,false", "true,true"})
+    public void uncachedStreamingReportsNativeScanMetrics(boolean historical, boolean earlyStop) throws IOException {
+        Table table = createTable("streaming_metrics", SCHEMA, PartitionSpec.unpartitioned());
+        for (int i = 0; i < 2; i++) {
+            table.newFastAppend().appendFile(dataFile(table.spec(), "/d/report_" + i + ".parquet",
+                    100, null, null)).commit();
+        }
+        long snapshot = table.currentSnapshot().snapshotId();
+        int schemaId = table.schema().schemaId();
+        table.updateSchema().renameColumn("id", "new_id").commit();
+        List<ScanReport> reports = new ArrayList<>();
+        ((BaseTable) table).combineMetricsReporter(report -> {
+            if (report instanceof ScanReport) {
+                reports.add((ScanReport) report);
+            }
+        });
+        IcebergTableHandle handle = new IcebergTableHandle("db1", "streaming_metrics");
+        if (historical) {
+            handle = handle.withSnapshot(snapshot, null, schemaId);
+        }
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(
+                IcebergCatalogProperties.of(Collections.emptyMap()), opsReturning(table),
+                new RecordingConnectorContext(), new IcebergManifestCache());
+        ConnectorSplitSource source = provider.streamSplits(emptySession(), scanOf(handle).build());
+        Assertions.assertTrue(reports.isEmpty(), "a lazy scan reports only after its source closes");
+        try {
+            if (earlyStop) {
+                Assertions.assertTrue(source.hasNext());
+                source.next();
+            } else {
+                Assertions.assertEquals(2, drain(source).size());
+            }
+        } finally {
+            source.close();
+        }
+        source.close();
+        Assertions.assertEquals(1, reports.size(), "close and iterator close must publish exactly one report");
+        ScanReport report = reports.get(0);
+        Assertions.assertEquals(snapshot, report.snapshotId());
+        Assertions.assertEquals(historical ? schemaId : table.schema().schemaId(), report.schemaId());
+        Assertions.assertEquals(2, report.scanMetrics().totalDataManifests().value());
+        Assertions.assertEquals(earlyStop ? 1 : 2, report.scanMetrics().resultDataFiles().value());
+        Assertions.assertEquals(earlyStop ? 100 : 200, report.scanMetrics().totalFileSizeInBytes().value());
+    }
+
+    @ParameterizedTest
+    @CsvSource({"false,2", "true,2", "false,6", "true,6"})
+    public void uncachedDeleteManifestsReadInParallel(boolean cacheEnabled, int deleteCount) throws Exception {
+        Table table = createTable("parallel_delete_manifests", SCHEMA, PartitionSpec.unpartitioned(),
+                Map.of("format-version", "2"));
+        for (int i = 0; i < 2; i++) {
+            table.newFastAppend().appendFile(dataFile(table.spec(), "/d/parallel_" + i + ".parquet",
+                    1000, null, null)).commit();
+        }
+        for (int i = 0; i < deleteCount; i++) {
+            table.newRowDelta().addDeletes(FileMetadata.deleteFileBuilder(table.spec()).ofPositionDeletes()
+                    .withPath("/d/delete_" + i + ".parquet").withFormat(FileFormat.PARQUET)
+                    .withReferencedDataFile("/d/parallel_0.parquet")
+                    .withFileSizeInBytes(100).withRecordCount(1).build()).commit();
+        }
+        Set<String> deletes = table.currentSnapshot().deleteManifests(table.io()).stream()
+                .map(ManifestFile::path).collect(Collectors.toSet());
+        Assertions.assertEquals(deleteCount, deletes.size());
+        AtomicInteger reads = new AtomicInteger();
+        CountDownLatch concurrent = new CountDownLatch(2);
+        Table observed = tableWithScanIo(table, manifestStreamObserver(table.io(), deletes, path -> {
+            reads.incrementAndGet();
+            concurrent.countDown();
+            try {
+                Assertions.assertTrue(concurrent.await(5, TimeUnit.SECONDS),
+                        "the first delete-manifest read must overlap another read");
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new RuntimeException(e);
+            }
+        }));
+        ExecutorService workers = Executors.newFixedThreadPool(4);
+        ConnectorTaskScheduler scheduler = new ConnectorTaskScheduler() {
+            @Override
+            public void removeSpaceListener(Runnable onSpace) {
+            }
+
+            @Override
+            public boolean tryExecute(Runnable task, Consumer<Throwable> onFailure, Runnable onSpace) {
+                workers.execute(task);
+                return true;
+            }
+
+            @Override
+            public void execute(Runnable task) {
+                workers.execute(task);
+            }
+        };
+        ConnectorSession delegate = new FakeScanSession("UTC", Map.of("iceberg_manifest_load_concurrency", "2"));
+        ConnectorSession session = (ConnectorSession) Proxy.newProxyInstance(ConnectorSession.class.getClassLoader(),
+                new Class<?>[] {ConnectorSession.class}, (proxy, method, args) ->
+                        method.getName().equals("getTaskScheduler") ? scheduler : invoke(method, delegate, args));
+        try {
+            IcebergScanPlanProvider provider = new IcebergScanPlanProvider(
+                    IcebergCatalogProperties.of(cacheEnabled ? manifestCacheProps() : Collections.emptyMap()),
+                    opsReturning(observed), null, new IcebergManifestCache());
+            List<ConnectorScanRange> actual = drain(provider.streamSplits(session,
+                    scanOf(new IcebergTableHandle("db1", "parallel_delete_manifests")).build()));
+            Assertions.assertEquals(2, actual.size());
+            Assertions.assertEquals(deletes.size(), reads.get());
+            Assertions.assertEquals(deleteCount, actual.stream().mapToInt(IcebergScanPlanProviderTest::deleteCount).sum());
+        } finally {
+            workers.shutdownNow();
+        }
+    }
+
+    @Test
+    public void deleteManifestCancellationStopsQueuedReads() throws Exception {
+        Table table = createTable("cancel_delete_manifests", SCHEMA, PartitionSpec.unpartitioned(),
+                Map.of("format-version", "2"));
+        for (int i = 0; i < 2; i++) {
+            table.newFastAppend().appendFile(dataFile(table.spec(), "/d/cancel_" + i + ".parquet",
+                    1000, null, null)).commit();
+        }
+        for (int i = 0; i < 4; i++) {
+            table.newRowDelta().addDeletes(FileMetadata.deleteFileBuilder(table.spec()).ofPositionDeletes()
+                    .withPath("/d/cancel_delete_" + i + ".parquet").withFormat(FileFormat.PARQUET)
+                    .withReferencedDataFile("/d/cancel_0.parquet")
+                    .withFileSizeInBytes(100).withRecordCount(1).build()).commit();
+        }
+        Set<String> deletes = table.currentSnapshot().deleteManifests(table.io()).stream()
+                .map(ManifestFile::path).collect(Collectors.toSet());
+        AtomicInteger reads = new AtomicInteger();
+        Table observed = tableWithScanIo(table, manifestStreamObserver(table.io(), deletes,
+                path -> reads.incrementAndGet()));
+        Queue<Runnable> tasks = new ConcurrentLinkedQueue<>();
+        CountDownLatch submitted = new CountDownLatch(1);
+        ConnectorTaskScheduler scheduler = new ConnectorTaskScheduler() {
+            @Override
+            public void removeSpaceListener(Runnable onSpace) {
+            }
+
+            @Override
+            public boolean tryExecute(Runnable task, Consumer<Throwable> onFailure, Runnable onSpace) {
+                tasks.add(task);
+                submitted.countDown();
+                return true;
+            }
+
+            @Override
+            public void execute(Runnable task) {
+                tasks.add(task);
+            }
+        };
+        ConnectorSession delegate = emptySession();
+        ConnectorSession session = (ConnectorSession) Proxy.newProxyInstance(ConnectorSession.class.getClassLoader(),
+                new Class<?>[] {ConnectorSession.class}, (proxy, method, args) ->
+                        method.getName().equals("getTaskScheduler") ? scheduler : invoke(method, delegate, args));
+        ConnectorScanRequest request = scanOf(new IcebergTableHandle("db1", "cancel_delete_manifests")).build();
+        ExecutorService producer = Executors.newSingleThreadExecutor();
+        try {
+            Future<ConnectorSplitSource> result = producer.submit(() -> providerOver(observed).streamSplits(session, request));
+            Assertions.assertTrue(submitted.await(5, TimeUnit.SECONDS));
+            request.getScanContext().cancel();
+            ExecutionException failure = Assertions.assertThrows(ExecutionException.class,
+                    () -> result.get(5, TimeUnit.SECONDS));
+            Throwable cause = failure;
+            while (cause.getCause() != null) {
+                cause = cause.getCause();
+            }
+            Assertions.assertInstanceOf(CancellationException.class, cause);
+            Runnable task;
+            while ((task = tasks.poll()) != null) {
+                task.run();
+            }
+            Assertions.assertEquals(0, reads.get(), "cancelled queued loads must not open a manifest");
+        } finally {
+            request.getScanContext().cancel();
+            producer.shutdownNow();
+        }
     }
 
     @ParameterizedTest

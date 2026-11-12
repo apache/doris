@@ -82,6 +82,7 @@ final class IcebergManifestPrefetcher implements CloseableIterator<IcebergManife
     private final Function<ManifestFile, CompletionStage<ManifestCacheValue>> sharedLoader;
     private final ConnectorTaskScheduler scheduler;
     private final BooleanSupplier allowPrefetch;
+    private final boolean inlineFirstRead;
     private final Deque<Pending> pending = new ArrayDeque<>();
     // Entries stay in pending until consumed, so completed results also count against the window.
     // Completion callbacks never acquire the registry lock. Reserve one slot for the close signal.
@@ -128,6 +129,16 @@ final class IcebergManifestPrefetcher implements CloseableIterator<IcebergManife
             BooleanSupplier allowPrefetch, ConnectorTaskScheduler scheduler,
             Function<ManifestFile, CompletionStage<ManifestCacheValue>> sharedLoader,
             Supplier<AutoCloseable> retainLoadOwner) {
+        this(manifests, window, cached, loader, context, readPermits, allowPrefetch, scheduler,
+                sharedLoader, retainLoadOwner, true);
+    }
+
+    IcebergManifestPrefetcher(CloseableIterator<ManifestFile> manifests, int window,
+            Function<ManifestFile, ManifestCacheValue> cached,
+            Function<ManifestFile, ManifestCacheValue> loader, ConnectorContext context, Semaphore readPermits,
+            BooleanSupplier allowPrefetch, ConnectorTaskScheduler scheduler,
+            Function<ManifestFile, CompletionStage<ManifestCacheValue>> sharedLoader,
+            Supplier<AutoCloseable> retainLoadOwner, boolean inlineFirstRead) {
         this.context = context;
         this.readContext = new IcebergManifestReadContext(context, readPermits,
                 () -> closed || (scheduler != null && scheduler.isClosed()), retainLoadOwner);
@@ -139,6 +150,7 @@ final class IcebergManifestPrefetcher implements CloseableIterator<IcebergManife
         this.cached = cached;
         this.loader = loader;
         this.allowPrefetch = allowPrefetch;
+        this.inlineFirstRead = inlineFirstRead;
     }
 
     @Override
@@ -167,7 +179,8 @@ final class IcebergManifestPrefetcher implements CloseableIterator<IcebergManife
                         // Warm cache: no futures, submissions, or speculative iterator traversal.
                         return new LoadedManifest(manifest, value);
                     }
-                    if (window == 1 || !coldManifestConsumed || !allowPrefetch.getAsBoolean()) {
+                    if (window == 1 || (inlineFirstRead && !coldManifestConsumed)
+                            || !allowPrefetch.getAsBoolean()) {
                         // A required serial read has no executor handoff. Expand only when useful work
                         // needs more metadata, without making progress depend on backend requests.
                         head = new Pending(manifest, null, null);
