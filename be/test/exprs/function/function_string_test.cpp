@@ -17,6 +17,7 @@
 
 #include <unicode/locid.h>
 #include <unicode/utypes.h>
+#include <zlib.h>
 
 #include <cstdint>
 #include <cstring>
@@ -105,6 +106,22 @@ void check_encryption_function_all_arg_comb(const std::string& func_name,
 }
 
 } // namespace
+
+TEST(function_string_test, crc32_binary_boundaries) {
+    DataSet data_set = {{{Null()}, Null()}};
+    for (size_t length :
+         {0, 1, 3, 4, 5, 7, 8, 9, 15, 16, 17, 63, 64, 65, 127, 128, 129, 255, 256, 257, 4097}) {
+        std::string input(length, '\0');
+        for (size_t i = 0; i < length; ++i) {
+            input[i] = static_cast<char>((i * 37 + 11) & 0xFF);
+        }
+        auto expected = static_cast<int64_t>(
+                crc32_z(0, reinterpret_cast<const Bytef*>(input.data()), input.size()));
+        data_set.push_back({{input}, expected});
+    }
+    ASSERT_TRUE(
+            check_function<DataTypeInt64>("crc32", {PrimitiveType::TYPE_VARCHAR}, data_set).ok());
+}
 
 TEST(function_string_test, ngram_search_gram_num) {
     const InputTypeSet input_types = {Notnull {TYPE_STRING}, ConstedNotnull {TYPE_STRING},

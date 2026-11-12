@@ -52,6 +52,7 @@
 #include "exprs/function/function_totype.h"
 #include "exprs/function/simple_function_factory.h"
 #include "exprs/function/string_hex_util.h"
+#include "util/hash_util.hpp"
 #include "util/string_search.hpp"
 #include "util/url_coding.h"
 #include "util/utf8_check.h"
@@ -225,8 +226,8 @@ struct Crc32Impl {
         auto size = offsets.size();
         res.resize(size);
         for (int i = 0; i < size; ++i) {
-            res[i] = crc32_z(0L, (const unsigned char*)data.data() + offsets[i - 1],
-                             offsets[i] - offsets[i - 1]);
+            res[i] = HashUtil::zlib_crc_hash(data.data() + offsets[i - 1],
+                                             offsets[i] - offsets[i - 1], 0);
         }
         return Status::OK();
     }
