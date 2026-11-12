@@ -2609,6 +2609,7 @@ public class Env {
     }
 
     public long loadRecycleBin(DataInputStream dis, long checksum) throws IOException {
+        recycleBin.unregisterFunctionsById();
         recycleBin = CatalogRecycleBin.read(dis);
         // add tablet in Recycle bin to TabletInvertedIndex
         recycleBin.addTabletToInvertedIndex();
@@ -2617,6 +2618,7 @@ public class Env {
         for (Long dbId : recycleBin.getAllDbIds()) {
             globalTransactionMgr.addDatabaseTransactionMgr(dbId);
         }
+        recycleBin.registerFunctionsById(id2Function);
         LOG.info("finished replay recycleBin from image");
         return checksum;
     }

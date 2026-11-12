@@ -945,6 +945,10 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
     }
 
     public synchronized void unregisterFunctionsById() {
+        // FORCE DROP may have already detached this database.
+        if (id2Function == null) {
+            return;
+        }
         for (Function function : getFunctions()) {
             id2Function.remove(function.getId(), function);
         }

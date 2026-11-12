@@ -350,17 +350,28 @@ class UdfCacheCleanupRecoveryTest {
     }
 
     @Test
-    void recycleBinImageDoesNotRegisterFunctions() throws Exception {
+    void recycleBinImageRebuildsFunctionIndex() throws Exception {
         Database db = databaseWithPythonFunction();
         Env.getCurrentInternalCatalog().replayCreateDb(db, "");
         Env.getCurrentInternalCatalog().dropDb(DB_NAME, false, false);
         byte[] image = saveRecycleBin(Env.getCurrentRecycleBin());
         loadRecycleBin(image);
-        Assertions.assertNull(env.getFunctionById(FUNCTION_ID));
+        Assertions.assertNotNull(env.getFunctionById(FUNCTION_ID));
+        Assertions.assertNotSame(db.getFunctions().get(0), env.getFunctionById(FUNCTION_ID));
+        report(Set.of(FUNCTION_ID));
+        Assertions.assertNull(queuedTask());
         Env.getCurrentInternalCatalog().recoverDatabase(DB_NAME, DB_ID, "");
         Function recovered = Env.getCurrentInternalCatalog().getDbNullable(DB_ID).getFunctions().get(0);
         Assertions.assertEquals(FUNCTION_ID, recovered.getId());
         Assertions.assertSame(recovered, env.getFunctionById(recovered.getId()));
+    }
+
+    @Test
+    void forceDroppedDatabaseImageDoesNotRegisterFunctions() throws Exception {
+        Env.getCurrentInternalCatalog().replayCreateDb(databaseWithPythonFunction(), "");
+        Env.getCurrentInternalCatalog().dropDb(DB_NAME, false, true);
+        loadRecycleBin(saveRecycleBin(Env.getCurrentRecycleBin()));
+        Assertions.assertNull(env.getFunctionById(FUNCTION_ID));
     }
 
     @Test
@@ -459,15 +470,15 @@ class UdfCacheCleanupRecoveryTest {
     }
 
     @Test
-    void databaseRecoveryPreservesFunctionIdAndPendingCleanup() throws Exception {
+    void databaseRecoveryPreservesFunctionIdWithoutCleanup() throws Exception {
         Database db = databaseWithPythonFunction();
         Function original = db.getFunctions().get(0);
         Env.getCurrentInternalCatalog().replayCreateDb(db, "");
         Env.getCurrentInternalCatalog().dropDb(DB_NAME, false, false);
-        Assertions.assertNotNull(queuedTask());
-        AgentTaskQueue.clearAllTasks();
+        Assertions.assertNull(queuedTask());
+        Assertions.assertSame(original, env.getFunctionById(FUNCTION_ID));
         report(Set.of(FUNCTION_ID));
-        Assertions.assertNotNull(queuedTask());
+        Assertions.assertNull(queuedTask());
         Env.getCurrentInternalCatalog().recoverDatabase(DB_NAME, DB_ID, "");
         Function recovered = db.getFunctions().get(0);
         Assertions.assertEquals(FUNCTION_ID, recovered.getId());
@@ -475,8 +486,20 @@ class UdfCacheCleanupRecoveryTest {
         Assertions.assertSame(recovered, env.getFunctionById(FUNCTION_ID));
         Assertions.assertEquals(-1, recovered.getAutoSuspend());
         report(Set.of(FUNCTION_ID));
-        Assertions.assertNotNull(queuedTask());
-        finish(TStatusCode.OK);
+        Assertions.assertNull(queuedTask());
+    }
+
+    @Test
+    void recoverableDatabaseDropReplayPreservesFunctionIndex() throws Exception {
+        Database db = databaseWithPythonFunction();
+        Env.getCurrentInternalCatalog().replayCreateDb(db, "");
+        Env.getCurrentInternalCatalog().dropDb(DB_NAME, false, false);
+        JournalEntity drop = readJournal(1);
+        Assertions.assertEquals(OperationType.OP_DROP_DB, drop.getOpCode());
+        loadRecycleBin(saveRecycleBin(new CatalogRecycleBin()));
+        Env.getCurrentInternalCatalog().replayCreateDb(db, "");
+        EditLog.loadJournal(env, 1L, drop);
+        Assertions.assertSame(db.getFunctions().get(0), env.getFunctionById(FUNCTION_ID));
         report(Set.of(FUNCTION_ID));
         Assertions.assertNull(queuedTask());
     }
@@ -525,15 +548,29 @@ class UdfCacheCleanupRecoveryTest {
     }
 
     @Test
-    void erasedDatabaseImageNeedsNoCleanupHistory() throws Exception {
+    void erasedDatabaseReplayRebuildsCleanupFromBackendReport() throws Exception {
         Database db = databaseWithPythonFunction();
-        Env.getCurrentRecycleBin().recycleDatabase(db, Set.of(), Set.of(), false, false, 0);
+        Env.getCurrentInternalCatalog().replayCreateDb(db, "");
+        Env.getCurrentInternalCatalog().dropDb(DB_NAME, false, false);
+        byte[] recycled = saveRecycleBin(Env.getCurrentRecycleBin());
         Env.getCurrentRecycleBin().eraseDatabaseInstantly(DB_ID);
-        byte[] image = saveRecycleBin(Env.getCurrentRecycleBin());
+        Assertions.assertNull(env.getFunctionById(FUNCTION_ID));
+        Assertions.assertNotNull(queuedTask());
+        JournalEntity erase = readJournal(2);
+        Assertions.assertEquals(OperationType.OP_ERASE_DB, erase.getOpCode());
         AgentTaskQueue.clearAllTasks();
-        loadRecycleBin(image);
+        loadRecycleBin(recycled);
+        Assertions.assertNotNull(env.getFunctionById(FUNCTION_ID));
+        report(Set.of(FUNCTION_ID));
+        Assertions.assertNull(queuedTask());
+        EditLog.loadJournal(env, 2L, erase);
+        Assertions.assertNull(env.getFunctionById(FUNCTION_ID));
+        Assertions.assertNull(queuedTask());
+        backend.setAlive(true);
         report(Set.of(FUNCTION_ID));
         Assertions.assertNotNull(queuedTask());
+        finish(TStatusCode.OK);
+        Assertions.assertNull(queuedTask());
     }
 
     @Test
