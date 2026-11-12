@@ -22,6 +22,7 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.UnaryNode;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -34,15 +35,19 @@ import org.apache.doris.nereids.trees.plans.algebra.EmptyRelation;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAssertNumRows;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -257,10 +262,24 @@ public class EliminateEmptyRelation implements RewriteRuleFactory {
      * scalar's {@link LogicalAssertNumRows} and return an empty result instead of raising the
      * "must return only 1 row" error. Volatile functions are intentionally not checked here: their values are
      * non-deterministic but not side-effecting, and they produce no rows inside an empty join anyway.
+     * Materialized CTE consumers are leaves, so follow their producers as well: removing the last consumer
+     * also removes its producer and any checks inside it.
      */
     private boolean containsSideEffect(Plan plan) {
+        return containsSideEffect(plan, new HashSet<>());
+    }
+
+    private boolean containsSideEffect(Plan plan, Set<CTEId> checkedCteIds) {
         if (plan instanceof LogicalAssertNumRows) {
             return true;
+        }
+        if (plan instanceof LogicalCTEConsumer) {
+            CTEId cteId = ((LogicalCTEConsumer) plan).getCteId();
+            if (checkedCteIds.add(cteId)) {
+                Plan producer = ConnectContext.get().getStatementContext().getCteProducerByCteId(cteId);
+                Preconditions.checkState(producer != null, "CTE producer for CTE: %s not found", cteId);
+                return containsSideEffect(producer, checkedCteIds);
+            }
         }
         for (Expression expression : plan.getExpressions()) {
             if (expression.containsType(NoneMovableFunction.class)) {
@@ -268,7 +287,7 @@ public class EliminateEmptyRelation implements RewriteRuleFactory {
             }
         }
         for (Plan child : plan.children()) {
-            if (containsSideEffect(child)) {
+            if (containsSideEffect(child, checkedCteIds)) {
                 return true;
             }
         }

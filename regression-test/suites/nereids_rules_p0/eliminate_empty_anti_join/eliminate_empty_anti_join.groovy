@@ -57,4 +57,54 @@ suite("eliminate_empty_anti_join") {
     order_qt_mark_result """select k, not exists
         (select 1 from empty_anti_join_t r where false and r.k = l.k)
         from empty_anti_join_t l"""
+
+    // Keep a materialized producer whose assertion is hidden behind a consumer leaf.
+    sql "set enable_cte_materialize = true"
+    sql "set inline_cte_referenced_threshold = 0"
+    sql "set disable_join_reorder = true"
+    test {
+        sql """with checked as (
+            select assert_true(v < 0, 'empty anti CTE check') as ok from empty_anti_join_t
+        ) select l.k from (select k from empty_anti_join_t where false) l
+        left anti join checked c on l.k = cast(c.ok as int)"""
+        exception "empty anti CTE check"
+    }
+    test {
+        sql """with checked as (
+            select assert_true(v < 0, 'nested empty anti CTE check') as ok from empty_anti_join_t
+        ), forwarded as (select ok from checked)
+        select l.k from (select k from empty_anti_join_t where false) l
+        left anti join forwarded c on l.k = cast(c.ok as int)"""
+        exception "nested empty anti CTE check"
+    }
+    test {
+        sql """with checked as (select (select v from empty_anti_join_t) as v)
+        select l.k from (select k from empty_anti_join_t where false) l
+        left anti join checked c on l.k = c.v"""
+        exception "Expected EQ 1"
+    }
+    // Join distribution is cost-driven; the CTE producer/check must remain in every implementation.
+    def explainCteGuardPlan = { tag, query ->
+        delegate.quickRunTest(tag, query, false, { row ->
+            row.collect { value ->
+                value.toString().replaceAll(
+                    /hashJoin\[([A-Z_]+) (bucketShuffle|shuffleBucket|broadcast|shuffle|colocated|unknown)\]/,
+                    'hashJoin[$1 joinImpl]')
+            }
+        })
+    }
+    explainCteGuardPlan("cte_right_assert_plan", """explain shape plan with checked as (
+        select assert_true(v < 0, 'empty anti CTE check') as ok from empty_anti_join_t
+    ) select r.k from checked c
+    right anti join (select k from empty_anti_join_t where false) r on cast(c.ok as int) = r.k""")
+    explainCteGuardPlan("cte_right_scalar_plan", """explain shape plan
+        with checked as (select (select v from empty_anti_join_t) as v)
+        select r.k from checked c
+        right anti join (select k from empty_anti_join_t where false) r on c.v = r.k""")
+    qt_pure_cte_left_plan """explain shape plan with c as (select k from empty_anti_join_t)
+        select l.k from (select k from empty_anti_join_t where false) l
+        left anti join c on l.k = c.k"""
+    qt_pure_cte_right_plan """explain shape plan with c as (select k from empty_anti_join_t)
+        select r.k from c
+        right anti join (select k from empty_anti_join_t where false) r on c.k = r.k"""
 }

@@ -56,3 +56,39 @@ PhysicalResultSink
 1	true
 2	true
 
+-- !cte_right_assert_plan --
+PhysicalCteAnchor ( cteId=CTEId#0 )
+--PhysicalCteProducer ( cteId=CTEId#0 )
+----PhysicalProject
+------PhysicalOlapScan[empty_anti_join_t]
+--PhysicalResultSink
+----hashJoin[RIGHT_ANTI_JOIN joinImpl] hashCondition=((expr_cast(ok as INT) = r.k)) otherCondition=()
+------PhysicalProject
+--------PhysicalCteConsumer ( cteId=CTEId#0 )
+------PhysicalEmptyRelation
+
+-- !cte_right_scalar_plan --
+PhysicalCteAnchor ( cteId=CTEId#0 )
+--PhysicalCteProducer ( cteId=CTEId#0 )
+----PhysicalProject
+------NestedLoopJoin[CROSS_JOIN]
+--------PhysicalProject
+----------PhysicalOneRowRelation
+--------PhysicalProject
+----------PhysicalAssertNumRows
+------------PhysicalDistribute[DistributionSpecGather]
+--------------PhysicalProject
+----------------PhysicalOlapScan[empty_anti_join_t]
+--PhysicalResultSink
+----hashJoin[RIGHT_ANTI_JOIN joinImpl] hashCondition=((c.v = r.k)) otherCondition=()
+------PhysicalCteConsumer ( cteId=CTEId#0 )
+------PhysicalEmptyRelation
+
+-- !pure_cte_left_plan --
+PhysicalResultSink
+--PhysicalEmptyRelation
+
+-- !pure_cte_right_plan --
+PhysicalResultSink
+--PhysicalEmptyRelation
+

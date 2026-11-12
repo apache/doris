@@ -21,6 +21,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.AssertNumRowsElement;
 import org.apache.doris.nereids.trees.expressions.AssertNumRowsElement.Assertion;
+import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -32,6 +33,8 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAssertNumRows;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
@@ -44,6 +47,7 @@ import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -126,6 +130,48 @@ class EliminateEmptyRelationTest implements MemoPatternMatchSupported {
         Assertions.assertInstanceOf(LogicalJoin.class, eliminateEmptyRelation(checked));
     }
 
+    @ParameterizedTest
+    @EnumSource(value = JoinType.class, names = {"LEFT_ANTI_JOIN", "RIGHT_ANTI_JOIN"})
+    void testEmptyAntiJoinPreservesCteNonMovableProject(JoinType joinType) {
+        ConnectContext context = MemoTestUtils.createStatementContext("").getConnectContext();
+        LogicalPlan checked = new LogicalPlanBuilder(scan1).projectExprs(ImmutableList.of(
+                new Alias(new AssertTrue(BooleanLiteral.FALSE, new VarcharLiteral("must fail"))))).build();
+        LogicalPlan join = antiJoin(joinType, emptyRelation(), cteConsumer(context, checked));
+        Assertions.assertInstanceOf(LogicalJoin.class, eliminateEmptyRelation(context, join));
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = JoinType.class, names = {"LEFT_ANTI_JOIN", "RIGHT_ANTI_JOIN"})
+    void testEmptyAntiJoinPreservesCteAssertNumRows(JoinType joinType) {
+        ConnectContext context = MemoTestUtils.createStatementContext("").getConnectContext();
+        LogicalPlan checked = new LogicalAssertNumRows<>(new AssertNumRowsElement(1, "", Assertion.EQ), scan1);
+        LogicalPlan join = antiJoin(joinType, emptyRelation(), cteConsumer(context, checked));
+        Assertions.assertInstanceOf(LogicalJoin.class, eliminateEmptyRelation(context, join));
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = JoinType.class, names = {"LEFT_ANTI_JOIN", "RIGHT_ANTI_JOIN"})
+    void testEmptyAntiJoinPreservesNestedCteChecks(JoinType joinType) {
+        ConnectContext context = MemoTestUtils.createStatementContext("").getConnectContext();
+        LogicalPlan checked = new LogicalPlanBuilder(scan1).projectExprs(ImmutableList.of(
+                new Alias(new AssertTrue(BooleanLiteral.FALSE, new VarcharLiteral("must fail"))))).build();
+        LogicalPlan outer = new LogicalPlanBuilder(cteConsumer(context, checked)).projectAll().build();
+        LogicalPlan join = antiJoin(joinType, emptyRelation(), cteConsumer(context, outer));
+        Assertions.assertInstanceOf(LogicalJoin.class, eliminateEmptyRelation(context, join));
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = JoinType.class, names = {"LEFT_ANTI_JOIN", "RIGHT_ANTI_JOIN"})
+    void testEmptyAntiJoinEliminatesPureCte(JoinType joinType) {
+        ConnectContext context = MemoTestUtils.createStatementContext("").getConnectContext();
+        LogicalCTEConsumer first = cteConsumer(context, scan1);
+        LogicalCTEConsumer second = new LogicalCTEConsumer(PlanConstructor.getNextRelationId(), first.getCteId(),
+                "c", context.getStatementContext().getCteProducerByCteId(first.getCteId()));
+        LogicalPlan other = new LogicalPlanBuilder(first).joinEmptyOn(second, JoinType.CROSS_JOIN).build();
+        Assertions.assertInstanceOf(LogicalEmptyRelation.class,
+                eliminateEmptyRelation(context, antiJoin(joinType, emptyRelation(), other)));
+    }
+
     @Test
     void testEmptyAntiJoinPropagatesThroughProjectAndNestedUnion() {
         LogicalPlan left = new LogicalPlanBuilder(antiJoin(JoinType.LEFT_ANTI_JOIN, emptyRelation(), scan1))
@@ -163,6 +209,18 @@ class EliminateEmptyRelationTest implements MemoPatternMatchSupported {
     private Plan eliminateEmptyRelation(LogicalPlan plan) {
         return PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
                 .applyBottomUp(new EliminateEmptyRelation()).getPlan();
+    }
+
+    private Plan eliminateEmptyRelation(ConnectContext context, LogicalPlan plan) {
+        return PlanChecker.from(MemoTestUtils.createCascadesContext(context.getStatementContext(), plan))
+                .applyBottomUp(new EliminateEmptyRelation()).getPlan();
+    }
+
+    private LogicalCTEConsumer cteConsumer(ConnectContext context, LogicalPlan body) {
+        CTEId cteId = context.getStatementContext().getNextCTEId();
+        LogicalCTEProducer<LogicalPlan> producer = new LogicalCTEProducer<>(cteId, body);
+        context.getStatementContext().setCteProducer(cteId, producer);
+        return new LogicalCTEConsumer(PlanConstructor.getNextRelationId(), cteId, "c", producer);
     }
 
     @Test

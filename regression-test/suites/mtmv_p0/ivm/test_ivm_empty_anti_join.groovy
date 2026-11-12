@@ -16,6 +16,8 @@
 // under the License.
 
 suite("test_ivm_empty_anti_join") {
+    sql "set enable_materialized_view_rewrite = false"
+    sql "set enable_dml_materialized_view_rewrite = false"
     sql "drop materialized view if exists ivm_empty_anti_mv"
     sql "drop table if exists ivm_empty_anti_l"
     sql "drop table if exists ivm_empty_anti_r"
@@ -37,8 +39,6 @@ suite("test_ivm_empty_anti_join") {
         as ${fullQuery}"""
     sql "refresh materialized view ivm_empty_anti_mv complete"
     waitingMTMVTaskFinishedByMvName("ivm_empty_anti_mv")
-    sql "set enable_materialized_view_rewrite = false"
-    sql "set enable_dml_materialized_view_rewrite = false"
     order_qt_initial_mv "select k, lv, rv from ivm_empty_anti_mv"
     order_qt_initial_full fullQuery
 
