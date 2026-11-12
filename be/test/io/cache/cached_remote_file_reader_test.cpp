@@ -67,7 +67,6 @@ public:
     size_t read_count() const { return _read_count; }
     size_t last_offset() const { return _last_offset; }
     size_t last_size() const { return _last_size; }
-    bool last_bypass_peer_read() const { return _last_bypass_peer_read; }
     const std::vector<std::pair<size_t, size_t>>& read_ranges() const { return _read_ranges; }
 
 protected:
@@ -76,7 +75,6 @@ protected:
         ++_read_count;
         _last_offset = offset;
         _last_size = result.size;
-        _last_bypass_peer_read = io_ctx != nullptr && io_ctx->bypass_peer_read;
         _read_ranges.emplace_back(offset, result.size);
         return _delegate->read_at(offset, result, bytes_read, io_ctx);
     }
@@ -86,7 +84,6 @@ private:
     size_t _read_count {0};
     size_t _last_offset {0};
     size_t _last_size {0};
-    bool _last_bypass_peer_read {false};
     std::vector<std::pair<size_t, size_t>> _read_ranges;
 };
 

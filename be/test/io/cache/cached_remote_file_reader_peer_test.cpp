@@ -4213,6 +4213,48 @@ TEST_F(CachedRemoteFileReaderAsyncPeerTest, async_write_reads_peer_and_persists_
     EXPECT_EQ(second_stats.async_submit_write_timer, 0);
 }
 
+TEST_F(CachedRemoteFileReaderAsyncPeerTest, no_write_reads_pending_peer_iobuf) {
+    MockPeerCacheService service(std::string(kPeerContent), {.use_attachment = true});
+    start("async_peer_no_write_inflight", &service);
+
+    // Hold writeback before it creates a cache block so the second read must use the IOBuf.
+    auto release_write = std::make_shared<RaceSignal>();
+    auto* sync_point = SyncPoint::get_instance();
+    SyncPoint::CallbackGuard guard;
+    sync_point->set_call_back(
+            "AsyncCacheWriteManager::_persist_task:before_get_or_set",
+            [release_write](auto&&) { EXPECT_TRUE(release_write->wait()); }, &guard);
+    sync_point->enable_processing();
+    Defer unblock_write {[&]() {
+        release_write->fire();
+        sync_point->disable_processing();
+    }};
+
+    FileCacheStatistics first_stats;
+    EXPECT_EQ(read(0, kPeerTestBlockSize, &first_stats), "ABCD");
+    ASSERT_EQ(first_stats.bytes_read_from_peer, kPeerTestBlockSize);
+    ASSERT_EQ(first_stats.async_cache_write_submitted, 1);
+
+    FileCacheStatistics no_write_stats;
+    IOContext no_write_context;
+    no_write_context.cache_write_mode_override = CacheWriteMode::NO_WRITE;
+    no_write_context.file_cache_stats = &no_write_stats;
+    std::string result(2, '\0');
+    size_t bytes_read = 0;
+    ASSERT_TRUE(
+            _reader->read_at(1, Slice(result.data(), result.size()), &bytes_read, &no_write_context)
+                    .ok());
+    EXPECT_EQ(bytes_read, result.size());
+    EXPECT_EQ(result, "BC");
+    EXPECT_EQ(no_write_stats.inflight_write_buffer_index_hit, 1);
+    EXPECT_EQ(no_write_stats.bytes_read_from_remote, 0);
+    EXPECT_EQ(no_write_stats.async_cache_write_submitted, 0);
+    EXPECT_EQ(service.rpc_count.load(), 1);
+
+    release_write->fire();
+    wait_for_async_writes(_cache);
+}
+
 TEST_F(CachedRemoteFileReaderAsyncPeerTest, async_write_peer_handles_reordered_attachment) {
     MockPeerCacheService service(std::string(kPeerContent),
                                  {.use_attachment = true, .reverse_response_order = true});

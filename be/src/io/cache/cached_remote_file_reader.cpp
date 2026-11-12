@@ -1251,8 +1251,7 @@ bool CachedRemoteFileReader::_try_read_from_inflight_buffers(size_t offset, Slic
         DORIS_CHECK(buffer_offset <= entry->buffer_size);
         DORIS_CHECK(copy_size <= entry->buffer_size - buffer_offset);
         if (!is_dryrun) [[likely]] {
-            std::memcpy(result.data + copy_left - offset, entry->buffer->data() + buffer_offset,
-                        copy_size);
+            entry->buffer->copy_to(buffer_offset, copy_size, result.data + copy_left - offset);
         }
     }
     return true;
