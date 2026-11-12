@@ -191,7 +191,7 @@ named as a string literal under `be/src/format_v2/jni/` and
 
 | class | directory | tag |
 |---|---|---|
-| `PaimonJniScanner` | `paimon-scanner` | both |
+| `PaimonJniScanner` | `paimon-scanner` / `paimon-connector` (depends on the 4.1.x release) | both |
 | `IcebergSysTableJniScanner` | `iceberg-metadata-scanner` | both |
 | `JdbcJniScanner` | `jdbc-scanner` | both |
 | (`JniWriter`) | `java-writer` | both |
