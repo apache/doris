@@ -95,7 +95,12 @@ add_thirdparty(aws-c-mqtt LIB64)
 add_thirdparty(aws-checksums LIB64)
 add_thirdparty(aws-c-s3 LIB64)
 add_thirdparty(aws-c-sdkutils LIB64)
-add_thirdparty(aws-s2n LIBNAME "lib/libs2n.a")
+if (OS_MACOSX)
+    # AWS TLS uses SecureTransport on macOS instead of s2n.
+    target_link_libraries(aws-c-io INTERFACE "-framework Security" "-framework CoreFoundation")
+else()
+    add_thirdparty(aws-s2n LIBNAME "lib/libs2n.a")
+endif()
 add_thirdparty(aws-cpp-sdk-identity-management LIB64)
 add_thirdparty(aws-cpp-sdk-sts LIB64)
 
