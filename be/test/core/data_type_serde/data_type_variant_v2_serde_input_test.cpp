@@ -424,6 +424,35 @@ TEST(DataTypeVariantV2SerdeInputTest, ADecimalPathReadsAValueBelowEveryScaleAsZe
     EXPECT_NE(std::string::npos, json_at(serde, *column, row).find(R"("amount":"1e3000000000")"));
 }
 
+TEST(DataTypeVariantV2SerdeInputTest, ADecimal256PathKeepsTheTextOfAValueItsScaleHolds) {
+    DataTypeVariantV2SerDe serde(
+            1, template_of({{.pattern = "amount", .is_glob = false, .type = TYPE_DECIMAL256}}));
+    auto column = ColumnVariantV2::create();
+    size_t row = 0;
+    // decimal(76,45) holds 1.25e-40 exactly. It is beyond the scale 38 the text reader stores, so
+    // its text is kept and the template's cast reads it; it is not the 0 a field of up to 38
+    // digits stores for it.
+    ASSERT_TRUE(deserialize_json(serde, *column, R"({"amount":1.25e-40})").ok());
+    EXPECT_EQ(R"({"amount":"1.25e-40"})", json_at(serde, *column, row++));
+    ASSERT_TRUE(deserialize_json(serde, *column, R"({"amount":1e-77})").ok());
+    EXPECT_EQ(R"({"amount":"1e-77"})", json_at(serde, *column, row++));
+    // below 10^-77 it is 0 at every scale a DECIMAL256 has
+    const std::string zero = R"("amount":0.)" + std::string(38, '0') + "}";
+    for (const char* text : {R"({"amount":1e-78})", R"({"amount":1e-3000000000})"}) {
+        ASSERT_TRUE(deserialize_json(serde, *column, text).ok()) << text;
+        const std::string json = json_at(serde, *column, row++);
+        EXPECT_NE(std::string::npos, json.find(zero)) << text << " -> " << json;
+    }
+    // and a value within 38 digits is the exact decimal, as on every DECIMAL path
+    ASSERT_TRUE(deserialize_json(serde, *column, R"({"amount":1.50})").ok());
+    EXPECT_EQ(R"({"amount":1.50})", json_at(serde, *column, row++));
+    // the same 1.25e-40 on a field of up to 38 digits
+    DataTypeVariantV2SerDe narrow(
+            1, template_of({{.pattern = "amount", .is_glob = false, .type = TYPE_DECIMAL128I}}));
+    ASSERT_TRUE(deserialize_json(narrow, *column, R"({"amount":1.25e-40})").ok());
+    EXPECT_NE(std::string::npos, json_at(narrow, *column, row).find(zero));
+}
+
 TEST(DataTypeVariantV2SerdeInputTest, TemplatePathsAreSpelledAndComparedLikeTheShredder) {
     auto column = ColumnVariantV2::create();
     size_t row = 0;

@@ -42,8 +42,12 @@ enum class VariantNumberRead : uint8_t {
     // As the parser reads every number: int64, uint64 or binary64. No field matches the path, or
     // the field's type is one a number reaches unharmed that way.
     NATIVE,
-    // A DECIMAL field: the number is read from its text, so no digit goes through a binary64.
+    // A DECIMAL field of up to 38 digits: the number is read from its text, so no digit goes
+    // through a binary64.
     DECIMAL_TEXT,
+    // A DECIMAL256 field: read from its text the same way. It is told apart because its scale
+    // goes to 76, which moves the bound below which a value is read as 0.
+    DECIMAL256_TEXT,
     // A LARGEINT field: an integer beyond 64 bits is read from its text.
     LARGEINT_TEXT,
 };
@@ -57,10 +61,11 @@ public:
     bool empty() const noexcept { return _paths.empty(); }
     const std::vector<VariantTemplatePath>& paths() const noexcept { return _paths; }
 
-    // Whether any field is a DECIMAL, so that some path may answer DECIMAL_TEXT. Without one no
-    // fraction or exponent is read from its text, and a document the DOM parser reads is read the
-    // same way with the template as without it: only an integer beyond 64 bits, which fails the
-    // DOM parser, still needs the text. True even when an earlier field shadows every DECIMAL one.
+    // Whether any field is a DECIMAL, so that some path may answer DECIMAL_TEXT or
+    // DECIMAL256_TEXT. Without one no fraction or exponent is read from its text, and a document
+    // the DOM parser reads is read the same way with the template as without it: only an integer
+    // beyond 64 bits, which fails the DOM parser, still needs the text. True even when an earlier
+    // field shadows every DECIMAL one.
     bool reads_decimal_text() const noexcept { return _reads_decimal_text; }
 
     // The read the FIRST template field matching `path` (the object keys from the root joined by
@@ -92,19 +97,26 @@ enum class JsonNumberToDecimal : uint8_t {
     OK,
     // Not a JSON number.
     MALFORMED,
-    // A value of 10^-39 or more with more than 38 significant digits, or with a scale outside
-    // [0, 38] once the exponent is folded in.
+    // A value that is not read as 0 (see parse_json_number_as_decimal) with more than 38
+    // significant digits, or with a scale outside [0, 38] once the exponent is folded in.
     OUT_OF_RANGE,
 };
+
+// The finest scale of the decimal a field declares: 38 up to DECIMAL128, 76 for DECIMAL256.
+constexpr int kVariantDecimalFinestScale = 38;
+constexpr int kVariantDecimal256FinestScale = 76;
 
 // Reads a JSON number token (sign, digits, fraction, exponent) into a decimal of at most 38
 // significant digits with a scale in [0, 38]: an exponent is folded into the scale and a negative
 // scale into the unscaled value. The value is exact, with one exception: a nonzero value below
-// 10^-39 is read as 0 at scale 38, the value it rounds to at every scale a decimal has. Enforces
-// the JSON number grammar itself (the caller hands it tokens simdjson could not read), so a token
-// it declines as MALFORMED is not a JSON number. Never throws.
-JsonNumberToDecimal parse_json_number_as_decimal(std::string_view token,
-                                                 VariantDecimalText& out) noexcept;
+// 10^-(finest_scale + 1) is read as 0, the value it rounds to at every scale the field's decimal
+// type has. `finest_scale` is that type's finest scale, so on a DECIMAL256 field a value between
+// 10^-77 and 10^-39 is not rounded away: it is OUT_OF_RANGE for the 38 digits read here, and the
+// caller keeps its text for the template's cast. Enforces the JSON number grammar itself (the
+// caller hands it tokens simdjson could not read), so a token it declines as MALFORMED is not a
+// JSON number. Never throws.
+JsonNumberToDecimal parse_json_number_as_decimal(std::string_view token, VariantDecimalText& out,
+                                                 int finest_scale) noexcept;
 
 enum class JsonNumberToLargeInt : uint8_t {
     OK,

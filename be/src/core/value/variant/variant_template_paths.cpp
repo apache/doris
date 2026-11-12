@@ -48,7 +48,8 @@ VariantNumberRead VariantTemplatePaths::number_read(const std::string& path) con
         // The first matching field decides, whatever its type: a field of any other type ends the
         // search with NATIVE, as it ends the shredder's.
         if (is_decimalv3(field.type)) {
-            return VariantNumberRead::DECIMAL_TEXT;
+            return field.type == TYPE_DECIMAL256 ? VariantNumberRead::DECIMAL256_TEXT
+                                                 : VariantNumberRead::DECIMAL_TEXT;
         }
         return field.type == TYPE_LARGEINT ? VariantNumberRead::LARGEINT_TEXT
                                            : VariantNumberRead::NATIVE;
@@ -83,8 +84,8 @@ uint8_t variant_decimal_width(unsigned __int128 magnitude, long scale) {
 
 } // namespace
 
-JsonNumberToDecimal parse_json_number_as_decimal(std::string_view token,
-                                                 VariantDecimalText& out) noexcept {
+JsonNumberToDecimal parse_json_number_as_decimal(std::string_view token, VariantDecimalText& out,
+                                                 int finest_scale) noexcept {
     if (token.empty()) {
         return JsonNumberToDecimal::MALFORMED;
     }
@@ -143,10 +144,10 @@ JsonNumberToDecimal parse_json_number_as_decimal(std::string_view token,
             return JsonNumberToDecimal::MALFORMED;
         }
         // Past this bound the exponent outweighs every fraction digit the token holds and every
-        // digit a decimal holds, so the verdict below no longer depends on its exact value: the
-        // exponent saturates there instead of growing. A fixed cap would not do, since a long
-        // fraction can cancel any fixed exponent: 0.<999 zeros>1e10000 is 10^9000, not 1.
-        const long exponent_bound = static_cast<long>(token.size()) + kMaxDigits;
+        // digit and scale a decimal holds, so the verdict below no longer depends on its exact
+        // value: the exponent saturates there instead of growing. A fixed cap would not do, since
+        // a long fraction can cancel any fixed exponent: 0.<999 zeros>1e10000 is 10^9000, not 1.
+        const long exponent_bound = static_cast<long>(token.size()) + finest_scale;
         for (; pos < token.size() && is_digit(token[pos]); ++pos) {
             if (exponent <= exponent_bound) {
                 exponent = exponent * 10 + (token[pos] - '0');
@@ -161,12 +162,14 @@ JsonNumberToDecimal parse_json_number_as_decimal(std::string_view token,
     }
     long scale = static_cast<long>(fraction_digits) - exponent;
     // A value of `significant` digits at this scale is below 10^(significant - scale). Below
-    // 10^-39 it is less than a tenth of the last place of the finest decimal there is, so it rounds
-    // to 0 at every scale a decimal has, as an exact zero does. Reading it as 0 here keeps it away
-    // from the cast behind OUT_OF_RANGE, which reads no exponent beyond 32 bits and would answer
-    // NULL for 1e-3000000000 where every smaller exponent answers 0. The exponent saturates far
-    // past this bound, so a saturated negative exponent always lands here.
-    const bool rounds_to_zero = scale - static_cast<long>(significant) > kMaxDigits;
+    // 10^-(finest_scale + 1) it is less than a tenth of the last place of the finest decimal the
+    // field's type has, so it rounds to 0 at every scale that type has, as an exact zero does.
+    // The bound is the type's and not 38: a DECIMAL256 field may declare a scale up to 76 and
+    // holds 1.25e-40 exactly. Reading the value as 0 here keeps it away from the cast behind
+    // OUT_OF_RANGE, which reads no exponent beyond 32 bits and would answer NULL for
+    // 1e-3000000000 where every smaller exponent answers 0. The exponent saturates far past this
+    // bound, so a saturated negative exponent always lands here.
+    const bool rounds_to_zero = scale - static_cast<long>(significant) > finest_scale;
     if (unscaled == 0 || rounds_to_zero) {
         out.unscaled = 0;
         out.scale = static_cast<uint8_t>(scale < 0 ? 0 : (scale > kMaxDigits ? kMaxDigits : scale));

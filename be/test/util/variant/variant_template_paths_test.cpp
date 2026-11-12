@@ -50,12 +50,19 @@ std::string digits_of(__int128 value) {
     return negative ? "-" + out : out;
 }
 
-void expect_decimal(std::string_view token, const char* unscaled, int scale, int width) {
+void expect_decimal_at(int finest_scale, std::string_view token, const char* unscaled, int scale,
+                       int width) {
     VariantDecimalText out;
-    ASSERT_EQ(JsonNumberToDecimal::OK, parse_json_number_as_decimal(token, out)) << token;
+    ASSERT_EQ(JsonNumberToDecimal::OK, parse_json_number_as_decimal(token, out, finest_scale))
+            << token;
     EXPECT_EQ(unscaled, digits_of(out.unscaled)) << token;
     EXPECT_EQ(scale, out.scale) << token;
     EXPECT_EQ(width, out.width) << token;
+}
+
+// On a field of up to 38 digits, the finest scale of which is 38.
+void expect_decimal(std::string_view token, const char* unscaled, int scale, int width) {
+    expect_decimal_at(kVariantDecimalFinestScale, token, unscaled, scale, width);
 }
 
 void expect_largeint(std::string_view token, const char* digits) {
@@ -107,7 +114,8 @@ TEST(VariantTemplatePathsTest, TheFieldsTypeSelectsTheRead) {
     EXPECT_EQ(VariantNumberRead::DECIMAL_TEXT, paths.number_read("d32"));
     EXPECT_EQ(VariantNumberRead::DECIMAL_TEXT, paths.number_read("d64"));
     EXPECT_EQ(VariantNumberRead::DECIMAL_TEXT, paths.number_read("d128"));
-    EXPECT_EQ(VariantNumberRead::DECIMAL_TEXT, paths.number_read("d256"));
+    // DECIMAL256 too, told apart for its finer scale
+    EXPECT_EQ(VariantNumberRead::DECIMAL256_TEXT, paths.number_read("d256"));
     // LARGEINT, by name or by glob, reads an integer beyond 64 bits from its text
     EXPECT_EQ(VariantNumberRead::LARGEINT_TEXT, paths.number_read("id"));
     EXPECT_EQ(VariantNumberRead::LARGEINT_TEXT, paths.number_read("ids_a"));
@@ -269,12 +277,17 @@ TEST(VariantTemplatePathsTest, WidthHoldsTheScaleAsWellAsTheDigits) {
 TEST(VariantTemplatePathsTest, DeclinesWhatDoesNotFit) {
     VariantDecimalText out;
     EXPECT_EQ(JsonNumberToDecimal::OUT_OF_RANGE,
-              parse_json_number_as_decimal("100000000000000000000000000000000000000", out));
+              parse_json_number_as_decimal("100000000000000000000000000000000000000", out,
+                                           kVariantDecimalFinestScale));
     EXPECT_EQ(JsonNumberToDecimal::OUT_OF_RANGE,
-              parse_json_number_as_decimal("0.1234567890123456789012345678901234567890123", out));
-    EXPECT_EQ(JsonNumberToDecimal::OUT_OF_RANGE, parse_json_number_as_decimal("1e-39", out));
-    EXPECT_EQ(JsonNumberToDecimal::OUT_OF_RANGE, parse_json_number_as_decimal("1e40", out));
-    EXPECT_EQ(JsonNumberToDecimal::OUT_OF_RANGE, parse_json_number_as_decimal("1e99999", out));
+              parse_json_number_as_decimal("0.1234567890123456789012345678901234567890123", out,
+                                           kVariantDecimalFinestScale));
+    EXPECT_EQ(JsonNumberToDecimal::OUT_OF_RANGE,
+              parse_json_number_as_decimal("1e-39", out, kVariantDecimalFinestScale));
+    EXPECT_EQ(JsonNumberToDecimal::OUT_OF_RANGE,
+              parse_json_number_as_decimal("1e40", out, kVariantDecimalFinestScale));
+    EXPECT_EQ(JsonNumberToDecimal::OUT_OF_RANGE,
+              parse_json_number_as_decimal("1e99999", out, kVariantDecimalFinestScale));
 }
 
 TEST(VariantTemplatePathsTest, AValueBelowEveryScaleReadsAsZero) {
@@ -294,15 +307,48 @@ TEST(VariantTemplatePathsTest, AValueBelowEveryScaleReadsAsZero) {
                    38, 16);
     // 10^-39 and up is not below every scale: 5e-39 is 10^-38 at scale 38, and the cast rounds it
     VariantDecimalText out;
-    EXPECT_EQ(JsonNumberToDecimal::OUT_OF_RANGE, parse_json_number_as_decimal("10e-40", out));
-    EXPECT_EQ(JsonNumberToDecimal::OUT_OF_RANGE, parse_json_number_as_decimal("5e-39", out));
     EXPECT_EQ(JsonNumberToDecimal::OUT_OF_RANGE,
-              parse_json_number_as_decimal("0." + std::string(38, '0') + "1", out));
+              parse_json_number_as_decimal("10e-40", out, kVariantDecimalFinestScale));
+    EXPECT_EQ(JsonNumberToDecimal::OUT_OF_RANGE,
+              parse_json_number_as_decimal("5e-39", out, kVariantDecimalFinestScale));
+    EXPECT_EQ(JsonNumberToDecimal::OUT_OF_RANGE,
+              parse_json_number_as_decimal("0." + std::string(38, '0') + "1", out,
+                                           kVariantDecimalFinestScale));
     // and a value that is too large stays too large, whatever its exponent's length
-    EXPECT_EQ(JsonNumberToDecimal::OUT_OF_RANGE, parse_json_number_as_decimal("1e3000000000", out));
+    EXPECT_EQ(JsonNumberToDecimal::OUT_OF_RANGE,
+              parse_json_number_as_decimal("1e3000000000", out, kVariantDecimalFinestScale));
     EXPECT_EQ(JsonNumberToDecimal::OUT_OF_RANGE,
               parse_json_number_as_decimal("1234567890123456789012345678901234567890123e3000000000",
-                                           out));
+                                           out, kVariantDecimalFinestScale));
+}
+
+TEST(VariantTemplatePathsTest, ADecimal256FieldKeepsAValueItsScaleHolds) {
+    // A DECIMAL256 field declares a scale up to 76, so "below every scale" starts below 10^-77
+    // there and not below 10^-39: decimal(76,45) holds 1.25e-40 exactly. Such a value has a scale
+    // beyond the 38 read here, so it is OUT_OF_RANGE and the caller keeps its text for the cast.
+    VariantDecimalText out;
+    for (const char* token : {"1.25e-40", "-1.25e-40", "1e-40", "1e-76", "9.9e-77", "1e-77"}) {
+        EXPECT_EQ(JsonNumberToDecimal::OUT_OF_RANGE,
+                  parse_json_number_as_decimal(token, out, kVariantDecimal256FinestScale))
+                << token;
+    }
+    // below 10^-77 it is 0 at every scale a DECIMAL256 has, whatever the length of its exponent
+    expect_decimal_at(kVariantDecimal256FinestScale, "1e-78", "0", 38, 16);
+    expect_decimal_at(kVariantDecimal256FinestScale, "9.99e-78", "0", 38, 16);
+    expect_decimal_at(kVariantDecimal256FinestScale, "1e-370", "0", 38, 16);
+    // the exponent is read past this type's finest scale, not past 38: cut after its second
+    // digit, 1e-450 would be read as 1e-45, which a DECIMAL256 holds
+    expect_decimal_at(kVariantDecimal256FinestScale, "1e-450", "0", 38, 16);
+    expect_decimal_at(kVariantDecimal256FinestScale, "1e-3000000000", "0", 38, 16);
+    expect_decimal_at(kVariantDecimal256FinestScale,
+                      "1234567890123456789012345678901234567890123e-3000000000", "0", 38, 16);
+    // the same 1.25e-40 on a field of up to 38 digits is below every scale that field has
+    expect_decimal("1.25e-40", "0", 38, 16);
+    // and what fits 38 digits at a scale up to 38 reads the same on both
+    expect_decimal_at(kVariantDecimal256FinestScale, "1.50", "150", 2, 4);
+    expect_decimal_at(kVariantDecimal256FinestScale, "1e-38", "1", 38, 16);
+    EXPECT_EQ(JsonNumberToDecimal::OUT_OF_RANGE,
+              parse_json_number_as_decimal("1e40", out, kVariantDecimal256FinestScale));
 }
 
 TEST(VariantTemplatePathsTest, ReadsAnExponentOfAnyLength) {
@@ -316,16 +362,19 @@ TEST(VariantTemplatePathsTest, ReadsAnExponentOfAnyLength) {
     // 0.<999 zeros>1e10000 is 10^9000: no decimal holds it, so the text is kept for the template's
     // cast to decide. 0.<999 zeros>1e-10000 is 10^-11000, which is 0 at every scale.
     EXPECT_EQ(JsonNumberToDecimal::OUT_OF_RANGE,
-              parse_json_number_as_decimal("0." + std::string(999, '0') + "1e10000", out));
+              parse_json_number_as_decimal("0." + std::string(999, '0') + "1e10000", out,
+                                           kVariantDecimalFinestScale));
     expect_decimal("0." + std::string(999, '0') + "1e-10000", "0", 38, 16);
     // The bound has to clear every exponent a decimal can still hold, not only the token's length:
     // cut where it first exceeds the five characters of 1e370, the exponent would be read as 37,
     // and 1e-370 as the decimal 1e-37.
-    EXPECT_EQ(JsonNumberToDecimal::OUT_OF_RANGE, parse_json_number_as_decimal("1e370", out));
+    EXPECT_EQ(JsonNumberToDecimal::OUT_OF_RANGE,
+              parse_json_number_as_decimal("1e370", out, kVariantDecimalFinestScale));
     expect_decimal("1e-370", "0", 38, 16);
     // an exponent past every bound stays there however many digits follow
     EXPECT_EQ(JsonNumberToDecimal::OUT_OF_RANGE,
-              parse_json_number_as_decimal("1e" + std::string(400, '9'), out));
+              parse_json_number_as_decimal("1e" + std::string(400, '9'), out,
+                                           kVariantDecimalFinestScale));
     expect_decimal("1e-" + std::string(400, '9'), "0", 38, 16);
 }
 
@@ -333,12 +382,14 @@ TEST(VariantTemplatePathsTest, DeclinesMalformedTokens) {
     VariantDecimalText out;
     for (const char* token : {"", "-", "1.", ".5", "1e", "1e+", "abc", "1.5x", "--1", "1..5", " 1",
                               "-Infinity", "NaN", "+1"}) {
-        EXPECT_EQ(JsonNumberToDecimal::MALFORMED, parse_json_number_as_decimal(token, out))
+        EXPECT_EQ(JsonNumberToDecimal::MALFORMED,
+                  parse_json_number_as_decimal(token, out, kVariantDecimalFinestScale))
                 << token;
     }
     // JSON: int = "0" / digit1-9 *DIGIT. simdjson rejects these and so must the text reader.
     for (const char* token : {"01", "-01", "00", "00.5", "0001e2", "-00"}) {
-        EXPECT_EQ(JsonNumberToDecimal::MALFORMED, parse_json_number_as_decimal(token, out))
+        EXPECT_EQ(JsonNumberToDecimal::MALFORMED,
+                  parse_json_number_as_decimal(token, out, kVariantDecimalFinestScale))
                 << token;
     }
     // a lone zero before the fraction or the exponent is the grammar's one allowed leading zero

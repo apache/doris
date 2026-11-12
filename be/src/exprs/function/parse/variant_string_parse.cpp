@@ -274,7 +274,8 @@ private:
                 return true;
             case simdjson::ondemand::number_type::floating_point_number:
                 mode = _paths.reads_decimal_text() ? number_read() : VariantNumberRead::NATIVE;
-                if (mode != VariantNumberRead::DECIMAL_TEXT) {
+                if (mode != VariantNumberRead::DECIMAL_TEXT &&
+                    mode != VariantNumberRead::DECIMAL256_TEXT) {
                     // also on a LARGEINT path: a fraction or an exponent is not an integer as
                     // written, so the double is kept and the template's cast decides
                     _builder.add_double(number.get_double());
@@ -303,19 +304,24 @@ private:
             // lenient serde, as it is today.
             return false;
         case VariantNumberRead::DECIMAL_TEXT:
-            return collect_decimal_text(trim_json_token(value.raw_json_token()));
+            return collect_decimal_text(trim_json_token(value.raw_json_token()),
+                                        kVariantDecimalFinestScale);
+        case VariantNumberRead::DECIMAL256_TEXT:
+            return collect_decimal_text(trim_json_token(value.raw_json_token()),
+                                        kVariantDecimal256FinestScale);
         case VariantNumberRead::LARGEINT_TEXT:
             return collect_largeint_text(trim_json_token(value.raw_json_token()));
         }
         return false;
     }
 
-    // Beyond 38 significant digits, or at a scale no decimal has, the text is kept as it is and
-    // the template's cast decides (a correctly rounded value or NULL). Only a value below 10^-39
-    // is not kept: the reader answers the 0 it rounds to at every scale.
-    bool collect_decimal_text(std::string_view token) {
+    // Beyond 38 significant digits, or at a scale beyond 38, the text is kept as it is and the
+    // template's cast decides (a correctly rounded value or NULL). Only a value below every scale
+    // the field's decimal type has is not kept: the reader answers the 0 it rounds to there. That
+    // is below 10^-39, and on a DECIMAL256 field, whose scale goes to 76, below 10^-77.
+    bool collect_decimal_text(std::string_view token, int finest_scale) {
         VariantDecimalText decimal;
-        switch (parse_json_number_as_decimal(token, decimal)) {
+        switch (parse_json_number_as_decimal(token, decimal, finest_scale)) {
         case JsonNumberToDecimal::OK:
             // the reader's width holds the scale too; the builder's own choice goes by magnitude
             _builder.add_decimal(decimal.unscaled, decimal.scale, decimal.width);
