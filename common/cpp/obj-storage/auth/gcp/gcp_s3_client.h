@@ -34,7 +34,7 @@ namespace doris {
 // GCS accepts OAuth2 bearer tokens on its S3-compatible XML API. The client uses
 // anonymous AWS credentials so AWSAuthV4Signer returns without adding SigV4, and
 // each object-storage operation obtains its bearer token before entering the SDK.
-// Keep these overrides in sync with the operations used by S3CompatibleObjStorageClient.
+// Keep these overrides in sync with the operations used by S3ObjStorageClient.
 class GcpS3Client : public Aws::S3::S3Client {
 public:
     GcpS3Client(const GcpCredentialConfig& credential, std::string ca_cert_path,

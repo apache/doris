@@ -48,9 +48,7 @@ TEST(ObjStorageConfigTest, CredentialChangesPreserveTarget) {
     update = conf;
     update.need_override_endpoint = false;
     EXPECT_FALSE(same_storage_target(conf, update));
-    GcpConfig gcp;
-    gcp.endpoint = conf.endpoint;
-    gcp.region = conf.region;
+    GcpConfig gcp {conf};
     EXPECT_FALSE(same_storage_target(conf, gcp));
 }
 
@@ -64,10 +62,7 @@ TEST(ObjStorageConfigTest, AzureClientIsBoundToItsContainer) {
     EXPECT_TRUE(same_storage_target(conf, update));
     update.bucket = "second";
     EXPECT_FALSE(same_storage_target(conf, update));
-    AwsConfig aws;
-    aws.bucket = conf.bucket;
-    aws.endpoint = conf.endpoint;
-    aws.region = conf.region;
+    AwsConfig aws {conf};
     EXPECT_FALSE(same_storage_target(conf, aws));
 }
 
@@ -102,8 +97,7 @@ TEST(ObjStorageConfigTest, LegacyResourceWithoutProviderUsesAws) {
     param.root_path = "/tablets";
     param.endpoint = "s3.example";
     const auto config = ObjStorageConfigParser::from_storage_param(param);
-    ASSERT_TRUE(config.has_value()) << config.error().msg();
-    const auto* aws = std::get_if<AwsConfig>(&*config);
+    const auto* aws = std::get_if<AwsConfig>(&config);
     ASSERT_NE(aws, nullptr);
     EXPECT_EQ("legacy", aws->bucket);
     EXPECT_EQ("/tablets", aws->prefix);
@@ -145,20 +139,16 @@ TEST(ObjStorageConfigTest, InfersMissingProviderFromEndpointHost) {
 
         TS3StorageParam param;
         param.endpoint = entry.endpoint;
-        auto resource = ObjStorageConfigParser::from_storage_param(param);
-        ASSERT_TRUE(resource.has_value()) << resource.error().msg();
-        EXPECT_EQ(entry.expected, storage_provider(*resource));
+        EXPECT_EQ(entry.expected,
+                  storage_provider(ObjStorageConfigParser::from_storage_param(param)));
         param.__set_provider(TObjStorageType::UNKNOWN);
-        resource = ObjStorageConfigParser::from_storage_param(param);
-        ASSERT_TRUE(resource.has_value()) << resource.error().msg();
-        EXPECT_EQ(entry.expected, storage_provider(*resource));
+        EXPECT_EQ(entry.expected,
+                  storage_provider(ObjStorageConfigParser::from_storage_param(param)));
 
         cloud::ObjectStoreInfoPB info;
         info.set_endpoint(entry.endpoint);
         ASSERT_FALSE(info.has_provider());
-        auto vault = ObjStorageConfigParser::from_vault(info);
-        ASSERT_TRUE(vault.has_value()) << vault.error().msg();
-        EXPECT_EQ(entry.expected, storage_provider(*vault));
+        EXPECT_EQ(entry.expected, storage_provider(ObjStorageConfigParser::from_vault(info)));
     }
 }
 
@@ -256,64 +246,13 @@ TEST(ObjStorageConfigTest, ExplicitAwsTakesPrecedenceOverOssEndpoint) {
     TS3StorageParam param;
     param.endpoint = endpoint;
     param.__set_provider(TObjStorageType::AWS);
-    auto resource = ObjStorageConfigParser::from_storage_param(param);
-    ASSERT_TRUE(resource.has_value()) << resource.error().msg();
-    EXPECT_TRUE(std::holds_alternative<AwsConfig>(*resource));
+    EXPECT_TRUE(
+            std::holds_alternative<AwsConfig>(ObjStorageConfigParser::from_storage_param(param)));
 
     cloud::ObjectStoreInfoPB info;
     info.set_endpoint(endpoint);
     info.set_provider(cloud::ObjectStoreInfoPB::S3);
-    auto vault = ObjStorageConfigParser::from_vault(info);
-    ASSERT_TRUE(vault.has_value()) << vault.error().msg();
-    EXPECT_TRUE(std::holds_alternative<AwsConfig>(*vault));
-}
-
-TEST(ObjStorageConfigTest, SwitchingProviderDropsAwsRoleAndRetainsConnection) {
-    AwsConfig aws;
-    aws.endpoint = "shared-endpoint";
-    aws.region = "region";
-    aws.role_arn = "aws-role";
-    aws.external_id = "aws-external-id";
-    aws.max_connections = 23;
-    ObjStorageConfig parsed = aws;
-    S3URI uri("s3://bucket/key");
-    ASSERT_TRUE(uri.parse().ok());
-
-    ASSERT_TRUE(ObjStorageConfigParser::from_properties({{"provider", "BOS"}}, uri, &parsed).ok());
-    const auto& bos = std::get<BosConfig>(parsed);
-    EXPECT_EQ(aws.endpoint, bos.endpoint);
-    EXPECT_EQ(aws.max_connections, bos.max_connections);
-    ASSERT_TRUE(ObjStorageConfigParser::from_properties({{"provider", "AWS"}}, uri, &parsed).ok());
-    const auto& reparsed = std::get<AwsConfig>(parsed);
-    EXPECT_TRUE(reparsed.role_arn.empty());
-    EXPECT_TRUE(reparsed.external_id.empty());
-    EXPECT_EQ(aws.max_connections, reparsed.max_connections);
-}
-
-TEST(ObjStorageConfigTest, WireParsersRejectGcpCredentialConflicts) {
-    TS3StorageParam resource;
-    TCredential credential;
-    credential.__set_gcp_credential(TGcpCredential {});
-    resource.__set_credential(credential);
-    cloud::ObjectStoreInfoPB vault;
-    vault.mutable_credential()->mutable_gcp_credential();
-
-    resource.__set_provider(TObjStorageType::GCP);
-    vault.set_provider(cloud::ObjectStoreInfoPB::GCP);
-    ASSERT_TRUE(ObjStorageConfigParser::from_storage_param(resource).has_value());
-    ASSERT_TRUE(ObjStorageConfigParser::from_vault(vault).has_value());
-
-    resource.__set_role_arn("aws-role");
-    vault.set_role_arn("aws-role");
-    EXPECT_FALSE(ObjStorageConfigParser::from_storage_param(resource).has_value());
-    EXPECT_FALSE(ObjStorageConfigParser::from_vault(vault).has_value());
-
-    resource.__set_role_arn("");
-    vault.clear_role_arn();
-    resource.__set_provider(TObjStorageType::OSS);
-    vault.set_provider(cloud::ObjectStoreInfoPB::OSS);
-    EXPECT_FALSE(ObjStorageConfigParser::from_storage_param(resource).has_value());
-    EXPECT_FALSE(ObjStorageConfigParser::from_vault(vault).has_value());
+    EXPECT_TRUE(std::holds_alternative<AwsConfig>(ObjStorageConfigParser::from_vault(info)));
 }
 
 TEST(ObjStorageConfigTest, ParsesProviderTypesFromAllInputFormats) {
@@ -336,19 +275,14 @@ TEST(ObjStorageConfigTest, ParsesProviderTypesFromAllInputFormats) {
     ASSERT_TRUE(uri.parse().ok());
     for (const auto& entry : cases) {
         SCOPED_TRACE(entry.name);
-        std::map<std::string, std::string> props {{"provider", entry.name},
-                                                  {"AWS_ENDPOINT", "endpoint"},
-                                                  {"AWS_REGION", "region"},
-                                                  {"AWS_ACCESS_KEY", "ak"},
-                                                  {"AWS_SECRET_KEY", "sk"},
-                                                  {"use_path_style", "true"},
-                                                  {"AWS_CREDENTIALS_PROVIDER_TYPE", "ENV"}};
+        std::map<std::string, std::string> props {
+                {"provider", entry.name}, {"AWS_ENDPOINT", "endpoint"}, {"AWS_REGION", "region"},
+                {"AWS_ACCESS_KEY", "ak"}, {"AWS_SECRET_KEY", "sk"},     {"use_path_style", "true"}};
         ObjStorageConfig from_props;
         ASSERT_TRUE(ObjStorageConfigParser::from_properties(props, uri, &from_props).ok());
 
         TS3StorageParam param;
         param.__set_provider(entry.thrift);
-        param.__set_cred_provider_type(TCredProviderType::ENV);
         param.bucket = "bucket";
         param.endpoint = "endpoint";
         param.region = "region";
@@ -359,7 +293,6 @@ TEST(ObjStorageConfigTest, ParsesProviderTypesFromAllInputFormats) {
 
         cloud::ObjectStoreInfoPB info;
         info.set_provider(entry.pb);
-        info.set_cred_provider_type(cloud::CredProviderTypePB::ENV);
         info.set_bucket("bucket");
         info.set_endpoint("endpoint");
         info.set_region("region");
@@ -368,10 +301,8 @@ TEST(ObjStorageConfigTest, ParsesProviderTypesFromAllInputFormats) {
         info.set_use_path_style(true);
         const auto from_vault = ObjStorageConfigParser::from_vault(info);
 
-        ASSERT_TRUE(from_resource.has_value()) << from_resource.error().msg();
-        ASSERT_TRUE(from_vault.has_value()) << from_vault.error().msg();
         for (const auto* parsed : std::initializer_list<const ObjStorageConfig*> {
-                     &from_props, &*from_resource, &*from_vault}) {
+                     &from_props, &from_resource, &from_vault}) {
             ASSERT_EQ(entry.expected.index(), parsed->index());
             const auto& config = storage_config_base(*parsed);
             EXPECT_EQ("endpoint", config.endpoint);
@@ -379,14 +310,9 @@ TEST(ObjStorageConfigTest, ParsesProviderTypesFromAllInputFormats) {
             EXPECT_EQ("ak", config.ak);
             EXPECT_EQ("sk", config.sk);
             EXPECT_EQ("bucket", config.bucket);
-            std::visit(
-                    [](const auto& provider) {
-                        if constexpr (requires { provider.use_virtual_addressing; }) {
-                            EXPECT_FALSE(provider.use_virtual_addressing);
-                            EXPECT_EQ(CredProviderType::Env, provider.cred_provider_type);
-                        }
-                    },
-                    *parsed);
+            if (!std::holds_alternative<AzureConfig>(*parsed)) {
+                EXPECT_FALSE(config.use_virtual_addressing);
+            }
         }
     }
 }

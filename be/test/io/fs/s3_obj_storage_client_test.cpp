@@ -17,18 +17,16 @@
 
 #include "cpp/obj-storage/client/s3_obj_storage_client.h"
 
-#include <aws/s3/S3Errors.h>
 #include <gtest/gtest.h>
 
-#include "cpp/obj-storage/client/gcp_obj_storage_client.h"
 #include "cpp/obj-storage/client/obj_storage_client.h"
 #include "io/fs/file_system.h"
 #include "io/object_storage/obj_storage_client_factory.h"
 
 namespace doris {
 
-TEST(GcpObjStorageSignedUrlTest, DelegatesProviderSpecificSigning) {
-    GcpObjStorageClient client(nullptr, {}, [](const ObjStoragePath& path, int64_t expiration) {
+TEST(S3ObjStorageSignedUrlTest, DelegatesProviderSpecificSigning) {
+    S3ObjStorageClient client(nullptr, {}, [](const ObjStoragePath& path, int64_t expiration) {
         EXPECT_EQ(path.bucket, "bucket");
         EXPECT_EQ(path.key, "nested/key");
         EXPECT_EQ(expiration, 300);

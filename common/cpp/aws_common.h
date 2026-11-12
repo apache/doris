@@ -31,12 +31,7 @@ struct ClientConfiguration;
 }
 
 namespace doris {
-enum class EmptyCredentialsBehavior {
-    ANONYMOUS,
-    DEFAULT_CHAIN,
-};
-
-// AWS credentials provider type
+//AWS Credentials Provider Type
 enum class CredProviderType {
     Default = 0,
     Simple = 1,

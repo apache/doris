@@ -1792,12 +1792,7 @@ void update_s3_resource(const TStorageResource& param, io::RemoteFileSystemSPtr 
     Status st;
     io::RemoteFileSystemSPtr fs;
 
-    auto parsed = ObjStorageConfigParser::from_storage_param(param.s3_storage_param);
-    if (!parsed) {
-        LOG(WARNING) << "invalid s3 resource " << param.id << ": " << parsed.error();
-        return;
-    }
-    auto& storage_config = *parsed;
+    auto storage_config = ObjStorageConfigParser::from_storage_param(param.s3_storage_param);
     auto current = std::static_pointer_cast<io::ObjStorageFileSystem>(existed_fs);
     DCHECK(!existed_fs || existed_fs->type() == io::FileSystemType::OBJECT_STORAGE);
     // A changed target needs its own filesystem. Open readers and writers still own the old holder.

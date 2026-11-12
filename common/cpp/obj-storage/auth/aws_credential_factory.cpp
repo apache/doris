@@ -81,23 +81,16 @@ AwsCredentialOptions AwsCredentialOptions::from_sdk_defaults(
     return options;
 }
 
-AwsCredentialOptions AwsCredentialOptions::from_config(const S3CompatibleConfig& config) {
-    auto options = from_sdk_defaults(config.s3.credential_provider_version,
-                                     default_aws_client_configuration(), config.s3.ca_cert_path,
-                                     config.s3.empty_credentials);
+AwsCredentialOptions AwsCredentialOptions::from_config(
+        std::string_view provider_version, const Aws::Client::ClientConfiguration& sdk_defaults,
+        const std::string& ca_cert_path, const ObjStorageConfigBase& config,
+        EmptyCredentialsBehavior empty_credentials) {
+    auto options =
+            from_sdk_defaults(provider_version, sdk_defaults, ca_cert_path, empty_credentials);
     options.access_key = config.ak;
     options.secret_key = config.sk;
     options.session_token = config.token;
     options.provider_type = config.cred_provider_type;
-    return options;
-}
-
-AwsCredentialOptions AwsCredentialOptions::from_config(const AwsConfig& config) {
-    auto options = from_config(static_cast<const S3CompatibleConfig&>(config));
-    // STS uses the process defaults independently of the object endpoint and data timeouts.
-    if (config.sts_request_timeout_ms) {
-        options.sts_client_config.requestTimeoutMs = *config.sts_request_timeout_ms;
-    }
     options.role_arn = config.role_arn;
     options.external_id = config.external_id;
     return options;

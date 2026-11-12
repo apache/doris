@@ -38,6 +38,11 @@ enum class ObjCredentialProvider {
     Tos,
 };
 
+// TODO: Add AwsCredentialConfig to CredentialConfig so AWS uses the same
+// provider-neutral path. The AWS-specific role ARN, external ID, and credential-
+// provider fields remain outside this abstraction for compatibility with existing
+// configurations and protocol clients. AK/SK and session tokens are common static
+// credentials for S3-compatible providers and are not part of this migration.
 struct ObjCredentialValidationContext {
     ObjCredentialProvider provider = ObjCredentialProvider::Unknown;
     std::string_view ak {};

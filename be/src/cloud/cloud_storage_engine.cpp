@@ -149,8 +149,7 @@ struct VaultCreateFSVisitor {
                   << " resource_id=" << id << " check_fs: " << check_fs;
 
         auto fs = DORIS_TRY(io::ObjStorageFileSystem::create(storage_config, id));
-        const auto* aws = std::get_if<AwsConfig>(&storage_config);
-        if (check_fs && aws && !aws->role_arn.empty()) {
+        if (check_fs && !storage_config_base(storage_config).role_arn.empty()) {
             bool res = false;
             // just check connectivity, not care object if exist
             auto st = fs->exists("not_exist_object", &res);
@@ -487,12 +486,7 @@ void CloudStorageEngine::sync_storage_vault() {
                   << check_storage_vault;
     }
 
-    for (auto& [id, parsed, path_format] : vault_infos) {
-        if (!parsed) {
-            LOG(WARNING) << "invalid vault " << id << ": " << parsed.error();
-            continue;
-        }
-        auto& vault_info = *parsed;
+    for (auto& [id, vault_info, path_format] : vault_infos) {
         auto fs = get_filesystem(id);
         auto status =
                 (fs == nullptr)
