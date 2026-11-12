@@ -144,6 +144,33 @@ suite("test_show_create_mtmv","mtmv") {
     logger.info("showCreateMTMVAgainResult: " + showCreateMTMVResultAgain.toString())
     assertEquals(showCreateMTMVResult.toString(), showCreateMTMVResultAgain.toString())
 
+    // a name that needs back-quotes: the DDL re-executes only when SHOW CREATE quotes it
+    String quotedMvName = "${suiteName}-mv"
+    sql """drop materialized view if exists `${quotedMvName}`;"""
+    sql """
+        CREATE MATERIALIZED VIEW `${quotedMvName}`
+        BUILD DEFERRED REFRESH AUTO ON MANUAL
+        DISTRIBUTED BY RANDOM BUCKETS 2
+        PROPERTIES (
+        'replication_num' = '1'
+        )
+        AS
+        SELECT * FROM ${tableName};
+    """
+    showCreateMTMVResult = sql """show CREATE MATERIALIZED VIEW `${quotedMvName}`"""
+    logger.info("showCreateMTMVResult: " + showCreateMTMVResult.toString())
+    assertTrue(showCreateMTMVResult[0][1].startsWith("CREATE MATERIALIZED VIEW `${quotedMvName}`"))
+    sql """drop materialized view if exists `${quotedMvName}`;"""
+    sql """
+            ${showCreateMTMVResult[0][1]}
+        """
+    showCreateMTMVResultAgain = sql """show CREATE MATERIALIZED VIEW `${quotedMvName}`"""
+    logger.info("showCreateMTMVAgainResult: " + showCreateMTMVResultAgain.toString())
+    assertEquals(showCreateMTMVResult.toString(), showCreateMTMVResultAgain.toString())
+
     sql """drop table if exists `${tableName}`"""
     sql """drop materialized view if exists ${mvName};"""
+    // check_before_quit runs SHOW CREATE TABLE on every table it finds with the name unquoted,
+    // which fails for this name, so don't leave it behind
+    sql """drop materialized view if exists `${quotedMvName}`;"""
 }
