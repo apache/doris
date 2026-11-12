@@ -58,10 +58,11 @@ public abstract class MapAggregateFunction extends NotNullableAggregateFunction
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
-        if (getMapType().getKeyType().isSpatialType()) {
+        MapType mapType = getMapType();
+        if (mapType.getKeyType().toCatalogDataType().typeContainsSpatialType()) {
             throw new AnalysisException(getName() + " does not support spatial MAP keys");
         }
-        if (distinct && getMapType().toCatalogDataType().typeContainsSpatialType()) {
+        if (distinct && mapType.toCatalogDataType().typeContainsSpatialType()) {
             throw new AnalysisException(getName() + " DISTINCT does not support spatial arguments");
         }
     }

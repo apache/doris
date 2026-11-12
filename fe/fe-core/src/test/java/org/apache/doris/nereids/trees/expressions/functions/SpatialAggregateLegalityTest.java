@@ -78,9 +78,11 @@ import org.apache.doris.qe.ConnectContext;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 import java.util.List;
+import java.util.stream.Stream;
 
 public class SpatialAggregateLegalityTest {
     @Test
@@ -257,24 +259,22 @@ public class SpatialAggregateLegalityTest {
         }
     }
 
-    @Test
-    public void declaredSpatialMapStatesRejectKeysWithoutAProducer() {
+    @ParameterizedTest(name = "declared MAP state key {0}")
+    @MethodSource("spatialMapKeyTypes")
+    public void declaredSpatialMapStatesRejectKeysWithoutAProducer(DataType keyType) {
         MemoTestUtils.createConnectContext();
-        for (DataType spatial : List.of(new GeometryType("EPSG:3857"),
-                new GeographyType("OGC:CRS84", "spherical"))) {
-            for (boolean nullable : List.of(false, true)) {
-                for (String function : List.of("count_map", "sum_map", "avg_map", "min_map", "max_map")) {
-                    AggStateType state = new AggStateType(function,
-                            List.of(MapType.of(spatial, IntegerType.INSTANCE)), List.of(nullable), false);
-                    for (DataType type : List.of(state, ArrayType.of(state),
-                            MapType.of(IntegerType.INSTANCE, state),
-                            new StructType(List.of(new StructField("state", state, true, ""))))) {
-                        LogicalOneRowRelation plan = new LogicalOneRowRelation(
-                                StatementScopeIdGenerator.newRelationId(), List.of(new Alias(new NullLiteral(type))));
-                        AnalysisException error = Assertions.assertThrows(AnalysisException.class,
-                                () -> new CheckDataTypes().rewriteRoot(plan, null));
-                        Assertions.assertEquals(function + " does not support spatial MAP keys", error.getMessage());
-                    }
+        for (boolean nullable : List.of(false, true)) {
+            for (String function : List.of("count_map", "sum_map", "avg_map", "min_map", "max_map")) {
+                AggStateType state = new AggStateType(function,
+                        List.of(MapType.of(keyType, IntegerType.INSTANCE)), List.of(nullable), false);
+                for (DataType type : List.of(state, ArrayType.of(state),
+                        MapType.of(IntegerType.INSTANCE, state),
+                        new StructType(List.of(new StructField("state", state, true, ""))))) {
+                    LogicalOneRowRelation plan = new LogicalOneRowRelation(
+                            StatementScopeIdGenerator.newRelationId(), List.of(new Alias(new NullLiteral(type))));
+                    AnalysisException error = Assertions.assertThrows(AnalysisException.class,
+                            () -> new CheckDataTypes().rewriteRoot(plan, null));
+                    Assertions.assertEquals(function + " does not support spatial MAP keys", error.getMessage());
                 }
             }
         }
@@ -372,25 +372,31 @@ public class SpatialAggregateLegalityTest {
         }
     }
 
-    @Test
-    public void mapAggregatesRejectSpatialKeysBeforeCoercionAndAfterRewrite() {
-        for (DataType type : List.of(new GeometryType("EPSG:3857"),
-                new GeographyType("OGC:CRS84", "spherical"))) {
-            for (boolean nullable : List.of(false, true)) {
-                Expression map = new SlotReference("values", MapType.of(type, IntegerType.INSTANCE), nullable);
-                for (AggregateFunction function : List.of(new CountMap(map), new SumMap(map), new AvgMap(map),
-                        new MinMap(map), new MaxMap(map))) {
-                    for (BoundFunction entry : List.of(function, StateCombinator.create(function),
-                            new CombineCombinator(function.getArguments(), function))) {
-                        AnalysisException error = Assertions.assertThrows(AnalysisException.class,
-                                entry::checkLegalityBeforeTypeCoercion);
-                        Assertions.assertEquals(function.getName() + " does not support spatial MAP keys",
-                                error.getMessage());
-                        Assertions.assertThrows(AnalysisException.class, entry::checkLegalityAfterRewrite);
-                    }
+    @ParameterizedTest(name = "MAP aggregate key {0}")
+    @MethodSource("spatialMapKeyTypes")
+    public void mapAggregatesRejectSpatialKeysBeforeCoercionAndAfterRewrite(DataType keyType) {
+        for (boolean nullable : List.of(false, true)) {
+            Expression map = new SlotReference("values", MapType.of(keyType, IntegerType.INSTANCE), nullable);
+            for (AggregateFunction function : List.of(new CountMap(map), new SumMap(map), new AvgMap(map),
+                    new MinMap(map), new MaxMap(map))) {
+                for (BoundFunction entry : List.of(function, StateCombinator.create(function),
+                        new CombineCombinator(function.getArguments(), function))) {
+                    AnalysisException error = Assertions.assertThrows(AnalysisException.class,
+                            entry::checkLegalityBeforeTypeCoercion, entry.getName());
+                    Assertions.assertEquals(function.getName() + " does not support spatial MAP keys",
+                            error.getMessage());
+                    Assertions.assertThrows(AnalysisException.class, entry::checkLegalityAfterRewrite, entry.getName());
                 }
             }
         }
+    }
+
+    private static Stream<DataType> spatialMapKeyTypes() {
+        return Stream.<DataType>of(new GeometryType("EPSG:3857"),
+                        new GeographyType("OGC:CRS84", "spherical"))
+                .flatMap(spatial -> Stream.of(spatial, ArrayType.of(spatial),
+                        MapType.of(IntegerType.INSTANCE, spatial),
+                        new StructType(List.of(new StructField("shape", spatial, true, "")))));
     }
 
     @Test
