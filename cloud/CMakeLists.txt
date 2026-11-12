@@ -124,7 +124,14 @@ if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     endif()
 endif()
 
-set(CMAKE_SKIP_RPATH TRUE)
+if (APPLE)
+    # The macOS FDB client uses @rpath/libfdb_c.dylib as its install name.
+    set(CMAKE_SKIP_RPATH FALSE)
+    set(CMAKE_BUILD_RPATH "${THIRDPARTY_DIR}/lib;@loader_path")
+    set(CMAKE_INSTALL_RPATH "@loader_path")
+else()
+    set(CMAKE_SKIP_RPATH TRUE)
+endif()
 
 # Compile generated source if necessary
 message(STATUS "build gensrc if necessary")
@@ -531,7 +538,7 @@ install(FILES
     DESTINATION ${OUTPUT_DIR}/conf)
 
 install(FILES
-    ${THIRDPARTY_DIR}/lib/libfdb_c.so
+    ${THIRDPARTY_DIR}/lib/${FDB_LIBRARY_NAME}
     PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE
     GROUP_READ GROUP_WRITE GROUP_EXECUTE
     WORLD_READ WORLD_EXECUTE
@@ -544,7 +551,7 @@ foreach(version ${FDB_VERSIONS})
 
     string(REPLACE "." "_" version_underscored ${version})
     install(FILES
-        ${FDB_INSTALL_DIR_${version_underscored}}/lib64/libfdb_c.so
+        ${FDB_LIB_SO_${version_underscored}}
         PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE
         GROUP_READ GROUP_WRITE GROUP_EXECUTE
         WORLD_READ WORLD_EXECUTE
