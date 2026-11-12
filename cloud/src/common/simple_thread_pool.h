@@ -17,7 +17,7 @@
 
 #pragma once
 
-#include <pthread.h>
+#include <butil/threading/platform_thread.h>
 
 #include <atomic>
 #include <condition_variable>
@@ -93,9 +93,11 @@ public:
         _worker_thread_group.clear();
         _pool_name = _pool_name.empty() ? "simple_thread_pool" : _pool_name;
         for (size_t i = 0; i < _pool_size; ++i) {
-            _worker_thread_group.emplace_back(&SimpleThreadPool::work, this);
             std::string name = _pool_name + "_" + std::to_string(i);
-            pthread_setname_np(_worker_thread_group.back().native_handle(), name.c_str());
+            _worker_thread_group.emplace_back([this, name = std::move(name)] {
+                butil::PlatformThread::SetName(name.c_str());
+                work();
+            });
         }
         return 0;
     }

@@ -17,6 +17,7 @@
 
 #include "recycler/snapshot_data_migrator.h"
 
+#include <butil/threading/platform_thread.h>
 #include <gen_cpp/cloud.pb.h>
 
 #include "common/config.h"
@@ -70,7 +71,7 @@ void SnapshotDataMigrator::stop() {
 }
 
 void SnapshotDataMigrator::migration_loop() {
-    pthread_setname_np(pthread_self(), "SNAP_MIGRATOR");
+    butil::PlatformThread::SetName("SNAP_MIGRATOR");
     while (!stopped()) {
         // fetch instance to check
         InstanceInfoPB instance;

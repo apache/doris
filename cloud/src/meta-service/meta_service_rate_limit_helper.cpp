@@ -17,6 +17,7 @@
 
 #include "meta-service/meta_service_rate_limit_helper.h"
 
+#include <butil/threading/platform_thread.h>
 #include <fmt/format.h>
 #include <sched.h>
 #include <sys/resource.h>
@@ -271,6 +272,7 @@ std::optional<double> parse_cgroup_v1_cpu_limit(int64_t quota_us, int64_t period
 }
 
 double get_process_affinity_cpu_limit() {
+#ifdef __linux__
     cpu_set_t cpu_set;
     CPU_ZERO(&cpu_set);
     if (sched_getaffinity(0, sizeof(cpu_set), &cpu_set) == 0) {
@@ -279,6 +281,7 @@ double get_process_affinity_cpu_limit() {
             return static_cast<double>(cpu_count);
         }
     }
+#endif
     const uint32_t fallback = std::max<uint32_t>(1, std::thread::hardware_concurrency());
     return static_cast<double>(fallback);
 }
@@ -643,7 +646,7 @@ public:
         }
         running_.store(1);
         bg_thread_ = std::make_unique<std::thread>([this] {
-            pthread_setname_np(pthread_self(), "ms_stress_det");
+            butil::PlatformThread::SetName("ms_stress_det");
             LOG(INFO) << "MsStressDetector background thread started";
             ProcessResourceSampler sampler;
             while (running_.load() == 1) {

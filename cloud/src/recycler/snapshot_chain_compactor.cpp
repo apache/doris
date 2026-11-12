@@ -17,6 +17,7 @@
 
 #include "recycler/snapshot_chain_compactor.h"
 
+#include <butil/threading/platform_thread.h>
 #include <gen_cpp/cloud.pb.h>
 
 #include "common/config.h"
@@ -69,7 +70,7 @@ void SnapshotChainCompactor::stop() {
 }
 
 void SnapshotChainCompactor::compaction_loop() {
-    pthread_setname_np(pthread_self(), "SNAP_COMPACTOR");
+    butil::PlatformThread::SetName("SNAP_COMPACTOR");
     while (!stopped()) {
         // fetch instance to check
         InstanceInfoPB instance;

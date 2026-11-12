@@ -831,15 +831,15 @@ extern mBvarStatus<double> g_bvar_fdb_cluster_processes;
 extern mBvarStatus<double> g_bvar_fdb_cluster_workload;
 
 // checker
-extern BvarStatusWithTag<long> g_bvar_checker_num_scanned;
-extern BvarStatusWithTag<long> g_bvar_checker_num_scanned_with_segment;
-extern BvarStatusWithTag<long> g_bvar_checker_num_check_failed;
-extern BvarStatusWithTag<long> g_bvar_checker_check_cost_s;
-extern BvarStatusWithTag<long> g_bvar_checker_enqueue_cost_s;
-extern BvarStatusWithTag<long> g_bvar_checker_last_success_time_ms;
-extern BvarStatusWithTag<long> g_bvar_checker_instance_volume;
-extern BvarStatusWithTag<long> g_bvar_inverted_checker_num_scanned;
-extern BvarStatusWithTag<long> g_bvar_inverted_checker_num_check_failed;
+extern BvarStatusWithTag<int64_t> g_bvar_checker_num_scanned;
+extern BvarStatusWithTag<int64_t> g_bvar_checker_num_scanned_with_segment;
+extern BvarStatusWithTag<int64_t> g_bvar_checker_num_check_failed;
+extern BvarStatusWithTag<int64_t> g_bvar_checker_check_cost_s;
+extern BvarStatusWithTag<int64_t> g_bvar_checker_enqueue_cost_s;
+extern BvarStatusWithTag<int64_t> g_bvar_checker_last_success_time_ms;
+extern BvarStatusWithTag<int64_t> g_bvar_checker_instance_volume;
+extern BvarStatusWithTag<int64_t> g_bvar_inverted_checker_num_scanned;
+extern BvarStatusWithTag<int64_t> g_bvar_inverted_checker_num_check_failed;
 
 extern BvarStatusWithTag<int64_t> g_bvar_inverted_checker_leaked_delete_bitmaps;
 extern BvarStatusWithTag<int64_t> g_bvar_inverted_checker_abnormal_delete_bitmaps;

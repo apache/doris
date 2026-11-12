@@ -19,6 +19,7 @@
 
 #include <brpc/closure_guard.h>
 #include <brpc/controller.h>
+#include <butil/threading/platform_thread.h>
 #include <fmt/format.h>
 #include <gen_cpp/cloud.pb.h>
 #include <google/protobuf/util/json_util.h>
@@ -527,12 +528,12 @@ void recycle_copy_jobs(const std::shared_ptr<TxnKv>& txn_kv, const std::string& 
         return;
     }
     std::thread worker([recycler = std::move(recycler), instance_id] {
+        butil::PlatformThread::SetName("recycler_worker");
         LOG(INFO) << "manually trigger recycle_copy_jobs on instance " << instance_id;
         recycler->recycle_copy_jobs();
         std::lock_guard lock(s_worker_mtx);
         s_worker.erase(instance_id);
     });
-    pthread_setname_np(worker.native_handle(), "recycler_worker");
     worker.detach();
 }
 

@@ -91,11 +91,7 @@ set(TEST_DIR "${CMAKE_SOURCE_DIR}/test/")
 set(OUTPUT_DIR "${BASE_DIR}/output")
 set(THIRDPARTY_SRC "$ENV{DORIS_THIRDPARTY}/src")
 
-if (APPLE)
-    set(MAKE_TEST "ON")
-else()
-    option(MAKE_TEST "ON for make unit test or OFF for not" OFF)
-endif()
+option(MAKE_TEST "ON for make unit test or OFF for not" OFF)
 message(STATUS "make test: ${MAKE_TEST}")
 
 if (OS_MACOSX)
@@ -306,8 +302,10 @@ if (ENABLE_HDFS_STORAGE_VAULT)
     endif()
 endif()
 
-set(WL_START_GROUP "-Wl,--start-group")
-set(WL_END_GROUP "-Wl,--end-group")
+if (NOT OS_MACOSX)
+    set(WL_START_GROUP "-Wl,--start-group")
+    set(WL_END_GROUP "-Wl,--end-group")
+endif()
 
 # Set Doris libraries
 if ((ARCH_AMD64 OR ARCH_AARCH64) AND OS_LINUX)
@@ -354,19 +352,24 @@ set(DORIS_DEPENDENCIES
 message(STATUS "DORIS_DEPENDENCIES is ${DORIS_DEPENDENCIES}")
 
 # Add all external dependencies. They should come after the project's libs.
-# static link gcc's lib
 set(DORIS_LINK_LIBS
     CommonCPP
     ${DORIS_DEPENDENCIES}
-    -static-libstdc++
-    -static-libgcc
     -lresolv
 )
+
+if (NOT OS_MACOSX)
+    list(APPEND DORIS_LINK_LIBS -static-libstdc++ -static-libgcc)
+endif()
 
 if (ENABLE_HDFS_STORAGE_VAULT)
     set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS}
         -L${DORIS_JAVA_HOME}/lib/server
         -ljvm)
+    if (OS_MACOSX)
+        list(APPEND CMAKE_BUILD_RPATH "${DORIS_JAVA_HOME}/lib/server")
+        list(APPEND CMAKE_INSTALL_RPATH "${DORIS_JAVA_HOME}/lib/server")
+    endif()
 endif()
 
 if (NOT (USE_LIBCPP AND COMPILER_CLANG))
@@ -410,9 +413,23 @@ else()
     message(FATAL_ERROR "Unknown build type: ${CMAKE_BUILD_TYPE}")
 endif()
 
-set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS}
-    -lrt -l:libbfd.a -liberty -lc -lm -ldl -pthread
-)
+if (NOT OS_MACOSX)
+    set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS}
+        -lrt -l:libbfd.a -liberty -lc -lm -ldl -pthread
+    )
+else()
+    list(APPEND DORIS_LINK_LIBS
+        -liconv
+        "-framework Foundation"
+        "-framework CoreGraphics"
+        "-framework CoreText"
+        "-framework SystemConfiguration"
+    )
+    # brpc probes this optional tcmalloc entry point in builds using other allocators.
+    if (USE_JEMALLOC OR (NOT CMAKE_BUILD_TYPE STREQUAL "DEBUG" AND NOT CMAKE_BUILD_TYPE STREQUAL "RELEASE"))
+        list(APPEND DORIS_LINK_LIBS "-Wl,-U,_MallocExtension_ReleaseFreeMemory")
+    endif()
+endif()
 
 if(BUILD_CHECK_META STREQUAL "ON")
     set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} -lmysqlclient)
@@ -427,8 +444,11 @@ if (ENABLE_CLANG_COVERAGE AND ENABLE_CLANG_COVERAGE STREQUAL ON AND COMPILER_CLA
 endif ()
 
 if (${MAKE_TEST} STREQUAL "ON")
-    SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DUNIT_TEST -fprofile-arcs -ftest-coverage -fno-access-control -DGTEST_USE_OWN_TR1_TUPLE=0")
-    SET(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fprofile-arcs -ftest-coverage -lgcov")
+    SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DUNIT_TEST -fno-access-control -DGTEST_USE_OWN_TR1_TUPLE=0")
+    if (NOT OS_MACOSX)
+        SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fprofile-arcs -ftest-coverage")
+        SET(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fprofile-arcs -ftest-coverage -lgcov")
+    endif()
     add_definitions(-DBE_TEST)
 endif ()
 

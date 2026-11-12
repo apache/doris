@@ -19,6 +19,7 @@
 
 #include <brpc/server.h>
 #include <butil/endpoint.h>
+#include <butil/threading/platform_thread.h>
 #include <gen_cpp/cloud.pb.h>
 #include <glog/logging.h>
 
@@ -145,6 +146,7 @@ void MetaServerRegister::prepare_registry(ServiceRegistryPB* reg) {
 MetaServerRegister::MetaServerRegister(std::shared_ptr<TxnKv> txn_kv)
         : running_(0), txn_kv_(std::move(txn_kv)) {
     register_thread_.reset(new std::thread([this] {
+        butil::PlatformThread::SetName("ms_register_thread");
         while (running_.load() == 0) {
             LOG(INFO) << "register thread wait for start";
             std::unique_lock l(mtx_);
@@ -187,7 +189,6 @@ MetaServerRegister::MetaServerRegister(std::shared_ptr<TxnKv> txn_kv)
         }
         LOG(INFO) << "register thread quits";
     }));
-    pthread_setname_np(register_thread_->native_handle(), "ms_register_thread");
 }
 
 MetaServerRegister::~MetaServerRegister() {
@@ -250,7 +251,7 @@ void MetaServerInstanceWatcher::stop() {
 }
 
 void MetaServerInstanceWatcher::watch_instance_loop() {
-    pthread_setname_np(pthread_self(), "ms_instance_watcher");
+    butil::PlatformThread::SetName("ms_instance_watcher");
 
     LOG(INFO) << "instance watch thread begins to run";
 

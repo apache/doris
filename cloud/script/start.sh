@@ -79,7 +79,7 @@ for conf_pattern in ${CONF_FILES//,/ }; do
             envline="$(eval "echo ${envline}")"
             if [[ "${envline}" == *"="* ]]; then
                 key="${envline%%=*}"
-                if [[ "${loaded_conf_env_keys}" != *" ${key} "* ]] && [[ -v ${key} ]]; then
+                if [[ "${loaded_conf_env_keys}" != *" ${key} "* ]] && [[ "${!key+x}" == x ]]; then
                     continue
                 fi
                 eval 'export "${envline}"'
