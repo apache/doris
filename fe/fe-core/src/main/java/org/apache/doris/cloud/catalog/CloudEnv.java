@@ -52,6 +52,7 @@ import org.apache.doris.nereids.trees.plans.commands.CancelWarmUpJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateStageCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropStageCommand;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.rpc.RpcException;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.system.SystemInfoService.HostInfo;
 import org.apache.doris.task.AgentBatchTask;
@@ -75,9 +76,6 @@ import java.util.stream.Collectors;
 public class CloudEnv extends Env {
 
     private static final Logger LOG = LogManager.getLogger(CloudEnv.class);
-
-    // Whether Config.cloud_unique_id is derived from cluster_id, it is process wide like Config.
-    private static volatile boolean cloudUniqueIdDerived;
 
     private CloudInstanceStatusChecker cloudInstanceStatusChecker;
     private CloudClusterChecker cloudClusterCheck;
@@ -167,13 +165,6 @@ public class CloudEnv extends Env {
         this.cloudInstanceId = cloudInstanceId;
     }
 
-    // The cloud_unique_id to prove which instance a request naming the instance id comes from. The one
-    // derived from cluster_id proves nothing, and is not registered before this FE adds itself to meta
-    // service, so it is not sent.
-    public static String getAuthCloudUniqueId() {
-        return cloudUniqueIdDerived ? "" : Config.cloud_unique_id;
-    }
-
     @Override
     public void initialize(String[] args) throws Exception {
         if (clusterSnapshotFile != null && Strings.isNullOrEmpty(Config.cloud_unique_id)) {
@@ -192,7 +183,6 @@ public class CloudEnv extends Env {
 
         if (Strings.isNullOrEmpty(Config.cloud_unique_id) && !Strings.isNullOrEmpty(cloudInstanceId)) {
             Config.cloud_unique_id = "1:" + cloudInstanceId + ":fe";
-            cloudUniqueIdDerived = true;
             LOG.info("cloud_unique_id is empty, setting it to: {}", Config.cloud_unique_id);
         }
 
@@ -279,22 +269,31 @@ public class CloudEnv extends Env {
         return local.orElse(null);
     }
 
-    private void tryAddMyselfToMS() {
+    private boolean bootstrapInstance() throws IOException {
+        Cloud.MetaServiceResponseStatus status;
         try {
-            try {
-                getCloudSystemInfoService().tryCreateInstance(getCloudInstanceId(),
-                        getCloudInstanceId(), false);
-            } catch (Exception e) {
-                return;
-            }
-            addFrontend(FrontendNodeType.MASTER, selfNode.getHost(), selfNode.getPort());
-        } catch (DdlException e) {
-            LOG.warn("get ddl exception ", e);
+            status = getCloudSystemInfoService().bootstrapInstance(getCloudInstanceId(),
+                    selfNode.getHost(), selfNode.getPort());
+        } catch (RpcException e) {
+            LOG.warn("Failed to contact Meta Service for instance bootstrap", e);
+            return false;
+        }
+        switch (status.getCode()) {
+            case OK:
+            case ALREADY_EXISTED:
+                // The startup loop verifies that this FE is registered, including after a lost response.
+                return true;
+            case INVALID_ARGUMENT:
+                throw new IOException("Instance bootstrap rejected: " + status.getMsg());
+            default:
+                LOG.warn("Instance bootstrap returned {}, will retry", status.getCode());
+                return false;
         }
     }
 
     protected void getClusterIdAndRole() throws IOException {
         NodeInfoPB.NodeType type = NodeInfoPB.NodeType.UNKNOWN;
+        boolean bootstrapSubmitted = false;
         // cloud mode
         while (true) {
             Cloud.NodeInfoPB nodeInfoPB = null;
@@ -307,8 +306,8 @@ public class CloudEnv extends Env {
             if (nodeInfoPB == null) {
                 LOG.warn("failed to get local fe's type, sleep {} s, try again.",
                         Config.resource_not_ready_sleep_seconds);
-                if (isStartFromEmpty()) {
-                    tryAddMyselfToMS();
+                if (isStartFromEmpty() && !bootstrapSubmitted && Config.cluster_id != -1) {
+                    bootstrapSubmitted = bootstrapInstance();
                 }
                 try {
                     Thread.sleep(Config.resource_not_ready_sleep_seconds * 1000);

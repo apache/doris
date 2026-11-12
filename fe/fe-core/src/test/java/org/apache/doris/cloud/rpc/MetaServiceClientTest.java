@@ -17,7 +17,6 @@
 
 package org.apache.doris.cloud.rpc;
 
-import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.proto.MetaServiceGrpc;
 import org.apache.doris.common.Config;
@@ -30,7 +29,6 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 
-import java.lang.reflect.Field;
 import java.util.concurrent.TimeUnit;
 
 public class MetaServiceClientTest {
@@ -51,15 +49,8 @@ public class MetaServiceClientTest {
     }
 
     @AfterEach
-    public void tearDown() throws ReflectiveOperationException {
+    public void tearDown() {
         Config.cloud_unique_id = originCloudUniqueId;
-        setCloudUniqueIdDerived(false);
-    }
-
-    private static void setCloudUniqueIdDerived(boolean derived) throws ReflectiveOperationException {
-        Field field = CloudEnv.class.getDeclaredField("cloudUniqueIdDerived");
-        field.setAccessible(true);
-        field.setBoolean(null, derived);
     }
 
     private Cloud.AlterClusterRequest sentAlterCluster(Cloud.AlterClusterRequest request) {
@@ -102,11 +93,14 @@ public class MetaServiceClientTest {
     }
 
     @Test
-    public void testNotFillDerivedCloudUniqueId() throws ReflectiveOperationException {
-        // The cloud_unique_id derived from cluster_id is not registered before the first FE adds itself.
-        setCloudUniqueIdDerived(true);
-        Cloud.AlterClusterRequest request = Cloud.AlterClusterRequest.newBuilder()
-                .setInstanceId("instance_id").setOp(Cloud.AlterClusterRequest.Operation.ADD_NODE).build();
-        Assertions.assertFalse(sentAlterCluster(request).hasCloudUniqueId());
+    public void testFillCloudUniqueIdDerivedFromClusterId() {
+        Config.cloud_unique_id = "1:12345678:fe";
+        Cloud.AlterClusterRequest alterCluster = Cloud.AlterClusterRequest.newBuilder()
+                .setInstanceId("12345678").setOp(Cloud.AlterClusterRequest.Operation.ADD_NODE).build();
+        Cloud.AlterInstanceRequest alterInstance = Cloud.AlterInstanceRequest.newBuilder()
+                .setInstanceId("12345678").setOp(Cloud.AlterInstanceRequest.Operation.SET_SNAPSHOT_PROPERTY).build();
+
+        Assertions.assertEquals(Config.cloud_unique_id, sentAlterCluster(alterCluster).getCloudUniqueId());
+        Assertions.assertEquals(Config.cloud_unique_id, sentAlterInstance(alterInstance).getCloudUniqueId());
     }
 }

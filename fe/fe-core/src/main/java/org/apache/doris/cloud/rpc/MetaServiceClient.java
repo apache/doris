@@ -17,7 +17,6 @@
 
 package org.apache.doris.cloud.rpc;
 
-import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.proto.MetaServiceGrpc;
 import org.apache.doris.common.Config;
@@ -480,7 +479,7 @@ public class MetaServiceClient {
 
     public Cloud.AlterClusterResponse alterCluster(Cloud.AlterClusterRequest request) {
         // Meta service requires cloud_unique_id with instance_id in strict instance auth mode.
-        String cloudUniqueId = CloudEnv.getAuthCloudUniqueId();
+        String cloudUniqueId = Config.cloud_unique_id;
         if (!request.hasCloudUniqueId() && !cloudUniqueId.isEmpty()) {
             Cloud.AlterClusterRequest.Builder builder = Cloud.AlterClusterRequest.newBuilder();
             builder.mergeFrom(request);
@@ -643,10 +642,9 @@ public class MetaServiceClient {
                 .finishTabletJob(request);
     }
 
-    public Cloud.CreateInstanceResponse
-            createInstance(Cloud.CreateInstanceRequest request) {
+    public Cloud.CreateInstanceResponse bootstrapInstance(Cloud.BootstrapInstanceRequest request) {
         return blockingStub.withDeadlineAfter(Config.meta_service_brpc_timeout_ms, TimeUnit.MILLISECONDS)
-                .createInstance(request);
+                .bootstrapInstance(request);
     }
 
     public Cloud.GetStreamingTaskCommitAttachResponse
@@ -662,7 +660,7 @@ public class MetaServiceClient {
 
     public Cloud.AlterInstanceResponse alterInstance(Cloud.AlterInstanceRequest request) {
         // Meta service requires cloud_unique_id with instance_id in strict instance auth mode.
-        String cloudUniqueId = CloudEnv.getAuthCloudUniqueId();
+        String cloudUniqueId = Config.cloud_unique_id;
         if (!request.hasCloudUniqueId() && !cloudUniqueId.isEmpty()) {
             Cloud.AlterInstanceRequest.Builder builder = Cloud.AlterInstanceRequest.newBuilder();
             builder.mergeFrom(request);
