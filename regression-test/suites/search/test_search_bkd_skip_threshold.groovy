@@ -20,17 +20,17 @@
 // query failed with "SEARCH cannot fall back to row execution". SEARCH must always use
 // the index.
 suite("test_search_bkd_skip_threshold", "p0") {
-    def tableName = "test_search_bkd_skip_threshold"
-
     sql """ set enable_common_expr_pushdown = true """
     sql """ set enable_inverted_index_query_cache = true """
     sql """ set inverted_index_skip_threshold = 50 """
     sql """ set default_variant_enable_typed_paths_to_sparse = false """
     sql """ set default_variant_enable_doc_mode = false """
+    // Keep both v.n and v.p as indexed subcolumns; a fuzzy budget of 1 would push one to sparse.
+    sql """ set default_variant_max_subcolumns_count = 2048 """
 
-    sql "DROP TABLE IF EXISTS ${tableName}"
+    sql "DROP TABLE IF EXISTS test_search_bkd_skip_threshold_t"
     sql """
-        CREATE TABLE ${tableName} (
+        CREATE TABLE test_search_bkd_skip_threshold_t (
             `id` INT NOT NULL,
             `k` INT NULL,
             `v` variant NULL,
@@ -48,7 +48,7 @@ suite("test_search_bkd_skip_threshold", "p0") {
     """
 
     // 7 of 10 rows have n = 5 and k = 5, so a BKD lookup for 5 hits 70% of the segment.
-    sql """INSERT INTO ${tableName} VALUES
+    sql """INSERT INTO test_search_bkd_skip_threshold_t VALUES
         (1, 5, parse_to_variant('{"n": 5, "p": "software engineer"}')),
         (2, 5, parse_to_variant('{"n": 5, "p": "sales"}')),
         (3, 5, parse_to_variant('{"n": 5, "p": "software developer"}')),
@@ -61,27 +61,24 @@ suite("test_search_bkd_skip_threshold", "p0") {
         (10, 7, parse_to_variant('{"n": 7, "p": "software engineer"}'))
     """
 
-    def checks = [
-        ["v.n:5", 7],
-        ["k:5", 7],
-        ["v.n:5 AND v.p:software", 4],
-        ["v.n:5 OR v.n:6", 9],
-        ["v.n:6", 2],
-        ["k:6", 2],
-    ]
-    // Run every query several times: the first run can pass on the BKD estimate and the
-    // later ones hit the query cache, where the exact hit count is over the threshold.
-    for (int round = 0; round < 3; round++) {
-        for (def c : checks) {
-            def res = sql "SELECT count(*) FROM ${tableName} WHERE search('${c[0]}')"
-            assertEquals(c[1], res[0][0] as int, "search('${c[0]}') round ${round}")
+    // Run each query twice first: an early run can pass on the BKD estimate, while later runs
+    // read the exact hit count from the query cache, which is over the threshold.
+    def queries = ["v.n:5", "k:5", "v.n:5 AND v.p:software", "v.n:5 OR v.n:6", "v.n:6", "k:6"]
+    for (int round = 0; round < 2; round++) {
+        for (String q : queries) {
+            sql "SELECT count(*) FROM test_search_bkd_skip_threshold_t WHERE search('${q}')"
         }
-        def top = sql """SELECT id FROM ${tableName} WHERE search('v.n:5') ORDER BY id DESC LIMIT 2"""
-        assertEquals([[7], [6]], top.collect { [it[0] as int] })
-        def mode = sql """SELECT count(*) FROM ${tableName}
-                          WHERE search('v.n:5 AND v.p:software', '{"mode":"standard"}')"""
-        assertEquals(4, mode[0][0] as int)
     }
 
-    sql "DROP TABLE IF EXISTS ${tableName}"
+    qt_dense_variant """SELECT count(*) FROM test_search_bkd_skip_threshold_t WHERE search('v.n:5')"""
+    qt_dense_column """SELECT count(*) FROM test_search_bkd_skip_threshold_t WHERE search('k:5')"""
+    qt_dense_and_text """SELECT count(*) FROM test_search_bkd_skip_threshold_t
+                         WHERE search('v.n:5 AND v.p:software')"""
+    qt_dense_or """SELECT count(*) FROM test_search_bkd_skip_threshold_t WHERE search('v.n:5 OR v.n:6')"""
+    qt_sparse_variant """SELECT count(*) FROM test_search_bkd_skip_threshold_t WHERE search('v.n:6')"""
+    qt_sparse_column """SELECT count(*) FROM test_search_bkd_skip_threshold_t WHERE search('k:6')"""
+    qt_dense_topn """SELECT id FROM test_search_bkd_skip_threshold_t
+                     WHERE search('v.n:5') ORDER BY id DESC LIMIT 2"""
+    qt_dense_standard_mode """SELECT count(*) FROM test_search_bkd_skip_threshold_t
+                              WHERE search('v.n:5 AND v.p:software', '{"mode":"standard"}')"""
 }
