@@ -90,10 +90,11 @@ demand or a first inline read to enable parallel reads. Native uncached scans re
 the SDK ScanEvent,
 planning timer and close-time table/catalog ScanReport around local enumeration.
 Per-file row and partition predicates select deletes for the query-local index after
-partition type adaptation; shared parsed values remain complete. The built index
-determines the uncached data projection: position-only unfiltered scans need no
-extra column statistics, while equality deletes and predicates retain the required
-statistics. Explicitly requested SDK statistics are preserved.
+partition type adaptation; shared parsed values remain complete. Read-time statistics
+for predicates are separate from retained metadata. Uncached window copies keep only
+explicitly requested statistics and equality-delete keys. After delete association,
+file tasks keep only the requested statistics; internal matching keys can be dropped.
+Full, partial and empty native statistics requests retain their SDK semantics.
 Uncached readers adapt partition values and evaluate file predicates before copying
 or buffering live entries. Each manifest read owns its predicate and adapter state;
 cached payloads stay complete and are filtered by the scan consumer instead. Delete

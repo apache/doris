@@ -3345,6 +3345,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             // Build the complete index before delivering data. Both manifest kinds use the same inclusive
             // row-to-partition projection and bounded loader; delete loading does not require BE demand.
             List<DeleteFile> deleteFiles = new ArrayList<>();
+            Set<Integer> equalityFields = new HashSet<>();
             if (!deletes.isEmpty()) {
                 CloseableIterable<ManifestFile> matchingDeletes = getMatchingManifest(deletes, specsById, filterExpr,
                         scanContext::checkCancelled, scanMetrics, true);
@@ -3363,6 +3364,9 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                             scanContext.checkCancelled();
                             if (!cacheEnabled || matchesFileFilter(file, metricsEvaluator, residual)) {
                                 deleteFiles.add(cacheEnabled ? IcebergManifestLoader.copyDeleteForIndex(file) : file);
+                                if (!cacheEnabled && file.content() == FileContent.EQUALITY_DELETES) {
+                                    equalityFields.addAll(file.equalityFieldIds());
+                                }
                             } else if (scanMetrics != null) {
                                 scanMetrics.skippedDeleteFiles().increment();
                             }
@@ -3379,13 +3383,15 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                     .scanMetrics(scanMetrics == null ? ScanMetrics.noop() : scanMetrics)
                     .build();
 
-            // Like ManifestGroup, choose the data projection after building the filtered delete index.
-            // Position deletes need no data statistics; equality deletes and row predicates do. Shared cache
-            // contents and explicitly requested SDK statistics must remain complete.
-            List<String> columns = cacheEnabled || filter.isPresent() || deleteIndex.hasEqualityDeletes()
-                    ? null : SchemaAwareDataTableScan.manifestColumns(scan);
+            // Read statistics for predicates, retain requested/equality-key statistics in the window, then
+            // discard internal equality-key maps only after delete association. Shared cached values stay complete.
+            Set<Integer> requiredStats = deleteIndex.hasEqualityDeletes() ? equalityFields : Collections.emptySet();
+            boolean hasPredicate = filterExpr != Expressions.alwaysTrue();
+            SchemaAwareDataTableScan.DataFileProjection dataProjection = cacheEnabled ? null
+                    : SchemaAwareDataTableScan.dataFileProjection(scan, requiredStats, hasPredicate);
             Function<ManifestFile, ManifestCacheValue> loader = cacheEnabled ? deleteLoader
-                    : IcebergManifestLoader.uncachedLoader(table, columns, filters, scanContext::checkCancelled);
+                    : IcebergManifestLoader.uncachedLoader(table, dataProjection.manifestColumns(), filters,
+                            dataProjection::copyForManifest, scanContext::checkCancelled);
             Function<ManifestFile, CompletionStage<ManifestCacheValue>> sharedLoader = cacheEnabled ? sharedDeleteLoader
                     : manifest -> CompletableFuture.completedFuture(loader.apply(manifest));
 
@@ -3416,7 +3422,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                     scanContext.checkCancelled();
                     iterator = new ManifestFileScanTaskIterator(prefetcher, specsById,
                             residualEvaluators, metricsEvaluator, deleteIndex, schemaJson,
-                            scanContext::checkCancelled, scanMetrics, cacheEnabled);
+                            scanContext::checkCancelled, scanMetrics, cacheEnabled, dataProjection);
                     return iterator;
                 }
 
@@ -3506,6 +3512,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         private final Runnable checkCancelled;
         private final ScanMetrics scanMetrics;
         private final boolean filterFiles;
+        private final SchemaAwareDataTableScan.DataFileProjection dataProjection;
 
         private Iterator<DataFile> dataFileIt;
         private ResidualEvaluator currentResidual;
@@ -3515,7 +3522,8 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         ManifestFileScanTaskIterator(IcebergManifestPrefetcher manifestIt,
                 Map<Integer, PartitionSpec> specsById, Map<Integer, ResidualEvaluator> residualEvaluators,
                 InclusiveMetricsEvaluator metricsEvaluator, DeleteFileIndex deleteIndex, String schemaJson,
-                Runnable checkCancelled, ScanMetrics scanMetrics, boolean filterFiles) {
+                Runnable checkCancelled, ScanMetrics scanMetrics, boolean filterFiles,
+                SchemaAwareDataTableScan.DataFileProjection dataProjection) {
             this.manifestIt = manifestIt;
             this.specsById = specsById;
             this.residualEvaluators = residualEvaluators;
@@ -3525,6 +3533,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             this.checkCancelled = checkCancelled;
             this.scanMetrics = scanMetrics;
             this.filterFiles = filterFiles;
+            this.dataProjection = dataProjection;
         }
 
         @Override
@@ -3557,10 +3566,11 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                         continue;
                     }
                     DeleteFile[] deletes = deleteIndex.forDataFile(dataFile.dataSequenceNumber(), dataFile);
+                    DataFile taskFile = dataProjection == null ? dataFile : dataProjection.forTask(dataFile);
                     if (scanMetrics != null) {
-                        ScanMetricsUtil.fileTask(scanMetrics, dataFile, deletes);
+                        ScanMetricsUtil.fileTask(scanMetrics, taskFile, deletes);
                     }
-                    next = new BaseFileScanTask(dataFile, deletes, schemaJson, currentSpecJson, currentResidual);
+                    next = new BaseFileScanTask(taskFile, deletes, schemaJson, currentSpecJson, currentResidual);
                     return;
                 }
                 if (!manifestIt.hasNext()) {
