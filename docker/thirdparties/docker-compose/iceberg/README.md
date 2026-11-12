@@ -24,6 +24,18 @@ tools:
     save_docker.sh: save the current docker state
 ```
 
+## Paimon Spark fixture
+
+Spark 4.0.0 uses the Paimon 2.1.0 Spark 4.0 / Scala 2.13 connector and S3
+filesystem plugin from `iceberg_data_spark40_paimon210.zip`. The startup script
+downloads this archive from the configured regression bucket and mounts the
+jars from `data/input/jars`. Existing data directories missing the required
+jars are replaced with the current archive.
+The Paimon catalog explicitly enables path-style S3 access for the standalone
+MinIO service.
+
+The Fluss image and Hive compatibility fixtures retain their own Paimon versions.
+
 ## Trino JDBC regressions
 
 The Iceberg stack publishes Trino on `TRINO_JDBC_PORT` (8080 by default in
