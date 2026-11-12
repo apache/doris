@@ -28,6 +28,7 @@
 #include "common/status.h"
 #include "storage/index/inverted/analysis/golden/golden_configs.h"
 #include "storage/index/inverted/analysis/golden/golden_corpus.h"
+#include "storage/index/inverted/analysis/text_analyzer.h"
 
 namespace lucene::analysis {
 class Analyzer;
@@ -99,6 +100,17 @@ std::string format_line(const GoldenLine& line);
 // index properties of `config`. The policies of `config` must be registered. Fails when the
 // analyzer cannot be built.
 Status make_golden_driver(const GoldenConfig& config, std::unique_ptr<GoldenDriver>* driver);
+
+// The analyzer of a GoldenKind::ANALYZE `config` behind the TextAnalyzer interface: the one
+// make_golden_driver() drives, in a LuceneBackedTextAnalyzer.
+Status make_golden_text_analyzer(const GoldenConfig& config, TextAnalyzerPtr* analyzer);
+
+// Drives `analyzer` as the consumers of the TextAnalyzer interface do: FRESH makes a stream for
+// every line, as a query does, and REUSED keeps one stream for all lines, as a writer does.
+std::unique_ptr<GoldenDriver> make_text_driver(TextAnalyzerPtr analyzer);
+
+// make_golden_text_analyzer() in make_text_driver(), with the signature of make_golden_driver().
+Status make_golden_text_driver(const GoldenConfig& config, std::unique_ptr<GoldenDriver>* driver);
 
 // The kind ("tokenizer", "token_filter" or "char_filter") and name of every component the
 // analysis factory registers.

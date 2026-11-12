@@ -66,6 +66,21 @@ public class HdfsStorageVaultTest {
     }
 
     @Test
+    public void testGenerateHdfsParamPreservesKerberosAuthentication() {
+        String authKey = HdfsStorageVault.PropertyKey.HADOOP_SECURITY_AUTHENTICATION;
+        Cloud.HdfsBuildConf buildConf = HdfsStorageVault.generateHdfsParam(ImmutableMap.of(
+                authKey.toUpperCase(Locale.ROOT), "KERBEROS",
+                HdfsStorageVault.PropertyKey.HADOOP_KERBEROS_PRINCIPAL, "hdfs/localhost@EXAMPLE.COM",
+                HdfsStorageVault.PropertyKey.HADOOP_KERBEROS_KEYTAB, "/etc/krb5.keytab")).getBuildConf();
+
+        Assertions.assertEquals("hdfs/localhost@EXAMPLE.COM", buildConf.getHdfsKerberosPrincipal());
+        Assertions.assertEquals("/etc/krb5.keytab", buildConf.getHdfsKerberosKeytab());
+        Assertions.assertEquals(List.of(Cloud.HdfsBuildConf.HdfsConfKVPair.newBuilder()
+                .setKey(authKey)
+                .setValue("kerberos").build()), buildConf.getHdfsConfsList());
+    }
+
+    @Test
     public void testAlterMetaServiceNormal() throws Exception {
         MetaServiceProxy mockProxy = Mockito.mock(MetaServiceProxy.class);
         try (MockedStatic<MetaServiceProxy> mockedProxyStatic = Mockito.mockStatic(MetaServiceProxy.class)) {

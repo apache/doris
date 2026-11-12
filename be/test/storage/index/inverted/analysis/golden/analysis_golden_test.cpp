@@ -48,6 +48,7 @@
 #include <set>
 #include <sstream>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -99,6 +100,9 @@ void write_dump(const std::string& dir, const std::string& key, DriveMode mode,
     out << dump;
 }
 
+// Makes the driver of a configuration: make_golden_driver(), or make_golden_text_driver().
+using DriverFactory = std::function<Status(const GoldenConfig&, std::unique_ptr<GoldenDriver>*)>;
+
 // One configuration over one family in one mode.
 struct GoldenJob {
     const GoldenConfig* config = nullptr;
@@ -111,11 +115,11 @@ struct GoldenJob {
     double seconds = 0;
 };
 
-void run_job(GoldenJob* job, bool dump) {
+void run_job(GoldenJob* job, bool dump, const DriverFactory& make_driver) {
     const auto started = std::chrono::steady_clock::now();
     // A driver per job, so no family sees the state another one left.
     std::unique_ptr<GoldenDriver> driver;
-    if (const Status status = make_golden_driver(*job->config, &driver); !status.ok()) {
+    if (const Status status = make_driver(*job->config, &driver); !status.ok()) {
         job->error = status.to_string();
     } else {
         try {
@@ -222,31 +226,74 @@ void print_timing(const std::vector<GoldenJob>& jobs, double wall) {
     }
 }
 
-// Runs `configs` over `families` in `requested_modes`, and in the mode whose output is frozen, and
-// checks every digest against `file`. The jobs run on several threads; the checks run here, in
-// the order of the matrix.
-void check_golden(const std::vector<GoldenConfig>& configs,
-                  const std::vector<CorpusFamily>& families,
-                  const std::vector<DriveMode>& requested_modes, test::GoldenFile* file) {
+// The configurations ANALYSIS_GOLDEN_ONLY selects: those whose name contains it, or all.
+std::vector<const GoldenConfig*> selected_configs(const std::vector<GoldenConfig>& configs) {
     const std::string only = env("ANALYSIS_GOLDEN_ONLY");
-    const std::string dump_dir = env("ANALYSIS_GOLDEN_DUMP");
     std::vector<const GoldenConfig*> selected;
     for (const GoldenConfig& config : configs) {
         if (only.empty() || config.name.find(only) != std::string::npos) {
             selected.push_back(&config);
         }
     }
+    return selected;
+}
+
+// The families of `families` that `names` names, in their order.
+std::vector<CorpusFamily> families_named(std::vector<CorpusFamily> families,
+                                         const std::set<std::string>& names) {
+    std::erase_if(families,
+                  [&](const CorpusFamily& family) { return !names.contains(family.name); });
+    return families;
+}
+
+struct ThreadDigest {
+    FamilyDigest digest;
+    std::string error;
+};
+
+// The digests of `family` from `threads` threads that share `analyzer`, the even ones with a new
+// stream per line and the odd ones with one stream. A thread that failed has its error instead.
+std::vector<ThreadDigest> digests_on_threads(const TextAnalyzerPtr& analyzer,
+                                             const CorpusFamily& family, size_t threads) {
+    std::vector<ThreadDigest> results(threads);
+    std::vector<std::thread> workers;
+    for (size_t t = 0; t < threads; ++t) {
+        workers.emplace_back([&, t] {
+            try {
+                const auto driver = make_text_driver(analyzer);
+                results[t].digest = digest_family(
+                        *driver, t % 2 == 0 ? DriveMode::FRESH : DriveMode::REUSED, family);
+            } catch (const std::exception& e) {
+                results[t].error = e.what();
+            }
+        });
+    }
+    for (std::thread& worker : workers) {
+        worker.join();
+    }
+    return results;
+}
+
+// Runs `configs` over `families` in `requested_modes`, and in the mode whose output is frozen, and
+// checks every digest against `file`. The jobs run on several threads; the checks run here, in
+// the order of the matrix.
+void check_golden(const std::vector<GoldenConfig>& configs,
+                  const std::vector<CorpusFamily>& families,
+                  const std::vector<DriveMode>& requested_modes, test::GoldenFile* file,
+                  const DriverFactory& make_driver = make_golden_driver) {
+    const std::string dump_dir = env("ANALYSIS_GOLDEN_DUMP");
+    const std::vector<const GoldenConfig*> selected = selected_configs(configs);
     // Build each configuration and analyze one line before going parallel, so a process-wide
     // dictionary is loaded by one thread, as in a BE that has served a first query.
     for (const GoldenConfig* config : selected) {
         std::unique_ptr<GoldenDriver> driver;
-        const Status status = make_golden_driver(*config, &driver);
+        const Status status = make_driver(*config, &driver);
         ASSERT_TRUE(status.ok()) << status.to_string() << "\n" << describe(*config);
         driver->fresh("warm up 预热");
     }
     std::vector<GoldenJob> jobs = make_jobs(selected, families, requested_modes);
     const auto started = std::chrono::steady_clock::now();
-    parallel_for(jobs.size(), [&](size_t i) { run_job(&jobs[i], !dump_dir.empty()); });
+    parallel_for(jobs.size(), [&](size_t i) { run_job(&jobs[i], !dump_dir.empty(), make_driver); });
     const double wall =
             std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count();
     for (size_t i = 0; i < jobs.size();) {
@@ -266,6 +313,15 @@ protected:
         ASSERT_TRUE(status.ok()) << status.to_string();
     }
 
+    // The configurations that build an analyzer.
+    std::vector<GoldenConfig> analyzer_configs() const {
+        std::vector<GoldenConfig> configs;
+        std::ranges::copy_if(_configs, std::back_inserter(configs), [](const GoldenConfig& config) {
+            return config.kind == GoldenKind::ANALYZE;
+        });
+        return configs;
+    }
+
     const std::vector<GoldenConfig> _configs = golden_configs();
     GoldenEnvironment _environment;
 };
@@ -275,6 +331,45 @@ TEST_F(AnalysisGolden, MatchesTheFrozenDigests) {
     check_golden(_configs, default_families(_environment.corpus_sources()),
                  {DriveMode::FRESH, DriveMode::REUSED}, &file);
     file.finish(owns_analysis_line, env("ANALYSIS_GOLDEN_ONLY").empty());
+}
+
+// The consumers move to the TextAnalyzer interface before the analyzers do, through
+// LuceneBackedTextAnalyzer. Through it every analyzer gives the frozen output, with a new stream
+// per line and with one stream for all lines.
+TEST_F(AnalysisGolden, LuceneBackedTextAnalyzerMatchesTheFrozenDigests) {
+    test::GoldenFile file(kGoldenFile);
+    check_golden(analyzer_configs(), default_families(_environment.corpus_sources()),
+                 {DriveMode::FRESH, DriveMode::REUSED}, &file, make_golden_text_driver);
+    file.finish(owns_analysis_line, false);
+}
+
+// An analyzer serves many threads at once. Eight threads share the LuceneBackedTextAnalyzer of
+// each configuration, half of them with a new stream per line and half with one stream, and each
+// thread gives the frozen output.
+TEST_F(AnalysisGolden, EightThreadsShareOneTextAnalyzer) {
+    const std::vector<CorpusFamily> families = families_named(
+            default_families(_environment.corpus_sources()), {"mixed_zh_en", "invalid_utf8"});
+    ASSERT_EQ(families.size(), 2);
+    const std::vector<GoldenConfig> configs = analyzer_configs();
+    test::GoldenFile file(kGoldenFile);
+    for (const GoldenConfig* config : selected_configs(configs)) {
+        TextAnalyzerPtr analyzer;
+        const Status status = make_golden_text_analyzer(*config, &analyzer);
+        ASSERT_TRUE(status.ok()) << status.to_string() << "\n" << describe(*config);
+        for (const CorpusFamily& family : families) {
+            const std::vector<ThreadDigest> results = digests_on_threads(analyzer, family, 8);
+            for (size_t t = 0; t < results.size(); ++t) {
+                ASSERT_TRUE(results[t].error.empty())
+                        << config->name << " thread " << t << ": " << results[t].error;
+                EXPECT_EQ(results[t].digest, results[0].digest)
+                        << config->name << " " << family.name << ": thread " << t
+                        << " disagrees with thread 0";
+            }
+            file.check(config->name, family.name, results[0].digest.tokens,
+                       results[0].digest.digest, describe(*config));
+        }
+    }
+    file.finish(owns_analysis_line, false);
 }
 
 // Every component the analysis factory registers is in some configuration, so a new component
@@ -332,12 +427,8 @@ TEST_F(AnalysisGolden, IcuIgnoresTheDefaultLocale) {
         return config.name.find("icu") != std::string::npos;
     });
     ASSERT_FALSE(icu_configs.empty());
-    std::vector<CorpusFamily> families;
-    for (CorpusFamily& family : default_families(_environment.corpus_sources())) {
-        if (family.name == "latin_words" || family.name == "bmp_code_points") {
-            families.push_back(std::move(family));
-        }
-    }
+    const std::vector<CorpusFamily> families = families_named(
+            default_families(_environment.corpus_sources()), {"latin_words", "bmp_code_points"});
     ASSERT_EQ(families.size(), 2);
     test::GoldenFile file(kGoldenFile);
     check_golden(icu_configs, families, {DriveMode::FRESH}, &file);

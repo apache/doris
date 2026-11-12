@@ -931,7 +931,7 @@ public abstract class ExternalCatalog
 
     private void retireMetadataCaches() {
         // Remove this Env's FE runtime containers, rather than closing owners found by global catalog ID.
-        Env.getCurrentEnv().getExtMetaCacheMgr().removeCatalog(id);
+        Env.getCurrentEnv().getExtMetaCacheMgr().removeCatalog(id, name);
     }
 
     public void rollBackCatalogProps(Map<String, String> props) {

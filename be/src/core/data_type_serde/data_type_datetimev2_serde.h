@@ -35,6 +35,9 @@ class Arena;
 
 class DataTypeDateTimeV2SerDe : public DataTypeNumberSerDe<PrimitiveType::TYPE_DATETIMEV2> {
 public:
+    Status decode_bson_value(IColumn& column, const BsonValueView& value,
+                             const BsonDecodeContext& context) const override;
+
     DataTypeDateTimeV2SerDe(int scale, int nesting_level = 1)
             : DataTypeNumberSerDe<PrimitiveType::TYPE_DATETIMEV2>(nesting_level), _scale(scale) {};
 
