@@ -213,7 +213,7 @@ public class ProcServiceTest {
         Replica replica = Mockito.mock(Replica.class);
 
         TabletMeta tabletMeta = new TabletMeta(20001L, 20002L, 20003L, 20004L, 12345, TStorageMedium.HDD,
-                false /* isRowBinlog */);
+                false /* isChangelog */);
 
         Mockito.when(systemInfoService.getAllBackendsByAllCluster()).thenReturn(ImmutableMap.of());
         Mockito.when(tabletInvertedIndex.getTabletMeta(tabletId)).thenReturn(tabletMeta);

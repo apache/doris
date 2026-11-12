@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.connector.spi.ConnectorCapability;
 import org.apache.doris.datasource.SchemaCacheValue;
 
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -140,5 +141,10 @@ public class PluginDrivenSchemaCacheValue extends SchemaCacheValue {
      */
     public List<Column> getDisplayColumns() {
         return displayColumns;
+    }
+
+    @Override
+    public List<List<Column>> getColumnLists() {
+        return Arrays.asList(schema, partitionColumns, displayColumns);
     }
 }

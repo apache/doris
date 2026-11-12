@@ -54,11 +54,12 @@ public final class ConnectorScanRequest {
     private final boolean aggregatePushdown;
     private final boolean explainOnly;
     private final Set<String> backendCapabilities;
+    private final ConnectorScanContext scanContext;
 
     private ConnectorScanRequest(ConnectorTableHandle tableHandle, List<ConnectorColumnHandle> columns,
             Optional<ConnectorExpression> filter, long limit, List<String> requiredPartitions,
             boolean partitionsPrunedToEmpty, boolean countPushdown, boolean aggregatePushdown, boolean explainOnly,
-            Set<String> backendCapabilities) {
+            Set<String> backendCapabilities, ConnectorScanContext scanContext) {
         this.tableHandle = tableHandle;
         this.columns = columns;
         this.filter = filter;
@@ -69,6 +70,7 @@ public final class ConnectorScanRequest {
         this.aggregatePushdown = aggregatePushdown;
         this.explainOnly = explainOnly;
         this.backendCapabilities = backendCapabilities;
+        this.scanContext = scanContext;
     }
 
     /**
@@ -167,11 +169,16 @@ public final class ConnectorScanRequest {
         return backendCapabilities.contains(capability);
     }
 
+    /** Cancellation and progress shared by all batches of this scan. */
+    public ConnectorScanContext getScanContext() {
+        return scanContext;
+    }
+
     /** This request with the partition set replaced — the batched scan's per-batch request. */
     public ConnectorScanRequest withRequiredPartitions(List<String> partitions) {
         return new ConnectorScanRequest(tableHandle, columns, filter, limit,
                 normalizePartitions(partitions), partitionsPrunedToEmpty, countPushdown, aggregatePushdown, explainOnly,
-                backendCapabilities);
+                backendCapabilities, scanContext);
     }
 
     private static List<String> normalizePartitions(List<String> partitions) {
@@ -191,6 +198,7 @@ public final class ConnectorScanRequest {
         private boolean aggregatePushdown;
         private boolean explainOnly;
         private Set<String> backendCapabilities = Collections.emptySet();
+        private ConnectorScanContext scanContext = new ConnectorScanContext();
 
         private Builder(ConnectorTableHandle tableHandle, List<ConnectorColumnHandle> columns) {
             this.tableHandle = Objects.requireNonNull(tableHandle, "tableHandle");
@@ -243,10 +251,15 @@ public final class ConnectorScanRequest {
             return this;
         }
 
+        public Builder scanContext(ConnectorScanContext scanContext) {
+            this.scanContext = Objects.requireNonNull(scanContext, "scanContext");
+            return this;
+        }
+
         public ConnectorScanRequest build() {
             return new ConnectorScanRequest(tableHandle, columns, filter, limit,
                     requiredPartitions, partitionsPrunedToEmpty, countPushdown, aggregatePushdown, explainOnly,
-                    backendCapabilities);
+                    backendCapabilities, scanContext);
         }
     }
 }

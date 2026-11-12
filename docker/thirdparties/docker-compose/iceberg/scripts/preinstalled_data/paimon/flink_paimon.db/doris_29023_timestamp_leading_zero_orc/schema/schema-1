@@ -1,0 +1,22 @@
+{
+  "version" : 3,
+  "id" : 1,
+  "fields" : [ {
+    "id" : 0,
+    "name" : "id",
+    "type" : "INT"
+  }, {
+    "id" : 1,
+    "name" : "ts",
+    "type" : "TIMESTAMP(4)"
+  } ],
+  "highestFieldId" : 1,
+  "partitionKeys" : [ ],
+  "primaryKeys" : [ ],
+  "options" : {
+    "write-only" : "true",
+    "file.format" : "orc"
+  },
+  "comment" : "",
+  "timeMillis" : 1790147459797
+}

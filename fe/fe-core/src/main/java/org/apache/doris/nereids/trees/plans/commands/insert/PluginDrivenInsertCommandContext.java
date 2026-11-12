@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarBinaryLiteral;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.VarBinaryType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
 
 import com.google.common.base.Preconditions;
@@ -63,6 +64,12 @@ public class PluginDrivenInsertCommandContext extends BaseExternalTableInsertCom
     // The target schema the sink was bound to, whose column types the static partition values are cast to.
     private List<Column> boundTargetSchema = Collections.emptyList();
     private Optional<String> branchName = Optional.empty();
+    // The writer schema and write metadata identity an INSERT OVERWRITE normalized its plan against; the inner
+    // insert that runs the plan pins them again and must find the same generation (see
+    // InsertUtils#checkNormalizedWriteGeneration). Empty for any other insert, and when the connector pins no
+    // writer schema.
+    private Optional<List<Column>> normalizedWriteSchema = Optional.empty();
+    private Optional<String> normalizedWriteMetadataIdentity = Optional.empty();
 
     public Map<String, String> getStaticPartitionSpec() {
         return staticPartitionSpec;
@@ -139,6 +146,11 @@ public class PluginDrivenInsertCommandContext extends BaseExternalTableInsertCom
     }
 
     private static Literal writtenValue(Literal value, DataType columnType) {
+        if (value instanceof VarBinaryLiteral && columnType instanceof VarBinaryType) {
+            // A binary literal is VARBINARY of the maximum length, which Literal casts to no other length. BindSink
+            // leaves that cast of the rows to BE, which keeps the bytes: a VARBINARY length is metadata only.
+            return new VarBinaryLiteral((VarBinaryType) columnType, (byte[]) value.getValue());
+        }
         if (!value.getDataType().isStringLikeType() || !columnType.isStringLikeType()) {
             Expression cast = value.checkedCastTo(columnType);
             Preconditions.checkState(cast instanceof Literal, "cast of literal %s is not a literal", value);
@@ -162,5 +174,18 @@ public class PluginDrivenInsertCommandContext extends BaseExternalTableInsertCom
 
     public void setBranchName(Optional<String> branchName) {
         this.branchName = branchName == null ? Optional.empty() : branchName;
+    }
+
+    public Optional<List<Column>> getNormalizedWriteSchema() {
+        return normalizedWriteSchema;
+    }
+
+    public Optional<String> getNormalizedWriteMetadataIdentity() {
+        return normalizedWriteMetadataIdentity;
+    }
+
+    public void setNormalizedWriteGeneration(List<Column> writeSchema, Optional<String> writeMetadataIdentity) {
+        this.normalizedWriteSchema = Optional.of(writeSchema);
+        this.normalizedWriteMetadataIdentity = writeMetadataIdentity;
     }
 }

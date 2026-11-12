@@ -32,8 +32,8 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "core/block/block.h"
+#include "exec/operator/scan_operator.h"
 #include "exec/pipeline/pipeline_task.h"
-#include "exec/scan/file_scanner.h"
 #include "exec/scan/olap_scanner.h" // IWYU pragma: keep
 #include "exec/scan/scan_node.h"
 #include "exec/scan/scanner.h"
@@ -84,9 +84,10 @@ Status ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx,
     Status submit_status = sumbit_task();
     if (!submit_status.ok()) {
         // User will see TooManyTasks error. It looks like a more reasonable error.
-        Status scan_task_status = Status::TooManyTasks(
-                "Failed to submit scanner to scanner pool reason:" +
-                std::string(submit_status.msg()) + "|type:" + std::to_string(type));
+        Status scan_task_status =
+                Status::TooManyTasks("Failed to submit scanner to scanner pool reason:" +
+                                     std::string(submit_status.msg()) +
+                                     "|type:" + std::to_string(static_cast<int>(type)));
         scan_task->set_status(scan_task_status);
         return scan_task_status;
     }
@@ -160,7 +161,7 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
 #ifndef __APPLE__
     // The configuration item is used to lower the priority of the scanner thread,
     // typically employed to ensure CPU scheduling for write operations.
-    if (config::scan_thread_nice_value != 0 && scanner->get_name() != FileScanner::NAME) {
+    if (config::scan_thread_nice_value != 0) {
         Thread::set_thread_nice_value();
     }
 #endif

@@ -32,6 +32,7 @@ suite("test_iceberg_nested_schema_evolution_spark_doris_interop",
     String sparkTable = "spark_nested_evolution_to_doris"
     String mixedCaseTable = "spark_mixed_case_nested_collision"
     String requiredTable = "spark_required_nested_evolution"
+    String keepRequiredTable = "spark_modify_keeps_required"
     String advancedTable = "spark_deep_nested_evolution"
     String restPort = context.config.otherConfigs.get("iceberg_rest_uri_port")
     String minioPort = context.config.otherConfigs.get("iceberg_minio_port")
@@ -416,6 +417,95 @@ suite("test_iceberg_nested_schema_evolution_spark_doris_interop",
     """
     def requiredDorisRows = sql requiredDorisQuery
     assertSparkDorisResultEquals(requiredSparkRows, requiredDorisRows)
+
+    // A MODIFY COLUMN without NULL keeps the column required, and restating a STRUCT keeps its nested fields
+    // required: Doris DDL cannot write NOT NULL inside STRUCT<>. Only an explicit NULL widens, and only the
+    // column it is written on.
+    spark_iceberg_multi """
+        DROP TABLE IF EXISTS demo.${dbName}.${keepRequiredTable};
+        CREATE TABLE demo.${dbName}.${keepRequiredTable} (
+            id INT NOT NULL,
+            widened INT NOT NULL,
+            info STRUCT<
+                metric: INT NOT NULL,
+                label: STRING,
+                child: STRUCT<value: INT NOT NULL, note: STRING NOT NULL> NOT NULL
+            > NOT NULL,
+            payload STRUCT<code: INT NOT NULL> NOT NULL
+        ) USING iceberg;
+        INSERT INTO demo.${dbName}.${keepRequiredTable} VALUES (
+            1,
+            10,
+            NAMED_STRUCT('metric', 100, 'label', 'old-label',
+                         'child', NAMED_STRUCT('value', 1000, 'note', 'old-note')),
+            NAMED_STRUCT('code', 10000)
+        );
+    """
+
+    sql """refresh catalog ${catalogName}"""
+    sql """switch ${catalogName}"""
+    sql """use ${dbName}"""
+
+    sql """ALTER TABLE ${keepRequiredTable} MODIFY COLUMN id BIGINT"""
+    sql """ALTER TABLE ${keepRequiredTable} MODIFY COLUMN widened BIGINT NULL"""
+    sql """
+        ALTER TABLE ${keepRequiredTable} MODIFY COLUMN info
+        STRUCT<metric:BIGINT, label:STRING, child:STRUCT<value:INT, note:STRING>>
+    """
+    sql """ALTER TABLE ${keepRequiredTable} MODIFY COLUMN info.child STRUCT<value:BIGINT, note:STRING>"""
+    sql """ALTER TABLE ${keepRequiredTable} MODIFY COLUMN payload STRUCT<code:BIGINT> NULL"""
+    qt_keep_required_desc """DESC ${keepRequiredTable}"""
+
+    String keepRequiredTableUrl =
+            "http://${externalEnvIp}:${restPort}/v1/namespaces/${dbName}/tables/${keepRequiredTable}"
+    def keepRequiredMetadata = new JsonSlurper().parseText(
+            new URL(keepRequiredTableUrl).getText("UTF-8")).metadata
+    def keepRequiredSchema = keepRequiredMetadata.schemas.find {
+        it["schema-id"] == keepRequiredMetadata["current-schema-id"]
+    }
+    def keepRequiredFields = keepRequiredSchema.fields.collectEntries { [(it.name): it] }
+    assertTrue(keepRequiredFields.id.required)
+    assertFalse(keepRequiredFields.widened.required)
+    assertTrue(keepRequiredFields.info.required)
+    def keepRequiredInfoFields = keepRequiredFields.info.type.fields.collectEntries { [(it.name): it] }
+    assertTrue(keepRequiredInfoFields.metric.required)
+    assertFalse(keepRequiredInfoFields.label.required)
+    assertTrue(keepRequiredInfoFields.child.required)
+    def keepRequiredChildFields = keepRequiredInfoFields.child.type.fields.collectEntries { [(it.name): it] }
+    assertTrue(keepRequiredChildFields.value.required)
+    assertTrue(keepRequiredChildFields.note.required)
+    assertFalse(keepRequiredFields.payload.required)
+    assertTrue(keepRequiredFields.payload.type.fields.find { it.name == "code" }.required)
+
+    sql """
+        INSERT INTO ${keepRequiredTable} VALUES (
+            2,
+            NULL,
+            STRUCT(200, NULL, STRUCT(2000, 'new-note')),
+            NULL
+        )
+    """
+
+    String keepRequiredDorisQuery = """
+        SELECT id,
+               widened,
+               element_at(info, 'metric'),
+               element_at(info, 'label'),
+               element_at(element_at(info, 'child'), 'value'),
+               element_at(element_at(info, 'child'), 'note'),
+               element_at(payload, 'code')
+        FROM ${keepRequiredTable}
+        ORDER BY id
+    """
+    order_qt_keep_required_rows keepRequiredDorisQuery
+    spark_iceberg """REFRESH TABLE demo.${dbName}.${keepRequiredTable}"""
+    def keepRequiredSparkRows = spark_iceberg """
+        SELECT id, widened, info.metric, info.label, info.child.value, info.child.note, payload.code
+        FROM demo.${dbName}.${keepRequiredTable}
+        ORDER BY id
+    """
+    def keepRequiredDorisRows = sql keepRequiredDorisQuery
+    assertSparkDorisResultEquals(keepRequiredSparkRows, keepRequiredDorisRows)
 
     spark_iceberg_multi """
         DROP TABLE IF EXISTS demo.${dbName}.${advancedTable};

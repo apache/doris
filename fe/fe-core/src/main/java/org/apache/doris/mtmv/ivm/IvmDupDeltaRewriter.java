@@ -73,7 +73,7 @@ class IvmDupDeltaRewriter extends PlanVisitor<Optional<Plan>, Void> {
      *
      * <p>What comes back is already the shape the sink writes: the plan is the query, so its output is the
      * query's output, which is the MV's own columns -- and the adapt projects a bound sink leaves around
-     * the query keep the hidden columns such an MV has (its binlog's, when it carries one) in the shape
+     * the query keep the hidden columns such an MV has (its changelog's, when it carries one) in the shape
      * the sink expects. Nothing has to be projected on top of it, which is the same reason nothing has to
      * be detached from it first: the unique-key model needs both because its layout puts hidden columns
      * there that a delta has to add or take away.
@@ -165,14 +165,14 @@ class IvmDupDeltaRewriter extends PlanVisitor<Optional<Plan>, Void> {
             // The left delta joins the right as it was before the window, so it matches the rows both
             // sides already agreed on.
             contributions.add(rewriteInnerJoinContribution(join, true, leftDelta.get(),
-                    IvmDeltaRewriter.preSnapshot(join.right(), rewriteState)));
+                    helper.preSnapshot(join.right(), rewriteState)));
         }
         Optional<Plan> rightDelta = join.right().accept(this, context);
         if (rightDelta.isPresent()) {
             // The right delta joins the left as it is after the window, which is the side carrying the
             // rows the left appended in the same window.
             contributions.add(rewriteInnerJoinContribution(join, false, rightDelta.get(),
-                    IvmDeltaRewriter.postSnapshot(join.left(), rewriteState)));
+                    helper.postSnapshot(join.left(), rewriteState)));
         }
         return helper.combineDeltaPlans(contributions, join.getOutput());
     }

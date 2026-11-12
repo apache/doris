@@ -83,12 +83,12 @@ Status MemTableWriter::init(std::shared_ptr<RowsetWriter> rowset_writer,
     _unique_key_mow = unique_key_mow;
     _partial_update_info = partial_update_info;
     _resource_ctx = thread_context()->resource_ctx();
-    // Only the row-binlog base index needs LSN, aligned with the sink (row_binlog_id > 0).
+    // Only the changelog base index needs LSN, aligned with the sink (changelog_index_id > 0).
     _need_lsn = false;
     if (_req.table_schema_param != nullptr) {
         for (const auto* index_schema : _req.table_schema_param->indexes()) {
             if (index_schema->index_id == _req.index_id) {
-                _need_lsn = index_schema->row_binlog_id > 0;
+                _need_lsn = index_schema->changelog_index_id > 0;
                 break;
             }
         }
@@ -97,7 +97,7 @@ Status MemTableWriter::init(std::shared_ptr<RowsetWriter> rowset_writer,
         const auto keys_type = _tablet_schema->keys_type();
         if (keys_type == KeysType::AGG_KEYS ||
             (keys_type == KeysType::UNIQUE_KEYS && !_unique_key_mow)) {
-            // Row-binlog LSN sidecar does not support MemTable aggregation now. For AGG tables
+            // Changelog LSN sidecar does not support MemTable aggregation now. For AGG tables
             // and unique key merge-on-read tables, multiple input rows can be merged into one
             // output row in MemTable, so their output LSN semantics should be implemented
             // explicitly before enabling allocated LSNs on these table types.

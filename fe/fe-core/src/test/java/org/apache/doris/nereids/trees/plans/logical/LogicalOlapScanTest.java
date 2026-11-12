@@ -226,7 +226,7 @@ public class LogicalOlapScanTest {
         LogicalOlapScan scan = createMockScan(ImmutableList.of());
         OlapTableStream stream = Mockito.mock(OlapTableStream.class);
 
-        LogicalPlan snapshot = scan.withPreSnapshot(Optional.of(stream));
+        LogicalPlan snapshot = scan.withSnapshot(true, stream);
         Assertions.assertInstanceOf(LogicalOlapTableStreamScan.class, snapshot);
         LogicalOlapTableStreamScan streamScan = (LogicalOlapTableStreamScan) snapshot;
         Assertions.assertTrue(streamScan.isSnapshot());
@@ -237,7 +237,8 @@ public class LogicalOlapScanTest {
     @Test
     public void testWithPostSnapshotReturnsRegularScan() {
         LogicalOlapScan scan1 = createMockScan(ImmutableList.of());
-        LogicalPlan snapshot = scan1.withPostSnapshot();
+        OlapTableStream stream = Mockito.mock(OlapTableStream.class);
+        LogicalPlan snapshot = scan1.withSnapshot(false, stream);
 
         Assertions.assertInstanceOf(LogicalOlapScan.class, snapshot);
         Assertions.assertFalse(snapshot instanceof LogicalOlapTableStreamScan);
@@ -255,7 +256,7 @@ public class LogicalOlapScanTest {
 
         OlapTableStream stream = Mockito.mock(OlapTableStream.class);
         LogicalOlapTableStreamScan streamScan = (LogicalOlapTableStreamScan) scan
-                .withPreSnapshot(Optional.of(stream));
+                .withSnapshot(true, stream);
         streamScan = streamScan.withSelectedPartitionIds(ImmutableList.of(), true);
 
         LogicalOlapTableStreamScan copiedStreamScan = streamScan.withSelectedPartitionIds(ImmutableList.of());

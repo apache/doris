@@ -36,9 +36,9 @@ import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.OlapChangelogTableWrapper;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTableWrapper;
-import org.apache.doris.catalog.RowBinlogTableWrapper;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.Util;
@@ -223,7 +223,7 @@ import org.apache.doris.tablefunction.HttpTableValuedFunction;
 import org.apache.doris.tablefunction.LocalTableValuedFunction;
 import org.apache.doris.tablefunction.S3TableValuedFunction;
 import org.apache.doris.tablefunction.TableValuedFunctionIf;
-import org.apache.doris.thrift.TBinlogScanType;
+import org.apache.doris.thrift.TChangelogScanType;
 import org.apache.doris.thrift.TExternalTableSinkWriterAssignment;
 import org.apache.doris.thrift.TPartitionType;
 import org.apache.doris.thrift.TPushAggOp;
@@ -609,19 +609,19 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             outputExprs.add(slotRef);
         }
         rootFragment.setOutputExprs(outputExprs);
-        // The MERGE/UPDATE target is a PluginDrivenExternalTable: route through the connector's
-        // PluginDrivenTableSink with WriteOperation.MERGE so the connector's planWrite emits its
-        // TIcebergMergeSink dialect (which threads its own sort_fields).
-        // SQL MERGE INTO carries the cardinality requirement onto the write handle; UPDATE shares this
-        // sink dialect but has no such rule, so it threads false (see PhysicalExternalRowLevelMergeSink).
-        rootFragment.setSink(buildPluginRowLevelDmlSink(mergeSink, WriteOperation.MERGE,
+        // UPDATE and SQL MERGE share the plugin BE sink dialect, but their per-operation connector
+        // behavior differs. The existing SQL-MERGE cardinality requirement is set only by the MERGE
+        // builder, so preserve the statement identity when selecting the connector write operation.
+        WriteOperation rowLevelOperation = mergeSink.isRequireMergeCardinalityCheck()
+                ? WriteOperation.MERGE : WriteOperation.UPDATE;
+        rootFragment.setSink(buildPluginRowLevelDmlSink(mergeSink, rowLevelOperation,
                 mergeSink.isWritesDataFiles(), mergeSink.isRequireMergeCardinalityCheck(),
                 mergeSink.getBoundWriteMetadataIdentity(), context));
         return rootFragment;
     }
 
     /**
-     * Builds the plugin-driven sink for an iceberg row-level DML (DELETE / MERGE) whose target has
+     * Builds the plugin-driven sink for an iceberg row-level DML (DELETE / UPDATE / MERGE) whose target has
      * been flipped to a {@link PluginDrivenExternalTable}. Mirrors {@link #visitPhysicalConnectorTableSink}'s
      * connector resolution (catalog -&gt; connector -&gt; metadata -&gt; pinned table handle) but threads the
      * given {@link WriteOperation} so the connector's {@code planWrite} dispatches to its DELETE / MERGE BE sink
@@ -664,10 +664,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         Set<WriteOperation> writeOps = writePlanProvider == null
                 ? EnumSet.noneOf(WriteOperation.class)
                 : writePlanProvider.supportedOperations();
-        if (!(writeOps.contains(WriteOperation.DELETE) || writeOps.contains(WriteOperation.MERGE))) {
+        if (!writeOps.contains(writeOperation)) {
             throw new AnalysisException(
                     "Connector '" + catalog.getName() + "' (type: " + catalog.getType()
-                            + ") does not support row-level DML operations");
+                            + ") does not support " + writeOperation + " row-level DML");
         }
         // writeSortInfo == null: a row-level DML has no engine-resolved write sort (MERGE's sort lives in the
         // connector's TIcebergMergeSink.sort_fields, DELETE is unsorted).
@@ -2515,32 +2515,15 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             setOperationNode.setColocate(true);
         }
 
-        // Storage-bucketed children only appear when the FE local shuffle planner is active:
-        // ChildrenPropertiesRegulator and RequestPropertyDeriver both gate the bucket-shuffle
-        // alternative on enableLocalShufflePlanner. Gate the marker on the same flag so the
-        // dependency is explicit and a future planner change that produced a STORAGE_BUCKETED
-        // distribution outside the local-shuffle planner cannot silently mark BUCKET_SHUFFLE here.
-        //
-        // Within that gate a storage-bucketed child means the regulator chose the bucket shuffle
-        // alternative (it enforces the other children onto the basic child's buckets), so the marker
-        // simply follows that decision. It must not re-check the table id independently: the basic
-        // child selection in the regulator is the single place that vets the layout, and re-checking
-        // here could suppress a bucket shuffle the property model already committed to and desync a
-        // parent that aligned to the set operation output.
-        //
-        // Unlike hash join, BUCKET_SHUFFLE is not exclusive with isColocate above: for a set
-        // operation isColocate describes the bucket-aligned scheduling of the fragment (the
-        // basic child scans buckets directly), while BUCKET_SHUFFLE describes how the other
-        // children arrive (bucket-shuffle exchanges). Both routes converge to the same
-        // bucket-hash local exchange requirement in SetOperationNode.enforceAndDeriveLocalExchange.
-        if (context.getSessionVariable() != null
-                && context.getSessionVariable().isEnableLocalShufflePlanner()) {
-            for (Plan child : setOperation.children()) {
-                PhysicalPlan childPhysicalPlan = (PhysicalPlan) child;
-                if (JoinUtils.isStorageBucketed(childPhysicalPlan.getPhysicalProperties())) {
-                    setOperationNode.setDistributionMode(DistributionMode.BUCKET_SHUFFLE);
-                    break;
-                }
+        // The regulator has already chosen whether bucket shuffle is legal and aligned the
+        // other children to the basic child's buckets. Preserve that decision even when local
+        // shuffle is disabled: scheduling still needs the marker to fill missing bucket receivers.
+        // Colocate describes the basic scan's scheduling; BUCKET_SHUFFLE describes incoming data.
+        for (Plan child : setOperation.children()) {
+            PhysicalPlan childPhysicalPlan = (PhysicalPlan) child;
+            if (JoinUtils.isStorageBucketed(childPhysicalPlan.getPhysicalProperties())) {
+                setOperationNode.setDistributionMode(DistributionMode.BUCKET_SHUFFLE);
+                break;
             }
         }
 
@@ -3139,19 +3122,19 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
     /**
      * Adds the columns the storage reader needs beyond the query's projection, routing to the one
-     * case the table and read mode call for: row-binlog bookkeeping, the snapshot commit TSO, or
+     * case the table and read mode call for: changelog bookkeeping, the snapshot commit TSO, or
      * the merge sequence column. No SQL statement names any of them.
      */
     private void preserveStorageSemanticSlots(OlapScanNode scanNode, Set<SlotId> requiredSlotIds,
             boolean requireSequenceForLazyMaterialization) {
-        if (scanNode.getOlapTable() instanceof RowBinlogTableWrapper
+        if (scanNode.getOlapTable() instanceof OlapChangelogTableWrapper
                 && scanNode.getScanParams() != null
                 && scanNode.getScanParams().incrementalRead()) {
-            preserveRowBinlogSemanticSlots(scanNode, requiredSlotIds);
+            preserveChangelogSemanticSlots(scanNode, requiredSlotIds);
             return;
         }
         if (scanNode.getOlapTable() instanceof OlapTableWrapper
-                && !(scanNode.getOlapTable() instanceof RowBinlogTableWrapper)) {
+                && !(scanNode.getOlapTable() instanceof OlapChangelogTableWrapper)) {
             preserveSnapshotCommitTsoSlot(scanNode, requiredSlotIds);
         }
         preserveMergeSequenceSlots(scanNode, requiredSlotIds, requireSequenceForLazyMaterialization);
@@ -3182,11 +3165,11 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
      * DETAIL needs BEFORE images only for projected values. APPEND_ONLY never groups and needs
      * neither keys nor BEFORE images.
      */
-    private void preserveRowBinlogSemanticSlots(OlapScanNode scanNode, Set<SlotId> requiredSlotIds) {
-        RowBinlogTableWrapper wrapper = (RowBinlogTableWrapper) scanNode.getOlapTable();
-        TBinlogScanType scanType = OlapScanNode.parseBinlogScanType(
+    private void preserveChangelogSemanticSlots(OlapScanNode scanNode, Set<SlotId> requiredSlotIds) {
+        OlapChangelogTableWrapper wrapper = (OlapChangelogTableWrapper) scanNode.getOlapTable();
+        TChangelogScanType scanType = OlapScanNode.parseChangelogScanType(
                 scanNode.getScanParams(), wrapper.getOriginTable());
-        if (scanType == TBinlogScanType.NONE) {
+        if (scanType == TChangelogScanType.NONE) {
             return;
         }
 
@@ -3196,9 +3179,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 .collect(Collectors.toMap(
                         slot -> slot.getColumn().getName(), slot -> slot, (left, right) -> left));
 
-        preserveStorageSlot(slotByName.get(Column.BINLOG_TSO_COL), requiredSlotIds);
-        preserveStorageSlot(slotByName.get(Column.BINLOG_OPERATION_COL), requiredSlotIds);
-        if (scanType == TBinlogScanType.APPEND_ONLY) {
+        preserveStorageSlot(slotByName.get(Column.CHANGELOG_TSO_COL), requiredSlotIds);
+        preserveStorageSlot(slotByName.get(Column.CHANGELOG_OP_COL), requiredSlotIds);
+        if (scanType == TChangelogScanType.APPEND_ONLY) {
             return;
         }
 
@@ -3209,15 +3192,15 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             }
         }
 
-        if (!wrapper.getOriginTable().getBinlogConfig().getNeedHistoricalValue()) {
-            // Row-binlog schemas without historical values have no before-image columns, so there
+        if (!wrapper.getOriginTable().getChangelogConfig().getNeedHistoricalValue()) {
+            // Changelog schemas without historical values have no before-image columns, so there
             // are no before-image storage dependencies to preserve.
             return;
         }
-        boolean preserveCompleteRow = scanType == TBinlogScanType.MIN_DELTA;
+        boolean preserveCompleteRow = scanType == TChangelogScanType.MIN_DELTA;
         for (SlotDescriptor slot : scanSlots) {
             Column column = slot.getColumn();
-            if (column == null || column.isKey() || isRowBinlogInternalColumn(column)
+            if (column == null || column.isKey() || isChangelogInternalColumn(column)
                     || (!preserveCompleteRow && !requiredSlotIds.contains(slot.getId()))) {
                 continue;
             }
@@ -3227,12 +3210,12 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
     }
 
-    private boolean isRowBinlogInternalColumn(Column column) {
+    private boolean isChangelogInternalColumn(Column column) {
         String columnName = column.getName();
-        return columnName.startsWith(Column.BINLOG_BEFORE_PREFIX)
-                || columnName.equals(Column.BINLOG_LSN_COL)
-                || columnName.equals(Column.BINLOG_OPERATION_COL)
-                || columnName.equals(Column.BINLOG_TSO_COL);
+        return Column.isChangelogBeforeColumn(columnName)
+                || columnName.equals(Column.CHANGELOG_LSN_COL)
+                || columnName.equals(Column.CHANGELOG_OP_COL)
+                || columnName.equals(Column.CHANGELOG_TSO_COL);
     }
 
     /**
@@ -3491,7 +3474,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 AggregateInfo.AggPhase.FIRST);
 
         BucketedAggregationNode bucketedAggNode = new BucketedAggregationNode(
-                context.nextPlanNodeId(), inputPlanFragment.getPlanRoot(), aggInfo, true);
+                context.nextPlanNodeId(), inputPlanFragment.getPlanRoot(), aggInfo, true,
+                context.getSessionVariable().bucketedAggNumBuckets);
 
         bucketedAggNode.setNereidsId(aggregate.getId());
         context.getNereidsIdToPlanNodeIdMap().put(aggregate.getId(), bucketedAggNode.getId());
@@ -3792,6 +3776,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
      * refer pr: optimize topn query if order by columns is prefix of sort keys of table (#10694)
      */
     private boolean checkPushSort(SortNode sortNode, OlapTable olapTable) {
+        if (olapTable.hasRowTtl()) {
+            return false;
+        }
         // Ensure limit is less than threshold
         if (sortNode.getLimit() <= 0
                 || sortNode.getLimit() > context.getSessionVariable().topnOptLimitThreshold) {

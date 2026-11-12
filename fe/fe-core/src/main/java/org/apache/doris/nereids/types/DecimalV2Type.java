@@ -21,6 +21,8 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Config;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
 import org.apache.doris.nereids.types.coercion.FractionalType;
 
 import com.google.common.base.Preconditions;
@@ -29,6 +31,7 @@ import com.google.common.collect.ImmutableMap;
 import java.math.BigDecimal;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * Decimal v2 type in Nereids.
@@ -249,4 +252,10 @@ public class DecimalV2Type extends FractionalType {
         return WIDTH;
     }
 
+    @Override
+    public Optional<Expression> zeroValue() {
+        // The literal validates precision and scale before it rescales, so zero has to carry
+        // the type's scale already; a scale-0 zero overflows DECIMAL(p, p).
+        return Optional.of(new DecimalLiteral(this, BigDecimal.ZERO.setScale(getScale())));
+    }
 }

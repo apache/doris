@@ -26,6 +26,7 @@ import org.apache.doris.catalog.stream.OlapTableStreamWrapper;
 import org.apache.doris.catalog.stream.StreamReadMode;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.mtmv.BaseColInfo;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
@@ -72,7 +73,7 @@ public class IvmFullRefreshMTMVTest extends TestWithFeService {
         FeConstants.runningUnitTest = true;
         Config.allow_replica_on_same_host = true;
         Config.enable_table_stream = true;
-        Config.enable_feature_binlog = true;
+        Config.enable_feature_changelog = true;
 
         createDatabaseAndUse(DB_NAME);
         createTable("CREATE TABLE " + BASE_TABLE_NAME + " (k1 int, v1 int)\n"
@@ -82,8 +83,7 @@ public class IvmFullRefreshMTMVTest extends TestWithFeService {
                 + " PARTITION p2 VALUES LESS THAN (\"200\"))\n"
                 + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
                 + "PROPERTIES ('replication_num' = '1', 'enable_unique_key_merge_on_write' = 'true',"
-                + " 'binlog.enable' = 'true', 'binlog.need_historical_value' = 'true',"
-                + " 'binlog.format' = 'ROW')");
+                + " 'changelog.enable' = 'true', 'changelog.need_historical_value' = 'true')");
         createTable("CREATE STREAM `" + streamName(baseTable())
                 + "` ON TABLE " + BASE_TABLE_NAME);
         createTable("CREATE TABLE wrong_base_tbl (k1 int, v1 int)\n"
@@ -204,6 +204,56 @@ public class IvmFullRefreshMTMVTest extends TestWithFeService {
         Plan result = rewrite(scan, IvmRewriteContext.full(mtmv()));
 
         Assertions.assertSame(scan, result);
+    }
+
+    @Test
+    public void testExplainFullRefreshReadsTheBaseTableWithReset() throws Exception {
+        OlapTable baseTable = baseTable();
+        LogicalOlapScan scan = newOlapScan(baseTable, baseTable.getPartitionIds());
+
+        Plan result = rewrite(scan, IvmRewriteContext.fullExplain(mtmv()));
+
+        Assertions.assertTrue(result instanceof LogicalProject);
+        Plan child = ((LogicalProject<?>) result).child();
+        Assertions.assertTrue(child instanceof LogicalOlapTableStreamScan);
+        LogicalOlapTableStreamScan streamScan = (LogicalOlapTableStreamScan) child;
+        Assertions.assertTrue(streamScan.isReset());
+        Assertions.assertSame(baseTable, streamScan.getTable().getBaseTable());
+    }
+
+    @Test
+    public void testExplainFullRefreshResetsATableTheMvPartitionsBy() throws Exception {
+        OlapTable baseTable = baseTable();
+        List<Long> partitionIds = baseTable.getPartitionIds();
+        LogicalOlapScan scan = newOlapScan(baseTable, partitionIds);
+        // The MV partitions by this table. A real refresh resets only the base partitions its MV
+        // partitions map to, but one EXPLAIN statement stands for the whole refresh, so the plan
+        // resets the partitions the scan selects.
+        MTMV mtmv = mtmv();
+        MTMVPartitionInfo partitionInfo = new MTMVPartitionInfo(MTMVPartitionType.EXPR);
+        partitionInfo.setPctInfos(ImmutableList.of(new BaseColInfo("k1", new BaseTableInfo(baseTable))));
+        Mockito.when(mtmv.getMvPartitionInfo()).thenReturn(partitionInfo);
+
+        Plan result = rewrite(scan, IvmRewriteContext.fullExplain(mtmv));
+
+        Assertions.assertTrue(result instanceof LogicalProject);
+        Plan child = ((LogicalProject<?>) result).child();
+        Assertions.assertTrue(child instanceof LogicalOlapTableStreamScan);
+        LogicalOlapTableStreamScan streamScan = (LogicalOlapTableStreamScan) child;
+        Assertions.assertTrue(streamScan.isReset());
+        Assertions.assertEquals(partitionIds.stream().sorted().collect(java.util.stream.Collectors.toList()),
+                streamScan.getSelectedPartitionIds());
+    }
+
+    @Test
+    public void testExplainFullRefreshFailsWithoutAStream() throws Exception {
+        OlapTable baseTable = baseTable();
+        LogicalOlapScan scan = newOlapScan(baseTable, baseTable.getPartitionIds());
+
+        // No stream exists for this MV id: a full refresh reads through one, and EXPLAIN plans the
+        // same read, so it fails the same way instead of falling back to an ordinary base scan.
+        Assertions.assertThrows(IvmException.class,
+                () -> rewrite(scan, IvmRewriteContext.fullExplain(mtmv(MV_ID + 1, "missing_mv"))));
     }
 
     @Test

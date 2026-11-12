@@ -75,7 +75,7 @@ protected:
         _profile->add_child(_common_profile.get(), true);
 
         _spill_dir = "./ut_dir/spill_repartitioner_test";
-        auto spill_data_dir = std::make_unique<SpillDataDir>(_spill_dir, 256L * 1024 * 1024);
+        auto spill_data_dir = std::make_unique<LocalSpillDataDir>(_spill_dir, 256L * 1024 * 1024);
         auto st = io::global_local_filesystem()->create_directory(spill_data_dir->path(), false);
         ASSERT_TRUE(st.ok()) << st.to_string();
 

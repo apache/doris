@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.stream.OlapTableStream;
+import org.apache.doris.catalog.stream.OlapTableStream.PartitionStreamState;
 import org.apache.doris.catalog.stream.OlapTableStreamUpdate;
 import org.apache.doris.catalog.stream.TableStreamUpdateInfo;
 import org.apache.doris.common.Config;
@@ -46,7 +47,7 @@ public class TableStreamOffsetTransactionTest extends TestWithFeService {
         FeConstants.runningUnitTest = true;
         Config.allow_replica_on_same_host = true;
         Config.enable_table_stream = true;
-        Config.enable_feature_binlog = true;
+        Config.enable_feature_changelog = true;
 
         createDatabase("test_stream");
         connectContext.setDatabase("test_stream");
@@ -60,8 +61,8 @@ public class TableStreamOffsetTransactionTest extends TestWithFeService {
                 + "(partition p1 values less than (\"100\"),\n"
                 + " partition p2 values less than (\"200\"))\n"
                 + "distributed by hash(k1) buckets 1\n"
-                + "properties(\"replication_num\"=\"1\",\"binlog.enable\"=\"true\","
-                + "\"binlog.format\"=\"ROW\",\"binlog.need_historical_value\"=\"true\")";
+                + "properties(\"replication_num\"=\"1\",\"changelog.enable\"=\"true\","
+                + "\"changelog.need_historical_value\"=\"true\")";
         createTable(createBaseTable);
 
         String createTargetTable = "create table test_stream.tbl_target (\n"
@@ -92,8 +93,10 @@ public class TableStreamOffsetTransactionTest extends TestWithFeService {
         }
         // committed offset must be advanced to the historical TSO snapshot captured at creation
         Map<Long, Long> expectedPartitionOffset = new HashMap<>(historicalPartitionTSO);
-        Deencapsulation.setField(stream, "historicalPartitionTSO", historicalPartitionTSO);
-        Deencapsulation.setField(stream, "partitionOffset", new HashMap<Long, Long>());
+        Map<Long, PartitionStreamState> partitionStates = new HashMap<>();
+        historicalPartitionTSO.forEach((pid, tso) ->
+                partitionStates.put(pid, new PartitionStreamState(null, -1, tso)));
+        Deencapsulation.setField(stream, "partitionStates", partitionStates);
 
         // historical consume: prev is the historical TSO snapshot encoded as negative
         // (see StreamConsumptionInfoExtractor), next points to the historical TSO snapshot
@@ -120,14 +123,11 @@ public class TableStreamOffsetTransactionTest extends TestWithFeService {
         long commitTime = System.currentTimeMillis();
         Deencapsulation.invoke(dbTxnMgr, "updateStreamOffset", transactionState, commitTime);
 
-        Map<Long, Long> updatedHistoricalPartitionTSO = Deencapsulation.getField(stream, "historicalPartitionTSO");
-        Map<Long, Long> updatedPartitionOffset = Deencapsulation.getField(stream, "partitionOffset");
-        Map<Long, Long> partitionConsumptionTime = Deencapsulation.getField(stream, "partitionConsumptionTime");
-
         for (Long pid : partitionIds) {
-            Assertions.assertFalse(updatedHistoricalPartitionTSO.containsKey(pid));
-            Assertions.assertEquals(expectedPartitionOffset.get(pid), updatedPartitionOffset.get(pid));
-            Assertions.assertEquals(commitTime, partitionConsumptionTime.get(pid));
+            PartitionStreamState state = partitionStates.get(pid);
+            Assertions.assertNull(state.getHistoricalTso());
+            Assertions.assertEquals(expectedPartitionOffset.get(pid), state.getOffset());
+            Assertions.assertEquals(commitTime, state.getConsumptionTime());
         }
     }
 

@@ -22,6 +22,8 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
 import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.types.coercion.FractionalType;
 import org.apache.doris.nereids.types.coercion.IntegralType;
@@ -34,6 +36,7 @@ import com.google.common.collect.ImmutableMap;
 import java.math.BigDecimal;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * Decimal type in Nereids.
@@ -343,5 +346,12 @@ public class DecimalV3Type extends FractionalType {
                 return 16;
             }
         }
+    }
+
+    @Override
+    public Optional<Expression> zeroValue() {
+        // The literal validates precision and scale before it rescales, so zero has to carry
+        // the type's scale already; a scale-0 zero overflows DECIMAL(p, p).
+        return Optional.of(new DecimalV3Literal(this, BigDecimal.ZERO.setScale(getScale())));
     }
 }

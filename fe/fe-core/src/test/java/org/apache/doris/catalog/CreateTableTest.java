@@ -210,21 +210,21 @@ public class CreateTableTest extends TestWithFeService {
                 + "DUPLICATE KEY(k1) DISTRIBUTED BY HASH(k1) BUCKETS 1 "
                 + "PROPERTIES('replication_num'='1');"));
 
-        ExceptionChecker.expectThrowsNoException(() -> createTableWithRowBinlog(
-                "CREATE TEMPORARY TABLE test.temp_row_binlog (k1 INT) "
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class, "Cannot create temporary table with changelog enable",
+                () -> createTableWithChangelog("CREATE TEMPORARY TABLE test.temp_changelog (k1 INT) "
                 + "DUPLICATE KEY(k1) DISTRIBUTED BY HASH(k1) BUCKETS 1 "
-                + "PROPERTIES('replication_num'='1','binlog.enable'='true','binlog.format'='ROW');"));
+                + "PROPERTIES('replication_num'='1','changelog.enable'='true');"));
 
-        ExceptionChecker.expectThrowsNoException(() -> createTableWithRowBinlog(
-                "CREATE TABLE test.row_binlog_normal (k1 INT) "
+        ExceptionChecker.expectThrowsNoException(() -> createTableWithChangelog(
+                "CREATE TABLE test.changelog_normal (k1 INT) "
                 + "DUPLICATE KEY(k1) DISTRIBUTED BY HASH(k1) BUCKETS 1 "
-                + "PROPERTIES('replication_num'='1','binlog.enable'='true','binlog.format'='ROW');"));
+                + "PROPERTIES('replication_num'='1','changelog.enable'='true');"));
 
-        ExceptionChecker.expectThrowsNoException(() -> createTableWithRowBinlog(
-                "CREATE TABLE test.row_binlog_unique (k1 INT, v1 INT) "
+        ExceptionChecker.expectThrowsNoException(() -> createTableWithChangelog(
+                "CREATE TABLE test.changelog_unique (k1 INT, v1 INT) "
                 + "UNIQUE KEY(k1) DISTRIBUTED BY HASH(k1) BUCKETS 1 "
                 + "PROPERTIES('replication_num'='1','enable_unique_key_merge_on_write'='true',"
-                + "'binlog.enable'='true','binlog.format'='ROW');"));
+                + "'changelog.enable'='true');"));
 
         ExceptionChecker.expectThrowsNoException(() -> createTable("create table test.tbl2\n" + "(k1 int, k2 int)\n"
                 + "duplicate key(k1)\n" + "partition by range(k2)\n" + "(partition p1 values less than(\"10\"))\n"
@@ -350,30 +350,30 @@ public class CreateTableTest extends TestWithFeService {
                         + "'function_column.sequence_col' = 'v1');"));
 
         Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
-        OlapTable rowBinlogNormal = (OlapTable) db.getTableOrDdlException("row_binlog_normal");
-        Assertions.assertTrue(rowBinlogNormal.needRowBinlog());
-        Assertions.assertNotNull(rowBinlogNormal.getAutoIncrementGenerator());
-        Assertions.assertEquals((long) Column.BINLOG_LSN_AUTO_INC_ID,
-                rowBinlogNormal.getAutoIncrementGenerator().getColumnId());
-        boolean foundRowBinlogIndex = false;
-        for (Partition partition : rowBinlogNormal.getPartitions()) {
+        OlapTable changelogNormal = (OlapTable) db.getTableOrDdlException("changelog_normal");
+        Assertions.assertTrue(changelogNormal.hasChangelog());
+        Assertions.assertNotNull(changelogNormal.getAutoIncrementGenerator());
+        Assertions.assertEquals((long) Column.CHANGELOG_LSN_AUTO_INC_ID,
+                changelogNormal.getAutoIncrementGenerator().getColumnId());
+        boolean foundChangelogIndex = false;
+        for (Partition partition : changelogNormal.getPartitions()) {
             for (MaterializedIndex index
                     : partition.getMaterializedIndices(MaterializedIndex.IndexExtState.ALL, true)) {
-                foundRowBinlogIndex |= index.isRowBinlog();
+                foundChangelogIndex |= index.isChangelog();
                 for (Tablet tablet : index.getTablets()) {
                     TabletMeta tabletMeta = Env.getCurrentInvertedIndex().getTabletMeta(tablet.getId());
                     Assertions.assertNotNull(tabletMeta);
-                    Assertions.assertEquals(index.isRowBinlog(), tabletMeta.isRowBinlog());
+                    Assertions.assertEquals(index.isChangelog(), tabletMeta.isChangelog());
                 }
             }
         }
-        Assertions.assertTrue(foundRowBinlogIndex);
+        Assertions.assertTrue(foundChangelogIndex);
 
-        OlapTable rowBinlogUnique = (OlapTable) db.getTableOrDdlException("row_binlog_unique");
-        Assertions.assertTrue(rowBinlogUnique.needRowBinlog());
-        Assertions.assertNotNull(rowBinlogUnique.getAutoIncrementGenerator());
-        Assertions.assertEquals((long) Column.BINLOG_LSN_AUTO_INC_ID,
-                rowBinlogUnique.getAutoIncrementGenerator().getColumnId());
+        OlapTable changelogUnique = (OlapTable) db.getTableOrDdlException("changelog_unique");
+        Assertions.assertTrue(changelogUnique.hasChangelog());
+        Assertions.assertNotNull(changelogUnique.getAutoIncrementGenerator());
+        Assertions.assertEquals((long) Column.CHANGELOG_LSN_AUTO_INC_ID,
+                changelogUnique.getAutoIncrementGenerator().getColumnId());
 
         OlapTable tbl6 = (OlapTable) db.getTableOrDdlException("tbl6");
         Assertions.assertTrue(tbl6.getColumn("k1").isKey());
@@ -764,10 +764,10 @@ public class CreateTableTest extends TestWithFeService {
                     + "\"replication_allocation\" = \"tag.location.default: 1\"\n"
                     + ");"));
 
-        ExceptionChecker.expectThrowsWithMsg(DdlException.class, "binlog<Row>",
-                () -> createTableWithRowBinlog("CREATE TABLE test.row_binlog_agg (k1 INT, v1 INT SUM) "
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class, "changelog",
+                () -> createTableWithChangelog("CREATE TABLE test.changelog_agg (k1 INT, v1 INT SUM) "
                         + "AGGREGATE KEY(k1) DISTRIBUTED BY HASH(k1) BUCKETS 1 "
-                        + "PROPERTIES('replication_num'='1','binlog.enable'='true','binlog.format'='ROW');"));
+                        + "PROPERTIES('replication_num'='1','changelog.enable'='true');"));
     }
 
     @Test

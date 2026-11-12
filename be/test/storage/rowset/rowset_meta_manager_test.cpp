@@ -85,7 +85,7 @@ public:
 
 protected:
     RowsetMetaSharedPtr create_rowset_meta(int64_t rowset_id, RowsetStatePB state, Version version,
-                                           bool is_row_binlog = false) {
+                                           bool is_changelog = false) {
         auto rowset_meta = std::make_shared<RowsetMeta>();
         EXPECT_TRUE(rowset_meta->init_from_json(_json_rowset_meta));
         RowsetId rs_id;
@@ -94,8 +94,8 @@ protected:
         rowset_meta->set_tablet_uid(_tablet_uid);
         rowset_meta->set_rowset_state(state);
         rowset_meta->set_version(version);
-        if (is_row_binlog) {
-            rowset_meta->mark_row_binlog();
+        if (is_changelog) {
+            rowset_meta->mark_changelog();
         }
         return rowset_meta;
     }
@@ -122,9 +122,10 @@ TEST_F(RowsetMetaManagerTest, SaveAndLoad) {
     auto attach_rowset_meta =
             create_rowset_meta(20001, RowsetStatePB::COMMITTED, Version {7, 7}, true);
 
-    auto st = RowsetMetaManager::save(meta(), tablet_uid(), base_rowset_meta->rowset_id(),
-                                      to_rowset_meta_pb(base_rowset_meta), BinlogFormatPB::ROW,
-                                      to_rowset_meta_pb(attach_rowset_meta));
+    auto st =
+            RowsetMetaManager::save(meta(), tablet_uid(), base_rowset_meta->rowset_id(),
+                                    to_rowset_meta_pb(base_rowset_meta), BinlogFormatPB::CHANGELOG,
+                                    to_rowset_meta_pb(attach_rowset_meta));
     ASSERT_TRUE(st.ok()) << st;
 
     RowsetMetaSharedPtr loaded_base_meta = std::make_shared<RowsetMeta>();
@@ -142,7 +143,7 @@ TEST_F(RowsetMetaManagerTest, SaveAndLoad) {
     EXPECT_EQ(loaded_attach_meta->rowset_id(), attach_rowset_meta->rowset_id());
     EXPECT_EQ(loaded_attach_meta->tablet_uid().to_string(), tablet_uid().to_string());
     EXPECT_EQ(loaded_attach_meta->version(), attach_rowset_meta->version());
-    EXPECT_TRUE(loaded_attach_meta->is_row_binlog());
+    EXPECT_TRUE(loaded_attach_meta->is_changelog());
 }
 
 TEST_F(RowsetMetaManagerTest, Remove) {
@@ -150,9 +151,10 @@ TEST_F(RowsetMetaManagerTest, Remove) {
     auto attach_rowset_meta =
             create_rowset_meta(20011, RowsetStatePB::VISIBLE, Version {9, 9}, true);
 
-    auto st = RowsetMetaManager::save(meta(), tablet_uid(), base_rowset_meta->rowset_id(),
-                                      to_rowset_meta_pb(base_rowset_meta), BinlogFormatPB::ROW,
-                                      to_rowset_meta_pb(attach_rowset_meta));
+    auto st =
+            RowsetMetaManager::save(meta(), tablet_uid(), base_rowset_meta->rowset_id(),
+                                    to_rowset_meta_pb(base_rowset_meta), BinlogFormatPB::CHANGELOG,
+                                    to_rowset_meta_pb(attach_rowset_meta));
     ASSERT_TRUE(st.ok()) << st;
 
     st = RowsetMetaManager::exists(meta(), tablet_uid(), attach_rowset_meta->rowset_id());
@@ -167,7 +169,7 @@ TEST_F(RowsetMetaManagerTest, Remove) {
     auto attach_rowset_meta_2 =
             create_rowset_meta(20013, RowsetStatePB::VISIBLE, Version {10, 10}, true);
     st = RowsetMetaManager::save(meta(), tablet_uid(), base_rowset_meta_2->rowset_id(),
-                                 to_rowset_meta_pb(base_rowset_meta_2), BinlogFormatPB::ROW,
+                                 to_rowset_meta_pb(base_rowset_meta_2), BinlogFormatPB::CHANGELOG,
                                  to_rowset_meta_pb(attach_rowset_meta_2));
     ASSERT_TRUE(st.ok()) << st;
 

@@ -557,7 +557,6 @@ public class PaimonConnector implements Connector {
         try {
             Thread.currentThread().setContextClassLoader(getClass().getClassLoader());
             return context.executeAuthenticated(() -> {
-                // PaimonMetaCacheCatalog installs PrivilegedCatalog after the raw metadata cache.
                 Catalog catalog = PaimonCatalogProperties.HMS.equals(flavor)
                         ? createHmsCatalog(catalogContext, hmsAuth, catalogProps.getRaw(),
                                 storageHadoopConfig)

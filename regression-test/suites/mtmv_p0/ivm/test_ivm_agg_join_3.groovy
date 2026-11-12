@@ -34,8 +34,7 @@ suite("test_ivm_agg_join_3") {
         DISTRIBUTED BY HASH(fact_id) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW"
+            "changelog.enable" = "true"
         );
     """
 
@@ -48,8 +47,7 @@ suite("test_ivm_agg_join_3") {
         DISTRIBUTED BY HASH(dim_id) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW", "binlog.need_historical_value" = "true",
+            "changelog.enable" = "true", "changelog.need_historical_value" = "true",
             "enable_unique_key_merge_on_write" = "true"
         );
     """

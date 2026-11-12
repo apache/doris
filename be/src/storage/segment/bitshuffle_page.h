@@ -38,6 +38,7 @@
 #include "storage/segment/options.h"
 #include "storage/segment/page_builder.h"
 #include "storage/segment/page_decoder.h"
+#include "storage/storage_layout.h"
 #include "storage/types.h"
 #include "util/alignment.h"
 #include "util/coding.h"
@@ -47,7 +48,7 @@
 namespace doris {
 namespace segment_v2 {
 
-enum { BITSHUFFLE_PAGE_HEADER_SIZE = 16 };
+static constexpr size_t BITSHUFFLE_PAGE_HEADER_SIZE = 16;
 
 void warn_with_bitshuffle_error(int64_t val);
 
@@ -237,7 +238,7 @@ private:
         return ret;
     }
 
-    enum { SIZE_OF_TYPE = TypeTraits<Type>::size };
+    static constexpr size_t SIZE_OF_TYPE = TypeTraits<Type>::size;
     PageBuilderOptions _options;
     uint32_t _count;
     uint32_t _remain_element_capacity;
@@ -393,7 +394,8 @@ public:
 
         size_t max_fetch = std::min(*n, _num_elements - _cur_index);
 
-        dst->insert_many_fix_len_data(get_data(_cur_index), max_fetch);
+        StorageLayout<Type>::storage_to_column(
+                reinterpret_cast<const uint8_t*>(get_data(_cur_index)), max_fetch, *dst);
         *n = max_fetch;
         if constexpr (forward_index) {
             _cur_index += max_fetch;
@@ -425,7 +427,8 @@ public:
         }
 
         if (LIKELY(read_count > 0)) {
-            dst->insert_many_fix_len_data((char*)_buffer.data(), read_count);
+            StorageLayout<Type>::storage_to_column(reinterpret_cast<const uint8_t*>(_buffer.data()),
+                                                   read_count, *dst);
         }
 
         *n = read_count;
@@ -451,7 +454,7 @@ private:
 
     using CppType = typename TypeTraits<Type>::CppType;
 
-    enum { SIZE_OF_TYPE = TypeTraits<Type>::size };
+    static constexpr size_t SIZE_OF_TYPE = TypeTraits<Type>::size;
 
     Slice _data;
     PageDecoderOptions _options;

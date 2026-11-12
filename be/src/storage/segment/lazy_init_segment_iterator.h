@@ -50,10 +50,6 @@ public:
 
     const ReadSchema& schema() const override { return *_schema; }
 
-    Status current_block_row_locations(std::vector<RowLocation>* locations) override {
-        return _inner_iterator->current_block_row_locations(locations);
-    }
-
     void update_profile(RuntimeProfile* profile) override {
         if (_inner_iterator != nullptr) {
             _inner_iterator->update_profile(profile);

@@ -30,6 +30,33 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class SqlBlockRuleMgrTest {
+    @Test
+    public void testPartitionMetadataIsRequiredOnlyByEnabledPartitionRules() {
+        SqlBlockRuleMgr mgr = new SqlBlockRuleMgr();
+        SqlBlockRule rule = new SqlBlockRule("r", "NULL", "NULL", 0L, 0L, 10L,
+                false, false, true);
+        mgr.getNameToSqlBlockRuleMap().put("r", rule);
+        Assertions.assertFalse(mgr.hasPartitionMetadataRules());
+        rule.setPartitionNum(2L);
+        Assertions.assertTrue(mgr.hasPartitionMetadataRules());
+        rule.setEnable(false);
+        Assertions.assertFalse(mgr.hasPartitionMetadataRules());
+        rule.setPartitionNum(0L);
+        rule.setRequirePartitionFilter(true);
+        rule.setEnable(true);
+        Assertions.assertTrue(mgr.hasPartitionMetadataRules());
+    }
+
+    @Test
+    public void testNewPartitionRuleCannotTreatAnUnknownUniverseAsZero() {
+        SqlBlockRuleMgr mgr = new SqlBlockRuleMgr();
+        SqlBlockRule rule = new SqlBlockRule("r", "NULL", "NULL", 1L, 0L, 0L,
+                false, true, true);
+        AnalysisException error = Assertions.assertThrows(AnalysisException.class,
+                () -> mgr.checkLimitations(rule, -1L, 1L, 10L, true, false));
+        Assertions.assertTrue(error.getMessage().contains("retry the query"));
+    }
+
     @BeforeAll
     public static void setUp() {
         MetricRepo.init();

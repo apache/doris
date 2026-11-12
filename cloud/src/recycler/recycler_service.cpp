@@ -393,7 +393,7 @@ void RecyclerServiceImpl::check_instance(const std::string& instance_id, MetaSer
         // skip instance already in pending queue
         if (success) {
             // TODO(plat1ko): Support high priority
-            checker_->pending_instance_queue_.push_back(std::move(instance));
+            checker_->pending_instance_queue_.push_back({std::move(instance), nullptr});
         }
         checker_->pending_instance_cond_.notify_all();
     }

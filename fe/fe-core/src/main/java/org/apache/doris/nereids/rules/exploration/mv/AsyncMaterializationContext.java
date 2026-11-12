@@ -26,6 +26,9 @@ import org.apache.doris.mtmv.MTMVCache;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.ExpressionMapping;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.NonNullable;
 import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PreAggStatus;
@@ -70,6 +73,29 @@ public class AsyncMaterializationContext extends MaterializationContext {
 
     public MTMV getMtmv() {
         return mtmv;
+    }
+
+    @Override
+    public void tryGenerateScanPlan(CascadesContext cascadesContext) {
+        super.tryGenerateScanPlan(cascadesContext);
+        if (!isAvailable()) {
+            return;
+        }
+        Multimap<Expression, Expression> mapping = shuttledExprToScanExprMapping.getExpressionMapping();
+        for (Expression expression : planOutputShuttledExpressions) {
+            if (!(expression instanceof NonNullable) || !(expression.child(0) instanceof SlotReference)
+                    || mapping.containsKey(expression.child(0))) {
+                continue;
+            }
+            // A successful non_nullable(slot) materialization preserves the slot's values. This
+            // mapping is local to the MV and does not make the source column globally non-nullable.
+            for (Expression target : mapping.get(expression)) {
+                if (!target.nullable() && target.getDataType().equals(expression.child(0).getDataType())) {
+                    mapping.put(expression.child(0), target);
+                    break;
+                }
+            }
+        }
     }
 
     @Override

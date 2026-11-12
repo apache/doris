@@ -83,6 +83,29 @@ public class TimeBasedChangeVisibleWaiterTest {
     }
 
     @Test
+    public void testRowTtlReadDoesNotAcquireFence() throws Exception {
+        assertRowTtlReadDoesNotAcquireFence(ImmutableMap.of());
+    }
+
+    @Test
+    public void testBoundedRowTtlReadDoesNotAcquireFence() throws Exception {
+        assertRowTtlReadDoesNotAcquireFence(
+                ImmutableMap.of(OlapScanNode.OLAP_END_TIMESTAMP, "2024-01-01 00:00:00"));
+    }
+
+    private void assertRowTtlReadDoesNotAcquireFence(Map<String, String> params) throws Exception {
+        OlapTable table = mockOlapTable(DB_ID, TABLE_ID);
+        Mockito.when(table.hasRowTtl()).thenReturn(true);
+        ConnectContext context = mockContext();
+
+        TimeBasedChangeVisibleWaiter.waitForVisible(context, newChangeRelation(1, params),
+                ImmutableMap.of(TABLE_QUALIFIER, table));
+
+        Mockito.verify(context, Mockito.never()).getEnv();
+        Mockito.verify(table, Mockito.never()).getDatabase();
+    }
+
+    @Test
     public void testCollectChangeReadInfoMergesMaximumEndTimestamp() {
         String endTimestamp1 = "2024-01-01 00:00:00";
         String endTimestamp2 = "2024-01-02 00:00:00";

@@ -61,9 +61,15 @@ public class PaimonPredicateConverter {
     private final PredicateBuilder builder;
     private final List<String> fieldNames;
     private final List<DataType> fieldTypes;
+    private final boolean dropTimestampPredicates;
 
     public PaimonPredicateConverter(RowType rowType) {
+        this(rowType, false);
+    }
+
+    public PaimonPredicateConverter(RowType rowType, boolean dropTimestampPredicates) {
         this.builder = new PredicateBuilder(rowType);
+        this.dropTimestampPredicates = dropTimestampPredicates;
         this.fieldNames = rowType.getFields().stream()
                 .map(f -> f.name().toLowerCase())
                 .collect(Collectors.toList());
@@ -148,6 +154,9 @@ public class PaimonPredicateConverter {
             return null;
         }
         ConnectorColumnRef colRef = (ConnectorColumnRef) left;
+        if (dropTimestampPredicates && isTimestampColumn(colRef)) {
+            return null;
+        }
         ConnectorLiteral literal = (ConnectorLiteral) right;
         int idx = fieldNames.indexOf(colRef.getColumnName().toLowerCase());
         if (idx < 0) {
@@ -195,6 +204,9 @@ public class PaimonPredicateConverter {
             return null;
         }
         ConnectorColumnRef colRef = (ConnectorColumnRef) valueExpr;
+        if (dropTimestampPredicates && isTimestampColumn(colRef)) {
+            return null;
+        }
         int idx = fieldNames.indexOf(colRef.getColumnName().toLowerCase());
         if (idx < 0) {
             return null;
@@ -219,8 +231,11 @@ public class PaimonPredicateConverter {
         if (!(operand instanceof ConnectorColumnRef)) {
             return null;
         }
-        int idx = fieldNames.indexOf(
-                ((ConnectorColumnRef) operand).getColumnName().toLowerCase());
+        ConnectorColumnRef colRef = (ConnectorColumnRef) operand;
+        if (dropTimestampPredicates && isTimestampColumn(colRef)) {
+            return null;
+        }
+        int idx = fieldNames.indexOf(colRef.getColumnName().toLowerCase());
         if (idx < 0) {
             return null;
         }
@@ -237,6 +252,9 @@ public class PaimonPredicateConverter {
                 || !(patternExpr instanceof ConnectorLiteral)) {
             return null;
         }
+        if (dropTimestampPredicates && isTimestampColumn((ConnectorColumnRef) valueExpr)) {
+            return null;
+        }
         int idx = fieldNames.indexOf(
                 ((ConnectorColumnRef) valueExpr).getColumnName().toLowerCase());
         if (idx < 0) {
@@ -248,6 +266,16 @@ public class PaimonPredicateConverter {
             return null;
         }
         return builder.startsWith(idx, BinaryString.fromString(prefix));
+    }
+
+    private boolean isTimestampColumn(ConnectorColumnRef column) {
+        int idx = fieldNames.indexOf(column.getColumnName().toLowerCase());
+        if (idx < 0) {
+            return false;
+        }
+        DataTypeRoot root = fieldTypes.get(idx).getTypeRoot();
+        return root == DataTypeRoot.TIMESTAMP_WITHOUT_TIME_ZONE
+                || root == DataTypeRoot.TIMESTAMP_WITH_LOCAL_TIME_ZONE;
     }
 
     /**

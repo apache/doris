@@ -63,6 +63,7 @@ import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.types.SmallIntType;
 import org.apache.doris.nereids.types.TimeStampNsType;
+import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
@@ -572,36 +573,27 @@ class SimplifyComparisonPredicateTest extends ExpressionRewriteTestHelper {
     }
 
     @Test
-    void testDateToTimeStampNsSubMicrosecondComparison() {
+    void testTemporalToTimeStampNsPreservesRangeChecks() {
         executor = new ExpressionRuleExecutor(ImmutableList.of(
                 bottomUp(SimplifyComparisonPredicate.INSTANCE)
         ));
-
-        Expression date = new SlotReference("date", DateV2Type.INSTANCE, true);
-        Expression castToNano = new Cast(date, TimeStampNsType.INSTANCE);
         TimeStampNsLiteral nanoAfterMidnight = new TimeStampNsLiteral(
                 "2024-01-01 00:00:00.000000001");
-        DateV2Literal currentDate = new DateV2Literal("2024-01-01");
-        DateV2Literal nextDate = new DateV2Literal("2024-01-02");
-
-        assertRewrite(new EqualTo(castToNano, nanoAfterMidnight), ExpressionUtils.falseOrNull(date));
-        assertRewrite(new EqualTo(nanoAfterMidnight, castToNano), ExpressionUtils.falseOrNull(date));
-        assertRewrite(new NullSafeEqual(castToNano, nanoAfterMidnight), BooleanLiteral.FALSE);
-        assertRewrite(new NullSafeEqual(nanoAfterMidnight, castToNano), BooleanLiteral.FALSE);
-
-        assertRewrite(new LessThan(castToNano, nanoAfterMidnight), new LessThan(date, nextDate));
-        assertRewrite(new LessThan(nanoAfterMidnight, castToNano), new GreaterThan(date, currentDate));
-        assertRewrite(new LessThanEqual(castToNano, nanoAfterMidnight), new LessThanEqual(date, currentDate));
-        assertRewrite(new LessThanEqual(nanoAfterMidnight, castToNano), new GreaterThanEqual(date, nextDate));
-        assertRewrite(new GreaterThan(castToNano, nanoAfterMidnight), new GreaterThan(date, currentDate));
-        assertRewrite(new GreaterThan(nanoAfterMidnight, castToNano), new LessThan(date, nextDate));
-        assertRewrite(new GreaterThanEqual(castToNano, nanoAfterMidnight), new GreaterThanEqual(date, nextDate));
-        assertRewrite(new GreaterThanEqual(nanoAfterMidnight, castToNano), new LessThanEqual(date, currentDate));
-
-        assertRewrite(new Not(new EqualTo(castToNano, nanoAfterMidnight)),
-                new Not(ExpressionUtils.falseOrNull(date)));
-        assertRewrite(new Not(new EqualTo(nanoAfterMidnight, castToNano)),
-                new Not(ExpressionUtils.falseOrNull(date)));
+        for (DataType type : ImmutableList.of(DateType.INSTANCE, DateV2Type.INSTANCE,
+                DateTimeType.INSTANCE, DateTimeV2Type.MAX, TimeStampTzType.MAX)) {
+            Expression temporal = new SlotReference("temporal", type, true);
+            Expression castToNano = new Cast(temporal, TimeStampNsType.INSTANCE, false, true);
+            for (ComparisonPredicate comparison : ImmutableList.of(
+                    new EqualTo(castToNano, nanoAfterMidnight),
+                    new NullSafeEqual(castToNano, nanoAfterMidnight),
+                    new LessThan(castToNano, nanoAfterMidnight),
+                    new LessThanEqual(castToNano, nanoAfterMidnight),
+                    new GreaterThan(castToNano, nanoAfterMidnight),
+                    new GreaterThanEqual(castToNano, nanoAfterMidnight))) {
+                assertRewrite(comparison, comparison);
+                assertRewrite(comparison.commute(), comparison);
+            }
+        }
     }
 
     @Test

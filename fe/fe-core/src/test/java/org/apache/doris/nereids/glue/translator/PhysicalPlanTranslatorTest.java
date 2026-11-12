@@ -32,11 +32,11 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
+import org.apache.doris.catalog.OlapChangelogTableWrapper;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTableWrapper;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
-import org.apache.doris.catalog.RowBinlogTableWrapper;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
@@ -101,12 +101,12 @@ import java.util.stream.Collectors;
 
 public class PhysicalPlanTranslatorTest extends TestWithFeService {
 
-    private boolean originalEnableFeatureBinlog;
+    private boolean originalEnableFeatureChangelog;
     private boolean originalEnableTableStream;
 
     @Override
     protected void runBeforeAll() throws Exception {
-        originalEnableFeatureBinlog = Config.enable_feature_binlog;
+        originalEnableFeatureChangelog = Config.enable_feature_changelog;
         originalEnableTableStream = Config.enable_table_stream;
         createDatabase("test_db");
         createTable("create table test_db.t(a int, b int) distributed by hash(a) buckets 3 "
@@ -121,16 +121,16 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
                 + ")\n"
                 + "distributed by hash(k1) buckets 3\n"
                 + "properties('replication_num' = '1');");
-        Config.enable_feature_binlog = true;
+        Config.enable_feature_changelog = true;
         Config.enable_table_stream = true;
-        createTable("create table test_db.binlog_scan_schema_t(\n"
+        createTable("create table test_db.changelog_scan_schema_t(\n"
                 + "k1 int, k2 int, v1 int, v2 int)\n"
                 + "unique key(k1, k2)\n"
                 + "distributed by hash(k1) buckets 1\n"
                 + "properties('replication_num' = '1',"
                 + "'enable_unique_key_merge_on_write' = 'true',"
-                + "'binlog.enable' = 'true','binlog.format' = 'ROW',"
-                + "'binlog.need_historical_value' = 'true');");
+                + "'changelog.enable' = 'true',"
+                + "'changelog.need_historical_value' = 'true');");
         createTable("create table test_db.sequence_scan_schema_t(\n"
                 + "k1 int, k2 int, v1 int, v2 int)\n"
                 + "unique key(k1, k2)\n"
@@ -151,15 +151,15 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
         // treats a positive offset as a real baseline, otherwise every partition would be pruned out
         // of the snapshot scan.
         Database database = (Database) Env.getCurrentInternalCatalog().getDbOrMetaException("test_db");
-        OlapTable binlogScanSchemaTable =
-                (OlapTable) database.getTableOrMetaException("binlog_scan_schema_t");
-        bumpPartitionsAndReplicas(binlogScanSchemaTable, 2L, 100L);
-        createTable("create stream test_db.binlog_scan_schema_stream "
-                + "on table test_db.binlog_scan_schema_t properties('type' = 'append_only')");
+        OlapTable changelogScanSchemaTable =
+                (OlapTable) database.getTableOrMetaException("changelog_scan_schema_t");
+        bumpPartitionsAndReplicas(changelogScanSchemaTable, 2L, 100L);
+        createTable("create stream test_db.changelog_scan_schema_stream "
+                + "on table test_db.changelog_scan_schema_t properties('type' = 'append_only')");
         // Advance the base table tso again after the stream is created so the partition has new data
         // beyond the recorded consumption offset, driving the snapshot scan down the rebuild path
-        // (base scan wrapped in OlapTableWrapper unioned with the binlog before-image).
-        bumpPartitionsAndReplicas(binlogScanSchemaTable, 3L, 200L);
+        // (base scan wrapped in OlapTableWrapper unioned with the changelog before-image).
+        bumpPartitionsAndReplicas(changelogScanSchemaTable, 3L, 200L);
         createTable("create table test_db.t_topn_lazy(c1 int, c2 int, c3 int) "
                 + "duplicate key(c1) distributed by hash(c1) buckets 1 "
                 + "properties('replication_num' = '1', 'light_schema_change' = 'true');");
@@ -168,7 +168,7 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
 
     @Override
     protected void runAfterAll() {
-        Config.enable_feature_binlog = originalEnableFeatureBinlog;
+        Config.enable_feature_changelog = originalEnableFeatureChangelog;
         Config.enable_table_stream = originalEnableTableStream;
     }
 
@@ -245,9 +245,9 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
     }
 
     @Test
-    public void testBinlogPhysicalScanSchemaDependencies() throws Exception {
+    public void testChangelogPhysicalScanSchemaDependencies() throws Exception {
         OlapScanNode scanNode = getFirstOlapScanNode(
-                "select v1 from test_db.binlog_scan_schema_t"
+                "select v1 from test_db.changelog_scan_schema_t"
                         + "@incr(\"incrementType\" = \"MIN_DELTA\")");
         List<String> scanColumns = scanNode.getTupleDesc().getSlots().stream()
                 .map(slot -> slot.getColumn().getName())
@@ -256,8 +256,8 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
         Assertions.assertTrue(scanColumns.containsAll(ImmutableList.of(
                 "k1", "k2", "v1", "v2", Column.generateBeforeColName("v1"),
                 Column.generateBeforeColName("v2"),
-                Column.BINLOG_OPERATION_COL, Column.BINLOG_TSO_COL)));
-        Assertions.assertFalse(scanColumns.contains(Column.BINLOG_LSN_COL));
+                Column.CHANGELOG_OP_COL, Column.CHANGELOG_TSO_COL)));
+        Assertions.assertFalse(scanColumns.contains(Column.CHANGELOG_LSN_COL));
 
         Assertions.assertTrue(scanNode.getExtraKeyColumnSlotIds().isEmpty());
         Assertions.assertEquals(ImmutableList.of("v1"), scanNode.getOutputTupleDesc().getSlots().stream()
@@ -274,15 +274,15 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
     }
 
     @Test
-    public void testAppendOnlyBinlogPhysicalScanSchemaDependencies() throws Exception {
+    public void testAppendOnlyChangelogPhysicalScanSchemaDependencies() throws Exception {
         OlapScanNode scanNode = getFirstOlapScanNode(
-                "select v1 from test_db.binlog_scan_schema_t"
+                "select v1 from test_db.changelog_scan_schema_t"
                         + "@incr(\"incrementType\" = \"APPEND_ONLY\")");
         Set<String> scanColumns = scanNode.getTupleDesc().getSlots().stream()
                 .map(slot -> slot.getColumn().getName())
                 .collect(Collectors.toSet());
         Assertions.assertEquals(ImmutableSet.of(
-                "v1", Column.BINLOG_OPERATION_COL, Column.BINLOG_TSO_COL), scanColumns);
+                "v1", Column.CHANGELOG_OP_COL, Column.CHANGELOG_TSO_COL), scanColumns);
 
         Assertions.assertTrue(scanNode.getExtraKeyColumnSlotIds().isEmpty());
     }
@@ -308,12 +308,12 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
     public void testSnapshotPhysicalScanSchemaIncludesCommitTso() throws Exception {
         OlapScanNode snapshotMowScan;
         try (MockedStatic<MasterTsoProvider> mockedTso = Mockito.mockStatic(MasterTsoProvider.class)) {
-            // Match the fixture's consumed TSO 100 and latest TSO 200 when checking binlog retention.
+            // Match the fixture's consumed TSO 100 and latest TSO 200 when checking changelog retention.
             mockedTso.when(() -> MasterTsoProvider.getCurrentTso(connectContext)).thenReturn(200L);
             snapshotMowScan = getOlapScanNodes(
-                    "select v1 + 1 as projected_v1 from test_db.binlog_scan_schema_stream@snapshot()").stream()
+                    "select v1 + 1 as projected_v1 from test_db.changelog_scan_schema_stream@snapshot()").stream()
                     .filter(scan -> scan.getOlapTable() instanceof OlapTableWrapper
-                            && !(scan.getOlapTable() instanceof RowBinlogTableWrapper))
+                            && !(scan.getOlapTable() instanceof OlapChangelogTableWrapper))
                     .findFirst()
                     .orElseThrow(() -> new AssertionError("snapshot base scan not found"));
         }

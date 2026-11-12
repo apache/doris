@@ -77,8 +77,8 @@ public class RenameRollupOp extends AlterTableOp {
     }
 
     @Override
-    public boolean allowOpRowBinlog() {
-        // Renaming rollup does not change schema, allow on row binlog tables.
+    public boolean allowOnChangelogTable() {
+        // Renaming rollup does not change schema, allow on changelog tables.
         return true;
     }
 

@@ -46,7 +46,7 @@ public class ShowCreateMTMVTest extends SqlTestBase {
     protected void runBeforeAll() throws Exception {
         super.runBeforeAll();
         Config.enable_table_stream = true;
-        createTableWithRowBinlog("CREATE TABLE IF NOT EXISTS show_create_ivm_base (\n"
+        createTableWithChangelog("CREATE TABLE IF NOT EXISTS show_create_ivm_base (\n"
                 + "    id bigint,\n"
                 + "    score bigint\n"
                 + ")\n"
@@ -54,8 +54,7 @@ public class ShowCreateMTMVTest extends SqlTestBase {
                 + "DISTRIBUTED BY HASH(id) BUCKETS 1\n"
                 + "PROPERTIES (\n"
                 + "  \"replication_num\" = \"1\",\n"
-                + "  \"binlog.enable\" = \"true\",\n"
-                + "  \"binlog.format\" = \"ROW\"\n"
+                + "  \"changelog.enable\" = \"true\"\n"
                 + ")\n");
     }
 

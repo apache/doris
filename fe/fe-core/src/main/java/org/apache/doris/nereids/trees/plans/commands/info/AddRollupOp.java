@@ -127,8 +127,8 @@ public class AddRollupOp extends AlterTableOp {
     }
 
     @Override
-    public boolean allowOpRowBinlog() {
-        // Adding rollup index is allowed for row binlog tables.
+    public boolean allowOnChangelogTable() {
+        // Adding rollup index is allowed for changelog tables.
         return true;
     }
 

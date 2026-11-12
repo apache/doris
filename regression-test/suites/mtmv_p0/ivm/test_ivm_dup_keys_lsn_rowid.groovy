@@ -16,8 +16,8 @@
 // under the License.
 
 suite("test_ivm_dup_keys_lsn_rowid") {
-    // DUP_KEYS base tables use the row-binlog lsn column (__DORIS_ROW_LSN_COL__) as the
-    // deterministic IVM row-id. DUP + binlog<row> tables reject predicate DELETE
+    // DUP_KEYS base tables use the changelog lsn column (__DORIS_ROW_LSN_COL__) as the
+    // deterministic IVM row-id. DUP + changelog tables reject predicate DELETE
     // (DeleteHandler), so deletion is exercised from the MOW side of joins (parts 3/4);
     // parts 1/2 cover incremental INSERT and COMPLETE recovery.
 
@@ -37,8 +37,7 @@ suite("test_ivm_dup_keys_lsn_rowid") {
         DISTRIBUTED BY HASH(k1) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW"
+            "changelog.enable" = "true"
         );
     """
 
@@ -87,8 +86,7 @@ suite("test_ivm_dup_keys_lsn_rowid") {
         DISTRIBUTED BY HASH(k1) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW"
+            "changelog.enable" = "true"
         );
     """
     sql """
@@ -100,8 +98,7 @@ suite("test_ivm_dup_keys_lsn_rowid") {
         DISTRIBUTED BY HASH(k1) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW"
+            "changelog.enable" = "true"
         );
     """
 
@@ -156,9 +153,8 @@ suite("test_ivm_dup_keys_lsn_rowid") {
         PROPERTIES (
             "replication_num" = "1",
             "enable_unique_key_merge_on_write" = "true",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW",
-            "binlog.need_historical_value" = "true"
+            "changelog.enable" = "true",
+            "changelog.need_historical_value" = "true"
         );
     """
     sql """
@@ -170,8 +166,7 @@ suite("test_ivm_dup_keys_lsn_rowid") {
         DISTRIBUTED BY HASH(k1) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW"
+            "changelog.enable" = "true"
         );
     """
 
@@ -224,9 +219,8 @@ suite("test_ivm_dup_keys_lsn_rowid") {
         PROPERTIES (
             "replication_num" = "1",
             "enable_unique_key_merge_on_write" = "true",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW",
-            "binlog.need_historical_value" = "true"
+            "changelog.enable" = "true",
+            "changelog.need_historical_value" = "true"
         );
     """
     sql """
@@ -238,8 +232,7 @@ suite("test_ivm_dup_keys_lsn_rowid") {
         DISTRIBUTED BY HASH(k1) BUCKETS 2
         PROPERTIES (
             "replication_num" = "1",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW"
+            "changelog.enable" = "true"
         );
     """
 

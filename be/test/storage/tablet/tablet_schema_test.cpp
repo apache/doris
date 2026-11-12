@@ -71,11 +71,11 @@ TEST_F(TabletSchemaTest, test_commit_tso_col_idx_from_current_index_schema) {
     EXPECT_EQ(1, current.commit_tso_col_idx());
 }
 
-TEST_F(TabletSchemaTest, test_binlog_col_idx_from_pb_column_names) {
+TEST_F(TabletSchemaTest, test_changelog_col_idx_from_pb_column_names) {
     TabletSchemaPB schema_pb;
     schema_pb.set_keys_type(DUP_KEYS);
     for (const std::string& name :
-         {std::string("k1"), BINLOG_TSO_COL, BINLOG_LSN_COL, BINLOG_OP_COL}) {
+         {std::string("k1"), CHANGELOG_TSO_COL, CHANGELOG_LSN_COL, CHANGELOG_OP_COL}) {
         ColumnPB* column = schema_pb.add_column();
         column->set_unique_id(schema_pb.column_size() - 1);
         column->set_name(name);
@@ -85,30 +85,30 @@ TEST_F(TabletSchemaTest, test_binlog_col_idx_from_pb_column_names) {
         column->set_aggregation("NONE");
     }
 
-    // The binlog column cids are not stored in the PB, so they must come from the column names
+    // The changelog column cids are not stored in the PB, so they must come from the column names
     // both for a new schema and after a round trip through the PB.
     TabletSchema schema;
     schema.init_from_pb(schema_pb);
-    EXPECT_EQ(1, schema.binlog_tso_col_idx());
-    EXPECT_EQ(2, schema.binlog_lsn_col_idx());
-    EXPECT_EQ(3, schema.binlog_op_col_idx());
+    EXPECT_EQ(1, schema.changelog_tso_col_idx());
+    EXPECT_EQ(2, schema.changelog_lsn_col_idx());
+    EXPECT_EQ(3, schema.changelog_op_col_idx());
 
     TabletSchemaPB round_trip_pb;
     schema.to_schema_pb(&round_trip_pb);
     TabletSchema round_trip;
     round_trip.init_from_pb(round_trip_pb);
-    EXPECT_EQ(1, round_trip.binlog_tso_col_idx());
-    EXPECT_EQ(2, round_trip.binlog_lsn_col_idx());
-    EXPECT_EQ(3, round_trip.binlog_op_col_idx());
+    EXPECT_EQ(1, round_trip.changelog_tso_col_idx());
+    EXPECT_EQ(2, round_trip.changelog_lsn_col_idx());
+    EXPECT_EQ(3, round_trip.changelog_op_col_idx());
     EXPECT_TRUE(schema == round_trip);
 
     TabletSchemaPB data_schema_pb;
     data_schema_pb.add_column()->CopyFrom(schema_pb.column(0));
     TabletSchema data_schema;
     data_schema.init_from_pb(data_schema_pb);
-    EXPECT_EQ(-1, data_schema.binlog_tso_col_idx());
-    EXPECT_EQ(-1, data_schema.binlog_lsn_col_idx());
-    EXPECT_EQ(-1, data_schema.binlog_op_col_idx());
+    EXPECT_EQ(-1, data_schema.changelog_tso_col_idx());
+    EXPECT_EQ(-1, data_schema.changelog_lsn_col_idx());
+    EXPECT_EQ(-1, data_schema.changelog_op_col_idx());
 }
 
 TEST_F(TabletSchemaTest, test_tablet_column_init_from_pb) {

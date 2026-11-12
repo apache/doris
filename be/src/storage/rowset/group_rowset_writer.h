@@ -27,7 +27,7 @@ public:
 
     void set_data_writer(const RowsetWriterSharedPtr& txn_rowset_writer);
 
-    void set_row_binlog_writer(const RowsetWriterSharedPtr& row_binlog_rowset_writer);
+    void set_changelog_writer(const RowsetWriterSharedPtr& changelog_rowset_writer);
 
     ~GroupRowsetWriter() = default;
 
@@ -35,7 +35,7 @@ public:
 
     Status build_rowsets(std::vector<RowsetSharedPtr>& rowsets);
 
-    RowsetWriterSharedPtr row_binlog_writer() { return _row_binlog_rowset_writer; }
+    RowsetWriterSharedPtr changelog_writer() { return _changelog_rowset_writer; }
 
     RowsetWriterSharedPtr data_writer() { return _txn_rowset_writer; }
 
@@ -109,9 +109,9 @@ public:
 
     int32_t get_allocated_segment_id() override {
         DCHECK(_txn_rowset_writer != nullptr);
-        DCHECK(_row_binlog_rowset_writer != nullptr);
+        DCHECK(_changelog_rowset_writer != nullptr);
         auto seg_id = _txn_rowset_writer->get_allocated_segment_id();
-        DCHECK_EQ(seg_id, _row_binlog_rowset_writer->get_allocated_segment_id());
+        DCHECK_EQ(seg_id, _changelog_rowset_writer->get_allocated_segment_id());
         return seg_id;
     }
 
@@ -132,7 +132,7 @@ public:
 
 private:
     RowsetWriterSharedPtr _txn_rowset_writer;
-    RowsetWriterSharedPtr _row_binlog_rowset_writer;
+    RowsetWriterSharedPtr _changelog_rowset_writer;
 };
 
 } // namespace doris

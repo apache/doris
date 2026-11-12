@@ -56,7 +56,7 @@ public:
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
         auto* src_column_array_ptr =
                 assert_cast<const ColumnArray*>(remove_nullable(src_column).get());
-        const ColumnArray* nested_src_column_array_ptr = src_column_array_ptr;
+        ColumnPtr nested_src_column_array = remove_nullable(src_column);
 
         DataTypePtr src_data_type = block.get_by_position(arguments[0]).type;
         auto* src_data_type_array =
@@ -68,22 +68,42 @@ public:
                                 .data();
 
         while (src_data_type_array->get_nested_type()->get_primitive_type() == TYPE_ARRAY) {
-            nested_src_column_array_ptr = assert_cast<const ColumnArray*>(
-                    remove_nullable(src_column_array_ptr->get_data_ptr()).get());
+            const auto* nullable =
+                    check_and_get_column<ColumnNullable>(src_column_array_ptr->get_data());
+            auto nested_array = remove_nullable(src_column_array_ptr->get_data_ptr());
+            const auto& array = assert_cast<const ColumnArray&>(*nested_array);
+
+            // IF can leave [101, 102] beneath a NULL subarray. Remove that range before
+            // composing offsets, so [NULL, [9]] flattens to [9] at every nesting level.
+            if (nullable && nullable->has_null()) {
+                auto data = array.get_data().clone_empty();
+                auto nested_offsets = ColumnArray::ColumnOffsets::create();
+                auto& nested_offsets_data = nested_offsets->get_data();
+                nested_offsets_data.reserve(array.size());
+                for (size_t i = 0; i < array.size(); ++i) {
+                    // NULL subarrays may own nonempty ranges; their children are invisible.
+                    if (!nullable->is_null_at(i)) {
+                        data->insert_range_from(array.get_data(), array.offset_at(i),
+                                                array.size_at(i));
+                    }
+                    nested_offsets_data.push_back(data->size());
+                }
+                nested_array = ColumnArray::create(std::move(data), std::move(nested_offsets));
+            }
+            const auto& nested_array_offsets =
+                    assert_cast<const ColumnArray&>(*nested_array).get_offsets();
 
             for (size_t i = 0; i < input_rows_count; ++i) {
-                offsets[i] = nested_src_column_array_ptr->get_offsets()[offsets[i] - 1];
+                offsets[i] = nested_array_offsets[offsets[i] - 1];
             }
-            src_column_array_ptr = nested_src_column_array_ptr;
+            nested_src_column_array = std::move(nested_array);
+            src_column_array_ptr = assert_cast<const ColumnArray*>(nested_src_column_array.get());
             src_data_type_array = assert_cast<const DataTypeArray*>(
                     remove_nullable(src_data_type_array->get_nested_type()).get());
         }
 
-        block.replace_by_position(
-                result, ColumnArray::create(assert_cast<const ColumnNullable&>(
-                                                    nested_src_column_array_ptr->get_data())
-                                                    .clone(),
-                                            std::move(result_column_offsets)));
+        block.replace_by_position(result, ColumnArray::create(src_column_array_ptr->get_data_ptr(),
+                                                              std::move(result_column_offsets)));
         return Status::OK();
     }
 };

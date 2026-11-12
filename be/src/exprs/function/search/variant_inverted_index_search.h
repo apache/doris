@@ -143,6 +143,15 @@ public:
         return (it != _iterators.end()) ? it->second : nullptr;
     }
 
+    void set_leaf_num_rows_resolver(std::function<Status(const std::string&, uint32_t*)> resolver) {
+        _leaf_num_rows_resolver = std::move(resolver);
+    }
+
+    Status leaf_num_rows(const std::string& field_name, uint32_t* num_rows) const {
+        return _leaf_num_rows_resolver ? _leaf_num_rows_resolver(field_name, num_rows)
+                                       : Status::OK();
+    }
+
     void set_leaf_query_mapper(SearchLeafQueryMapper mapper) {
         _leaf_query_mapper = std::move(mapper);
     }
@@ -175,18 +184,17 @@ private:
     // The indexes the sources read, closed after them and latest first.
     std::vector<std::unique_ptr<segment_v2::OpenedIndex>> _opened_indexes;
     SearchLeafQueryMapper _leaf_query_mapper;
+    std::function<Status(const std::string&, uint32_t*)> _leaf_num_rows_resolver;
 };
 
-class VariantSearchNullBitmapAdapter final : public inverted_index::query_v2::NullBitmapResolver {
+// Physical NULLs are excluded by SEARCH leaves. Internal Boolean scorers,
+// including NestedGroup element queries, only see matching/non-matching sets.
+class SearchNullBitmapResolver final : public inverted_index::query_v2::NullBitmapResolver {
 public:
-    explicit VariantSearchNullBitmapAdapter(const FieldReaderResolver& resolver)
-            : _resolver(resolver) {}
-
-    std::shared_ptr<roaring::Roaring> bitmap_for(const inverted_index::query_v2::Scorer& scorer,
-                                                 const std::string& logical_field) const override;
-
-private:
-    const FieldReaderResolver& _resolver;
+    std::shared_ptr<roaring::Roaring> bitmap_for(const inverted_index::query_v2::Scorer&,
+                                                 const std::string&) const override {
+        return nullptr;
+    }
 };
 
 void populate_variant_search_binding_context(

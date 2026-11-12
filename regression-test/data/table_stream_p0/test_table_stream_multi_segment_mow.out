@@ -51,7 +51,7 @@ APPEND	7500
 5001	105001	APPEND
 7500	107500	APPEND
 
--- !mow_qm_binlog --
+-- !mow_qm_changelog --
 0	1	10	\N
 0	2	20	\N
 0	3	30	\N

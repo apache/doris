@@ -67,9 +67,7 @@ import java.time.YearMonth;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
-import java.time.format.DateTimeFormatterBuilder;
 import java.time.format.DateTimeParseException;
-import java.time.format.ResolverStyle;
 import java.time.format.TextStyle;
 import java.time.temporal.ChronoUnit;
 import java.time.temporal.WeekFields;
@@ -165,7 +163,6 @@ public class DateTimeExtractAndTransform {
     public static Expression century(TimeStampNsLiteral date) {
         return new SmallIntLiteral((short) ((date.getYear() - 1) / 100 + 1));
     }
-
 
     /**
      * Executable datetime extract quarter
@@ -1096,55 +1093,15 @@ public class DateTimeExtractAndTransform {
      */
     @ExecFunction(name = "convert_tz")
     public static Expression convertTz(DateTimeV2Literal datetime, StringLikeLiteral fromTz, StringLikeLiteral toTz) {
-        return DateTimeV2Literal.fromJavaDateType(
-                convertTz(datetime.toJavaDateType(), fromTz, toTz), datetime.getDataType().getScale());
+        return datetime.inTimeZone(fromTz.getStringValue(), toTz.getStringValue());
     }
 
     @ExecFunction(name = "convert_tz")
     public static Expression convertTz(TimeStampNsLiteral datetime, StringLikeLiteral fromTz,
             StringLikeLiteral toTz) {
         return TimeStampNsLiteral.fromJavaDateType(
-                convertTz(datetime.toJavaDateType(), fromTz, toTz));
-    }
-
-    private static LocalDateTime convertTz(LocalDateTime datetime, StringLikeLiteral fromTz,
-            StringLikeLiteral toTz) {
-        // Validate timezone offset ranges before parsing
-        validateTimezoneOffset(fromTz.getStringValue());
-        validateTimezoneOffset(toTz.getStringValue());
-
-        DateTimeFormatter zoneFormatter = new DateTimeFormatterBuilder()
-                .parseCaseInsensitive()
-                .appendZoneOrOffsetId()
-                .toFormatter()
-                .withResolverStyle(ResolverStyle.STRICT);
-        ZoneId fromZone = ZoneId.from(zoneFormatter.parse(fromTz.getStringValue()));
-        ZoneId toZone = ZoneId.from(zoneFormatter.parse(toTz.getStringValue()));
-
-        Instant instant = DateTimeLiteral.convertLocalToInstant(datetime, fromZone);
-        return LocalDateTime.ofInstant(instant, toZone);
-    }
-
-    private static void validateTimezoneOffset(String timezone) {
-        // Pattern to match offset format like +HH:MM or -HH:MM
-        if (timezone.matches("^[+-]\\d{2}:\\d{2}$")) {
-            boolean positive = timezone.charAt(0) == '+';
-            int hour = Integer.parseInt(timezone.substring(1, 3));
-            int minute = Integer.parseInt(timezone.substring(4, 6));
-
-            if (!positive && hour > 12) {
-                throw new AnalysisException("Invalid timezone offset: " + timezone
-                        + ". Timezone offsets must be between -12:00 and +14:00");
-            } else if (positive && hour > 14) {
-                throw new AnalysisException("Invalid timezone offset: " + timezone
-                        + ". Timezone offsets must be between -12:00 and +14:00");
-            }
-
-            if (minute != 0 && minute != 15 && minute != 30 && minute != 45) {
-                throw new AnalysisException("Invalid timezone offset: " + timezone
-                        + ". Minute part should be 00, 15, 30, or 45");
-            }
-        }
+                DateUtils.convertTimeZone(
+                        datetime.toJavaDateType(), fromTz.getStringValue(), toTz.getStringValue()));
     }
 
     @ExecFunction(name = "weekday")
@@ -1684,82 +1641,99 @@ public class DateTimeExtractAndTransform {
 
     @ExecFunction(name = "months_diff")
     public static Expression monthsDiff(DateTimeV2Literal t1, DateTimeV2Literal t2) {
-        return new BigIntLiteral(ChronoUnit.MONTHS.between(t2.toJavaDateType(), t1.toJavaDateType()));
+        return new BigIntLiteral(dateDiffInCalendarUnits(t1, t2, ChronoUnit.MONTHS));
     }
 
     @ExecFunction(name = "months_diff")
     public static Expression monthsDiff(TimestampTzLiteral t1, TimestampTzLiteral t2) {
-        return new BigIntLiteral(ChronoUnit.MONTHS.between(t2.toJavaDateType(), t1.toJavaDateType()));
+        return new BigIntLiteral(dateDiffInCalendarUnits(t1, t2, ChronoUnit.MONTHS));
     }
 
     @ExecFunction(name = "months_diff")
     public static Expression monthsDiff(TimeStampNsLiteral t1, TimeStampNsLiteral t2) {
-        return new BigIntLiteral(ChronoUnit.MONTHS.between(t2.toJavaDateType(), t1.toJavaDateType()));
+        return new BigIntLiteral(dateDiffInCalendarUnits(t1, t2, ChronoUnit.MONTHS));
     }
 
     @ExecFunction(name = "months_diff")
     public static Expression monthsDiff(DateTimeV2Literal t1, DateV2Literal t2) {
-        return new BigIntLiteral(ChronoUnit.MONTHS.between(t2.toJavaDateType(), t1.toJavaDateType()));
+        return new BigIntLiteral(dateDiffInCalendarUnits(t1, t2, ChronoUnit.MONTHS));
     }
 
     @ExecFunction(name = "months_diff")
     public static Expression monthsDiff(DateV2Literal t1, DateTimeV2Literal t2) {
-        return new BigIntLiteral(ChronoUnit.MONTHS.between(t2.toJavaDateType(), t1.toJavaDateType()));
+        return new BigIntLiteral(dateDiffInCalendarUnits(t1, t2, ChronoUnit.MONTHS));
     }
 
     @ExecFunction(name = "months_diff")
     public static Expression monthsDiff(DateV2Literal t1, DateV2Literal t2) {
-        return new BigIntLiteral(ChronoUnit.MONTHS.between(t2.toJavaDateType(), t1.toJavaDateType()));
+        return new BigIntLiteral(dateDiffInCalendarUnits(t1, t2, ChronoUnit.MONTHS));
     }
 
     @ExecFunction(name = "quarters_diff")
     public static Expression quartersDiff(DateTimeV2Literal t1, DateTimeV2Literal t2) {
-        return new BigIntLiteral(ChronoUnit.MONTHS.between(t2.toJavaDateType(), t1.toJavaDateType()) / 3);
+        return new BigIntLiteral(dateDiffInCalendarUnits(t1, t2, ChronoUnit.MONTHS) / 3);
     }
 
     @ExecFunction(name = "quarters_diff")
     public static Expression quartersDiff(TimestampTzLiteral t1, TimestampTzLiteral t2) {
-        return new BigIntLiteral(ChronoUnit.MONTHS.between(t2.toJavaDateType(), t1.toJavaDateType()) / 3);
+        return new BigIntLiteral(dateDiffInCalendarUnits(t1, t2, ChronoUnit.MONTHS) / 3);
     }
 
     @ExecFunction(name = "quarters_diff")
     public static Expression quartersDiff(TimeStampNsLiteral t1, TimeStampNsLiteral t2) {
-        return new BigIntLiteral(ChronoUnit.MONTHS.between(t2.toJavaDateType(), t1.toJavaDateType()) / 3);
+        return new BigIntLiteral(dateDiffInCalendarUnits(t1, t2, ChronoUnit.MONTHS) / 3);
     }
 
     @ExecFunction(name = "quarters_diff")
     public static Expression quartersDiff(DateV2Literal t1, DateV2Literal t2) {
-        return new BigIntLiteral(ChronoUnit.MONTHS.between(t2.toJavaDateType(), t1.toJavaDateType()) / 3);
+        return new BigIntLiteral(dateDiffInCalendarUnits(t1, t2, ChronoUnit.MONTHS) / 3);
     }
 
     @ExecFunction(name = "years_diff")
     public static Expression yearsDiff(DateTimeV2Literal t1, DateTimeV2Literal t2) {
-        return new BigIntLiteral(ChronoUnit.YEARS.between(t2.toJavaDateType(), t1.toJavaDateType()));
+        return new BigIntLiteral(dateDiffInCalendarUnits(t1, t2, ChronoUnit.YEARS));
     }
 
     @ExecFunction(name = "years_diff")
     public static Expression yearsDiff(TimestampTzLiteral t1, TimestampTzLiteral t2) {
-        return new BigIntLiteral(ChronoUnit.YEARS.between(t2.toJavaDateType(), t1.toJavaDateType()));
+        return new BigIntLiteral(dateDiffInCalendarUnits(t1, t2, ChronoUnit.YEARS));
     }
 
     @ExecFunction(name = "years_diff")
     public static Expression yearsDiff(TimeStampNsLiteral t1, TimeStampNsLiteral t2) {
-        return new BigIntLiteral(ChronoUnit.YEARS.between(t2.toJavaDateType(), t1.toJavaDateType()));
+        return new BigIntLiteral(dateDiffInCalendarUnits(t1, t2, ChronoUnit.YEARS));
     }
 
     @ExecFunction(name = "years_diff")
     public static Expression yearsDiff(DateTimeV2Literal t1, DateV2Literal t2) {
-        return new BigIntLiteral(ChronoUnit.YEARS.between(t2.toJavaDateType(), t1.toJavaDateType()));
+        return new BigIntLiteral(dateDiffInCalendarUnits(t1, t2, ChronoUnit.YEARS));
     }
 
     @ExecFunction(name = "years_diff")
     public static Expression yearsDiff(DateV2Literal t1, DateTimeV2Literal t2) {
-        return new BigIntLiteral(ChronoUnit.YEARS.between(t2.toJavaDateType(), t1.toJavaDateType()));
+        return new BigIntLiteral(dateDiffInCalendarUnits(t1, t2, ChronoUnit.YEARS));
     }
 
     @ExecFunction(name = "years_diff")
     public static Expression yearsDiff(DateV2Literal t1, DateV2Literal t2) {
-        return new BigIntLiteral(ChronoUnit.YEARS.between(t2.toJavaDateType(), t1.toJavaDateType()));
+        return new BigIntLiteral(dateDiffInCalendarUnits(t1, t2, ChronoUnit.YEARS));
+    }
+
+    private static long dateDiffInCalendarUnits(DateLiteral t1, DateLiteral t2, ChronoUnit unit) {
+        // LocalDateTime.until adjusts the end date by one day before counting months or years.
+        // At a month end that can remove an extra calendar unit, unlike BE's remainder comparison.
+        long diff = unit.between(t2.toJavaDateType().toLocalDate(), t1.toJavaDateType().toLocalDate());
+        boolean sameRemainderDate = t1.getDay() == t2.getDay()
+                && (unit == ChronoUnit.MONTHS || t1.getMonth() == t2.getMonth());
+        if (sameRemainderDate) {
+            long timeDiff = t1.getTimePartInNanoseconds() - t2.getTimePartInNanoseconds();
+            if (diff > 0 && timeDiff < 0) {
+                diff--;
+            } else if (diff < 0 && timeDiff > 0) {
+                diff++;
+            }
+        }
+        return diff;
     }
 
     /**

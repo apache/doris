@@ -22,7 +22,7 @@ import static java.util.concurrent.TimeUnit.SECONDS
 // (schema ABA), used to let a strict INCREMENTAL refresh report SUCCESS while silently
 // keeping the rows computed under the old column epoch.
 //
-// The base table change is metadata-only (light schema change) and emits no binlog, so the
+// The base table change is metadata-only (light schema change) and emits no changelog, so the
 // delta is empty and the refresh has nothing to apply -- the MV baseline is simply stale.
 //
 // Expected: dropping a referenced column invalidates the IVM baseline. The invalidation puts the MV
@@ -52,9 +52,8 @@ suite("test_ivm_drop_referenced_column_baseline_rebuild") {
         PROPERTIES (
             "replication_num" = "1",
             "enable_unique_key_merge_on_write" = "true",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW",
-            "binlog.need_historical_value" = "true"
+            "changelog.enable" = "true",
+            "changelog.need_historical_value" = "true"
         )
     """
     sql """INSERT INTO ${tableName} VALUES (1, 10, 100, 7), (2, 10, 200, 8), (3, 20, 300, 9)"""

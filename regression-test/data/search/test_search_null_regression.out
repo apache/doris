@@ -16,24 +16,30 @@
 5	Biography	The life of Selma Blair, a talented actress
 
 -- !regression_2_internal_not --
-5
+8
 
 -- !regression_2_external_not --
-5
+8
 
 -- !regression_2_internal_not_rows --
 1	Ronald Reagan	Biography of the 40th president
 2	Movie Review	Selma Blair gives an outstanding performance
+4	Selma Montgomery	\N
 5	Biography	The life of Selma Blair, a talented actress
+10	Clean Article	\N
 11	Simple Article	No special keywords in this content
 13	Non-empty title	
+14	\N	\N
 
 -- !regression_2_external_not_rows --
 1	Ronald Reagan	Biography of the 40th president
 2	Movie Review	Selma Blair gives an outstanding performance
+4	Selma Montgomery	\N
 5	Biography	The life of Selma Blair, a talented actress
+10	Clean Article	\N
 11	Simple Article	No special keywords in this content
 13	Non-empty title	
+14	\N	\N
 
 -- !regression_3_null_or --
 3
@@ -60,10 +66,10 @@
 7
 
 -- !regression_8_multiple_not --
-10
+15
 
 -- !regression_8_external_multiple_not --
-10
+15
 
 -- !regression_9_empty_string --
 7

@@ -26,7 +26,6 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.SqlCacheContext;
-import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.Scope;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
@@ -77,9 +76,11 @@ import org.apache.doris.nereids.trees.expressions.functions.LambdaBinding;
 import org.apache.doris.nereids.trees.expressions.functions.LambdaBindingSpec;
 import org.apache.doris.nereids.trees.expressions.functions.RewriteWhenAnalyze;
 import org.apache.doris.nereids.trees.expressions.functions.Udf;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AIAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.NullableAggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.SupportMultiDistinct;
+import org.apache.doris.nereids.trees.expressions.functions.ai.AIFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 import org.apache.doris.nereids.trees.expressions.functions.udf.AliasUdfBuilder;
@@ -199,7 +200,12 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
 
     /** analyze */
     public Expression analyze(Expression expression, ExpressionRewriteContext context) {
-        return expression.accept(this, context);
+        Expression analyzed = expression.accept(this, context);
+        // Inspect the bound tree to include parser-bound functions and expanded alias UDF bodies.
+        if (context != null && analyzed.containsNondeterministic()) {
+            context.cascadesContext.getStatementContext().setHasNondeterministic(true);
+        }
+        return analyzed;
     }
 
     @Override
@@ -459,8 +465,13 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         lambdaFunction = analyzeLambdaFunction(lambdaFunction, binding.getAnalysisSlots(), context);
         Lambda lambdaClosure = binding.close(lambdaFunction);
 
-        // We don't add the ArrayExpression in high order function at all
-        return unboundFunction.withChildren(ImmutableList.of(lambdaClosure));
+        // The array inputs live in the lambda argument references, so they are not added as
+        // function children. A binding may still keep a scalar configuration input, such as the
+        // ascending flag of array_sorted_merge.
+        ImmutableList.Builder<Expression> functionChildren = ImmutableList.builder();
+        functionChildren.add(lambdaClosure);
+        functionChildren.addAll(binding.getExtraInputs());
+        return unboundFunction.withChildren(functionChildren.build());
     }
 
     private Expression analyzeLambdaFunction(Expression lambdaFunction,
@@ -620,23 +631,17 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
             });
         }
 
+        if (builder instanceof AliasUdfBuilder && context != null) {
+            context.cascadesContext.getStatementContext().recordAliasUdf();
+        }
         Pair<? extends Expression, ? extends BoundFunction> buildResult = builder.build(functionName, arguments);
         buildResult.second.checkOrderExprIsValid();
         Optional<SqlCacheContext> sqlCacheContext = Optional.empty();
 
-        if (!buildResult.second.isDeterministic() && context != null) {
-            StatementContext statementContext = context.cascadesContext.getStatementContext();
-            statementContext.setHasNondeterministic(true);
-        }
         if (wantToParseSqlFromSqlCache) {
             sqlCacheContext = context.cascadesContext.getStatementContext().getSqlCacheContext();
-            if (builder instanceof AliasUdfBuilder
-                    || buildResult.second instanceof Udf) {
-                if (sqlCacheContext.isPresent()) {
-                    sqlCacheContext.get().setCannotProcessExpression(true);
-                }
-            }
         }
+        disableSqlCacheForUnsupportedFunction(buildResult.second);
         if (unboundFunction.isSkew() && unboundFunction.isDistinct() && buildResult.first instanceof AggregateFunction
                 && buildResult.first instanceof SupportMultiDistinct) {
             Expression bound = ((AggregateFunction) buildResult.first).withIsSkew(true);
@@ -666,7 +671,16 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
     @Override
     public Expression visitBoundFunction(BoundFunction boundFunction, ExpressionRewriteContext context) {
         boundFunction = (BoundFunction) super.visitBoundFunction(boundFunction, context);
+        disableSqlCacheForUnsupportedFunction(boundFunction);
         return TypeCoercionUtils.processBoundFunction(boundFunction);
+    }
+
+    private void disableSqlCacheForUnsupportedFunction(BoundFunction function) {
+        if (wantToParseSqlFromSqlCache
+                && (function instanceof Udf || function instanceof AIFunction || function instanceof AIAgg)) {
+            getCascadesContext().getStatementContext().getSqlCacheContext()
+                    .ifPresent(cache -> cache.setCannotProcessExpression(true));
+        }
     }
 
     private ElementAt canonicalizeStructSelector(ElementAt elementAt) {

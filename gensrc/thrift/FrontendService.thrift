@@ -104,6 +104,8 @@ struct TGetDbsParams {
   // Reserved for downstream field `current_roles` to keep thrift field ids
   // wire-compatible across maintained branches. Do not reuse this id.
   7: optional set<string> reserved_field_7
+  // Name-only scanners can avoid materializing database objects and omit db_ids in the response.
+  8: optional bool include_db_ids = true
 }
 
 // getDbNames returns a list of database names , database ids and catalog names ,catalog ids
@@ -222,6 +224,9 @@ struct TQueryStatistics {
     15: optional i64 process_rows
     16: optional i32 finished_tasks_num
     17: optional i32 total_tasks_num
+    // Spill written to / read from object storage (spill_storage_type=s3); zero for local spill.
+    18: optional i64 spill_write_bytes_to_remote_storage
+    19: optional i64 spill_read_bytes_from_remote_storage
 }
 
 struct TQueryStatisticsResult {
@@ -448,6 +453,8 @@ struct TMasterOpRequest {
     1008: optional bool cursor_fetch_requested
     // Capabilities negotiated with the original MySQL client.
     1009: optional i32 mysql_capability
+    // Whether the client-facing FE can complete an empty cursor with COM_STMT_FETCH.
+    1010: optional bool empty_cursor_supported
 }
 
 struct TColumnDefinition {
@@ -696,8 +703,8 @@ struct TRLTaskTxnCommitAttachment {
     9: optional i64 loadCostMs
     10: optional TKafkaRLTaskProgress kafkaRLTaskProgress
     11: optional string errorLogUrl
-    12: optional TKinesisRLTaskProgress kinesisRLTaskProgress
-    13: optional string firstErrorMsg
+    12: optional string firstErrorMsg
+    13: optional TKinesisRLTaskProgress kinesisRLTaskProgress
 }
 
 struct TTxnCommitAttachment {

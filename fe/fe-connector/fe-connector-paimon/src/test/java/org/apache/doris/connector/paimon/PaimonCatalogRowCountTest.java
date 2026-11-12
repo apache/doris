@@ -28,10 +28,8 @@ import org.apache.paimon.catalog.TableQueryAuthResult;
 import org.apache.paimon.data.GenericRow;
 import org.apache.paimon.fs.SeekableInputStream;
 import org.apache.paimon.fs.local.LocalFileIO;
-import org.apache.paimon.privilege.PrivilegeChecker;
-import org.apache.paimon.privilege.PrivilegedFileStoreTable;
+import org.apache.paimon.schema.FileSystemSchemaManager;
 import org.apache.paimon.schema.Schema;
-import org.apache.paimon.schema.SchemaManager;
 import org.apache.paimon.table.CatalogEnvironment;
 import org.apache.paimon.table.FallbackReadFileStoreTable;
 import org.apache.paimon.table.FileStoreTable;
@@ -48,7 +46,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
-import java.lang.reflect.Proxy;
 import java.nio.file.Path;
 import java.util.Collections;
 import java.util.List;
@@ -175,40 +172,6 @@ public class PaimonCatalogRowCountTest {
     }
 
     @Test
-    public void preservedPrivilegeWrapperNeedsOnlySelect() throws Exception {
-        FileStoreTable table = newTable("privileged", false);
-        snapshot(table, 1, 10L);
-        AtomicInteger selectChecks = new AtomicInteger();
-        AtomicBoolean denySelect = new AtomicBoolean();
-        PrivilegeChecker checker = (PrivilegeChecker) Proxy.newProxyInstance(
-                PrivilegeChecker.class.getClassLoader(), new Class<?>[] {PrivilegeChecker.class},
-                (proxy, method, args) -> {
-                    if (method.getName().equals("assertCanInsert")) {
-                        throw new SecurityException("INSERT denied");
-                    }
-                    if (method.getName().equals("assertCanSelect")
-                            || method.getName().equals("assertCanSelectOrInsert")) {
-                        selectChecks.incrementAndGet();
-                        if (denySelect.get()) {
-                            throw new SecurityException("SELECT denied");
-                        }
-                    }
-                    return null;
-                });
-        FileStoreTable privileged = PrivilegedFileStoreTable.wrap(table, checker, Identifier.create("db", "t"));
-        Assertions.assertSame(privileged, PaimonReaderOptions.runtimeSafeTable(privileged));
-        PaimonConnectorMetadata metadata = metadata();
-        PaimonTableHandle handle = handle(privileged);
-        Assertions.assertEquals(10L, metadata.getTableStatistics(null, handle).get().getRowCount());
-        Assertions.assertEquals(10L, metadata.getTableStatistics(null, handle,
-                ConnectorMvccSnapshot.builder().snapshotId(1L).property("scan.snapshot-id", "1").build())
-                .get().getRowCount());
-        Assertions.assertTrue(selectChecks.get() >= 2);
-        denySelect.set(true);
-        Assertions.assertThrows(SecurityException.class, () -> ops.rowCount(privileged));
-    }
-
-    @Test
     public void catalogQueryAuthorizationControlsSnapshotStatistics() throws Exception {
         FileStoreTable base = newTable("query_auth", false,
                 Collections.singletonMap("query-auth.enabled", "true"), new ManifestGuardFileIO());
@@ -233,7 +196,7 @@ public class PaimonCatalogRowCountTest {
                 return Optional.of(new TableSnapshot(base.snapshotManager().snapshot(1L), 0L, 0L, 0L, 0L));
             }
         }) {
-            // Like a REST-loaded table, this has a catalog loader but no privilege wrapper.
+            // Like a REST-loaded table, this has a catalog loader.
             CatalogEnvironment environment = new CatalogEnvironment(
                     identifier, null, () -> catalog, null, null, null, false, false);
             FileStoreTable table = FileStoreTableFactory.create(
@@ -317,15 +280,15 @@ public class PaimonCatalogRowCountTest {
             schema.primaryKey("id").option("bucket", "1");
         }
         options.forEach(schema::option);
-        new SchemaManager(fileIO, path).createTable(schema.build());
+        new FileSystemSchemaManager(fileIO, path).createTable(schema.build());
         return FileStoreTableFactory.create(fileIO, path);
     }
 
     private void snapshot(FileStoreTable table, long id, long count) throws IOException {
         // Deliberately no manifest files: a return to split planning must fail this test.
         Snapshot snapshot = new Snapshot(id, 0L, "unused-base", null, "unused-delta", null,
-                null, null, null, "test", id, Snapshot.CommitKind.APPEND, id * 1000,
-                count, count, null, null, null, null, null);
+                null, null, null, null, "test", id, Snapshot.CommitKind.APPEND, id * 1000,
+                count, count, null, null, null, null, null, Snapshot.Operation.WRITE);
         table.fileIO().mkdirs(table.snapshotManager().snapshotPath(id).getParent());
         table.fileIO().overwriteFileUtf8(table.snapshotManager().snapshotPath(id), snapshot.toJson());
         table.snapshotManager().commitLatestHint(id);

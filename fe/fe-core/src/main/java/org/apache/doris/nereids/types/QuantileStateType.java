@@ -18,7 +18,11 @@
 package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.Type;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.QuantileStateEmpty;
 import org.apache.doris.nereids.types.coercion.PrimitiveType;
+
+import java.util.Optional;
 
 /**
  * QuantileState type in Nereids.
@@ -65,5 +69,10 @@ public class QuantileStateType extends PrimitiveType {
     @Override
     public String toSql() {
         return "QUANTILE_STATE";
+    }
+
+    @Override
+    public Optional<Expression> zeroValue() {
+        return Optional.of(new QuantileStateEmpty());
     }
 }

@@ -98,8 +98,8 @@ public class CreateIndexOp extends AlterTableOp {
     }
 
     @Override
-    public boolean allowOpRowBinlog() {
-        // Adding secondary index is allowed for row binlog tables.
+    public boolean allowOnChangelogTable() {
+        // Adding secondary index is allowed for changelog tables.
         return true;
     }
 

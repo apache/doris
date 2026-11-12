@@ -43,18 +43,24 @@ import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.FileMetadata;
 import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.HasTableOperations;
+import org.apache.iceberg.IsolationLevel;
 import org.apache.iceberg.PartitionData;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.TableOperations;
+import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.Transaction;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.exceptions.NotFoundException;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.inmemory.InMemoryCatalog;
 import org.apache.iceberg.io.CloseableIterable;
+import org.apache.iceberg.io.OutputFile;
+import org.apache.iceberg.io.PositionOutputStream;
 import org.apache.iceberg.types.Types;
 import org.apache.thrift.TException;
 import org.apache.thrift.TSerializer;
@@ -64,6 +70,7 @@ import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
@@ -75,8 +82,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -124,8 +133,14 @@ public class IcebergConnectorTransactionTest {
         return ops;
     }
 
+    // Stands in for the raw location planWrite registers for the sink it builds; every fragment fed to a
+    // transaction from txnFor lives under it.
+    private static final String COMMIT_LOCATION = "s3://b";
+
     private static IcebergConnectorTransaction txnFor(RecordingIcebergCatalogOps ops, RecordingConnectorContext ctx) {
-        return new IcebergConnectorTransaction(42L, ops, ctx);
+        IcebergConnectorTransaction txn = new IcebergConnectorTransaction(42L, ops, ctx);
+        txn.addCommitLocation(COMMIT_LOCATION);
+        return txn;
     }
 
     // The overwrite tests below predate the static default (iceberg_partition_overwrite_mode defaults to
@@ -242,6 +257,7 @@ public class IcebergConnectorTransactionTest {
 
     private static TIcebergCommitData dataItem(long affectedRows, long rowCount, TFileContent content) {
         TIcebergCommitData d = new TIcebergCommitData();
+        d.setFilePath(COMMIT_LOCATION + "/db/t/f.parquet");
         d.setRowCount(rowCount);
         if (affectedRows >= 0) {
             d.setAffectedRows(affectedRows);
@@ -279,6 +295,59 @@ public class IcebergConnectorTransactionTest {
 
     private static Snapshot reloadCurrentSnapshot(InMemoryCatalog catalog, TableIdentifier id) {
         return catalog.loadTable(id).currentSnapshot();
+    }
+
+    /** Writer metadata pinned from {@code table} at bind time, as the write planner hands it to beginWrite. */
+    private static IcebergWriteContext pinnedCtx(WriteOperation operation, Table table) {
+        return new IcebergWriteContext(operation, operation == WriteOperation.OVERWRITE, Collections.emptyMap(),
+                Optional.empty(), -1L, false,
+                IcebergWriteSchemaContext.create(table, table.name(), Optional.empty(), false, false));
+    }
+
+    /** {@code table} behind operations that count metadata refreshes; opening an SDK transaction refreshes once. */
+    private static Table countingRefreshes(Table table, AtomicInteger refreshes) {
+        TableOperations operations = ((HasTableOperations) table).operations();
+        return new BaseTable((TableOperations) Proxy.newProxyInstance(TableOperations.class.getClassLoader(),
+                new Class<?>[] {TableOperations.class}, (proxy, method, args) -> {
+                    if ("refresh".equals(method.getName())) {
+                        refreshes.incrementAndGet();
+                    }
+                    return invokeUnwrapped(operations, method, args);
+                }), table.name());
+    }
+
+    /**
+     * A write table over {@code operations} that runs {@code concurrentChange} once, while the SDK transaction stages
+     * its snapshot: after the commit-time preflight, before the final metadata swap replays the staged update. The
+     * change may repoint {@code operations}, as a catalog that resolves the name to a replacement table does.
+     */
+    private static Table stagingTable(String name, AtomicReference<TableOperations> operations,
+            Runnable concurrentChange) {
+        return new BaseTable(stagingOperations(operations, concurrentChange, new AtomicBoolean()), name);
+    }
+
+    private static TableOperations stagingOperations(AtomicReference<TableOperations> operations,
+            Runnable concurrentChange, AtomicBoolean changed) {
+        return (TableOperations) Proxy.newProxyInstance(TableOperations.class.getClassLoader(),
+                new Class<?>[] {TableOperations.class}, (proxy, method, args) -> {
+                    if ("temp".equals(method.getName())) {
+                        // An SDK transaction stages its pending updates on temporary operations.
+                        TableOperations temp = (TableOperations) invokeUnwrapped(operations.get(), method, args);
+                        return stagingOperations(new AtomicReference<>(temp), concurrentChange, changed);
+                    }
+                    if ("newSnapshotId".equals(method.getName()) && changed.compareAndSet(false, true)) {
+                        concurrentChange.run();
+                    }
+                    return invokeUnwrapped(operations.get(), method, args);
+                });
+    }
+
+    private static Object invokeUnwrapped(Object target, Method method, Object[] args) throws Throwable {
+        try {
+            return method.invoke(target, args);
+        } catch (InvocationTargetException e) {
+            throw e.getCause();
+        }
     }
 
     // ─────────────────── addCommitData: 14-field TBinaryProtocol round-trip (T03, regression) ───────────────────
@@ -334,6 +403,63 @@ public class IcebergConnectorTransactionTest {
         IcebergConnectorTransaction txn = txnFor(opsReturning(null), new RecordingConnectorContext());
         Assertions.assertThrows(DorisConnectorException.class,
                 () -> txn.addCommitData(new byte[] {(byte) 0xDE, (byte) 0xAD, (byte) 0xBE, (byte) 0xEF}));
+    }
+
+    // ─────────────────── addCommitData: files must be reported under a location a sink carries ───────────────────
+
+    private static IcebergConnectorTransaction txnCommittingUnder(String... locations) {
+        IcebergConnectorTransaction txn =
+                new IcebergConnectorTransaction(42L, opsReturning(null), new RecordingConnectorContext());
+        for (String location : locations) {
+            txn.addCommitLocation(location);
+        }
+        return txn;
+    }
+
+    @Test
+    public void addCommitDataAcceptsFilesUnderEveryRegisteredLocation() {
+        // One location without and one with a trailing '/': write.data.path is taken verbatim.
+        IcebergConnectorTransaction txn = txnCommittingUnder("oss://b/db/t/data", "oss://b/db/t2/data/");
+        txn.addCommitData(commitBytes(dataFileItem("oss://b/db/t/data/id=1/f.parquet", 1L, 64L)));
+        txn.addCommitData(commitBytes(
+                positionDeleteItem("oss://b/db/t2/data/delete_pos_1.parquet", 1L, "oss://b/db/t2/data/f.parquet")));
+        Assertions.assertEquals(2, txn.getCommitDataList().size());
+    }
+
+    @Test
+    public void addCommitDataRejectsTheNormalizedAddressBeWroteTheFileAt() {
+        // BE writes an oss:// table through s3://; reporting that form records a file no other engine opens.
+        IcebergConnectorTransaction txn = txnCommittingUnder("oss://b/db/t/data");
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                () -> txn.addCommitData(commitBytes(positionDeleteItem(
+                        "s3://b/db/t/data/delete_pos_1.parquet", 1L, "oss://b/db/t/data/f.parquet"))));
+        Assertions.assertTrue(ex.getMessage().contains("s3://b/db/t/data/delete_pos_1.parquet"), ex.getMessage());
+        Assertions.assertTrue(ex.getMessage().contains("oss://b/db/t/data"), ex.getMessage());
+        Assertions.assertTrue(txn.getCommitDataList().isEmpty(), "a rejected fragment must not be accumulated");
+    }
+
+    @Test
+    public void addCommitDataRejectsASiblingDirectorySharingTheLocationPrefix() {
+        IcebergConnectorTransaction txn = txnCommittingUnder("oss://b/db/t/data");
+        Assertions.assertThrows(DorisConnectorException.class,
+                () -> txn.addCommitData(commitBytes(dataFileItem("oss://b/db/t/data_old/f.parquet", 1L, 64L))));
+    }
+
+    @Test
+    public void addCommitDataRejectsAFragmentWithoutAPathOrBeforeAnySinkWasPlanned() {
+        IcebergConnectorTransaction planned = txnCommittingUnder("oss://b/db/t/data");
+        Assertions.assertThrows(DorisConnectorException.class,
+                () -> planned.addCommitData(commitBytes(dataItem(1L, 1L, TFileContent.DATA).setFilePath(null))));
+        IcebergConnectorTransaction unplanned = txnCommittingUnder();
+        Assertions.assertThrows(DorisConnectorException.class,
+                () -> unplanned.addCommitData(commitBytes(dataFileItem("oss://b/db/t/data/f.parquet", 1L, 64L))));
+    }
+
+    @Test
+    public void addCommitLocationRejectsAnEmptyLocation() {
+        IcebergConnectorTransaction txn = txnCommittingUnder();
+        Assertions.assertThrows(DorisConnectorException.class, () -> txn.addCommitLocation(""));
+        Assertions.assertThrows(DorisConnectorException.class, () -> txn.addCommitLocation(null));
     }
 
     // ─────────────────── getUpdateCnt: data/delete split, affectedRows priority (T03, regression) ───────────────────
@@ -660,6 +786,43 @@ public class IcebergConnectorTransactionTest {
     }
 
     @Test
+    public void insertCommitUsesStatementPinnedWriterMetadata() {
+        // Files written against the pinned writer metadata are committed with that spec, sort order and format,
+        // even though a spec, sort-order and format change the fences admit landed before beginWrite.
+        InMemoryCatalog catalog = freshCatalog();
+        TableIdentifier id = TableIdentifier.of("db1", "t1");
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "age", Types.IntegerType.get()));
+        Table table = catalog.createTable(id, schema, PartitionSpec.builderFor(schema).identity("id").build(),
+                props("format-version", "2", "write.format.default", "orc"));
+        table.replaceSortOrder().asc("age").commit();
+        int pinnedSpecId = table.spec().specId();
+        int pinnedSortOrderId = table.sortOrder().orderId();
+        IcebergWriteContext ctx = pinnedCtx(WriteOperation.INSERT, table);
+        table.updateSpec().removeField("id").commit();
+        table.replaceSortOrder().desc("id").commit();
+        table.updateProperties().set("write.format.default", "parquet").commit();
+        IcebergConnectorTransaction txn = txnFor(opsReturning(table), new RecordingConnectorContext());
+
+        txn.beginWrite(SESSION, "db1", "t1", ctx);
+        txn.addCommitData(commitBytes(
+                dataFileItem("s3://b/db1/t1/id=7/f1.orc", 1L, 1024L, Collections.singletonList("7"))));
+        txn.commit();
+
+        Table committed = catalog.loadTable(id);
+        List<DataFile> added = new ArrayList<>();
+        committed.currentSnapshot().addedDataFiles(committed.io()).forEach(added::add);
+        Assertions.assertEquals(1, added.size());
+        DataFile file = added.get(0);
+        Assertions.assertNotEquals(pinnedSpecId, committed.spec().specId(), "the live spec must have moved on");
+        Assertions.assertEquals(pinnedSpecId, file.specId());
+        Assertions.assertEquals(Integer.valueOf(7), file.partition().get(0, Integer.class));
+        Assertions.assertEquals(Integer.valueOf(pinnedSortOrderId), file.sortOrderId());
+        Assertions.assertEquals(FileFormat.ORC, file.format());
+    }
+
+    @Test
     public void overwriteDynamicReplacesPartitions() {
         InMemoryCatalog catalog = freshCatalog();
         TableIdentifier id = TableIdentifier.of("db1", "t1");
@@ -942,6 +1105,48 @@ public class IcebergConnectorTransactionTest {
     }
 
     @Test
+    public void insertCommitsNullForV1VoidPartitionFields() {
+        // A v1 table replaces a dropped partition field with void(region) and may drop region afterwards; Spark
+        // keeps writing it. MUTATION: pinning an unpartitioned stand-in for the void-only spec -> commit rejects the
+        // pinned spec; checking the source of the void field -> create rejects the dropped region -> red.
+        for (boolean identityCategory : new boolean[] {false, true}) {
+            InMemoryCatalog catalog = freshCatalog();
+            TableIdentifier id = TableIdentifier.of("db1", "t1");
+            Schema schema = new Schema(
+                    Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                    Types.NestedField.optional(2, "region", Types.StringType.get()),
+                    Types.NestedField.optional(3, "category", Types.StringType.get()));
+            PartitionSpec.Builder spec = PartitionSpec.builderFor(schema).identity("region");
+            if (identityCategory) {
+                spec.identity("category");
+            }
+            Table table = catalog.createTable(id, schema, spec.build(), props("format-version", "1"));
+            table.updateSpec().removeField("region").commit();
+            table.updateSchema().deleteColumn("region").commit();
+
+            IcebergWriteSchemaContext schemaContext =
+                    IcebergWriteSchemaContext.create(table, table.name(), Optional.empty(), false, false);
+            IcebergConnectorTransaction txn = txnFor(opsReturning(table), new RecordingConnectorContext());
+            txn.beginWrite(SESSION, "db1", "t1", new IcebergWriteContext(
+                    WriteOperation.INSERT, false, Collections.emptyMap(), Optional.empty(), -1L, schemaContext));
+            // BE writes a void-only spec as unpartitioned and reports NULL for a void field of a partitioned one.
+            txn.addCommitData(commitBytes(identityCategory
+                    ? dataFileItem("s3://b/db1/t1/region=null/category=x/f1.parquet", 2L, 1024L,
+                            Arrays.asList("null", "x"))
+                    : dataFileItem("s3://b/db1/t1/f1.parquet", 2L, 1024L)));
+            txn.commit();
+
+            List<DataFile> files = currentDataFiles(catalog.loadTable(id));
+            Assertions.assertEquals(1, files.size());
+            Assertions.assertEquals(table.spec().specId(), files.get(0).specId());
+            Assertions.assertNull(files.get(0).partition().get(0, Object.class));
+            if (identityCategory) {
+                Assertions.assertEquals("x", files.get(0).partition().get(1, String.class));
+            }
+        }
+    }
+
+    @Test
     public void overwriteStaticPartitionUsesRowFilter() {
         InMemoryCatalog catalog = freshCatalog();
         TableIdentifier id = TableIdentifier.of("db1", "t1");
@@ -997,6 +1202,30 @@ public class IcebergConnectorTransactionTest {
     }
 
     @Test
+    public void overwriteEmptyStaticPartitionClearsOnlyThatPartition() {
+        InMemoryCatalog catalog = freshCatalog();
+        TableIdentifier id = TableIdentifier.of("db1", "t1");
+        PartitionSpec spec = PartitionSpec.builderFor(PART_SCHEMA).identity("region").build();
+        Table table = catalog.createTable(id, PART_SCHEMA, spec, props("write.format.default", "parquet"));
+        table.newAppend()
+                .appendFile(partitionedDataFile(spec, "s3://b/db1/t1/region=us/seed.parquet", 1L, "region=us"))
+                .appendFile(partitionedDataFile(spec, "s3://b/db1/t1/region=eu/seed.parquet", 1L, "region=eu"))
+                .commit();
+
+        // INSERT OVERWRITE ... PARTITION(region='us') of a source with no rows: no commit data, and the 'us'
+        // partition is still replaced with nothing while the 'eu' file stays.
+        IcebergConnectorTransaction txn = txnFor(opsReturning(catalog.loadTable(id)), new RecordingConnectorContext());
+        txn.beginWrite(SESSION, "db1", "t1",
+                overwriteStaticCtx(catalog.loadTable(id), Collections.singletonMap("region", "us")));
+        txn.commit();
+
+        List<DataFile> files = currentDataFiles(catalog.loadTable(id));
+        Assertions.assertEquals(1, files.size(), files.toString());
+        Assertions.assertTrue(files.get(0).path().toString().contains("region=eu"),
+                files.get(0).path().toString());
+    }
+
+    @Test
     public void promotedDateStaticOverwriteRejectsUnsafeRetainedBounds() {
         InMemoryCatalog catalog = freshCatalog();
         TableIdentifier id = TableIdentifier.of("db1", "t1");
@@ -1017,7 +1246,7 @@ public class IcebergConnectorTransactionTest {
         long snapshotId = table.currentSnapshot().snapshotId();
         IcebergConnectorTransaction txn = txnFor(opsReturning(table), new RecordingConnectorContext());
         txn.beginWrite(SESSION, "db1", "t1", overwriteStaticCtx(table, Collections.singletonMap("ts", "2024-01-02")));
-        txn.addCommitData(commitBytes(dataFileItem("s3://bucket/replacement.parquet", 1L, 100L,
+        txn.addCommitData(commitBytes(dataFileItem("s3://b/replacement.parquet", 1L, 100L,
                 Collections.singletonList("2024-01-02 00:00:00.000000000"))));
         // DATE metrics are days, so silently committing a nanos equality would retain the old file.
         DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class, txn::commit);
@@ -1043,7 +1272,7 @@ public class IcebergConnectorTransactionTest {
         }
         IcebergConnectorTransaction txn = txnFor(opsReturning(table), new RecordingConnectorContext());
         txn.beginWrite(SESSION, "db1", "t1", overwriteStaticCtx(table, Collections.singletonMap("ts", "2024-01-01")));
-        txn.addCommitData(commitBytes(dataFileItem("s3://bucket/replacement.parquet", 1L, 1024L,
+        txn.addCommitData(commitBytes(dataFileItem("s3://b/replacement.parquet", 1L, 1024L,
                 Collections.singletonList("2024-01-01 00:00:00.000000000"))));
         txn.commit();
         List<DataFile> remaining = currentDataFiles(catalog.loadTable(id));
@@ -1070,7 +1299,7 @@ public class IcebergConnectorTransactionTest {
         IcebergConnectorTransaction txn = txnFor(opsReturning(table), new RecordingConnectorContext());
         txn.beginWrite(SESSION, "db1", "t1",
                 overwriteStaticCtx(table, Collections.singletonMap("ts", "2024-01-01 00:00:00+08:00")));
-        txn.addCommitData(commitBytes(dataFileItem("s3://bucket/replacement.parquet", 1L, 1024L,
+        txn.addCommitData(commitBytes(dataFileItem("s3://b/replacement.parquet", 1L, 1024L,
                 Collections.singletonList("2023-12-31 16:00:00.000000000"))));
         txn.commit();
         List<DataFile> remaining = currentDataFiles(catalog.loadTable(id));
@@ -1097,6 +1326,57 @@ public class IcebergConnectorTransactionTest {
                 () -> txn.beginWrite(SESSION, "db1", "t1", boundContext));
         Assertions.assertTrue(ex.getMessage().contains("partition spec changed"),
                 "a stale static overwrite must fail at begin before it can degrade to an always-true filter");
+    }
+
+    @Test
+    public void staticOverwriteRejectsConcurrentCurrentSpecReplacementBeforeOpening() {
+        // The pinned spec is still retained with its definition, but it is no longer the current spec: an overwrite
+        // must fail before an SDK transaction opens instead of replacing data through a superseded spec.
+        InMemoryCatalog catalog = freshCatalog();
+        TableIdentifier id = TableIdentifier.of("db1", "t1");
+        Table table = catalog.createTable(id, PART_SCHEMA,
+                PartitionSpec.builderFor(PART_SCHEMA).identity("region").build(), props("format-version", "2"));
+        IcebergWriteContext boundContext = overwriteStaticCtx(table, Collections.singletonMap("region", "us"));
+        table.updateSpec().removeField("region").addField("id").commit();
+        AtomicInteger refreshes = new AtomicInteger();
+        IcebergConnectorTransaction txn = txnFor(
+                opsReturning(countingRefreshes(catalog.loadTable(id), refreshes)), new RecordingConnectorContext());
+
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                () -> txn.beginWrite(SESSION, "db1", "t1", boundContext));
+        Assertions.assertTrue(ex.getMessage().contains("current partition spec changed during overwrite planning"),
+                ex.getMessage());
+        Assertions.assertTrue(ex.getMessage().contains("retry the statement"), ex.getMessage());
+        Assertions.assertEquals(0, refreshes.get(), "the overwrite must be rejected before a transaction opens");
+        Assertions.assertNull(reloadCurrentSnapshot(catalog, id));
+    }
+
+    @Test
+    public void dynamicOverwriteRejectsPartitionedToUnpartitionedSpecDriftAtCommit() {
+        // Dropping the last partition field after beginWrite must fail the overwrite at commit, whether or not the
+        // statement wrote files; neither path may replace or clear data through the superseded partitioned spec.
+        assertDynamicOverwriteRejectsUnpartitionedSpecDrift(true);
+        assertDynamicOverwriteRejectsUnpartitionedSpecDrift(false);
+    }
+
+    private static void assertDynamicOverwriteRejectsUnpartitionedSpecDrift(boolean writesFiles) {
+        InMemoryCatalog catalog = freshCatalog();
+        TableIdentifier id = TableIdentifier.of("db1", "t1");
+        Table table = catalog.createTable(id, PART_SCHEMA,
+                PartitionSpec.builderFor(PART_SCHEMA).identity("region").build(), props("format-version", "2"));
+        IcebergConnectorTransaction txn = txnFor(opsReturning(table), new RecordingConnectorContext());
+        txn.beginWrite(SESSION, "db1", "t1", pinnedCtx(WriteOperation.OVERWRITE, table));
+        if (writesFiles) {
+            txn.addCommitData(commitBytes(dataFileItem(
+                    "s3://b/db1/t1/region=us/f1.parquet", 1L, 1024L, Collections.singletonList("us"))));
+        }
+
+        table.updateSpec().removeField("region").commit();
+
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class, txn::commit);
+        Assertions.assertTrue(ex.getMessage().contains("current partition spec changed"), ex.getMessage());
+        Assertions.assertTrue(ex.getMessage().contains("retry the statement"), ex.getMessage());
+        Assertions.assertNull(reloadCurrentSnapshot(catalog, id), "writesFiles=" + writesFiles);
     }
 
     @Test
@@ -1274,12 +1554,39 @@ public class IcebergConnectorTransactionTest {
     }
 
     @Test
-    public void rollbackAndCloseAreNoOps() {
+    public void rollbackWithoutBeginAndCloseAreNoOps() {
         IcebergConnectorTransaction txn = txnFor(opsReturning(null), new RecordingConnectorContext());
         Assertions.assertDoesNotThrow(() -> {
             txn.rollback();
             txn.close();
         });
+    }
+
+    @Test
+    public void rollbackDeletesReportedFilesAndClearsCommitData() throws IOException {
+        InMemoryCatalog catalog = freshCatalog();
+        TableIdentifier id = TableIdentifier.of("db1", "t1");
+        Table table = catalog.createTable(id, SCHEMA, PartitionSpec.unpartitioned());
+        String path = "s3://b/db1/t1/uncommitted.parquet";
+        OutputFile output = table.io().newOutputFile(path);
+        try (PositionOutputStream stream = output.create()) {
+            stream.write(1);
+        }
+        Assertions.assertTrue(table.io().newInputFile(path).exists());
+
+        IcebergConnectorTransaction txn =
+                txnFor(opsReturning(table), new RecordingConnectorContext());
+        txn.beginWrite(SESSION, "db1", "t1", insertCtx());
+        txn.addCommitData(commitBytes(dataFileItem(path, 1L, 1L)));
+
+        txn.rollback();
+
+        Assertions.assertThrows(NotFoundException.class,
+                () -> table.io().newInputFile(path).exists(),
+                "rollback must delete data files reported by completed BE fragments");
+        Assertions.assertTrue(txn.getCommitDataList().isEmpty(),
+                "rollback must not leave fragments that a later lifecycle call could commit");
+        txn.close();
     }
 
     @Test
@@ -1312,6 +1619,139 @@ public class IcebergConnectorTransactionTest {
                 () -> txn.beginWrite(SESSION, "db1", "t1", ctx));
         Assertions.assertTrue(ex.getMessage().contains("write metadata changed"),
                 "a replacement exposed by newTransaction refresh must not become the write baseline");
+    }
+
+    @Test
+    public void beginWriteRejectsPinnedSchemaSkewBeforeOpeningInsertOrMergeTransaction() {
+        // A schema commit between binding and beginWrite is rejected from the loaded metadata, before an SDK
+        // transaction refreshes the table and could become the conflict baseline of the stale plan.
+        InMemoryCatalog catalog = freshCatalog();
+        TableIdentifier id = TableIdentifier.of("db1", "t1");
+        Table table = catalog.createTable(id, SCHEMA, PartitionSpec.unpartitioned(), props("format-version", "2"));
+        List<IcebergWriteContext> contexts = Arrays.asList(
+                pinnedCtx(WriteOperation.INSERT, table), pinnedCtx(WriteOperation.MERGE, table));
+        table.updateSchema().addColumn("added_after_binding", Types.IntegerType.get()).commit();
+
+        for (IcebergWriteContext ctx : contexts) {
+            AtomicInteger refreshes = new AtomicInteger();
+            IcebergConnectorTransaction txn = txnFor(
+                    opsReturning(countingRefreshes(catalog.loadTable(id), refreshes)),
+                    new RecordingConnectorContext());
+            DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                    () -> txn.beginWrite(SESSION, "db1", "t1", ctx));
+            Assertions.assertTrue(ex.getMessage().contains("schema changed during write planning"), ex.getMessage());
+            Assertions.assertTrue(ex.getMessage().contains("retry the statement"), ex.getMessage());
+            Assertions.assertEquals(0, refreshes.get(), ctx.getWriteOperation() + " opened a transaction");
+        }
+        Assertions.assertNull(reloadCurrentSnapshot(catalog, id));
+    }
+
+    @Test
+    public void beginWriteRejectsRecreatedTableForInsertOverwriteAndMerge() {
+        // A same-name DROP/CREATE after binding fails INSERT, OVERWRITE and MERGE on the pinned table UUID before a
+        // transaction opens, so the replacement never becomes the baseline for rows bound against the old table.
+        InMemoryCatalog catalog = freshCatalog();
+        TableIdentifier id = TableIdentifier.of("db1", "t1");
+        Table original = catalog.createTable(id, SCHEMA, PartitionSpec.unpartitioned(), props("format-version", "2"));
+        List<IcebergWriteContext> contexts = Arrays.asList(pinnedCtx(WriteOperation.INSERT, original),
+                pinnedCtx(WriteOperation.OVERWRITE, original), pinnedCtx(WriteOperation.MERGE, original));
+        catalog.dropTable(id, false);
+        Table replacement = catalog.createTable(id, SCHEMA, PartitionSpec.unpartitioned(),
+                props("format-version", "2"));
+
+        for (IcebergWriteContext ctx : contexts) {
+            AtomicInteger refreshes = new AtomicInteger();
+            IcebergConnectorTransaction txn = txnFor(
+                    opsReturning(countingRefreshes(replacement, refreshes)), new RecordingConnectorContext());
+            DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                    () -> txn.beginWrite(SESSION, "db1", "t1", ctx));
+            Assertions.assertTrue(ex.getMessage().contains("identity changed"), ex.getMessage());
+            Assertions.assertEquals(0, refreshes.get(), ctx.getWriteOperation() + " opened a transaction");
+        }
+        Assertions.assertNull(reloadCurrentSnapshot(catalog, id));
+    }
+
+    @Test
+    public void commitReplayRejectsRequiredSchemaChangeStagedBeforeTheMetadataSwap() {
+        // A required column added while the commit stages its snapshot passes the commit preflight. The final
+        // metadata swap re-validates the replayed update and must reject it rather than publish files without it.
+        InMemoryCatalog catalog = freshCatalog();
+        TableIdentifier id = TableIdentifier.of("db1", "t1");
+        Table table = catalog.createTable(id, SCHEMA, PartitionSpec.unpartitioned(), props("format-version", "2"));
+        Table writeTable = stagingTable(table.name(),
+                new AtomicReference<>(((HasTableOperations) table).operations()),
+                () -> addRequiredColumn(catalog, id, "required_after_staging"));
+        IcebergConnectorTransaction txn = txnFor(opsReturning(writeTable), new RecordingConnectorContext());
+
+        txn.beginWrite(SESSION, "db1", "t1", pinnedCtx(WriteOperation.INSERT, table));
+        txn.addCommitData(commitBytes(dataFileItem("s3://b/db1/t1/f1.parquet", 1L, 1024L)));
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class, txn::commit);
+
+        assertRejectedAfterStagedSchemaChange(catalog, id, ex);
+    }
+
+    @Test
+    public void mergeCommitReplayRejectsRequiredSchemaChangeStagedBeforeTheMetadataSwap() {
+        // The same metadata-swap fence covers the RowDelta a MERGE stages for its data and position-delete files.
+        InMemoryCatalog catalog = freshCatalog();
+        TableIdentifier id = TableIdentifier.of("db1", "t1");
+        Table table = catalog.createTable(id, SCHEMA, PartitionSpec.unpartitioned(), props("format-version", "2"));
+        Table writeTable = stagingTable(table.name(),
+                new AtomicReference<>(((HasTableOperations) table).operations()),
+                () -> addRequiredColumn(catalog, id, "required_after_staging"));
+        IcebergConnectorTransaction txn = txnFor(opsReturning(writeTable), new RecordingConnectorContext());
+
+        txn.beginWrite(SESSION, "db1", "t1", pinnedCtx(WriteOperation.MERGE, table));
+        txn.addCommitData(commitBytes(dataFileItem("s3://b/db1/t1/new.parquet", 2L, 1024L)));
+        txn.addCommitData(commitBytes(
+                positionDeleteItem("s3://b/db1/t1/del.parquet", 2L, "s3://b/db1/t1/old.parquet")));
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class, txn::commit);
+
+        assertRejectedAfterStagedSchemaChange(catalog, id, ex);
+    }
+
+    private static void addRequiredColumn(InMemoryCatalog catalog, TableIdentifier id, String column) {
+        catalog.loadTable(id).updateSchema().allowIncompatibleChanges()
+                .addRequiredColumn(column, Types.IntegerType.get()).commit();
+    }
+
+    private static void assertRejectedAfterStagedSchemaChange(InMemoryCatalog catalog, TableIdentifier id,
+            DorisConnectorException ex) {
+        Assertions.assertTrue(ex.getMessage().contains("schema changed during write planning"), ex.getMessage());
+        Assertions.assertTrue(ex.getMessage().contains("retry the statement"), ex.getMessage());
+        Table current = catalog.loadTable(id);
+        Assertions.assertNotNull(current.schema().findField("required_after_staging"),
+                "the schema change must land while the commit stages its snapshot");
+        Assertions.assertNull(current.currentSnapshot(), "the staged update must not be published");
+    }
+
+    @Test
+    public void commitRejectsTableReplacementStagedBeforeTheMetadataSwap() {
+        // A same-name DROP/CREATE while the commit stages its snapshot must not let the staged files land in the
+        // replacement: the metadata swap re-reads the current metadata and fences the pinned table identity.
+        InMemoryCatalog catalog = freshCatalog();
+        TableIdentifier id = TableIdentifier.of("db1", "t1");
+        Table table = catalog.createTable(id, SCHEMA, PartitionSpec.unpartitioned(), props("format-version", "2"));
+        UUID originalUuid = table.uuid();
+        AtomicReference<TableOperations> operations =
+                new AtomicReference<>(((HasTableOperations) table).operations());
+        AtomicReference<Table> replacement = new AtomicReference<>();
+        Table writeTable = stagingTable(table.name(), operations, () -> {
+            catalog.dropTable(id, false);
+            replacement.set(catalog.createTable(id, SCHEMA, PartitionSpec.unpartitioned(),
+                    props("format-version", "2")));
+            // A catalog that does not compare UUIDs on refresh (e.g. a Hadoop catalog) now resolves the replacement.
+            operations.set(((HasTableOperations) replacement.get()).operations());
+        });
+        IcebergConnectorTransaction txn = txnFor(opsReturning(writeTable), new RecordingConnectorContext());
+
+        txn.beginWrite(SESSION, "db1", "t1", pinnedCtx(WriteOperation.INSERT, table));
+        txn.addCommitData(commitBytes(dataFileItem("s3://b/db1/t1/f1.parquet", 1L, 1024L)));
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class, txn::commit);
+
+        Assertions.assertTrue(ex.getMessage().contains("identity changed"), ex.getMessage());
+        Assertions.assertNotEquals(originalUuid, replacement.get().uuid());
+        Assertions.assertNull(reloadCurrentSnapshot(catalog, id), "the replacement must not receive staged files");
     }
 
     // ─────────────────── commit-time conflict-detection validation suite (T05) ───────────────────
@@ -1594,31 +2034,209 @@ public class IcebergConnectorTransactionTest {
     }
 
     @Test
-    public void isSerializableIsolationLevelDefaultsAndReadsProperty() {
+    public void resolveIsolationLevelUsesOperationDefaultsAndStandardKeyPrecedence() {
         InMemoryCatalog catalog = freshCatalog();
         IcebergConnectorTransaction txn = txnFor(opsReturning(null), new RecordingConnectorContext());
+        Table defaults = catalog.createTable(TableIdentifier.of("db1", "defaults"),
+                SCHEMA, PartitionSpec.unpartitioned());
+        Table legacy = catalog.createTable(TableIdentifier.of("db1", "legacy"),
+                SCHEMA, PartitionSpec.unpartitioned(), props("delete_isolation_level", "snapshot"));
+        Table standard = catalog.createTable(TableIdentifier.of("db1", "standard"),
+                SCHEMA, PartitionSpec.unpartitioned(), props(
+                        "delete_isolation_level", "invalid",
+                        TableProperties.DELETE_ISOLATION_LEVEL, "snapshot",
+                        TableProperties.UPDATE_ISOLATION_LEVEL, "serializable",
+                        TableProperties.MERGE_ISOLATION_LEVEL, "SNAPSHOT"));
+        Table override = catalog.createTable(TableIdentifier.of("db1", "override"),
+                SCHEMA, PartitionSpec.unpartitioned(), props(
+                        "delete_isolation_level", "snapshot",
+                        TableProperties.DELETE_ISOLATION_LEVEL, "serializable",
+                        TableProperties.UPDATE_ISOLATION_LEVEL, "serializable",
+                        TableProperties.MERGE_ISOLATION_LEVEL, "serializable"));
+        for (WriteOperation operation : Arrays.asList(
+                WriteOperation.DELETE, WriteOperation.UPDATE, WriteOperation.MERGE)) {
+            Assertions.assertEquals(IsolationLevel.SERIALIZABLE, txn.resolveIsolationLevel(defaults, operation));
+            Assertions.assertEquals(IsolationLevel.SNAPSHOT, txn.resolveIsolationLevel(legacy, operation));
+            Assertions.assertEquals(IsolationLevel.SERIALIZABLE, txn.resolveIsolationLevel(override, operation));
+        }
+        Assertions.assertEquals(IsolationLevel.SNAPSHOT, txn.resolveIsolationLevel(standard, WriteOperation.DELETE));
+        Assertions.assertEquals(IsolationLevel.SERIALIZABLE, txn.resolveIsolationLevel(standard, WriteOperation.UPDATE));
+        Assertions.assertEquals(IsolationLevel.SNAPSHOT, txn.resolveIsolationLevel(standard, WriteOperation.MERGE));
+        Table invalid = catalog.createTable(TableIdentifier.of("db1", "invalid"),
+                SCHEMA, PartitionSpec.unpartitioned(), props("delete_isolation_level", "snapshot",
+                        TableProperties.UPDATE_ISOLATION_LEVEL, "invalid"));
+        Assertions.assertEquals(IsolationLevel.SNAPSHOT, txn.resolveIsolationLevel(invalid, WriteOperation.DELETE));
+        Assertions.assertEquals(IsolationLevel.SNAPSHOT, txn.resolveIsolationLevel(invalid, WriteOperation.MERGE));
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> txn.resolveIsolationLevel(invalid, WriteOperation.UPDATE));
+    }
 
-        Table dflt = catalog.createTable(TableIdentifier.of("db1", "d"), SCHEMA, PartitionSpec.unpartitioned());
-        Assertions.assertTrue(txn.isSerializableIsolationLevel(dflt), "missing property defaults to serializable");
+    @Test
+    public void legacySnapshotIsolationCommitsConcurrentAppendsForEveryRowOperation() throws Exception {
+        for (WriteOperation operation : Arrays.asList(
+                WriteOperation.DELETE, WriteOperation.UPDATE, WriteOperation.MERGE)) {
+            InMemoryCatalog catalog = freshCatalog();
+            TableIdentifier id = TableIdentifier.of("db1", "legacy");
+            Table table = catalog.createTable(id, SCHEMA, PartitionSpec.unpartitioned(),
+                    props("format-version", "2", "delete_isolation_level", "snapshot"));
+            String seed = "s3://b/db1/legacy/seed.parquet";
+            String appended = "s3://b/db1/legacy/appended.parquet";
+            String replacement = "s3://b/db1/legacy/replacement.parquet";
+            table.newAppend().appendFile(dataFile(table.spec(), seed, 5L)).commit();
+            IcebergConnectorTransaction txn = txnFor(opsReturning(table), new RecordingConnectorContext());
+            txn.beginWrite(SESSION, "db1", "legacy", new IcebergWriteContext(
+                    operation, false, Collections.emptyMap(), Optional.empty()));
+            catalog.loadTable(id).newAppend().appendFile(dataFile(table.spec(), appended, 7L)).commit();
+            long appendSnapshot = catalog.loadTable(id).currentSnapshot().snapshotId();
+            txn.addCommitData(commitBytes(positionDeleteItem("s3://b/db1/legacy/delete.parquet", 2L, seed)));
+            if (operation != WriteOperation.DELETE) {
+                txn.addCommitData(commitBytes(dataFileItem(replacement, 2L, 1024L)));
+            }
 
-        Table ser = catalog.createTable(TableIdentifier.of("db1", "s"), SCHEMA, PartitionSpec.unpartitioned(),
-                props("delete_isolation_level", "serializable"));
-        Assertions.assertTrue(txn.isSerializableIsolationLevel(ser));
+            txn.commit();
 
-        Table snap = catalog.createTable(TableIdentifier.of("db1", "n"), SCHEMA, PartitionSpec.unpartitioned(),
-                props("delete_isolation_level", "snapshot"));
-        Assertions.assertFalse(txn.isSerializableIsolationLevel(snap), "snapshot isolation is not serializable");
+            Table committed = catalog.loadTable(id);
+            Assertions.assertNotEquals(appendSnapshot, committed.currentSnapshot().snapshotId());
+            Assertions.assertEquals("1", committed.currentSnapshot().summary().get("added-delete-files"));
+            Set<String> paths = new HashSet<>();
+            for (DataFile file : currentDataFiles(committed)) {
+                paths.add(file.path().toString());
+            }
+            Set<String> expected = new HashSet<>(Arrays.asList(seed, appended));
+            if (operation != WriteOperation.DELETE) {
+                expected.add(replacement);
+                Assertions.assertEquals("1", committed.currentSnapshot().summary().get("added-data-files"));
+            }
+            Assertions.assertEquals(expected, paths, "the row delta must publish without losing the append");
+            txn.close();
+        }
+    }
+
+    @Test
+    public void invalidIsolationFailsBeginAndReleasesRetainedCatalogResources() {
+        for (String property : Arrays.asList(TableProperties.DELETE_ISOLATION_LEVEL,
+                TableProperties.UPDATE_ISOLATION_LEVEL, TableProperties.MERGE_ISOLATION_LEVEL,
+                "delete_isolation_level")) {
+            InMemoryCatalog catalog = freshCatalog();
+            Table table = catalog.createTable(TableIdentifier.of("db1", "invalid"),
+                    SCHEMA, PartitionSpec.unpartitioned(), props("format-version", "2", property, "invalid"));
+            WriteOperation operation = TableProperties.UPDATE_ISOLATION_LEVEL.equals(property)
+                    ? WriteOperation.UPDATE : TableProperties.MERGE_ISOLATION_LEVEL.equals(property)
+                            ? WriteOperation.MERGE : WriteOperation.DELETE;
+            IcebergCatalogResourceTracker tracker = new IcebergCatalogResourceTracker();
+            IcebergConnectorTransaction txn = new IcebergConnectorTransaction(
+                    42L, opsReturning(table), new RecordingConnectorContext(), tracker);
+
+            DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                    () -> txn.beginWrite(SESSION, "db1", "invalid", new IcebergWriteContext(
+                            operation, false, Collections.emptyMap(), Optional.empty())));
+
+            Assertions.assertTrue(ex.getMessage().contains("Invalid isolation level: invalid"));
+            Assertions.assertNull(txn.getTransaction(), "failed begin must not publish the SDK transaction");
+            Assertions.assertNull(txn.getTable());
+            Assertions.assertTrue(txn.getCommitDataList().isEmpty());
+            AtomicInteger cleanup = new AtomicInteger();
+            tracker.close(cleanup::incrementAndGet);
+            Assertions.assertEquals(1, cleanup.get(), "failed begin must release both local tracked-table leases");
+            txn.close();
+            Assertions.assertEquals(1, cleanup.get(), "close must not retain or release the failed lease twice");
+        }
+    }
+
+    @Test
+    public void beginWriteResolvesIsolationFromOpenedTransactionMetadata() {
+        InMemoryCatalog catalog = freshCatalog();
+        Table table = catalog.createTable(TableIdentifier.of("db1", "refreshed"),
+                SCHEMA, PartitionSpec.unpartitioned(), props("format-version", "2",
+                        TableProperties.DELETE_ISOLATION_LEVEL, "snapshot"));
+        AtomicInteger opens = new AtomicInteger();
+        Table refreshing = (Table) Proxy.newProxyInstance(Table.class.getClassLoader(), new Class<?>[] {Table.class},
+                (proxy, method, args) -> {
+                    if ("newTransaction".equals(method.getName())) {
+                        if (opens.incrementAndGet() == 1) {
+                            table.updateProperties().set(TableProperties.DELETE_ISOLATION_LEVEL, "invalid").commit();
+                        }
+                    }
+                    try {
+                        return method.invoke(table, args);
+                    } catch (InvocationTargetException e) {
+                        throw e.getCause();
+                    }
+                });
+        IcebergConnectorTransaction txn = txnFor(opsReturning(refreshing), new RecordingConnectorContext());
+
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                () -> txn.beginWrite(SESSION, "db1", "refreshed", deleteCtx()));
+
+        Assertions.assertEquals(1, opens.get());
+        Assertions.assertTrue(ex.getMessage().contains("Invalid isolation level: invalid"));
+        Assertions.assertNull(txn.getTransaction());
+        table.updateProperties().set(TableProperties.DELETE_ISOLATION_LEVEL, "snapshot").commit();
+        // A failed begin must also release the begin-once guard, so the same transaction can be prepared again.
+        txn.beginWrite(SESSION, "db1", "refreshed", deleteCtx());
+        Assertions.assertNotNull(txn.getTransaction());
+        txn.close();
+    }
+
+    @Test
+    public void rowLevelIsolationSelectionStaysFixedAfterBegin() throws Exception {
+        for (String initial : Arrays.asList("snapshot", "serializable")) {
+            InMemoryCatalog catalog = freshCatalog();
+            TableIdentifier id = TableIdentifier.of("db1", "fixed");
+            Table table = catalog.createTable(id, SCHEMA, PartitionSpec.unpartitioned(), props(
+                    "format-version", "2", TableProperties.UPDATE_ISOLATION_LEVEL, initial));
+            String seed = "s3://b/db1/fixed/seed.parquet";
+            table.newAppend().appendFile(dataFile(table.spec(), seed, 5L)).commit();
+            IcebergConnectorTransaction txn = txnFor(opsReturning(table), new RecordingConnectorContext());
+            txn.beginWrite(SESSION, "db1", "fixed", new IcebergWriteContext(
+                    WriteOperation.UPDATE, false, Collections.emptyMap(), Optional.empty()));
+            // Change even the SDK transaction table's properties: commit must use the parsed begin-time enum.
+            txn.getTransaction().table().updateProperties().set(TableProperties.UPDATE_ISOLATION_LEVEL,
+                    "snapshot".equals(initial) ? "invalid" : "snapshot").commit();
+            catalog.loadTable(id).newAppend()
+                    .appendFile(dataFile(table.spec(), "s3://b/db1/fixed/appended.parquet", 7L)).commit();
+            txn.addCommitData(commitBytes(positionDeleteItem("s3://b/db1/fixed/delete.parquet", 2L, seed)));
+            txn.addCommitData(commitBytes(dataFileItem("s3://b/db1/fixed/replacement.parquet", 2L, 1024L)));
+
+            if ("snapshot".equals(initial)) {
+                txn.commit();
+                Assertions.assertEquals("1", reloadCurrentSnapshot(catalog, id).summary().get("added-delete-files"));
+            } else {
+                Assertions.assertThrows(DorisConnectorException.class, txn::commit,
+                        "begin-time serializable isolation must still reject the concurrent append");
+            }
+            txn.close();
+        }
+    }
+
+    @Test
+    public void nonRowLevelBeginDoesNotParseRowLevelIsolation() {
+        InMemoryCatalog catalog = freshCatalog();
+        Table table = catalog.createTable(TableIdentifier.of("db1", "other"),
+                SCHEMA, PartitionSpec.unpartitioned(), props("format-version", "2",
+                        "delete_isolation_level", "invalid",
+                        TableProperties.DELETE_ISOLATION_LEVEL, "invalid",
+                        TableProperties.UPDATE_ISOLATION_LEVEL, "invalid",
+                        TableProperties.MERGE_ISOLATION_LEVEL, "invalid"));
+        for (WriteOperation operation : Arrays.asList(
+                WriteOperation.INSERT, WriteOperation.OVERWRITE, WriteOperation.REWRITE)) {
+            IcebergConnectorTransaction txn = txnFor(opsReturning(table), new RecordingConnectorContext());
+            txn.beginWrite(SESSION, "db1", "other", new IcebergWriteContext(
+                    operation, operation == WriteOperation.OVERWRITE, Collections.emptyMap(), Optional.empty()));
+            Assertions.assertNotNull(txn.getTransaction());
+            txn.close();
+        }
     }
 
     @Test
     public void deleteSnapshotIsolationSkipsConcurrentDataFileValidation() {
-        // parity: at delete_isolation_level=snapshot (non-serializable) validateNoConflictingDataFiles is NOT
+        // parity: at write.delete.isolation-level=snapshot (non-serializable) validateNoConflictingDataFiles is NOT
         // applied, so a concurrent data-file append since the base snapshot does NOT fail the delete — the inverse
         // of deleteDetectsConcurrentDataFileConflict (which runs at the default serializable level).
         InMemoryCatalog catalog = freshCatalog();
         TableIdentifier id = TableIdentifier.of("db1", "t1");
         Table table = catalog.createTable(id, SCHEMA, PartitionSpec.unpartitioned(),
-                props("format-version", "2", "delete_isolation_level", "snapshot"));
+                props("format-version", "2", TableProperties.DELETE_ISOLATION_LEVEL, "snapshot"));
         table.newAppend().appendFile(dataFile(table.spec(), "s3://b/db1/t1/seed.parquet", 5L)).commit();
 
         IcebergConnectorTransaction txn = txnFor(opsReturning(catalog.loadTable(id)), new RecordingConnectorContext());

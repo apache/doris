@@ -18,8 +18,12 @@
 package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.Type;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.literal.IPv6Literal;
 import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.types.coercion.PrimitiveType;
+
+import java.util.Optional;
 
 /**
  * IPv6 type in Nereids.
@@ -72,5 +76,10 @@ public class IPv6Type extends PrimitiveType {
     @Override
     public String toSql() {
         return "IPV6";
+    }
+
+    @Override
+    public Optional<Expression> zeroValue() {
+        return Optional.of(new IPv6Literal("::"));
     }
 }

@@ -1741,13 +1741,13 @@ public class DatabaseTransactionMgr {
         for (long tableId : tableToPartition.keySet()) {
             OlapTable table = (OlapTable) db.getTableNullable(tableId);
             TableCommitInfo tableCommitInfo = new TableCommitInfo(tableId);
-            if (Config.enable_feature_binlog && table.enableTso()) {
+            if (Config.enable_feature_changelog && table.enableTso()) {
                 tableCommitInfo.setCommitTSO(commitTSO);
             }
 
             for (long partitionId : tableToPartition.get(tableId)) {
                 Partition partition = table.getPartition(partitionId);
-                if (Config.enable_feature_binlog && table.enableTso()) {
+                if (Config.enable_feature_changelog && table.enableTso()) {
                     tableCommitInfo.addPartitionCommitInfo(
                             generatePartitionCommitInfo(table, partitionId, partition.getNextVersion(), commitTSO));
                 } else {
@@ -1805,7 +1805,7 @@ public class DatabaseTransactionMgr {
                 TableCommitInfo tableCommitInfo = new TableCommitInfo(tableId);
                 tableCommitInfo.setVersion(tableNextVersion);
                 tableCommitInfo.setVersionTime(System.currentTimeMillis());
-                if (Config.enable_feature_binlog && table.enableTso()) {
+                if (Config.enable_feature_changelog && table.enableTso()) {
                     tableCommitInfo.setCommitTSO(commitTSO);
                 }
 
@@ -1817,7 +1817,7 @@ public class DatabaseTransactionMgr {
                     partitionToVersion.put(partitionId, partitionNextVersion);
 
                     PartitionCommitInfo partitionCommitInfo;
-                    if (Config.enable_feature_binlog && table.enableTso()) {
+                    if (Config.enable_feature_changelog && table.enableTso()) {
                         partitionCommitInfo = generatePartitionCommitInfo(table, partitionId,
                                 partitionNextVersion, commitTSO);
                     } else {
@@ -1868,7 +1868,7 @@ public class DatabaseTransactionMgr {
                         transactionState);
                 continue;
             }
-            if (Config.enable_feature_binlog && table.enableTso()) {
+            if (Config.enable_feature_changelog && table.enableTso()) {
                 tableCommitInfo.setCommitTSO(commitTSO);
             }
             Iterator<PartitionCommitInfo> partitionCommitInfoIterator
@@ -1887,7 +1887,7 @@ public class DatabaseTransactionMgr {
                 }
                 partitionCommitInfo.setVersion(partition.getNextVersion());
                 partitionCommitInfo.setVersionTime(System.currentTimeMillis());
-                if (Config.enable_feature_binlog && table.enableTso()) {
+                if (Config.enable_feature_changelog && table.enableTso()) {
                     partitionCommitInfo.setTso(commitTSO);
                 }
             }

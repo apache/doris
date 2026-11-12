@@ -32,10 +32,12 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.util.NetUtils;
+import org.apache.doris.datasource.ExternalResourceReclaimer;
 import org.apache.doris.job.common.JobStatus;
 import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
 import org.apache.doris.job.extensions.insert.streaming.StreamingJobStatistic;
+import org.apache.doris.job.extensions.mtmv.MTMVTask;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.loadv2.JobState;
 import org.apache.doris.load.loadv2.LoadManager;
@@ -49,6 +51,7 @@ import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshMethod;
 import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshTrigger;
 import org.apache.doris.mtmv.MTMVUtil;
+import org.apache.doris.mtmv.ivm.IvmRefreshMethod;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.persist.EditLog;
@@ -272,6 +275,20 @@ public final class MetricRepo {
     public static GaugeMetric<Integer> GAUGE_ASYNC_MATERIALIZED_VIEW_TASK_RUNNING_NUM;
     public static GaugeMetric<Integer> GAUGE_ASYNC_MATERIALIZED_VIEW_TASK_PENDING_NUM;
 
+    // The refresh tasks of IVM materialized views, counted on the Master as each one ends.
+    // The result label of COUNTER_IVM_REFRESH_TASKS: no_change is a SUCCESS that committed nothing.
+    public static final String IVM_REFRESH_RESULT_SUCCESS = "success";
+    public static final String IVM_REFRESH_RESULT_NO_CHANGE = "no_change";
+    public static final String IVM_REFRESH_RESULT_FAILED = "failed";
+    public static final String IVM_REFRESH_RESULT_CANCELED = "canceled";
+    // by result, then by IvmRefreshMethod
+    public static Map<String, Map<IvmRefreshMethod, LongCounterMetric>> COUNTER_IVM_REFRESH_TASKS;
+    public static Map<IvmRefreshMethod, DoubleCounterMetric> COUNTER_IVM_REFRESH_DURATION_SECONDS;
+    // by MTMVTask.IVM_FALLBACK_REASONS and MTMVTask.IVM_FAILURE_REASONS
+    public static Map<String, LongCounterMetric> COUNTER_IVM_FALLBACKS;
+    public static Map<String, LongCounterMetric> COUNTER_IVM_REFRESH_FAILURES;
+    public static LongCounterMetric COUNTER_IVM_SCHEDULE_REJECTED;
+
     // Statistics
     public static GaugeMetric<Double> GAUGE_STATISTICS_UNHEALTHY_TABLE_RATE;
     public static GaugeMetric<Double> GAUGE_STATISTICS_UNHEALTHY_COLUMN_RATE;
@@ -325,6 +342,30 @@ public final class MetricRepo {
     private static final ScheduledThreadPoolExecutor metricTimer = ThreadPoolManager.newDaemonScheduledThreadPool(1,
             "metric-timer-pool", true);
     private static final MetricCalculator metricCalculator = new MetricCalculator();
+    private static final long VERSION_METRIC_COMPONENT_BASE = 100L;
+
+    static long encodeVersionMetricValue(int major, int minor, int patch, int hotfix) {
+        int[] components = {major, minor, patch, hotfix};
+        for (int component : components) {
+            if (component < 0 || component >= VERSION_METRIC_COMPONENT_BASE) {
+                throw new IllegalArgumentException("version metric components must be between 0 and 99");
+            }
+        }
+
+        // Each component is one base-100 digit: 26.0.1.0 becomes 26000100.
+        return (((major * VERSION_METRIC_COMPONENT_BASE + minor) * VERSION_METRIC_COMPONENT_BASE + patch)
+                * VERSION_METRIC_COMPONENT_BASE + hotfix);
+    }
+
+    private static void addExternalResourceCleanupGauge(String name, MetricUnit unit, Supplier<Long> value) {
+        DORIS_METRIC_REGISTER.addMetrics(new GaugeMetric<Long>("external_resource_cleanup_" + name,
+                unit, "External resource cleanup " + name) {
+            @Override
+            public Long getValue() {
+                return value.get();
+            }
+        });
+    }
 
     // init() should only be called after catalog is constructed.
     public static synchronized void init() {
@@ -337,12 +378,9 @@ public final class MetricRepo {
             @Override
             public Long getValue() {
                 try {
-                    String verStr = Version.DORIS_BUILD_VERSION_MAJOR + "0" + Version.DORIS_BUILD_VERSION_MINOR + "0"
-                            + Version.DORIS_BUILD_VERSION_PATCH;
-                    if (Version.DORIS_BUILD_VERSION_HOTFIX > 0) {
-                        verStr += ("0" + Version.DORIS_BUILD_VERSION_HOTFIX);
-                    }
-                    return Long.parseLong(verStr);
+                    return encodeVersionMetricValue(Version.DORIS_BUILD_VERSION_MAJOR,
+                            Version.DORIS_BUILD_VERSION_MINOR, Version.DORIS_BUILD_VERSION_PATCH,
+                            Version.DORIS_BUILD_VERSION_HOTFIX);
                 } catch (Throwable t) {
                     LOG.warn("failed to init version metrics", t);
                     return 0L;
@@ -879,6 +917,16 @@ public final class MetricRepo {
             }
         };
         DORIS_METRIC_REGISTER.addMetrics(GAUGE_CATALOG_NUM);
+        addExternalResourceCleanupGauge("pending", MetricUnit.NOUNIT,
+                () -> ExternalResourceReclaimer.getInstance().pendingCount());
+        addExternalResourceCleanupGauge("running", MetricUnit.NOUNIT,
+                () -> ExternalResourceReclaimer.getInstance().runningCount());
+        addExternalResourceCleanupGauge("failures", MetricUnit.NOUNIT,
+                () -> ExternalResourceReclaimer.getInstance().failureCount());
+        addExternalResourceCleanupGauge("oldest_age_ms", MetricUnit.MILLISECONDS,
+                () -> ExternalResourceReclaimer.getInstance().oldestAgeMillis());
+        addExternalResourceCleanupGauge("last_duration_ms", MetricUnit.MILLISECONDS,
+                () -> ExternalResourceReclaimer.getInstance().lastDurationMillis());
 
         GAUGE_INTERNAL_DATABASE_NUM = new GaugeMetric<Integer>("internal_database_num",
                 MetricUnit.NOUNIT, "total internal database num") {
@@ -1118,6 +1166,44 @@ public final class MetricRepo {
             }
         };
         DORIS_METRIC_REGISTER.addMetrics(GAUGE_ASYNC_MATERIALIZED_VIEW_TASK_PENDING_NUM);
+
+        // IVM refresh tasks, counted by MTMVTask as each task of an IVM MV ends. Every combination of labels is
+        // registered here, so that each series exists from 0 rather than appearing with its first event.
+        COUNTER_IVM_REFRESH_TASKS = Maps.newHashMap();
+        for (String result : new String[] {IVM_REFRESH_RESULT_SUCCESS, IVM_REFRESH_RESULT_NO_CHANGE,
+                IVM_REFRESH_RESULT_FAILED, IVM_REFRESH_RESULT_CANCELED}) {
+            Map<IvmRefreshMethod, LongCounterMetric> byMethod = Maps.newEnumMap(IvmRefreshMethod.class);
+            for (IvmRefreshMethod method : IvmRefreshMethod.values()) {
+                LongCounterMetric counter = new LongCounterMetric("ivm_refresh_tasks_total", MetricUnit.NOUNIT,
+                        "number of the refresh tasks of IVM materialized views that ended, by result and by the"
+                                + " kinds of work that committed data");
+                counter.addLabel(new MetricLabel("result", result))
+                        .addLabel(new MetricLabel("method", method.name().toLowerCase()));
+                DORIS_METRIC_REGISTER.addMetrics(counter);
+                byMethod.put(method, counter);
+            }
+            COUNTER_IVM_REFRESH_TASKS.put(result, byMethod);
+        }
+        COUNTER_IVM_REFRESH_DURATION_SECONDS = Maps.newEnumMap(IvmRefreshMethod.class);
+        for (IvmRefreshMethod method : IvmRefreshMethod.values()) {
+            DoubleCounterMetric counter = new DoubleCounterMetric("ivm_refresh_duration_seconds_total",
+                    MetricUnit.SECONDS, "how long the refresh tasks of IVM materialized views that succeeded or"
+                            + " failed ran, from start to finish, in seconds");
+            counter.addLabel(new MetricLabel("method", method.name().toLowerCase()));
+            DORIS_METRIC_REGISTER.addMetrics(counter);
+            COUNTER_IVM_REFRESH_DURATION_SECONDS.put(method, counter);
+        }
+        COUNTER_IVM_FALLBACKS = addIvmRefreshReasonCounters("ivm_fallbacks_total",
+                "number of the refresh tasks of IVM materialized views that fell back from the incremental refresh"
+                        + " and committed data in the refresh that replaced it, by the reason",
+                MTMVTask.IVM_FALLBACK_REASONS);
+        COUNTER_IVM_REFRESH_FAILURES = addIvmRefreshReasonCounters("ivm_refresh_failures_total",
+                "number of the refresh tasks of IVM materialized views that failed, by the reason",
+                MTMVTask.IVM_FAILURE_REASONS);
+        COUNTER_IVM_SCHEDULE_REJECTED = new LongCounterMetric("ivm_schedule_rejected_total", MetricUnit.NOUNIT,
+                "number of the refresh tasks of IVM materialized views that the full task queue turned away");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_IVM_SCHEDULE_REJECTED);
+
         GAUGE_MAX_TABLE_SIZE_BYTES = new GaugeMetricImpl<>("max_table_size_bytes", MetricUnit.BYTES, "", 0L);
         DORIS_METRIC_REGISTER.addMetrics(GAUGE_MAX_TABLE_SIZE_BYTES);
 
@@ -1731,6 +1817,19 @@ public final class MetricRepo {
         visitor.visitWorkloadGroup();
 
         return visitor.finish();
+    }
+
+    // One counter per reason, keyed by the reason as the task records it and labeled with it in lower case.
+    private static Map<String, LongCounterMetric> addIvmRefreshReasonCounters(String name, String description,
+            List<String> reasons) {
+        Map<String, LongCounterMetric> counters = Maps.newHashMap();
+        for (String reason : reasons) {
+            LongCounterMetric counter = new LongCounterMetric(name, MetricUnit.NOUNIT, description);
+            counter.addLabel(new MetricLabel("reason", reason.toLowerCase()));
+            DORIS_METRIC_REGISTER.addMetrics(counter);
+            counters.put(reason, counter);
+        }
+        return counters;
     }
 
     public static <M extends Metric<?>> AutoMappedMetric<M> addLabeledMetrics(String label, Supplier<M> metric) {

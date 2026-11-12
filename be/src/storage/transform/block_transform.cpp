@@ -27,8 +27,8 @@
 #include "storage/partial_update_info.h"
 #include "storage/rowset/rowset_writer_context.h"
 #include "storage/tablet/tablet_schema.h"
+#include "storage/transform/changelog_derive.h"
 #include "storage/transform/partial_update_fill.h"
-#include "storage/transform/row_binlog_derive.h"
 #include "util/jsonb/serialize.h"
 
 namespace doris::segment_v2 {
@@ -164,20 +164,20 @@ BlockTransformChain build_transform_chain(const RowsetWriterContext& context) {
     if (context.write_type == DataWriteType::TYPE_COMPACTION) {
         return BlockTransformChain {};
     }
-    if (context.write_binlog_opt().enable) {
+    if (context.write_changelog_opt().enable) {
         if (context.write_type != DataWriteType::TYPE_DIRECT) {
             return BlockTransformChain {};
         }
-        // binlog<row> sub-writer: only the source -> binlog-schema derivation.
+        // changelog sub-writer: only the source -> changelog-schema derivation.
         // No parse or row-store stage is needed: FE rejects a VARIANT column on
-        // a binlog<row> table, and the hidden row-store column is a hidden
-        // non-key column, which the binlog schema drops. Plain (no probe) for
+        // a changelog table, and the hidden row-store column is a hidden
+        // non-key column, which the changelog schema drops. Plain (no probe) for
         // DUP and no-BEFORE upserts; MoW (with probe) for partial update or the
         // BEFORE image.
-        if (binlog_needs_historical_lookup(context)) {
-            return BlockTransformChain {{std::make_shared<MowRowBinlogDeriveStage>()}};
+        if (changelog_needs_historical_lookup(context)) {
+            return BlockTransformChain {{std::make_shared<MowChangelogDeriveStage>()}};
         }
-        return BlockTransformChain {{std::make_shared<PlainRowBinlogDeriveStage>()}};
+        return BlockTransformChain {{std::make_shared<PlainChangelogDeriveStage>()}};
     }
     std::vector<std::shared_ptr<const BlockTransform>> stages;
     stages.push_back(std::make_shared<ValidateStage>());

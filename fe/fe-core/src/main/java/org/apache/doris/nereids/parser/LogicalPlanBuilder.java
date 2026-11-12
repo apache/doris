@@ -1711,7 +1711,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         LogicalPlan logicalPlan = new UnboundResultSink<>(visitQuery(ctx.query()));
         Map<String, String> properties = ctx.propertyClause() != null
                 ? Maps.newHashMap(visitPropertyClause(ctx.propertyClause())) : Maps.newHashMap();
-        return new CreateMaterializedViewCommand(new TableNameInfo(nameParts), logicalPlan, properties);
+        return new CreateMaterializedViewCommand(ctx.EXISTS() != null, new TableNameInfo(nameParts),
+                logicalPlan, properties);
     }
 
     /**
@@ -2575,7 +2576,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 mergeType = LoadTask.MergeType.MERGE;
             }
         }
-        String comment = visitCommentSpec(ctx.commentSpec());
+        // Read as a string literal, as column comments are, so that the COMMENT that SHOW CREATE ROUTINE LOAD
+        // prints reads back unchanged
+        String comment = ctx.commentSpec() == null ? ""
+                : SqlLiteralUtils.parseStringLiteral(ctx.commentSpec().STRING_LITERAL().getText());
         Map<String, LoadProperty> loadPropertyMap = new HashMap<>();
         for (DorisParser.LoadPropertyContext oneLoadPropertyCOntext : ctx.loadProperty()) {
             LoadProperty loadProperty = visitLoadProperty(oneLoadPropertyCOntext);

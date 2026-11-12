@@ -26,6 +26,7 @@ k	int	Yes	false	\N	NONE
 m2	bigint	Yes	false	\N	NONE
 __DORIS_IVM_AGG_COUNT_COL__	bigint	No	false	\N	NONE
 __DORIS_IVM_AGG_0_COUNT_COL__	bigint	No	false	\N	NONE
+__DORIS_IVM_AGG_0_MIN_COUNT_COL__	bigint	No	false	\N	NONE
 __DORIS_IVM_AGG_0_MIN_COL__	int	Yes	false	\N	NONE
 __DORIS_DELETE_SIGN__	tinyint	No	false	0	NONE
 __DORIS_VERSION_COL__	bigint	No	false	0	NONE
@@ -37,6 +38,7 @@ k	int	Yes	false	\N	NONE
 m1	bigint	Yes	false	\N	NONE
 __DORIS_IVM_AGG_COUNT_COL__	bigint	No	false	\N	NONE
 __DORIS_IVM_AGG_0_COUNT_COL__	bigint	No	false	\N	NONE
+__DORIS_IVM_AGG_0_MAX_COUNT_COL__	bigint	No	false	\N	NONE
 __DORIS_IVM_AGG_0_MAX_COL__	int	Yes	false	\N	NONE
 __DORIS_DELETE_SIGN__	tinyint	No	false	0	NONE
 __DORIS_VERSION_COL__	bigint	No	false	0	NONE

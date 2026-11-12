@@ -151,10 +151,10 @@ public class DorisArrowTypeMappingTest {
                 row(PrimitiveType.HLL, new ArrowType.Binary()),
                 row(PrimitiveType.BITMAP, new ArrowType.Binary()),
                 row(PrimitiveType.QUANTILE_STATE, new ArrowType.Binary()),
-                // BE emits float64 for TIMEV2 and binary for VARBINARY and AGG_STATE; the schema says
-                // Null for all three. Kept as is (#67577).
-                row(PrimitiveType.TIMEV2, 18, 0, new ArrowType.Null()),
-                row(PrimitiveType.VARBINARY, new ArrowType.Null()),
+                // As BE emits them: float64 for TIMEV2 and binary for VARBINARY.
+                row(PrimitiveType.TIMEV2, 18, 0, new ArrowType.FloatingPoint(FloatingPointPrecision.DOUBLE)),
+                row(PrimitiveType.VARBINARY, new ArrowType.Binary()),
+                // BE emits binary for AGG_STATE; the schema says Null. Kept as is (#67577).
                 row(PrimitiveType.AGG_STATE, new ArrowType.Null()),
                 // The element types of a complex column live in the field's children, not in its type.
                 row(PrimitiveType.ARRAY, new ArrowType.List()),

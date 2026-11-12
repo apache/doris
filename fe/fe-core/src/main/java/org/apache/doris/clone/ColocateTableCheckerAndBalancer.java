@@ -30,6 +30,7 @@ import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.Tablet.TabletHealth;
 import org.apache.doris.catalog.Tablet.TabletStatus;
+import org.apache.doris.changelog.ChangelogTabletLocality;
 import org.apache.doris.clone.TabletChecker.CheckerCounter;
 import org.apache.doris.clone.TabletScheduler.AddResult;
 import org.apache.doris.common.Config;
@@ -518,7 +519,7 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                     for (Partition partition : olapTable.getPartitions()) {
                         short replicationNum = replicaAlloc.getTotalReplicaNum();
                         long visibleVersion = partition.getVisibleVersion();
-                        // Colocate tables are skipped by TabletChecker, so row-binlog companion tablets
+                        // Colocate tables are skipped by TabletChecker, so changelog companion tablets
                         // must also be checked here. Their locality follows the base tablet instead of
                         // the colocate group layout.
                         for (MaterializedIndex index
@@ -533,18 +534,18 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                                 Preconditions.checkState(bucketsSeq.size() == replicationNum,
                                         bucketsSeq.size() + " vs. " + replicationNum);
                                 Tablet tablet = index.getTablet(tabletId);
-                                RowBinlogTabletLocality.RowBinlogHealthResult rowBinlogHealthResult = null;
+                                ChangelogTabletLocality.ChangelogHealthResult changelogHealthResult = null;
                                 TabletHealth tabletHealth;
-                                if (index.isRowBinlog()) {
-                                    rowBinlogHealthResult = RowBinlogTabletLocality.getRowBinlogHealth(
+                                if (index.isChangelog()) {
+                                    changelogHealthResult = ChangelogTabletLocality.getChangelogHealth(
                                             partition, tablet, replicaAlloc, visibleVersion);
-                                    tabletHealth = rowBinlogHealthResult.getTabletHealth();
+                                    tabletHealth = changelogHealthResult.getTabletHealth();
                                 } else {
                                     tabletHealth = tablet.getColocateHealth(visibleVersion, replicaAlloc, bucketsSeq);
                                 }
                                 if (tabletHealth.status != TabletStatus.HEALTHY) {
                                     counter.unhealthyTabletNum++;
-                                    if (!index.isRowBinlog()) {
+                                    if (!index.isChangelog()) {
                                         unstableReason = String.format("get unhealthy tablet %d in colocate table."
                                                 + " status: %s", tablet.getId(), tabletHealth.status);
                                         if (LOG.isDebugEnabled()) {
@@ -567,8 +568,8 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                                             replicaAlloc, System.currentTimeMillis());
                                     // the tablet status will be set again when being scheduled
                                     tabletCtx.setTabletHealth(tabletHealth);
-                                    if (rowBinlogHealthResult != null) {
-                                        rowBinlogHealthResult.applyTo(tabletCtx);
+                                    if (changelogHealthResult != null) {
+                                        changelogHealthResult.applyTo(tabletCtx);
                                     }
                                     tabletCtx.setTabletOrderIdx(idx);
                                     tabletCtx.setIsUniqKeyMergeOnWrite(isUniqKeyMergeOnWrite);

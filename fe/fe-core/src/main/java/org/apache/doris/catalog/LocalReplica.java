@@ -78,11 +78,11 @@ public class LocalReplica extends Replica {
     private int leftFurtherRepairCount = 0;
 
     /*
-     * A base replica is marked binlog missing when its paired row-binlog replica is removed first.
-     * Row-binlog locality health skips this base replica temporarily to avoid clone/delete loops.
+     * A base replica is marked changelog missing when its paired changelog replica is removed first.
+     * Changelog locality health skips this base replica temporarily to avoid clone/delete loops.
      */
-    private long binlogMissingSetTime = -1;
-    private int remainingBinlogMissingRetries = 0;
+    private long changelogMissingSetTime = -1;
+    private int remainingChangelogMissingRetries = 0;
 
     // During full clone, the replica's state is CLONE, it will not load the data.
     // After full clone finished, even if the replica's version = partition's visible version,
@@ -282,26 +282,26 @@ public class LocalReplica extends Replica {
     }
 
     @Override
-    public boolean isBinlogMissing() {
-        return remainingBinlogMissingRetries > 0
-                && System.currentTimeMillis() < binlogMissingSetTime
-                + Config.tablet_binlog_missing_timeout_second * 1000;
+    public boolean isChangelogMissing() {
+        return remainingChangelogMissingRetries > 0
+                && System.currentTimeMillis() < changelogMissingSetTime
+                + Config.tablet_changelog_missing_timeout_second * 1000;
     }
 
     @Override
-    public void setBinlogMissing(boolean binlogMissing) {
-        if (binlogMissing) {
-            binlogMissingSetTime = System.currentTimeMillis();
-            remainingBinlogMissingRetries = Config.tablet_binlog_missing_max_times;
+    public void setChangelogMissing(boolean changelogMissing) {
+        if (changelogMissing) {
+            changelogMissingSetTime = System.currentTimeMillis();
+            remainingChangelogMissingRetries = Config.tablet_changelog_missing_max_times;
         } else {
-            remainingBinlogMissingRetries = 0;
-            binlogMissingSetTime = -1;
+            remainingChangelogMissingRetries = 0;
+            changelogMissingSetTime = -1;
         }
     }
 
     @Override
-    public void consumeBinlogMissingRetry() {
-        remainingBinlogMissingRetries--;
+    public void consumeChangelogMissingRetry() {
+        remainingChangelogMissingRetries--;
     }
 
     @Override

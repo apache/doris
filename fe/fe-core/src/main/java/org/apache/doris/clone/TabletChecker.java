@@ -31,6 +31,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.Tablet.TabletHealth;
 import org.apache.doris.catalog.Tablet.TabletStatus;
+import org.apache.doris.changelog.ChangelogTabletLocality;
 import org.apache.doris.clone.TabletScheduler.AddResult;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -377,12 +378,12 @@ public class TabletChecker extends MasterDaemon {
                 }
 
                 ReplicaAllocation replicaAlloc = tbl.getPartitionInfo().getReplicaAllocation(partition.getId());
-                RowBinlogTabletLocality.RowBinlogHealthResult rowBinlogHealthResult = null;
+                ChangelogTabletLocality.ChangelogHealthResult changelogHealthResult = null;
                 TabletHealth tabletHealth;
-                if (idx.isRowBinlog()) {
-                    rowBinlogHealthResult = RowBinlogTabletLocality.getRowBinlogHealth(
+                if (idx.isChangelog()) {
+                    changelogHealthResult = ChangelogTabletLocality.getChangelogHealth(
                             partition, tablet, replicaAlloc, partition.getVisibleVersion());
-                    tabletHealth = rowBinlogHealthResult.getTabletHealth();
+                    tabletHealth = changelogHealthResult.getTabletHealth();
                 } else {
                     tabletHealth = tablet.getHealth(infoService, partition.getVisibleVersion(),
                             replicaAlloc, aliveBeIds);
@@ -415,8 +416,8 @@ public class TabletChecker extends MasterDaemon {
                         System.currentTimeMillis());
                 // the tablet status will be set again when being scheduled
                 tabletCtx.setTabletHealth(tabletHealth);
-                if (rowBinlogHealthResult != null) {
-                    rowBinlogHealthResult.applyTo(tabletCtx);
+                if (changelogHealthResult != null) {
+                    changelogHealthResult.applyTo(tabletCtx);
                 }
                 tabletCtx.setIsUniqKeyMergeOnWrite(isUniqKeyMergeOnWrite);
 

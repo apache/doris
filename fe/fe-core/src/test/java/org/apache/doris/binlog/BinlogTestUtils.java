@@ -18,6 +18,7 @@
 package org.apache.doris.binlog;
 
 import org.apache.doris.catalog.BinlogConfig;
+import org.apache.doris.catalog.ChangelogConfig;
 import org.apache.doris.thrift.TBinlog;
 import org.apache.doris.thrift.TBinlogType;
 
@@ -33,13 +34,11 @@ public class BinlogTestUtils {
     public static final long MAX_HISTORY_NUMS = 0x7fffffffffffffffL;
 
     public static BinlogConfig newTestCCRBinlogConfig(boolean enableBinlog, long expiredTime) {
-        return new BinlogConfig(enableBinlog, expiredTime, MAX_BYTES, MAX_HISTORY_NUMS,
-                BinlogConfig.BinlogFormat.STATEMENT_AND_SNAPSHOT, false);
+        return new BinlogConfig(enableBinlog, expiredTime, MAX_BYTES, MAX_HISTORY_NUMS);
     }
 
-    public static BinlogConfig newTestRowBinlogConfig(boolean enableBinlog, boolean needHistoricalValue) {
-        return new BinlogConfig(enableBinlog, BinlogConfig.NO_TTL, MAX_BYTES, MAX_HISTORY_NUMS,
-                BinlogConfig.BinlogFormat.ROW, needHistoricalValue);
+    public static ChangelogConfig newTestChangelogConfig(boolean enableChangelog, boolean needHistoricalValue) {
+        return new ChangelogConfig(enableChangelog, BinlogConfig.NO_TTL, needHistoricalValue);
     }
 
     public static BinlogConfigCache newMockBinlogConfigCache(long dbId, long tableId, long expiredTime) {

@@ -117,7 +117,7 @@ public:
         return cursor_ < typed_runes_.size() ? typed_runes_[cursor_].offset : 0;
     }
 
-    int32_t getCurrentCharType() const { return typed_runes_[cursor_].char_type; }
+    CharacterUtil::CharType getCurrentCharType() const { return typed_runes_[cursor_].char_type; }
 
     int32_t getCurrentChar() const {
         return cursor_ < typed_runes_.size() ? typed_runes_[cursor_].getChar() : 0;

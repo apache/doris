@@ -29,6 +29,7 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Not;
@@ -38,6 +39,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.AnyValue;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.AssertTrue;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
@@ -218,6 +220,7 @@ public final class ConnectorChangelogPlanBuilder {
         private final LogicalPlan child;
         private final CascadesContext context;
         private final ExpressionAnalyzer analyzer;
+        private final Expression targetPresent;
 
         private MergeBuilder(List<Column> schema, ExternalTable targetTable,
                 List<String> primaryKeys,
@@ -229,8 +232,31 @@ public final class ConnectorChangelogPlanBuilder {
             this.primaryKeys = primaryKeys;
             this.mode = mode;
             this.merge = merge;
-            this.child = child;
             this.context = context;
+            if (merge.getNotMatchedClauses().isEmpty()) {
+                // MATCHED-only MERGE uses an INNER JOIN, including matches on NULL-safe keys.
+                this.child = child;
+                this.targetPresent = BooleanLiteral.TRUE;
+            } else {
+                if (!(child instanceof LogicalJoin)) {
+                    throw new AnalysisException("Connector MERGE input must be a logical join");
+                }
+                LogicalJoin<?, ?> join = (LogicalJoin<?, ?>) child;
+                // A nullable primary key cannot distinguish a real target row from the RIGHT
+                // OUTER JOIN's null-extension. Add a non-null marker before the join instead.
+                Alias present = new Alias(new TinyIntLiteral((byte) 1), "__DORIS_CHANGELOG_TARGET_PRESENT__");
+                List<NamedExpression> targetOutput = new ArrayList<>(join.left().getOutput());
+                targetOutput.add(present);
+                this.child = join.withChildren(ImmutableList.of(
+                        new LogicalProject<>(targetOutput, join.left()), join.right()));
+                // Use the join output's nullability, not the marker's non-null pre-join slot.
+                Slot marker = this.child.getOutput().stream()
+                        .filter(slot -> slot.getExprId().equals(present.getExprId())).findFirst()
+                        .orElseThrow(() -> new IllegalStateException("Connector MERGE lost its target marker"));
+                this.targetPresent = new Not(new IsNull(marker));
+            }
+            // Resolve user expressions in the original scope so the private marker cannot shadow
+            // a user column with the same name. The marker expression already uses its bound slot.
             this.analyzer = analyzer(child, context);
         }
 
@@ -284,9 +310,6 @@ public final class ConnectorChangelogPlanBuilder {
             Set<Slot> targetSlots = child.getOutput().stream()
                     .filter(slot -> qualifierEndsWith(slot.getQualifier(), merge.getTargetNameInPlan()))
                     .collect(ImmutableSet.toImmutableSet());
-            if (!(child instanceof LogicalJoin)) {
-                throw new AnalysisException("Connector MERGE input must be a logical join");
-            }
             Expression onClause = ((LogicalJoin<?, ?>) child).getOnClauseCondition()
                     .orElseThrow(() -> new AnalysisException("Connector MERGE requires an ON condition"));
             Map<String, Expression> sourceKeys = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
@@ -398,8 +421,6 @@ public final class ConnectorChangelogPlanBuilder {
         }
 
         private Alias bindBranchLabel() {
-            Expression targetPresent = new Not(new org.apache.doris.nereids.trees.expressions.IsNull(
-                    findTargetSlot(primaryKeys.get(0))));
             Expression matched = new NullLiteral(IntegerType.INSTANCE);
             for (int i = merge.getMatchedClauses().size() - 1; i >= 0; i--) {
                 MergeMatchedClause clause = merge.getMatchedClauses().get(i);

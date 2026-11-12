@@ -64,6 +64,11 @@ public class DatabaseProperty {
         return binlogConfig;
     }
 
+    // The changelog default of the tables created in the database.
+    public ChangelogConfig getChangelogConfig() {
+        return ChangelogConfig.fromProperties(properties);
+    }
+
     public void updateProperties(Map<String, String> newProperties) {
         properties.putAll(newProperties);
     }

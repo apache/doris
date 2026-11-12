@@ -329,6 +329,20 @@ DECLARE_mInt32(report_task_interval_seconds);
 DECLARE_mInt32(report_disk_state_interval_seconds);
 // the interval time(seconds) for agent report olap table to FE
 DECLARE_mInt32(report_tablet_interval_seconds);
+// Per-list cap: a report carries at most 2 * report_active_tablet_max_num entries
+// (one top-N list for queries, one for loads).
+//
+// Sizing against fe cloud_active_partition_scheduling_topn: FE reserves only topn/2 for the
+// query bucket and backfills whatever the load bucket leaves free from the query list, so
+// one dimension can claim the whole budget. The worst case -- the cluster's entire hot set
+// on a single BE -- therefore wants this >= topn. The default is deliberately half of the
+// FE default instead: FE merges across backends, so it takes a one-BE hot set for the cap
+// to bind at all, and paying 2x the report size on every BE in every cluster to cover that
+// is not worth it. Raise it if you raise the FE value, or if a BE reports
+// report.active_tablet_truncated far above zero.
+DECLARE_mInt32(report_active_tablet_max_num);
+// Only tablets queried / loaded within this window are reported as active.
+DECLARE_mInt32(report_active_tablet_window_second);
 // the max download speed(KB/s)
 DECLARE_mInt32(max_download_speed_kbps);
 // download low speed limit(KB/s)
@@ -583,14 +597,14 @@ DECLARE_mInt32(ordered_data_compaction_min_segment_size);
 DECLARE_mInt32(max_base_compaction_threads);
 DECLARE_mInt32(max_cumu_compaction_threads);
 
-// Binlog Compaction
-DECLARE_mInt64(binlog_compaction_wait_timesec_after_visible);
-DECLARE_mInt64(binlog_compaction_goal_size_mbytes);
-DECLARE_mInt32(binlog_compaction_task_num_per_disk);
-DECLARE_mInt32(binlog_compaction_file_count_threshold);
-DECLARE_mInt32(binlog_level_compaction_max_deltas);
-DECLARE_mInt64(binlog_compaction_time_threshold_seconds);
-DECLARE_mInt32(max_binlog_compaction_threads);
+// Changelog compaction
+DECLARE_mInt64(changelog_compaction_wait_timesec_after_visible);
+DECLARE_mInt64(changelog_compaction_goal_size_mbytes);
+DECLARE_mInt32(changelog_compaction_task_num_per_disk);
+DECLARE_mInt32(changelog_compaction_file_count_threshold);
+DECLARE_mInt32(changelog_level_compaction_max_deltas);
+DECLARE_mInt64(changelog_compaction_time_threshold_seconds);
+DECLARE_mInt32(max_changelog_compaction_threads);
 
 DECLARE_Bool(enable_base_compaction_idle_sched);
 DECLARE_mInt64(base_compaction_min_rowset_num);
@@ -615,9 +629,9 @@ DECLARE_mDouble(compaction_promotion_ratio);
 DECLARE_mInt64(compaction_promotion_min_size_mbytes);
 
 // When output rowset of cumulative compaction total version count (end_version - start_version)
-// exceed this config count, the rowset will be moved to base compaction
-// NOTE: this config will work for unique key merge-on-write table only, to reduce version count
-// related cost on delete bitmap more effectively.
+// exceed this config count, the rowset will be moved to base compaction.
+// NOTE: this config only works for unique key merge-on-write tables. The default maximum value
+// disables version-count-based promotion while retaining the option to enable it when needed.
 DECLARE_mInt64(compaction_promotion_version_count);
 
 // The lower bound size to do cumulative compaction. When total disk size of candidate rowsets is less than
@@ -1286,6 +1300,21 @@ DECLARE_Bool(enable_debug_points);
 DECLARE_Int32(pipeline_executor_size);
 DECLARE_Int32(blocking_pipeline_executor_size);
 
+// Lance shared session and optional Foyer data-file cache.
+DECLARE_Int64(lance_index_cache_size_bytes);
+DECLARE_Int64(lance_metadata_cache_size_bytes);
+DECLARE_Bool(enable_lance_data_cache);
+DECLARE_String(lance_data_cache_path);
+DECLARE_Int64(lance_data_cache_disk_capacity_bytes);
+DECLARE_Int64(lance_data_cache_read_block_size_bytes);
+
+// I/O buffering budget per Lance scanner, applied when a new scanner is created.
+DECLARE_mInt64(lance_io_buffer_size_bytes);
+
+// Read-ahead limits per Lance scanner, applied when a new scanner is created.
+DECLARE_mInt32(lance_batch_readahead);
+DECLARE_mInt32(lance_fragment_readahead);
+
 // block file cache
 DECLARE_Bool(enable_file_cache);
 DECLARE_mBool(enable_file_cache_write_from_s3_file_writer);
@@ -1466,53 +1495,27 @@ DECLARE_mInt32(inverted_index_max_buffered_docs);
 // import CPU; see the DEFINEs in config.cpp).
 DECLARE_mInt32(snii_dict_block_zstd_level);
 DECLARE_mInt32(snii_prx_zstd_level);
+// A .prx window is stored zstd-compressed only if that frame is smaller than the PFOR one by at
+// least this percentage; 0 picks the smaller frame. Negative (the default) lets each index choose
+// within a size budget. Affects segments written from now on.
+DECLARE_mInt32(snii_prx_zstd_min_saving_percent);
 // Patch C: prx zstd level for DIRECT-LOAD segments only (default 3, cheaper
 // import); compaction rewrites at snii_prx_zstd_level so settled segments are
 // unaffected. Full contract at the DEFINE in config.cpp.
 DECLARE_mInt32(snii_prx_zstd_level_direct_load);
+// A SNII batch read of at most this many physical segments (and 256 KiB) is read on the calling
+// thread when the index file is on the local filesystem and recent small reads were fast, i.e. hit
+// the page cache. 0 always fans out to the buffered-reader prefetch pool.
+DECLARE_mInt32(snii_inline_read_max_segments);
 // G16-d: target SNII dict block size in bytes; 0 = format default (64 KiB).
 // Bigger blocks -> better per-block zstd on the dict region, larger cold
 // fetch+decompress unit per dict-block miss. Write side only.
 DECLARE_mInt32(snii_target_dict_block_bytes);
-// PROCESS-WIDE share for SNII index-build RAM, as a PERCENT of the process
-// memory limit -- the index-build analogue of
-// load_process_max_memory_limit_percent. The per-writer
-// inverted_index_ram_buffer_size is a reclaimable-buffer spill threshold, not a
-// hard cap on persistent vocabulary bytes: a concurrent load keeps (tablets x
-// concurrency) writers alive at once, none of which may reach that threshold,
-// while their SUM can still be large. Once live SNII index-build memory
-// (ingestion plus index-merge compaction) crosses this share, the writers
-// holding the largest reclaimable posting arenas are asked to spill early
-// (async-safe advisory requests, honored on each writer's own thread; output
-// stays byte-identical). Read at every decision, so a change takes effect
-// immediately for writers that are already running.
-//
-// 0 disables SNII's own share trigger; the process-level backstops (system
-// available memory below its warning water mark, process usage above the soft
-// limit) still apply.
-//
-// FLOORED AGAINST inverted_index_ram_buffer_size: the share is never less than
-// four writers' worth of the per-writer spill threshold. A smaller share would
-// put a small BE permanently over it as soon as two writers exist -- unrelievable
-// back-pressure rather than a limit -- because the per-writer threshold is what
-// one writer may hold before it spills on its own.
+// Maximum process-memory share for SNII index builds. Above this share, writers with reclaimable posting arenas receive spill requests; zero disables the share trigger but keeps process-pressure backstops.
 DECLARE_mInt32(snii_index_build_max_memory_limit_percent);
-// G09 forced-spill floor: minimum reclaimable posting-arena bytes a SNII
-// writer must hold before a process-wide forced-spill request is honored, and
-// before the global limiter selects it as a spill victim. A forced spill
-// reclaims ONLY the posting arena -- the persistent vocab / pair-map
-// structures survive it -- so honoring below a real floor degenerates into a
-// storm of tiny runs whenever the memory over the share is dominated by
-// persistent bytes (each run still adds framing, sorting and merge work for
-// near-zero memory relief). THIS FLOOR, not any judgement about whether the
-// overage is reachable, is what bounds forced spilling: it caps the cost at one
-// >= floor-sized run per floor of arena growth per writer. Forced spilling
-// therefore reclaims SPILLABLE memory only, never persistent memory.
-// Default 64 MiB.
+// Minimum reclaimable posting-arena size for a forced spill. Smaller requests remain pending.
 DECLARE_mInt64(snii_forced_spill_min_arena_bytes);
-// Historical run-file cap, now an additional limit on active inputs per merge
-// group (minimum two). Ingestion runs share one append-only spool. Zero leaves
-// fan-in bounded by the postings workspace and fd limits. Default 64.
+// Additional cap on active merge inputs, with a minimum of two. Zero retains workspace and file descriptor limits.
 DECLARE_mInt32(snii_spill_max_run_files_per_buffer);
 // Shared hard posting-workspace budget, captured by new ingestion/compaction
 // reporters. Positive bytes; default 32 MiB. High ZSTD levels may need more.
@@ -1570,6 +1573,8 @@ DECLARE_mInt32(estimated_mem_per_column_reader);
 
 // enable binlog
 DECLARE_Bool(enable_feature_binlog);
+// enable changelog
+DECLARE_Bool(enable_feature_changelog);
 
 // enable set in BitmapValue
 DECLARE_Bool(enable_set_in_bitmap_value);
@@ -1771,19 +1776,50 @@ DECLARE_mDouble(high_disk_avail_level_diff_usages);
 // create tablet in partition random robin idx lru size, default 10000
 DECLARE_Int32(partition_disk_index_lru_size);
 DECLARE_String(spill_storage_root_path);
-// Spill storage limit specified as number of bytes
+// Spill storage limit of each local spill path, specified as number of bytes
 // ('<int>[bB]?'), megabytes ('<float>[mM]'), gigabytes ('<float>[gG]'),
 // or percentage of capaity ('<int>%').
 // Defaults to bytes if no unit is given.
 // Must larger than 0.
 // If specified as percentage, the final limit value is:
 //   disk_capacity_bytes * storage_flood_stage_usage_percent * spill_storage_limit
+// It does not apply to the object storage store of spill_storage_type=s3, which is bounded by
+// spill_storage_limit_bytes only.
 DECLARE_String(spill_storage_limit);
+// Upper bound, in bytes, of the spill data kept by each spill store: every local spill path
+// and the object storage store of spill_storage_type=s3 are limited separately. For a local
+// path the effective limit is the smaller of this and spill_storage_limit, which always
+// applies. 0 means no byte limit (a local path is then bounded by spill_storage_limit only,
+// object storage is unbounded).
+DECLARE_mInt64(spill_storage_limit_bytes);
 DECLARE_mInt32(spill_gc_interval_ms);
 DECLARE_mInt32(spill_gc_work_time_ms);
 // Maximum size of each spill part file before rotation (bytes). Default 1GB.
 DECLARE_mInt64(spill_file_part_size_bytes);
 DECLARE_Int64(spill_in_paused_queue_timeout_ms);
+// Where spill data is written: "local" (spill_storage_root_path) or "s3" (the storage vault of a
+// cloud instance). "s3" is only valid in cloud mode.
+DECLARE_String(spill_storage_type);
+// Storage vault ID (not the vault name) used by spill when spill_storage_type is "s3". When
+// empty, an instance without storage vaults uses its latest object storage and an instance
+// with storage vaults uses the S3 vault with the largest ID (the newest one), so that changing
+// the default vault does not move spill. Files already spilled stay on the vault they were
+// written to until they are deleted.
+DECLARE_String(spill_s3_storage_vault_id);
+// Back-pressure threshold for spill uploads to object storage: spill writers pause before
+// appending another serialized block to object storage while the S3 upload queue (shared with
+// every other S3 writer of this BE) holds at least this many bytes of buffers waiting for an
+// upload thread, every buffer counted as s3_write_buffer_size. It slows down a spill that
+// produces data faster than object storage takes it, but is not a hard memory limit: buffers
+// being uploaded by a thread and buffers still being filled by open writers are not counted,
+// the buffers of one block each concurrently appending writer may add after the check and the
+// final buffer of every part are queued without waiting for the check.
+DECLARE_mInt64(spill_s3_max_inflight_upload_bytes);
+// Upper bound of one object-storage read of spill data. Adjacent spilled blocks are coalesced
+// into one GET of at most this size (further capped by the query's spill_buffer_size_bytes);
+// a single block larger than it is still read whole. 0 reads the part footer exactly and
+// every block with its own GET.
+DECLARE_mInt64(spill_s3_read_coalesce_bytes);
 DECLARE_Int64(wait_cancel_release_memory_ms);
 
 DECLARE_mBool(check_segment_when_build_rowset_meta);
@@ -1885,6 +1921,36 @@ DECLARE_mInt32(segment_file_cache_consume_rowids_batch_size);
 DECLARE_mBool(enable_query_segment_file_cache_prefetch);
 // Number of blocks to prefetch ahead in segment iterator for query
 DECLARE_mInt32(query_segment_file_cache_prefetch_block_size);
+// Enable exact range read-ahead for query data pages
+DECLARE_mBool(enable_query_read_ahead);
+// Opt-in interval/lifecycle diagnostics, buffered and written to separate JSONL files.
+DECLARE_mBool(enable_read_io_trace);
+DECLARE_String(read_io_trace_dir);
+DECLARE_Int64(read_io_trace_flush_bytes);
+DECLARE_Int32(read_io_trace_flush_interval_ms);
+// Query-level resident read-ahead buffer limit
+DECLARE_Int64(read_ahead_max_bytes_per_query);
+// BE-level resident read-ahead buffer limit
+DECLARE_Int64(read_ahead_max_bytes_per_be);
+// Per-column eager read-ahead byte window
+DECLARE_mInt64(read_ahead_eager_window_bytes);
+// Per-column lazy read-ahead byte window
+DECLARE_mInt64(read_ahead_lazy_window_bytes);
+// Foreground file-range coalescing and cache-block completion policy
+DECLARE_mInt64(read_ahead_max_gap_bytes);
+DECLARE_mInt64(read_ahead_max_range_bytes);
+DECLARE_mDouble(read_ahead_max_read_amplification_ratio);
+DECLARE_mDouble(read_ahead_block_fill_min_coverage);
+// Background completion policy and BE-wide resource limits for partial File Cache blocks
+DECLARE_Int64(hole_fill_max_gap_bytes);
+DECLARE_Int64(hole_fill_max_range_bytes);
+DECLARE_Double(hole_fill_max_read_amplification_ratio);
+DECLARE_Int64(hole_fill_max_pending_bytes_per_be);
+DECLARE_mInt32(hole_fill_workers_per_be);
+// Pool threads for multi-range hole reads; single-range reads run on block workers.
+DECLARE_mInt32(hole_fill_remote_read_threads_per_be);
+// Minimum time queued partial blocks remain mergeable; applies to existing queued tasks.
+DECLARE_mInt32(hole_fill_merge_delay_ms);
 // Enable segment file cache block prefetch for compaction
 DECLARE_mBool(enable_compaction_segment_file_cache_prefetch);
 // Number of blocks to prefetch ahead in segment iterator for compaction

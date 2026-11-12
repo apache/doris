@@ -56,11 +56,11 @@ public class AlterOperations {
         }
     }
 
-    // Check whether current alter operations are allowed on tables with row binlog enabled.
-    public void checkRowBinlogAllow(List<AlterOp> alterOps) throws DdlException {
+    // Check whether current alter operations are allowed on tables with changelog enabled.
+    public void checkChangelogAllow(List<AlterOp> alterOps) throws DdlException {
         for (AlterOp alterOp : alterOps) {
-            if (!alterOp.allowOpRowBinlog()) {
-                throw new DdlException("Not allowed to perform current operation on Table With binlog<row>");
+            if (!alterOp.allowOnChangelogTable()) {
+                throw new DdlException("Not allowed to perform current operation on Table With changelog");
             }
         }
     }
@@ -113,9 +113,15 @@ public class AlterOperations {
         ).anyMatch(clause -> clause.getProperties().containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_ENABLE)
             || clause.getProperties().containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_TTL_SECONDS)
             || clause.getProperties().containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_MAX_BYTES)
-            || clause.getProperties().containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_MAX_HISTORY_NUMS)
-            || clause.getProperties().containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_FORMAT)
-            || clause.getProperties().containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_NEED_HISTORICAL_VALUE));
+            || clause.getProperties().containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_MAX_HISTORY_NUMS));
+    }
+
+    public boolean checkChangelogConfigChange(List<AlterOp> alterOps) {
+        return alterOps.stream().filter(tableOp ->
+            tableOp instanceof ModifyTablePropertiesOp
+        ).anyMatch(clause -> clause.getProperties().containsKey(PropertyAnalyzer.PROPERTIES_CHANGELOG_ENABLE)
+            || clause.getProperties().containsKey(PropertyAnalyzer.PROPERTIES_CHANGELOG_TTL_SECONDS)
+            || clause.getProperties().containsKey(PropertyAnalyzer.PROPERTIES_CHANGELOG_NEED_HISTORICAL_VALUE));
     }
 
     public boolean isBeingSynced(List<AlterOp> alterOps) {

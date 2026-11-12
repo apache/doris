@@ -26,13 +26,13 @@ import java.util.Set;
 
 /**
  * Iceberg {@link ConnectorColumnHandle}, mirroring the paimon connector's {@code PaimonColumnHandle}. Carries
- * the (lowercased) column name and the iceberg field id. {@code IcebergConnectorMetadata.getColumnHandles}
+ * the case-preserved column name and the iceberg field id. {@code IcebergConnectorMetadata.getColumnHandles}
  * produces these so {@code PluginDrivenScanNode.buildColumnHandles} can hand the provider the pruned set of
  * requested columns — which the field-id schema dictionary (T06) keys the {@code current_schema_id = -1}
  * entry off (the CI #969249 fix: the dict's top-level names == the BE scan-slot names BY CONSTRUCTION).
  *
  * <p>Equality/hashCode are by name only (mirrors {@code PaimonColumnHandle}): a handle identifies a column
- * by its (lowercased) name, the same key {@code allHandles.get(slot.getColumn().getName())} looks it up by.
+ * by its case-preserved name, the same key {@code allHandles.get(slot.getColumn().getName())} looks it up by.
  */
 public class IcebergColumnHandle implements ConnectorColumnHandle {
 

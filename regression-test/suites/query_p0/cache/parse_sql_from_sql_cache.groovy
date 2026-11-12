@@ -101,7 +101,7 @@ suite("parse_sql_from_sql_cache") {
                         assertNoCache "select * from test_use_plan_cache"
 
                         // create sql cache
-                        sql "select * from test_use_plan_cache"
+                        retryUntilHasSqlCache "select * from test_use_plan_cache"
 
                         // use sql cache
                         assertHasCache "select * from test_use_plan_cache"
@@ -118,7 +118,7 @@ suite("parse_sql_from_sql_cache") {
                         sql "set enable_strong_consistency_read=true"
 
                         assertNoCache "select * from test_use_plan_cache2"
-                        sql "select * from test_use_plan_cache2"
+                        retryUntilHasSqlCache "select * from test_use_plan_cache2"
                         assertHasCache "select * from test_use_plan_cache2"
 
                         // NOTE: in cloud mode, add empty partition can not use cache, because the table version already update,
@@ -143,14 +143,14 @@ suite("parse_sql_from_sql_cache") {
                         sql "set enable_strong_consistency_read=true"
 
                         assertNoCache "select * from ${tb_name}"
-                        sql "select * from ${tb_name}"
+                        retryUntilHasSqlCache "select * from ${tb_name}"
                         assertHasCache "select * from ${tb_name}"
 
                         // insert overwrite data can not use cache
                         sql "INSERT OVERWRITE table ${tb_name} PARTITION(p5) VALUES (5, 6);"
                         sleep(10 * 1000)
                         assertNoCache "select * from ${tb_name}"
-                        sql "select * from ${tb_name}"
+                        retryUntilHasSqlCache "select * from ${tb_name}"
                         assertHasCache "select * from ${tb_name}"
 
                         sql "alter table ${tb_name} add partition p6 values[('6'),('7'))"
@@ -172,7 +172,7 @@ suite("parse_sql_from_sql_cache") {
                         sql "set enable_strong_consistency_read=true"
 
                         assertNoCache "select * from test_use_plan_cache3"
-                        sql "select * from test_use_plan_cache3"
+                        retryUntilHasSqlCache "select * from test_use_plan_cache3"
                         assertHasCache "select * from test_use_plan_cache3"
 
                         // drop partition can not use cache
@@ -200,7 +200,7 @@ suite("parse_sql_from_sql_cache") {
                         sql "set enable_strong_consistency_read=true"
 
                         assertNoCache "select * from test_use_plan_cache4"
-                        sql "select * from test_use_plan_cache4"
+                        retryUntilHasSqlCache "select * from test_use_plan_cache4"
                         assertHasCache "select * from test_use_plan_cache4"
 
                         // replace partition can not use cache
@@ -219,7 +219,7 @@ suite("parse_sql_from_sql_cache") {
                         sql "set enable_strong_consistency_read=true"
 
                         assertNoCache "select * from test_use_plan_cache5"
-                        sql "select * from test_use_plan_cache5"
+                        retryUntilHasSqlCache "select * from test_use_plan_cache5"
                         assertHasCache "select * from test_use_plan_cache5"
 
                         streamLoad {
@@ -244,7 +244,7 @@ suite("parse_sql_from_sql_cache") {
                         sql "set enable_strong_consistency_read=true"
 
                         assertNoCache "select * from test_use_plan_cache6"
-                        sql "select * from test_use_plan_cache6"
+                        retryUntilHasSqlCache "select * from test_use_plan_cache6"
                         assertHasCache "select * from test_use_plan_cache6"
 
                         sql "update test_use_plan_cache6 set value=3 where id=1"
@@ -264,7 +264,7 @@ suite("parse_sql_from_sql_cache") {
                         sql "set enable_strong_consistency_read=true"
 
                         assertNoCache "select * from test_use_plan_cache7"
-                        sql "select * from test_use_plan_cache7"
+                        retryUntilHasSqlCache "select * from test_use_plan_cache7"
                         assertHasCache "select * from test_use_plan_cache7"
 
                         sql "delete from test_use_plan_cache7 where id = 1"
@@ -284,7 +284,7 @@ suite("parse_sql_from_sql_cache") {
                         sql "set enable_strong_consistency_read=true"
 
                         assertNoCache "select * from test_use_plan_cache8"
-                        sql "select * from test_use_plan_cache8"
+                        retryUntilHasSqlCache "select * from test_use_plan_cache8"
                         assertHasCache "select * from test_use_plan_cache8"
 
                         sql "drop table test_use_plan_cache8"
@@ -310,7 +310,7 @@ suite("parse_sql_from_sql_cache") {
                         sql "set enable_strong_consistency_read=true"
 
                         assertNoCache "select * from test_use_plan_cache9_view"
-                        sql "select * from test_use_plan_cache9_view"
+                        retryUntilHasSqlCache "select * from test_use_plan_cache9_view"
                         assertHasCache "select * from test_use_plan_cache9_view"
 
                         // alter view should not use cache
@@ -332,7 +332,7 @@ suite("parse_sql_from_sql_cache") {
                         sql "set enable_strong_consistency_read=true"
 
                         assertNoCache "select * from test_use_plan_cache10_view"
-                        sql "select * from test_use_plan_cache10_view"
+                        retryUntilHasSqlCache "select * from test_use_plan_cache10_view"
                         assertHasCache "select * from test_use_plan_cache10_view"
 
                         sql "drop view test_use_plan_cache10_view"
@@ -357,7 +357,7 @@ suite("parse_sql_from_sql_cache") {
                         sql "set enable_strong_consistency_read=true"
 
                         assertNoCache "select * from test_use_plan_cache11_view"
-                        sql "select * from test_use_plan_cache11_view"
+                        retryUntilHasSqlCache "select * from test_use_plan_cache11_view"
                         assertHasCache "select * from test_use_plan_cache11_view"
 
                         sql "insert into test_use_plan_cache11 values(1, 3)"
@@ -388,7 +388,7 @@ suite("parse_sql_from_sql_cache") {
                         sql "set enable_strong_consistency_read=true"
 
                         assertNoCache "select * from test_use_plan_cache12"
-                        sql "select * from test_use_plan_cache12"
+                        retryUntilHasSqlCache "select * from test_use_plan_cache12"
                         assertHasCache "select * from test_use_plan_cache12"
 
                         sql "sync"
@@ -437,7 +437,7 @@ suite("parse_sql_from_sql_cache") {
                                 sql "set enable_strong_consistency_read=true"
 
                                 assertNoCache "select * from test_use_plan_cache13"
-                                sql "select * from test_use_plan_cache13"
+                                retryUntilHasSqlCache "select * from test_use_plan_cache13"
                                 assertHasCache "select * from test_use_plan_cache13"
                             }
                         }).get()
@@ -500,7 +500,7 @@ suite("parse_sql_from_sql_cache") {
                                 sql "set enable_strong_consistency_read=true"
 
                                 assertNoCache "select * from test_use_plan_cache14"
-                                sql "select * from test_use_plan_cache14"
+                                retryUntilHasSqlCache "select * from test_use_plan_cache14"
                                 assertHasCache "select * from test_use_plan_cache14"
                             }
                         }).get()
@@ -553,7 +553,7 @@ suite("parse_sql_from_sql_cache") {
                                 sql "set enable_strong_consistency_read=true"
 
                                 assertNoCache "select * from test_use_plan_cache15"
-                                sql "select * from test_use_plan_cache15"
+                                retryUntilHasSqlCache "select * from test_use_plan_cache15"
                                 assertHasCache "select * from test_use_plan_cache15"
                             }
                         }).get()
@@ -593,7 +593,7 @@ suite("parse_sql_from_sql_cache") {
                         assertNoCache "select random() from test_use_plan_cache16"
 
                         assertNoCache "select year(now()) from test_use_plan_cache16"
-                        sql "select year(now()) from test_use_plan_cache16"
+                        retryUntilHasSqlCache "select year(now()) from test_use_plan_cache16"
                         assertHasCache "select year(now()) from test_use_plan_cache16"
 
                         assertNoCache "select second(now()) from test_use_plan_cache16"
@@ -616,7 +616,7 @@ suite("parse_sql_from_sql_cache") {
                         sql "set @custom_variable=10"
                         assertNoCache "select @custom_variable from test_use_plan_cache17 where id = 1 and value = 1"
                         // create sql cache
-                        sql "select @custom_variable from test_use_plan_cache17 where id = 1 and value = 1"
+                        retryUntilHasSqlCache "select @custom_variable from test_use_plan_cache17 where id = 1 and value = 1"
                         // can use sql cache
                         assertHasCache "select @custom_variable from test_use_plan_cache17 where id = 1 and value = 1"
 
@@ -624,6 +624,7 @@ suite("parse_sql_from_sql_cache") {
                         assertNoCache "select @custom_variable from test_use_plan_cache17 where id = 1 and value = 1"
 
                         def result2 = sql "select @custom_variable from test_use_plan_cache17 where id = 1 and value = 1"
+                        retryUntilHasSqlCache "select @custom_variable from test_use_plan_cache17 where id = 1 and value = 1"
                         assertHasCache "select @custom_variable from test_use_plan_cache17 where id = 1 and value = 1"
                         assertTrue(result2.size() == 1 && result2[0][0].toString().toInteger() == 20)
 
@@ -640,6 +641,7 @@ suite("parse_sql_from_sql_cache") {
                         def functionResult = sql functionVariableSql
                         assertTrue(functionResult.size() == 1
                                 && functionResult[0][0].toString().toInteger() == 10)
+                        retryUntilHasSqlCache functionVariableSql
                         assertHasCache functionVariableSql
 
                         sql "set @custom_variable_in_function=-20"
@@ -647,6 +649,7 @@ suite("parse_sql_from_sql_cache") {
                         functionResult = sql functionVariableSql
                         assertTrue(functionResult.size() == 1
                                 && functionResult[0][0].toString().toInteger() == 20)
+                        retryUntilHasSqlCache functionVariableSql
                         assertHasCache functionVariableSql
 
                         // switch back to the original value and reuse its value-aware cache
@@ -660,6 +663,7 @@ suite("parse_sql_from_sql_cache") {
                         assertNoCache "select * from test_use_plan_cache17 where id = @custom_variable2 and value = 1"
                         def res = sql "select * from test_use_plan_cache17 where id = @custom_variable2 and value = 1"
                         assertTrue(res[0][0] == 1)
+                        retryUntilHasSqlCache "select * from test_use_plan_cache17 where id = @custom_variable2 and value = 1"
                         assertHasCache "select * from test_use_plan_cache17 where id = @custom_variable2 and value = 1"
 
                         sql "set @custom_variable2=2"
@@ -667,6 +671,7 @@ suite("parse_sql_from_sql_cache") {
                         // should not invalidate cache with @custom_variable2=1
                         res = sql "select * from test_use_plan_cache17 where id = @custom_variable2 and value = 1"
                         assertTrue(res[0][0] == 2)
+                        retryUntilHasSqlCache "select * from test_use_plan_cache17 where id = @custom_variable2 and value = 1"
                         assertHasCache "select * from test_use_plan_cache17 where id = @custom_variable2 and value = 1"
 
                         sql "set @custom_variable2=1"
@@ -762,7 +767,7 @@ suite("parse_sql_from_sql_cache") {
                             sql "set enable_strong_consistency_read=true"
 
                             assertNoCache "select * from test_use_plan_cache18"
-                            sql "select * from test_use_plan_cache18"
+                            retryUntilHasSqlCache "select * from test_use_plan_cache18"
                             assertHasCache "select * from test_use_plan_cache18"
                         }
 
@@ -774,7 +779,7 @@ suite("parse_sql_from_sql_cache") {
                             sql "set enable_strong_consistency_read=true"
 
                             assertNoCache "select * from test_use_plan_cache18"
-                            sql "select * from test_use_plan_cache18"
+                            retryUntilHasSqlCache "select * from test_use_plan_cache18"
                             assertHasCache "select * from test_use_plan_cache18"
                         }
                     }
@@ -799,6 +804,7 @@ suite("parse_sql_from_sql_cache") {
                         assertNoCache "select * from test_use_plan_cache19 order by 1, 2"
                         def result2 = sql "select * from test_use_plan_cache19 order by 1, 2"
                         assertTrue(result2.size() > 1)
+                        retryUntilHasSqlCache "select * from test_use_plan_cache19 order by 1, 2"
                         assertHasCache "select * from test_use_plan_cache19 order by 1, 2"
 
                         sql "set dry_run_query=true"
@@ -826,11 +832,12 @@ suite("parse_sql_from_sql_cache") {
                         def result1 = sql "select * from (select $randomInt as id)a"
                         assertTrue(result1.size() == 1)
 
+                        retryUntilHasSqlCache "select * from (select $randomInt as id)a"
                         assertHasCache "select * from (select $randomInt as id)a"
                         def result2 = sql "select * from (select $randomInt as id)a"
                         assertTrue(result2.size() == 1)
 
-                        sql "select * from test_use_plan_cache20 limit 0"
+                        retryUntilHasSqlCache "select * from test_use_plan_cache20 limit 0"
                         assertHasCache "select * from test_use_plan_cache20 limit 0"
                         def result4 = sql "select * from test_use_plan_cache20 limit 0"
                         assertTrue(result4.isEmpty())
@@ -838,6 +845,7 @@ suite("parse_sql_from_sql_cache") {
                         assertNoCache "select * from test_use_plan_cache20 where id=999"
                         def result5 = sql "select * from test_use_plan_cache20 where id=999"
                         assertTrue(result5.isEmpty())
+                        retryUntilHasSqlCache "select * from test_use_plan_cache20 where id=999"
                         assertHasCache "select * from test_use_plan_cache20 where id=999"
                         def result6 = sql "select * from test_use_plan_cache20 where id=999"
                         assertTrue(result6.isEmpty())
@@ -871,6 +879,7 @@ suite("parse_sql_from_sql_cache") {
                         assertNoCache "select * from test_use_plan_cache21"
                         def result1 = sql "select * from test_use_plan_cache21"
                         assertTrue(result1.size() == 2)
+                        retryUntilHasSqlCache "select * from test_use_plan_cache21"
                         assertHasCache "select * from test_use_plan_cache21"
 
                         sql "truncate table test_use_plan_cache21 partition dt2"
@@ -890,7 +899,7 @@ suite("parse_sql_from_sql_cache") {
                         sql "set enable_strong_consistency_read=true"
 
                         assertNoCache "select /*+SET_VAR(disable_nereids_rules='')*/ /*comment2*/ * from test_use_plan_cache22 order by 1, 2"
-                        sql "select /*+SET_VAR(disable_nereids_rules='')*/ /*comment1*/ * from test_use_plan_cache22 order by 1, 2"
+                        retryUntilHasSqlCache "select /*+SET_VAR(disable_nereids_rules='')*/ /*comment1*/ * from test_use_plan_cache22 order by 1, 2"
 
                         assertHasCache "select /*+SET_VAR(disable_nereids_rules='')*/ /*comment2*/ * from test_use_plan_cache22 order by 1, 2"
                     }
@@ -906,7 +915,7 @@ suite("parse_sql_from_sql_cache") {
                         sql "set enable_strong_consistency_read=true"
 
                         int randomInt = Math.random() * 2000000000
-                        sql "select ${randomInt} from test_use_plan_cache23"
+                        retryUntilHasSqlCache "select ${randomInt} from test_use_plan_cache23"
                         profile("sql_cache_23_${randomInt}") {
                             run {
                                 sql "/* sql_cache_23_${randomInt} */ select ${randomInt} from test_use_plan_cache23"
@@ -919,7 +928,7 @@ suite("parse_sql_from_sql_cache") {
                         }
 
                         randomInt = Math.random() * 2000000000
-                        sql "select * from (select $randomInt as id)a"
+                        retryUntilHasSqlCache "select * from (select $randomInt as id)a"
                         profile("sql_cache_23_${randomInt}_2") {
                             run {
                                 sql "/* sql_cache_23_${randomInt}_2 */ select * from (select $randomInt as id)a"
@@ -1027,6 +1036,7 @@ suite("parse_sql_from_sql_cache") {
                         sql "set enable_sql_cache=true"
                         sql "set enable_strong_consistency_read=true"
                         assertTrue((sql "select * from test_use_plan_cache24").size() > 0)
+                        retryUntilHasSqlCache "select * from test_use_plan_cache24"
                         assertHasCache "select * from test_use_plan_cache24"
 
                         connectToDoris(context.config.jdbcUser, context.config.jdbcPassword, context.jdbcUrl) {
@@ -1055,7 +1065,7 @@ suite("parse_sql_from_sql_cache") {
                         sql "set enable_sql_cache=true"
                         sql "set enable_strong_consistency_read=true"
 
-                        sql "select count(1) from test_use_plan_cache25 group by id order by id"
+                        retryUntilHasSqlCache "select count(1) from test_use_plan_cache25 group by id order by id"
                         assertHasCache "select count(1) from test_use_plan_cache25 group by id order by id"
 
                         sql "alter table test_use_plan_cache25 rename column id id2"
@@ -1076,7 +1086,7 @@ suite("parse_sql_from_sql_cache") {
                         sql "set enable_sql_cache=true"
                         sql "set enable_strong_consistency_read=true"
 
-                        sql "select count(1) from test_use_plan_cache26 group by id order by id"
+                        retryUntilHasSqlCache "select count(1) from test_use_plan_cache26 group by id order by id"
                         assertHasCache "select count(1) from test_use_plan_cache26 group by id order by id"
 
                         sql "alter table test_use_plan_cache26 rename test_use_plan_cache26_bak"
@@ -1098,7 +1108,7 @@ suite("parse_sql_from_sql_cache") {
                         sql "set enable_sql_cache=true"
                         sql "set enable_strong_consistency_read=true"
 
-                        sql "select count(1) from test_use_plan_cache27 group by id order by id"
+                        retryUntilHasSqlCache "select count(1) from test_use_plan_cache27 group by id order by id"
                         assertHasCache "select count(1) from test_use_plan_cache27 group by id order by id"
 
                         sql "alter table test_use_plan_cache27 replace with table test_use_plan_cache27_bak"
@@ -1115,7 +1125,7 @@ suite("parse_sql_from_sql_cache") {
                         sql "set enable_sql_cache=true"
                         sql "set enable_strong_consistency_read=true"
 
-                        sql "select count(1) from test_use_plan_cache28 group by id order by id"
+                        retryUntilHasSqlCache "select count(1) from test_use_plan_cache28 group by id order by id"
                         assertHasCache "select count(1) from test_use_plan_cache28 group by id order by id"
 
                         sql "truncate table test_use_plan_cache28"
@@ -1132,7 +1142,7 @@ suite("parse_sql_from_sql_cache") {
                         sql "set enable_sql_cache=true"
                         sql "set enable_strong_consistency_read=true"
 
-                        sql "select * from test_use_plan_cache29"
+                        retryUntilHasSqlCache "select * from test_use_plan_cache29"
                         assertHasCache "select * from test_use_plan_cache29"
 
                         sql "alter table test_use_plan_cache29 add column bbb int default '0'"
@@ -1150,7 +1160,7 @@ suite("parse_sql_from_sql_cache") {
                         sql "set enable_sql_cache=true"
                         sql "set enable_strong_consistency_read=true"
 
-                        sql "select * from test_use_plan_cache30"
+                        retryUntilHasSqlCache "select * from test_use_plan_cache30"
                         assertHasCache "select * from test_use_plan_cache30"
 
                         sql "alter table test_use_plan_cache30 drop column value"
@@ -1167,7 +1177,7 @@ suite("parse_sql_from_sql_cache") {
                         sql "set enable_sql_cache=true"
                         sql "set enable_strong_consistency_read=true"
 
-                        sql "select * from test_use_plan_cache31"
+                        retryUntilHasSqlCache "select * from test_use_plan_cache31"
                         assertHasCache "select * from test_use_plan_cache31"
 
                         sql "alter table test_use_plan_cache31 modify column value bigint"
@@ -1186,7 +1196,7 @@ suite("parse_sql_from_sql_cache") {
                         sql "set enable_sql_cache=true"
                         sql "set enable_strong_consistency_read=true"
 
-                        sql "select * from test_use_plan_cache32_view"
+                        retryUntilHasSqlCache "select * from test_use_plan_cache32_view"
                         assertHasCache "select * from test_use_plan_cache32_view"
 
                         sql "insert into test_use_plan_cache32 values (1, 1)"

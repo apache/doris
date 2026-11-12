@@ -20,6 +20,7 @@ package org.apache.doris.catalog.stream;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.stream.OlapTableStream.PartitionStreamState;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
@@ -32,6 +33,7 @@ import org.apache.doris.persist.DropInfo;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.persist.RecoverInfo;
 import org.apache.doris.persist.TableStreamCleanupInfo;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.utframe.TestWithFeService;
 
 import org.junit.jupiter.api.Assertions;
@@ -58,7 +60,7 @@ public class TableStreamManagerCleanupTest extends TestWithFeService {
         FeConstants.runningUnitTest = true;
         Config.allow_replica_on_same_host = true;
         Config.enable_table_stream = true;
-        Config.enable_feature_binlog = true;
+        Config.enable_feature_changelog = true;
         createDatabase("test_stream_cleanup");
         connectContext.setDatabase("test_stream_cleanup");
     }
@@ -174,8 +176,8 @@ public class TableStreamManagerCleanupTest extends TestWithFeService {
             Assertions.assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS));
         }
 
-        Map<Long, Long> leaderOffsets = new HashMap<>(
-                Deencapsulation.getField(context.stream, "partitionOffset"));
+        String leaderStates = GsonUtils.GSON.toJson(
+                Deencapsulation.<Map<Long, PartitionStreamState>>getField(context.stream, "partitionStates"));
         setPartitionState(context.stream, keptPartitionId, removedPartitionId);
         for (Object journal : journalOrder) {
             if (journal instanceof OlapTableStreamUpdate) {
@@ -186,8 +188,9 @@ public class TableStreamManagerCleanupTest extends TestWithFeService {
             }
         }
 
-        Map<Long, Long> replayedOffsets = Deencapsulation.getField(context.stream, "partitionOffset");
-        Assertions.assertEquals(leaderOffsets, replayedOffsets);
+        Map<Long, PartitionStreamState> replayedStates =
+                Deencapsulation.getField(context.stream, "partitionStates");
+        Assertions.assertEquals(leaderStates, GsonUtils.GSON.toJson(replayedStates));
     }
 
     @Test
@@ -249,8 +252,8 @@ public class TableStreamManagerCleanupTest extends TestWithFeService {
             }
         }
 
-        Map<Long, Long> leaderOffsets = new HashMap<>(
-                Deencapsulation.getField(context.stream, "partitionOffset"));
+        String leaderStates = GsonUtils.GSON.toJson(
+                Deencapsulation.<Map<Long, PartitionStreamState>>getField(context.stream, "partitionStates"));
         setPartitionState(context.stream, keptPartitionId, removedPartitionId);
         Database db = (Database) Env.getCurrentInternalCatalog().getDbOrMetaException("test_stream_cleanup");
         for (Object journal : journalOrder) {
@@ -266,9 +269,10 @@ public class TableStreamManagerCleanupTest extends TestWithFeService {
             }
         }
 
-        Map<Long, Long> replayedOffsets = Deencapsulation.getField(context.stream, "partitionOffset");
-        Assertions.assertEquals(leaderOffsets, replayedOffsets);
-        Assertions.assertTrue(replayedOffsets.containsKey(removedPartitionId));
+        Map<Long, PartitionStreamState> replayedStates =
+                Deencapsulation.getField(context.stream, "partitionStates");
+        Assertions.assertEquals(leaderStates, GsonUtils.GSON.toJson(replayedStates));
+        Assertions.assertTrue(replayedStates.containsKey(removedPartitionId));
     }
 
     @Test
@@ -378,9 +382,8 @@ public class TableStreamManagerCleanupTest extends TestWithFeService {
                 + "(partition p1 values less than (\"100\"),\n"
                 + " partition p2 values less than (\"200\"))\n"
                 + "distributed by hash(k1) buckets 1\n"
-                + "properties(\"replication_num\"=\"1\",\"binlog.enable\"=\"true\","
-                + "\"binlog.format\"=\"ROW\","
-                + "\"binlog.need_historical_value\"=\"true\")");
+                + "properties(\"replication_num\"=\"1\",\"changelog.enable\"=\"true\","
+                + "\"changelog.need_historical_value\"=\"true\")");
         createTable("create stream test_stream_cleanup." + streamName + " on table test_stream_cleanup." + tableName
                 + " properties('type' = 'append_only', 'show_initial_rows' = 'true')");
 
@@ -390,32 +393,20 @@ public class TableStreamManagerCleanupTest extends TestWithFeService {
     }
 
     private void setPartitionState(OlapTableStream stream, long keptPartitionId, long removedPartitionId) {
-        Map<Long, Long> partitionOffset = new HashMap<>();
-        partitionOffset.put(keptPartitionId, 11L);
-        partitionOffset.put(removedPartitionId, 22L);
-        Map<Long, Long> partitionConsumptionTime = new HashMap<>();
-        partitionConsumptionTime.put(keptPartitionId, 111L);
-        partitionConsumptionTime.put(removedPartitionId, 222L);
-        Map<Long, Long> historicalPartitionTSO = new HashMap<>();
-        historicalPartitionTSO.put(keptPartitionId, 1001L);
-        historicalPartitionTSO.put(removedPartitionId, 2002L);
-        Deencapsulation.setField(stream, "partitionOffset", partitionOffset);
-        Deencapsulation.setField(stream, "partitionConsumptionTime", partitionConsumptionTime);
-        Deencapsulation.setField(stream, "historicalPartitionTSO", historicalPartitionTSO);
+        Map<Long, PartitionStreamState> partitionStates = new HashMap<>();
+        partitionStates.put(keptPartitionId, new PartitionStreamState(11L, 111L, 1001L));
+        partitionStates.put(removedPartitionId, new PartitionStreamState(22L, 222L, 2002L));
+        Deencapsulation.setField(stream, "partitionStates", partitionStates);
     }
 
     private void assertPartitionState(OlapTableStream stream, long keptPartitionId, long removedPartitionId,
             boolean removedExpected) {
-        Map<Long, Long> partitionOffset = Deencapsulation.getField(stream, "partitionOffset");
-        Map<Long, Long> partitionConsumptionTime = Deencapsulation.getField(stream, "partitionConsumptionTime");
-        Map<Long, Long> historicalPartitionTSO = Deencapsulation.getField(stream, "historicalPartitionTSO");
-
-        Assertions.assertTrue(partitionOffset.containsKey(keptPartitionId));
-        Assertions.assertTrue(partitionConsumptionTime.containsKey(keptPartitionId));
-        Assertions.assertTrue(historicalPartitionTSO.containsKey(keptPartitionId));
-        Assertions.assertEquals(!removedExpected, partitionOffset.containsKey(removedPartitionId));
-        Assertions.assertEquals(!removedExpected, partitionConsumptionTime.containsKey(removedPartitionId));
-        Assertions.assertEquals(!removedExpected, historicalPartitionTSO.containsKey(removedPartitionId));
+        Map<Long, PartitionStreamState> partitionStates = Deencapsulation.getField(stream, "partitionStates");
+        PartitionStreamState kept = partitionStates.get(keptPartitionId);
+        Assertions.assertEquals(11L, kept.getOffset());
+        Assertions.assertEquals(111L, kept.getConsumptionTime());
+        Assertions.assertEquals(1001L, kept.getHistoricalTso());
+        Assertions.assertEquals(!removedExpected, partitionStates.containsKey(removedPartitionId));
     }
 
     private static void await(BooleanSupplier condition) throws InterruptedException {

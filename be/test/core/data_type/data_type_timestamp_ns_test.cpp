@@ -192,7 +192,7 @@ TEST(DataTypeTimeStampNsTest, EpochDerivedAndCivilAccessorsAgreeAtBoundaries) {
     EXPECT_EQ(TimeStampNsValue(0).datetime_diff_in_seconds(TimeStampNsValue(-1)), 1);
 }
 
-TEST(DataTypeTimeStampNsTest, DifferenceHelpersHandleNanosecondsAndMixedDateTimeV2) {
+TEST(DataTypeTimeStampNsTest, DifferenceHelpersHandleNanoseconds) {
     const TimeStampNsValue positive(1001);
     const TimeStampNsValue negative(-1001);
     EXPECT_EQ(positive.datetime_diff_in_microseconds(negative), 2);
@@ -206,11 +206,10 @@ TEST(DataTypeTimeStampNsTest, DifferenceHelpersHandleNanosecondsAndMixedDateTime
                                  TimeStampNsValue::NANOS_PER_MICROSECOND);
     EXPECT_EQ(maximum.datetime_diff_in_microseconds(minimum), expected_extreme_diff);
 
-    DateV2Value<DateTimeV2ValueType> datetimev2;
-    datetimev2.unchecked_set_time(1970, 1, 1, 0, 0, 0, 1);
+    const TimeStampNsValue microsecond(1000);
     const TimeStampNsValue timestamp_ns(2500);
-    EXPECT_EQ(timestamp_ns.datetime_diff_in_seconds(datetimev2), 0);
-    EXPECT_EQ(timestamp_ns.datetime_diff_in_microseconds(datetimev2), 1);
+    EXPECT_EQ(timestamp_ns.datetime_diff_in_seconds(microsecond), 0);
+    EXPECT_EQ(timestamp_ns.datetime_diff_in_microseconds(microsecond), 1);
 }
 
 TEST(DataTypeTimeStampNsTest, CalendarNamesAndConservativeFormatting) {

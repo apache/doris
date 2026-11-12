@@ -16,6 +16,7 @@
 // under the License.
 
 suite("test_search_vs_match_consistency", "p0") {
+    // SEARCH uses two-valued matching; SQL comparisons and MATCH retain three-valued logic.
     def tableName = "search_match_consistency_test"
 
     // Pin enable_segment_limit_pushdown to prevent CI flakiness from fuzzy testing.
@@ -150,7 +151,7 @@ suite("test_search_vs_match_consistency", "p0") {
         WHERE title match "Ronald" or (content match_all "Selma Blair")
     """
 
-    // Test Suite 2: NOT query consistency
+    // Test Suite 2: internal NOT equals SQL NOT SEARCH; NOT MATCH remains three-valued
     qt_test_2_1_internal_not """
         SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ count(*) FROM ${tableName}
         WHERE search('NOT content:Round', '{"mode":"standard"}')
@@ -226,7 +227,7 @@ suite("test_search_vs_match_consistency", "p0") {
     """
 
     // ------------------------------------------------------------------
-    // Additional regression coverage: Mandy Patinkin / Kesha consistency
+    // Additional coverage: Mandy Patinkin / Kesha with SEARCH and MATCH NULL boundaries
     // ------------------------------------------------------------------
 
     def mandyTable = "search_match_issue_mandy_kesha"
@@ -278,7 +279,7 @@ suite("test_search_vs_match_consistency", "p0") {
 
     Thread.sleep(10000)
 
-    // Mandy/Kesha consistency checks
+    // Compare two-valued SEARCH with three-valued MATCH; NOT can differ on NULL rows
     qt_man_pat_1_search """
         SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ count(*) FROM ${mandyTable}
         WHERE search('content:ALL("Mandy Patinkin") OR NOT (content:ANY("Kesha"))', '{"mode":"standard"}')

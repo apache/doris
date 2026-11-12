@@ -314,18 +314,18 @@ public abstract class Replica {
         return 0;
     }
 
-    public boolean isBinlogMissing() {
+    public boolean isChangelogMissing() {
         return false;
     }
 
-    public void setBinlogMissing(boolean binlogMissing) {
-        if (binlogMissing) {
-            throw new UnsupportedOperationException("setBinlogMissing is not supported in Replica");
+    public void setChangelogMissing(boolean changelogMissing) {
+        if (changelogMissing) {
+            throw new UnsupportedOperationException("setChangelogMissing is not supported in Replica");
         }
     }
 
-    public void consumeBinlogMissingRetry() {
-        throw new UnsupportedOperationException("consumeBinlogMissingRetry is not supported in Replica");
+    public void consumeChangelogMissingRetry() {
+        throw new UnsupportedOperationException("consumeChangelogMissingRetry is not supported in Replica");
     }
 
     public long getFurtherRepairWatermarkTxnTd() {

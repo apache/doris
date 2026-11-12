@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_paimon_write_variant_errors", "p0,external,paimon,nonConcurrent") {
+suite("test_paimon_write_variant_errors", "p0,external,paimon") {
     String enabled = context.config.otherConfigs.get("enablePaimonTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         logger.info("disable paimon test.")
@@ -48,6 +48,14 @@ suite("test_paimon_write_variant_errors", "p0,external,paimon,nonConcurrent") {
         CREATE TABLE paimon.${dbName}.t_variant_coercion_source (
             id INT,
             payload VARIANT
+        ) USING paimon
+        TBLPROPERTIES ('file.format' = 'parquet');
+
+        DROP TABLE IF EXISTS paimon.${dbName}.t_variant_field_lineage;
+        CREATE TABLE paimon.${dbName}.t_variant_field_lineage (
+            id INT,
+            flagged STRUCT<matched: BOOLEAN, payload: VARIANT>,
+            compared VARIANT
         ) USING paimon
         TBLPROPERTIES ('file.format' = 'parquet');
 
@@ -247,6 +255,46 @@ suite("test_paimon_write_variant_errors", "p0,external,paimon,nonConcurrent") {
         """
         order_qt_variant_dml_after_errors """
             SELECT id, CAST(payload AS STRING) FROM t_variant_dml_error ORDER BY id
+        """
+
+        // Only the parts of a value that reach a Variant leaf are checked. flagged.matched is written as a
+        // BOOLEAN, so a Variant converted to a number to compute it loses nothing, whether the struct is built in
+        // place or from the columns of a subquery; and the conversion a predicate applies to compare a Variant
+        // only decides the truth value written. A loss in flagged.payload, or under the operand of a predicate,
+        // is still rejected.
+        sql """INSERT INTO t_variant_coercion_source VALUES (3, parse_to_variant('{"kind":"object-n","n":2}'))"""
+        sql """
+            INSERT INTO t_variant_field_lineage
+            SELECT 1, named_struct('matched', COALESCE(payload['n'], 0) > 1, 'payload', payload), payload['n'] > 1
+            FROM t_variant_coercion_source WHERE id = 3
+        """
+        sql """
+            INSERT INTO t_variant_field_lineage
+            SELECT 2, named_struct('matched', matched, 'payload', payload), payload['kind'] LIKE 'object%'
+            FROM (
+                SELECT COALESCE(payload['n'], 0) > 2 AS matched, payload FROM t_variant_coercion_source WHERE id = 3
+            ) source
+        """
+        test {
+            sql """
+                INSERT INTO t_variant_field_lineage
+                SELECT 3, named_struct('matched', TRUE, 'payload', IF(TRUE, payload, 1)), NULL
+                FROM t_variant_coercion_source WHERE id = 1
+            """
+            exception "VARIANT write cannot safely convert input column 'flagged'"
+        }
+        test {
+            sql """
+                INSERT INTO t_variant_field_lineage
+                SELECT 4, NULL, IF(TRUE, payload, 1) > 0
+                FROM t_variant_coercion_source WHERE id = 1
+            """
+            exception "VARIANT write cannot safely convert input column 'compared'"
+        }
+        order_qt_variant_field_lineage """
+            SELECT id, flagged.matched, flagged.payload, compared
+            FROM t_variant_field_lineage
+            ORDER BY id
         """
     } finally {
         sql """SET force_jni_scanner = false"""

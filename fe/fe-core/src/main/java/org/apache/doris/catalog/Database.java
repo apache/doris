@@ -131,6 +131,8 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
 
     // from dbProperties;
     private BinlogConfig binlogConfig = new BinlogConfig();
+    // from dbProperties, the changelog default of the tables created in the database
+    private ChangelogConfig changelogConfig = new ChangelogConfig();
 
     // ATTN: This field is only used for compatible with old version
     // Do not use it except for replaying OP_CREATE_DB
@@ -314,9 +316,24 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
 
     public void setDbProperties(DatabaseProperty dbProperties) {
         this.dbProperties = dbProperties;
-        if (PropertyAnalyzer.hasBinlogConfig(dbProperties.getProperties())) {
-            binlogConfig = dbProperties.getBinlogConfig();
+        buildBinlogConfig();
+    }
+
+    // Builds the CCR binlog config and the changelog default from dbProperties. The binlog keys the changelog.*
+    // properties replaced are dropped. A database they made a changelog default ("binlog.enable" = "true" with
+    // "binlog.format" = "ROW") would turn into a CCR database without them, so it does not enable binlog either.
+    private void buildBinlogConfig() {
+        Map<String, String> properties = dbProperties.getProperties();
+        if (PropertyAnalyzer.isLegacyChangelog(properties)) {
+            LOG.warn("database {} enables changelog with \"{}\" = \"ROW\", which is no longer supported. Reset \"{}\""
+                    + " to false, set \"{}\" = \"true\" on it to enable changelog for its new tables",
+                    fullQualifiedName, PropertyAnalyzer.PROPERTIES_LEGACY_BINLOG_FORMAT,
+                    PropertyAnalyzer.PROPERTIES_BINLOG_ENABLE, PropertyAnalyzer.PROPERTIES_CHANGELOG_ENABLE);
+            properties.put(PropertyAnalyzer.PROPERTIES_BINLOG_ENABLE, "false");
         }
+        PropertyAnalyzer.removeLegacyBinlogProperties(properties);
+        binlogConfig = dbProperties.getBinlogConfig();
+        changelogConfig = dbProperties.getChangelogConfig();
     }
 
     public long getUsedDataQuota() {
@@ -690,7 +707,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
         String txnQuotaStr = dbProperties.getOrDefault(TRANSACTION_QUOTA_SIZE,
                 String.valueOf(Config.max_running_txn_num_per_db));
         transactionQuotaSize = Long.parseLong(txnQuotaStr);
-        binlogConfig = dbProperties.getBinlogConfig();
+        buildBinlogConfig();
 
         if (!Boolean.TRUE.equals(SKIP_REGISTER_NEREIDS_FUNCTIONS.get())) {
             for (ImmutableList<Function> functions : name2Function.values()) {
@@ -1008,41 +1025,46 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
 
     public void replayUpdateDbProperties(Map<String, String> properties) {
         dbProperties.updateProperties(properties);
-        if (PropertyAnalyzer.hasBinlogConfig(properties)) {
-            binlogConfig = dbProperties.getBinlogConfig();
-        }
+        buildBinlogConfig();
     }
 
     public boolean updateDbProperties(Map<String, String> properties) throws DdlException {
-        if (PropertyAnalyzer.hasBinlogConfig(properties)) {
-            BinlogConfig oldBinlogConfig = getBinlogConfig();
-            BinlogConfig effectiveConfig = new BinlogConfig(oldBinlogConfig);
-            effectiveConfig.mergeFromProperties(properties);
-            if (effectiveConfig.isEnableForStreaming()
-                    && effectiveConfig.getTtlSeconds() <= 0) {
-                throw new DdlException("ROW binlog.ttl_seconds must be greater than 0");
+        BinlogConfig oldBinlogConfig = getBinlogConfig();
+        BinlogConfig newBinlogConfig = new BinlogConfig(oldBinlogConfig);
+        newBinlogConfig.mergeFromProperties(properties);
+        ChangelogConfig newChangelogConfig = new ChangelogConfig(changelogConfig);
+        newChangelogConfig.mergeFromProperties(properties);
+        if (newChangelogConfig.isEnable()) {
+            if (newChangelogConfig.getTtlSeconds() <= 0) {
+                throw new DdlException(PropertyAnalyzer.PROPERTIES_CHANGELOG_TTL_SECONDS + " must be greater than 0");
             }
-            BinlogConfig newBinlogConfig = BinlogConfig.fromProperties(properties);
+            if (newBinlogConfig.isEnableForCCR()) {
+                throw new DdlException("Database " + getFullName() + " can not enable both binlog and changelog");
+            }
+        }
 
-            if (newBinlogConfig.isEnableForCCR() && !oldBinlogConfig.isEnableForCCR()) {
-                // check all tables binlog enable is true
-                for (Table table : idToTable.values()) {
-                    if (!table.isManagedTable()) {
-                        continue;
-                    }
+        if (newBinlogConfig.isEnableForCCR() && !oldBinlogConfig.isEnableForCCR()) {
+            // check all tables binlog enable is true
+            for (Table table : idToTable.values()) {
+                if (!table.isManagedTable()) {
+                    continue;
+                }
 
-                    OlapTable olapTable = (OlapTable) table;
-                    olapTable.readLock();
-                    try {
-                        if (!olapTable.getBinlogConfig().isEnableForCCR()) {
-                            String errMsg = String
-                                    .format("binlog is not enable in table[%s] in db [%s]",
-                                        table.getDisplayName(), getFullName());
-                            throw new DdlException(errMsg);
-                        }
-                    } finally {
-                        olapTable.readUnlock();
+                OlapTable olapTable = (OlapTable) table;
+                olapTable.readLock();
+                try {
+                    if (olapTable.hasChangelog()) {
+                        throw new DdlException("Can not enable binlog in database " + getFullName()
+                                + " because table " + table.getDisplayName() + " enables changelog");
                     }
+                    if (!olapTable.getBinlogConfig().isEnableForCCR()) {
+                        String errMsg = String
+                                .format("binlog is not enable in table[%s] in db [%s]",
+                                    table.getDisplayName(), getFullName());
+                        throw new DdlException(errMsg);
+                    }
+                } finally {
+                    olapTable.readUnlock();
                 }
             }
         }
@@ -1056,32 +1078,57 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
         return binlogConfig;
     }
 
+    public ChangelogConfig getChangelogConfig() {
+        return changelogConfig;
+    }
+
     /**
      * Get the database binlog config snapshot and the effective table binlog config for creating a table.
      *
      * <p>The first value is the database binlog config snapshot, and the second value is the effective
      * table binlog config after applying table properties.
      */
-    public Pair<BinlogConfig, BinlogConfig> getBinlogConfigsForCreateTable(
-            Map<String, String> tableProperties) throws AnalysisException {
+    public Pair<BinlogConfig, BinlogConfig> getBinlogConfigsForCreateTable(Map<String, String> tableProperties) {
         BinlogConfig dbBinlogConfig;
-        boolean dbHasRowBinlogTtl;
         readLock();
         try {
             dbBinlogConfig = new BinlogConfig(binlogConfig);
-            dbHasRowBinlogTtl = dbProperties.getProperties().containsKey(
-                    PropertyAnalyzer.PROPERTIES_BINLOG_TTL_SECONDS);
         } finally {
             readUnlock();
         }
         BinlogConfig createTableBinlogConfig = new BinlogConfig(dbBinlogConfig);
         createTableBinlogConfig.mergeFromProperties(tableProperties);
-        if (createTableBinlogConfig.isEnableForStreaming()) {
-            long ttl = tableProperties.containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_TTL_SECONDS)
-                    || dbHasRowBinlogTtl ? createTableBinlogConfig.getTtlSeconds() : BinlogConfig.TTL_SECONDS;
-            createTableBinlogConfig.applyExplicitRowTtl(ttl);
-        }
         return Pair.of(dbBinlogConfig, createTableBinlogConfig);
+    }
+
+    /**
+     * Get the effective table changelog config for creating a table: the database default after applying
+     * table properties. A table without changelog can not set the other changelog properties.
+     */
+    public ChangelogConfig getChangelogConfigForCreateTable(Map<String, String> tableProperties)
+            throws AnalysisException {
+        Map<String, String> changelogProperties = PropertyAnalyzer.analyzeChangelogConfig(
+                new HashMap<>(tableProperties));
+        ChangelogConfig createTableChangelogConfig;
+        readLock();
+        try {
+            createTableChangelogConfig = new ChangelogConfig(changelogConfig);
+        } finally {
+            readUnlock();
+        }
+        createTableChangelogConfig.mergeFromProperties(changelogProperties);
+        if (createTableChangelogConfig.isEnable()) {
+            createTableChangelogConfig.applyExplicitTtl(createTableChangelogConfig.getTtlSeconds());
+            return createTableChangelogConfig;
+        }
+        for (String key : Lists.newArrayList(PropertyAnalyzer.PROPERTIES_CHANGELOG_TTL_SECONDS,
+                PropertyAnalyzer.PROPERTIES_CHANGELOG_NEED_HISTORICAL_VALUE)) {
+            if (changelogProperties.containsKey(key)) {
+                throw new AnalysisException("Property " + key + " requires \""
+                        + PropertyAnalyzer.PROPERTIES_CHANGELOG_ENABLE + "\" = \"true\"");
+            }
+        }
+        return createTableChangelogConfig;
     }
 
     public void checkStorageVault(Map<String, String> properties) throws DdlException {

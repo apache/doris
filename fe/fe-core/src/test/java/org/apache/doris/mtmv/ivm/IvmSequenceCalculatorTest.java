@@ -44,12 +44,12 @@ class IvmSequenceCalculatorTest {
     @Test
     void testLargeIntSequence() {
         IvmSequenceCalculator calculator = IvmSequenceCalculator.create(7, LargeIntType.INSTANCE);
-        BigInteger binlogSequence = BigInteger.ONE.shiftLeft(63);
+        BigInteger changelogSequence = BigInteger.ONE.shiftLeft(63);
 
-        LargeIntLiteral sequence = (LargeIntLiteral) calculator.encode(3, binlogSequence, true);
+        LargeIntLiteral sequence = (LargeIntLiteral) calculator.encode(3, changelogSequence, true);
         BigInteger expected = BigInteger.valueOf(7).shiftLeft(75)
                 .or(BigInteger.valueOf(3).shiftLeft(65))
-                .or(binlogSequence.shiftLeft(1))
+                .or(changelogSequence.shiftLeft(1))
                 .or(BigInteger.ONE);
 
         Assertions.assertEquals(expected, sequence.getValue());
@@ -82,15 +82,15 @@ class IvmSequenceCalculatorTest {
                 () -> calculator.encode(1024, BigInteger.ZERO, true));
         Assertions.assertTrue(deltaIndexException.getMessage().contains("delta index"));
 
-        BigInteger maxBinlogSequence = BigInteger.ONE.shiftLeft(64).subtract(BigInteger.ONE);
-        calculator.encode(0, maxBinlogSequence, true);
-        IvmException binlogSequenceException = Assertions.assertThrows(IvmException.class,
+        BigInteger maxChangelogSequence = BigInteger.ONE.shiftLeft(64).subtract(BigInteger.ONE);
+        calculator.encode(0, maxChangelogSequence, true);
+        IvmException changelogSequenceException = Assertions.assertThrows(IvmException.class,
                 () -> calculator.encode(0, BigInteger.ONE.shiftLeft(64), true));
-        Assertions.assertTrue(binlogSequenceException.getMessage().contains("binlog sequence"));
+        Assertions.assertTrue(changelogSequenceException.getMessage().contains("changelog sequence"));
 
         IvmSequenceCalculator bigIntCalculator = IvmSequenceCalculator.create(1, BigIntType.INSTANCE);
-        IvmException unsupportedBinlogException = Assertions.assertThrows(IvmException.class,
+        IvmException unsupportedChangelogException = Assertions.assertThrows(IvmException.class,
                 () -> bigIntCalculator.encode(0, BigInteger.ONE, true));
-        Assertions.assertTrue(unsupportedBinlogException.getMessage().contains("does not support binlog"));
+        Assertions.assertTrue(unsupportedChangelogException.getMessage().contains("does not support changelog"));
     }
 }

@@ -725,7 +725,7 @@ public class IcebergNestedColumnEvolutionTest {
                 structModify("info", Collections.singletonList("amount"),
                         Collections.singletonList(ConnectorType.of("DECIMALV3", 10, 3)),
                         Collections.singletonList(""), Collections.singletonList(false)),
-                false, null);
+                false, false, null);
 
         Types.DecimalType amount = (Types.DecimalType) reload("m_decimal_promote").findField("info")
                 .type().asStructType().field("amount").type();

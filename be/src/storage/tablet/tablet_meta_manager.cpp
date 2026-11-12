@@ -59,7 +59,7 @@ Status TabletMetaManager::get_meta(DataDir* store, TTabletId tablet_id, TSchemaH
     key_stream << HEADER_PREFIX << tablet_id << "_" << schema_hash;
     std::string key = key_stream.str();
     std::string value;
-    Status s = meta->get(META_COLUMN_FAMILY_INDEX, key, &value);
+    Status s = meta->get(ColumnFamilyIndex::META_COLUMN_FAMILY_INDEX, key, &value);
     if (s.is<META_KEY_NOT_FOUND>()) {
         return Status::Error<META_KEY_NOT_FOUND>("tablet_id:{}, schema_hash:{}, not found.",
                                                  tablet_id, schema_hash);
@@ -102,7 +102,7 @@ Status TabletMetaManager::save(DataDir* store, TTabletId tablet_id, TSchemaHash 
     OlapMeta* meta = store->get_meta();
     VLOG_NOTICE << "save tablet meta"
                 << ", key:" << key << ", meta length:" << value.length();
-    return meta->put(META_COLUMN_FAMILY_INDEX, key, value);
+    return meta->put(ColumnFamilyIndex::META_COLUMN_FAMILY_INDEX, key, value);
 }
 
 Status TabletMetaManager::save(DataDir* store, TTabletId tablet_id, TSchemaHash schema_hash,
@@ -111,7 +111,7 @@ Status TabletMetaManager::save(DataDir* store, TTabletId tablet_id, TSchemaHash 
     OlapMeta* meta = store->get_meta();
     VLOG_NOTICE << "save tablet meta "
                 << ", key:" << key << " meta_size=" << meta_binary.length();
-    return meta->put(META_COLUMN_FAMILY_INDEX, key, meta_binary);
+    return meta->put(ColumnFamilyIndex::META_COLUMN_FAMILY_INDEX, key, meta_binary);
 }
 
 // TODO(ygl):
@@ -121,7 +121,7 @@ Status TabletMetaManager::remove(DataDir* store, TTabletId tablet_id, TSchemaHas
                                  std::string_view header_prefix) {
     std::string key = fmt::format("{}{}_{}", header_prefix, tablet_id, schema_hash);
     OlapMeta* meta = store->get_meta();
-    Status res = meta->remove(META_COLUMN_FAMILY_INDEX, key);
+    Status res = meta->remove(ColumnFamilyIndex::META_COLUMN_FAMILY_INDEX, key);
     VLOG_NOTICE << "remove tablet_meta, key:" << key << ", res:" << res;
     return res;
 }
@@ -142,7 +142,8 @@ Status TabletMetaManager::traverse_headers(
         TSchemaHash schema_hash = cast_set<int32_t>(std::stol(parts[2], nullptr, 10));
         return func(tablet_id, schema_hash, value);
     };
-    Status status = meta->iterate(META_COLUMN_FAMILY_INDEX, header_prefix, traverse_header_func);
+    Status status = meta->iterate(ColumnFamilyIndex::META_COLUMN_FAMILY_INDEX, header_prefix,
+                                  traverse_header_func);
     return status;
 }
 
@@ -176,14 +177,14 @@ Status TabletMetaManager::save_pending_publish_info(DataDir* store, TTabletId ta
     OlapMeta* meta = store->get_meta();
     LOG(INFO) << "save pending publish rowset, key:" << key
               << " meta_size=" << meta_binary.length();
-    return meta->put(META_COLUMN_FAMILY_INDEX, key, meta_binary);
+    return meta->put(ColumnFamilyIndex::META_COLUMN_FAMILY_INDEX, key, meta_binary);
 }
 
 Status TabletMetaManager::remove_pending_publish_info(DataDir* store, TTabletId tablet_id,
                                                       int64_t publish_version) {
     std::string key = fmt::format("{}{}_{}", PENDING_PUBLISH_INFO, tablet_id, publish_version);
     OlapMeta* meta = store->get_meta();
-    Status res = meta->remove(META_COLUMN_FAMILY_INDEX, key);
+    Status res = meta->remove(ColumnFamilyIndex::META_COLUMN_FAMILY_INDEX, key);
     LOG(INFO) << "remove pending publish_info, key:" << key << ", res:" << res;
     return res;
 }
@@ -203,8 +204,8 @@ Status TabletMetaManager::traverse_pending_publish(
         int64_t version = std::stol(parts[2], nullptr, 10);
         return func(tablet_id, version, value);
     };
-    Status status =
-            meta->iterate(META_COLUMN_FAMILY_INDEX, PENDING_PUBLISH_INFO, traverse_header_func);
+    Status status = meta->iterate(ColumnFamilyIndex::META_COLUMN_FAMILY_INDEX, PENDING_PUBLISH_INFO,
+                                  traverse_header_func);
     return status;
 }
 
@@ -261,7 +262,7 @@ Status TabletMetaManager::save_delete_bitmap(DataDir* store, TTabletId tablet_id
         LOG(WARNING) << msg;
         return Status::InternalError(msg);
     }
-    return meta->put(META_COLUMN_FAMILY_INDEX, key, val);
+    return meta->put(ColumnFamilyIndex::META_COLUMN_FAMILY_INDEX, key, val);
 }
 
 Status TabletMetaManager::traverse_delete_bitmap(
@@ -274,7 +275,8 @@ Status TabletMetaManager::traverse_delete_bitmap(
                     << ", version: " << version;
         return func(tablet_id, version, value);
     };
-    return meta->iterate(META_COLUMN_FAMILY_INDEX, DELETE_BITMAP, traverse_header_func);
+    return meta->iterate(ColumnFamilyIndex::META_COLUMN_FAMILY_INDEX, DELETE_BITMAP,
+                         traverse_header_func);
 }
 
 Status TabletMetaManager::remove_old_version_delete_bitmap(DataDir* store, TTabletId tablet_id,
@@ -294,8 +296,9 @@ Status TabletMetaManager::remove_old_version_delete_bitmap(DataDir* store, TTabl
     };
     LOG(INFO) << "remove old version delete bitmap, tablet_id: " << tablet_id
               << " version: " << version << ", removed keys size: " << remove_keys.size();
-    RETURN_IF_ERROR(meta->iterate(META_COLUMN_FAMILY_INDEX, begin_key, get_remove_keys_func));
-    return meta->remove(META_COLUMN_FAMILY_INDEX, remove_keys);
+    RETURN_IF_ERROR(meta->iterate(ColumnFamilyIndex::META_COLUMN_FAMILY_INDEX, begin_key,
+                                  get_remove_keys_func));
+    return meta->remove(ColumnFamilyIndex::META_COLUMN_FAMILY_INDEX, remove_keys);
 }
 
 } // namespace doris

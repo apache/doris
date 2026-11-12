@@ -164,6 +164,13 @@ public abstract class AbstractTask implements Task {
     }
 
     /**
+     * Called when the executor turns this task away because its queue is full, so the task never runs. The caller
+     * goes on to fail or cancel it as it would any other task.
+     */
+    public void onRejected() {
+    }
+
+    /**
      * Abstract method for implementing the task-specific cancellation logic.
      * Subclasses must override this method to provide their own implementation of how a task should be canceled.
      *

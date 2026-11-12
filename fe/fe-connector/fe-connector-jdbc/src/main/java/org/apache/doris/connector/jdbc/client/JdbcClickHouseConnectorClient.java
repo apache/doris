@@ -160,7 +160,8 @@ public class JdbcClickHouseConnectorClient extends JdbcConnectorClient {
             return true;
         }
         try {
-            String[] versionParts = driverVersion.split("\\.");
+            // Legacy drivers include the artifact name before the numeric version.
+            String[] versionParts = driverVersion.trim().replaceFirst("^clickhouse-jdbc\\s+", "").split("\\.");
             int majorVersion = Integer.parseInt(versionParts[0]);
             int minorVersion = Integer.parseInt(versionParts[1]);
             return majorVersion > 0 || (majorVersion == 0 && minorVersion >= 5);

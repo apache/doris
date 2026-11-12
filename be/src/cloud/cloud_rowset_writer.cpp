@@ -40,9 +40,9 @@ CloudRowsetWriter::~CloudRowsetWriter() {
 
 Status CloudRowsetWriter::init(const RowsetWriterContext& rowset_writer_context) {
     _context = rowset_writer_context;
-    // Row-binlog writer or a schema carrying ROW_LSN_COL needs allocated LSN.
+    // Changelog writer or a schema carrying ROW_LSN_COL needs allocated LSN.
     _context._need_allocate_lsn =
-            _context.write_binlog_opt().enable ||
+            _context.write_changelog_opt().enable ||
             (_context.tablet_schema != nullptr && _context.tablet_schema->row_lsn_col_idx() >= 0);
     _rowset_meta = std::make_shared<RowsetMeta>();
 
@@ -82,8 +82,8 @@ Status CloudRowsetWriter::init(const RowsetWriterContext& rowset_writer_context)
         _rowset_meta->set_inverted_index_storage_format(*_context.inverted_index_storage_format);
     }
     _rowset_meta->set_job_id(_context.job_id);
-    if (_context.write_binlog_opt().enable) {
-        _rowset_meta->mark_row_binlog();
+    if (_context.write_changelog_opt().enable) {
+        _rowset_meta->mark_changelog();
     }
     _context.segment_collector = std::make_shared<SegmentCollectorT<BaseBetaRowsetWriter>>(this);
     _context.file_writer_creator = std::make_shared<FileWriterCreatorT<BaseBetaRowsetWriter>>(this);

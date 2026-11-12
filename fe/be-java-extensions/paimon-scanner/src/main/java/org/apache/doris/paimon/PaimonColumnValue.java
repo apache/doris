@@ -32,6 +32,7 @@ import org.apache.paimon.types.DecimalType;
 import org.apache.paimon.types.LocalZonedTimestampType;
 import org.apache.paimon.types.MapType;
 import org.apache.paimon.types.RowType;
+import org.apache.paimon.types.TimestampType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -184,7 +185,8 @@ public class PaimonColumnValue implements ColumnValue {
 
     @Override
     public LocalDateTime getDateTime() {
-        Timestamp ts = record.getTimestamp(idx, dorisType.getPrecision());
+        Timestamp ts = truncateTimestampPrecision(
+                record.getTimestamp(idx, getPaimonTimestampPrecision()));
         if (dataType instanceof LocalZonedTimestampType) {
             // Paimon stores TIMESTAMP_LTZ as an epoch instant, so convert it directly in the cached session zone.
             return LocalDateTime.ofInstant(ts.toInstant(), timeZone);
@@ -195,9 +197,43 @@ public class PaimonColumnValue implements ColumnValue {
 
     @Override
     public LocalDateTime getTimeStampTz() {
-        Timestamp ts = record.getTimestamp(idx, dorisType.getPrecision());
+        Timestamp ts = truncateTimestampPrecision(
+                record.getTimestamp(idx, getPaimonTimestampPrecision()));
         // Timestamp's local representation is identical to converting its epoch instant in UTC.
         return ts.toLocalDateTime();
+    }
+
+    Timestamp truncateTimestampPrecision(Timestamp timestamp) {
+        if (!(dataType instanceof TimestampType) && !(dataType instanceof LocalZonedTimestampType)) {
+            return timestamp;
+        }
+        int precision = dorisType.getPrecision();
+        return truncateTimestampPrecision(timestamp, precision);
+    }
+
+    static Timestamp truncateTimestampPrecision(Timestamp timestamp, int precision) {
+        long divisor = 1;
+        for (int i = precision; i < 9; ++i) {
+            divisor *= 10;
+        }
+        long nano = Math.floorMod(timestamp.getMillisecond(), 1000L) * 1_000_000L
+                + timestamp.getNanoOfMillisecond();
+        if (nano % divisor == 0) {
+            return timestamp;
+        }
+        LocalDateTime value = timestamp.toLocalDateTime();
+        int truncatedNano = (int) (nano / divisor * divisor);
+        return Timestamp.fromLocalDateTime(value.withNano(truncatedNano));
+    }
+
+    private int getPaimonTimestampPrecision() {
+        if (dataType instanceof TimestampType) {
+            return ((TimestampType) dataType).getPrecision();
+        }
+        if (dataType instanceof LocalZonedTimestampType) {
+            return ((LocalZonedTimestampType) dataType).getPrecision();
+        }
+        return dorisType.getPrecision();
     }
 
     @Override

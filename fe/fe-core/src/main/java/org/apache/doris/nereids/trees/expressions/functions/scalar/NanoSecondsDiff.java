@@ -22,12 +22,10 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.DateDiffMonotonic;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
-import org.apache.doris.nereids.trees.expressions.functions.SupportsMixedTimeStampNsDateTime;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
-import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.TimeStampNsType;
 
 import com.google.common.base.Preconditions;
@@ -37,13 +35,9 @@ import java.util.List;
 
 /** ScalarFunction 'nanoseconds_diff'. */
 public class NanoSecondsDiff extends ScalarFunction implements BinaryExpression, ExplicitlyCastableSignature,
-        PropagateNullable, DateDiffMonotonic, SupportsMixedTimeStampNsDateTime {
+        PropagateNullable, DateDiffMonotonic {
 
     private static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(BigIntType.INSTANCE)
-                    .args(TimeStampNsType.INSTANCE, DateTimeV2Type.WILDCARD),
-            FunctionSignature.ret(BigIntType.INSTANCE)
-                    .args(DateTimeV2Type.WILDCARD, TimeStampNsType.INSTANCE),
             FunctionSignature.ret(BigIntType.INSTANCE)
                     .args(TimeStampNsType.INSTANCE, TimeStampNsType.INSTANCE)
     );

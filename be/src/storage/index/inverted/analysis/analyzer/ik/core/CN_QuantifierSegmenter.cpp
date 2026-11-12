@@ -55,7 +55,7 @@ void CN_QuantifierSegmenter::processCNumber(AnalyzeContext& context) {
     if (number_start_ == -1 && number_end_ == -1) {
         // Initial state
         char32_t currentChar = context.getCurrentChar();
-        if (CharacterUtil::CHAR_CHINESE == context.getCurrentCharType() &&
+        if (CharacterUtil::CharType::CHINESE == context.getCurrentCharType() &&
             CHINESE_NUMBER_CHARS.find(currentChar) != CHINESE_NUMBER_CHARS.end()) {
             // Record the starting and ending positions of numeral words.
             number_start_ = static_cast<int32_t>(context.getCursor());
@@ -63,7 +63,7 @@ void CN_QuantifierSegmenter::processCNumber(AnalyzeContext& context) {
         }
     } else {
         // Processing status
-        if (CharacterUtil::CHAR_CHINESE == context.getCurrentCharType() &&
+        if (CharacterUtil::CharType::CHINESE == context.getCurrentCharType() &&
             CHINESE_NUMBER_CHARS.find(context.getCurrentChar()) != CHINESE_NUMBER_CHARS.end()) {
             // Record the end position of numeral words
             number_end_ = static_cast<int32_t>(context.getCursor());
@@ -89,7 +89,7 @@ void CN_QuantifierSegmenter::processCount(AnalyzeContext& context) {
     }
     const auto& typedRuneArray = context.getTypedRuneArray();
 
-    if (CharacterUtil::CHAR_CHINESE == context.getCurrentCharType()) {
+    if (CharacterUtil::CharType::CHINESE == context.getCurrentCharType()) {
         // Prioritize processing the prefixes that have already been matched
         if (!count_hits_.empty()) {
             auto it = count_hits_.begin();

@@ -75,7 +75,7 @@ class IvmNormalizeUniqKeysMTMVJoinTest extends IvmDeltaTestBase {
     private LogicalOlapScan buildMowScan(long tableId, String name) {
         OlapTable table = PlanConstructor.newOlapTable(tableId, name, 0, KeysType.UNIQUE_KEYS);
         table.setEnableUniqueKeyMergeOnWrite(true);
-        enableRowBinlog(table);
+        enableChangelog(table);
         table.setQualifiedDbName("test_db");
         return new LogicalOlapScan(PlanConstructor.getNextRelationId(), table,
                 ImmutableList.of("test_db"));
@@ -83,7 +83,7 @@ class IvmNormalizeUniqKeysMTMVJoinTest extends IvmDeltaTestBase {
 
     private LogicalOlapScan buildDupScan(long tableId, String name) {
         OlapTable table = PlanConstructor.newOlapTable(tableId, name, 0, KeysType.DUP_KEYS);
-        enableRowBinlog(table);
+        enableChangelog(table);
         table.setQualifiedDbName("test_db");
         return new LogicalOlapScan(PlanConstructor.getNextRelationId(), table,
                 ImmutableList.of("test_db"));

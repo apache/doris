@@ -19,12 +19,12 @@
 
 namespace doris::segment_v2 {
 
-int32_t CharacterUtil::identifyCharType(int32_t rune) {
+CharacterUtil::CharType CharacterUtil::identifyCharType(int32_t rune) {
     if (rune >= '0' && rune <= '9') {
-        return CHAR_ARABIC;
+        return CharType::ARABIC;
     }
     if ((rune >= 'a' && rune <= 'z') || (rune >= 'A' && rune <= 'Z')) {
-        return CHAR_ENGLISH;
+        return CharType::ENGLISH;
     }
 
     UBlockCode block = ublock_getCode(rune);
@@ -37,21 +37,21 @@ int32_t CharacterUtil::identifyCharType(int32_t rune) {
         block == UBLOCK_CJK_UNIFIED_IDEOGRAPHS_EXTENSION_E ||
         block == UBLOCK_CJK_UNIFIED_IDEOGRAPHS_EXTENSION_F ||
         block == UBLOCK_CJK_UNIFIED_IDEOGRAPHS_EXTENSION_G) {
-        return CHAR_CHINESE;
+        return CharType::CHINESE;
     }
 
     if (block == UBLOCK_HALFWIDTH_AND_FULLWIDTH_FORMS || block == UBLOCK_HANGUL_SYLLABLES ||
         block == UBLOCK_HANGUL_JAMO || block == UBLOCK_HANGUL_COMPATIBILITY_JAMO ||
         block == UBLOCK_HIRAGANA || block == UBLOCK_KATAKANA ||
         block == UBLOCK_KATAKANA_PHONETIC_EXTENSIONS) {
-        return CHAR_OTHER_CJK;
+        return CharType::OTHER_CJK;
     }
 
     if (rune > 0xFFFF) {
-        return CHAR_SURROGATE;
+        return CharType::SURROGATE;
     }
 
-    return CHAR_USELESS;
+    return CharType::USELESS;
 }
 
 int32_t CharacterUtil::regularize(int32_t rune, bool use_lowercase) {

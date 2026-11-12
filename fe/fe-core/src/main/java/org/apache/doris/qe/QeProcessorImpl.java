@@ -219,6 +219,11 @@ public final class QeProcessorImpl implements QeProcessor {
 
         // Run connector-registered query-finish callbacks (e.g. committing a hive
         // read transaction). Connector-agnostic: fe-core names no source here.
+        finishQueryCallbacks(queryId);
+    }
+
+    @Override
+    public void finishQueryCallbacks(TUniqueId queryId) {
         queryFinishCallbackRegistry.runAndClear(DebugUtil.printId(queryId));
     }
 
@@ -319,13 +324,15 @@ public final class QeProcessorImpl implements QeProcessor {
         try {
             boolean accepted = info.getCoord().updateFragmentExecStatus(params);
             if (hasExternalCommitData && !accepted) {
-                return rejectedExternalFileReport(result, "FE has not accepted the external-file report");
+                return rejectExternalFileReport(info.getCoord(), result,
+                        "FE has not accepted the external-file report");
             }
         } catch (Exception e) {
             LOG.warn("Exception during handle report, response: {}, query: {}, instance: {}", result.toString(),
                     DebugUtil.printId(params.query_id), DebugUtil.printId(params.fragment_instance_id), e);
             return hasExternalCommitData
-                    ? rejectedExternalFileReport(result, "FE did not accept the external-file report")
+                    ? rejectExternalFileReport(info.getCoord(), result,
+                            "FE did not accept the external-file report: " + e.getMessage())
                     : result;
         }
         result.setStatus(new TStatus(TStatusCode.OK));
@@ -347,6 +354,14 @@ public final class QeProcessorImpl implements QeProcessor {
         }
         return params.getQueryId().getHi() + ":" + params.getQueryId().getLo() + ":"
                 + params.getFragmentId() + ":" + params.getBackendId();
+    }
+
+    // A rejected final report is terminal: BE drops its files and never resends it, so the statement
+    // must fail now instead of waiting for a fragment that can no longer finish.
+    private static TReportExecStatusResult rejectExternalFileReport(
+            CoordInterface coord, TReportExecStatusResult result, String message) {
+        coord.cancel(new Status(TStatusCode.INTERNAL_ERROR, message));
+        return rejectedExternalFileReport(result, message);
     }
 
     private static TReportExecStatusResult rejectedExternalFileReport(

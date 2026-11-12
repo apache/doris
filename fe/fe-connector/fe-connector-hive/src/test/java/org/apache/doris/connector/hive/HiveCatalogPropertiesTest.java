@@ -246,6 +246,24 @@ class HiveCatalogPropertiesTest {
     }
 
     @Test
+    void submittedMetaCacheKeysOfBothEnginesMustNameAKnownOption() {
+        HiveConnectorProvider provider = new HiveConnectorProvider();
+        IllegalArgumentException misspelled = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> provider.validateProperties(
+                        HiveTestProperties.mapWith("meta.cache.hive.file.max-weigth", "64MB")));
+        Assertions.assertEquals("Unknown external meta cache property: meta.cache.hive.file.max-weigth",
+                misspelled.getMessage());
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> provider.validateProperties(HiveTestProperties.mapWith("meta.cache.hive.file.enable", "1")));
+        Assertions.assertThrows(IllegalArgumentException.class, () -> provider.validateProperties(
+                HiveTestProperties.mapWith("meta.cache.iceberg.table.ttl-second", "-2")));
+        // A key stored by an earlier statement is not validated again by an unrelated ALTER.
+        Assertions.assertDoesNotThrow(() -> provider.validatePropertiesForUpdate(
+                HiveTestProperties.mapWith("meta.cache.hive.file.max-weigth", "64MB"),
+                java.util.Collections.singletonMap("comment", "updated")));
+    }
+
+    @Test
     void validCatalogPassesBothDoors() {
         Assertions.assertDoesNotThrow(() -> HiveTestProperties.minimal().checkCreateTimeOnlyRules());
     }

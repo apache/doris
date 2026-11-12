@@ -194,7 +194,7 @@ Status EngineCloneTask::_do_clone() {
     // The status of a tablet is not ready, indicating that it is a residual tablet after a schema
     // change failure. Clone a new tablet from remote be to overwrite it. This situation basically only
     // occurs when the be_rebalancer_fuzzy_test configuration is enabled.
-    if (tablet && tablet->tablet_state() == TABLET_NOTREADY) {
+    if (tablet && tablet->tablet_state() == TabletState::TABLET_NOTREADY) {
         LOG(WARNING) << "tablet state is not ready when clone, need to drop old tablet, tablet_id="
                      << tablet->tablet_id();
         RETURN_IF_ERROR(_engine.tablet_manager()->drop_tablet(tablet->tablet_id(),

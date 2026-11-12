@@ -150,10 +150,10 @@ public:
         _rowset_meta_pb.set_tablet_schema_hash(tablet_schema_hash);
     }
 
-    void mark_row_binlog() { _rowset_meta_pb.set_is_row_binlog(true); }
+    void mark_changelog() { _rowset_meta_pb.set_is_changelog(true); }
 
-    bool is_row_binlog() const {
-        return _rowset_meta_pb.has_is_row_binlog() && _rowset_meta_pb.is_row_binlog();
+    bool is_changelog() const {
+        return _rowset_meta_pb.has_is_changelog() && _rowset_meta_pb.is_changelog();
     }
 
     RowsetTypePB rowset_type() const { return _rowset_meta_pb.rowset_type(); }
@@ -373,11 +373,11 @@ public:
     // 1. The rowset contains more than one segment.
     // 2. segments_overlap() is not NONOVERLAPPING (OVERLAP_UNKNOWN, OVERLAPPING, and
     //    NONOVERLAPPING_WITHIN_GROUP are considered overlapping).
-    // 3. The rowset has a singleton version, except row-binlog LMax quick merge rowsets that
+    // 3. The rowset has a singleton version, except changelog LMax quick merge rowsets that
     //    explicitly set segments_overlap() to OVERLAPPING.
     bool is_segments_overlapping() const {
         return num_segments() > 1 && segments_overlap() != NONOVERLAPPING &&
-               (is_singleton_delta() || (is_row_binlog() && segments_overlap() == OVERLAPPING));
+               (is_singleton_delta() || (is_changelog() && segments_overlap() == OVERLAPPING));
     }
 
     bool produced_by_compaction() const {

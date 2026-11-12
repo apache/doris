@@ -73,7 +73,7 @@ public class TSOServiceTest {
     private int originalMaxGetTSORetryCount;
     private int originalMaxUpdateRetryCount;
     private int originalUpdateIntervalMs;
-    private boolean originalEnableFeatureBinlog;
+    private boolean originalEnableFeatureChangelog;
     private long originalClockBackwardThresholdMs;
 
     @BeforeEach
@@ -83,13 +83,13 @@ public class TSOServiceTest {
         originalMaxGetTSORetryCount = Config.tso_max_get_retry_count;
         originalMaxUpdateRetryCount = Config.tso_max_update_retry_count;
         originalUpdateIntervalMs = Config.tso_service_update_interval_ms;
-        originalEnableFeatureBinlog = Config.enable_feature_binlog;
+        originalEnableFeatureChangelog = Config.enable_feature_changelog;
         originalClockBackwardThresholdMs = Config.tso_clock_backward_startup_threshold_ms;
 
         Config.tso_max_get_retry_count = 1;
         Config.tso_max_update_retry_count = 1;
         Config.tso_service_update_interval_ms = 1;
-        Config.enable_feature_binlog = true;
+        Config.enable_feature_changelog = true;
         Config.tso_clock_backward_startup_threshold_ms = 30L * 60 * 1000;
 
         env = Mockito.mock(Env.class);
@@ -108,7 +108,7 @@ public class TSOServiceTest {
         Config.tso_max_get_retry_count = originalMaxGetTSORetryCount;
         Config.tso_max_update_retry_count = originalMaxUpdateRetryCount;
         Config.tso_service_update_interval_ms = originalUpdateIntervalMs;
-        Config.enable_feature_binlog = originalEnableFeatureBinlog;
+        Config.enable_feature_changelog = originalEnableFeatureChangelog;
         Config.tso_clock_backward_startup_threshold_ms = originalClockBackwardThresholdMs;
     }
 
@@ -128,9 +128,9 @@ public class TSOServiceTest {
 
     @Test
     public void testGetTSOThrowsWhenEnvNotReady() {
-        boolean originalEnableFeatureBinlog = Config.enable_feature_binlog;
+        boolean originalEnableFeatureChangelog = Config.enable_feature_changelog;
         try {
-            Config.enable_feature_binlog = true;
+            Config.enable_feature_changelog = true;
             setInitializedFlag(tsoService, true);
             Mockito.when(env.isReady()).thenReturn(false);
             try {
@@ -140,15 +140,15 @@ public class TSOServiceTest {
                 Assertions.assertTrue(e.getMessage().contains("Failed to get TSO"));
             }
         } finally {
-            Config.enable_feature_binlog = originalEnableFeatureBinlog;
+            Config.enable_feature_changelog = originalEnableFeatureChangelog;
         }
     }
 
     @Test
     public void testGetTSOThrowsWhenNotCalibrated() throws Exception {
-        boolean originalEnableFeatureBinlog = Config.enable_feature_binlog;
+        boolean originalEnableFeatureChangelog = Config.enable_feature_changelog;
         try {
-            Config.enable_feature_binlog = true;
+            Config.enable_feature_changelog = true;
             Mockito.when(env.isReady()).thenReturn(true);
             Mockito.when(env.isMaster()).thenReturn(true);
             try {
@@ -158,15 +158,15 @@ public class TSOServiceTest {
                 Assertions.assertTrue(e.getMessage().contains("not calibrated"));
             }
         } finally {
-            Config.enable_feature_binlog = originalEnableFeatureBinlog;
+            Config.enable_feature_changelog = originalEnableFeatureChangelog;
         }
     }
 
     @Test
     public void testGetTSOThrowsOnLogicalOverflow() throws Exception {
-        boolean originalEnableFeatureBinlog = Config.enable_feature_binlog;
+        boolean originalEnableFeatureChangelog = Config.enable_feature_changelog;
         try {
-            Config.enable_feature_binlog = true;
+            Config.enable_feature_changelog = true;
             setInitializedFlag(tsoService, true);
             Mockito.when(env.isReady()).thenReturn(true);
             Mockito.when(env.isMaster()).thenReturn(true);
@@ -181,15 +181,15 @@ public class TSOServiceTest {
                 Assertions.assertEquals(TSOTimestamp.MAX_LOGICAL_COUNTER, getGlobalLogicalCounter(tsoService));
             }
         } finally {
-            Config.enable_feature_binlog = originalEnableFeatureBinlog;
+            Config.enable_feature_changelog = originalEnableFeatureChangelog;
         }
     }
 
     @Test
     public void testGetTSOAcceptsLogicalCounterUpperBound() throws Exception {
-        boolean originalEnableFeatureBinlog = Config.enable_feature_binlog;
+        boolean originalEnableFeatureChangelog = Config.enable_feature_changelog;
         try {
-            Config.enable_feature_binlog = true;
+            Config.enable_feature_changelog = true;
             setInitializedFlag(tsoService, true);
             Mockito.when(env.isReady()).thenReturn(true);
             Mockito.when(env.isMaster()).thenReturn(true);
@@ -197,16 +197,16 @@ public class TSOServiceTest {
             long tso = tsoService.getTSO();
             Assertions.assertEquals(TSOTimestamp.composeTimestamp(100L, TSOTimestamp.MAX_LOGICAL_COUNTER), tso);
         } finally {
-            Config.enable_feature_binlog = originalEnableFeatureBinlog;
+            Config.enable_feature_changelog = originalEnableFeatureChangelog;
         }
     }
 
     @Test
     public void testRunAfterCatalogReadySetsIntervalTo50WhenDisabled() {
-        boolean originalEnableFeatureBinlog = Config.enable_feature_binlog;
+        boolean originalEnableFeatureChangelog = Config.enable_feature_changelog;
         try {
             setInitializedFlag(tsoService, true);
-            Config.enable_feature_binlog = false;
+            Config.enable_feature_changelog = false;
             tsoService.runAfterCatalogReady();
             Assertions.assertEquals(1L, tsoService.getInterval());
             try {
@@ -216,30 +216,30 @@ public class TSOServiceTest {
                 Assertions.assertTrue(e.getMessage().contains("feature is disabled"));
             }
         } finally {
-            Config.enable_feature_binlog = originalEnableFeatureBinlog;
+            Config.enable_feature_changelog = originalEnableFeatureChangelog;
         }
     }
 
     @Test
     public void testRunAfterCatalogReadyDoesNotResetFatalClockBackwardFlagWhenDisabled() {
-        boolean originalEnableFeatureBinlog = Config.enable_feature_binlog;
+        boolean originalEnableFeatureChangelog = Config.enable_feature_changelog;
         try {
-            Config.enable_feature_binlog = false;
+            Config.enable_feature_changelog = false;
             setFatalClockBackwardReportedFlag(tsoService, true);
 
             tsoService.runAfterCatalogReady();
 
             Assertions.assertTrue(getFatalClockBackwardReportedFlag(tsoService));
         } finally {
-            Config.enable_feature_binlog = originalEnableFeatureBinlog;
+            Config.enable_feature_changelog = originalEnableFeatureChangelog;
         }
     }
 
     @Test
     public void testRunAfterCatalogReadyUsesAtLeastOneRetryWhenConfigNonPositive() {
-        boolean originalEnableFeatureBinlog = Config.enable_feature_binlog;
+        boolean originalEnableFeatureChangelog = Config.enable_feature_changelog;
         try {
-            Config.enable_feature_binlog = true;
+            Config.enable_feature_changelog = true;
             Config.tso_max_update_retry_count = 0;
             Mockito.when(env.isReady()).thenReturn(true);
             Mockito.when(env.isMaster()).thenReturn(true);
@@ -247,17 +247,17 @@ public class TSOServiceTest {
             tsoService.runAfterCatalogReady();
             Assertions.assertTrue(tsoService.getTSO() > 0);
         } finally {
-            Config.enable_feature_binlog = originalEnableFeatureBinlog;
+            Config.enable_feature_changelog = originalEnableFeatureChangelog;
         }
     }
 
     @Test
     public void testRunAfterCatalogReadyUpdateFailureDoesNotTouchMetricWhenNotInit() throws Exception {
-        boolean originalEnableFeatureBinlog = Config.enable_feature_binlog;
+        boolean originalEnableFeatureChangelog = Config.enable_feature_changelog;
         boolean originalMetricInit = MetricRepo.isInit;
         LongCounterMetric originalUpdateFailedMetric = MetricRepo.COUNTER_TSO_CLOCK_UPDATE_FAILED;
         try {
-            Config.enable_feature_binlog = true;
+            Config.enable_feature_changelog = true;
             setInitializedFlag(tsoService, true);
             setGlobalTimestamp(tsoService, 100L, 1L);
             MetricRepo.isInit = false;
@@ -267,7 +267,7 @@ public class TSOServiceTest {
                     .thenThrow(new RuntimeException("injected update failure"));
             tsoService.runAfterCatalogReady();
         } finally {
-            Config.enable_feature_binlog = originalEnableFeatureBinlog;
+            Config.enable_feature_changelog = originalEnableFeatureChangelog;
             MetricRepo.isInit = originalMetricInit;
             MetricRepo.COUNTER_TSO_CLOCK_UPDATE_FAILED = originalUpdateFailedMetric;
         }
@@ -282,9 +282,9 @@ public class TSOServiceTest {
 
     @Test
     public void testSaveTSOPersistsWindowEndWhenBinlogEnabled() throws IOException {
-        boolean originalEnableFeatureBinlog = Config.enable_feature_binlog;
+        boolean originalEnableFeatureChangelog = Config.enable_feature_changelog;
         try {
-            Config.enable_feature_binlog = true;
+            Config.enable_feature_changelog = true;
             long windowEnd = 12345L;
             tsoService.replayWindowEndTSO(new TSOServiceState(windowEnd, 0L));
 
@@ -296,15 +296,15 @@ public class TSOServiceTest {
             Assertions.assertEquals(windowEnd, checksum);
             Assertions.assertEquals(windowEnd, recoveredService.getWindowEndTSO());
         } finally {
-            Config.enable_feature_binlog = originalEnableFeatureBinlog;
+            Config.enable_feature_changelog = originalEnableFeatureChangelog;
         }
     }
 
     @Test
     public void testSaveTSOSkipsWhenWindowEndIsZero() throws IOException {
-        boolean originalEnableFeatureBinlog = Config.enable_feature_binlog;
+        boolean originalEnableFeatureChangelog = Config.enable_feature_changelog;
         try {
-            Config.enable_feature_binlog = true;
+            Config.enable_feature_changelog = true;
 
             ByteArrayOutputStream out = new ByteArrayOutputStream();
             long checksum;
@@ -315,15 +315,15 @@ public class TSOServiceTest {
             Assertions.assertEquals(7L, checksum);
             Assertions.assertEquals(0, out.size());
         } finally {
-            Config.enable_feature_binlog = originalEnableFeatureBinlog;
+            Config.enable_feature_changelog = originalEnableFeatureChangelog;
         }
     }
 
     @Test
     public void testWriteTimestampToBdbJeSkipsWhenBinlogDisabled() throws Exception {
-        boolean originalEnableFeatureBinlog = Config.enable_feature_binlog;
+        boolean originalEnableFeatureChangelog = Config.enable_feature_changelog;
         try {
-            Config.enable_feature_binlog = false;
+            Config.enable_feature_changelog = false;
             EditLog editLog = Mockito.mock(EditLog.class);
             Mockito.when(env.isReady()).thenReturn(false);
             Mockito.when(env.getEditLog()).thenReturn(editLog);
@@ -331,7 +331,7 @@ public class TSOServiceTest {
             invokeWriteTimestampToBdbJe(tsoService, 123L);
             Mockito.verifyNoInteractions(editLog);
         } finally {
-            Config.enable_feature_binlog = originalEnableFeatureBinlog;
+            Config.enable_feature_changelog = originalEnableFeatureChangelog;
         }
     }
 
@@ -361,9 +361,9 @@ public class TSOServiceTest {
 
     @Test
     public void testCalibrateTimestampThrowsWhenPersistWriteFailsAndKeepNotInitialized() throws Exception {
-        boolean originalEnableFeatureBinlog = Config.enable_feature_binlog;
+        boolean originalEnableFeatureChangelog = Config.enable_feature_changelog;
         try {
-            Config.enable_feature_binlog = true;
+            Config.enable_feature_changelog = true;
             Mockito.when(env.isReady()).thenReturn(true);
             Mockito.when(env.isMaster()).thenReturn(true);
             Mockito.when(env.getEditLog()).thenReturn(null);
@@ -387,7 +387,7 @@ public class TSOServiceTest {
                 Assertions.assertTrue(e.getMessage().contains("not calibrated"));
             }
         } finally {
-            Config.enable_feature_binlog = originalEnableFeatureBinlog;
+            Config.enable_feature_changelog = originalEnableFeatureChangelog;
         }
     }
 
@@ -588,7 +588,7 @@ public class TSOServiceTest {
 
     @Test
     public void testRunAfterCatalogReadySkipsWhenBinlogDisabled() throws Exception {
-        Config.enable_feature_binlog = false;
+        Config.enable_feature_changelog = false;
         setInitializedFlag(tsoService, true);
         tsoService.runAfterCatalogReady();
         Assertions.assertEquals(0L, tsoService.getCurrentTSO());
@@ -609,23 +609,23 @@ public class TSOServiceTest {
 
     @Test
     public void testGenerateTSOReturnsZeroWhenDisabledOrNotInitialized() throws Exception {
-        boolean originalEnableFeatureBinlog = Config.enable_feature_binlog;
+        boolean originalEnableFeatureChangelog = Config.enable_feature_changelog;
         try {
             setGlobalTimestamp(tsoService, 100L, 1L);
 
-            Config.enable_feature_binlog = true;
+            Config.enable_feature_changelog = true;
             setInitializedFlag(tsoService, false);
             Pair<Long, Long> pairWhenNotInitialized = invokeGenerateTSO(tsoService);
             Assertions.assertEquals(0L, (long) pairWhenNotInitialized.first);
             Assertions.assertEquals(0L, (long) pairWhenNotInitialized.second);
 
-            Config.enable_feature_binlog = false;
+            Config.enable_feature_changelog = false;
             setInitializedFlag(tsoService, true);
             Pair<Long, Long> pairWhenDisabled = invokeGenerateTSO(tsoService);
             Assertions.assertEquals(0L, (long) pairWhenDisabled.first);
             Assertions.assertEquals(0L, (long) pairWhenDisabled.second);
         } finally {
-            Config.enable_feature_binlog = originalEnableFeatureBinlog;
+            Config.enable_feature_changelog = originalEnableFeatureChangelog;
         }
     }
 

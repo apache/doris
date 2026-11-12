@@ -68,15 +68,15 @@ TEST_F(OlapMetaTest, TestPutAndGet) {
     // normal cases
     std::string key = "key";
     std::string value = "value";
-    Status s = _meta->put(META_COLUMN_FAMILY_INDEX, key, value);
+    Status s = _meta->put(ColumnFamilyIndex::META_COLUMN_FAMILY_INDEX, key, value);
     EXPECT_EQ(Status::OK(), s);
     std::string value_get;
-    s = _meta->get(META_COLUMN_FAMILY_INDEX, key, &value_get);
+    s = _meta->get(ColumnFamilyIndex::META_COLUMN_FAMILY_INDEX, key, &value_get);
     EXPECT_EQ(Status::OK(), s);
     EXPECT_EQ(value, value_get);
 
     // abnormal cases
-    s = _meta->get(META_COLUMN_FAMILY_INDEX, "key_not_exist", &value_get);
+    s = _meta->get(ColumnFamilyIndex::META_COLUMN_FAMILY_INDEX, "key_not_exist", &value_get);
     EXPECT_EQ(Status::Error<META_KEY_NOT_FOUND>(""), s);
 }
 
@@ -84,15 +84,15 @@ TEST_F(OlapMetaTest, TestRemove) {
     // normal cases
     std::string key = "key";
     std::string value = "value";
-    Status s = _meta->put(META_COLUMN_FAMILY_INDEX, key, value);
+    Status s = _meta->put(ColumnFamilyIndex::META_COLUMN_FAMILY_INDEX, key, value);
     EXPECT_EQ(Status::OK(), s);
     std::string value_get;
-    s = _meta->get(META_COLUMN_FAMILY_INDEX, key, &value_get);
+    s = _meta->get(ColumnFamilyIndex::META_COLUMN_FAMILY_INDEX, key, &value_get);
     EXPECT_EQ(Status::OK(), s);
     EXPECT_EQ(value, value_get);
-    s = _meta->remove(META_COLUMN_FAMILY_INDEX, key);
+    s = _meta->remove(ColumnFamilyIndex::META_COLUMN_FAMILY_INDEX, key);
     EXPECT_EQ(Status::OK(), s);
-    s = _meta->remove(META_COLUMN_FAMILY_INDEX, "key_not_exist");
+    s = _meta->remove(ColumnFamilyIndex::META_COLUMN_FAMILY_INDEX, "key_not_exist");
     EXPECT_EQ(Status::OK(), s);
 }
 
@@ -104,11 +104,11 @@ TEST_F(OlapMetaTest, TestIterate) {
     for (int i = 0; i < 10; i++) {
         std::stringstream ss;
         ss << key << "_" << i;
-        s = _meta->put(META_COLUMN_FAMILY_INDEX, ss.str(), value);
+        s = _meta->put(ColumnFamilyIndex::META_COLUMN_FAMILY_INDEX, ss.str(), value);
         EXPECT_EQ(Status::OK(), s);
     }
     bool error_flag = false;
-    s = _meta->iterate(META_COLUMN_FAMILY_INDEX, "hdr_",
+    s = _meta->iterate(ColumnFamilyIndex::META_COLUMN_FAMILY_INDEX, "hdr_",
                        [&error_flag](std::string_view key, std::string_view value) -> bool {
                            size_t pos = key.find_first_of("hdr_");
                            if (pos != 0) {

@@ -56,8 +56,7 @@ Status VIcebergMergeSink::init_properties(ObjectPool* pool, const RowDescriptor&
     RETURN_IF_ERROR(_build_inner_sinks());
 
     if (_writes_data_files) {
-        _table_writer = std::make_unique<VIcebergTableWriter>(_table_sink, _table_output_expr_ctxs,
-                                                              nullptr, nullptr);
+        _table_writer = std::make_unique<VIcebergTableWriter>(_table_sink, _table_output_expr_ctxs);
         _table_writer->defer_file_cleanup_until_outer_close();
         RETURN_IF_ERROR(_table_writer->init_properties(pool, row_desc));
     }

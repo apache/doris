@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
@@ -29,6 +30,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Pair;
@@ -46,6 +48,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.system.Backend;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ComparisonChain;
@@ -73,7 +76,7 @@ public class ShowDataCommand extends ShowCommand {
                     .addColumn(new Column("DbName", ScalarType.createVarchar(20)))
                     .addColumn(new Column("Size", ScalarType.createVarchar(30)))
                     .addColumn(new Column("RemoteSize", ScalarType.createVarchar(30)))
-                    .addColumn(new Column("BinlogSize", ScalarType.createVarchar(30)))
+                    .addColumn(new Column("ChangelogSize", ScalarType.createVarchar(30)))
                     .addColumn(new Column("RecycleSize", ScalarType.createVarchar(30)))
                     .addColumn(new Column("RecycleRemoteSize", ScalarType.createVarchar(30)))
                     .build();
@@ -84,7 +87,7 @@ public class ShowDataCommand extends ShowCommand {
                     .addColumn(new Column("Size", ScalarType.createVarchar(30)))
                     .addColumn(new Column("ReplicaCount", ScalarType.createVarchar(20)))
                     .addColumn(new Column("RemoteSize", ScalarType.createVarchar(30)))
-                    .addColumn(new Column("BinlogSize", ScalarType.createVarchar(30)))
+                    .addColumn(new Column("ChangelogSize", ScalarType.createVarchar(30)))
                     .build();
 
     private static final ShowResultSetMetaData SHOW_WAREHOUSE_DATA_META_DATA =
@@ -92,8 +95,14 @@ public class ShowDataCommand extends ShowCommand {
                     .addColumn(new Column("DBName", ScalarType.createVarchar(20)))
                     .addColumn(new Column("DataSize", ScalarType.createVarchar(20)))
                     .addColumn(new Column("RecycleSize", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("BinlogSize", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("ChangelogSize", ScalarType.createVarchar(20)))
                     .build();
+
+    // Row of the all-database and entire-warehouse listings that carries the query spill currently
+    // held in object storage (cloud mode, spill_storage_type=s3). Spill is not attributable to a
+    // database; it gets its own row and is included in the total. A user database name has to
+    // start with a letter, so this name cannot collide with one.
+    private static final String REMOTE_SPILL_ROW_NAME = "__remote_spill__";
 
     private static final ShowResultSetMetaData SHOW_INDEX_DATA_META_DATA =
             ShowResultSetMetaData.builder()
@@ -103,16 +112,16 @@ public class ShowDataCommand extends ShowCommand {
                     .addColumn(new Column("ReplicaCount", ScalarType.createVarchar(20)))
                     .addColumn(new Column("RowCount", ScalarType.createVarchar(20)))
                     .addColumn(new Column("RemoteSize", ScalarType.createVarchar(30)))
-                    .addColumn(new Column("BinlogSize", ScalarType.createVarchar(30)))
+                    .addColumn(new Column("ChangelogSize", ScalarType.createVarchar(30)))
                     .build();
 
     private static final ImmutableList<String> SHOW_TABLE_DATA_META_DATA_ORIGIN =
             new ImmutableList.Builder<String>().add("TableName").add("Size").add("ReplicaCount")
-                  .add("RemoteSize").add("BinlogSize").build();
+                  .add("RemoteSize").add("ChangelogSize").build();
 
     private static final ImmutableList<String> SHOW_INDEX_DATA_META_DATA_ORIGIN =
             new ImmutableList.Builder<String>().add("TableName").add("IndexName").add("Size").add("ReplicaCount")
-                    .add("RowCount").add("RemoteSize").add("BinlogSize").build();
+                    .add("RowCount").add("RemoteSize").add("ChangelogSize").build();
 
     private static final ShowResultSetMetaData SHOW_DETAILED_TABLE_DATA_META_DATA =
             ShowResultSetMetaData.builder()
@@ -124,7 +133,7 @@ public class ShowDataCommand extends ShowCommand {
                     .addColumn(new Column("RemoteTotalSize", ScalarType.createVarchar(30)))
                     .addColumn(new Column("RemoteDataSize", ScalarType.createVarchar(30)))
                     .addColumn(new Column("RemoteIndexSize", ScalarType.createVarchar(30)))
-                    .addColumn(new Column("LocalBinlogSize", ScalarType.createVarchar(30)))
+                    .addColumn(new Column("LocalChangelogSize", ScalarType.createVarchar(30)))
                     .build();
 
     private static final ShowResultSetMetaData SHOW_DETAILED_INDEX_DATA_META_DATA =
@@ -139,7 +148,7 @@ public class ShowDataCommand extends ShowCommand {
                     .addColumn(new Column("RemoteTotalSize", ScalarType.createVarchar(30)))
                     .addColumn(new Column("RemoteDataSize", ScalarType.createVarchar(30)))
                     .addColumn(new Column("RemoteIndexSize", ScalarType.createVarchar(30)))
-                    .addColumn(new Column("LocalBinlogSize", ScalarType.createVarchar(30)))
+                    .addColumn(new Column("LocalChangelogSize", ScalarType.createVarchar(30)))
                     .build();
 
     private static final String WAREHOUSE = "entire_warehouse";
@@ -159,7 +168,7 @@ public class ShowDataCommand extends ShowCommand {
     private long totalSize = 0;
     private long totalReplicaCount = 0;
     private long totalRemoteSize = 0;
-    private long totalBinlogSize = 0;
+    private long totalChangelogSize = 0;
     private long totalLocalInvertedSize = 0;
     private long totalLocalSegmentSize = 0;
     private long totalRemoteInvertedSize = 0;
@@ -267,12 +276,12 @@ public class ShowDataCommand extends ShowCommand {
             long tableSize = 0;
             long replicaCount = 0;
             long remoteSize = 0;
-            long binlogSize = 0;
+            long changelogSize = 0;
 
             tableSize = olapTable.getDataSize();
             replicaCount = olapTable.getReplicaCount();
             remoteSize = olapTable.getRemoteDataSize();
-            binlogSize = olapTable.getBinlogSize();
+            changelogSize = olapTable.getChangelogSize();
 
             boolean useDisplayName = false;
             if (!isAdmin && olapTable.isTemporary()) {
@@ -280,14 +289,14 @@ public class ShowDataCommand extends ShowCommand {
             }
             String tableName = useDisplayName ? olapTable.getDisplayName() : olapTable.getName();
             if (!detailed) {
-                totalRowsObject.add(Arrays.asList(tableName, tableSize, replicaCount, remoteSize, binlogSize));
+                totalRowsObject.add(Arrays.asList(tableName, tableSize, replicaCount, remoteSize, changelogSize));
             } else {
                 long localIndexSize = olapTable.getLocalIndexFileSize();
                 long localSegmentSize = olapTable.getLocalSegmentSize();
                 long remoteIndexSize = olapTable.getRemoteIndexFileSize();
                 long remoteSegmentSize = olapTable.getRemoteSegmentSize();
                 totalRowsObject.add(Arrays.asList(table.getName(), tableSize, replicaCount, remoteSize,
-                        localIndexSize, localSegmentSize, remoteIndexSize, remoteSegmentSize, binlogSize));
+                        localIndexSize, localSegmentSize, remoteIndexSize, remoteSegmentSize, changelogSize));
                 totalLocalInvertedSize += localIndexSize;
                 totalLocalSegmentSize += localSegmentSize;
                 totalRemoteInvertedSize += remoteIndexSize;
@@ -297,7 +306,7 @@ public class ShowDataCommand extends ShowCommand {
             totalSize += tableSize;
             totalReplicaCount += replicaCount;
             totalRemoteSize += remoteSize;
-            totalBinlogSize += binlogSize;
+            totalChangelogSize += changelogSize;
         } // end for tables
     }
 
@@ -317,7 +326,7 @@ public class ShowDataCommand extends ShowCommand {
             long localSegmentSize = 0;
             long remoteIndexSize = 0;
             long remoteSegmentSize = 0;
-            long localBinlogSize = 0;
+            long localChangelogSize = 0;
             for (Partition partition : table.getAllPartitions()) {
                 MaterializedIndex mIndex = partition.getIndex(indexId);
                 indexSize += mIndex.getDataSize(false, false);
@@ -328,17 +337,17 @@ public class ShowDataCommand extends ShowCommand {
                 localSegmentSize += mIndex.getLocalSegmentSize();
                 remoteIndexSize += mIndex.getRemoteIndexSize();
                 remoteSegmentSize += mIndex.getRemoteSegmentSize();
-                localBinlogSize += mIndex.getBinlogSize();
+                localChangelogSize += mIndex.getChangelogSize();
             }
 
             String indexName = table.getIndexNameById(indexId);
             if (!detailed) {
                 totalRowsObject.add(Arrays.asList(tableName, indexName, indexSize, indexReplicaCount,
-                        indexRowCount, indexRemoteSize, localBinlogSize));
+                        indexRowCount, indexRemoteSize, localChangelogSize));
             } else {
                 totalRowsObject.add(Arrays.asList(tableName, indexName, indexSize, indexReplicaCount, indexRowCount,
                         indexRemoteSize, localIndexSize, localSegmentSize, remoteIndexSize, remoteSegmentSize,
-                        localBinlogSize));
+                        localChangelogSize));
             }
 
             totalSize += indexSize;
@@ -348,7 +357,7 @@ public class ShowDataCommand extends ShowCommand {
             totalLocalSegmentSize += localSegmentSize;
             totalRemoteInvertedSize += remoteIndexSize;
             totalRemoteSegmentSize += remoteSegmentSize;
-            totalBinlogSize += localBinlogSize;
+            totalChangelogSize += localChangelogSize;
         } // end for indices
     }
 
@@ -387,7 +396,7 @@ public class ShowDataCommand extends ShowCommand {
         if (!detailed) {
             totalRows.add(Arrays.asList("Total", DebugUtil.printByteWithUnit(totalSize),
                     String.valueOf(totalReplicaCount), DebugUtil.printByteWithUnit(totalRemoteSize),
-                    DebugUtil.printByteWithUnit(totalBinlogSize)));
+                    DebugUtil.printByteWithUnit(totalChangelogSize)));
             totalRows.add(Arrays.asList("Quota", DebugUtil.printByteWithUnit(quota),
                     String.valueOf(replicaQuota), "", ""));
             totalRows.add(Arrays.asList("Left", DebugUtil.printByteWithUnit(left),
@@ -400,7 +409,7 @@ public class ShowDataCommand extends ShowCommand {
                     DebugUtil.printByteWithUnit(totalRemoteSize),
                     DebugUtil.printByteWithUnit(totalRemoteSegmentSize),
                     DebugUtil.printByteWithUnit(totalRemoteInvertedSize),
-                    DebugUtil.printByteWithUnit(totalBinlogSize)));
+                    DebugUtil.printByteWithUnit(totalChangelogSize)));
             totalRows.add(Arrays.asList("Quota", String.valueOf(replicaQuota),
                     DebugUtil.printByteWithUnit(quota), "", "", "", "", "", ""));
             totalRows.add(Arrays.asList("Left", String.valueOf(replicaCountLeft),
@@ -432,7 +441,7 @@ public class ShowDataCommand extends ShowCommand {
         if (!detailed) {
             totalRows.add(Arrays.asList("", "Total", DebugUtil.printByteWithUnit(totalSize),
                     String.valueOf(totalReplicaCount), "", DebugUtil.printByteWithUnit(totalRemoteSize),
-                    DebugUtil.printByteWithUnit(totalBinlogSize)));
+                    DebugUtil.printByteWithUnit(totalChangelogSize)));
         } else {
             totalRows.add(Arrays.asList("", "Total", String.valueOf(totalReplicaCount), "",
                     DebugUtil.printByteWithUnit(totalSize), DebugUtil.printByteWithUnit(totalLocalSegmentSize),
@@ -440,14 +449,14 @@ public class ShowDataCommand extends ShowCommand {
                     DebugUtil.printByteWithUnit(totalRemoteSize),
                     DebugUtil.printByteWithUnit(totalRemoteSegmentSize),
                     DebugUtil.printByteWithUnit(totalRemoteInvertedSize),
-                    DebugUtil.printByteWithUnit(totalBinlogSize)));
+                    DebugUtil.printByteWithUnit(totalChangelogSize)));
         }
     }
 
     // |TableName|Size|ReplicaCount|RemoteSize|
     // |TableName|ReplicaCount|LocalTotalSize|LocalDataSize|LocalIndexSize|
     //                        |RemoteTotalSize|RemoteDataSize|RemoteIndexSize|
-    //                        |LocalBinlogSize|
+    //                        |LocalChangelogSize|
     private void getSingleDbStats(Database db) {
         db.readLock();
         long quota = 0;
@@ -467,7 +476,7 @@ public class ShowDataCommand extends ShowCommand {
     // |TableName|IndexName|Size|ReplicaCount|RowCount|RemoteSize|
     // |TableName|IndexName|ReplicaCount||RowCount|LocalTotalSize |LocalDataSize |LocalIndexSize|
     //                                            |RemoteTotalSize|RemoteDataSize|RemoteIndexSize|
-    //                                            |BinlogSize|
+    //                                            |ChangelogSize|
     private void getSingleTableStats(OlapTable table) {
         table.readLock();
         try {
@@ -585,8 +594,23 @@ public class ShowDataCommand extends ShowCommand {
         return toSql();
     }
 
-    // |DBName|DataSize|RecycleSize|BinlogSize|
-    private boolean getDbStatsByProperties() {
+    /**
+     * Bytes of query spill currently held in object storage, summed over the alive BEs from their
+     * latest disk reports. Only the master FE keeps these values, so the listings that show them
+     * are forwarded to it (see toRedirectStatus).
+     */
+    private long getRemoteSpillSize() throws AnalysisException {
+        long total = 0;
+        for (Backend backend : Env.getCurrentSystemInfo().getAllBackendsByAllCluster().values()) {
+            if (backend.isAlive()) {
+                total += backend.getRemoteSpillBytes();
+            }
+        }
+        return total;
+    }
+
+    // |DBName|DataSize|RecycleSize|ChangelogSize|
+    private boolean getDbStatsByProperties() throws AnalysisException {
         if (properties == null) {
             return false;
         }
@@ -600,7 +624,7 @@ public class ShowDataCommand extends ShowCommand {
             Map<String, Long> dbToDataSize = Env.getCurrentInternalCatalog().getUsedDataQuota();
             Map<Long, Pair<Long, Long>> dbToRecycleSize = Env.getCurrentRecycleBin().getDbToRecycleSize();
             Long total = 0L;
-            Long totalBinlogSize = 0L;
+            Long totalChangelogSize = 0L;
             Long totalRecycleSize = 0L;
             if (dbList == null) {
                 for (Map.Entry<String, Long> pair : dbToDataSize.entrySet()) {
@@ -608,18 +632,18 @@ public class ShowDataCommand extends ShowCommand {
                     if (db == null) {
                         continue;
                     }
-                    Long binlogSize = 0L;
+                    Long changelogSize = 0L;
                     for (Table table : db.getTables()) {
                         if (table instanceof OlapTable) {
-                            binlogSize += ((OlapTable) table).getBinlogSize();
+                            changelogSize += ((OlapTable) table).getChangelogSize();
                         }
                     }
                     Long recycleSize = dbToRecycleSize.getOrDefault(db.getId(), Pair.of(0L, 0L)).first;
-                    List<String> result = Arrays.asList(db.getName(),
-                            String.valueOf(pair.getValue()), String.valueOf(recycleSize), String.valueOf(binlogSize));
+                    List<String> result = Arrays.asList(db.getName(), String.valueOf(pair.getValue()),
+                            String.valueOf(recycleSize), String.valueOf(changelogSize));
                     totalRows.add(result);
                     total += pair.getValue();
-                    totalBinlogSize += binlogSize;
+                    totalChangelogSize += changelogSize;
                     totalRecycleSize += recycleSize;
                     dbToRecycleSize.remove(db.getId());
                 }
@@ -640,31 +664,37 @@ public class ShowDataCommand extends ShowCommand {
                     if (!dbList.contains(db.getName())) {
                         continue;
                     }
-                    Long binlogSize = 0L;
+                    Long changelogSize = 0L;
                     for (Table table : db.getTables()) {
                         if (table instanceof OlapTable) {
-                            binlogSize += ((OlapTable) table).getBinlogSize();
+                            changelogSize += ((OlapTable) table).getChangelogSize();
                         }
                     }
                     Long recycleSize = dbToRecycleSize.getOrDefault(db.getId(), Pair.of(0L, 0L)).first;
                     Long dataSize = dbToDataSize.getOrDefault(databaseName, 0L);
                     List<String> result = Arrays.asList(db.getName(), String.valueOf(dataSize),
-                            String.valueOf(recycleSize), String.valueOf(binlogSize));
+                            String.valueOf(recycleSize), String.valueOf(changelogSize));
                     totalRows.add(result);
                     total += dataSize;
-                    totalBinlogSize += binlogSize;
+                    totalChangelogSize += changelogSize;
                     totalRecycleSize += recycleSize;
                 }
             }
+            // The spill row belongs to the whole warehouse, not to a list of databases.
+            if (dbList == null && Config.isCloudMode()) {
+                long remoteSpillSize = getRemoteSpillSize();
+                totalRows.add(Arrays.asList(REMOTE_SPILL_ROW_NAME, String.valueOf(remoteSpillSize), "0", "0"));
+                total += remoteSpillSize;
+            }
             List<String> result = Arrays.asList("total", String.valueOf(total), String.valueOf(totalRecycleSize),
-                    String.valueOf(totalBinlogSize));
+                    String.valueOf(totalChangelogSize));
             totalRows.add(result);
             return true;
         }
         return false;
     }
 
-    // |DbId|DbName|Size|RemoteSize|BinlogSize|RecycleSize|RecycleRemoteSize|
+    // |DbId|DbName|Size|RemoteSize|ChangelogSize|RecycleSize|RecycleRemoteSize|
     private void getAllDbStats() throws AnalysisException {
         // check auth
         if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
@@ -677,7 +707,7 @@ public class ShowDataCommand extends ShowCommand {
         }
         long totalSize = 0;
         long totalRemoteSize = 0;
-        long totalBinlogSize = 0;
+        long totalChangelogSize = 0;
         long totalRecycleSize = 0;
         long totalRecycleRemoteSize = 0;
         Map<Long, Pair<Long, Long>> dbToRecycleSize = Env.getCurrentRecycleBin().getDbToRecycleSize();
@@ -693,19 +723,19 @@ public class ShowDataCommand extends ShowCommand {
                 dbInfo.add(String.valueOf(db.getId()));
                 dbInfo.add(dbName);
                 Pair<Long, Long> usedSize = ((Database) db).getUsedDataSize();
-                long usedBinlogSize = 0;
+                long usedChangelogSize = 0;
                 for (Table table : ((Database) db).getTables()) {
                     if (!table.isManagedTable()) {
                         continue;
                     }
-                    usedBinlogSize += ((OlapTable) table).getBinlogSize();
+                    usedChangelogSize += ((OlapTable) table).getChangelogSize();
                 }
                 dbInfo.add(String.valueOf(usedSize.first));
                 dbInfo.add(String.valueOf(usedSize.second));
-                dbInfo.add(String.valueOf(usedBinlogSize));
+                dbInfo.add(String.valueOf(usedChangelogSize));
                 totalSize += usedSize.first;
                 totalRemoteSize += usedSize.second;
-                totalBinlogSize += usedBinlogSize;
+                totalChangelogSize += usedChangelogSize;
             } finally {
                 db.readUnlock();
             }
@@ -734,13 +764,21 @@ public class ShowDataCommand extends ShowCommand {
             totalRows.add(dbInfo);
         }
 
+        // Query spill held in object storage is not attributable to a database: its own row.
+        if (Config.isCloudMode()) {
+            long remoteSpillSize = getRemoteSpillSize();
+            totalRows.add(Arrays.asList("NULL", REMOTE_SPILL_ROW_NAME, String.valueOf(remoteSpillSize),
+                    "0", "0", "0", "0"));
+            totalSize += remoteSpillSize;
+        }
+
         // calc total size
         List<String> dbInfo = new ArrayList<>();
         dbInfo.add("Total");
         dbInfo.add("NULL");
         dbInfo.add(String.valueOf(totalSize));
         dbInfo.add(String.valueOf(totalRemoteSize));
-        dbInfo.add(String.valueOf(totalBinlogSize));
+        dbInfo.add(String.valueOf(totalChangelogSize));
         dbInfo.add(String.valueOf(totalRecycleSize));
         dbInfo.add(String.valueOf(totalRecycleRemoteSize));
         totalRows.add(dbInfo);
@@ -755,5 +793,20 @@ public class ShowDataCommand extends ShowCommand {
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitShowDataCommand(this, context);
+    }
+
+    @Override
+    public RedirectStatus toRedirectStatus() {
+        // Only the two warehouse-level listings of cloud mode read the remote spill size, which the
+        // BEs report to the master FE alone; the other forms are served locally as before.
+        if (!Config.isCloudMode()) {
+            return RedirectStatus.NO_FORWARD;
+        }
+        if (properties != null && "true".equals(properties.get(WAREHOUSE))) {
+            return properties.get(DB_LIST) == null ? RedirectStatus.FORWARD_NO_SYNC
+                    : RedirectStatus.NO_FORWARD;
+        }
+        return tableName == null && Strings.isNullOrEmpty(ConnectContext.get().getDatabase())
+                ? RedirectStatus.FORWARD_NO_SYNC : RedirectStatus.NO_FORWARD;
     }
 }

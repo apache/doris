@@ -245,6 +245,7 @@ public class InitMaterializationContextHook implements PlannerHook {
 
     private List<MaterializationContext> createSyncMvContexts(OlapTable olapTable,
             CascadesContext cascadesContext) {
+        ConnectContext previousContext = ConnectContext.get();
         int indexNumber = olapTable.getIndexNumber();
         List<MaterializationContext> contexts = new ArrayList<>(indexNumber);
         long baseIndexId = olapTable.getBaseIndexId();
@@ -258,6 +259,11 @@ public class InitMaterializationContextHook implements PlannerHook {
             try {
                 if (indexId != baseIndexId) {
                     MaterializedIndexMeta meta = entry.getValue();
+                    if (olapTable.hasRowTtl() && meta.getSchema().stream().noneMatch(Column::isTtlColumn)) {
+                        LOG.warn("exclude materialized index {} from row ttl table {} because its schema lacks {}",
+                                indexName, olapTable.getQualifiedName(), Column.TTL_COL);
+                        continue;
+                    }
                     String createMvSql;
                     if (meta.getDefineStmt() != null) {
                         // get the original create mv sql
@@ -285,7 +291,7 @@ public class InitMaterializationContextHook implements PlannerHook {
                                 MTMVPlanUtil.DISABLE_RULES_WHEN_GENERATE_MTMV_CACHE, meta.getSessionVariables());
                         basicMvContext.setDatabase(meta.getDbName());
 
-                        boolean sessionVarMatch = SessionVarGuardRewriter.checkSessionVariablesMatch(
+                        boolean sessionVarMatch = SessionVarGuardRewriter.checkSessionVariablesMatchForSyncMv(
                                 ConnectContextUtil.getAffectQueryResultInPlanVariables(
                                         cascadesContext.getConnectContext()), meta.getSessionVariables());
                         MTMVCache mtmvCache = MTMVCache.from(querySql.get(),
@@ -312,6 +318,9 @@ public class InitMaterializationContextHook implements PlannerHook {
                 LOG.warn(String.format("createSyncMvContexts exception, index id is %s, index name is %s, "
                                 + "table name is %s", entry.getValue(), indexName, olapTable.getQualifiedName()),
                         exception);
+            } finally {
+                // Database selection can fail after context creation but before MTMVCache cleanup.
+                previousContext.setThreadLocalInfo();
             }
         }
         return getMaterializationContextByHint(contexts);

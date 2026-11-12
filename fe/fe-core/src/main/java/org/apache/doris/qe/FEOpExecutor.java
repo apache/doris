@@ -65,6 +65,9 @@ public class FEOpExecutor {
     protected final OriginStatement originStmt;
     protected final ConnectContext ctx;
     protected TMasterOpResult result;
+    // A cancel RPC replaces result with a response that has no query participants. Keep the
+    // statement's dispatched BEs until audit has consumed them.
+    private volatile Set<Long> auditStatisticsBackendIds = Collections.emptySet();
     protected TNetworkAddress feAddr;
 
     // the total time of thrift connectTime, readTime and writeTime
@@ -83,7 +86,9 @@ public class FEOpExecutor {
     }
 
     public void execute() throws Exception {
+        auditStatisticsBackendIds = Collections.emptySet();
         result = forward(buildStmtForwardParams());
+        rememberAuditStatisticsBackendIds();
         if (ctx.isTxnModel()) {
             if (result.isSetTxnLoadInfo()) {
                 ctx.getTxnEntry().setTxnLoadInfoInObserver(result.getTxnLoadInfo());
@@ -112,7 +117,14 @@ public class FEOpExecutor {
         request.setClientNodePort(Env.getCurrentEnv().getSelfNode().getPort());
         // just make the protocol happy
         request.setSql("");
+        rememberAuditStatisticsBackendIds();
         result = forward(request);
+    }
+
+    private void rememberAuditStatisticsBackendIds() {
+        if (result != null && result.isSetAuditStatisticsBackendIds()) {
+            auditStatisticsBackendIds = ImmutableSet.copyOf(result.getAuditStatisticsBackendIds());
+        }
     }
 
     // Send request to specific fe
@@ -335,6 +347,9 @@ public class FEOpExecutor {
     }
 
     public Set<Long> getAuditStatisticsBackendIds() {
+        if (!auditStatisticsBackendIds.isEmpty()) {
+            return auditStatisticsBackendIds;
+        }
         if (result == null || !result.isSetAuditStatisticsBackendIds()) {
             return Collections.emptySet();
         }

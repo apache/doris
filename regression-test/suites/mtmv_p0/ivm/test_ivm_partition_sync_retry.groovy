@@ -36,9 +36,8 @@ suite("test_ivm_partition_sync_retry", "nonConcurrent") {
         DISTRIBUTED BY HASH(id) BUCKETS 1
         PROPERTIES (
             "replication_num" = "1",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW",
-            "binlog.need_historical_value" = "true",
+            "changelog.enable" = "true",
+            "changelog.need_historical_value" = "true",
             "enable_unique_key_merge_on_write" = "true"
         )
     """
@@ -62,13 +61,13 @@ suite("test_ivm_partition_sync_retry", "nonConcurrent") {
         ADD PARTITION p20260702 VALUES [('2026-07-02'), ('2026-07-03'))"""
     sql """INSERT INTO ivm_partition_sync_retry_base VALUES (2, '2026-07-02', 20)"""
     // Also change an existing partition so the stale refresh context selects an
-    // IVM refresh scope; the new partition's binlog row then reaches the missing
+    // IVM refresh scope; the new partition's changelog row then reaches the missing
     // MV partition and exercises the retry path.
     sql """INSERT INTO ivm_partition_sync_retry_base VALUES (1, '2026-07-01', 11)"""
 
     def taskResult
     try {
-        // The first sync is skipped. The IVM insert sees the new binlog row before
+        // The first sync is skipped. The IVM insert sees the new changelog row before
         // the corresponding MV partition exists; the internal retry must sync it
         // and rerun IVM instead of falling back to PARTITIONS/COMPLETE.
         GetDebugPoint().enableDebugPointForAllFEs(

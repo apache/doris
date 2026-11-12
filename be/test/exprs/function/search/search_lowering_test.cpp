@@ -186,10 +186,10 @@ TEST(SearchLoweringTest, LeafPassesItsQueryTypeHintToTheCatalog) {
     EXPECT_EQ(catalog.resolved_query_types[kKeyword], InvertedIndexQueryType::EQUAL_QUERY);
 }
 
-TEST(SearchLoweringTest, UnboundFieldLowersToUnknown) {
+TEST(SearchLoweringTest, UnboundFieldLowersToEmpty) {
     FakeCatalog catalog;
     auto node = lower(leaf("TERM", kUnbound, "x"), catalog);
-    EXPECT_NE(node->as<Unknown>(), nullptr);
+    EXPECT_NE(node->as<Empty>(), nullptr);
     ASSERT_NE(node->field(), nullptr);
     EXPECT_EQ(node->field()->name, kUnbound);
     EXPECT_TRUE(node->field()->binding.empty());
@@ -449,9 +449,11 @@ TEST(SearchLoweringTest, ScalarIndexLowersTermAndExactToCompare) {
         EXPECT_EQ(compare->field.binding, "price#eq");
     }
     for (const char* clause_type : {"PHRASE", "PREFIX", "WILDCARD", "REGEXP", "RANGE", "LIST"}) {
-        EXPECT_NE(lower(leaf(clause_type, kNumber, "42"), catalog)->as<Unknown>(), nullptr)
+        NodePtr node;
+        EXPECT_FALSE(lower_search_clause(leaf(clause_type, kNumber, "42"), {}, catalog, &node).ok())
                 << clause_type;
     }
+    EXPECT_NE(lower(leaf("WILDCARD", kNumber, "*"), catalog)->as<Exists>(), nullptr);
     EXPECT_TRUE(catalog.analyzed_values.empty());
 }
 

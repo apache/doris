@@ -117,10 +117,10 @@ private:
     bool _storage_no_merge() override;
 
     bool _read_mor_as_dup();
-    // True for MIN_DELTA / DETAIL binlog scans, which read through BlockReader's merge (op
+    // True for MIN_DELTA / DETAIL changelog scans, which read through BlockReader's merge (op
     // synthesis + BEFORE/AFTER split) and thus must keep predicates above the reader. Returns bool
-    // to avoid leaking the thrift binlog-scan-type enum into this header.
-    bool _is_binlog_merge_scan() const;
+    // to avoid leaking the thrift changelog-scan-type enum into this header.
+    bool _is_changelog_merge_scan() const;
     bool _push_down_topn(const RuntimePredicate& predicate) override {
         if (!predicate.target_is_slot(_parent->node_id())) {
             return false;
@@ -136,6 +136,9 @@ private:
     Status _init_scanners(std::list<ScannerSPtr>* scanners) override;
 
     void _prune_rowsets_by_tso(const TPaloScanRange& scan_range, TabletReadSource& read_source);
+
+    // Whether each segment should be scanned by a scanner of its own.
+    bool _use_scan_parallelism_by_per_segment();
 
     Status _build_key_ranges_and_filters();
 

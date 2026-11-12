@@ -106,10 +106,16 @@ public class EsConnectorRestClient {
         OkHttpClient client = httpSslEnable ? getOrCreateSslClient() : PLAIN_CLIENT;
         String node = currentNode();
         try (Response response = executeResponse(client, node, path, null)) {
-            return response.isSuccessful();
+            if (response.isSuccessful()) {
+                return true;
+            }
+            if (response.code() == 404) {
+                return false;
+            }
+            throw new DorisConnectorException("Failed to check index " + indexName
+                    + ": HTTP " + response.code());
         } catch (IOException e) {
-            LOG.warn("existIndex error", e);
-            return false;
+            throw new DorisConnectorException("Failed to check index " + indexName, e);
         }
     }
 
@@ -157,9 +163,11 @@ public class EsConnectorRestClient {
         }
     }
 
-    /** Get index mapping JSON string. */
+    /** Get mappings and the index defaults that affect source/index value equivalence. */
     public String getMapping(String indexName) {
-        String path = indexName + "/_mapping";
+        // Field mappings omit inherited ignore_malformed/coerce settings. Fetch them together
+        // so a source value omitted from the index cannot justify dropping its SQL predicate.
+        String path = indexName + "?filter_path=*.mappings,*.settings.index.mapping.*";
         String result = execute(path);
         if (result == null) {
             throw new DorisConnectorException("index[" + indexName + "] not found");

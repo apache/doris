@@ -33,8 +33,7 @@ suite("test_ivm_complete_refresh_rowid", "mtmv") {
         DISTRIBUTED BY HASH(k1) BUCKETS 1
         PROPERTIES (
             "replication_num" = "1",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW"
+            "changelog.enable" = "true"
         );
     """
 
@@ -46,7 +45,7 @@ suite("test_ivm_complete_refresh_rowid", "mtmv") {
     """
 
     // The aggregate is what keeps this MV on the unique-key model, whose row-id is what the assertions below
-    // are about: the base table stays an append-only detail table, whose scan row-id is its row-binlog lsn.
+    // are about: the base table stays an append-only detail table, whose scan row-id is its changelog lsn.
     sql """
         CREATE MATERIALIZED VIEW ${mvName}
         BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL

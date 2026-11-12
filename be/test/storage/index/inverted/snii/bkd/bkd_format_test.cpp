@@ -57,9 +57,6 @@ TEST(SniiBkdFormat, IndexSectionTypeDoesNotCollide) {
               static_cast<uint8_t>(doris::snii::format::SectionType::kNormsPod));
 }
 
-// Design doc 5.2: the leaf value_mode byte is a closed 3-value enum. The old
-// CLucene encoding overloaded -1 / -2 / sorted_dim; these three are disjoint and
-// exhaustive.
 TEST(SniiBkdFormat, LeafValueModeEncoding) {
     EXPECT_EQ(static_cast<uint8_t>(LeafValueMode::kAllEqual), 0);
     EXPECT_EQ(static_cast<uint8_t>(LeafValueMode::kRle), 1);
@@ -67,21 +64,16 @@ TEST(SniiBkdFormat, LeafValueModeEncoding) {
     EXPECT_EQ(static_cast<uint8_t>(kMaxLeafValueMode), 2);
 }
 
-// Design doc 5.1: header `flags` bit0 = built_with_spill (diagnostic only).
 TEST(SniiBkdFormat, IndexFlagBits) {
     EXPECT_EQ(index_flags::kBuiltWithSpill, 0x01U);
 }
 
-// Design doc 5: two blob sub-files, replacing the old three (bkd_meta folded
-// into the bkd_index header).
 TEST(SniiBkdFormat, BlobFileNames) {
     EXPECT_EQ(kBkdIndexFileName, std::string_view("bkd_index"));
     EXPECT_EQ(kBkdDataFileName, std::string_view("bkd_data"));
     EXPECT_NE(kBkdIndexFileName, kBkdDataFileName);
 }
 
-// Design doc 6.2: the build-time point record is [value][doc_id: 4 bytes BE],
-// so a whole-record memcmp equals (value, doc_id) lexicographic order.
 TEST(SniiBkdFormat, BuildTimeParameters) {
     EXPECT_EQ(kPointDocIdBytes, 4U);
     EXPECT_EQ(kDefaultPointsPerLeaf, 128U);

@@ -24,9 +24,12 @@
 #include <gtest/gtest.h>
 #include <string.h>
 
+#include <cmath>
 #include <map>
 #include <memory>
 #include <string>
+#include <unordered_map>
+#include <vector>
 
 #include "core/block/block.h"
 #include "core/column/column_array.h"
@@ -38,21 +41,27 @@
 #include "core/field.h"
 #include "core/pod_array_fwd.h"
 #include "core/types.h"
+#include "exprs/function/search/function_search.h"
 #include "gtest/gtest_pred_impl.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/exec_env.h"
+#include "runtime/runtime_state.h"
 #include "storage/index/index_compound_reader.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_file_writer.h"
 #include "storage/index/index_fs_directory.h"
+#include "storage/index/inverted/clucene/clucene_index_reader.h"
 #include "storage/index/inverted/clucene/inverted_index_writer.h"
 #include "storage/index/inverted/common/inverted_index_desc.h"
+#include "storage/index/inverted/query/scoring/collection_similarity.h"
+#include "storage/index/inverted/reader/collection_statistics.h"
 #include "storage/index/zone_map/zone_map_index.h"
-#include "storage/iterator/olap_data_convertor.h"
+#include "storage/segment/array_index_input_helper.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/tablet/tablet_schema_helper.h"
 #include "storage/types.h"
+#include "util/defer_op.h"
 #include "util/faststring.h"
 #include "util/slice.h"
 
@@ -180,29 +189,6 @@ public:
         EXPECT_TRUE(io::global_local_filesystem()->delete_directory(kTestDir).ok());
     }
 
-    // create a TabletSchema with an array column (and a normal int column as key)
-    TabletSchemaSPtr create_schema_with_array(KeysType keys_type = DUP_KEYS) {
-        TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
-        TabletSchemaPB tablet_schema_pb;
-        tablet_schema_pb.set_keys_type(keys_type);
-
-        tablet_schema->init_from_pb(tablet_schema_pb);
-        TabletColumn array;
-        array.set_name("arr1");
-        array.set_type(FieldType::OLAP_FIELD_TYPE_ARRAY);
-        array.set_length(0);
-        array.set_index_length(0);
-        array.set_is_nullable(false);
-        array.set_is_bf_column(false);
-        TabletColumn child;
-        child.set_name("arr_sub_string");
-        child.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
-        child.set_length(INT_MAX);
-        array.add_sub_column(child);
-        tablet_schema->append_column(array);
-        return tablet_schema;
-    }
-
     void test_non_null_string(std::string_view rowset_id, int seg_id, const TabletColumn* field) {
         EXPECT_TRUE(field->type() == FieldType::OLAP_FIELD_TYPE_ARRAY);
         std::string index_path_prefix {InvertedIndexDescriptor::get_index_file_path_prefix(
@@ -251,33 +237,8 @@ public:
         block.insert(type_and_name);
         // block.rows() should be 2
 
-        // Use OlapBlockDataConvertor to convert
-        // Note: Here we need a TabletSchema object, in this example we construct a simple schema,
-        // Assuming that the 0th column in the schema is our array column (the actual UT has the corresponding TabletColumn)
-        TabletSchemaSPtr tablet_schema = create_schema_with_array();
-        OlapBlockDataConvertor convertor(tablet_schema.get(), {0});
-        convertor.set_source_content(&block, 0, block.rows());
-        auto [st, accessor] = convertor.convert_column_data(0);
-        EXPECT_EQ(st, Status::OK());
-        // The conversion result is actually an array of 4 pointers:
-        //   [0]: Total number of elements (elem_cnt)
-        //   [1]: Offsets array pointer
-        //   [2]: Nested item data pointer
-        //   [3]: Nested nullmap pointer
-        const auto* data_ptr = reinterpret_cast<const uint64_t*>(accessor->get_data());
-        const auto* offsets_ptr = reinterpret_cast<const uint8_t*>(data_ptr[1]);
-        const void* item_data = reinterpret_cast<const void*>(data_ptr[2]);
-        const auto* item_nullmap = reinterpret_cast<const uint8_t*>(data_ptr[3]);
-
-        // Get the length of the subfield, used for inverted index writing
-        auto field_size = field_type_size(field->get_sub_column(0).type());
-        // Call the inverted index writing interface, passing in item_data, item_nullmap, offsets_ptr, and the number of rows (the number of array rows in the Block)
-        st = _inverted_index_builder->add_array_values(field_size, item_data, item_nullmap,
-                                                       offsets_ptr, block.rows());
-        EXPECT_EQ(st, Status::OK());
-        const auto* null_map = accessor->get_nullmap();
-        // add nulls
-        st = _inverted_index_builder->add_array_nulls(null_map, block.rows());
+        auto st = feed_array_rows(*_inverted_index_builder, field->get_sub_column(0).type(),
+                                  *block.get_by_position(0).column, block.rows());
         EXPECT_EQ(st, Status::OK());
 
         EXPECT_EQ(_inverted_index_builder->finish(), Status::OK());
@@ -285,6 +246,67 @@ public:
         EXPECT_EQ(index_file_writer->finish_close(), Status::OK());
 
         ExpectedDocMap expected = {{"amory", {0, 1}}, {"doris", {0}}, {"commiter", {1}}};
+        check_terms_stats(index_path_prefix, &expected, {}, InvertedIndexStorageFormatPB::V1,
+                          &idx_meta);
+    }
+
+    // ArrayColumnWriter hands add_array the block's whole item column and the
+    // index of the batch's first element; the elements before it belong to
+    // earlier batches.
+    void test_string_batch_from_first_item(std::string_view rowset_id, int seg_id,
+                                           const TabletColumn* field) {
+        EXPECT_TRUE(field->type() == FieldType::OLAP_FIELD_TYPE_ARRAY);
+        std::string index_path_prefix {InvertedIndexDescriptor::get_index_file_path_prefix(
+                local_segment_path(kTestDir, rowset_id, seg_id))};
+        int index_id = 26033;
+        auto fs = io::global_local_filesystem();
+
+        auto index_meta_pb = std::make_unique<TabletIndexPB>();
+        index_meta_pb->set_index_type(IndexType::INVERTED);
+        index_meta_pb->set_index_id(index_id);
+        index_meta_pb->set_index_name("index_inverted_arr1");
+        index_meta_pb->clear_col_unique_id();
+        index_meta_pb->add_col_unique_id(0);
+
+        TabletIndex idx_meta;
+        idx_meta.init_from_pb(*index_meta_pb.get());
+        auto index_file_writer =
+                std::make_unique<IndexFileWriter>(fs, index_path_prefix, std::string {rowset_id},
+                                                  seg_id, InvertedIndexStorageFormatPB::V1);
+        std::unique_ptr<segment_v2::IndexColumnWriter> _inverted_index_builder = nullptr;
+        EXPECT_EQ(IndexColumnWriter::create(field, &_inverted_index_builder,
+                                            index_file_writer.get(), &idx_meta),
+                  Status::OK());
+
+        // Rows 0 and 1 belong to an earlier batch; the batch is rows [2, 5).
+        DataTypePtr array_type =
+                std::make_shared<DataTypeArray>(std::make_shared<DataTypeString>());
+        MutableColumnPtr col = array_type->create_column();
+        for (const auto& row : std::vector<std::vector<std::string>> {{"skip0", "skip1"},
+                                                                      {"skip2"},
+                                                                      {"amory", "doris"},
+                                                                      {},
+                                                                      {"amory", "commiter"}}) {
+            Array arr;
+            for (const auto& value : row) {
+                arr.push_back(Field::create_field<TYPE_STRING>(value));
+            }
+            col->insert(Field::create_field<TYPE_ARRAY>(arr));
+        }
+        const auto& col_array = assert_cast<const ColumnArray&>(*col);
+        auto offsets = ColumnOffset64::create();
+        rebase_offsets(col_array.get_offsets(), 2, 3, 0, offsets.get());
+        StorageBuffers buffer;
+        auto st = feed_array_index(_inverted_index_builder.get(), field->get_sub_column(0).type(),
+                                   col_array.get_data(), col_array.get_offsets()[1], *offsets,
+                                   nullptr, buffer);
+        EXPECT_EQ(st, Status::OK());
+
+        EXPECT_EQ(_inverted_index_builder->finish(), Status::OK());
+        EXPECT_EQ(index_file_writer->begin_close(), Status::OK());
+        EXPECT_EQ(index_file_writer->finish_close(), Status::OK());
+
+        ExpectedDocMap expected = {{"amory", {0, 2}}, {"doris", {0}}, {"commiter", {2}}};
         check_terms_stats(index_path_prefix, &expected, {}, InvertedIndexStorageFormatPB::V1,
                           &idx_meta);
     }
@@ -338,33 +360,8 @@ public:
         block.insert(type_and_name);
         // block.rows() should be 2
 
-        // Use OlapBlockDataConvertor to convert
-        // Note: Here we need a TabletSchema object, in this example we construct a simple schema,
-        // Assuming that the 0th column in the schema is our array column (the actual UT has the corresponding TabletColumn)
-        TabletSchemaSPtr tablet_schema = create_schema_with_array();
-        OlapBlockDataConvertor convertor(tablet_schema.get(), {0});
-        convertor.set_source_content(&block, 0, block.rows());
-        auto [st, accessor] = convertor.convert_column_data(0);
-        EXPECT_EQ(st, Status::OK());
-        // The conversion result is actually an array of 4 pointers:
-        //   [0]: Total number of elements (elem_cnt)
-        //   [1]: Offsets array pointer
-        //   [2]: Nested item data pointer
-        //   [3]: Nested nullmap pointer
-        const auto* data_ptr = reinterpret_cast<const uint64_t*>(accessor->get_data());
-        const auto* offsets_ptr = reinterpret_cast<const uint8_t*>(data_ptr[1]);
-        const void* item_data = reinterpret_cast<const void*>(data_ptr[2]);
-        const auto* item_nullmap = reinterpret_cast<const uint8_t*>(data_ptr[3]);
-
-        // Get the length of the subfield, used for inverted index writing
-        auto field_size = field_type_size(field->get_sub_column(0).type());
-        // Call the inverted index writing interface, passing in item_data, item_nullmap, offsets_ptr, and the number of rows (the number of array rows in the Block)
-        st = _inverted_index_builder->add_array_values(field_size, item_data, item_nullmap,
-                                                       offsets_ptr, block.rows());
-        EXPECT_EQ(st, Status::OK());
-        const auto* null_map = accessor->get_nullmap();
-        // add nulls
-        st = _inverted_index_builder->add_array_nulls(null_map, block.rows());
+        auto st = feed_array_rows(*_inverted_index_builder, field->get_sub_column(0).type(),
+                                  *block.get_by_position(0).column, block.rows());
         EXPECT_EQ(st, Status::OK());
         EXPECT_EQ(_inverted_index_builder->finish(), Status::OK());
         EXPECT_EQ(index_file_writer->begin_close(), Status::OK());
@@ -449,33 +446,8 @@ public:
         Block block;
         block.insert(type_and_name);
 
-        // Construct TabletSchema (containing the array column) - reference the existing helper function
-        TabletSchemaSPtr tablet_schema = create_schema_with_array();
-        // In this schema, assume the 0th column is the key, and the arr1 column is the non-key column with index 1
-        OlapBlockDataConvertor convertor(tablet_schema.get(), {0});
-        convertor.set_source_content(&block, 0, block.rows());
-
-        // Convert array column data
-        auto [st, accessor] = convertor.convert_column_data(0);
-        EXPECT_EQ(st, Status::OK());
-        // OlapColumnDataConvertorArray conversion result is a 4-tuple:
-        //   [0]: element total count (elem_cnt, not used directly)
-        //   [1]: offsets array pointer
-        //   [2]: nested item data conversion result pointer
-        //   [3]: nested nullmap pointer
-        const auto* data_ptr = reinterpret_cast<const uint64_t*>(accessor->get_data());
-        const auto* offsets_ptr = reinterpret_cast<const uint8_t*>(data_ptr[1]);
-        const void* item_data = reinterpret_cast<const void*>(data_ptr[2]);
-        const auto* item_nullmap = reinterpret_cast<const uint8_t*>(data_ptr[3]);
-
-        // Call the inverted index writing interface, passing in the converted nested data, nullmap, and offsets
-        auto field_size = field_type_size(field->get_sub_column(0).type());
-        st = _inverted_index_builder->add_array_values(field_size, item_data, item_nullmap,
-                                                       offsets_ptr, block.rows());
-        EXPECT_EQ(st, Status::OK());
-        const auto* null_map = accessor->get_nullmap();
-        // add nulls
-        st = _inverted_index_builder->add_array_nulls(null_map, block.rows());
+        auto st = feed_array_rows(*_inverted_index_builder, field->get_sub_column(0).type(),
+                                  *block.get_by_position(0).column, block.rows());
         EXPECT_EQ(st, Status::OK());
         EXPECT_EQ(_inverted_index_builder->finish(), Status::OK());
         EXPECT_EQ(index_file_writer->begin_close(), Status::OK());
@@ -562,33 +534,8 @@ public:
         Block block;
         block.insert(type_and_name);
 
-        // Construct TabletSchema (containing the array column) - reference the existing helper function
-        TabletSchemaSPtr tablet_schema = create_schema_with_array();
-        // In this schema, assume the 0th column is the key, and the arr1 column is the non-key column with index 1
-        OlapBlockDataConvertor convertor(tablet_schema.get(), {0});
-        convertor.set_source_content(&block, 0, block.rows());
-
-        // Convert array column data
-        auto [st, accessor] = convertor.convert_column_data(0);
-        EXPECT_EQ(st, Status::OK());
-        // OlapColumnDataConvertorArray conversion result is a 4-tuple:
-        //   [0]: element total count (elem_cnt, not used directly)
-        //   [1]: offsets array pointer
-        //   [2]: nested item data conversion result pointer
-        //   [3]: nested nullmap pointer
-        const auto* data_ptr = reinterpret_cast<const uint64_t*>(accessor->get_data());
-        const auto* offsets_ptr = reinterpret_cast<const uint8_t*>(data_ptr[1]);
-        const void* item_data = reinterpret_cast<const void*>(data_ptr[2]);
-        const auto* item_nullmap = reinterpret_cast<const uint8_t*>(data_ptr[3]);
-
-        // Call the inverted index writing interface, passing in the converted nested data, nullmap, and offsets
-        auto field_size = field_type_size(field->get_sub_column(0).type());
-        st = _inverted_index_builder->add_array_values(field_size, item_data, item_nullmap,
-                                                       offsets_ptr, block.rows());
-        EXPECT_EQ(st, Status::OK());
-        const auto* null_map = accessor->get_nullmap();
-        // add nulls
-        st = _inverted_index_builder->add_array_nulls(null_map, block.rows());
+        auto st = feed_array_rows(*_inverted_index_builder, field->get_sub_column(0).type(),
+                                  *block.get_by_position(0).column, block.rows());
         EXPECT_EQ(st, Status::OK());
         EXPECT_EQ(_inverted_index_builder->finish(), Status::OK());
         EXPECT_EQ(index_file_writer->begin_close(), Status::OK());
@@ -665,26 +612,8 @@ public:
             Block block;
             block.insert(type_and_name);
 
-            // use TabletSchema containing the array column (arr1 is the non-key column with index 1 in the schema)
-            TabletSchemaSPtr tablet_schema = create_schema_with_array();
-            OlapBlockDataConvertor convertor(tablet_schema.get(), {0});
-            convertor.set_source_content(&block, 0, block.rows());
-
-            // convert the arr1 column in the block
-            auto [st, accessor] = convertor.convert_column_data(0);
-            EXPECT_EQ(st, Status::OK());
-            // the conversion result is a 4-tuple: [0]: element count, [1]: offsets pointer, [2]: item data, [3]: item nullmap
-            const auto* data_ptr = reinterpret_cast<const uint64_t*>(accessor->get_data());
-            const auto* offsets_ptr = reinterpret_cast<const uint8_t*>(data_ptr[1]);
-            const void* item_data = reinterpret_cast<const void*>(data_ptr[2]);
-            const auto* item_nullmap = reinterpret_cast<const uint8_t*>(data_ptr[3]);
-            auto field_size = field_type_size(field->get_sub_column(0).type());
-            st = _inverted_index_builder->add_array_values(field_size, item_data, item_nullmap,
-                                                           offsets_ptr, row_num);
-            EXPECT_EQ(st, Status::OK());
-            const auto* null_map = accessor->get_nullmap();
-            // add nulls
-            st = _inverted_index_builder->add_array_nulls(null_map, row_num);
+            auto st = feed_array_rows(*_inverted_index_builder, field->get_sub_column(0).type(),
+                                      *block.get_by_position(0).column, row_num);
             EXPECT_EQ(st, Status::OK());
 
             // for Block1, the expected non-null behavior is row1 and row2
@@ -716,24 +645,8 @@ public:
             Block block;
             block.insert(type_and_name);
 
-            TabletSchemaSPtr tablet_schema = create_schema_with_array();
-            OlapBlockDataConvertor convertor(tablet_schema.get(), {0});
-            convertor.set_source_content(&block, 0, block.rows());
-
-            auto [st, accessor] = convertor.convert_column_data(0);
-            EXPECT_EQ(st, Status::OK());
-            const auto* data_ptr = reinterpret_cast<const uint64_t*>(accessor->get_data());
-            const auto* offsets_ptr = reinterpret_cast<const uint8_t*>(data_ptr[1]);
-            const void* item_data = reinterpret_cast<const void*>(data_ptr[2]);
-            const auto* item_nullmap = reinterpret_cast<const uint8_t*>(data_ptr[3]);
-
-            auto field_size = field_type_size(field->get_sub_column(0).type());
-            st = _inverted_index_builder->add_array_values(field_size, item_data, item_nullmap,
-                                                           offsets_ptr, row_num);
-            EXPECT_EQ(st, Status::OK());
-            const auto* null_map = accessor->get_nullmap();
-            // add nulls
-            st = _inverted_index_builder->add_array_nulls(null_map, row_num);
+            auto st = feed_array_rows(*_inverted_index_builder, field->get_sub_column(0).type(),
+                                      *block.get_by_position(0).column, row_num);
             EXPECT_EQ(st, Status::OK());
 
             ExpectedDocMap expected = {{"block2_data1", {4}}};
@@ -764,23 +677,8 @@ public:
             Block block;
             block.insert(type_and_name);
 
-            TabletSchemaSPtr tablet_schema = create_schema_with_array();
-            OlapBlockDataConvertor convertor(tablet_schema.get(), {0});
-            convertor.set_source_content(&block, 0, block.rows());
-
-            auto [st, accessor] = convertor.convert_column_data(0);
-            EXPECT_EQ(st, Status::OK());
-            const auto* data_ptr = reinterpret_cast<const uint64_t*>(accessor->get_data());
-            const auto* offsets_ptr = reinterpret_cast<const uint8_t*>(data_ptr[1]);
-            const void* item_data = reinterpret_cast<const void*>(data_ptr[2]);
-            const auto* item_nullmap = reinterpret_cast<const uint8_t*>(data_ptr[3]);
-            auto field_size = field_type_size(field->get_sub_column(0).type());
-            st = _inverted_index_builder->add_array_values(field_size, item_data, item_nullmap,
-                                                           offsets_ptr, row_num);
-            EXPECT_EQ(st, Status::OK());
-            const auto* null_map = accessor->get_nullmap();
-            // add nulls
-            st = _inverted_index_builder->add_array_nulls(null_map, row_num);
+            auto st = feed_array_rows(*_inverted_index_builder, field->get_sub_column(0).type(),
+                                      *block.get_by_position(0).column, row_num);
             EXPECT_EQ(st, Status::OK());
 
             ExpectedDocMap expected = {{"block3_data1", {6}}};
@@ -852,43 +750,8 @@ public:
         Block block;
         block.insert(type_and_name);
 
-        TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
-        TabletSchemaPB tablet_schema_pb;
-        tablet_schema_pb.set_keys_type(KeysType::DUP_KEYS);
-
-        tablet_schema->init_from_pb(tablet_schema_pb);
-        TabletColumn array;
-        array.set_name("arr1");
-        array.set_type(FieldType::OLAP_FIELD_TYPE_ARRAY);
-        array.set_length(0);
-        array.set_index_length(0);
-        array.set_is_nullable(false);
-        array.set_is_bf_column(false);
-        TabletColumn child;
-        child.set_name("arr_sub_int");
-        child.set_type(FieldType::OLAP_FIELD_TYPE_INT);
-        child.set_length(INT_MAX);
-        array.add_sub_column(child);
-        tablet_schema->append_column(array);
-
-        OlapBlockDataConvertor convertor(tablet_schema.get(), {0});
-        convertor.set_source_content(&block, 0, block.rows());
-        auto [st, accessor] = convertor.convert_column_data(0);
-        EXPECT_EQ(st, Status::OK());
-        // the conversion result is a 4-tuple: [0]: element total count, [1]: offsets pointer, [2]: item data, [3]: item nullmap
-        const auto* data_ptr = reinterpret_cast<const uint64_t*>(accessor->get_data());
-        const auto* offsets_ptr = reinterpret_cast<const uint8_t*>(data_ptr[1]);
-        const void* item_data = reinterpret_cast<const void*>(data_ptr[2]);
-        const auto* item_nullmap = reinterpret_cast<const uint8_t*>(data_ptr[3]);
-
-        // get the size of the sub field (4 bytes for INT type)
-        auto field_size = field_type_size(field->get_sub_column(0).type());
-        st = _inverted_index_builder->add_array_values(field_size, item_data, item_nullmap,
-                                                       offsets_ptr, block.rows());
-        EXPECT_EQ(st, Status::OK());
-        const auto* null_map = accessor->get_nullmap();
-        // add nulls
-        st = _inverted_index_builder->add_array_nulls(null_map, block.rows());
+        auto st = feed_array_rows(*_inverted_index_builder, field->get_sub_column(0).type(),
+                                  *block.get_by_position(0).column, block.rows());
         EXPECT_EQ(st, Status::OK());
         EXPECT_EQ(_inverted_index_builder->finish(), Status::OK());
         EXPECT_EQ(index_file_writer->begin_close(), Status::OK());
@@ -981,23 +844,8 @@ public:
         Block block;
         block.insert(type_and_name);
 
-        TabletSchemaSPtr tablet_schema = create_schema_with_array();
-        OlapBlockDataConvertor convertor(tablet_schema.get(), {0});
-        convertor.set_source_content(&block, 0, block.rows());
-
-        auto [st, accessor] = convertor.convert_column_data(0);
-        EXPECT_EQ(st, Status::OK());
-        const auto* data_ptr = reinterpret_cast<const uint64_t*>(accessor->get_data());
-        const auto* offsets_ptr = reinterpret_cast<const uint8_t*>(data_ptr[1]);
-        const void* item_data = reinterpret_cast<const void*>(data_ptr[2]);
-        const auto* item_nullmap = reinterpret_cast<const uint8_t*>(data_ptr[3]);
-        const auto* null_map = accessor->get_nullmap();
-
-        auto field_size = field_type_size(field->get_sub_column(0).type());
-        st = _inverted_index_builder->add_array_values(field_size, item_data, item_nullmap,
-                                                       offsets_ptr, block.rows());
-        EXPECT_EQ(st, Status::OK());
-        st = _inverted_index_builder->add_array_nulls(null_map, block.rows());
+        auto st = feed_array_rows(*_inverted_index_builder, field->get_sub_column(0).type(),
+                                  *block.get_by_position(0).column, block.rows());
         EXPECT_EQ(st, Status::OK());
 
         EXPECT_EQ(_inverted_index_builder->finish(), Status::OK());
@@ -1058,6 +906,7 @@ TEST_F(InvertedIndexArrayTest, ArrayString) {
     const TabletColumn* field = &(arrayTabletColumn);
     test_string("rowset_id", 0, field);
     test_non_null_string("rowset_id_non_null", 0, field);
+    test_string_batch_from_first_item("rowset_id_first_item", 0, field);
 }
 
 TEST_F(InvertedIndexArrayTest, ComplexNullCases) {
@@ -1088,6 +937,178 @@ TEST_F(InvertedIndexArrayTest, MultiBlockWrite) {
     arrayTabletColumn.add_sub_column(arraySubColumn);
     const TabletColumn* field = &(arrayTabletColumn);
     test_multi_block_write("multi_block", 0, field);
+}
+
+TEST_F(InvertedIndexArrayTest, SearchExcludesOuterNullArrayPayloadPostings) {
+    auto* env = ExecEnv::GetInstance();
+    auto* previous_query_cache = env->get_inverted_index_query_cache();
+    auto* previous_searcher_cache = env->get_inverted_index_searcher_cache();
+    std::unique_ptr<InvertedIndexQueryCache> query_cache(
+            InvertedIndexQueryCache::create_global_cache(1024 * 1024, 1));
+    std::unique_ptr<InvertedIndexSearcherCache> searcher_cache(
+            InvertedIndexSearcherCache::create_global_instance(1024 * 1024, 1));
+    env->set_inverted_index_query_cache(query_cache.get());
+    env->set_inverted_index_searcher_cache(searcher_cache.get());
+    DEFER({
+        env->set_inverted_index_query_cache(previous_query_cache);
+        env->set_inverted_index_searcher_cache(previous_searcher_cache);
+    });
+
+    TabletColumn column;
+    column.set_unique_id(0);
+    column.set_name("arr1");
+    column.set_type(FieldType::OLAP_FIELD_TYPE_ARRAY);
+    column.set_is_nullable(true);
+    TabletColumn element;
+    element.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
+    column.add_sub_column(element);
+    TabletIndexPB index_pb;
+    index_pb.set_index_type(IndexType::INVERTED);
+    index_pb.set_index_id(26034);
+    index_pb.set_index_name("search_nullable_array");
+    index_pb.add_col_unique_id(0);
+    (*index_pb.mutable_properties())["parser"] = "english";
+    (*index_pb.mutable_properties())["support_phrase"] = "true";
+    TabletIndex index_meta;
+    index_meta.init_from_pb(index_pb);
+    auto fs = io::global_local_filesystem();
+    const std::string prefix(InvertedIndexDescriptor::get_index_file_path_prefix(
+            local_segment_path(kTestDir, "search_null_array", 0)));
+    io::FileWriterPtr file_writer;
+    ASSERT_TRUE(
+            fs->create_file(InvertedIndexDescriptor::get_index_file_path_v2(prefix), &file_writer)
+                    .ok());
+    auto index_writer = std::make_unique<IndexFileWriter>(fs, prefix, "search_null_array", 0,
+                                                          InvertedIndexStorageFormatPB::V2,
+                                                          std::move(file_writer));
+    std::unique_ptr<IndexColumnWriter> writer;
+    ASSERT_TRUE(IndexColumnWriter::create(&column, &writer, index_writer.get(), &index_meta).ok());
+    // The ARRAY writer consumes payloads before the outer null map. A NULL
+    // ARRAY can therefore have genuine CLucene term/position postings.
+    std::vector<Slice> values {Slice("hit payload"), Slice("hit payload"), Slice("miss value")};
+    const uint64_t offsets[] = {0, 1, 2, 3};
+    const uint8_t null_map[] = {1, 0, 0};
+    ASSERT_TRUE(writer->add_array_values(sizeof(Slice),
+                                         reinterpret_cast<const uint8_t*>(values.data()), nullptr,
+                                         offsets, 3)
+                        .ok());
+    ASSERT_TRUE(writer->add_array_nulls(null_map, 3).ok());
+    ASSERT_TRUE(writer->finish().ok());
+    ASSERT_TRUE(index_writer->begin_close().ok());
+    ASSERT_TRUE(index_writer->finish_close().ok());
+
+    auto file_reader =
+            std::make_shared<IndexFileReader>(fs, prefix, InvertedIndexStorageFormatPB::V2);
+    ASSERT_TRUE(file_reader->init().ok());
+    auto reader = FullTextIndexReader::create_shared(&index_meta, file_reader);
+    InvertedIndexIterator iterator;
+    iterator.add_reader(InvertedIndexReaderType::FULLTEXT, reader);
+    OlapReaderStatistics stats;
+    RuntimeState runtime_state;
+    TQueryOptions query_options;
+    query_options.enable_inverted_index_query_cache = true;
+    query_options.enable_inverted_index_searcher_cache = true;
+    runtime_state.set_query_options(query_options);
+    auto context = std::make_shared<IndexQueryContext>();
+    context->runtime_state = &runtime_state;
+    context->stats = &stats;
+    context->collection_statistics = std::make_shared<CollectionStatistics>();
+    // Scores are only used to verify that filtering preserves the remaining
+    // scorer values. Keep collection statistics deterministic for this fixture.
+    context->collection_statistics->_total_num_docs = 3;
+    context->collection_statistics->_total_num_tokens[L"0"] = 6;
+    context->collection_statistics->_term_doc_freqs[L"0"][L"hit"] = 2;
+    context->collection_statistics->_term_doc_freqs[L"0"][L"payload"] = 2;
+    iterator.set_context(context);
+    auto type = make_nullable(std::make_shared<DataTypeArray>(std::make_shared<DataTypeString>()));
+    std::unordered_map<std::string, IndexFieldNameAndTypePair> types {{"arr1", {"0", type}}};
+    std::unordered_map<std::string, IndexIterator*> iterators {{"arr1", &iterator}};
+
+    // Prove this is not an empty-payload NULL fixture: the real reader has a
+    // hit posting for doc 0 and the independently stored NULL bitmap contains it.
+    FieldReaderResolver resolver(types, iterators, context);
+    FieldReaderBinding binding;
+    ASSERT_TRUE(resolver.resolve("arr1", InvertedIndexQueryType::MATCH_ANY_QUERY, &binding).ok());
+    std::unique_ptr<index_query::PostingsCursor> postings;
+    ASSERT_TRUE(binding.index_source->open_term("hit", false, false, &postings).ok());
+    ASSERT_NE(nullptr, postings);
+    roaring::Roaring raw_hits;
+    index_query::PostingsBlock block;
+    bool eof = false;
+    for (;;) {
+        ASSERT_TRUE(postings->next_block(&block, &eof).ok());
+        if (eof) {
+            break;
+        }
+        for (uint64_t ordinal = 0; ordinal < block.size(); ++ordinal) {
+            raw_hits.add(block.doc_at(ordinal));
+        }
+    }
+    ASSERT_TRUE(raw_hits.contains(0));
+    ASSERT_TRUE(raw_hits.contains(1));
+    InvertedIndexQueryCacheHandle null_handle;
+    ASSERT_TRUE(reader->read_null_bitmap(context, &null_handle).ok());
+    ASSERT_NE(nullptr, null_handle.get_bitmap());
+    auto intersection = raw_hits & *null_handle.get_bitmap();
+    ASSERT_EQ(1, intersection.cardinality());
+    ASSERT_TRUE(intersection.contains(0));
+
+    FunctionSearch search;
+    for (bool scoring : {false, true}) {
+        for (const auto& [clause_type, value] :
+             std::vector<std::pair<std::string, std::string>> {{"TERM", "hit"},
+                                                               {"PHRASE", "hit payload"},
+                                                               {"WILDCARD", "h*"},
+                                                               {"WILDCARD", "*"}}) {
+            TSearchClause leaf;
+            leaf.clause_type = clause_type;
+            leaf.__set_field_name("arr1");
+            leaf.__set_value(value);
+            for (bool negate : {false, true}) {
+                TSearchParam param;
+                param.original_dsl = "nullable array payload contract";
+                param.root = leaf;
+                if (negate) {
+                    param.root.clause_type = "NOT";
+                    param.root.__set_children({leaf});
+                }
+                roaring::Roaring expected;
+                if (value == "*") {
+                    expected.add(negate ? 0 : 1);
+                    if (!negate) {
+                        expected.add(2);
+                    }
+                } else {
+                    expected.add(negate ? 0 : 1);
+                    if (negate) {
+                        expected.add(2);
+                    }
+                }
+                // Repeated non-scoring calls exercise cold/warm DSL execution;
+                // scoring bypasses that cache and runs the real CLucene scorer.
+                for (int repetition = 0; repetition < 2; ++repetition) {
+                    context->collection_similarity =
+                            scoring ? std::make_shared<CollectionSimilarity>() : nullptr;
+                    InvertedIndexResultBitmap result;
+                    auto status = search.evaluate_inverted_index_with_search_param(
+                            param, types, iterators, 3, result, true, nullptr, {}, context);
+                    ASSERT_TRUE(status.ok()) << status;
+                    EXPECT_TRUE(*result.get_data_bitmap() == expected)
+                            << clause_type << "/" << value << "/not=" << negate
+                            << "/score=" << scoring;
+                    EXPECT_TRUE(result.get_null_bitmap()->isEmpty());
+                    if (scoring) {
+                        const auto& scores = context->collection_similarity->_bm25_scores;
+                        EXPECT_EQ(expected.cardinality(), scores.size());
+                        for (const auto& [doc, score] : scores) {
+                            EXPECT_TRUE(expected.contains(doc));
+                            EXPECT_TRUE(std::isfinite(score));
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 TEST_F(InvertedIndexArrayTest, ArrayInt) {

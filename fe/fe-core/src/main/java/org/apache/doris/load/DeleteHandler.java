@@ -111,9 +111,9 @@ public class DeleteHandler implements Writable {
         try {
             targetTbl.readLock();
             try {
-                if (targetTbl.needRowBinlog()) {
+                if (targetTbl.hasChangelog()) {
                     throw new AnalysisException(
-                            "DELETE with predicates is not supported when binlog<row> is enabled because it cannot "
+                            "DELETE with predicates is not supported when changelog is enabled because it cannot "
                                     + "produce row-level DELETE events.");
                 }
                 if (targetTbl.getState() != OlapTable.OlapTableState.NORMAL) {

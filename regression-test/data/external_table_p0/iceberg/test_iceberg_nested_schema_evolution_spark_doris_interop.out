@@ -22,6 +22,17 @@ attrs	map<string,struct<int(11),bigint(20),int(11),int(11)>>
 1	10	old-label
 2	20	\N
 
+-- !keep_required_desc --
+id	bigint	No	true	\N	
+widened	bigint	Yes	true	\N	
+info	struct<metric:bigint not null,label:text,child:struct<value:bigint not null,note:text not null> not null>	No	true	\N	
+payload	struct<code:bigint not null>	Yes	true	\N	
+
+-- !keep_required_rows --
+1	10	100	old-label	1000	old-note	10000
+2	\N	200	\N	2000	new-note	\N
+
 -- !deep_nested_rows --
 1	last-old	middle-old	first-old	old-note	1.5	12.34
 2	last-new	middle-new	first-new	new-note	2.5	56.78
+

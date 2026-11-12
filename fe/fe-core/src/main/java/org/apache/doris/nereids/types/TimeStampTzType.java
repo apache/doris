@@ -20,7 +20,10 @@ package org.apache.doris.nereids.types;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.TimestampTzLiteral;
+import org.apache.doris.nereids.types.coercion.AdjustableScaleTimeType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.types.coercion.DateLikeType;
 import org.apache.doris.nereids.types.coercion.ScaleTimeType;
@@ -28,11 +31,12 @@ import org.apache.doris.nereids.types.coercion.ScaleTimeType;
 import com.google.common.base.Preconditions;
 
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * TimeStampTz type in Nereids.
  */
-public class TimeStampTzType extends DateLikeType implements ScaleTimeType {
+public class TimeStampTzType extends DateLikeType implements AdjustableScaleTimeType {
     public static final int MAX_SCALE = 6;
     public static final TimeStampTzType SYSTEM_DEFAULT = new TimeStampTzType(0);
     public static final TimeStampTzType MAX = new TimeStampTzType(MAX_SCALE);
@@ -133,5 +137,15 @@ public class TimeStampTzType extends DateLikeType implements ScaleTimeType {
     @Override
     public String toSql() {
         return super.toSql() + "(" + scale + ")";
+    }
+
+    @Override
+    public Optional<Expression> zeroValue() {
+        return Optional.of(new TimestampTzLiteral(this, 1970, 1, 1, 0, 0, 0, 0));
+    }
+
+    @Override
+    public TimeStampTzType withScale(int scale) {
+        return of(scale);
     }
 }

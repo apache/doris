@@ -156,6 +156,9 @@ struct ColumnMapping {
     std::vector<ColumnMapping> child_mappings;
     // True when file value can be used directly as table value without cast or child remap.
     bool is_trivial = false;
+    // Paimon TIMESTAMP precision narrowing uses truncation instead of the ordinary SQL CAST
+    // rounding behavior. This is carried recursively so nested timestamp children follow it too.
+    bool truncate_datetimev2_precision = false;
     // How filters referencing this table/global column can be converted below table-reader
     // finalize. This is metadata for localize_filters() and future constant-filter evaluation.
     FilterConversionType filter_conversion = FilterConversionType::FINALIZE_ONLY;
@@ -174,6 +177,9 @@ struct TableColumnMapperOptions {
     bool enable_row_lineage_virtual_columns = false;
     bool enable_iceberg_metadata_virtual_columns = false;
     bool enable_paimon_metadata_virtual_columns = false;
+    // Paimon schema evolution truncates timestamp precision. This must not reuse the SQL CAST
+    // behavior, which rounds when reducing DATETIMEV2 scale.
+    bool truncate_datetimev2_precision_for_paimon = false;
 
     std::string debug_string() const;
 };
@@ -190,6 +196,14 @@ const ColumnDefinition* find_column_by_name(const ColumnDefinition& table_column
 const ColumnDefinition* find_column_by_field_id(const ColumnDefinition& table_column,
                                                 const std::vector<ColumnDefinition>& file_schema,
                                                 bool allow_idless_complex_wrapper_projection);
+// Put the timestamp semantics recorded on an annotated file column and its descendants onto a
+// projection of that column. A full projection gains a child only for a subtree that carries a
+// semantic; a partial projection keeps its selection. Callers that project a file column without
+// a ColumnMapping, such as a hidden equality-delete key, must call this or the file reader keeps
+// the physical type while the annotated file schema expects the table-format type.
+void attach_timestamp_semantics(const std::optional<bool>& timestamp_is_adjusted_to_utc,
+                                const std::vector<ColumnDefinition>& file_children,
+                                LocalColumnIndex* projection);
 
 // Generic mapping layer from table schema to file schema.
 // Iceberg uses BY_FIELD_ID. Plain by-name formats can reuse this component as well, so keep this

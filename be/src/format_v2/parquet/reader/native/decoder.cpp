@@ -279,7 +279,8 @@ Status create_plain_decoder(tparquet::Type::type type, std::unique_ptr<Decoder>&
 Status create_dictionary_decoder(tparquet::Type::type type, std::unique_ptr<Decoder>& decoder) {
     switch (type) {
     case tparquet::Type::BOOLEAN:
-        return Status::InternalError("Boolean type cannot have a dictionary page");
+        decoder = std::make_unique<FixLengthDictDecoder<tparquet::Type::BOOLEAN>>();
+        return Status::OK();
     case tparquet::Type::BYTE_ARRAY:
         decoder = std::make_unique<ByteArrayDictDecoder>();
         return Status::OK();

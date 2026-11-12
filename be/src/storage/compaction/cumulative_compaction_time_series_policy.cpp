@@ -92,7 +92,7 @@ uint32_t TimeSeriesCumulativeCompactionPolicy::calc_cumulative_compaction_score(
 
     // If base version does not exist, but its state is RUNNING.
     // It is abnormal, do not select it and set *score = 0
-    if (!base_rowset_exist && tablet->tablet_state() == TABLET_RUNNING) {
+    if (!base_rowset_exist && tablet->tablet_state() == TabletState::TABLET_RUNNING) {
         LOG(WARNING) << "tablet state is running but have no base version";
         return 0;
     }
@@ -198,7 +198,7 @@ void TimeSeriesCumulativeCompactionPolicy::calculate_cumulative_point(
     // calculate promotion size
     auto base_rowset_meta = existing_rss.begin();
 
-    if (tablet->tablet_state() != TABLET_RUNNING) return;
+    if (tablet->tablet_state() != TabletState::TABLET_RUNNING) return;
     // check base rowset first version must be zero
     // for tablet which state is not TABLET_RUNNING, there may not have base version.
     CHECK((*base_rowset_meta)->start_version() == 0);
@@ -268,7 +268,7 @@ int32_t TimeSeriesCumulativeCompactionPolicy::pick_input_rowsets(
         const std::vector<RowsetSharedPtr>& candidate_rowsets, const int64_t max_compaction_score,
         const int64_t min_compaction_score, std::vector<RowsetSharedPtr>* input_rowsets,
         Version* last_delete_version, size_t* compaction_score, bool allow_delete) {
-    if (tablet->tablet_state() == TABLET_NOTREADY) {
+    if (tablet->tablet_state() == TabletState::TABLET_NOTREADY) {
         return 0;
     }
     input_rowsets->clear();
@@ -434,7 +434,8 @@ int32_t TimeSeriesCumulativeCompactionPolicy::pick_input_rowsets(
 void TimeSeriesCumulativeCompactionPolicy::update_cumulative_point(
         Tablet* tablet, const std::vector<RowsetSharedPtr>& input_rowsets,
         RowsetSharedPtr output_rowset, Version& last_delete_version) {
-    if (tablet->tablet_state() != TABLET_RUNNING || output_rowset->num_segments() == 0) {
+    if (tablet->tablet_state() != TabletState::TABLET_RUNNING ||
+        output_rowset->num_segments() == 0) {
         // if tablet under alter process, do not update cumulative point
         // if the merged output rowset is empty, do not update cumulative point
         return;
@@ -461,7 +462,8 @@ int64_t TimeSeriesCumulativeCompactionPolicy::get_compaction_level(
         return 0;
     }
 
-    if (tablet->tablet_state() != TABLET_RUNNING || output_rowset->num_segments() == 0) {
+    if (tablet->tablet_state() != TabletState::TABLET_RUNNING ||
+        output_rowset->num_segments() == 0) {
         return 0;
     }
 

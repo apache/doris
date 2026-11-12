@@ -17,12 +17,22 @@
 
 package org.apache.doris.connector.paimon;
 
+import org.apache.doris.connector.spi.ConnectorColumn;
+
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.FileSystemCatalog;
 import org.apache.paimon.catalog.Identifier;
+import org.apache.paimon.data.GenericRow;
+import org.apache.paimon.data.InternalRow;
 import org.apache.paimon.fs.local.LocalFileIO;
+import org.apache.paimon.reader.RecordReader;
 import org.apache.paimon.schema.Schema;
 import org.apache.paimon.table.Table;
+import org.apache.paimon.table.sink.BatchTableCommit;
+import org.apache.paimon.table.sink.BatchTableWrite;
+import org.apache.paimon.table.sink.BatchWriteBuilder;
+import org.apache.paimon.table.source.ReadBuilder;
+import org.apache.paimon.table.source.Split;
 import org.apache.paimon.types.DataTypes;
 import org.apache.paimon.types.RowType;
 import org.apache.paimon.utils.InstantiationUtil;
@@ -32,9 +42,11 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.Collections;
+import java.util.List;
 
 /**
  * Offline FE-&gt;BE serialized-{@link Table} round-trip smoke for the Paimon connector.
@@ -45,8 +57,8 @@ import java.util.Collections;
  * {@link Base64#getEncoder()} into the {@code paimon.serialized_table} property
  * ({@code PaimonScanPlanProvider} ~:213). BE reverses it ({@code PaimonUtils.deserialize}): URL-safe
  * {@link Base64#getUrlDecoder()} first, STANDARD {@link Base64#getDecoder()} fallback, then
- * {@link InstantiationUtil#deserializeObject(byte[], ClassLoader)}, running the IDENTICAL paimon
- * 1.3.1 jar (R-007 — see fe/pom.xml {@code <paimon.version>}). A version drift, a newly
+ * {@link InstantiationUtil#deserializeObject(byte[], ClassLoader)}, running the same SDK version
+ * pinned by the shared {@code paimon.version} in fe/pom.xml. A version drift, a newly
  * non-serializable field on the table, or a base64-variant mismatch would silently break BE
  * deserialization at runtime; this catches it in CI.
  *
@@ -163,6 +175,50 @@ public class PaimonTableSerdeRoundTripTest {
                 "round-tripped table must preserve partition keys (partition pruning depends on this)");
         Assertions.assertEquals(original.primaryKeys(), roundTripped.primaryKeys(),
                 "round-tripped table must preserve primary keys (bucketing/keyed read depends on this)");
+    }
+
+    @Test
+    public void nullablePrimaryKeyPreservesNullabilityAndMergeSemantics(@TempDir Path warehouse) throws Exception {
+        try (Catalog catalog = buildLocalCatalog(warehouse)) {
+            catalog.createDatabase(DB, false);
+            Identifier id = Identifier.create(DB, TBL);
+            catalog.createTable(id, Schema.newBuilder()
+                    .column("id", DataTypes.INT())
+                    .column("val", DataTypes.INT())
+                    .primaryKey("id")
+                    .option("bucket", "1")
+                    .option("primary-key.nullable", "true")
+                    .build(), false);
+            Table table = catalog.getTable(id);
+            List<ConnectorColumn> columns = PaimonWritePlanProvider.mapWriteColumns(
+                    table.rowType().getFields(), table.primaryKeys(), PaimonTypeMapping.Options.DEFAULT);
+            Assertions.assertTrue(columns.get(0).isKey());
+            Assertions.assertTrue(columns.get(0).isNullable(),
+                    "A Paimon primary key is no longer sufficient to infer NOT NULL");
+
+            for (int value : new int[] {10, 20}) {
+                BatchWriteBuilder builder = table.newBatchWriteBuilder();
+                try (BatchTableWrite write = builder.newWrite(); BatchTableCommit commit = builder.newCommit()) {
+                    write.write(GenericRow.of(null, value));
+                    write.write(GenericRow.of(1, 100));
+                    commit.commit(write.prepareCommit());
+                }
+            }
+
+            Table backend = beDecode(feEncode(table));
+            Assertions.assertTrue(backend.rowType().getTypeAt(0).isNullable());
+            ReadBuilder builder = backend.newReadBuilder();
+            List<String> rows = new ArrayList<>();
+            for (Split split : builder.newScan().plan().splits()) {
+                try (RecordReader<InternalRow> reader = builder.newRead().createReader(split)) {
+                    reader.forEachRemaining(row -> rows.add(
+                            (row.isNullAt(0) ? "NULL" : Integer.toString(row.getInt(0))) + ":" + row.getInt(1)));
+                }
+            }
+            Collections.sort(rows);
+            Assertions.assertEquals(Arrays.asList("1:100", "NULL:20"), rows,
+                    "Repeated NULL primary keys must merge as the same key across commits");
+        }
     }
 
     @Test

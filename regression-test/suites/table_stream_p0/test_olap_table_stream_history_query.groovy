@@ -33,9 +33,8 @@ suite("test_olap_table_stream_history_query") {
         DISTRIBUTED BY HASH(`sid`) BUCKETS 1
         PROPERTIES (
         "replication_allocation" = "tag.location.default: 1",
-        "binlog.enable" = "true",
-        "binlog.format" = "ROW",
-        "binlog.need_historical_value" = "true"
+        "changelog.enable" = "true",
+        "changelog.need_historical_value" = "true"
         ); 
     """
     sql """ 
@@ -60,8 +59,7 @@ suite("test_olap_table_stream_history_query") {
         DISTRIBUTED BY HASH(`sid`) BUCKETS 1
         PROPERTIES (
         "replication_allocation" = "tag.location.default: 1",
-        "binlog.enable" = "true",
-        "binlog.format" = "ROW"
+        "changelog.enable" = "true"
         ); 
     """
 

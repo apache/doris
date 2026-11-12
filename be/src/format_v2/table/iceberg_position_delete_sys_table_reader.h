@@ -77,6 +77,8 @@ private:
     DeleteFileKind _delete_file_kind = DeleteFileKind::POSITION_DELETE;
     std::unique_ptr<format::TableReader> _position_reader;
     RuntimeProfile* _position_reader_profile = nullptr;
+    std::unique_ptr<parquet::ParquetProfileCache> _standalone_position_profile_cache;
+    parquet::ParquetProfileCache* _position_profile_cache = nullptr;
     std::vector<ReadColumn> _read_columns;
     ColumnPtr _partition_value;
     roaring::Roaring64Map _dv_positions;

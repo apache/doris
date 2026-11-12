@@ -145,6 +145,10 @@ public class AuditLoaderTest {
         Deencapsulation.invoke(auditLoader, "fillLogBuffer",
                 new AuditEvent.AuditEventBuilder()
                         .setUser("alice").setCloudCluster("cg1").setProtocol("ArrowFlightSQL")
+                        .setSpillWriteBytesToLocalStorage(11L)
+                        .setSpillReadBytesFromLocalStorage(12L)
+                        .setSpillWriteBytesToRemoteStorage(13L)
+                        .setSpillReadBytesFromRemoteStorage(14L)
                         .setStmt("select 1").build(),
                 buffer);
         String row = buffer.toString();
@@ -157,6 +161,10 @@ public class AuditLoaderTest {
         Assertions.assertEquals("alice", columns.get(names.indexOf("user")));
         Assertions.assertEquals("cg1", columns.get(names.indexOf("compute_group")));
         Assertions.assertEquals("ArrowFlightSQL", columns.get(names.indexOf("protocol")));
+        Assertions.assertEquals("11", columns.get(names.indexOf("spill_write_bytes_from_local_storage")));
+        Assertions.assertEquals("12", columns.get(names.indexOf("spill_read_bytes_from_local_storage")));
+        Assertions.assertEquals("13", columns.get(names.indexOf("spill_write_bytes_to_remote_storage")));
+        Assertions.assertEquals("14", columns.get(names.indexOf("spill_read_bytes_from_remote_storage")));
         Assertions.assertEquals("select 1", columns.get(names.indexOf("stmt")));
         Assertions.assertEquals(names.size() - 1, names.indexOf("stmt"));
     }

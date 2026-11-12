@@ -53,8 +53,9 @@ public class CastExpr extends Expr {
             if (type.isDecimalV2() && e.type.isDecimalV2()) {
                 getChild(0).setType(type);
             }
-            // as the targetType have struct field name, if use the default name will be
-            // like col1,col2, col3... in struct, and the filed name is import in BE.
+            // matchExactType already requires the same struct field names, so the target type only
+            // contributes the field metadata (originalName/comment) here. A cast that renames the
+            // fields is not a no-op: BE has to relabel the value with the target field names.
             if (type.isStructType() && e.type.isStructType()) {
                 getChild(0).setType(type);
             }

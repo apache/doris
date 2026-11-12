@@ -278,6 +278,24 @@ suite("test_iceberg_v3_row_lineage_query_insert", "p0,external,iceberg,external_
         }
     }
 
+    // A column that takes a row lineage name would clash with the hidden column and break every read of the table.
+    def assertAlterTableWithRowLineageColumnsFails = { tableName ->
+        test {
+            sql """alter table ${tableName} add column _row_id bigint"""
+            exception "Cannot add Iceberg v3 reserved row lineage column: _row_id"
+        }
+
+        test {
+            sql """alter table ${tableName} add column (extra int, _LAST_UPDATED_SEQUENCE_NUMBER bigint)"""
+            exception "Cannot add Iceberg v3 reserved row lineage column: _LAST_UPDATED_SEQUENCE_NUMBER"
+        }
+
+        test {
+            sql """alter table ${tableName} rename column age _last_updated_sequence_number"""
+            exception "Cannot rename to Iceberg v3 reserved row lineage column: _last_updated_sequence_number"
+        }
+    }
+
     def assertRowLineageOnlyAggregatesReadable = { tableName, expectedRowCount ->
         def rowIdsWithPhysicalColumn = sql("""
             select _row_id, id
@@ -433,6 +451,9 @@ suite("test_iceberg_v3_row_lineage_query_insert", "p0,external,iceberg,external_
                     """
                     exception "Cannot specify invisible column '_last_updated_sequence_number' in INSERT statement"
                 }
+
+                // The rejected ALTERs leave the table readable for the writes and reads below.
+                assertAlterTableWithRowLineageColumnsFails(unpartitionedTable)
 
                 sql """insert into ${unpartitionedTable}(id, name, age) values (4, 'Doris', 40)"""
                 def unpartitionedCount = sql """select count(*) from ${unpartitionedTable}"""

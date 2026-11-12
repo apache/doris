@@ -55,14 +55,14 @@ bool LetterSegmenter::processEnglishLetter(AnalyzeContext& context) {
 
     if (english_start_ == -1) {
         // The current tokenizer has not yet started processing English characters
-        if (context.getCurrentCharType() == CharacterUtil::CHAR_ENGLISH) {
+        if (context.getCurrentCharType() == CharacterUtil::CharType::ENGLISH) {
             // Record the starting pointer position, indicate that the tokenizer enters the processing state
             english_start_ = static_cast<int32_t>(context.getCursor());
             english_end_ = english_start_;
         }
     } else {
         // The current tokenizer is processing English characters
-        if (context.getCurrentCharType() == CharacterUtil::CHAR_ENGLISH) {
+        if (context.getCurrentCharType() == CharacterUtil::CharType::ENGLISH) {
             // Record the current pointer position as the end position
             english_end_ = static_cast<int32_t>(context.getCursor());
         } else {
@@ -96,17 +96,17 @@ bool LetterSegmenter::processArabicLetter(AnalyzeContext& context) {
 
     if (arabic_start_ == -1) {
         // The current tokenizer has not yet started processing numeric characters
-        if (context.getCurrentCharType() == CharacterUtil::CHAR_ARABIC) {
+        if (context.getCurrentCharType() == CharacterUtil::CharType::ARABIC) {
             // Record the starting pointer position, indicate that the tokenizer enters the processing state
             arabic_start_ = static_cast<int32_t>(context.getCursor());
             arabic_end_ = arabic_start_;
         }
     } else {
         // The current tokenizer is processing numeric characters
-        if (context.getCurrentCharType() == CharacterUtil::CHAR_ARABIC) {
+        if (context.getCurrentCharType() == CharacterUtil::CharType::ARABIC) {
             // Record the current pointer position as the end position
             arabic_end_ = static_cast<int32_t>(context.getCursor());
-        } else if (context.getCurrentCharType() == CharacterUtil::CHAR_USELESS &&
+        } else if (context.getCurrentCharType() == CharacterUtil::CharType::USELESS &&
                    isNumConnector(context.getCurrentChar())) {
             // Do not output numbers, but do not mark the end
         } else {
@@ -139,18 +139,18 @@ bool LetterSegmenter::processMixLetter(AnalyzeContext& context) {
 
     if (start_ == -1) {
         // The current tokenizer has not yet started processing characters.
-        if (context.getCurrentCharType() == CharacterUtil::CHAR_ARABIC ||
-            context.getCurrentCharType() == CharacterUtil::CHAR_ENGLISH) {
+        if (context.getCurrentCharType() == CharacterUtil::CharType::ARABIC ||
+            context.getCurrentCharType() == CharacterUtil::CharType::ENGLISH) {
             start_ = static_cast<int32_t>(context.getCursor());
             end_ = start_;
         }
     } else {
         // The current tokenizer is processing characters
-        if (context.getCurrentCharType() == CharacterUtil::CHAR_ARABIC ||
-            context.getCurrentCharType() == CharacterUtil::CHAR_ENGLISH) {
+        if (context.getCurrentCharType() == CharacterUtil::CharType::ARABIC ||
+            context.getCurrentCharType() == CharacterUtil::CharType::ENGLISH) {
             // Record the possible end positions
             end_ = static_cast<int32_t>(context.getCursor());
-        } else if (context.getCurrentCharType() == CharacterUtil::CHAR_USELESS &&
+        } else if (context.getCurrentCharType() == CharacterUtil::CharType::USELESS &&
                    isLetterConnector(context.getCurrentChar())) {
             // Record the possible end positions
             end_ = static_cast<int32_t>(context.getCursor());

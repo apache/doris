@@ -980,16 +980,18 @@ public class Config extends ConfigBase {
     public static int tablet_further_repair_max_times = 5;
 
     /**
-     * row binlog replica missing marker timeout.
+     * changelog replica missing marker timeout.
      */
+    // ATTN(changelog-rename): formerly "tablet_binlog_missing_timeout_second"
     @ConfField(mutable = true, masterOnly = true)
-    public static long tablet_binlog_missing_timeout_second = 20 * 60;
+    public static long tablet_changelog_missing_timeout_second = 20 * 60;
 
     /**
-     * row binlog replica missing marker max times.
+     * changelog replica missing marker max times.
      */
+    // ATTN(changelog-rename): formerly "tablet_binlog_missing_max_times"
     @ConfField(mutable = true, masterOnly = true)
-    public static int tablet_binlog_missing_max_times = 5;
+    public static int tablet_changelog_missing_max_times = 5;
 
     /**
      * if tablet loaded txn failed recently, it will get higher priority to repair.
@@ -2207,6 +2209,15 @@ public class Config extends ConfigBase {
     @ConfField(mutable = false, masterOnly = false)
     public static int max_external_cache_loader_thread_pool_size = 64;
 
+    @ConfField(description = "Workers for fair split production")
+    public static int external_scan_split_threads = 64;
+
+    @ConfField(description = "Workers for independent metadata tasks")
+    public static int external_scan_metadata_threads = 64;
+
+    @ConfField(description = "Maximum queued tasks per query in each external scan scheduler")
+    public static int external_scan_task_queue_capacity = 128;
+
     /**
      * Max cache num of external catalog's file
      * Decrease this value if FE's memory is small
@@ -2522,7 +2533,7 @@ public class Config extends ConfigBase {
      * This is to solve the case that user forgot the password.
      */
     @ConfField(mutable = false)
-    public static boolean skip_localhost_auth_check  = true;
+    public static boolean skip_localhost_auth_check = false;
 
     @ConfField(mutable = true)
     public static boolean enable_round_robin_create_tablet = true;
@@ -2599,6 +2610,11 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = false, description = "Whether to enable the binlog feature for databases/tables by default")
     public static boolean force_enable_feature_binlog = false;
+
+    // ATTN(changelog-rename): formerly "enable_feature_binlog" (non-CCR uses)
+    @ConfField(mutable = false, masterOnly = false, varType = VariableAnnotation.EXPERIMENTAL,
+            description = "Whether to enable the changelog feature, including the commit TSO")
+    public static boolean enable_feature_changelog = false;
 
     @ConfField(mutable = false, masterOnly = false, varType = VariableAnnotation.EXPERIMENTAL, description = "Set the "
             + "maximum " + "byte " + "length " + "of a " + "binlog " + "message")
@@ -3368,8 +3384,9 @@ public class Config extends ConfigBase {
             + "whether to enable the active tablet priority scheduling strategy. " + "Default is true.")
     public static boolean enable_cloud_active_tablet_priority_scheduling = true;
 
-    @ConfField(masterOnly = true, description = "Whether to enable active tablet sliding window access statistics "
-            + "feature. Default is true.")
+    @ConfField(mutable = true, masterOnly = true,
+            description = "Whether to enable active tablet sliding window access statistics "
+                    + "feature. Default is true.")
     public static boolean enable_active_tablet_sliding_window_access_stats = true;
 
     @ConfField(mutable = true, masterOnly = true, description = "Time window size in seconds for active tablet "
@@ -3380,7 +3397,10 @@ public class Config extends ConfigBase {
             + "partition-level scheduling processes TopN active "
             + "partitions first, then other active partitions, then "
             + "inactive partitions, and internal databases last. "
-            + "Default is 10000. <=0 disables TopN segmentation.")
+            + "Default is 10000. <=0 disables TopN segmentation. "
+            + "A BE reports at most report_active_tablet_max_num tablets per dimension, so a BE holding "
+            + "a concentrated hot set cannot fill this budget on its own unless that be config is >= this "
+            + "value; watch the BE bvar report.active_tablet_truncated before raising this one.")
     public static int cloud_active_partition_scheduling_topn = 10000;
 
     @ConfField(mutable = true, masterOnly = true, description = "Refresh interval in seconds for the active-tablet "
@@ -3739,7 +3759,7 @@ public class Config extends ConfigBase {
     public static boolean enable_tso_forward_when_counter_full = true;
 
     @ConfField(mutable = true, masterOnly = true)
-    public static boolean enable_notify_be_after_load_txn_commit = false;
+    public static boolean enable_notify_be_after_load_txn_commit = true;
 
     // ATTN: DONOT add any config not related to cloud mode here
     // ATTN: DONOT add any config not related to cloud mode here

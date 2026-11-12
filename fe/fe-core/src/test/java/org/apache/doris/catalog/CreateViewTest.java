@@ -26,12 +26,14 @@ import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.utframe.TestWithFeService;
 
+import org.awaitility.Awaitility;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 
 public class CreateViewTest extends TestWithFeService {
 
@@ -53,13 +55,16 @@ public class CreateViewTest extends TestWithFeService {
     }
 
     @Test
-    public void testRowBinlogTtlViewAnalysis() throws Exception {
-        boolean originalEnableBinlog = Config.enable_feature_binlog;
-        Config.enable_feature_binlog = true;
+    public void testChangelogTtlViewAnalysis() throws Exception {
+        boolean originalEnableChangelog = Config.enable_feature_changelog;
+        Config.enable_feature_changelog = true;
         try {
+            // @incr resolves its window through the TSO, which the TSO daemon calibrates only after the switch is on.
+            Awaitility.await().atMost(30, TimeUnit.SECONDS)
+                    .until(() -> Env.getCurrentTSOService().getStatusSnapshot().isInitialized());
             createTable("create table test.view_ttl_base(k int, v int) duplicate key(k)"
                     + " distributed by hash(k) buckets 1 properties('replication_num'='1',"
-                    + " 'binlog.enable'='true', 'binlog.format'='ROW', 'binlog.ttl_seconds'='60')");
+                    + " 'changelog.enable'='true', 'changelog.ttl_seconds'='60')");
             createView("create view test.view_ttl as select k, v"
                     + " from test.view_ttl_base@incr('incrementType'='DETAIL')");
             Assertions.assertTrue(getSQLPlanOrErrorMsg("explain select * from test.view_ttl")
@@ -75,7 +80,7 @@ public class CreateViewTest extends TestWithFeService {
             Assertions.assertTrue(getSQLPlanOrErrorMsg("explain select * from test.view_ttl_nested")
                     .contains("OlapScanNode"));
         } finally {
-            Config.enable_feature_binlog = originalEnableBinlog;
+            Config.enable_feature_changelog = originalEnableChangelog;
         }
     }
 

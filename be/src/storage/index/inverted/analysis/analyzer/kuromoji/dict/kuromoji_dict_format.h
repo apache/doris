@@ -25,7 +25,7 @@ namespace doris::segment_v2::inverted_index::kuromoji {
 inline constexpr char KMJ_MAGIC[8] = {'D', 'O', 'R', 'I', 'S', 'K', 'M', 'J'};
 inline constexpr uint32_t KMJ_FORMAT_VERSION = 1;
 
-enum KmjFileKind : uint32_t {
+enum class KmjFileKind : uint32_t {
     KMJ_KIND_SYSTEM = 1,
     KMJ_KIND_MATRIX = 2,
     KMJ_KIND_CHARDEF = 3,
@@ -33,7 +33,7 @@ enum KmjFileKind : uint32_t {
 };
 
 // Canonical character categories (ordinals are stable on disk). Mirrors Lucene's set.
-enum CharCategory : uint8_t {
+enum class CharCategory : uint8_t {
     CAT_NGRAM = 0,
     CAT_DEFAULT = 1,
     CAT_SPACE = 2,

@@ -34,6 +34,23 @@ build_version_patch="${DORIS_BUILD_VERSION_PATCH-0}"
 build_version_hotfix="${DORIS_BUILD_VERSION_HOTFIX-0}"
 build_version_rc_version="${DORIS_BUILD_VERSION_RC_VERSION-""}"
 
+validate_build_version_component() {
+    local component_name="$1"
+    local component_value="$2"
+
+    # Version metrics encode each component as one base-100 digit. Reject values such as 100
+    # instead of silently carrying them into the adjacent component and creating collisions.
+    if [[ ! "${component_value}" =~ ^(0|[1-9][0-9]?)$ ]]; then
+        echo "${component_name} must be a decimal integer between 0 and 99, got: ${component_value}" >&2
+        exit 1
+    fi
+}
+
+validate_build_version_component "DORIS_BUILD_VERSION_MAJOR" "${build_version_major}"
+validate_build_version_component "DORIS_BUILD_VERSION_MINOR" "${build_version_minor}"
+validate_build_version_component "DORIS_BUILD_VERSION_PATCH" "${build_version_patch}"
+validate_build_version_component "DORIS_BUILD_VERSION_HOTFIX" "${build_version_hotfix}"
+
 build_version="${build_version_prefix}-${build_version_major}.${build_version_minor}.${build_version_patch}"
 if [[ ${build_version_hotfix} -gt 0 ]]; then
     build_version+=".${build_version_hotfix}"
@@ -129,14 +146,13 @@ package org.apache.doris.common;
 
 public class Version {
 
-  // Use String.valueOf() to prevent javac compile-time constant inlining.
-  // Without this, changing Version.class alone (e.g. via fast-compile-fe.sh)
-  // has no effect because the old values are baked into every referencing class.
+  // Runtime initializers keep build metadata out of cached consumers' constant pools.
+  // Refreshing Version.class during packaging must update both strings and version numbers.
   public static final String DORIS_BUILD_VERSION_PREFIX = String.valueOf("${build_version_prefix}");
-  public static final int DORIS_BUILD_VERSION_MAJOR = ${build_version_major};
-  public static final int DORIS_BUILD_VERSION_MINOR = ${build_version_minor};
-  public static final int DORIS_BUILD_VERSION_PATCH = ${build_version_patch};
-  public static final int DORIS_BUILD_VERSION_HOTFIX = ${build_version_hotfix};
+  public static final int DORIS_BUILD_VERSION_MAJOR = Integer.parseInt("${build_version_major}");
+  public static final int DORIS_BUILD_VERSION_MINOR = Integer.parseInt("${build_version_minor}");
+  public static final int DORIS_BUILD_VERSION_PATCH = Integer.parseInt("${build_version_patch}");
+  public static final int DORIS_BUILD_VERSION_HOTFIX = Integer.parseInt("${build_version_hotfix}");
   public static final String DORIS_BUILD_VERSION_RC_VERSION = String.valueOf("${build_version_rc_version}");
   public static final String DORIS_FEATURE_LIST = String.valueOf("${doris_feature_list}");
 

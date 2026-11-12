@@ -96,3 +96,20 @@
 -- !insert_odd_arity_ok --
 {"a":1}	{"a":1,"b":2}	{"a":1,"b":2}
 
+-- !insert_nested_sibling --
+{"a":{"c":1},"b":2}
+
+-- !insert_nested_sibling_nonempty --
+{"a":{"d":4,"c":1},"b":2}
+
+-- !insert_nested_sibling_before --
+{"b":2,"a":{"c":1}}
+
+-- !insert_deep_nested_sibling --
+{"a":{"b":{"c":1}},"x":1}
+
+-- !insert_nested_sibling_json_col --
+1	{"a":{"c":1},"b":2}
+2	{"b":2,"a":{"c":1}}
+3	{"a":{"d":4,"c":1},"b":2}
+

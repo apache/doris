@@ -54,16 +54,19 @@ protected:
         ASSERT_TRUE(KuromojiDictionaryBuilder::write_matrix(_dir + "/matrix.bin", m).ok());
 
         CharDefInput cd;
-        cd.catmap.fill(CAT_DEFAULT);
-        cd.catmap[0x6771] = CAT_KANJI; // U+6771
-        cd.defs.assign(CAT_CLASS_COUNT, CategoryDef {0, 0, 0});
-        cd.defs[CAT_DEFAULT] = CategoryDef {1, 1, 0}; // invoke=1, group=1
-        cd.defs[CAT_KANJI] = CategoryDef {0, 0, 2};   // invoke=0, group=0
+        cd.catmap.fill(CharCategory::CAT_DEFAULT);
+        cd.catmap[0x6771] = CharCategory::CAT_KANJI; // U+6771
+        cd.defs.assign(static_cast<size_t>(CharCategory::CAT_CLASS_COUNT), CategoryDef {0, 0, 0});
+        cd.defs[static_cast<size_t>(CharCategory::CAT_DEFAULT)] =
+                CategoryDef {1, 1, 0}; // invoke=1, group=1
+        cd.defs[static_cast<size_t>(CharCategory::CAT_KANJI)] =
+                CategoryDef {0, 0, 2}; // invoke=0, group=0
         ASSERT_TRUE(KuromojiDictionaryBuilder::write_chardef(_dir + "/chardef.bin", cd).ok());
 
         UnkDictInput unk;
-        unk.per_category.resize(CAT_CLASS_COUNT);
-        unk.per_category[CAT_DEFAULT].push_back({2, 2, 4769, "unk-default"});
+        unk.per_category.resize(static_cast<size_t>(CharCategory::CAT_CLASS_COUNT));
+        unk.per_category[static_cast<size_t>(CharCategory::CAT_DEFAULT)].push_back(
+                {2, 2, 4769, "unk-default"});
         ASSERT_TRUE(KuromojiDictionaryBuilder::write_unkdict(_dir + "/unkdict.bin", unk).ok());
     }
 };
@@ -95,12 +98,12 @@ TEST_F(KuromojiDictionaryTest, LoadAndQuery) {
 
     EXPECT_EQ(dict->connection_cost(/*forward*/ 2, /*backward*/ 2), 42);
 
-    EXPECT_EQ(dict->char_category(0x6771), CAT_KANJI);
-    EXPECT_EQ(dict->char_category(U'a'), CAT_DEFAULT);
+    EXPECT_EQ(dict->char_category(0x6771), CharCategory::CAT_KANJI);
+    EXPECT_EQ(dict->char_category(U'a'), CharCategory::CAT_DEFAULT);
     EXPECT_TRUE(dict->is_invoke(U'a'));    // DEFAULT invoke=1
     EXPECT_FALSE(dict->is_invoke(0x6771)); // KANJI invoke=0
 
-    WordIdRun urun = dict->unknown_run(CAT_DEFAULT);
+    WordIdRun urun = dict->unknown_run(CharCategory::CAT_DEFAULT);
     ASSERT_EQ(urun.count, 1U);
     const WordEntry& ue = dict->unknown_word(urun.entry_start);
     EXPECT_EQ(ue.word_cost, 4769);
@@ -136,10 +139,10 @@ TEST_F(KuromojiDictionaryTest, RejectsEmptyTrie) {
 
 TEST_F(KuromojiDictionaryTest, RejectsOutOfRangeCatmap) {
     CharDefInput cd;
-    cd.catmap.fill(CAT_DEFAULT);
-    cd.catmap[U'A'] = CAT_CLASS_COUNT;
-    cd.defs.assign(CAT_CLASS_COUNT, CategoryDef {0, 0, 0});
-    cd.defs[CAT_DEFAULT] = CategoryDef {1, 1, 0};
+    cd.catmap.fill(CharCategory::CAT_DEFAULT);
+    cd.catmap[U'A'] = CharCategory::CAT_CLASS_COUNT;
+    cd.defs.assign(static_cast<size_t>(CharCategory::CAT_CLASS_COUNT), CategoryDef {0, 0, 0});
+    cd.defs[static_cast<size_t>(CharCategory::CAT_DEFAULT)] = CategoryDef {1, 1, 0};
     ASSERT_TRUE(KuromojiDictionaryBuilder::write_chardef(_dir + "/chardef.bin", cd).ok());
     std::unique_ptr<KuromojiDictionary> dict;
     EXPECT_FALSE(KuromojiDictionary::load(_dir, &dict).ok());
@@ -147,7 +150,8 @@ TEST_F(KuromojiDictionaryTest, RejectsOutOfRangeCatmap) {
 
 TEST_F(KuromojiDictionaryTest, RejectsEmptyUnkDict) {
     UnkDictInput unk;
-    unk.per_category.resize(CAT_CLASS_COUNT); // all categories present but empty
+    unk.per_category.resize(
+            static_cast<size_t>(CharCategory::CAT_CLASS_COUNT)); // all categories present but empty
     ASSERT_TRUE(KuromojiDictionaryBuilder::write_unkdict(_dir + "/unkdict.bin", unk).ok());
     std::unique_ptr<KuromojiDictionary> dict;
     EXPECT_FALSE(KuromojiDictionary::load(_dir, &dict).ok());

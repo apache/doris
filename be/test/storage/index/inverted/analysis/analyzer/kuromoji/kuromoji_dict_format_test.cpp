@@ -30,7 +30,7 @@ static_assert(sizeof(CategoryDef) == 4, "CategoryDef must be 4 bytes");
 
 TEST(KuromojiDictFormatTest, ConstantsAndCategories) {
     EXPECT_EQ(KMJ_FORMAT_VERSION, 1U);
-    EXPECT_EQ(CAT_CLASS_COUNT, 12);
+    EXPECT_EQ(static_cast<int>(CharCategory::CAT_CLASS_COUNT), 12);
     EXPECT_EQ(KMJ_NO_FEATURE, 0xFFFFFFFFU);
 }
 

@@ -49,7 +49,8 @@ public:
                   std::optional<format::GlobalRowIdContext> global_rowid_context = std::nullopt,
                   bool enable_mapping_timestamp_tz = false, bool enable_mapping_varbinary = false,
                   std::optional<std::string> hive_parquet_time_zone = std::nullopt,
-                  bool preserve_binary_uuid = false);
+                  bool preserve_binary_uuid = false, ParquetProfileCache* profile_cache = nullptr,
+                  std::optional<TFileEncryptionInfo> encryption_info = std::nullopt);
     ~ParquetReader() override;
 
     Status init(RuntimeState* state) override;
@@ -84,6 +85,7 @@ protected:
 
 private:
     void _sync_page_cache_profile();
+    void _clear_decryption_parameters();
     bool _should_stop() const;
     Status _stop_status_if_requested(const Status& status) const;
 
@@ -93,6 +95,7 @@ private:
     std::unique_ptr<ParquetReaderScanState>
             _state;                  // complete scan state (file_context + schema + scheduler)
     ParquetProfile _parquet_profile; // RuntimeProfile counter set
+    ParquetProfileCache* _profile_cache;
     ParquetPageCacheStats _reported_page_cache_stats;
     std::optional<format::GlobalRowIdContext> _global_rowid_context; // global RowId context
     size_t _batch_size = ParquetScanScheduler::DEFAULT_READ_BATCH_SIZE;
@@ -101,6 +104,7 @@ private:
     bool _preserve_binary_uuid = false;        // retain the 16-byte carrier for table compatibility
     // nullopt preserves legacy session conversion; an engaged empty value explicitly disables it.
     std::optional<std::string> _hive_parquet_time_zone;
+    std::optional<TFileEncryptionInfo> _encryption_info;
 };
 
 } // namespace doris::format::parquet

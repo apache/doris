@@ -20,6 +20,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <string>
 #include <type_traits>
 #include <typeinfo>
@@ -46,6 +47,7 @@ class Arena;
 class IColumn;
 class IDataType;
 class QueryContext;
+class AIExecutionStatistics;
 
 struct AggregateFunctionAttr {
     bool is_window_function {false};
@@ -70,6 +72,20 @@ using DataTypes = std::vector<DataTypePtr>;
 
 using AggregateDataPtr = char*;
 using ConstAggregateDataPtr = const char*;
+
+enum class WindowSpillStrategy : uint8_t {
+    UNSUPPORTED,
+    PARTITION_REDUCE,
+    // NTILE-specific replay: one constant bucket count plus partition size and row position.
+    NTILE,
+    PEER_GROUP,
+};
+
+enum class WindowSpillPeerFunction : uint8_t {
+    NONE,
+    PERCENT_RANK,
+    CUME_DIST,
+};
 
 #define SAFE_CREATE(create, destroy) \
     do {                             \
@@ -290,12 +306,25 @@ public:
     /// sum[i] = sum[i-1] - col[x] + col[y]
     virtual bool supported_incremental_mode() const { return false; }
 
+    /// Describes how this function can be evaluated from a spilled window partition.
+    /// Capability alone is not sufficient to enable spill: the analytic operator must also
+    /// validate that the window frame matches the strategy.
+    virtual WindowSpillStrategy window_spill_strategy() const {
+        return WindowSpillStrategy::UNSUPPORTED;
+    }
+
+    virtual WindowSpillPeerFunction window_spill_peer_function() const {
+        return WindowSpillPeerFunction::NONE;
+    }
+
     virtual void set_query_context(QueryContext* context) {
         throw Exception(ErrorCode::FATAL_ERROR,
                         "set_query_context is not supported by aggregate function '{}'; "
                         "only LLM aggregate functions implement this method",
                         get_name());
     }
+
+    virtual void set_ai_statistics(std::shared_ptr<AIExecutionStatistics> statistics) {}
 
     virtual bool is_blockable() const { return false; }
 

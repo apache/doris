@@ -57,6 +57,8 @@ public class PluginDrivenScanNodeFileFormatTest {
                 PluginDrivenScanNode.mapFileFormatType("avro"));
         Assertions.assertEquals(TFileFormatType.FORMAT_ES_HTTP,
                 PluginDrivenScanNode.mapFileFormatType("es_http"));
+        Assertions.assertEquals(TFileFormatType.FORMAT_MONGODB,
+                PluginDrivenScanNode.mapFileFormatType("mongodb"));
     }
 
     @Test

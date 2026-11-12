@@ -32,8 +32,7 @@ suite("test_ivm_create_if_not_exists") {
         DISTRIBUTED BY HASH(k1) BUCKETS 1
         PROPERTIES (
             'replication_num' = '1',
-            'binlog.enable' = 'true',
-            'binlog.format' = 'ROW'
+            'changelog.enable' = 'true'
         )
     """
     sql "INSERT INTO ivm_create_if_exists_base VALUES (1, 10), (2, 20)"
@@ -86,8 +85,7 @@ suite("test_ivm_create_if_not_exists") {
         DISTRIBUTED BY HASH(k1) BUCKETS 1
         PROPERTIES (
             'replication_num' = '1',
-            'binlog.enable' = 'true',
-            'binlog.format' = 'ROW'
+            'changelog.enable' = 'true'
         )
     """
     sql """
@@ -150,8 +148,7 @@ suite("test_ivm_create_if_not_exists") {
         DISTRIBUTED BY HASH(k1) BUCKETS 1
         PROPERTIES (
             'replication_num' = '1',
-            'binlog.enable' = 'true',
-            'binlog.format' = 'ROW'
+            'changelog.enable' = 'true'
         )
     """
     sql """
@@ -183,8 +180,7 @@ suite("test_ivm_create_if_not_exists") {
         DISTRIBUTED BY HASH(k1) BUCKETS 1
         PROPERTIES (
             'replication_num' = '1',
-            'binlog.enable' = 'true',
-            'binlog.format' = 'ROW'
+            'changelog.enable' = 'true'
         )
     """
     sql """

@@ -166,6 +166,8 @@ public abstract class TestWithFeService {
         Config.heartbeat_interval_second = 1;
         beforeCreatingConnectContext();
         connectContext = createDefaultCtx();
+        // Static test fixtures may have initialized Env before the heartbeat interval was set.
+        Env.getCurrentHeartbeatMgr().setInterval(Config.heartbeat_interval_second * 1000L);
         connectContext.getSessionVariable().feDebug = true;
         beforeCluster();
         createDorisCluster();
@@ -296,11 +298,7 @@ public abstract class TestWithFeService {
     }
 
     public static ConnectContext createCtx(UserIdentity user, String host) throws IOException {
-        ConnectContext ctx = new ConnectContext();
-        ctx.setCurrentUserIdentity(user);
-        ctx.setRemoteIP(host);
-        ctx.setEnv(Env.getCurrentEnv());
-        ctx.setThreadLocalInfo();
+        ConnectContext ctx = UtFrameUtils.createDefaultCtx(user, host);
         ctx.setStatementContext(new StatementContext());
         return ctx;
     }
@@ -671,14 +669,14 @@ public abstract class TestWithFeService {
         connectContext.setDatabase(dbName);
     }
 
-    // Explicit opt-in for ROW fixtures; keep the feature switch unchanged outside this DDL.
-    protected void createTableWithRowBinlog(String sql) throws Exception {
-        boolean originalEnableFeatureBinlog = Config.enable_feature_binlog;
+    // Explicit opt-in for changelog fixtures; keep the feature switch unchanged outside this DDL.
+    protected void createTableWithChangelog(String sql) throws Exception {
+        boolean originalEnableFeatureChangelog = Config.enable_feature_changelog;
         try {
-            Config.enable_feature_binlog = true;
+            Config.enable_feature_changelog = true;
             createTable(sql);
         } finally {
-            Config.enable_feature_binlog = originalEnableFeatureBinlog;
+            Config.enable_feature_changelog = originalEnableFeatureChangelog;
         }
     }
 

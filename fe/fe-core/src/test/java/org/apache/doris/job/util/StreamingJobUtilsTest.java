@@ -30,6 +30,10 @@ import org.apache.doris.datasource.jdbc.client.JdbcClient;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
 import org.apache.doris.job.common.DataSourceType;
 import org.apache.doris.job.exception.JobException;
+import org.apache.doris.mysql.privilege.AccessControllerManager;
+import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.GlobalVariable;
 
 import org.junit.jupiter.api.Assertions;
@@ -55,6 +59,32 @@ public class StreamingJobUtilsTest {
     @BeforeEach
     public void setUp() {
         MockitoAnnotations.initMocks(this);
+    }
+
+    @Test
+    public void testCdcDriverPrivilege() {
+        Env env = Mockito.mock(Env.class);
+        ConnectContext ctx = Mockito.mock(ConnectContext.class);
+        AccessControllerManager accessManager = Mockito.mock(AccessControllerManager.class);
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            Mockito.when(env.getAccessManager()).thenReturn(accessManager);
+            List<String> remoteDrivers = List.of("http://example.invalid/driver.jar",
+                    "https://example.invalid/driver.jar");
+            for (String driver : remoteDrivers) {
+                AnalysisException error = Assertions.assertThrows(AnalysisException.class,
+                        () -> StreamingJobUtils.checkCdcDriverPrivilege(ctx, driver));
+                Assertions.assertTrue(error.getMessage().contains("ADMIN"));
+            }
+            Mockito.when(accessManager.checkGlobalPriv(ctx, PrivPredicate.ADMIN)).thenReturn(true);
+            for (String driver : remoteDrivers) {
+                Assertions.assertDoesNotThrow(() -> StreamingJobUtils.checkCdcDriverPrivilege(ctx, driver));
+            }
+            Mockito.when(accessManager.checkGlobalPriv(ctx, PrivPredicate.ADMIN)).thenReturn(false);
+            for (String driver : Arrays.asList(null, "driver.jar", "file:///opt/doris/driver.jar")) {
+                Assertions.assertDoesNotThrow(() -> StreamingJobUtils.checkCdcDriverPrivilege(ctx, driver));
+            }
+        }
     }
 
     @Test

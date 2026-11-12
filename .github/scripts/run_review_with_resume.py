@@ -33,11 +33,19 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
+from review_github_api import decode_json, run_gh
 from submit_review import RUN_FILE, RESULT_FILE, SUBMISSION_FILE, verify_completion, write_json
 
 # Six same-session capacity retries, each after a fixed five-minute wait.
 RETRY_DELAYS = (300,) * 6
+CAPACITY_FALLBACK_AFTER = 5
 CAPACITY_MESSAGE = "Selected model is at capacity. Please try a different model."
+# Codex 0.166 distinguishes policy capacity from ordinary overloads. Both
+# retain the same bounded recovery; other policy/safety failures must not retry.
+CAPACITY_MESSAGES = (
+    CAPACITY_MESSAGE,
+    "Policy-restricted capacity is unavailable. Please try again later.",
+)
 UNSUPPORTED_CHATGPT_MODEL = "model is not supported when using Codex with a ChatGPT account."
 PROCESS_EXIT_GRACE_SECONDS = 5
 HEAD_POLL_SECONDS = 60
@@ -78,11 +86,12 @@ class HeadWatchdog:
         # Include API time in the existing shared budget and polling interval.
         self.next_check = time.monotonic() + HEAD_POLL_SECONDS
         try:
-            response = subprocess.run(
-                ["gh", "api", f"repos/{self.args.repository}/pulls/{self.args.pr_number}"],
+            command = ["gh", "api", f"repos/{self.args.repository}/pulls/{self.args.pr_number}"]
+            response = run_gh(
+                command,
                 check=True, capture_output=True, text=True, timeout=timeout,
             )
-            check_head(json.loads(response.stdout), self.args.head_sha)
+            check_head(decode_json(response, command), self.args.head_sha)
         except (ValueError, OSError, subprocess.SubprocessError) as exc:
             # An unavailable API is not evidence of a new commit. Strict target
             # checks before resume/submission still apply independently.
@@ -436,6 +445,7 @@ def run_review(args, reaper=None):
     thread_id = None
     model = args.model
     fallback_model = getattr(args, "fallback_model", None)
+    capacity_fallback_model = getattr(args, "capacity_fallback_model", None)
     capacity_retry = 0
     attempt_number = 0
 
@@ -543,7 +553,7 @@ def run_review(args, reaper=None):
                 )
                 model = fallback_model
                 continue
-            if message is not None and message != CAPACITY_MESSAGE:
+            if message is not None and message not in CAPACITY_MESSAGES:
                 return fail(message)
             current_id = session_id(events)
             if thread_id and current_id != thread_id:
@@ -561,7 +571,7 @@ def run_review(args, reaper=None):
                     # The head can move between the exit check and readback.
                     watchdog.check(force=True)
                     raise
-                result["recovered_after_capacity"] = message == CAPACITY_MESSAGE
+                result["recovered_after_capacity"] = message in CAPACITY_MESSAGES
                 write_json(context / RESULT_FILE, result)
                 with aggregate.open("a") as handle:
                     handle.write(json.dumps({"type": "review.completed", **result}) + "\n")
@@ -606,6 +616,19 @@ def run_review(args, reaper=None):
             watchdog.wait(delay)
             check_resume_target(args, started_at, remaining)
             capacity_retry += 1
+            if capacity_retry == CAPACITY_FALLBACK_AFTER and capacity_fallback_model:
+                print(
+                    f"Switching capacity recovery from {model} to {capacity_fallback_model} "
+                    f"after {CAPACITY_FALLBACK_AFTER} capacity failures; keeping session {thread_id}",
+                    file=sys.stderr, flush=True,
+                )
+                model = capacity_fallback_model
+                goal_prompt += (
+                    f"\n\nCapacity recovery switched to {model}. Use this model for remaining "
+                    "review work, including child agents. If an unfinished child cannot resume "
+                    "with this model, replace only its unfinished work using its recorded ledger "
+                    "section; preserve completed findings and the cumulative round count."
+                )
     except ReviewSuperseded as exc:
         result = {
             "state": "superseded", "repository": args.repository,
@@ -639,6 +662,7 @@ def main():
     parser.add_argument("--base-sha", required=True)
     parser.add_argument("--model", required=True)
     parser.add_argument("--fallback-model")
+    parser.add_argument("--capacity-fallback-model", help="Resume with this model after five capacity failures")
     parser.add_argument("--effort", required=True)
     # The workflow owns the total timeout and deducts setup/finalization time.
     parser.add_argument("--budget-seconds", type=int, required=True)

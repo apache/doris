@@ -30,7 +30,7 @@ class TBinlogConfig;
 class BinlogConfigPB;
 class RowsetMeta;
 
-bool row_binlog_rowset_expired(const RowsetMeta& meta, int64_t cutoff);
+bool changelog_rowset_expired(const RowsetMeta& meta, int64_t cutoff);
 
 class BinlogConfig {
 public:
@@ -72,13 +72,13 @@ public:
     void set_need_historical_value(bool need_historical_value) {
         _need_historical_value = need_historical_value;
     }
-    bool has_row_ttl() const { return _enable && is_row_binlog_format() && _ttl_seconds > 0; }
-    int64_t row_ttl_cutoff_tso(int64_t reference_tso) const;
+    bool has_changelog_ttl() const { return _enable && is_changelog() && _ttl_seconds > 0; }
+    int64_t changelog_ttl_cutoff_tso(int64_t reference_tso) const;
 
     bool is_ccr_binlog_format() const {
         return _binlog_format == BinlogFormatPB::STATEMENT_AND_SNAPSHOT;
     }
-    bool is_row_binlog_format() const { return _binlog_format == BinlogFormatPB::ROW; }
+    bool is_changelog() const { return _binlog_format == BinlogFormatPB::CHANGELOG; }
 
     BinlogConfig& operator=(const TBinlogConfig& config);
     BinlogConfig& operator=(const BinlogConfigPB& config);

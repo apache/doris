@@ -58,7 +58,6 @@ import java.math.BigInteger;
 import java.math.MathContext;
 import java.math.RoundingMode;
 import java.nio.ByteBuffer;
-import java.nio.charset.StandardCharsets;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -177,10 +176,15 @@ public abstract class Literal extends Expression implements LeafExpression {
      * Cast with checking strict mode is enabled or not.
      */
     public Expression checkedCastWithStrictChecking(DataType targetType) {
+        return checkedCastWithStrictChecking(targetType, SessionVariable.enableStrictCast());
+    }
+
+    /** Cast a nested element using the enclosing cast's effective strictness. */
+    public Expression checkedCastWithStrictChecking(DataType targetType, boolean strictCast) {
         try {
-            return checkedCastTo(targetType);
+            return checkedCastTo(targetType, strictCast);
         } catch (CastException c) {
-            if (SessionVariable.enableStrictCast()) {
+            if (strictCast) {
                 throw c;
             } else {
                 return new NullLiteral(dataType);
@@ -193,6 +197,11 @@ public abstract class Literal extends Expression implements LeafExpression {
      */
     @Override
     public Expression checkedCastTo(DataType targetType) throws AnalysisException {
+        return checkedCastTo(targetType, SessionVariable.enableStrictCast());
+    }
+
+    /** Preserve effective strictness through literal container conversions. */
+    public Expression checkedCastTo(DataType targetType, boolean strictCast) throws AnalysisException {
         if (this instanceof NullLiteral) {
             return new NullLiteral(targetType);
         }
@@ -202,7 +211,7 @@ public abstract class Literal extends Expression implements LeafExpression {
                 throw new CastException(String.format("%s can't cast to %s, overflow.", desc, targetType));
             }
         }
-        return uncheckedCastTo(targetType);
+        return uncheckedCastTo(targetType, strictCast);
     }
 
     protected boolean numericOverflow(String desc, DataType targetType) {
@@ -258,6 +267,10 @@ public abstract class Literal extends Expression implements LeafExpression {
         } else {
             return new DecimalV3Literal((DecimalV3Type) targetType, result);
         }
+    }
+
+    protected Expression uncheckedCastTo(DataType targetType, boolean strictCast) throws AnalysisException {
+        return uncheckedCastTo(targetType);
     }
 
     @Override
@@ -586,10 +599,14 @@ public abstract class Literal extends Expression implements LeafExpression {
                 break;
             case MYSQL_TYPE_STRING:
             case MYSQL_TYPE_VARSTRING:
-                literal = handleStringLiteral(data);
-                break;
             case MYSQL_TYPE_VARCHAR:
-                literal = handleVarcharLiteral(data);
+                literal = handleStringLiteral(mysqlType, data);
+                break;
+            case MYSQL_TYPE_TINY_BLOB:
+            case MYSQL_TYPE_MEDIUM_BLOB:
+            case MYSQL_TYPE_LONG_BLOB:
+            case MYSQL_TYPE_BLOB:
+                literal = new VarBinaryLiteral(MysqlProto.readLenEncodedString(data));
                 break;
             default:
                 throw new AnalysisException("Unsupported MySQL type: " + mysqlType);
@@ -694,24 +711,22 @@ public abstract class Literal extends Expression implements LeafExpression {
         }
     }
 
-    private static Literal handleStringLiteral(ByteBuffer data) {
+    private static Literal handleStringLiteral(MysqlColType mysqlType, ByteBuffer data) {
         int strLen = getParmLen(data);
         strLen = Math.min(strLen, data.remaining());
         byte[] bytes = new byte[strLen];
         data.get(bytes);
-        // ATTN: use fixed StandardCharsets.UTF_8 to avoid unexpected charset in
-        // different environment
-        return new StringLiteral(new String(bytes, StandardCharsets.UTF_8));
-    }
-
-    private static Literal handleVarcharLiteral(ByteBuffer data) {
-        int strLen = getParmLen(data);
-        strLen = Math.min(strLen, data.remaining());
-        byte[] bytes = new byte[strLen];
-        data.get(bytes);
-        // ATTN: use fixed StandardCharsets.UTF_8 to avoid unexpected charset in
-        // different environment
-        return new VarcharLiteral(new String(bytes, StandardCharsets.UTF_8));
+        // Connector/J setBytes and Connector/ODBC binary bindings also use the string wire types.
+        // Preserve bytes that cannot be represented as UTF-8 instead of replacing them with U+FFFD.
+        // Valid UTF-8 retains the existing text type because the wire type cannot distinguish it
+        // from a text binding.
+        VarBinaryLiteral binary = new VarBinaryLiteral(bytes);
+        Optional<String> text = binary.toUtf8String();
+        if (!text.isPresent()) {
+            return binary;
+        }
+        return mysqlType == MysqlColType.MYSQL_TYPE_VARCHAR
+                ? new VarcharLiteral(text.get()) : new StringLiteral(text.get());
     }
 
     /**convertToTypedLiteral*/

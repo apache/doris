@@ -48,9 +48,8 @@ suite("test_min_delta_op_filter_correctness", "nonConcurrent") {
                 "replication_num" = "1",
                 "enable_unique_key_merge_on_write" = "true",
                 "function_column.sequence_col" = "version_no",
-                "binlog.enable" = "true",
-                "binlog.format" = "ROW",
-                "binlog.need_historical_value" = "true"
+                "changelog.enable" = "true",
+                "changelog.need_historical_value" = "true"
             )
         """
 

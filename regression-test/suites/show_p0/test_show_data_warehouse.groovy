@@ -136,11 +136,63 @@ suite("test_show_data_warehouse") {
         sql """ DROP DATABASE IF EXISTS ${db1Name}; """
         result = sql """show data properties("entire_warehouse"="true")"""
         assertTrue(result.size() > 0)
+        long sumDataSize = 0
+        long totalDataSize = -1
+        int spillRows = 0
         for (row : result) {
+            // |DBName|DataSize|RecycleSize|ChangelogSize|
+            assertEquals(4, row.size())
             if (row[0].toString().equalsIgnoreCase("total")) {
                 assertTrue(row[2].toInteger() > 0)
+                totalDataSize = row[1].toLong()
+                continue
             }
+            if (row[0].toString() == "__remote_spill__") {
+                // spill bytes currently held in object storage; 0 unless spill_storage_type=s3
+                spillRows++
+                assertTrue(row[1].toLong() >= 0)
+                assertEquals("0", row[2].toString())
+                assertEquals("0", row[3].toString())
+            }
+            sumDataSize += row[1].toLong()
         }
+        // The spill row is listed on its own and counted in the total, in cloud mode only.
+        assertEquals(isCloudMode() ? 1 : 0, spillRows)
+        assertEquals(sumDataSize, totalDataSize)
+
+        // Restricted to databases: no spill row.
+        result = sql """ show data properties("entire_warehouse"="true","db_names"="${db2Name}"); """
+        for (row : result) {
+            assertTrue(row[0].toString() != "__remote_spill__")
+        }
+
+        // SHOW DATA without a database lists every database and, in cloud mode, the spill row too.
+        def noDbJdbcUrl = context.config.jdbcUrl.replaceFirst(/(jdbc:mysql:\/\/[^\/]+\/)[^?]*/, '$1')
+        result = connect(context.config.jdbcUser, context.config.jdbcPassword, noDbJdbcUrl) {
+            sql """ show data """
+        }
+        log.info("show data of all databases result: ${result}");
+        long sumSize = 0
+        long totalSize = -1
+        spillRows = 0
+        for (row : result) {
+            // |DbId|DbName|Size|RemoteSize|ChangelogSize|RecycleSize|RecycleRemoteSize|
+            assertEquals(7, row.size())
+            if (row[0].toString() == "Total") {
+                totalSize = row[2].toLong()
+                continue
+            }
+            if (row[1].toString() == "__remote_spill__") {
+                spillRows++
+                assertTrue(row[2].toLong() >= 0)
+                for (int i = 3; i < 7; i++) {
+                    assertEquals("0", row[i].toString())
+                }
+            }
+            sumSize += row[2].toLong()
+        }
+        assertEquals(isCloudMode() ? 1 : 0, spillRows)
+        assertEquals(sumSize, totalSize)
     } finally {
         sql """ DROP DATABASE IF EXISTS ${db1Name} FORCE;"""
         sql """ DROP DATABASE IF EXISTS ${db2Name} FORCE;"""

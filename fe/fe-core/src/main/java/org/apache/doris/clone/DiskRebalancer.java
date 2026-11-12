@@ -65,9 +65,9 @@ public class DiskRebalancer extends Rebalancer {
         List<BackendLoadStatistic> stats = Lists.newArrayList();
         for (BackendLoadStatistic backend : bes) {
             long backendId = backend.getBeId();
-            Long timeoutS = prioBackends.getOrDefault(backendId, 0L);
-            if (timeoutS != 0) {
-                if (timeoutS > System.currentTimeMillis()) {
+            Long expireTimeMs = prioBackends.getOrDefault(backendId, 0L);
+            if (expireTimeMs != 0) {
+                if (expireTimeMs <= System.currentTimeMillis()) {
                     // remove backends from prio if timeout
                     prioBackends.remove(backendId);
                     continue;

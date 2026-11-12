@@ -31,6 +31,7 @@ import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.TimeStampNsLiteral;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.arrowflight.protocol.FlightProtocolAdapter;
+import org.apache.doris.arrowflight.protocol.FlightProtocolAdapter.PreparedQuery;
 import org.apache.doris.arrowflight.results.FlightSqlChannel;
 import org.apache.doris.arrowflight.results.FlightSqlEndpointsLocation;
 import org.apache.doris.authentication.Principal;
@@ -874,11 +875,11 @@ public class ConnectContext {
     }
 
     // Arrow Flight SQL only.
-    public void addPreparedQuery(String preparedStatementId, String preparedQuery) {
+    public void addPreparedQuery(String preparedStatementId, PreparedQuery preparedQuery) {
         FlightProtocolAdapter.of(this).addPreparedQuery(preparedStatementId, preparedQuery);
     }
 
-    public String getPreparedQuery(String preparedStatementId) {
+    public PreparedQuery getPreparedQuery(String preparedStatementId) {
         return FlightProtocolAdapter.of(this).getPreparedQuery(preparedStatementId);
     }
 
@@ -1002,10 +1003,25 @@ public class ConnectContext {
         return new NameSpaceContext(defaultCatalog, currentDb, currentDbId);
     }
 
+    public void restoreNameSpaceContext(NameSpaceContext namespace) {
+        // Restoring a captured namespace must not contact a catalog that may now be unavailable.
+        defaultCatalog = namespace.getDefaultCatalog();
+        currentDb = namespace.getCurrentDb();
+        currentDbId = namespace.getCurrentDbId();
+    }
+
     public void setDatabase(String db) {
-        currentDb = db;
         Optional<DatabaseIf> dbInstance = getCurrentCatalog().getDb(db);
-        currentDbId = dbInstance.map(DatabaseIf::getId).orElse(-1L);
+        long dbId = dbInstance.map(DatabaseIf::getId).orElse(-1L);
+        // A failed lookup must leave the previously selected database name and ID together.
+        currentDb = db;
+        currentDbId = dbId;
+    }
+
+    void restoreDatabaseName(String db) {
+        // A forwarded session can retain its namespace even when the metastore cannot resolve the database ID.
+        currentDb = db;
+        currentDbId = -1;
     }
 
     public void setExecutor(StmtExecutor executor) {
@@ -1543,6 +1559,11 @@ public class ConnectContext {
     }
 
     public void setCloudCluster(String cluster) {
+        // A compute group only exists in cloud mode. Swallowing the call here instead of making
+        // every caller wrap it in `if (Config.isCloudMode())` keeps that check in one place.
+        if (!Config.isCloudMode()) {
+            return;
+        }
         this.getSessionVariable().setCloudCluster(cluster);
     }
 

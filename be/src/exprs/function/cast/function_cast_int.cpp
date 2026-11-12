@@ -21,14 +21,14 @@
 namespace doris::CastWrapper {
 
 template <typename ToDataType>
-WrapperType create_int_wrapper(FunctionContext* context, const DataTypePtr& from_type) {
+WrapperType create_int_wrapper(const CastOptions& options, const DataTypePtr& from_type) {
     std::shared_ptr<CastToBase> cast_impl;
 
     auto make_cast_wrapper = [&](const auto& types) -> bool {
         using Types = std::decay_t<decltype(types)>;
         using FromDataType = typename Types::LeftType;
         if constexpr (type_allow_cast_to_basic_number<FromDataType>) {
-            if (context->enable_strict_mode()) {
+            if (options.strict_mode) {
                 cast_impl = std::make_shared<
                         CastToImpl<CastModeType::StrictMode, FromDataType, ToDataType>>();
             } else {
@@ -46,27 +46,27 @@ WrapperType create_int_wrapper(FunctionContext* context, const DataTypePtr& from
                 fmt::format("CAST AS number not supported {}", from_type->get_name()));
     }
 
-    return [cast_impl](FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                       uint32_t result, size_t input_rows_count,
+    return [cast_impl](RuntimeState* state, const ColumnWithTypeAndName& source_column,
+                       ColumnWithTypeAndName& target_column, size_t input_rows_count,
                        const NullMap::value_type* null_map = nullptr) {
-        return cast_impl->execute_impl(context, block, arguments, result, input_rows_count,
+        return cast_impl->execute_impl(state, source_column, target_column, input_rows_count,
                                        null_map);
     };
 }
 
-WrapperType create_int_wrapper(FunctionContext* context, const DataTypePtr& from_type,
+WrapperType create_int_wrapper(const CastOptions& options, const DataTypePtr& from_type,
                                PrimitiveType to_type) {
     switch (to_type) {
     case TYPE_TINYINT:
-        return create_int_wrapper<DataTypeInt8>(context, from_type);
+        return create_int_wrapper<DataTypeInt8>(options, from_type);
     case TYPE_SMALLINT:
-        return create_int_wrapper<DataTypeInt16>(context, from_type);
+        return create_int_wrapper<DataTypeInt16>(options, from_type);
     case TYPE_INT:
-        return create_int_wrapper<DataTypeInt32>(context, from_type);
+        return create_int_wrapper<DataTypeInt32>(options, from_type);
     case TYPE_BIGINT:
-        return create_int_wrapper<DataTypeInt64>(context, from_type);
+        return create_int_wrapper<DataTypeInt64>(options, from_type);
     case TYPE_LARGEINT:
-        return create_int_wrapper<DataTypeInt128>(context, from_type);
+        return create_int_wrapper<DataTypeInt128>(options, from_type);
     default:
         return create_unsupport_wrapper(
                 fmt::format("CAST AS int: unsupported to_type {}", type_to_string(to_type)));

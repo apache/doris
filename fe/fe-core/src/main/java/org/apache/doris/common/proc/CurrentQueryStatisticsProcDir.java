@@ -45,7 +45,9 @@ public class CurrentQueryStatisticsProcDir implements ProcDirInterface {
             .add("ScanBytesFromLocalStorage").add("ScanBytesFromRemoteStorage")
             .add("SpillWriteBytesToLocalStorage").add("SpillReadBytesFromLocalStorage")
             .add("BytesWriteIntoCache")
-            .add("TotalTasks").add("FinishedTasks").add("Progress").build();
+            .add("TotalTasks").add("FinishedTasks").add("Progress")
+            // Appended last so old FE rows can default these fields during rolling upgrades.
+            .add("SpillWriteBytesToRemoteStorage").add("SpillReadBytesFromRemoteStorage").build();
 
     private static final int EXEC_TIME_INDEX = 5;
 
@@ -97,6 +99,8 @@ public class CurrentQueryStatisticsProcDir implements ProcDirInterface {
             values.add(String.valueOf(total));
             values.add(String.valueOf(finished));
             values.add(formatProgress(total, finished));
+            values.add(QueryStatisticsFormatter.getScanBytes(queryStatistics.getSpillWriteBytesToRemoteStorage()));
+            values.add(QueryStatisticsFormatter.getScanBytes(queryStatistics.getSpillReadBytesFromRemoteStorage()));
 
             sortedRowData.add(values);
         }

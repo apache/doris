@@ -18,6 +18,8 @@
 package org.apache.doris.mtmv;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Table;
@@ -25,6 +27,7 @@ import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
@@ -89,6 +92,39 @@ public class MTMVRelationManager implements MTMVHookService {
 
     public Set<BaseTableInfo> getMtmvsByBaseView(BaseTableInfo table) {
         return viewMTMVs.getOrDefault(table, ImmutableSet.of());
+    }
+
+    /** Only discard local rewrite plans; replay must not refresh an MV or load external metadata. */
+    public void invalidateRewriteCaches(String catalog, String db, String table) {
+        Set<BaseTableInfo> affected = Sets.newHashSet();
+        if (table != null) {
+            BaseTableInfo base = new BaseTableInfo(new TableNameInfo(catalog, db, table));
+            affected.addAll(getMtmvsByBaseTable(base));
+            affected.addAll(getMtmvsByBaseView(base));
+            if (InternalCatalog.INTERNAL_CATALOG_NAME.equals(catalog)) {
+                affected.add(base);
+            }
+        } else {
+            for (Map<BaseTableInfo, Set<BaseTableInfo>> relations : ImmutableList.of(tableMTMVs, viewMTMVs)) {
+                for (Map.Entry<BaseTableInfo, Set<BaseTableInfo>> entry : relations.entrySet()) {
+                    BaseTableInfo base = entry.getKey();
+                    if (catalog.equals(base.getCtlName()) && (db == null || db.equals(base.getDbName()))) {
+                        affected.addAll(entry.getValue());
+                    }
+                }
+            }
+        }
+        List<MTMV> targets = Lists.newArrayList();
+        for (BaseTableInfo mv : affected) {
+            Database database = Env.getCurrentInternalCatalog().getDbNullable(mv.getDbName());
+            Table current = database == null ? null : database.getTableNullable(mv.getTableName());
+            if (current instanceof MTMV) {
+                targets.add((MTMV) current);
+            }
+        }
+        // The existing generation barrier also rejects plans whose construction was already in flight.
+        MTMVUtil.invalidateRewriteCachesBestEffort(targets,
+                "table metadata changed: " + catalog + "." + db + "." + table);
     }
 
     public Set<BaseTableInfo> getMtmvsByBaseTableOneLevelAndFromView(BaseTableInfo table) {
@@ -156,14 +192,19 @@ public class MTMVRelationManager implements MTMVHookService {
     public Set<MTMV> getAvailableMTMVs(Set<MTMV> candidateMTMVs, ConnectContext ctx,
             boolean forceConsistent, BiPredicate<ConnectContext, MTMV> predicate) {
         Set<MTMV> res = Sets.newLinkedHashSet();
-        Map<List<String>, Set<String>> queryUsedPartitions = PartitionCompensator.getQueryUsedPartitions(
-                ctx.getStatementContext(), new BitSet());
+        Map<List<String>, Set<String>> queryUsedPartitions = null;
         for (MTMV mtmv : candidateMTMVs) {
             if (predicate.test(ctx, mtmv)) {
                 continue;
             }
             if (!mtmv.isUseForRewrite()) {
                 continue;
+            }
+            // Collect potentially large partition sets only when a candidate needs validation, once
+            // for all such candidates. Empty or filtered candidate sets need no partition union.
+            if (queryUsedPartitions == null) {
+                queryUsedPartitions = PartitionCompensator.getQueryUsedPartitions(
+                        ctx.getStatementContext(), new BitSet());
             }
             if (isMVPartitionValid(mtmv, ctx, forceConsistent, queryUsedPartitions)) {
                 res.add(mtmv);
@@ -213,24 +254,15 @@ public class MTMVRelationManager implements MTMVHookService {
     }
 
     private Set<BaseTableInfo> getOrCreateMTMVs(BaseTableInfo baseTableInfo) {
-        if (!tableMTMVs.containsKey(baseTableInfo)) {
-            tableMTMVs.put(baseTableInfo, Sets.newConcurrentHashSet());
-        }
-        return tableMTMVs.get(baseTableInfo);
+        return tableMTMVs.computeIfAbsent(baseTableInfo, ignored -> Sets.newConcurrentHashSet());
     }
 
     private Set<BaseTableInfo> getOrCreateMTMVsView(BaseTableInfo baseTableInfo) {
-        if (!viewMTMVs.containsKey(baseTableInfo)) {
-            viewMTMVs.put(baseTableInfo, Sets.newConcurrentHashSet());
-        }
-        return viewMTMVs.get(baseTableInfo);
+        return viewMTMVs.computeIfAbsent(baseTableInfo, ignored -> Sets.newConcurrentHashSet());
     }
 
     private Set<BaseTableInfo> getOrCreateMTMVsOneLevelAndFromView(BaseTableInfo baseTableInfo) {
-        if (!tableMTMVsOneLevelAndFromView.containsKey(baseTableInfo)) {
-            tableMTMVsOneLevelAndFromView.put(baseTableInfo, Sets.newConcurrentHashSet());
-        }
-        return tableMTMVsOneLevelAndFromView.get(baseTableInfo);
+        return tableMTMVsOneLevelAndFromView.computeIfAbsent(baseTableInfo, ignored -> Sets.newConcurrentHashSet());
     }
 
     public void refreshMTMVCache(MTMVRelation relation, BaseTableInfo mtmvInfo) {
@@ -595,7 +627,7 @@ public class MTMVRelationManager implements MTMVHookService {
      * dropping or renaming a column the MV uses makes the query unanalyzable, and a column re-added with
      * the same name is a different column, so pre-existing rows read its default value instead.
      *
-     * <p>Such a change is metadata-only for light schema changes and emits no binlog, so an
+     * <p>Such a change is metadata-only for light schema changes and emits no changelog, so an
      * incremental refresh would consume an empty delta and report SUCCESS while silently keeping the
      * rows computed under the old column epoch. Invalidating the MV is what keeps that from being
      * reported as current.

@@ -65,9 +65,8 @@ suite("test_ivm_base_sequence_isolation") {
         PROPERTIES (
             "replication_num" = "1",
             "enable_unique_key_merge_on_write" = "true",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW",
-            "binlog.need_historical_value" = "true",
+            "changelog.enable" = "true",
+            "changelog.need_historical_value" = "true",
             "function_column.sequence_col" = "seq"
         )
     """
@@ -82,9 +81,8 @@ suite("test_ivm_base_sequence_isolation") {
         PROPERTIES (
             "replication_num" = "1",
             "enable_unique_key_merge_on_write" = "true",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW",
-            "binlog.need_historical_value" = "true",
+            "changelog.enable" = "true",
+            "changelog.need_historical_value" = "true",
             "function_column.sequence_col" = "seq"
         )
     """
@@ -99,9 +97,8 @@ suite("test_ivm_base_sequence_isolation") {
         PROPERTIES (
             "replication_num" = "1",
             "enable_unique_key_merge_on_write" = "true",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW",
-            "binlog.need_historical_value" = "true",
+            "changelog.enable" = "true",
+            "changelog.need_historical_value" = "true",
             "function_column.sequence_col" = "seq"
         )
     """
@@ -116,9 +113,8 @@ suite("test_ivm_base_sequence_isolation") {
         PROPERTIES (
             "replication_num" = "1",
             "enable_unique_key_merge_on_write" = "true",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW",
-            "binlog.need_historical_value" = "true"
+            "changelog.enable" = "true",
+            "changelog.need_historical_value" = "true"
         )
     """
 
@@ -257,9 +253,8 @@ suite("test_ivm_base_sequence_isolation") {
         DISTRIBUTED BY HASH(id) BUCKETS 1
         PROPERTIES (
             "replication_num" = "1",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW",
-            "binlog.need_historical_value" = "true"
+            "changelog.enable" = "true",
+            "changelog.need_historical_value" = "true"
         )
         AS
         SELECT f.id AS id, f.amount AS amount, d1.name AS name

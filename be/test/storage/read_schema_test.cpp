@@ -42,7 +42,7 @@
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type/data_type_variant_v2.h"
 #include "runtime/descriptors.h"
-#include "storage/binlog.h"
+#include "storage/changelog.h"
 #include "storage/schema.h"
 #include "util/json/path_in_data.h"
 
@@ -72,17 +72,17 @@ TabletColumnPtr create_struct_column(int32_t unique_id) {
     return column;
 }
 
-TabletSchemaSPtr create_row_binlog_schema_with_colliding_names() {
+TabletSchemaSPtr create_changelog_schema_with_colliding_names() {
     auto schema = std::make_shared<TabletSchema>();
     schema->append_column(*create_int_column(10, "key", true));
     schema->append_column(*create_int_column(11, "v"));
-    schema->append_column(*create_int_column(12, "__BEFORE__v__"));
-    schema->append_column(*create_int_column(13, binlog::build_before_column_name("v")));
-    schema->append_column(
-            *create_int_column(14, binlog::build_before_column_name("__BEFORE__v__")));
-    schema->append_column(*create_int_column(15, BINLOG_TSO_COL));
-    schema->append_column(*create_int_column(16, BINLOG_LSN_COL));
-    schema->append_column(*create_int_column(17, BINLOG_OP_COL));
+    schema->append_column(*create_int_column(12, changelog::build_before_column_name("v")));
+    schema->append_column(*create_int_column(13, changelog::build_before_column_name("v")));
+    schema->append_column(*create_int_column(
+            14, changelog::build_before_column_name(changelog::build_before_column_name("v"))));
+    schema->append_column(*create_int_column(15, CHANGELOG_TSO_COL));
+    schema->append_column(*create_int_column(16, CHANGELOG_LSN_COL));
+    schema->append_column(*create_int_column(17, CHANGELOG_OP_COL));
     return schema;
 }
 
@@ -157,8 +157,8 @@ TEST(ReadSchemaTest, AppendedDroppedColumnDoesNotExtendReadBlock) {
     EXPECT_EQ(2, read_schema.create_read_block().columns());
 }
 
-TEST(ReadSchemaTest, RowBinlogMappingsUsePhysicalSchemaOrdinals) {
-    auto tablet_schema = create_row_binlog_schema_with_colliding_names();
+TEST(ReadSchemaTest, ChangelogMappingsUsePhysicalSchemaOrdinals) {
+    auto tablet_schema = create_changelog_schema_with_colliding_names();
     // Reorder the two AFTER values and their BEFORE companions to verify that ReadSchema stores
     // dense read ordinals resolved by unique id, rather than physical tablet column ids or names.
     ReadSchema read_schema(project_columns_by_ordinal(
@@ -167,12 +167,12 @@ TEST(ReadSchemaTest, RowBinlogMappingsUsePhysicalSchemaOrdinals) {
     EXPECT_TRUE(read_schema
                         .init_from_tablet_schema(*tablet_schema,
                                                  /*merge_by_sequence_mapping=*/false,
-                                                 /*map_row_binlog_columns=*/true)
+                                                 /*map_changelog_columns=*/true)
                         .ok());
 
-    EXPECT_TRUE(read_schema.row_binlog_value_pairs_complete());
-    EXPECT_EQ(read_schema.row_binlog_value_column_pairs(),
-              (ReadSchema::RowBinlogValueColumnPairs {{2, 4}, {1, 3}}));
+    EXPECT_TRUE(read_schema.changelog_value_pairs_complete());
+    EXPECT_EQ(read_schema.changelog_value_column_pairs(),
+              (ReadSchema::ChangelogValueColumnPairs {{2, 4}, {1, 3}}));
     EXPECT_EQ(4, read_schema.before_column_ordinal(2));
     EXPECT_EQ(3, read_schema.before_column_ordinal(1));
     for (ColumnId ordinal : {0, 3, 4, 5, 6, 7}) {
@@ -180,24 +180,24 @@ TEST(ReadSchemaTest, RowBinlogMappingsUsePhysicalSchemaOrdinals) {
     }
 }
 
-TEST(ReadSchemaTest, MalformedRowBinlogLayoutKeepsConservativeNameMapping) {
+TEST(ReadSchemaTest, MalformedChangelogLayoutKeepsConservativeNameMapping) {
     TabletSchema tablet_schema;
     tablet_schema.append_column(*create_int_column(10, "key", true));
     tablet_schema.append_column(*create_int_column(11, "v"));
-    tablet_schema.append_column(*create_int_column(12, binlog::build_before_column_name("v")));
+    tablet_schema.append_column(*create_int_column(12, changelog::build_before_column_name("v")));
     tablet_schema.append_column(*create_int_column(13, "orphan"));
-    tablet_schema.append_column(*create_int_column(14, BINLOG_TSO_COL));
-    tablet_schema.append_column(*create_int_column(15, BINLOG_LSN_COL));
-    tablet_schema.append_column(*create_int_column(16, BINLOG_OP_COL));
+    tablet_schema.append_column(*create_int_column(14, CHANGELOG_TSO_COL));
+    tablet_schema.append_column(*create_int_column(15, CHANGELOG_LSN_COL));
+    tablet_schema.append_column(*create_int_column(16, CHANGELOG_OP_COL));
     ReadSchema read_schema(tablet_schema.columns());
 
     EXPECT_TRUE(read_schema
                         .init_from_tablet_schema(tablet_schema, /*merge_by_sequence_mapping=*/false,
-                                                 /*map_row_binlog_columns=*/true)
+                                                 /*map_changelog_columns=*/true)
                         .ok());
 
-    EXPECT_FALSE(read_schema.row_binlog_value_pairs_complete());
-    EXPECT_TRUE(read_schema.row_binlog_value_column_pairs().empty());
+    EXPECT_FALSE(read_schema.changelog_value_pairs_complete());
+    EXPECT_TRUE(read_schema.changelog_value_column_pairs().empty());
     EXPECT_EQ(2, read_schema.before_column_ordinal(1));
 }
 
@@ -240,7 +240,7 @@ TEST(ReadSchemaTest, TabletHasSequenceMapIsIndependentOfTheProjection) {
     ReadSchema whole(tablet_schema->columns());
     ASSERT_TRUE(whole.init_from_tablet_schema(*tablet_schema,
                                               /*merge_by_sequence_mapping=*/false,
-                                              /*map_row_binlog_columns=*/false)
+                                              /*map_changelog_columns=*/false)
                         .ok());
     EXPECT_TRUE(whole.tablet_has_sequence_map());
 
@@ -249,7 +249,7 @@ TEST(ReadSchemaTest, TabletHasSequenceMapIsIndependentOfTheProjection) {
             project_columns_by_ordinal(tablet_schema->columns(), std::vector<ColumnId> {0}));
     ASSERT_TRUE(key_only.init_from_tablet_schema(*tablet_schema,
                                                  /*merge_by_sequence_mapping=*/false,
-                                                 /*map_row_binlog_columns=*/false)
+                                                 /*map_changelog_columns=*/false)
                         .ok());
     EXPECT_TRUE(key_only.tablet_has_sequence_map());
 }
@@ -263,7 +263,7 @@ TEST(ReadSchemaTest, TabletWithoutSequenceMap) {
     ASSERT_TRUE(read_schema
                         .init_from_tablet_schema(*tablet_schema,
                                                  /*merge_by_sequence_mapping=*/false,
-                                                 /*map_row_binlog_columns=*/false)
+                                                 /*map_changelog_columns=*/false)
                         .ok());
     EXPECT_FALSE(read_schema.tablet_has_sequence_map());
     EXPECT_FALSE(read_schema.tablet_has_extracted_variant_columns());
@@ -275,7 +275,7 @@ TEST(ReadSchemaTest, MergeBySequenceMappingBuildsTheMap) {
     ASSERT_TRUE(read_schema
                         .init_from_tablet_schema(*tablet_schema,
                                                  /*merge_by_sequence_mapping=*/true,
-                                                 /*map_row_binlog_columns=*/false)
+                                                 /*map_changelog_columns=*/false)
                         .ok());
 
     // Ordinals are this ReadSchema's, not the tablet schema's column ids.
@@ -290,7 +290,7 @@ TEST(ReadSchemaTest, MergeBySequenceMappingBuildsTheMap) {
     ASSERT_TRUE(untouched
                         .init_from_tablet_schema(*tablet_schema,
                                                  /*merge_by_sequence_mapping=*/false,
-                                                 /*map_row_binlog_columns=*/false)
+                                                 /*map_changelog_columns=*/false)
                         .ok());
     EXPECT_TRUE(untouched.sequence_map().empty());
 }
@@ -304,7 +304,7 @@ TEST(ReadSchemaTest, SequenceColumnAndSequenceMapConflict) {
     ReadSchema read_schema(tablet_schema->columns());
     auto st = read_schema.init_from_tablet_schema(*tablet_schema,
                                                   /*merge_by_sequence_mapping=*/true,
-                                                  /*map_row_binlog_columns=*/false);
+                                                  /*map_changelog_columns=*/false);
     EXPECT_FALSE(st.ok()) << st;
     EXPECT_TRUE(read_schema.sequence_map().empty());
 }
@@ -324,7 +324,7 @@ TEST(ReadSchemaTest, HasExtractedVariantColumns) {
     ASSERT_TRUE(without_extracted
                         .init_from_tablet_schema(*tablet_schema,
                                                  /*merge_by_sequence_mapping=*/false,
-                                                 /*map_row_binlog_columns=*/false)
+                                                 /*map_changelog_columns=*/false)
                         .ok());
     EXPECT_FALSE(without_extracted.tablet_has_extracted_variant_columns());
 
@@ -342,7 +342,7 @@ TEST(ReadSchemaTest, HasExtractedVariantColumns) {
     ASSERT_TRUE(read_schema
                         .init_from_tablet_schema(*tablet_schema,
                                                  /*merge_by_sequence_mapping=*/false,
-                                                 /*map_row_binlog_columns=*/false)
+                                                 /*map_changelog_columns=*/false)
                         .ok());
     EXPECT_TRUE(read_schema.tablet_has_extracted_variant_columns());
 }
@@ -460,6 +460,24 @@ TEST(ReadSchemaTest, TabletColumnFromSlotKeepsTypeDetails) {
     EXPECT_EQ(FieldType::OLAP_FIELD_TYPE_VARIANT, variant_column.type());
     EXPECT_EQ(3, variant_column.variant_max_subcolumns_count());
     EXPECT_TRUE(variant_column.variant_enable_doc_mode());
+}
+
+TEST(ReadSchemaTest, AppendedCompactionRowIdExtendsReadBlockBeforeDroppedColumns) {
+    std::vector<TabletColumnPtr> read_columns {create_int_column(10, "k", true)};
+    auto dropped_column = create_int_column(11, "dropped");
+    ReadSchema read_schema(std::move(read_columns));
+
+    read_schema.append_compaction_rowid_column();
+    read_schema.append_dropped_columns({*dropped_column});
+
+    EXPECT_EQ(1, read_schema.rowid_ordinal());
+    EXPECT_EQ(2, read_schema.num_block_columns());
+    EXPECT_EQ(3, read_schema.num_read_columns());
+    EXPECT_EQ(2, read_schema.ordinal_by_uid(11));
+    Block block = read_schema.create_read_block();
+    ASSERT_EQ(2, block.columns());
+    EXPECT_EQ(BeConsts::COMPACTION_ROWID_COL, block.get_by_position(1).name);
+    EXPECT_EQ(PrimitiveType::TYPE_STRING, block.get_by_position(1).type->get_primitive_type());
 }
 
 } // namespace doris

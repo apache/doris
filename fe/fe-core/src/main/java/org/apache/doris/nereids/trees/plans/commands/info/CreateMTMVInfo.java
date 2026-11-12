@@ -36,6 +36,10 @@ import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.datasource.mvcc.MvccSnapshot;
+import org.apache.doris.datasource.mvcc.MvccTableInfo;
+import org.apache.doris.datasource.mvcc.MvccUtil;
+import org.apache.doris.datasource.mvcc.PluginDrivenMvccExternalTable;
 import org.apache.doris.mtmv.MTMVAnalyzeQueryInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
@@ -393,9 +397,9 @@ public class CreateMTMVInfo extends CreateTableInfo {
             return LargeIntType.INSTANCE;
         }
         // Native-table streams use MIN_DELTA, which collapses one key to at most (-, +), so the
-        // sequence does not need a source binlog sequence. When IVM supports external tables,
+        // sequence does not need a source changelog sequence. When IVM supports external tables,
         // this method inspects normalizedPlan and returns LARGEINT if an external stream does not
-        // support MIN_DELTA and therefore needs its 64-bit binlog sequence in the IVM sequence.
+        // support MIN_DELTA and therefore needs its 64-bit changelog sequence in the IVM sequence.
         return BigIntType.INSTANCE;
     }
 
@@ -417,6 +421,7 @@ public class CreateMTMVInfo extends CreateTableInfo {
         MTMVRelatedTableIf relatedTable = MTMVUtil.getRelatedTable(mvPartitionInfo.getPctInfos().get(0).getTableInfo());
         List<AllPartitionDesc> allPartitionDescs = null;
         try {
+            preloadCreationPartitionViews(ctx, mvPartitionInfo);
             allPartitionDescs = MTMVPartitionUtil
                     .getPartitionDescsByRelatedTable(properties, mvPartitionInfo, mvProperties,
                             getPartitionColumn(mvPartitionInfo.getPartitionCol()));
@@ -443,6 +448,19 @@ public class CreateMTMVInfo extends CreateTableInfo {
             }
         } catch (org.apache.doris.common.AnalysisException e) {
             throw new AnalysisException(e.getMessage(), e);
+        }
+    }
+
+    private static void preloadCreationPartitionViews(ConnectContext ctx, MTMVPartitionInfo partitionInfo)
+            throws org.apache.doris.common.AnalysisException {
+        for (MTMVRelatedTableIf relatedTable : partitionInfo.getPctTables()) {
+            if (relatedTable instanceof PluginDrivenMvccExternalTable) {
+                PluginDrivenMvccExternalTable table = (PluginDrivenMvccExternalTable) relatedTable;
+                MvccSnapshot snapshot = MvccUtil.getSnapshotFromContext(table)
+                        .orElseGet(() -> table.loadSnapshot(Optional.empty(), Optional.empty()));
+                ctx.getStatementContext().setSnapshot(new MvccTableInfo(table),
+                        table.materializePartitionViewForMtmv(snapshot));
+            }
         }
     }
 

@@ -156,14 +156,7 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
      */
     static final String SESSION_UNION_READ_MODE = "fluss_union_read_mode";
 
-    /**
-     * The SCAN-LEVEL table format, read by BE's scanner selection before it fetches any range. Every reader
-     * this connector needs lives in {@code FileScannerV2} only, so a scan planned here must use it whatever
-     * {@code enable_file_scanner_v2} says; the legacy scanner's JNI dispatch has no fluss branch and would
-     * fail the query with {@code Not supported create reader for table format}. Same literal as the per-range
-     * marker ({@link FlussScanRange#getTableFormatType}), and the mirror image of the {@code
-     * transactional_hive} stamp, which uses this same channel to force the OPPOSITE choice.
-     */
+    /** Scan-level connector identity, matching every emitted Fluss range. */
     private static final String SCAN_LEVEL_TABLE_FORMAT = FlussScanRange.TABLE_FORMAT;
 
     private final FlussAdminOps adminOps;

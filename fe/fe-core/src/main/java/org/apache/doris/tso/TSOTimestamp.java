@@ -158,7 +158,7 @@ public final class TSOTimestamp implements Writable, Comparable<TSOTimestamp> {
     }
 
     /**
-     * Calculate the inclusive expiration boundary for a row-binlog TTL policy.
+     * Calculate the inclusive expiration boundary for a changelog TTL policy.
      */
     public static long calculateCutoff(long referenceTso, long ttlSeconds) {
         if (referenceTso <= 0) {

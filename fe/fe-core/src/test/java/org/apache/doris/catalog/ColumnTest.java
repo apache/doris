@@ -23,8 +23,10 @@ import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.Function.NullableMode;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -321,5 +323,28 @@ public class ColumnTest {
         Column mvColumnComplex = new Column("mv_b", ArrayType.create(Type.INT, true), false, null, true, "0", "");
         mvColumnComplex.setDefineExpr(add);
         Assertions.assertTrue(mvColumnComplex.tryGetBaseColumnName().equalsIgnoreCase("mv_b"));
+    }
+
+    @Test
+    public void testChangelogBeforeColumnName() {
+        String beforeColName = Column.generateBeforeColName("v1");
+        Assertions.assertEquals("__DORIS_CHANGELOG_BEFORE_v1__", beforeColName);
+        Assertions.assertTrue(Column.isChangelogBeforeColumn(beforeColName));
+        Assertions.assertTrue(Column.isChangelogBeforeColumn(Column.generateBeforeColName("v_COL")));
+        Assertions.assertEquals(beforeColName,
+                Column.generateBeforeValueColumn(new Column("v1", Type.INT)).getName());
+
+        // Only the prefix decides: a name that merely contains it, or a changelog hidden column, is not one.
+        Assertions.assertFalse(Column.isChangelogBeforeColumn("x" + beforeColName));
+        Assertions.assertFalse(Column.isChangelogBeforeColumn("v1"));
+        Assertions.assertFalse(Column.isChangelogBeforeColumn(Column.CHANGELOG_TSO_COL));
+        Assertions.assertFalse(Column.isChangelogBeforeColumn(Column.CHANGELOG_LSN_COL));
+        Assertions.assertFalse(Column.isChangelogBeforeColumn(Column.CHANGELOG_OP_COL));
+
+        // A user column can not take the reserved prefix, so it never collides with a before column.
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> FeNameFormat.checkColumnName(beforeColName));
+        Assertions.assertTrue(exception.getMessage().contains(
+                "can't start with '" + Column.HIDDEN_COLUMN_PREFIX + "'"), exception.getMessage());
     }
 }

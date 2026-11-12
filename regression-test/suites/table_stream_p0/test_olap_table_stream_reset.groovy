@@ -70,8 +70,7 @@ suite("test_olap_table_stream_reset", "nonConcurrent") {
         DISTRIBUTED BY HASH(id) BUCKETS 1
         PROPERTIES (
             "replication_num" = "1",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW"
+            "changelog.enable" = "true"
         )
     """
     sql "INSERT INTO dup_np_true VALUES (1, 10), (2, 20)"
@@ -113,8 +112,7 @@ suite("test_olap_table_stream_reset", "nonConcurrent") {
         DISTRIBUTED BY HASH(id) BUCKETS 1
         PROPERTIES (
             "replication_num" = "1",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW"
+            "changelog.enable" = "true"
         )
     """
     sql "INSERT INTO dup_np_false VALUES (1, 10), (2, 20)"
@@ -159,9 +157,8 @@ suite("test_olap_table_stream_reset", "nonConcurrent") {
         PROPERTIES (
             "replication_num" = "1",
             "enable_unique_key_merge_on_write" = "true",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW",
-            "binlog.need_historical_value" = "true"
+            "changelog.enable" = "true",
+            "changelog.need_historical_value" = "true"
         )
     """
     sql "INSERT INTO mow_md_true VALUES (1, 10), (2, 20), (3, 30)"
@@ -205,9 +202,8 @@ suite("test_olap_table_stream_reset", "nonConcurrent") {
         PROPERTIES (
             "replication_num" = "1",
             "enable_unique_key_merge_on_write" = "true",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW",
-            "binlog.need_historical_value" = "true"
+            "changelog.enable" = "true",
+            "changelog.need_historical_value" = "true"
         )
     """
     sql "INSERT INTO mow_append_false VALUES (1, 10), (2, 20)"
@@ -256,8 +252,7 @@ suite("test_olap_table_stream_reset", "nonConcurrent") {
         DISTRIBUTED BY HASH(id) BUCKETS 1
         PROPERTIES (
             "replication_num" = "1",
-            "binlog.enable" = "true",
-            "binlog.format" = "ROW"
+            "changelog.enable" = "true"
         )
     """
     sql "INSERT INTO dup_part_true VALUES (1, 10)"

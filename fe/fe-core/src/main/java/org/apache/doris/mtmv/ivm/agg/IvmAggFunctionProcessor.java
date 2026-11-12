@@ -27,6 +27,8 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnion;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
+import org.apache.doris.nereids.trees.expressions.functions.agg.CountAtMax;
+import org.apache.doris.nereids.trees.expressions.functions.agg.CountAtMin;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 
 import com.google.common.collect.ImmutableList;
@@ -155,6 +157,10 @@ public abstract class IvmAggFunctionProcessor {
                 return new Sum(function.child(0));
             case BITMAP_UNION:
                 return new BitmapUnion(function.child(0));
+            case MIN_COUNT:
+                return new CountAtMin(function.child(0));
+            case MAX_COUNT:
+                return new CountAtMax(function.child(0));
             default:
                 throw new IllegalArgumentException("Unsupported IVM aggregate state: " + stateKey);
         }

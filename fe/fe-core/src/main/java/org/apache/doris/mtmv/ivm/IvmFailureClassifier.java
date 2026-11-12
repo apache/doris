@@ -17,6 +17,8 @@
 
 package org.apache.doris.mtmv.ivm;
 
+import org.apache.doris.changelog.ChangelogUtils;
+
 import java.util.Objects;
 import java.util.Optional;
 
@@ -47,6 +49,11 @@ public final class IvmFailureClassifier {
         }
         if (detail.contains(MV_PARTITION_NOT_FOUND_MSG)) {
             return Optional.of(IvmFailureReason.MV_PARTITION_NOT_FOUND);
+        }
+        // Planning a MIN_DELTA read refuses an offset that changelog.ttl_seconds has expired: the changelog
+        // the stream has to read from is gone, so no delta can catch the MV up.
+        if (detail.contains(ChangelogUtils.CHANGELOG_OFFSET_EXPIRED)) {
+            return Optional.of(IvmFailureReason.CHANGELOG_BROKEN);
         }
         return Optional.empty();
     }

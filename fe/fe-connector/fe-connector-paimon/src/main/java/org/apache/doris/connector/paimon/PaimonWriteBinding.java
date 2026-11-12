@@ -26,9 +26,14 @@ import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.types.CharType;
 import org.apache.paimon.types.DataType;
 import org.apache.paimon.types.DataTypeRoot;
+import org.apache.paimon.types.VarBinaryType;
 import org.apache.paimon.utils.InstantiationUtil;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.charset.CharacterCodingException;
+import java.nio.charset.CodingErrorAction;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
@@ -36,8 +41,8 @@ import java.time.format.DateTimeFormatter;
 import java.util.Base64;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HexFormat;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.TreeMap;
@@ -80,14 +85,39 @@ final class PaimonWriteBinding {
      */
     static PaimonWriteBinding create(PaimonTableHandle handle, FileStoreTable table,
             Map<String, String> hadoopConfig, ConnectorWriteHandle writeHandle, boolean charPadding) {
+        String tableName = handle.getDatabaseName() + "." + handle.getTableName();
+        checkBinaryPartitionNames(tableName, table);
         boolean overwrite = writeHandle.isOverwrite();
         // Only a static overwrite reads the partition values. An INSERT writes each row to the partition its own
         // values name, so it leaves them alone: casting them could only fail a write the rows would accept.
         Map<String, String> staticPartition = overwrite
                 ? resolveStaticPartition(table, writeHandle, charPadding) : Collections.emptyMap();
         FileStoreTable writeTable = configureTableForWrite(table, overwrite, staticPartition);
-        return new PaimonWriteBinding(handle.getDatabaseName() + "." + handle.getTableName(),
-                writeTable, hadoopConfig, overwrite, staticPartition, charPadding);
+        return new PaimonWriteBinding(tableName, writeTable, hadoopConfig, overwrite, staticPartition, charPadding);
+    }
+
+    /**
+     * With {@code partition.legacy-name} = true, the default, Paimon names a partition after the string of each
+     * value, which for a binary value is the Java array object ({@code [B@1b6d3586}) rather than its bytes. Every
+     * resolution of the name differs, so a write fails its commit after the BE wrote its files under one of them,
+     * and Paimon itself cannot read such a partition back.
+     */
+    static void checkBinaryPartitionNames(String tableName, FileStoreTable table) {
+        if (!CoreOptions.fromMap(table.options()).legacyPartitionName()) {
+            return;
+        }
+        for (String partitionKey : table.partitionKeys()) {
+            if (isBinary(table.rowType().getField(partitionKey).type())) {
+                throw new DorisConnectorException("Cannot write Paimon table " + tableName + ": its binary"
+                        + " partition column '" + partitionKey + "' needs the table option 'partition.legacy-name'"
+                        + " = 'false'. With legacy partition names Paimon names a binary partition after a Java"
+                        + " array object rather than its bytes and cannot read the partition back");
+            }
+        }
+    }
+
+    private static boolean isBinary(DataType type) {
+        return type.getTypeRoot() == DataTypeRoot.BINARY || type.getTypeRoot() == DataTypeRoot.VARBINARY;
     }
 
     /**
@@ -118,7 +148,8 @@ final class PaimonWriteBinding {
      * The static partition of an overwrite, as Paimon's static overwrite parses it: SQL NULL becomes the table's
      * {@code partition.default-name}, and every other value is the one the written rows carry, cast to the
      * column type, and padded as the BE writer pads the CHAR values of the rows ({@link #charPaddedFields}): Paimon
-     * parses a partition value without padding it. A binary column can only be statically overwritten with NULL.
+     * parses a partition value without padding it. A binary value is the text of its bytes ({@link
+     * #binaryStaticValue}).
      */
     static Map<String, String> resolveStaticPartition(FileStoreTable table, ConnectorWriteHandle writeHandle,
             boolean charPadding) {
@@ -132,15 +163,6 @@ final class PaimonWriteBinding {
             if (canonicalName == null) {
                 throw new DorisConnectorException("Column '" + key
                         + "' is not a partition column of Paimon table");
-            }
-            DataTypeRoot typeRoot = table.rowType().getField(canonicalName).type().getTypeRoot();
-            if ((typeRoot == DataTypeRoot.BINARY || typeRoot == DataTypeRoot.VARBINARY)
-                    && !writeHandle.getStaticPartitionNullKeys().contains(key)) {
-                // Paimon's static overwrite takes the UTF-8 bytes of a value's string, which cannot name every
-                // binary partition, and a wrong name overwrites another partition without an error. Checked
-                // before the values are cast.
-                throw new DorisConnectorException("Static overwrite of binary partition column '"
-                        + canonicalName + "' is not supported");
             }
             requestedColumns.put(key, canonicalName);
         }
@@ -165,6 +187,9 @@ final class PaimonWriteBinding {
             if (type.getTypeRoot() == DataTypeRoot.CHAR && charPaddedFields.test(canonicalName)) {
                 value = padChar(value, ((CharType) type).getLength());
             }
+            if (isBinary(type)) {
+                value = binaryStaticValue(canonicalName, value, type);
+            }
             if (defaultPartitionName.equals(value)) {
                 // Paimon's static overwrite reads this string as the NULL partition of any partition type, so
                 // a value equal to it would overwrite the NULL partition instead.
@@ -179,21 +204,15 @@ final class PaimonWriteBinding {
 
     /**
      * The fields whose CHAR values the BE writer pads, as PaimonWriteSchema.create decides it: with {@code charPadding}
-     * on, every field but the table's {@code rowkind.field}, from whose value Paimon decodes the row kind, and of a
-     * table that writes ORC files only the partition fields. ORC pads every CHAR value it writes and strips the
-     * trailing spaces from one it reads, so the writer leaves the other fields of such a table alone. Keep in sync
-     * with PaimonWriteSchema.create and PaimonWriteSchema.writesOrcFiles in be-java-extensions/paimon-scanner.
+     * on, every field but the table's {@code rowkind.field}, from whose value Paimon decodes the row kind. Keep in
+     * sync with PaimonWriteSchema.create in be-java-extensions/paimon-scanner.
      */
     static Predicate<String> charPaddedFields(TableSchema schema, boolean charPadding) {
         if (!charPadding) {
             return field -> false;
         }
-        CoreOptions options = CoreOptions.fromMap(schema.options());
-        String rowKindField = options.rowkindField().orElse(null);
-        boolean orcFiles = CoreOptions.FILE_FORMAT_ORC.equals(options.formatType())
-                || options.fileFormatPerLevel().containsValue(CoreOptions.FILE_FORMAT_ORC);
-        List<String> partitionKeys = schema.partitionKeys();
-        return field -> !field.equals(rowKindField) && (!orcFiles || partitionKeys.contains(field));
+        String rowKindField = CoreOptions.fromMap(schema.options()).rowkindField().orElse(null);
+        return field -> !field.equals(rowKindField);
     }
 
     /**
@@ -213,6 +232,38 @@ final class PaimonWriteBinding {
                     + " and cannot be represented in a static overwrite");
         }
         return sdkLocal.format(DateTimeFormatter.ISO_LOCAL_DATE_TIME).replace('T', ' ');
+    }
+
+    /**
+     * Paimon's static overwrite takes the UTF-8 bytes of a partition value's string, so the bytes the rows carry,
+     * which reach it as {@code 0x} and their hex digits, name their partition only as the text they decode to. A
+     * wrong name would overwrite another partition without an error, so bytes that are not UTF-8 are rejected;
+     * strict decoding also rejects overlong and surrogate sequences, so the text encodes back to the same bytes.
+     * Paimon keeps those bytes for a BINARY column whatever their length, as the rows keep them, and fails the
+     * commit for a VARBINARY value longer than its column, so such a value is rejected here, before any file is
+     * written.
+     */
+    private static String binaryStaticValue(String column, String value, DataType type) {
+        if (!value.startsWith("0x")) {
+            throw new IllegalStateException("Binary static partition value of column " + column
+                    + " lacks the 0x prefix: " + value);
+        }
+        byte[] bytes = HexFormat.of().parseHex(value.substring(2));
+        if (type.getTypeRoot() == DataTypeRoot.VARBINARY && bytes.length > ((VarBinaryType) type).getLength()) {
+            throw new DorisConnectorException("Static partition value " + value + " of binary column '" + column
+                    + "' has " + bytes.length + " bytes, more than its type " + type + " holds, which a static"
+                    + " overwrite of a Paimon table rejects");
+        }
+        try {
+            return StandardCharsets.UTF_8.newDecoder()
+                    .onMalformedInput(CodingErrorAction.REPORT)
+                    .onUnmappableCharacter(CodingErrorAction.REPORT)
+                    .decode(ByteBuffer.wrap(bytes))
+                    .toString();
+        } catch (CharacterCodingException e) {
+            throw new DorisConnectorException("Static partition value " + value + " of binary column '" + column
+                    + "' is not UTF-8 text, which a static overwrite of a Paimon table needs to name its partition");
+        }
     }
 
     /**

@@ -20,9 +20,12 @@ package org.apache.doris.nereids.types;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.format.DateTimeChecker;
+import org.apache.doris.nereids.types.coercion.AdjustableScaleTimeType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.types.coercion.DateLikeType;
 import org.apache.doris.nereids.types.coercion.IntegralType;
@@ -32,11 +35,12 @@ import java.time.DateTimeException;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * Datetime type in Nereids.
  */
-public class DateTimeV2Type extends DateLikeType implements ScaleTimeType {
+public class DateTimeV2Type extends DateLikeType implements AdjustableScaleTimeType {
     public static final int MAX_SCALE = 6;
     public static final DateTimeV2Type SYSTEM_DEFAULT = new DateTimeV2Type(0);
     public static final DateTimeV2Type MAX = new DateTimeV2Type(MAX_SCALE);
@@ -197,5 +201,15 @@ public class DateTimeV2Type extends DateLikeType implements ScaleTimeType {
         } catch (DateTimeException e) {
             return Double.POSITIVE_INFINITY;
         }
+    }
+
+    @Override
+    public Optional<Expression> zeroValue() {
+        return Optional.of(new DateTimeV2Literal(this, 0, 1, 1, 0, 0, 0, 0));
+    }
+
+    @Override
+    public DateTimeV2Type withScale(int scale) {
+        return of(scale);
     }
 }

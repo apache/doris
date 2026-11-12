@@ -219,6 +219,12 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
     protected List<Plan> doRewrite(StructInfo queryStructInfo, CascadesContext cascadesContext,
             MaterializationContext materializationContext) throws AnalysisException {
         List<Plan> rewriteResults = new ArrayList<>();
+        if (PartitionCompensator.hasUnknownPartitionCoverage(materializationContext,
+                cascadesContext.getStatementContext(), queryStructInfo.getRelationBitSet())) {
+            materializationContext.recordFailReason(queryStructInfo,
+                    "Query partition coverage is unavailable", () -> "");
+            return rewriteResults;
+        }
         StructInfo viewStructInfo = materializationContext.getStructInfo();
         MatchMode matchMode = decideMatchMode(queryStructInfo.getRelations(), viewStructInfo.getRelations(),
                 cascadesContext);
@@ -595,7 +601,10 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
         List<Expression> rewrittenExpressions = new ArrayList<>();
         for (int exprIndex = 0; exprIndex < sourceShuttledExpressions.size(); exprIndex++) {
             Expression expressionShuttledToRewrite = sourceShuttledExpressions.get(exprIndex);
-            if (expressionShuttledToRewrite instanceof Literal) {
+            if (expressionShuttledToRewrite.isConstant()) {
+                // a constant expression needs no counterpart in the view: e.g. the query column is pinned to a
+                // literal by a predicate, or it is materialized as a constant above an aggregate, so the view does
+                // not have to output it
                 rewrittenExpressions.add(expressionShuttledToRewrite);
                 continue;
             }
@@ -853,11 +862,21 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
         }
         PredicateCompensation finalPredicateCompensation =
                 Predicates.compensatePredicates(queryStructInfo, viewStructInfo,
-                        viewToQuerySlotMapping, comparisonResult, cascadesContext);
+                        viewToQuerySlotMapping, comparisonResult, cascadesContext,
+                        aggregateOutputIsRecomputed(queryStructInfo, viewStructInfo));
         if (finalPredicateCompensation == null) {
             return SplitPredicate.INVALID_INSTANCE;
         }
         return finalPredicateCompensation.toSplitPredicate();
+    }
+
+    /**
+     * Whether the rewrite answers the query by aggregating the view rows again, instead of reading the
+     * aggregate values that the view stored. A predicate the view enforced over its own aggregate output
+     * says nothing about such a recomputed value, so compensation can not treat it as redundant.
+     */
+    protected boolean aggregateOutputIsRecomputed(StructInfo queryStructInfo, StructInfo viewStructInfo) {
+        return false;
     }
 
     /**

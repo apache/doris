@@ -40,7 +40,8 @@ const std::string PARAM_COMPACTION_TYPE = "compact_type";
 const std::string PARAM_COMPACTION_BASE = "base";
 const std::string PARAM_COMPACTION_CUMULATIVE = "cumulative";
 const std::string PARAM_COMPACTION_FULL = "full";
-const std::string PARAM_COMPACTION_ROW_BINLOG_TTL = "row_binlog_ttl";
+// ATTN(changelog-rename): formerly "row_binlog_ttl"
+const std::string PARAM_COMPACTION_CHANGELOG_TTL = "changelog_ttl";
 const std::string PARAM_COMPACTION_FORCE = "force";
 
 /// This action is used for viewing the compaction status.
@@ -61,7 +62,7 @@ private:
     /// param compact_type in req to distinguish the task type, base/cumulative/full
     Status _handle_run_compaction(HttpRequest* req, std::string* json_result);
 
-    /// thread callback function for the tablet to do base/cumulative/binlog compaction
+    /// thread callback function for the tablet to do base/cumulative/changelog compaction
     Status _execute_compaction_callback(TabletSharedPtr tablet, const std::string& compaction_type);
 
     /// fetch compaction running status
