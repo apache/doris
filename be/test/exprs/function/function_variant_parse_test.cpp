@@ -39,6 +39,9 @@
 #include "exprs/function/function_test_util.h"
 #include "exprs/function/parse/variant_string_parse.h"
 #include "exprs/function/simple_function_factory.h"
+#include "exprs/vectorized_fn_call.h"
+#include "gen_cpp/Exprs_types.h"
+#include "gen_cpp/Types_types.h"
 
 namespace doris {
 namespace {
@@ -607,6 +610,92 @@ TEST(FunctionVariantParseTest, AnIntegerBeyond64BitsOffALargeIntPathKeepsTheDocu
             1, std::make_shared<DataTypeVariantV2>(0, false, paths));
     ASSERT_TRUE(declared.status.ok()) << declared.status.to_string();
     EXPECT_EQ(R"({"a":{"id":18446744073709551616}})", variant_json_at(declared.output, 0));
+}
+
+namespace {
+
+TVariantTemplatePath template_field(const std::string& pattern, bool is_glob,
+                                    TPrimitiveType::type type) {
+    TVariantTemplatePath field;
+    field.__set_pattern(pattern);
+    field.__set_is_glob(is_glob);
+    field.__set_type(type);
+    return field;
+}
+
+// The expression node of a parse call as the FE sends it: the template rides on the result type.
+VExprSPtr parse_call(const std::string& function_name,
+                     const std::vector<TVariantTemplatePath>& template_paths) {
+    TScalarType scalar_type;
+    scalar_type.__set_type(TPrimitiveType::VARIANT);
+    scalar_type.__set_variant_max_subcolumns_count(0);
+    scalar_type.__set_variant_is_v2(true);
+    if (!template_paths.empty()) {
+        scalar_type.__set_variant_template_paths(template_paths);
+    }
+    TTypeNode type_node;
+    type_node.__set_type(TTypeNodeType::SCALAR);
+    type_node.__set_scalar_type(scalar_type);
+    TTypeDesc type_desc;
+    type_desc.types.push_back(type_node);
+
+    TFunctionName name;
+    name.__set_function_name(function_name);
+    TFunction fn;
+    fn.__set_name(name);
+    fn.__set_binary_type(TFunctionBinaryType::BUILTIN);
+    TExprNode node;
+    node.__set_node_type(TExprNodeType::FUNCTION_CALL);
+    node.__set_type(type_desc);
+    node.__set_fn(fn);
+    node.__set_num_children(0);
+    node.__set_is_nullable(false);
+    return VectorizedFnCall::create_shared(node);
+}
+
+} // namespace
+
+TEST(FunctionVariantParseTest, TheTemplateOnTheResultTypeIsPartOfTheCallsDigest) {
+    // The digest keys the scan's condition cache. A parse call reads a number by the template on
+    // its result type, so two calls that differ only there filter differently and must not share
+    // a key: under one, cast(v['amount'] as string) = '1.5' keeps {"amount":1.50}; under the
+    // other it does not.
+    const uint64_t seed = 42;
+    const uint64_t untyped = parse_call("parse_to_variant", {})->get_digest(seed);
+    const uint64_t decimal =
+            parse_call("parse_to_variant",
+                       {template_field("amount", false, TPrimitiveType::DECIMAL64)})
+                    ->get_digest(seed);
+    ASSERT_NE(0, untyped);
+    ASSERT_NE(0, decimal);
+    EXPECT_NE(untyped, decimal);
+    // the same template gives the same key
+    EXPECT_EQ(decimal, parse_call("parse_to_variant",
+                                  {template_field("amount", false, TPrimitiveType::DECIMAL64)})
+                               ->get_digest(seed));
+    // every part of a field counts: its pattern, how the pattern matches, its type
+    EXPECT_NE(decimal, parse_call("parse_to_variant",
+                                  {template_field("amounts", false, TPrimitiveType::DECIMAL64)})
+                               ->get_digest(seed));
+    EXPECT_NE(decimal, parse_call("parse_to_variant",
+                                  {template_field("amount", true, TPrimitiveType::DECIMAL64)})
+                               ->get_digest(seed));
+    EXPECT_NE(decimal, parse_call("parse_to_variant",
+                                  {template_field("amount", false, TPrimitiveType::LARGEINT)})
+                               ->get_digest(seed));
+    // and so does where one pattern ends and the next begins
+    EXPECT_NE(
+            parse_call("parse_to_variant", {template_field("ab", false, TPrimitiveType::DECIMAL64),
+                                            template_field("c", false, TPrimitiveType::DECIMAL64)})
+                    ->get_digest(seed),
+            parse_call("parse_to_variant", {template_field("a", false, TPrimitiveType::DECIMAL64),
+                                            template_field("bc", false, TPrimitiveType::DECIMAL64)})
+                    ->get_digest(seed));
+    // the other function keeps its own key, with a template and without
+    EXPECT_NE(untyped, parse_call("try_parse_to_variant", {})->get_digest(seed));
+    EXPECT_NE(decimal, parse_call("try_parse_to_variant",
+                                  {template_field("amount", false, TPrimitiveType::DECIMAL64)})
+                               ->get_digest(seed));
 }
 
 } // namespace doris
