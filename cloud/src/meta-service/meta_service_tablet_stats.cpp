@@ -17,7 +17,6 @@
 
 #include "meta-service/meta_service_tablet_stats.h"
 
-#include <butil/sys_byteorder.h>
 #include <fmt/core.h>
 #include <fmt/format.h>
 #include <gen_cpp/cloud.pb.h>
@@ -130,7 +129,7 @@ int get_detached_tablet_stats(const std::vector<std::pair<std::string, std::stri
         }
         std::memcpy(&val, v.data(), sizeof(val));
         if constexpr (std::endian::native == std::endian::big) {
-            val = butil::ByteSwap(static_cast<uint64_t>(val));
+            val = __builtin_bswap64(static_cast<uint64_t>(val));
         }
 
         if (unexpected_size) ss << *suffix << " ";
@@ -451,7 +450,7 @@ MetaServiceResponseStatus fix_tablet_stats_internal(
         std::memcpy(&tablet_stat_num_segs, tablet_stat_num_segs_value.data(),
                     sizeof(tablet_stat_num_segs));
         if constexpr (std::endian::native == std::endian::big) {
-            tablet_stat_num_segs = butil::ByteSwap(static_cast<uint64_t>(tablet_stat_num_segs));
+            tablet_stat_num_segs = __builtin_bswap64(static_cast<uint64_t>(tablet_stat_num_segs));
         }
 
         if (tablet_stat_num_segs > 0) {
@@ -566,7 +565,7 @@ MetaServiceResponseStatus check_new_tablet_stats(
                     sizeof(tablet_stat_data_size_check));
         if constexpr (std::endian::native == std::endian::big) {
             tablet_stat_data_size_check =
-                    butil::ByteSwap(static_cast<uint64_t>(tablet_stat_data_size_check));
+                    __builtin_bswap64(static_cast<uint64_t>(tablet_stat_data_size_check));
         }
         if (tablet_stat_data_size_check != tablet_stat_data_size &&
             // ditto
@@ -602,7 +601,7 @@ MetaServiceResponseStatus check_new_tablet_stats(
                     sizeof(tablet_stat_index_size_check));
         if constexpr (std::endian::native == std::endian::big) {
             tablet_stat_index_size_check =
-                    butil::ByteSwap(static_cast<uint64_t>(tablet_stat_index_size_check));
+                    __builtin_bswap64(static_cast<uint64_t>(tablet_stat_index_size_check));
         }
         if (tablet_stat_index_size_check != tablet_stat_index_size &&
             // ditto
@@ -638,7 +637,7 @@ MetaServiceResponseStatus check_new_tablet_stats(
                     sizeof(tablet_stat_segment_size_check));
         if constexpr (std::endian::native == std::endian::big) {
             tablet_stat_segment_size_check =
-                    butil::ByteSwap(static_cast<uint64_t>(tablet_stat_segment_size_check));
+                    __builtin_bswap64(static_cast<uint64_t>(tablet_stat_segment_size_check));
         }
         if (tablet_stat_segment_size_check != tablet_stat_segment_size &&
             // ditto

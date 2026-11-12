@@ -204,7 +204,7 @@ endif ()
 
 if (COMPILER_CLANG)
     add_compile_options (-fcolor-diagnostics)
-    if(MAKE_TEST STREQUAL "OFF")
+    if (NOT MAKE_TEST)
         add_compile_options(-Qunused-arguments)
     endif()
 endif ()
@@ -360,6 +360,9 @@ set(DORIS_LINK_LIBS
 
 if (NOT OS_MACOSX)
     list(APPEND DORIS_LINK_LIBS -static-libstdc++ -static-libgcc)
+    if (NOT (USE_LIBCPP AND COMPILER_CLANG))
+        list(APPEND DORIS_LINK_LIBS -lstdc++fs)
+    endif()
 endif()
 
 if (ENABLE_HDFS_STORAGE_VAULT)
@@ -370,10 +373,6 @@ if (ENABLE_HDFS_STORAGE_VAULT)
         list(APPEND CMAKE_BUILD_RPATH "${DORIS_JAVA_HOME}/lib/server")
         list(APPEND CMAKE_INSTALL_RPATH "${DORIS_JAVA_HOME}/lib/server")
     endif()
-endif()
-
-if (NOT (USE_LIBCPP AND COMPILER_CLANG))
-    set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} -lstdc++fs)
 endif()
 
 if (USE_JEMALLOC)
@@ -420,10 +419,12 @@ if (NOT OS_MACOSX)
 else()
     list(APPEND DORIS_LINK_LIBS
         -liconv
+        "-framework CoreFoundation"
         "-framework Foundation"
         "-framework CoreGraphics"
         "-framework CoreText"
         "-framework SystemConfiguration"
+        "-framework Security"
     )
     # brpc probes this optional tcmalloc entry point in builds using other allocators.
     if (USE_JEMALLOC OR (NOT CMAKE_BUILD_TYPE STREQUAL "DEBUG" AND NOT CMAKE_BUILD_TYPE STREQUAL "RELEASE"))
@@ -443,11 +444,14 @@ if (ENABLE_CLANG_COVERAGE AND ENABLE_CLANG_COVERAGE STREQUAL ON AND COMPILER_CLA
     SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fprofile-instr-generate -fcoverage-mapping")
 endif ()
 
-if (${MAKE_TEST} STREQUAL "ON")
+if (MAKE_TEST)
     SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DUNIT_TEST -fno-access-control -DGTEST_USE_OWN_TR1_TUPLE=0")
-    if (NOT OS_MACOSX)
+    if (COMPILER_GCC)
         SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fprofile-arcs -ftest-coverage")
-        SET(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fprofile-arcs -ftest-coverage -lgcov")
+        SET(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fprofile-arcs -ftest-coverage")
+        if (NOT OS_MACOSX)
+            SET(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -lgcov")
+        endif()
     endif()
     add_definitions(-DBE_TEST)
 endif ()
@@ -507,13 +511,13 @@ set (TEST_LINK_LIBS ${DORIS_LINK_LIBS}
     ${WL_END_GROUP}
 )
 
-if (${MAKE_TEST} STREQUAL "ON")
+if (MAKE_TEST)
     add_subdirectory(${TEST_DIR})
 endif ()
 
 add_subdirectory(${COMMON_SRC_DIR}/cpp ${BUILD_DIR}/src/common_cpp)
 
-if (${MAKE_TEST} STREQUAL "OFF")
+if (NOT MAKE_TEST)
     add_executable(doris_cloud src/main.cpp)
 
     # This permits libraries loaded by dlopen to link to the symbols in the program.

@@ -17,11 +17,11 @@
 
 #include "recycler/snapshot_chain_compactor.h"
 
-#include <butil/threading/platform_thread.h>
 #include <gen_cpp/cloud.pb.h>
 
 #include "common/config.h"
 #include "common/stopwatch.h"
+#include "common/thread_name.h"
 #include "common/util.h"
 #include "meta-store/keys.h"
 #include "mock_accessor.h"
@@ -70,7 +70,7 @@ void SnapshotChainCompactor::stop() {
 }
 
 void SnapshotChainCompactor::compaction_loop() {
-    butil::PlatformThread::SetName("SNAP_COMPACTOR");
+    set_current_thread_name("SNAP_COMPACTOR");
     while (!stopped()) {
         // fetch instance to check
         InstanceInfoPB instance;

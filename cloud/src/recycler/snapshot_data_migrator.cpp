@@ -17,12 +17,12 @@
 
 #include "recycler/snapshot_data_migrator.h"
 
-#include <butil/threading/platform_thread.h>
 #include <gen_cpp/cloud.pb.h>
 
 #include "common/config.h"
 #include "common/defer.h"
 #include "common/stopwatch.h"
+#include "common/thread_name.h"
 #include "common/util.h"
 #include "meta-store/keys.h"
 #include "mock_accessor.h"
@@ -71,7 +71,7 @@ void SnapshotDataMigrator::stop() {
 }
 
 void SnapshotDataMigrator::migration_loop() {
-    butil::PlatformThread::SetName("SNAP_MIGRATOR");
+    set_current_thread_name("SNAP_MIGRATOR");
     while (!stopped()) {
         // fetch instance to check
         InstanceInfoPB instance;

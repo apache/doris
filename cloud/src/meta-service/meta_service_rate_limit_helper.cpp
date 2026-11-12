@@ -17,7 +17,6 @@
 
 #include "meta-service/meta_service_rate_limit_helper.h"
 
-#include <butil/threading/platform_thread.h>
 #include <fmt/format.h>
 #include <sched.h>
 #include <sys/resource.h>
@@ -45,6 +44,7 @@
 
 #include "common/config.h"
 #include "common/logging.h"
+#include "common/thread_name.h"
 
 namespace doris::cloud {
 namespace internal {
@@ -646,7 +646,7 @@ public:
         }
         running_.store(1);
         bg_thread_ = std::make_unique<std::thread>([this] {
-            butil::PlatformThread::SetName("ms_stress_det");
+            set_current_thread_name("ms_stress_det");
             LOG(INFO) << "MsStressDetector background thread started";
             ProcessResourceSampler sampler;
             while (running_.load() == 1) {

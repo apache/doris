@@ -17,8 +17,6 @@
 
 #pragma once
 
-#include <butil/threading/platform_thread.h>
-
 #include <atomic>
 #include <condition_variable>
 #include <iostream>
@@ -28,6 +26,7 @@
 #include <thread>
 #include <vector>
 
+#include "common/thread_name.h"
 #include "simple_sync_queue.h"
 
 namespace doris::cloud {
@@ -95,7 +94,7 @@ public:
         for (size_t i = 0; i < _pool_size; ++i) {
             std::string name = _pool_name + "_" + std::to_string(i);
             _worker_thread_group.emplace_back([this, name = std::move(name)] {
-                butil::PlatformThread::SetName(name.c_str());
+                set_current_thread_name(name.c_str());
                 work();
             });
         }

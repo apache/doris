@@ -18,8 +18,6 @@
 #include "txn_kv.h"
 
 #include <bthread/countdown_event.h>
-#include <butil/sys_byteorder.h>
-#include <butil/threading/platform_thread.h>
 #include <foundationdb/fdb_c_types.h>
 
 #include <algorithm>
@@ -40,6 +38,7 @@
 #include "common/lexical_util.h"
 #include "common/logging.h"
 #include "common/stopwatch.h"
+#include "common/thread_name.h"
 #include "common/util.h"
 #include "cpp/sync_point.h"
 #include "meta-store/keys.h"
@@ -459,7 +458,7 @@ int Network::init() {
     // Run network in a separate thread
     network_thread_ = std::shared_ptr<std::thread>(
             new std::thread([] {
-                butil::PlatformThread::SetName("fdb_network_thread");
+                set_current_thread_name("fdb_network_thread");
                 // Will not return until fdb_stop_network() called
                 auto err = fdb_run_network();
                 LOG(WARNING) << "exit fdb_run_network"
@@ -832,7 +831,7 @@ bool Transaction::decode_atomic_int(std::string_view data, int64_t* val) {
     // ATTN: The FDB_MUTATION_TYPE_ADD stores integers in a little-endian representation.
     std::memcpy(val, data.data(), sizeof(*val));
     if constexpr (std::endian::native == std::endian::big) {
-        *val = butil::ByteSwap(static_cast<uint64_t>(*val));
+        *val = __builtin_bswap64(static_cast<uint64_t>(*val));
     }
     return true;
 }

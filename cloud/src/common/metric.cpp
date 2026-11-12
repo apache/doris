@@ -17,7 +17,6 @@
 
 #include "metric.h"
 
-#include <butil/threading/platform_thread.h>
 #include <glog/logging.h>
 #include <rapidjson/document.h>
 #include <rapidjson/encodings.h>
@@ -34,6 +33,7 @@
 
 #include "common/bvars.h"
 #include "common/logging.h"
+#include "common/thread_name.h"
 #include "meta-store/keys.h"
 #include "meta-store/txn_kv.h"
 #include "meta-store/txn_kv_error.h"
@@ -453,7 +453,7 @@ int FdbMetricExporter::start() {
 
     running_ = true;
     thread_ = std::make_unique<std::thread>([this] {
-        butil::PlatformThread::SetName("fdb_metrics_exporter");
+        set_current_thread_name("fdb_metrics_exporter");
         while (running_.load(std::memory_order_acquire)) {
             export_fdb_metrics(txn_kv_.get());
             std::unique_lock l(running_mtx_);
