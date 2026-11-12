@@ -1522,7 +1522,12 @@ TabletIndexes VariantColumnReader::find_subcolumn_tablet_indexes(const TabletCol
         index_data_type->get_primitive_type() != PrimitiveType::TYPE_VARIANT &&
         index_data_type->get_primitive_type() != PrimitiveType::TYPE_MAP /*SPARSE COLUMN*/) {
         // type in column maynot be real type, so use data_type to get the real type
-        PathInData index_path {*column.path_info_ptr()};
+        // RENAME changes the query path (payload.s), but an old segment's index suffix
+        // still uses its stored root name (v.s), just like the template-index branch above.
+        auto index_path_parts = column.path_info_ptr()->get_parts();
+        index_path_parts.front().key =
+                _tablet_schema->column_by_uid(column.parent_unique_id()).name_lower_case();
+        PathInData index_path {index_path_parts};
         TabletColumn target_column =
                 variant_util::get_column_by_type(index_data_type, column.name(),
                                                  {.unique_id = -1,
