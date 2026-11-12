@@ -20,11 +20,15 @@ package org.apache.doris.catalog;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.CreateTableLikeCommand;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.utframe.TestWithFeService;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+
+import java.util.ArrayList;
+import java.util.List;
 
 public class VariantEscapeTableTest extends TestWithFeService {
     @Override
@@ -38,6 +42,47 @@ public class VariantEscapeTableTest extends TestWithFeService {
     private OlapTable table(String name) throws Exception {
         return (OlapTable) Env.getCurrentInternalCatalog().getDbOrMetaException("variant_escape_table")
                 .getTableOrMetaException(name);
+    }
+
+    @Test
+    public void testCopyTabletDdl() throws Exception {
+        checkCopyTabletDdl(false);
+    }
+
+    @Test
+    public void testCopyTabletLikeDdl() throws Exception {
+        checkCopyTabletDdl(true);
+    }
+
+    private void checkCopyTabletDdl(boolean forLike) throws Exception {
+        for (boolean escaped : new boolean[] {true, false}) {
+            String sourceName = "copy_tablet_" + forLike + "_" + escaped;
+            String targetName = sourceName + "_restored";
+            createTable("CREATE TABLE " + sourceName + "(k INT, v VARIANT) DUPLICATE KEY(k) "
+                    + "DISTRIBUTED BY HASH(k) BUCKETS 3 PROPERTIES('replication_num'='1',"
+                    + "'variant_escape_dots_in_keys'='" + escaped + "')");
+            List<String> statements = new ArrayList<>();
+            if (forLike) {
+                CreateTableLikeCommand command = (CreateTableLikeCommand) new NereidsParser().parseSingle(
+                        "CREATE TABLE " + targetName + " LIKE " + sourceName);
+                Env.getCreateTableLikeStmt(command.getInfo(), null, table(sourceName), statements, null, null,
+                        false, true, false, 42L, false, false);
+            } else {
+                // ADMIN COPY TABLET uses this entry point with the snapshot version.
+                Env.getDdlStmt(table(sourceName), statements, null, null, false, true, 42L);
+            }
+            Assertions.assertEquals(1, statements.size());
+            String ddl = statements.get(0);
+            Assertions.assertTrue(ddl.contains("DISTRIBUTED BY HASH(k) BUCKETS 1"), ddl);
+            Assertions.assertTrue(ddl.contains("\"replication_num\" = \"1\""), ddl);
+            Assertions.assertTrue(ddl.contains("\"version_info\" = \"42\""), ddl);
+            Assertions.assertEquals(escaped, ddl.contains("\"variant_escape_dots_in_keys\" = \"true\""), ddl);
+            Assertions.assertFalse(ddl.contains("\"variant_escape_dots_in_keys\" = \"false\""), ddl);
+
+            createTable(ddl.replace("`" + sourceName + "`", "`" + targetName + "`"));
+            Assertions.assertEquals(escaped, table(targetName).getVariantEscapeDotsInKeys());
+            Assertions.assertEquals(42L, table(targetName).getPartitions().iterator().next().getVisibleVersion());
+        }
     }
 
     @Test
