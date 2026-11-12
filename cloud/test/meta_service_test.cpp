@@ -55,6 +55,7 @@
 #include "rate-limiter/rate_limiter.h"
 #include "recycler/recycler.h"
 #include "resource-manager/resource_manager.h"
+#include "scoped_legacy_instance_rpc.h"
 
 doris::cloud::RecyclerThreadPoolGroup thread_group;
 
@@ -520,6 +521,7 @@ TEST(MetaServiceTest, CheckInstanceRecycleCompletedWithRetainedKey) {
 }
 
 TEST(MetaServiceTest, CreateInstanceTest) {
+    ScopedLegacyInstanceRpc legacy_instance_rpc;
     auto meta_service = get_meta_service();
 
     // case: normal create instance with obj info
@@ -1323,6 +1325,7 @@ TEST(MetaServiceTest, AlterHdfsStorageVaultTest) {
 }
 
 TEST(MetaServiceTest, AlterClusterTest) {
+    ScopedLegacyInstanceRpc legacy_instance_rpc;
     auto meta_service = get_meta_service();
     ASSERT_NE(meta_service, nullptr);
 
@@ -1467,6 +1470,206 @@ TEST(MetaServiceTest, GetClusterTest) {
     }
 }
 
+// GoogleTest assertions expand to branches counted by this check.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
+TEST(MetaServiceTest, BootstrapInstanceTest) {
+    auto meta_service = get_meta_service(false);
+    ASSERT_TRUE(config::enable_strict_instance_auth);
+    const bool check_instance_id = config::enable_check_instance_id;
+    config::enable_check_instance_id = true;
+    DORIS_CLOUD_DEFER {
+        config::enable_check_instance_id = check_instance_id;
+    };
+
+    const std::string instance_id = "12345678";
+    const std::string cloud_unique_id = "1:" + instance_id + ":fe";
+    BootstrapInstanceRequest request;
+    request.set_instance_id(instance_id);
+    auto* cluster = request.mutable_initial_fe_cluster();
+    cluster->set_type(ClusterPB::SQL);
+    cluster->set_cluster_id("sql_cluster_id");
+    cluster->set_cluster_name("sql_cluster");
+    auto* node = cluster->add_nodes();
+    node->set_ip("127.0.0.1");
+    node->set_node_type(NodeInfoPB::FE_MASTER);
+    node->set_edit_log_port(9010);
+    node->set_cloud_unique_id(cloud_unique_id);
+
+    auto bootstrap = [&] {
+        brpc::Controller ctrl;
+        CreateInstanceResponse response;
+        meta_service->bootstrap_instance(&ctrl, &request, &response, nullptr);
+        return response.status().code();
+    };
+
+    brpc::Controller create_ctrl;
+    CreateInstanceRequest create_request;
+    create_request.set_instance_id(request.instance_id());
+    CreateInstanceResponse create_response;
+    meta_service->create_instance(&create_ctrl, &create_request, &create_response, nullptr);
+    EXPECT_EQ(create_response.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+
+    auto rename_instance = [&](const std::string& target, bool with_identity = true) {
+        brpc::Controller ctrl;
+        AlterInstanceRequest req;
+        req.set_instance_id(target);
+        if (with_identity) {
+            req.set_cloud_unique_id(cloud_unique_id);
+        }
+        req.set_op(AlterInstanceRequest::RENAME);
+        req.set_name("renamed_instance");
+        AlterInstanceResponse response;
+        meta_service->alter_instance(&ctrl, &req, &response, nullptr);
+        return response.status().code();
+    };
+    EXPECT_EQ(rename_instance(instance_id), MetaServiceCode::CLUSTER_NOT_FOUND);
+
+    node->set_cloud_unique_id("1:another_instance:fe");
+    EXPECT_EQ(bootstrap(), MetaServiceCode::INVALID_ARGUMENT);
+    node->set_cloud_unique_id(cloud_unique_id);
+    node->set_node_type(NodeInfoPB::FE_FOLLOWER);
+    EXPECT_EQ(bootstrap(), MetaServiceCode::INVALID_ARGUMENT);
+    node->set_node_type(NodeInfoPB::FE_MASTER);
+    ASSERT_EQ(bootstrap(), MetaServiceCode::OK);
+    EXPECT_EQ(bootstrap(), MetaServiceCode::ALREADY_EXISTED);
+
+    node->set_edit_log_port(9011);
+    EXPECT_EQ(bootstrap(), MetaServiceCode::ALREADY_EXISTED);
+
+    brpc::Controller ctrl;
+    GetClusterRequest get_cluster;
+    get_cluster.set_cloud_unique_id(node->cloud_unique_id());
+    get_cluster.set_cluster_id(cluster->cluster_id());
+    GetClusterResponse response;
+    meta_service->get_cluster(&ctrl, &get_cluster, &response, nullptr);
+    ASSERT_EQ(response.status().code(), MetaServiceCode::OK);
+    ASSERT_EQ(response.cluster_size(), 1);
+    ASSERT_EQ(response.cluster(0).nodes_size(), 1);
+    EXPECT_EQ(response.cluster(0).nodes(0).cloud_unique_id(), node->cloud_unique_id());
+    EXPECT_EQ(response.cluster(0).nodes(0).edit_log_port(), 9010);
+    EXPECT_EQ(rename_instance(instance_id), MetaServiceCode::OK);
+    EXPECT_EQ(rename_instance(instance_id, false), MetaServiceCode::INVALID_ARGUMENT);
+
+    request.set_instance_id("custom_suffix_instance");
+    node->set_cloud_unique_id("1:custom_suffix_instance:custom_fe");
+    ASSERT_EQ(bootstrap(), MetaServiceCode::OK);
+    get_cluster.set_cloud_unique_id(node->cloud_unique_id());
+    response.Clear();
+    meta_service->get_cluster(&ctrl, &get_cluster, &response, nullptr);
+    ASSERT_EQ(response.status().code(), MetaServiceCode::OK);
+    ASSERT_EQ(response.cluster_size(), 1);
+    ASSERT_EQ(response.cluster(0).nodes_size(), 1);
+    EXPECT_EQ(response.cluster(0).nodes(0).cloud_unique_id(), node->cloud_unique_id());
+}
+
+// GoogleTest assertions expand to branches counted by this check.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
+TEST(MetaServiceTest, BootstrapExistingInstanceTest) {
+    auto meta_service = get_meta_service(false);
+    ASSERT_TRUE(config::enable_strict_instance_auth);
+    const bool check_instance_id = config::enable_check_instance_id;
+    config::enable_check_instance_id = true;
+    DORIS_CLOUD_DEFER {
+        config::enable_check_instance_id = check_instance_id;
+    };
+
+    InstanceInfoPB instance;
+    instance.set_instance_id("precreated_instance");
+    instance.set_name("provisioned_name");
+    instance.set_user_id("provisioned_user");
+    instance.set_status(InstanceInfoPB::DELETED);
+    instance.set_enable_storage_vault(true);
+    instance.add_resource_ids("vault_id");
+    instance.add_storage_vault_names("vault_name");
+    instance.set_default_storage_vault_id("vault_id");
+    instance.set_default_storage_vault_name("vault_name");
+    auto* compute_cluster = instance.add_clusters();
+    compute_cluster->set_type(ClusterPB::COMPUTE);
+    compute_cluster->set_cluster_id("existing_compute_cluster");
+
+    const auto key = instance_key({instance.instance_id()});
+    auto save_instance = [&] {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->put(key, instance.SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    };
+    auto read_instance = [&](InstanceInfoPB& result) {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string value;
+        ASSERT_EQ(txn->get(key, &value), TxnErrorCode::TXN_OK);
+        ASSERT_TRUE(result.ParseFromString(value));
+    };
+
+    BootstrapInstanceRequest request;
+    request.set_instance_id(instance.instance_id());
+    auto* cluster = request.mutable_initial_fe_cluster();
+    cluster->set_type(ClusterPB::SQL);
+    cluster->set_cluster_id("sql_cluster_id");
+    cluster->set_cluster_name("sql_cluster");
+    auto* node = cluster->add_nodes();
+    node->set_ip("127.0.0.1");
+    node->set_node_type(NodeInfoPB::FE_MASTER);
+    node->set_edit_log_port(9010);
+    node->set_cloud_unique_id("1:precreated_instance:custom_fe");
+    auto bootstrap = [&] {
+        brpc::Controller ctrl;
+        CreateInstanceResponse response;
+        meta_service->bootstrap_instance(&ctrl, &request, &response, nullptr);
+        return response.status().code();
+    };
+
+    save_instance();
+    EXPECT_EQ(bootstrap(), MetaServiceCode::CLUSTER_NOT_FOUND);
+    InstanceInfoPB stored;
+    read_instance(stored);
+    EXPECT_EQ(stored.SerializeAsString(), instance.SerializeAsString());
+
+    instance.set_status(InstanceInfoPB::NORMAL);
+    compute_cluster->set_cluster_id(cluster->cluster_id());
+    save_instance();
+    EXPECT_EQ(bootstrap(), MetaServiceCode::INVALID_ARGUMENT);
+    read_instance(stored);
+    EXPECT_EQ(stored.SerializeAsString(), instance.SerializeAsString());
+    compute_cluster->set_cluster_id("existing_compute_cluster");
+
+    compute_cluster->set_cluster_name(cluster->cluster_name());
+    save_instance();
+    EXPECT_EQ(bootstrap(), MetaServiceCode::INVALID_ARGUMENT);
+    read_instance(stored);
+    EXPECT_EQ(stored.SerializeAsString(), instance.SerializeAsString());
+    compute_cluster->clear_cluster_name();
+
+    save_instance();
+    ASSERT_EQ(bootstrap(), MetaServiceCode::OK);
+    read_instance(stored);
+    ASSERT_EQ(stored.clusters_size(), 2);
+    ASSERT_EQ(stored.clusters(1).nodes_size(), 1);
+    EXPECT_EQ(stored.clusters(1).nodes(0).cloud_unique_id(), node->cloud_unique_id());
+    EXPECT_EQ(stored.clusters(1).nodes(0).edit_log_port(), 9010);
+    const auto registered = stored.SerializeAsString();
+    stored.mutable_clusters()->RemoveLast();
+    EXPECT_EQ(stored.SerializeAsString(), instance.SerializeAsString());
+
+    node->set_edit_log_port(9011);
+    cluster->set_cluster_id("another_sql_cluster");
+    EXPECT_EQ(bootstrap(), MetaServiceCode::ALREADY_EXISTED);
+    read_instance(stored);
+    EXPECT_EQ(stored.SerializeAsString(), registered);
+
+    brpc::Controller ctrl;
+    GetClusterRequest get_cluster;
+    get_cluster.set_cloud_unique_id(node->cloud_unique_id());
+    get_cluster.set_cluster_id("sql_cluster_id");
+    GetClusterResponse response;
+    meta_service->get_cluster(&ctrl, &get_cluster, &response, nullptr);
+    ASSERT_EQ(response.status().code(), MetaServiceCode::OK);
+    ASSERT_EQ(response.cluster_size(), 1);
+    ASSERT_EQ(response.cluster(0).nodes_size(), 1);
+    EXPECT_EQ(response.cluster(0).nodes(0).edit_log_port(), 9010);
+}
+
 TEST(MetaServiceTest, StrictInstanceAuthTest) {
     auto meta_service = get_meta_service(false);
     bool enable_strict_instance_auth = config::enable_strict_instance_auth;
@@ -1483,12 +1686,16 @@ TEST(MetaServiceTest, StrictInstanceAuthTest) {
                (status.msg().starts_with("cloud_unique_id is required") ||
                 status.msg().starts_with("instance_ids is not allowed"));
     };
-    auto alter_cluster = [&](const std::string& req_cloud_unique_id) {
+    auto alter_cluster = [&](const std::string& req_cloud_unique_id,
+                             AlterClusterRequest::Operation op =
+                                     AlterClusterRequest::ALTER_PROPERTIES) {
         brpc::Controller cntl;
         AlterClusterRequest req;
         req.set_instance_id(instance_id);
-        req.set_cloud_unique_id(req_cloud_unique_id);
-        req.set_op(AlterClusterRequest::ALTER_PROPERTIES);
+        if (!req_cloud_unique_id.empty()) {
+            req.set_cloud_unique_id(req_cloud_unique_id);
+        }
+        req.set_op(op);
         AlterClusterResponse res;
         meta_service->alter_cluster(&cntl, &req, &res, nullptr);
         return res.status();
@@ -1535,6 +1742,11 @@ TEST(MetaServiceTest, StrictInstanceAuthTest) {
     config::enable_strict_instance_auth = true;
     EXPECT_TRUE(rejected(alter_cluster("")));
     EXPECT_FALSE(rejected(alter_cluster(cloud_unique_id)));
+    // Legacy FE virtual compute group updates temporarily work without cloud_unique_id.
+    EXPECT_FALSE(rejected(alter_cluster("", AlterClusterRequest::ALTER_VCLUSTER_INFO)));
+    EXPECT_FALSE(
+            rejected(alter_cluster(cloud_unique_id, AlterClusterRequest::ALTER_VCLUSTER_INFO)));
+    EXPECT_TRUE(rejected(alter_cluster("", AlterClusterRequest::ADD_NODE)));
     EXPECT_TRUE(rejected(alter_instance(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY, "")));
     EXPECT_FALSE(
             rejected(alter_instance(AlterInstanceRequest::SET_SNAPSHOT_PROPERTY, cloud_unique_id)));
@@ -5420,6 +5632,7 @@ TEST(MetaServiceTest, AddRoleOnlyVaultDefaultsToInstanceProfile) {
 }
 
 TEST(MetaServiceTest, StageTest) {
+    ScopedLegacyInstanceRpc legacy_instance_rpc;
     auto meta_service = get_meta_service();
     brpc::Controller cntl;
     auto cloud_unique_id = "test_cloud_unique_id";
@@ -5758,6 +5971,7 @@ TEST(MetaServiceTest, StageTest) {
 }
 
 TEST(MetaServiceTest, GetIamTest) {
+    ScopedLegacyInstanceRpc legacy_instance_rpc;
     auto meta_service = get_meta_service();
     brpc::Controller cntl;
     auto cloud_unique_id = "test_cloud_unique_id";
@@ -5842,6 +6056,7 @@ TEST(MetaServiceTest, GetIamTest) {
 }
 
 TEST(MetaServiceTest, AlterRamTest) {
+    ScopedLegacyInstanceRpc legacy_instance_rpc;
     auto meta_service = get_meta_service();
     brpc::Controller cntl;
     auto cloud_unique_id = "test_cloud_unique_id";
@@ -10954,6 +11169,7 @@ TEST(MetaServiceTxnStoreRetryableTest, RetryReadMaybeCommittedCodeReturnsCommitE
 }
 
 TEST(MetaServiceTest, GetClusterStatusTest) {
+    ScopedLegacyInstanceRpc legacy_instance_rpc;
     auto meta_service = get_meta_service();
 
     // add cluster first
@@ -11720,6 +11936,7 @@ TEST(MetaServiceTest, DropHdfsInfoTest) {
 }
 
 TEST(MetaServiceTest, GetDefaultVaultTest) {
+    ScopedLegacyInstanceRpc legacy_instance_rpc;
     auto meta_service = get_meta_service();
 
     auto get_test_instance = [&](InstanceInfoPB& i, std::string instance_id) {
@@ -11823,6 +12040,7 @@ TEST(MetaServiceTest, GetDefaultVaultTest) {
 }
 
 TEST(MetaServiceTest, SetDefaultVaultTest) {
+    ScopedLegacyInstanceRpc legacy_instance_rpc;
     auto meta_service = get_meta_service();
     std::string instance_id = "test_instance";
 
@@ -12340,6 +12558,7 @@ TEST(MetaServiceTest, CreateTabletsVaultsTest) {
 }
 
 TEST(MetaServiceTest, UpdateAkSkTest) {
+    ScopedLegacyInstanceRpc legacy_instance_rpc;
     auto meta_service = get_meta_service();
 
     auto sp = SyncPoint::get_instance();
@@ -14640,6 +14859,7 @@ TEST(MetaServiceTest, RestoreJobTest) {
 }
 
 TEST(MetaServiceTest, SetSnapshotPropertyTest) {
+    ScopedLegacyInstanceRpc legacy_instance_rpc;
     auto meta_service = get_meta_service();
 
     // Create a test instance first
@@ -14991,6 +15211,7 @@ TEST(MetaServiceTest, SetSnapshotPropertyTest) {
 }
 
 TEST(MetaServiceTest, SnapshotConfigLimitsTest) {
+    ScopedLegacyInstanceRpc legacy_instance_rpc;
     auto meta_service = get_meta_service();
 
     // Create a test instance first
@@ -15185,6 +15406,7 @@ TEST(MetaServiceTest, SnapshotConfigLimitsTest) {
 }
 
 TEST(MetaServiceTest, SnapshotDefaultValuesTest) {
+    ScopedLegacyInstanceRpc legacy_instance_rpc;
     auto meta_service = get_meta_service();
 
     // Create a test instance first

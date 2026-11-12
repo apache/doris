@@ -381,10 +381,9 @@ CONF_mInt64(max_num_aborted_txn, "100");
 
 CONF_Bool(enable_check_instance_id, "true");
 
-// Reject rpc requests naming an instance by instance_id without cloud_unique_id, the http api
-// (authorized by token) is not affected. Enable it only after all FE are upgraded to send
-// cloud_unique_id, and not in cluster_id mode, where FE creates and joins its instance by id.
-CONF_Bool(enable_strict_instance_auth, "false");
+// Reject RPCs naming an instance by instance_id without cloud_unique_id. Management HTTP
+// requests authenticate with a token. Legacy RPC callers need a compatibility setting during upgrade.
+CONF_Bool(enable_strict_instance_auth, "true");
 
 // Check if ip eq 127.0.0.1, ms/recycler exit
 CONF_Bool(enable_loopback_address_for_ms, "false");

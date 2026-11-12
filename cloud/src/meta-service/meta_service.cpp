@@ -195,14 +195,19 @@ bool MetaServiceProxy::check_strict_instance_auth(const ::google::protobuf::Mess
     CHECK(instance_id_field != nullptr) << descriptor->name();
     std::string instance_id = reflection->GetString(req, instance_id_field);
     const auto* cloud_unique_id_field = descriptor->FindFieldByName("cloud_unique_id");
-    // Only the presence of cloud_unique_id is required here, whether instance_id belongs to it is
-    // checked separately. MS asks other MS to refresh an instance by instance_id, which changes
-    // nothing.
+    // Only the presence of cloud_unique_id is required here.
+    // MS asks other MS to refresh an instance by instance_id, which changes nothing.
     const auto* alter_instance = dynamic_cast<const AlterInstanceRequest*>(&req);
     if (instance_id.empty() ||
         (cloud_unique_id_field != nullptr &&
          !reflection->GetString(req, cloud_unique_id_field).empty()) ||
         (alter_instance != nullptr && alter_instance->op() == AlterInstanceRequest::REFRESH)) {
+        return true;
+    }
+    // FIXME: Remove this compatibility once all FEs send cloud_unique_id for ALTER_VCLUSTER_INFO.
+    const auto* alter_cluster = dynamic_cast<const AlterClusterRequest*>(&req);
+    if (alter_cluster != nullptr &&
+        alter_cluster->op() == AlterClusterRequest::ALTER_VCLUSTER_INFO) {
         return true;
     }
     status->set_code(MetaServiceCode::INVALID_ARGUMENT);

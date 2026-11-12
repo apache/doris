@@ -42,6 +42,7 @@
 #include "meta-store/txn_kv_error.h"
 #include "rate-limiter/rate_limiter.h"
 #include "resource-manager/resource_manager.h"
+#include "scoped_legacy_instance_rpc.h"
 
 int main(int argc, char** argv) {
     const std::string conf_file = "doris_cloud.conf";
@@ -157,6 +158,7 @@ static void get_instance_info(MetaServiceProxy* ms, InstanceInfoPB* instance,
 }
 
 static void create_instance(MetaServiceProxy* ms, const std::string& instance_id) {
+    ScopedLegacyInstanceRpc legacy_instance_rpc;
     brpc::Controller ctrl;
     CreateInstanceRequest req;
     req.set_instance_id(instance_id);
@@ -181,6 +183,7 @@ static void create_instance(MetaServiceProxy* ms, const std::string& instance_id
 static void create_cluster(MetaServiceProxy* ms, const std::string& instance_id,
                            const std::string& cluster_id, const std::string& cluster_name,
                            ClusterPB_Type type) {
+    ScopedLegacyInstanceRpc legacy_instance_rpc;
     brpc::Controller cntl;
     AlterClusterRequest req;
     req.set_instance_id(instance_id);
@@ -207,6 +210,7 @@ static void create_cluster(MetaServiceProxy* ms, const std::string& instance_id,
 
 static void drop_cluster(MetaServiceProxy* ms, const std::string& instance_id,
                          const std::string& cluster_id) {
+    ScopedLegacyInstanceRpc legacy_instance_rpc;
     brpc::Controller cntl;
     AlterClusterRequest req;
     req.set_instance_id(instance_id);
@@ -691,6 +695,7 @@ static void verify_storage_vault(MetaServiceProxy* meta_service, const std::stri
 
 // Test AK/SK cascade update: two-level cascade
 TEST(AkSkCascadeTest, TwoLevelCascade) {
+    ScopedLegacyInstanceRpc legacy_instance_rpc;
     auto meta_service = get_meta_service();
 
     auto sp = SyncPoint::get_instance();
@@ -738,6 +743,7 @@ TEST(AkSkCascadeTest, TwoLevelCascade) {
 
 // Test AK/SK cascade update: three-level cascade
 TEST(AkSkCascadeTest, ThreeLevelCascade) {
+    ScopedLegacyInstanceRpc legacy_instance_rpc;
     auto meta_service = get_meta_service();
 
     auto sp = SyncPoint::get_instance();
@@ -785,6 +791,7 @@ TEST(AkSkCascadeTest, ThreeLevelCascade) {
 
 // Test AK/SK cascade update: multiple branches
 TEST(AkSkCascadeTest, MultipleBranchesCascade) {
+    ScopedLegacyInstanceRpc legacy_instance_rpc;
     auto meta_service = get_meta_service();
 
     auto sp = SyncPoint::get_instance();
@@ -835,6 +842,7 @@ TEST(AkSkCascadeTest, MultipleBranchesCascade) {
 
 // Test AK/SK cascade update: no children
 TEST(AkSkCascadeTest, NoChildrenInstance) {
+    ScopedLegacyInstanceRpc legacy_instance_rpc;
     auto meta_service = get_meta_service();
 
     auto sp = SyncPoint::get_instance();
@@ -877,6 +885,7 @@ TEST(AkSkCascadeTest, NoChildrenInstance) {
 
 // Snapshot disabled should skip cascading to derived instances
 TEST(AkSkCascadeTest, SnapshotDisabledSkipsCascade) {
+    ScopedLegacyInstanceRpc legacy_instance_rpc;
     auto meta_service = get_meta_service();
 
     auto sp = SyncPoint::get_instance();
@@ -921,6 +930,7 @@ TEST(AkSkCascadeTest, SnapshotDisabledSkipsCascade) {
 
 // Test AK/SK cascade update: child without obj_info should NOT be cascaded
 TEST(AkSkCascadeTest, ChildWithoutObjInfo) {
+    ScopedLegacyInstanceRpc legacy_instance_rpc;
     auto meta_service = get_meta_service();
 
     auto sp = SyncPoint::get_instance();

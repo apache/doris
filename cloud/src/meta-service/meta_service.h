@@ -280,6 +280,11 @@ public:
                          const CreateInstanceRequest* request, CreateInstanceResponse* response,
                          ::google::protobuf::Closure* done) override;
 
+    void bootstrap_instance(google::protobuf::RpcController* controller,
+                            const BootstrapInstanceRequest* request,
+                            CreateInstanceResponse* response,
+                            ::google::protobuf::Closure* done) override;
+
     void alter_instance(google::protobuf::RpcController* controller,
                         const AlterInstanceRequest* request, AlterInstanceResponse* response,
                         ::google::protobuf::Closure* done) override;
@@ -443,6 +448,10 @@ public:
             const std::string& instance_id, bool& finished, std::string& reason);
 
 private:
+    void create_instance_impl(google::protobuf::RpcController* controller,
+                              const CreateInstanceRequest* request,
+                              CreateInstanceResponse* response, ::google::protobuf::Closure* done,
+                              const ClusterPB* initial_fe_cluster);
     std::pair<MetaServiceCode, std::string> alter_instance(
             const AlterInstanceRequest* request,
             std::function<std::pair<MetaServiceCode, std::string>(Transaction*, InstanceInfoPB*)>
@@ -828,6 +837,13 @@ public:
         call_impl(&cloud::MetaService::create_instance, controller, request, response, done);
     }
 
+    void bootstrap_instance(google::protobuf::RpcController* controller,
+                            const BootstrapInstanceRequest* request,
+                            CreateInstanceResponse* response,
+                            ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::bootstrap_instance, controller, request, response, done);
+    }
+
     void get_instance(google::protobuf::RpcController* controller,
                       const GetInstanceRequest* request, GetInstanceResponse* response,
                       ::google::protobuf::Closure* done) override {
@@ -1058,8 +1074,8 @@ public:
 private:
     // With `enable_strict_instance_auth`, reject a request naming an instance without
     // cloud_unique_id.
-    bool check_strict_instance_auth(const ::google::protobuf::Message& req,
-                                    MetaServiceResponseStatus* status);
+    static bool check_strict_instance_auth(const ::google::protobuf::Message& req,
+                                           MetaServiceResponseStatus* status);
 
     template <typename Request, typename Response>
     using MetaServiceMethod = void (cloud::MetaService::*)(::google::protobuf::RpcController*,
@@ -1081,10 +1097,12 @@ private:
             set_response_code(status, status->code(), status->msg());
         };
 
-        // Only rpc goes through the proxy, the http api (authorized by token) calls impl directly.
+        // First-FE bootstrap is trusted and runs before an instance identity is registered.
+        // The token-authenticated management HTTP API calls the implementation directly.
         static const bool names_instance_by_id =
-                Request::descriptor()->FindFieldByName("instance_id") != nullptr ||
-                Request::descriptor()->FindFieldByName("instance_ids") != nullptr;
+                !std::is_same_v<Request, BootstrapInstanceRequest> &&
+                (Request::descriptor()->FindFieldByName("instance_id") != nullptr ||
+                 Request::descriptor()->FindFieldByName("instance_ids") != nullptr);
         if (names_instance_by_id && !check_strict_instance_auth(*req, resp->mutable_status())) {
             return;
         }
