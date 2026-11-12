@@ -120,8 +120,8 @@ Status SpillFileWriter::_open_next_part(const std::shared_ptr<SpillFile>& spill_
     opts.write_file_cache = false;
     opts.allow_adaptive_file_cache_write = false;
     opts.approximate_bytes_to_write = 0;
-    _configure_file_writer_options(&opts);
     RETURN_IF_ERROR(fs->create_file(_current_part_path, &_file_writer, &opts));
+    _on_part_opened();
     COUNTER_UPDATE(_total_file_count, 1);
     return Status::OK();
 }

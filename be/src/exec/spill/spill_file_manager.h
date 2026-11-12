@@ -32,6 +32,10 @@
 #include "util/threadpool.h"
 
 namespace doris {
+namespace io {
+class S3FileWriter;
+class S3UploadProgress;
+} // namespace io
 class RuntimeProfile;
 template <typename T>
 class AtomicCounter;
@@ -141,9 +145,11 @@ public:
     /// Bytes and GET requests issued by spill against object storage.
     void update_spill_remote_read(int64_t bytes, int64_t get_requests);
 
-    const std::shared_ptr<std::atomic<int64_t>>& inflight_upload_bytes() const {
-        return _inflight_upload_bytes;
-    }
+    // Register each new remote part once, without retaining its writer.
+    void register_s3_writer(const io::S3FileWriter& writer);
+
+    // Sum submitted, unfinished upload capacities across this manager's spill writers.
+    int64_t pending_upload_bytes();
 
     /// Number of spill directories waiting for initial deletion or retry.
     size_t pending_delete_dir_count();
@@ -204,10 +210,10 @@ private:
     std::vector<LocalSpillDataDir*> _local_stores;
     RemoteSpillDataDir* _remote_store = nullptr;
 
-    // Shared only by this manager's spill writers. I/O writers retain the counter until
-    // their callbacks return the upload charges, without retaining the manager itself.
-    const std::shared_ptr<std::atomic<int64_t>> _inflight_upload_bytes =
-            std::make_shared<std::atomic<int64_t>>(0);
+    // Read-only views remain safe to query while a writer drains in its destructor. They
+    // cannot retain a writer, and closed parts are pruned on the next registration/query.
+    std::mutex _upload_progress_mutex;
+    std::vector<std::weak_ptr<const io::S3UploadProgress>> _upload_progress;
 
     CountDownLatch _stop_background_threads_latch;
     std::shared_ptr<Thread> _spill_gc_thread;

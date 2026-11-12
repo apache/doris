@@ -19,8 +19,10 @@
 
 #include <bthread/countdown_event.h>
 
+#include <atomic>
 #include <chrono>
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <string>
@@ -48,6 +50,16 @@ class S3FileSystem;
 struct AsyncCloseStatusPack;
 class ObjClientHolder;
 
+// Read-only upload progress may be observed without retaining or accessing a closing writer.
+class S3UploadProgress {
+public:
+    int64_t pending_upload_bytes() const { return _pending_bytes.load(std::memory_order_relaxed); }
+
+private:
+    friend class S3FileWriter;
+    std::atomic<int64_t> _pending_bytes {0};
+};
+
 class S3FileWriter final : public FileWriter {
 public:
     S3FileWriter(std::shared_ptr<ObjClientHolder> client, std::string bucket, std::string key,
@@ -68,6 +80,14 @@ public:
 
     Status close(bool non_block = false) override;
     Status try_finish_close() override;
+
+    // Allocation capacity of submitted upload buffers (queued or running), excluding the
+    // not-yet-submitted partial buffer. This is a snapshot, not an admission reservation.
+    int64_t pending_upload_bytes() const { return _upload_progress->pending_upload_bytes(); }
+
+    // Observers can aggregate progress safely even during synchronous writer destruction.
+    // The view contains no writer, filesystem or callback ownership.
+    std::weak_ptr<const S3UploadProgress> upload_progress() const { return _upload_progress; }
 
 private:
     Status _close_impl();
@@ -94,7 +114,7 @@ private:
     // **Attention** call add_count() before submitting buf to async thread pool
     bthread::CountdownEvent _countdown_event {0};
 
-    std::shared_ptr<std::atomic<int64_t>> _inflight_upload_bytes = nullptr;
+    const std::shared_ptr<S3UploadProgress> _upload_progress = std::make_shared<S3UploadProgress>();
     std::atomic_bool _failed = false;
 
     Status _st;

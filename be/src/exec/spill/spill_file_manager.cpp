@@ -40,6 +40,7 @@
 #include "exec/spill/spill_file.h"
 #include "io/fs/file_system.h"
 #include "io/fs/local_file_system.h"
+#include "io/fs/s3_file_writer.h"
 #include "runtime/query_context.h"
 #include "storage/options.h"
 #include "util/debug_points.h"
@@ -511,6 +512,28 @@ void SpillFileManager::delete_query_spill_directory(const std::string& query_id,
     };
 
     _add_pending_directory(std::move(pending_directory));
+}
+
+void SpillFileManager::register_s3_writer(const io::S3FileWriter& writer) {
+    std::lock_guard lock(_upload_progress_mutex);
+    // Part rotation destroys old writers, so do not keep their expired control blocks.
+    std::erase_if(_upload_progress, [](const auto& progress) { return progress.expired(); });
+    _upload_progress.emplace_back(writer.upload_progress());
+}
+
+int64_t SpillFileManager::pending_upload_bytes() {
+    std::lock_guard lock(_upload_progress_mutex);
+    int64_t bytes = 0;
+    std::erase_if(_upload_progress, [&](const auto& weak_progress) {
+        // A closed/discarded part may expire between two admission checks. Promoting only
+        // its progress view never delays writer destruction or waits for network I/O.
+        if (auto progress = weak_progress.lock()) {
+            bytes += progress->pending_upload_bytes();
+            return false;
+        }
+        return true;
+    });
+    return bytes;
 }
 
 void SpillFileManager::queue_spill_directory_deletion(SpillDataDir* data_dir, io::FileSystemSPtr fs,

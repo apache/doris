@@ -22,8 +22,10 @@
 #include <utility>
 
 #include "common/config.h"
+#include "core/assert_cast.h"
 #include "exec/spill/spill_file.h"
 #include "exec/spill/spill_file_manager.h"
+#include "io/fs/s3_file_writer.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_profile_counter_names.h"
 #include "runtime/workload_management/io_context.h"
@@ -38,8 +40,7 @@ SpillS3FileWriter::SpillS3FileWriter(const std::shared_ptr<SpillFile>& spill_fil
                                      std::string spill_dir)
         : SpillFileWriter(spill_file, state, profile, data_dir, std::move(fs),
                           std::move(spill_dir)),
-          _inflight_upload_bytes(
-                  ExecEnv::GetInstance()->spill_file_mgr()->inflight_upload_bytes()) {
+          _spill_manager(ExecEnv::GetInstance()->spill_file_mgr()) {
     RuntimeProfile* custom_profile = profile->get_child("CustomCounters");
     _remote_upload_bytes = custom_profile->get_counter(profile::SPILL_REMOTE_UPLOAD_BYTES);
     _remote_upload_timer = custom_profile->get_counter(profile::SPILL_REMOTE_UPLOAD_TIME);
@@ -56,8 +57,10 @@ SpillS3FileWriter::~SpillS3FileWriter() {
     }
 }
 
-void SpillS3FileWriter::_configure_file_writer_options(io::FileWriterOptions* options) {
-    options->inflight_upload_bytes = _inflight_upload_bytes;
+void SpillS3FileWriter::_on_part_opened() {
+    // S3FileSystem creates an S3FileWriter for every part. Only spill registers its progress;
+    // unrelated writers using the same upload pool do not enter the BE spill budget.
+    _spill_manager->register_s3_writer(*assert_cast<io::S3FileWriter*>(_file_writer.get()));
 }
 
 Status SpillS3FileWriter::_wait_for_upload_capacity() {
@@ -71,8 +74,7 @@ Status SpillS3FileWriter::_wait_for_upload_capacity() {
     // Only submitted spill uploads count. Unrelated loads on the shared S3 pool must not
     // throttle spill, and idle partial buffers must not prevent active writers making progress.
     auto queue_full = [this]() {
-        return _inflight_upload_bytes->load(std::memory_order_relaxed) >=
-               config::spill_s3_max_inflight_upload_bytes;
+        return _spill_manager->pending_upload_bytes() >= config::spill_s3_max_inflight_upload_bytes;
     };
     if (!queue_full()) {
         return Status::OK();

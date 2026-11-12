@@ -1791,7 +1791,6 @@ TEST_F(SpillFileS3Test, InflightSpillUploadsBoundWriter) {
     config::spill_s3_max_inflight_upload_bytes = 2 * config::s3_write_buffer_size;
     config::spill_file_part_size_bytes = 1024 * 1024;
     _create_manager();
-    const auto& inflight = _manager->inflight_upload_bytes();
 
     std::mt19937 rng(11);
     std::vector<Block> blocks;
@@ -1807,8 +1806,8 @@ TEST_F(SpillFileS3Test, InflightSpillUploadsBoundWriter) {
     std::atomic<bool> sampling {true};
     ScopedThread sampler([&]() {
         while (sampling.load()) {
-            max_queue =
-                    std::max(max_queue.load(), (inflight->load() / config::s3_write_buffer_size));
+            max_queue = std::max(max_queue.load(),
+                                 (_manager->pending_upload_bytes() / config::s3_write_buffer_size));
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
     });
@@ -1825,16 +1824,17 @@ TEST_F(SpillFileS3Test, InflightSpillUploadsBoundWriter) {
     }};
 
     // The blocked uploads occupy the pool; the writer stalls once two buffers are submitted.
-    for (int i = 0; i < 250 && (inflight->load() / config::s3_write_buffer_size) < 2; ++i) {
+    for (int i = 0;
+         i < 250 && (_manager->pending_upload_bytes() / config::s3_write_buffer_size) < 2; ++i) {
         std::this_thread::sleep_for(std::chrono::milliseconds(20));
     }
-    ASSERT_GE((inflight->load() / config::s3_write_buffer_size), 2);
+    ASSERT_GE((_manager->pending_upload_bytes() / config::s3_write_buffer_size), 2);
     std::this_thread::sleep_for(std::chrono::milliseconds(300));
     ASSERT_FALSE(finished.load());
     // The queue is checked before every block. A block (~12 KB) plus a partly filled pending
     // buffer (< 8 KB) fills at most two 8 KB buffers, so an append that passed the check with
     // one queued buffer leaves at most three.
-    ASSERT_LE((inflight->load() / config::s3_write_buffer_size), 3);
+    ASSERT_LE((_manager->pending_upload_bytes() / config::s3_write_buffer_size), 3);
 
     mock_store().set_block_uploads(false);
     writer_thread.join();
@@ -1949,7 +1949,6 @@ TEST_F(SpillFileS3Test, InflightSpillWaitIsCancellable) {
     config::spill_s3_max_inflight_upload_bytes = 2 * config::s3_write_buffer_size;
     config::spill_file_part_size_bytes = 1024 * 1024;
     _create_manager();
-    const auto& inflight = _manager->inflight_upload_bytes();
 
     std::mt19937 rng(13);
     std::vector<Block> blocks;
@@ -1983,10 +1982,11 @@ TEST_F(SpillFileS3Test, InflightSpillWaitIsCancellable) {
         mock_store().set_block_uploads(false);
         _runtime_state->get_query_ctx()->cancel(Status::Cancelled("test teardown"));
     }};
-    for (int i = 0; i < 250 && (inflight->load() / config::s3_write_buffer_size) < 2; ++i) {
+    for (int i = 0;
+         i < 250 && (_manager->pending_upload_bytes() / config::s3_write_buffer_size) < 2; ++i) {
         std::this_thread::sleep_for(std::chrono::milliseconds(20));
     }
-    ASSERT_GE((inflight->load() / config::s3_write_buffer_size), 2);
+    ASSERT_GE((_manager->pending_upload_bytes() / config::s3_write_buffer_size), 2);
     ASSERT_FALSE(writes_done.load());
     // Cancellation is observed through the query's task controller, not the RuntimeState.
     _runtime_state->get_query_ctx()->cancel(Status::Cancelled("test cancel"));
@@ -2435,7 +2435,7 @@ TEST_F(SpillFileS3Test, UnrelatedUploadTasksDoNotThrottleSpill) {
     unblock_pool();
     writing.join();
     ASSERT_TRUE(status.ok()) << status;
-    EXPECT_EQ(_manager->inflight_upload_bytes()->load(), 0);
+    EXPECT_EQ(_manager->pending_upload_bytes(), 0);
     ASSERT_TRUE(writer->close().ok());
 }
 
@@ -2449,17 +2449,168 @@ TEST_F(SpillFileS3Test, InflightUploadAccountingUsesSubmittedBufferCapacity) {
     mock_store().set_block_uploads(true);
     Defer unblock {[&]() { mock_store().set_block_uploads(false); }};
     ASSERT_TRUE(writer->write_block(_runtime_state.get(), _random_string_block(rng, 64, 200)).ok());
-    ASSERT_GT(_manager->inflight_upload_bytes()->load(), 0);
+    ASSERT_GT(_manager->pending_upload_bytes(), 0);
     // Return each submitted allocation, not the buffer size configured at completion time.
     config::s3_write_buffer_size *= 2;
     mock_store().set_block_uploads(false);
     file.reset(); // Discard synchronously drains uploads, but does not perform deletion.
-    EXPECT_EQ(_manager->inflight_upload_bytes()->load(), 0);
+    EXPECT_EQ(_manager->pending_upload_bytes(), 0);
     EXPECT_GT(_data_dir->get_spill_data_bytes(), 0);
     _manager->gc(10000);
     EXPECT_EQ(_data_dir->get_spill_data_bytes(), 0);
     EXPECT_EQ(mock_store().complete_multipart_requests.load(), 0);
     EXPECT_TRUE(_query_objects("buffer_capacity").empty());
+    ASSERT_TRUE(writer->close().ok());
+}
+
+TEST_F(SpillFileS3Test, S3WriterReportsPendingBytesWithoutCallerOptions) {
+    _create_manager();
+    io::FileWriterPtr writer;
+    ASSERT_TRUE(_s3_fs->create_file("standalone-upload", &writer, nullptr).ok());
+    auto* s3_writer = dynamic_cast<io::S3FileWriter*>(writer.get());
+    ASSERT_NE(s3_writer, nullptr);
+    auto weak_progress = s3_writer->upload_progress();
+    auto progress = weak_progress.lock();
+    ASSERT_NE(progress, nullptr);
+    EXPECT_EQ(s3_writer->pending_upload_bytes(), 0);
+
+    mock_store().set_block_uploads(true);
+    Defer unblock {[&]() { mock_store().set_block_uploads(false); }};
+    const auto capacity = config::s3_write_buffer_size;
+    const std::string half_buffer(capacity / 2, 'x');
+    ASSERT_TRUE(writer->append(Slice(half_buffer)).ok());
+    EXPECT_EQ(s3_writer->pending_upload_bytes(), 0); // Partial, not submitted.
+    ASSERT_TRUE(writer->append(Slice(half_buffer)).ok());
+    EXPECT_EQ(s3_writer->pending_upload_bytes(), capacity);
+    EXPECT_EQ(progress->pending_upload_bytes(), capacity);
+    EXPECT_EQ(_manager->pending_upload_bytes(), 0); // Not a registered spill writer.
+
+    // Completion returns the allocation captured at submission, not the new configuration.
+    config::s3_write_buffer_size *= 2;
+    mock_store().set_block_uploads(false);
+    ExecEnv::GetInstance()->s3_file_upload_thread_pool()->wait();
+    EXPECT_EQ(s3_writer->pending_upload_bytes(), 0);
+    writer.reset();
+    EXPECT_EQ(progress->pending_upload_bytes(), 0); // Does not access the destroyed writer.
+    progress.reset();
+    EXPECT_TRUE(weak_progress.expired());
+}
+
+TEST_F(SpillFileS3Test, S3WriterSubmissionFailureReturnsItsPendingBytes) {
+    _create_manager();
+    const bool saved = config::enable_debug_points;
+    constexpr auto name = "S3FileWriter.submit_upload_buffer.inject_error";
+    Defer restore {[&]() {
+        DebugPoints::instance()->remove(name);
+        config::enable_debug_points = saved;
+    }};
+    config::enable_debug_points = true;
+    DebugPoints::instance()->add(name);
+    io::FileWriterPtr writer;
+    ASSERT_TRUE(_s3_fs->create_file("pending-submit-failure", &writer, nullptr).ok());
+    auto* s3_writer = dynamic_cast<io::S3FileWriter*>(writer.get());
+    ASSERT_NE(s3_writer, nullptr);
+    const std::string buffer(config::s3_write_buffer_size, 'x');
+    EXPECT_FALSE(writer->append(Slice(buffer)).ok());
+    // Query the still-live writer: expiration of a manager's weak view cannot hide a leak.
+    EXPECT_EQ(s3_writer->pending_upload_bytes(), 0);
+}
+
+TEST_F(SpillFileS3Test, S3WriterUploadFailureReturnsItsPendingBytes) {
+    _create_manager();
+    mock_store().fail_put_index = 1;
+    io::FileWriterPtr writer;
+    ASSERT_TRUE(_s3_fs->create_file("pending-upload-failure", &writer, nullptr).ok());
+    auto* s3_writer = dynamic_cast<io::S3FileWriter*>(writer.get());
+    ASSERT_NE(s3_writer, nullptr);
+    const std::string buffer(config::s3_write_buffer_size, 'x');
+    ASSERT_TRUE(writer->append(Slice(buffer)).ok());
+    ExecEnv::GetInstance()->s3_file_upload_thread_pool()->wait();
+    EXPECT_EQ(mock_store().put_requests.load(), 1);
+    EXPECT_EQ(s3_writer->pending_upload_bytes(), 0);
+    EXPECT_TRUE(s3_writer->_failed.load());
+}
+
+TEST_F(SpillFileS3Test, PendingUploadQuerySumsWritersAndIsolatesManagers) {
+    _create_manager();
+    auto other_manager = std::make_unique<SpillFileManager>(
+            std::unordered_map<std::string, std::unique_ptr<SpillDataDir>> {});
+    io::FileWriterPtr first;
+    io::FileWriterPtr second;
+    io::FileWriterPtr other;
+    ASSERT_TRUE(_s3_fs->create_file("query-sum/first", &first, nullptr).ok());
+    ASSERT_TRUE(_s3_fs->create_file("query-sum/second", &second, nullptr).ok());
+    ASSERT_TRUE(_s3_fs->create_file("query-sum/other", &other, nullptr).ok());
+    _manager->register_s3_writer(*dynamic_cast<io::S3FileWriter*>(first.get()));
+    _manager->register_s3_writer(*dynamic_cast<io::S3FileWriter*>(second.get()));
+    other_manager->register_s3_writer(*dynamic_cast<io::S3FileWriter*>(other.get()));
+    const auto capacity = config::s3_write_buffer_size;
+    const std::string one_buffer(capacity, 'x');
+    mock_store().set_block_uploads(true);
+    Defer unblock {[&]() { mock_store().set_block_uploads(false); }};
+    ASSERT_TRUE(first->append(Slice(one_buffer)).ok());
+    ASSERT_TRUE(second->append(Slice(one_buffer)).ok());
+    ASSERT_TRUE(second->append(Slice(one_buffer)).ok());
+    ASSERT_TRUE(other->append(Slice(one_buffer)).ok());
+    EXPECT_EQ(_manager->pending_upload_bytes(), 3 * capacity);
+    EXPECT_EQ(other_manager->pending_upload_bytes(), capacity);
+
+    // The registry neither owns the writers nor injects state into them. Replacing a
+    // manager while its old writers are alive cannot charge the replacement manager.
+    other_manager.reset();
+    other_manager = std::make_unique<SpillFileManager>(
+            std::unordered_map<std::string, std::unique_ptr<SpillDataDir>> {});
+    EXPECT_EQ(other_manager->pending_upload_bytes(), 0);
+    EXPECT_EQ(_manager->pending_upload_bytes(), 3 * capacity);
+    mock_store().set_block_uploads(false);
+    ASSERT_TRUE(first->close().ok());
+    ASSERT_TRUE(second->close().ok());
+    ASSERT_TRUE(other->close().ok());
+    EXPECT_EQ(_manager->pending_upload_bytes(), 0);
+    first.reset();
+    second.reset();
+    EXPECT_EQ(_manager->pending_upload_bytes(), 0);
+    EXPECT_TRUE(_manager->_upload_progress.empty());
+}
+
+TEST_F(SpillFileS3Test, UploadProgressRemainsQueryableDuringDiscard) {
+    _create_manager();
+    config::spill_file_part_size_bytes = 1024 * 1024;
+    SpillFileSPtr file;
+    ASSERT_TRUE(_manager->create_spill_file("query_discard_progress/sort-1", file).ok());
+    SpillFileWriterSPtr writer;
+    ASSERT_TRUE(file->create_writer(_runtime_state.get(), _profile.get(), writer).ok());
+    std::mt19937 rng(191);
+    mock_store().set_block_uploads(true);
+    Defer unblock_on_write_failure {[&]() { mock_store().set_block_uploads(false); }};
+    ASSERT_TRUE(writer->write_block(_runtime_state.get(), _random_string_block(rng, 64, 200)).ok());
+    const auto pending = _manager->pending_upload_bytes();
+    ASSERT_GT(pending, 0);
+    std::atomic<bool> discard_started {false};
+    std::atomic<bool> discard_finished {false};
+    ScopedThread discard([&]() {
+        discard_started = true;
+        file.reset(); // Synchronously drains the underlying writer without publishing it.
+        discard_finished = true;
+    });
+    Defer unblock_before_join {[&]() { mock_store().set_block_uploads(false); }};
+    while (!discard_started.load()) {
+        std::this_thread::yield();
+    }
+    for (int i = 0; i < 1000; ++i) {
+        EXPECT_EQ(_manager->pending_upload_bytes(), pending);
+    }
+    EXPECT_FALSE(discard_finished.load());
+    mock_store().set_block_uploads(false);
+    // Query concurrently with the final callbacks and destruction of the writer itself.
+    while (!discard_finished.load()) {
+        EXPECT_GE(_manager->pending_upload_bytes(), 0);
+        std::this_thread::yield();
+    }
+    discard.join();
+    EXPECT_EQ(_manager->pending_upload_bytes(), 0);
+    EXPECT_TRUE(_manager->_upload_progress.empty());
+    EXPECT_EQ(mock_store().complete_multipart_requests.load(), 0);
     ASSERT_TRUE(writer->close().ok());
 }
 
@@ -2498,7 +2649,7 @@ TEST_F(SpillFileS3Test, FailedUploadSubmissionReturnsInflightCharge) {
     auto file =
             _write_blocks("failed_submit/sort-1", {_random_string_block(rng, 64, 200)}, &status);
     EXPECT_FALSE(status.ok());
-    EXPECT_EQ(_manager->inflight_upload_bytes()->load(), 0);
+    EXPECT_EQ(_manager->pending_upload_bytes(), 0);
     EXPECT_FALSE(file->ready_for_reading());
 }
 
