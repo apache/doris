@@ -312,6 +312,11 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
                               .build(&_peer_race_s3_thread_pool));
     RETURN_IF_ERROR(init_mem_env());
 
+    // Initialize on the main thread, after CacheManager exists and before
+    // storage-engine/packed-file workers can acquire clients concurrently.
+    // AWS InitAPI and ShutdownAPI must run on this same thread.
+    S3ClientFactory::instance().init_client_cache();
+
     if (config::is_cloud_mode()) {
         io::FileRangeReadSchedulerOptions options {
                 .max_bytes_per_query = cast_set<size_t>(config::read_ahead_max_bytes_per_query),
@@ -507,8 +512,6 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
 
     init_simdjson_parser();
 
-    // Make aws-sdk-cpp InitAPI and ShutdownAPI called in the same thread
-    S3ClientFactory::instance();
     return Status::OK();
 }
 
@@ -1064,6 +1067,11 @@ void ExecEnv::destroy() {
 
     // cache_manager must be destoried after all cache.
     // https://github.com/apache/doris/issues/24082#issuecomment-1712544039
+    // Partial/offline ExecEnvs do not own the process-wide client's cache. The
+    // initialized environment releases it before its CacheManager disappears.
+    if (_cache_manager) {
+        S3ClientFactory::instance().release_client_cache();
+    }
     SAFE_DELETE(_cache_manager);
     _file_cache_open_fd_cache.reset(nullptr);
 

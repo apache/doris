@@ -29,8 +29,8 @@ namespace doris {
 class ObjStorageClient;
 struct S3ClientConf;
 
-// Reuse clients only while real users own them. Neither the weak index nor a
-// completed creation keeps an idle SDK client/connection pool alive.
+// Index real users weakly and optionally retain a bounded LRU of clients across
+// queries. Eviction releases only the cache's owner, never an active user's.
 class S3ClientRegistry {
 public:
     using Client = std::shared_ptr<ObjStorageClient>;
@@ -47,6 +47,7 @@ public:
         int64_t destroyed;
         int64_t live;
         int64_t failures;
+        size_t cached;
     };
 
     S3ClientRegistry();
@@ -60,19 +61,27 @@ public:
     Result<Client> get_or_create(const S3ClientConf& conf, const Creator& creator);
     Stats stats() const;
 
+    // Initialize before request producers start, after CacheManager exists.
+    // A zero capacity keeps only the weak index (e.g. offline tools).
+    void init_cache(size_t capacity, uint32_t idle_timeout_seconds);
+    // Release after request producers stop, before CacheManager is destroyed.
+    void release_cache();
+
     // Stop acquisitions and wait for creators after request producers stop.
     // Existing users continue to own valid clients until they release them.
     void close();
     void expose_metrics();
 
 private:
+    class ClientCache;
     struct Impl;
     std::shared_ptr<Impl> _impl;
+    std::unique_ptr<ClientCache> _cache;
 };
 
 // Strong owners bounded by an existing scan or expression-block lifetime. For
 // example, 64 sequential files with the same credentials need one SDK client,
-// while completing the scan still releases it without a process-wide cache.
+// even if global retention is disabled or memory GC evicts its cache entry.
 class S3ClientScope {
 public:
     S3ClientScope();

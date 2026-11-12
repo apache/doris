@@ -268,6 +268,15 @@ S3ClientFactory& S3ClientFactory::instance() {
     return ret;
 }
 
+void S3ClientFactory::init_client_cache() {
+    _registry->init_cache(config::s3_client_cache_capacity,
+                          config::s3_client_cache_stale_sweep_time_sec);
+}
+
+void S3ClientFactory::release_client_cache() {
+    _registry->release_cache();
+}
+
 Result<std::shared_ptr<io::ObjStorageClient>> S3ClientFactory::create(const S3ClientConf& s3_conf) {
     RETURN_IF_ERROR_RESULT(is_s3_conf_valid(s3_conf));
 

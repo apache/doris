@@ -156,6 +156,9 @@ public:
 
     static S3ClientFactory& instance();
 
+    void init_client_cache();
+    void release_client_cache();
+
     Result<std::shared_ptr<io::ObjStorageClient>> create(const S3ClientConf& s3_conf);
 
     static Status convert_properties_to_s3_conf(const std::map<std::string, std::string>& prop,
