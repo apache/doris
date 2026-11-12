@@ -55,6 +55,7 @@ public:
             TableColumnMapperOptions options) const override;
     Status open(std::shared_ptr<FileScanRequest> request) override;
     Status get_block(Block* file_block, size_t* rows, bool* eof) override;
+    void set_batch_size(size_t batch_size) override;
     Status get_aggregate_result(const FileAggregateRequest& request,
                                 FileAggregateResult* result) override;
     Status close() override;
@@ -64,6 +65,9 @@ protected:
         RuntimeProfile::Counter* total_time = nullptr;
         RuntimeProfile::Counter* open_file_time = nullptr;
         RuntimeProfile::Counter* create_line_reader_time = nullptr;
+        RuntimeProfile::Counter* split_prefix_time = nullptr;
+        RuntimeProfile::Counter* sampled_read_line_calls = nullptr;
+        RuntimeProfile::Counter* sampled_parsed_rows = nullptr;
         RuntimeProfile::Counter* read_line_time = nullptr;
         RuntimeProfile::Counter* split_line_time = nullptr;
         RuntimeProfile::Counter* deserialize_time = nullptr;
@@ -112,6 +116,8 @@ protected:
     // Split one logical line into `_split_values`. The common materialization path then resolves
     // requested field ordinals against `_split_values`.
     virtual void _split_line(const Slice& line) = 0;
+    // Prepare mutable output columns once per batch, after Block has resolved copy-on-write.
+    virtual void _prepare_columns(std::vector<MutableColumnPtr>& columns, size_t batch_size);
     // Deserialize a single normalized field into the requested output column using the
     // format-specific serde API.
     virtual Status _deserialize_one_cell(const RequestedColumn& column, IColumn* output,
@@ -178,6 +184,26 @@ private:
     Status _fill_columns_from_line(const Slice& line, std::vector<MutableColumnPtr>* columns,
                                    size_t* rows);
 
+    void _flush_profile();
+
+    // Publish exact counts once per API call instead of updating atomic counters per cell.
+    struct PendingProfile {
+        int64_t raw_lines_read = 0;
+        int64_t empty_lines_read = 0;
+        int64_t skipped_lines = 0;
+        int64_t cells_deserialized = 0;
+        int64_t read_line_time = 0;
+        int64_t split_line_time = 0;
+        int64_t deserialize_time = 0;
+        int64_t sampled_read_line_calls = 0;
+        int64_t sampled_parsed_rows = 0;
+    } _pending_profile;
+    // Keep sampling periodic across batches, including skipped headers and EOF probes.
+    static constexpr size_t PROFILE_SAMPLE_INTERVAL = 1024;
+    uint64_t _read_line_calls = 0;
+    bool _sample_current_line = false;
+    // Zero means use the runtime default until TableReader supplies its predicted row cap.
+    size_t _batch_size = 0;
     std::string _reader_name;
 };
 
