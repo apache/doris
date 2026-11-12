@@ -3197,6 +3197,58 @@ void handle_drop_node(const std::string& instance_id, const AlterClusterRequest*
     msg = resource_mgr->modify_nodes(instance_id, to_add, to_del);
 }
 
+// Flip node status in place via one update_cluster() transaction per node.
+// ATTN: DO NOT re-implement with two modify_nodes() calls (delete + re-add);
+// between them the node is absent from the cluster PB, and a concurrent reader
+// (e.g. FE CloudClusterChecker) may wrongly drop and re-register the backend.
+// Cluster is located by NodeInfo's cluster_id, never the request's cluster_id.
+// Zero matched nodes or a node missing from the cluster PB is an error.
+static std::string flip_nodes_status_in_place(const std::string& instance_id,
+                                              std::shared_ptr<ResourceManager> resource_mgr,
+                                              const std::vector<NodeInfo>& nodes,
+                                              NodeStatusPB target_status, const char* op_name) {
+    if (nodes.empty()) {
+        std::string msg = std::string(op_name) + " failed, no request node matches any node";
+        LOG(WARNING) << msg;
+        return msg;
+    }
+    int64_t now = std::chrono::duration_cast<std::chrono::seconds>(
+                          std::chrono::system_clock::now().time_since_epoch())
+                          .count();
+    for (const auto& node : nodes) {
+        const NodeInfoPB& req_node = node.node_info;
+        ClusterInfo cluster;
+        cluster.cluster.set_cluster_id(node.cluster_id);
+        std::string msg = resource_mgr->update_cluster(
+                instance_id, cluster,
+                [&](const ClusterPB& c) { return c.cluster_id() == node.cluster_id; },
+                [&](ClusterPB& c, std::vector<ClusterPB>&) -> std::string {
+                    for (auto& n : *c.mutable_nodes()) {
+                        bool endpoint_matched =
+                                (n.has_ip() && req_node.has_ip() && n.ip() == req_node.ip()) ||
+                                (n.has_host() && req_node.has_host() &&
+                                 n.host() == req_node.host());
+                        if (n.cloud_unique_id() != req_node.cloud_unique_id() ||
+                            !endpoint_matched || n.heartbeat_port() != req_node.heartbeat_port()) {
+                            continue;
+                        }
+                        n.set_status(target_status);
+                        n.set_mtime(now);
+                        LOG(INFO) << op_name << " " << n.DebugString() << " " << c.cluster_id()
+                                  << " " << c.cluster_name();
+                        return "";
+                    }
+                    return "failed to find node to flip status, instance_id=" + instance_id +
+                           " cluster_id=" + c.cluster_id() + " node=" + req_node.ShortDebugString();
+                });
+        if (!msg.empty()) {
+            LOG(WARNING) << op_name << " failed, err=" << msg;
+            return msg;
+        }
+    }
+    return "";
+}
+
 void handle_decommission_node(const std::string& instance_id, const AlterClusterRequest* request,
                               std::shared_ptr<ResourceManager> resource_mgr, std::string& msg,
                               MetaServiceCode& code) {
@@ -3206,7 +3258,9 @@ void handle_decommission_node(const std::string& instance_id, const AlterCluster
         return;
     }
 
-    std::string be_unique_id = (request->cluster().nodes())[0].cloud_unique_id();
+    std::string be_unique_id = request->cluster().nodes_size() > 0
+                                       ? request->cluster().nodes(0).cloud_unique_id()
+                                       : "";
     std::vector<NodeInfo> nodes;
     std::string err = resource_mgr->get_node(be_unique_id, &nodes);
     if (!err.empty()) {
@@ -3244,22 +3298,8 @@ void handle_decommission_node(const std::string& instance_id, const AlterCluster
         }
     }
 
-    {
-        std::vector<NodeInfo> to_add;
-        std::vector<NodeInfo>& to_del = decomission_nodes;
-        msg = resource_mgr->modify_nodes(instance_id, to_add, to_del);
-    }
-    {
-        std::vector<NodeInfo>& to_add = decomission_nodes;
-        std::vector<NodeInfo> to_del;
-        for (auto& node : to_add) {
-            node.node_info.set_status(NodeStatusPB::NODE_STATUS_DECOMMISSIONING);
-            LOG(INFO) << "decomission node, "
-                      << "size: " << to_add.size() << " " << node.node_info.DebugString() << " "
-                      << node.cluster_id << " " << node.cluster_name;
-        }
-        msg = resource_mgr->modify_nodes(instance_id, to_add, to_del);
-    }
+    msg = flip_nodes_status_in_place(instance_id, resource_mgr, decomission_nodes,
+                                     NodeStatusPB::NODE_STATUS_DECOMMISSIONING, "decomission node");
 }
 
 void handle_notify_decommissioned(const std::string& instance_id,
@@ -3272,7 +3312,9 @@ void handle_notify_decommissioned(const std::string& instance_id,
         return;
     }
 
-    std::string be_unique_id = (request->cluster().nodes())[0].cloud_unique_id();
+    std::string be_unique_id = request->cluster().nodes_size() > 0
+                                       ? request->cluster().nodes(0).cloud_unique_id()
+                                       : "";
     std::vector<NodeInfo> nodes;
     std::string err = resource_mgr->get_node(be_unique_id, &nodes);
     if (!err.empty()) {
@@ -3308,22 +3350,9 @@ void handle_notify_decommissioned(const std::string& instance_id,
         }
     }
 
-    {
-        std::vector<NodeInfo> to_add;
-        std::vector<NodeInfo>& to_del = decomission_nodes;
-        msg = resource_mgr->modify_nodes(instance_id, to_add, to_del);
-    }
-    {
-        std::vector<NodeInfo>& to_add = decomission_nodes;
-        std::vector<NodeInfo> to_del;
-        for (auto& node : to_add) {
-            node.node_info.set_status(NodeStatusPB::NODE_STATUS_DECOMMISSIONED);
-            LOG(INFO) << "notify node decomissioned, "
-                      << " size: " << to_add.size() << " " << node.node_info.DebugString() << " "
-                      << node.cluster_id << " " << node.cluster_name;
-        }
-        msg = resource_mgr->modify_nodes(instance_id, to_add, to_del);
-    }
+    msg = flip_nodes_status_in_place(instance_id, resource_mgr, decomission_nodes,
+                                     NodeStatusPB::NODE_STATUS_DECOMMISSIONED,
+                                     "notify node decomissioned");
 }
 
 void handle_rename_cluster(const std::string& instance_id, const ClusterInfo& cluster,

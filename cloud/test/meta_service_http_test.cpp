@@ -961,14 +961,12 @@ TEST(MetaServiceHttpTest, AlterClusterTest) {
         node->set_ip("127.0.0.1");
         node->set_heartbeat_port(9999);
         node->set_cloud_unique_id("cloud_unique_id");
-        auto& meta_service = ctx.meta_service_;
-        NodeInfoPB npb;
-        npb.set_heartbeat_port(9999);
-        npb.set_ip("127.0.0.1");
-        npb.set_cloud_unique_id("cloud_unique_id");
-        meta_service->resource_mgr()->node_info_.insert(
-                {"cloud_unique_id", NodeInfo {Role::COMPUTE_NODE, mock_instance,
-                                              "rename_cluster_name", mock_cluster_id, npb}});
+        // Register the node first: the in-place status flip requires the target
+        // to exist in the cluster PB, it no longer re-adds missing nodes as a
+        // side effect of the old delete + re-add implementation.
+        auto [add_code, add_resp] = ctx.forward<MetaServiceResponseStatus>("add_node", req);
+        ASSERT_EQ(add_code, 200);
+        ASSERT_EQ(add_resp.code(), MetaServiceCode::OK);
         auto [status_code, resp] = ctx.forward<MetaServiceResponseStatus>("decommission_node", req);
         ASSERT_EQ(status_code, 200);
         ASSERT_EQ(resp.code(), MetaServiceCode::OK);
@@ -985,14 +983,10 @@ TEST(MetaServiceHttpTest, AlterClusterTest) {
         node->set_ip("127.0.0.1");
         node->set_heartbeat_port(9996);
         node->set_cloud_unique_id("cloud_unique_id");
-        auto& meta_service = ctx.meta_service_;
-        NodeInfoPB npb;
-        npb.set_heartbeat_port(9996);
-        npb.set_ip("127.0.0.1");
-        npb.set_cloud_unique_id("cloud_unique_id");
-        meta_service->resource_mgr()->node_info_.insert(
-                {"cloud_unique_id", NodeInfo {Role::COMPUTE_NODE, mock_instance,
-                                              "rename_cluster_name", mock_cluster_id, npb}});
+        // Same as decommission_node above: register the node before flipping.
+        auto [add_code, add_resp] = ctx.forward<MetaServiceResponseStatus>("add_node", req);
+        ASSERT_EQ(add_code, 200);
+        ASSERT_EQ(add_resp.code(), MetaServiceCode::OK);
         auto [status_code, resp] =
                 ctx.forward<MetaServiceResponseStatus>("notify_decommissioned", req);
         ASSERT_EQ(status_code, 200);

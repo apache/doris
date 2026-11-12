@@ -1157,6 +1157,150 @@ TEST(MetaServiceTest, AlterClusterTest) {
     }
 }
 
+TEST(MetaServiceTest, DecommissionNodeFlipStatusInPlaceTest) {
+    auto meta_service = get_meta_service(false);
+    ASSERT_NE(meta_service, nullptr);
+
+    const std::string instance_id = "test_instance_decommission_flip";
+    const std::string cluster_id = "test_cluster_id_flip";
+    auto uid = [&](int i) { return "1:" + instance_id + ":node_" + std::to_string(i); };
+
+    // prepare an instance with a compute cluster of 5 nodes, the last one is
+    // reachable by host instead of ip
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string key;
+        InstanceKeyInfo key_info {instance_id};
+        instance_key(key_info, &key);
+
+        InstanceInfoPB instance;
+        auto* cluster = instance.add_clusters();
+        cluster->set_cluster_id(cluster_id);
+        cluster->set_cluster_name("test_cluster_flip");
+        cluster->set_type(ClusterPB::COMPUTE);
+        for (int i = 0; i < 4; ++i) {
+            auto* node = cluster->add_nodes();
+            node->set_cloud_unique_id(uid(i));
+            node->set_ip("127.0.0." + std::to_string(i + 1));
+            node->set_heartbeat_port(9050);
+            node->set_status(NodeStatusPB::NODE_STATUS_RUNNING);
+        }
+        auto* host_node = cluster->add_nodes();
+        host_node->set_cloud_unique_id(uid(4));
+        host_node->set_host("be-host-4");
+        host_node->set_heartbeat_port(9050);
+        host_node->set_status(NodeStatusPB::NODE_STATUS_RUNNING);
+
+        txn->put(key, instance.SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+        meta_service->resource_mgr()->refresh_instance(instance_id);
+    }
+
+    auto get_cluster_pb = [&](ClusterPB* cluster_pb) {
+        std::unique_ptr<Transaction> txn;
+        EXPECT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string key;
+        InstanceKeyInfo key_info {instance_id};
+        instance_key(key_info, &key);
+        std::string val;
+        EXPECT_EQ(txn->get(key, &val), TxnErrorCode::TXN_OK);
+        InstanceInfoPB instance;
+        EXPECT_TRUE(instance.ParseFromString(val));
+        cluster_pb->CopyFrom(instance.clusters(0));
+    };
+
+    // req_cluster_id empty means the request carries no cluster_id at all
+    auto alter_nodes_status = [&](AlterClusterRequest::Operation op,
+                                  const std::vector<NodeInfoPB>& req_nodes,
+                                  const std::string& req_cluster_id) {
+        brpc::Controller cntl;
+        AlterClusterRequest req;
+        req.set_instance_id(instance_id);
+        req.set_op(op);
+        if (!req_cluster_id.empty()) {
+            req.mutable_cluster()->set_cluster_id(req_cluster_id);
+        }
+        req.mutable_cluster()->set_type(ClusterPB::COMPUTE);
+        for (const auto& n : req_nodes) {
+            *req.mutable_cluster()->add_nodes() = n;
+        }
+        AlterClusterResponse res;
+        meta_service->alter_cluster(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                    &req, &res, nullptr);
+        return res.status().code();
+    };
+
+    auto make_node = [&](int i) {
+        NodeInfoPB n;
+        n.set_cloud_unique_id(uid(i));
+        n.set_ip("127.0.0." + std::to_string(i + 1));
+        n.set_heartbeat_port(9050);
+        return n;
+    };
+
+    // flip in place with node count and order preserved; the request
+    // cluster_id is never consulted, so a missing or wrong one still works
+    ASSERT_EQ(alter_nodes_status(AlterClusterRequest::DECOMMISSION_NODE, {make_node(0)}, ""),
+              MetaServiceCode::OK);
+    ASSERT_EQ(alter_nodes_status(AlterClusterRequest::DECOMMISSION_NODE, {make_node(1)},
+                                 "no_such_cluster_id"),
+              MetaServiceCode::OK);
+    {
+        ClusterPB c;
+        get_cluster_pb(&c);
+        ASSERT_EQ(c.nodes_size(), 5) << c.ShortDebugString();
+        for (int i = 0; i < 4; ++i) {
+            ASSERT_EQ(c.nodes(i).ip(), "127.0.0." + std::to_string(i + 1));
+        }
+        ASSERT_EQ(c.nodes(0).status(), NodeStatusPB::NODE_STATUS_DECOMMISSIONING);
+        ASSERT_EQ(c.nodes(1).status(), NodeStatusPB::NODE_STATUS_DECOMMISSIONING);
+        ASSERT_EQ(c.nodes(2).status(), NodeStatusPB::NODE_STATUS_RUNNING);
+    }
+    ASSERT_EQ(alter_nodes_status(AlterClusterRequest::NOTIFY_DECOMMISSIONED, {make_node(0)}, ""),
+              MetaServiceCode::OK);
+    {
+        ClusterPB c;
+        get_cluster_pb(&c);
+        ASSERT_EQ(c.nodes(0).status(), NodeStatusPB::NODE_STATUS_DECOMMISSIONED);
+    }
+
+    // match by host endpoint
+    {
+        NodeInfoPB n;
+        n.set_cloud_unique_id(uid(4));
+        n.set_host("be-host-4");
+        n.set_heartbeat_port(9050);
+        ASSERT_EQ(alter_nodes_status(AlterClusterRequest::DECOMMISSION_NODE, {n}, cluster_id),
+                  MetaServiceCode::OK);
+        ClusterPB c;
+        get_cluster_pb(&c);
+        ASSERT_EQ(c.nodes(4).status(), NodeStatusPB::NODE_STATUS_DECOMMISSIONING);
+    }
+
+    ASSERT_EQ(alter_nodes_status(AlterClusterRequest::DECOMMISSION_NODE, {make_node(3)}, ""),
+              MetaServiceCode::OK);
+
+    // unknown cloud_unique_id / unmatched endpoint / empty nodes: all must
+    // fail instead of returning OK with nothing flipped
+    {
+        NodeInfoPB n = make_node(2);
+        n.set_cloud_unique_id("1:" + instance_id + ":stale_uid");
+        ASSERT_EQ(alter_nodes_status(AlterClusterRequest::DECOMMISSION_NODE, {n}, cluster_id),
+                  MetaServiceCode::INVALID_ARGUMENT);
+        NodeInfoPB wrong_ip = make_node(2);
+        wrong_ip.set_ip("127.0.0.99");
+        ASSERT_EQ(
+                alter_nodes_status(AlterClusterRequest::DECOMMISSION_NODE, {wrong_ip}, cluster_id),
+                MetaServiceCode::INVALID_ARGUMENT);
+        ASSERT_EQ(alter_nodes_status(AlterClusterRequest::DECOMMISSION_NODE, {}, cluster_id),
+                  MetaServiceCode::INVALID_ARGUMENT);
+        ClusterPB c;
+        get_cluster_pb(&c);
+        ASSERT_EQ(c.nodes(2).status(), NodeStatusPB::NODE_STATUS_RUNNING);
+    }
+}
+
 TEST(MetaServiceTest, GetClusterTest) {
     auto meta_service = get_meta_service();
 
