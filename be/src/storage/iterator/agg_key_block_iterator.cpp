@@ -23,7 +23,6 @@
 #include <utility>
 
 #include "common/check.h"
-#include "common/config.h"
 #include "common/exception.h"
 #include "core/column/column_equal_flags.h"
 #include "core/data_type/data_type_nullable.h"
@@ -126,11 +125,11 @@ void AggKeyBlockIterator::ValueAggregator::fold_group(const Block& block, size_t
     _arena.clear();
 }
 
-AggKeyBlockIterator::AggKeyBlockIterator(RowwiseIteratorUPtr rows, bool merged, size_t max_rows,
+AggKeyBlockIterator::AggKeyBlockIterator(RowwiseIteratorUPtr input, bool merged, size_t max_rows,
                                          size_t preferred_block_size_bytes,
                                          ReadSchemaSPtr read_schema, int be_exec_version,
                                          uint64_t* merged_rows)
-        : _rows(std::move(rows)),
+        : _input(std::move(input)),
           _merged_input(merged),
           _max_rows(max_rows),
           _preferred_block_size_bytes(preferred_block_size_bytes),
@@ -139,7 +138,7 @@ AggKeyBlockIterator::AggKeyBlockIterator(RowwiseIteratorUPtr rows, bool merged, 
           _merged_rows(merged_rows) {}
 
 Status AggKeyBlockIterator::init() {
-    // Every merged and caller Block has the exact read-schema layout: the key columns and the
+    // Every input and caller Block has the exact read-schema layout: the key columns and the
     // REPLACE columns are copied from a group's last row, every other column is folded.
     std::vector<uint32_t> agg_ordinals;
     const auto num_block_columns = static_cast<uint32_t>(_read_schema->num_block_columns());
@@ -157,26 +156,26 @@ Status AggKeyBlockIterator::init() {
     }
     RETURN_IF_ERROR(_aggregator.init(*_read_schema, std::move(agg_ordinals), _be_exec_version));
     _copy_one_row_groups = _aggregator.returns_single_row_unchanged();
-    _merged = _read_schema->create_read_block();
+    _input_block = _read_schema->create_read_block();
     return Status::OK();
 }
 
-Status AggKeyBlockIterator::_read_merged_block(const MutableColumns& columns) {
-    _merged.clear_column_data();
+Status AggKeyBlockIterator::_read_input_block() {
+    _input_block.clear_column_data();
     _pos = 0;
-    Status st = _rows->next_batch(&_merged);
+    Status st = _input->next_batch(&_input_block);
     if (st.is<ErrorCode::END_OF_FILE>()) {
         _done = true;
         return Status::OK();
     }
     RETURN_IF_ERROR(st);
-    _mark_same_keys(columns);
-    _aggregator.start_block(_merged);
+    _mark_same_keys();
+    _aggregator.start_block(_input_block);
     return Status::OK();
 }
 
-void AggKeyBlockIterator::_mark_same_keys(const MutableColumns& columns) {
-    const size_t rows = _merged.rows();
+void AggKeyBlockIterator::_mark_same_keys() {
+    const size_t rows = _input_block.rows();
     DCHECK_GT(rows, 0);
     if (!_merged_input) {
         _same_key.assign(rows, 0);
@@ -184,23 +183,19 @@ void AggKeyBlockIterator::_mark_same_keys(const MutableColumns& columns) {
     }
     _same_key.assign(rows, 1);
     for (uint32_t ordinal : _key_ordinals) {
-        const ColumnWithTypeAndName& key = _merged.get_by_position(ordinal);
+        const ColumnWithTypeAndName& key = _input_block.get_by_position(ordinal);
         build_equal_flags_for_column(*key.column, remove_nullable(key.type)->get_primitive_type(),
                                      &_same_key);
     }
-    // A merged Block never splits the rows of one key, so its first row starts a group. Folding
-    // it on would emit a key twice: check it against the last group of the Block before, which
-    // ends the output unless the output is empty.
+    // An input Block never splits the rows of one key, so its first row starts a group.
     _same_key[0] = 0;
-    DORIS_CHECK(columns[_key_ordinals.front()]->empty() || !_continues_last_output_key(columns))
-            << "a merged block goes on with the key of the merged block before it";
 }
 
 bool AggKeyBlockIterator::_continues_last_output_key(const MutableColumns& columns) const {
     return std::ranges::all_of(_key_ordinals, [&](uint32_t ordinal) {
         const IColumn& output = *columns[ordinal];
-        const IColumn& merged = *_merged.get_by_position(ordinal).column;
-        return output.compare_at(output.size() - 1, 0, merged, -1) == 0;
+        const IColumn& input = *_input_block.get_by_position(ordinal).column;
+        return output.compare_at(output.size() - 1, 0, input, -1) == 0;
     });
 }
 
@@ -218,7 +213,7 @@ Status AggKeyBlockIterator::_copy_last_rows(MutableColumns& columns) {
     }
     RETURN_IF_CATCH_EXCEPTION({
         for (auto ordinal : _copied_ordinals) {
-            columns[ordinal]->insert_indices_from(*_merged.get_by_position(ordinal).column,
+            columns[ordinal]->insert_indices_from(*_input_block.get_by_position(ordinal).column,
                                                   _last_rows.data(),
                                                   _last_rows.data() + _last_rows.size());
         }
@@ -233,17 +228,25 @@ Status AggKeyBlockIterator::_copy_single_rows(MutableColumns& columns, size_t be
     }
     RETURN_IF_CATCH_EXCEPTION({
         for (auto ordinal : _aggregator.agg_ordinals()) {
-            columns[ordinal]->insert_range_from(*_merged.get_by_position(ordinal).column, begin,
-                                                end - begin);
+            columns[ordinal]->insert_range_from(*_input_block.get_by_position(ordinal).column,
+                                                begin, end - begin);
         }
     });
     return Status::OK();
 }
 
-Status AggKeyBlockIterator::_advance_merged_block(MutableColumns& columns) {
-    // The collected last rows point into `_merged`: copy them before it is refilled.
+Status AggKeyBlockIterator::_advance_input_block(MutableColumns& columns) {
+    // The collected last rows point into `_input_block`: copy them before it is refilled.
     RETURN_IF_ERROR(_copy_last_rows(columns));
-    return _read_merged_block(columns);
+    RETURN_IF_ERROR(_read_input_block());
+    // An input Block never splits the rows of one key, so its first row must not have the key of
+    // the last output row. The output is empty only in front of the first input Block: a full
+    // output Block is noticed in front of an unconsumed row, never at the end of a Block.
+    if (!_done && _merged_input && !columns[_key_ordinals.front()]->empty()) {
+        DORIS_CHECK(!_continues_last_output_key(columns))
+                << "an input block goes on with the key of the input block before it";
+    }
+    return Status::OK();
 }
 
 Status AggKeyBlockIterator::_output_full(MutableColumns& columns, OutputProgress* progress,
@@ -260,13 +263,13 @@ Status AggKeyBlockIterator::_output_full(MutableColumns& columns, OutputProgress
 }
 
 bool AggKeyBlockIterator::_has_byte_budget() const {
-    return config::enable_adaptive_batch_size && _preferred_block_size_bytes > 0;
+    return _preferred_block_size_bytes > 0;
 }
 
 size_t AggKeyBlockIterator::_one_row_groups_end(size_t room) const {
     // Row r is a one-row group when the row after it starts another group or r is the last row,
-    // since a merged Block holds the whole group of its last row.
-    const size_t rows = _merged.rows();
+    // since an input Block holds the whole group of its last row.
+    const size_t rows = _input_block.rows();
     const size_t limit = std::min(rows, _pos + room);
     size_t end = _pos;
     while (end < limit && (end + 1 == rows || !_same_key[end + 1])) {
@@ -275,9 +278,9 @@ size_t AggKeyBlockIterator::_one_row_groups_end(size_t room) const {
     return end;
 }
 
-Status AggKeyBlockIterator::_fold_merged_rows(MutableColumns& columns, OutputProgress* progress,
-                                              bool* full) {
-    while (_pos < _merged.rows()) {
+Status AggKeyBlockIterator::_fold_input_rows(MutableColumns& columns, OutputProgress* progress,
+                                             bool* full) {
+    while (_pos < _input_block.rows()) {
         // Row `_pos` starts a group; stopping in front of it is safe since it is unconsumed.
         DCHECK(!_same_key[_pos]);
         RETURN_IF_ERROR(_output_full(columns, progress, full));
@@ -295,7 +298,7 @@ Status AggKeyBlockIterator::_fold_merged_rows(MutableColumns& columns, OutputPro
         }
         const size_t end = _group_end(_pos);
         _last_rows.push_back(static_cast<uint32_t>(end - 1));
-        _aggregator.fold_group(_merged, _pos, end, columns);
+        _aggregator.fold_group(_input_block, _pos, end, columns);
         ++progress->rows;
         progress->merged_rows += end - _pos - 1;
         _pos = end;
@@ -313,10 +316,10 @@ Status AggKeyBlockIterator::next_block(Block* block, bool* eof) {
     OutputProgress progress;
     bool full = false;
     while (!full && !_done) {
-        if (_pos == _merged.rows()) {
-            RETURN_IF_ERROR(_advance_merged_block(columns));
+        if (_pos == _input_block.rows()) {
+            RETURN_IF_ERROR(_advance_input_block(columns));
         } else {
-            RETURN_IF_ERROR(_fold_merged_rows(columns, &progress, &full));
+            RETURN_IF_ERROR(_fold_input_rows(columns, &progress, &full));
         }
     }
     RETURN_IF_ERROR(_copy_last_rows(columns));

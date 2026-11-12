@@ -34,21 +34,16 @@ namespace doris {
 class RuntimeProfile;
 class RuntimeState;
 
-// How a VHeapMergeIterator orders the rows of its children and cuts its output Blocks.
+// How a VHeapMergeIterator orders the rows of its children.
 struct MergeDecision {
     // The key columns two rows are compared by, in order, each with its direction (1 ascending, -1
     // descending) and where its NULLs go (-1 first), like the SortDescription of a sort and
-    // StarRocks' SortDescs: the whole key, or a prefix of it for a read sorted by an ORDER BY
-    // prefix (descending for ORDER BY ... DESC).
+    // StarRocks' SortDescs. They are the whole key: an output Block ends only in front of a new
+    // `keys` value, so a prefix of the key would put every row of one prefix value into one Block.
     SortDescription keys;
     // The column that orders the rows of one key, when there is one: the sequence column or the
     // changelog TSO, ascending, so that the row with the largest value comes last.
     std::optional<SortColumnDescription> sequence;
-    // Whether an output Block ends only in front of a new key, so that the rows of one key are
-    // never split between two Blocks and the reader above takes every key from one Block. For
-    // children that hold every key once (AGG_KEYS and UNIQUE_KEYS segments and rowsets), a Block
-    // then goes past the row limit by fewer rows than there are children.
-    bool whole_key_groups = false;
 };
 
 // Sorts the key-ordered rows of several iterators into one key-ordered stream, the way a
@@ -63,6 +58,12 @@ struct MergeDecision {
 // one. Example with key 1 in child 0 (v = 10) and in child 1 (v = 11): the merge hands out
 // v = 10, then v = 11.
 //
+// An output Block ends only in front of a new key: past the row limit, only the rows of its last
+// key go on. The rows of one key are thus never split between two Blocks, and the reader above
+// takes every key from one Block. For children that hold every key once (AGG_KEYS and
+// UNIQUE_KEYS segments and rowsets), a Block goes past the row limit by fewer rows than there are
+// children.
+//
 // The children are read as they are, without init(): a LazyInitSegmentIterator opens its
 // segment with the read options of its rowset on its first read.
 //
@@ -70,12 +71,12 @@ struct MergeDecision {
 // ordered by its current row. Each round takes the child on top and the run of its rows that
 // still go before the current row of the next child, one comparison per row, appends that run to
 // the output Block and puts the child back. A run also ends at the end of the child's Block,
-// which is then refilled, and at the row limit of the output Block (past it, only the rows of
-// the last key go on with `whole_key_groups`).
+// which is then refilled, and at the row limit of the output Block.
 //
 // Like StarRocks, which sizes the chunks of a compaction by its memory limit, the merge counts
-// rows only: the row limit of an output Block is block_row_max, or, with a byte budget, the
-// budget divided by the average row size of the children's current Blocks.
+// rows only: the row limit of an output Block is block_row_max, or, with a byte budget
+// (preferred_block_size_bytes, 0 for none), the budget divided by the average row size of the
+// children's current Blocks.
 class VHeapMergeIterator final : public RowwiseIterator {
 public:
     VHeapMergeIterator(std::vector<RowwiseIteratorUPtr> children, ReadSchemaSPtr read_schema,
@@ -101,14 +102,15 @@ private:
         RowwiseIteratorUPtr iter;
         // The current Block, refilled in place by _fill(); the rows are copied out of it.
         Block block;
-        // The current row of `block`, its row count and its byte size; both 0 once the child is
+        // The current row of `block`, its row count and its byte size; all 0 once the child is
         // done.
         size_t pos = 0;
         size_t rows = 0;
         size_t bytes = 0;
     };
 
-    Status _validate_compare_contract(const Block& block) const;
+    // Check that the merge can compare by the columns of the MergeDecision.
+    Status _validate_compare_contract() const;
     // Read the next Block of `child` that has rows; `*exhausted` when it has no more rows.
     Status _fill(Child& child, bool* exhausted);
 
@@ -147,11 +149,6 @@ private:
 
     // The children that still have rows; the one whose current row goes first is on top.
     std::priority_queue<uint32_t, std::vector<uint32_t>, HeapOrder> _heap {HeapOrder {this}};
-    bool _eof = false;
 };
-
-RowwiseIteratorUPtr new_heap_merge_iterator(std::vector<RowwiseIteratorUPtr> children,
-                                            ReadSchemaSPtr read_schema,
-                                            const MergeDecision& decision);
 
 } // namespace doris

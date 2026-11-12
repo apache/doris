@@ -18,12 +18,10 @@
 #include "storage/iterator/heap_merge_iterator.h"
 
 #include <algorithm>
-#include <memory>
 #include <string>
 #include <utility>
 
 #include "common/cast_set.h"
-#include "common/config.h"
 #include "common/exception.h"
 #include "common/status.h"
 #include "core/block/block.h"
@@ -52,6 +50,7 @@ Status VHeapMergeIterator::init(const StorageReadOptions& opts) {
     _preferred_block_size_bytes = opts.preferred_block_size_bytes;
     _runtime_state = opts.runtime_state;
     _tablet_id = opts.tablet_id;
+    RETURN_IF_ERROR(_validate_compare_contract());
 
     for (size_t index = 0; index < _children.size(); ++index) {
         Child& child = _children[index];
@@ -63,23 +62,22 @@ Status VHeapMergeIterator::init(const StorageReadOptions& opts) {
             child.block.clear();
             continue;
         }
-        RETURN_IF_ERROR(_validate_compare_contract(child.block));
         _heap.push(cast_set<uint32_t>(index));
     }
     return Status::OK();
 }
 
-// The read-schema columns the rows are compared by must exist in the merged Blocks, and the key
-// columns must be key columns: a projection that puts a value column ahead of a key would
-// otherwise be merged by that value (issue #66390).
-Status VHeapMergeIterator::_validate_compare_contract(const Block& block) const {
-    const size_t block_columns = block.columns();
+// The read-schema columns the rows are compared by must exist in the Blocks of the read schema,
+// and the key columns must be key columns: a projection that puts a value column ahead of a key
+// would otherwise be merged by that value (issue #66390).
+Status VHeapMergeIterator::_validate_compare_contract() const {
+    const size_t block_columns = _read_schema->num_block_columns();
     auto contract_error = [&](const std::string& detail) {
         return Status::InternalError(
                 "merge iterator compare contract violated: {}, tablet_id={}, block_columns={}, "
-                "read_columns={}, num_key_columns={}, compare_key_columns={}, sequence_ordinal={}",
-                detail, _tablet_id, block_columns, _read_schema->num_block_columns(),
-                _read_schema->num_key_columns(), _decision.keys.size(),
+                "num_key_columns={}, compare_key_columns={}, sequence_ordinal={}",
+                detail, _tablet_id, block_columns, _read_schema->num_key_columns(),
+                _decision.keys.size(),
                 _decision.sequence.has_value() ? _decision.sequence->column_number : -1);
     };
     auto out_of_range = [&](int ordinal) {
@@ -165,7 +163,7 @@ bool VHeapMergeIterator::_has_last_key(const MutableColumns& columns, uint32_t i
 }
 
 size_t VHeapMergeIterator::_max_rows() const {
-    if (!config::enable_adaptive_batch_size || _preferred_block_size_bytes == 0) {
+    if (_preferred_block_size_bytes == 0) {
         return _block_row_max;
     }
     // A child that is done holds no rows and no bytes.
@@ -191,10 +189,8 @@ void VHeapMergeIterator::_append(MutableColumns& columns, const Child& child, si
 }
 
 Status VHeapMergeIterator::next_batch(Block* block) {
-    DCHECK(!_eof) << "next_batch() called after EndOfFile";
     DCHECK_EQ(block->columns(), _read_schema->num_block_columns());
     if (_heap.empty()) {
-        _eof = true;
         return Status::EndOfFile("no more rows to merge");
     }
     const size_t max_rows = _max_rows();
@@ -202,10 +198,10 @@ Status VHeapMergeIterator::next_batch(Block* block) {
     auto columns_guard = block->mutate_columns_scoped();
     auto& columns = columns_guard.mutable_columns();
     while (!_heap.empty()) {
-        // Past the row limit, only the rows of the last key go on, one at a time, when a Block
-        // must not split them.
+        // Past the row limit, only the rows of the last key go on, one at a time, so that the
+        // Block does not split them.
         const bool past_limit = rows >= max_rows;
-        if (past_limit && !(_decision.whole_key_groups && _has_last_key(columns, _heap.top()))) {
+        if (past_limit && !_has_last_key(columns, _heap.top())) {
             break;
         }
         // The child whose current row goes first, and its run: the rows that still go before the
@@ -249,13 +245,6 @@ void VHeapMergeIterator::update_profile(RuntimeProfile* profile) {
             child.iter->update_profile(profile);
         }
     }
-}
-
-RowwiseIteratorUPtr new_heap_merge_iterator(std::vector<RowwiseIteratorUPtr> children,
-                                            ReadSchemaSPtr read_schema,
-                                            const MergeDecision& decision) {
-    return std::make_unique<VHeapMergeIterator>(std::move(children), std::move(read_schema),
-                                                decision);
 }
 
 } // namespace doris

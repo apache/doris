@@ -18,7 +18,7 @@
 // VHeapMergeIterator sorts the rows of its children into one stream: by the key columns, each
 // ascending or descending, then by the sequence column, then by child order (the older child
 // first), in output Blocks of at most block_row_max rows or of the byte budget, past which only
-// the rows of the last key go on with `whole_key_groups`, reading on past a child's empty batches.
+// the rows of the last key go on, reading on past a child's empty batches.
 
 #include "storage/iterator/heap_merge_iterator.h"
 
@@ -30,7 +30,6 @@
 #include <utility>
 #include <vector>
 
-#include "common/config.h"
 #include "common/status.h"
 #include "core/assert_cast.h"
 #include "core/block/block.h"
@@ -39,7 +38,6 @@
 #include "storage/olap_common.h"
 #include "storage/schema.h"
 #include "storage/tablet/tablet_schema.h"
-#include "util/defer_op.h"
 
 namespace doris {
 
@@ -114,7 +112,7 @@ std::vector<std::vector<Row>> merge(const ReadSchemaSPtr& schema,
     for (const auto& batches : children) {
         inputs.push_back(std::make_unique<BatchesUtIterator>(*schema, batches));
     }
-    auto iter = new_heap_merge_iterator(std::move(inputs), schema, decision);
+    auto iter = std::make_unique<VHeapMergeIterator>(std::move(inputs), schema, decision);
     OlapReaderStatistics stats;
     StorageReadOptions opts(stats);
     opts.block_row_max = block_row_max;
@@ -216,8 +214,8 @@ TEST(HeapMergeIteratorTest, KeepsToTheRowLimit) {
                       {1, 10}, {1, 11}, {2, 20}, {3, 30}, {4, 40}, {5, 51}, {6, 61}, {7, 71}}));
 }
 
-// With `whole_key_groups`, an output Block goes past the row limit with the rows of its last key
-// only, so the rows of one key never land in two Blocks; without it, the Block ends at the limit.
+// An output Block goes past the row limit with the rows of its last key only, so the rows of one
+// key never land in two Blocks.
 TEST(HeapMergeIteratorTest, KeepsTheRowsOfOneKeyInOneBlock) {
     auto schema = make_schema(false);
     const std::vector<std::vector<Batch>> children = {
@@ -225,23 +223,14 @@ TEST(HeapMergeIteratorTest, KeepsTheRowsOfOneKeyInOneBlock) {
             {{{2, 21}, {3, 31}}},
             {{{2, 22}, {4, 42}}},
     };
-    MergeDecision decision = key_decision();
-    decision.whole_key_groups = true;
-    EXPECT_EQ(merge(schema, children, decision, /*block_row_max=*/2),
-              (std::vector<std::vector<Row>> {
-                      {{1, 10}, {2, 20}, {2, 21}, {2, 22}}, {{3, 30}, {3, 31}}, {{4, 42}}}));
-
     EXPECT_EQ(merge(schema, children, key_decision(), /*block_row_max=*/2),
               (std::vector<std::vector<Row>> {
-                      {{1, 10}, {2, 20}}, {{2, 21}, {2, 22}}, {{3, 30}, {3, 31}}, {{4, 42}}}));
+                      {{1, 10}, {2, 20}, {2, 21}, {2, 22}}, {{3, 30}, {3, 31}}, {{4, 42}}}));
 }
 
 // With a byte budget, an output Block holds the budget divided by the average row size of the
 // children's Blocks: two BIGINT columns take 16 bytes a row, so 48 bytes give 3 rows.
 TEST(HeapMergeIteratorTest, KeepsToTheByteBudget) {
-    const bool adaptive_batch_size = config::enable_adaptive_batch_size;
-    config::enable_adaptive_batch_size = true;
-    Defer restore {[&]() { config::enable_adaptive_batch_size = adaptive_batch_size; }};
     auto schema = make_schema(false);
     const std::vector<std::vector<Batch>> children = {
             {{{1, 10}, {3, 30}, {5, 50}, {7, 70}}},
@@ -269,31 +258,28 @@ TEST(HeapMergeIteratorTest, ReadsOnAfterEmptyBatches) {
               (std::vector<Row> {{1, 11}, {2, 20}, {3, 31}, {4, 40}}));
 }
 
-// A key column must be one, and every compared column must be in the merged Blocks: otherwise
-// the read fails instead of merging by the wrong column.
+// A key column must be one, and every compared column must be in the Blocks: otherwise the read
+// fails instead of merging by the wrong column, also when no child has rows.
 TEST(HeapMergeIteratorTest, RejectsColumnsItCannotCompareBy) {
     auto schema = make_schema(false);
-    auto init = [&](const MergeDecision& decision) {
-        std::vector<RowwiseIteratorUPtr> inputs;
-        inputs.push_back(
-                std::make_unique<BatchesUtIterator>(*schema, std::vector<Batch> {{{1, 10}}}));
-        auto iter = new_heap_merge_iterator(std::move(inputs), schema, decision);
-        OlapReaderStatistics stats;
-        StorageReadOptions opts(stats);
-        return iter->init(opts);
-    };
-    for (const std::vector<int>& key_columns : {std::vector<int> {1}, std::vector<int> {0, 2}}) {
-        MergeDecision decision;
-        for (int column : key_columns) {
-            decision.keys.emplace_back(column, 1, -1);
+    MergeDecision value_as_key;
+    value_as_key.keys.emplace_back(1, 1, -1);
+    MergeDecision key_out_of_range = key_decision();
+    key_out_of_range.keys.emplace_back(2, 1, -1);
+    MergeDecision sequence_out_of_range = key_decision();
+    sequence_out_of_range.sequence = SortColumnDescription(2, 1, -1);
+    for (const MergeDecision& decision : {value_as_key, key_out_of_range, sequence_out_of_range}) {
+        for (const std::vector<Batch>& batches :
+             {std::vector<Batch> {{{1, 10}}}, std::vector<Batch> {}}) {
+            std::vector<RowwiseIteratorUPtr> inputs;
+            inputs.push_back(std::make_unique<BatchesUtIterator>(*schema, batches));
+            VHeapMergeIterator iter(std::move(inputs), schema, decision);
+            OlapReaderStatistics stats;
+            StorageReadOptions opts(stats);
+            Status st = iter.init(opts);
+            EXPECT_TRUE(st.is<ErrorCode::INTERNAL_ERROR>()) << st;
         }
-        Status st = init(decision);
-        EXPECT_TRUE(st.is<ErrorCode::INTERNAL_ERROR>()) << st;
     }
-    MergeDecision decision = key_decision();
-    decision.sequence = SortColumnDescription(2, 1, -1);
-    Status st = init(decision);
-    EXPECT_TRUE(st.is<ErrorCode::INTERNAL_ERROR>()) << st;
 }
 
 } // namespace doris

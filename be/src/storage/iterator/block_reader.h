@@ -31,18 +31,20 @@
 #include "core/column/column.h"
 #include "core/data_type/data_type.h"
 #include "storage/changelog_types.h"
-#include "storage/iterator/agg_key_block_iterator.h"
 #include "storage/iterator/vcollect_iterator.h"
 #include "storage/rowset/rowset_reader.h"
 #include "storage/tablet/tablet_reader.h"
 
 namespace doris {
+class AggKeyBlockIterator;
 class ColumnPredicate;
 class RuntimeProfile;
 class RuntimeState;
 
 class BlockReader final : public TabletReader {
 public:
+    // Out of line, as the destructor: the header only declares AggKeyBlockIterator.
+    BlockReader();
     ~BlockReader() override;
 
     // Initialize BlockReader with tablet, data version and fetch range.
@@ -94,9 +96,9 @@ private:
     // merge them, else the rowset reader itself.
     Status _add_merge_children(const RowsetReaderSharedPtr& rs_reader,
                                std::vector<RowwiseIteratorUPtr>* children);
-    // Set `*rows` to the merge of `children` by the whole key.
+    // Set `*input` to the merge of `children` by the whole key.
     Status _init_agg_key_merge(std::vector<RowwiseIteratorUPtr> children,
-                               RuntimeState* runtime_state, RowwiseIteratorUPtr* rows);
+                               RuntimeState* runtime_state, RowwiseIteratorUPtr* input);
 
     Status _insert_data_normal(MutableColumns& columns);
 

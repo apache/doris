@@ -80,7 +80,8 @@ public:
                 return st;
             }
             DCHECK_EQ(block->rows(), 0);
-            // This rowset is done: release its reader, which holds the rowset.
+            // This rowset is done: release its reader, which holds the rowset. A query's read
+            // params no longer hold it after init.
             _rs_readers[_current].reset();
             ++_current;
         }
@@ -103,6 +104,8 @@ private:
 };
 
 } // namespace
+
+BlockReader::BlockReader() = default;
 
 BlockReader::~BlockReader() = default;
 
@@ -613,15 +616,15 @@ Status BlockReader::_init_agg_key_iter(const ReaderParams& read_params) {
         }
     }
 
-    RowwiseIteratorUPtr rows;
+    RowwiseIteratorUPtr input;
     if (merge) {
-        RETURN_IF_ERROR(_init_agg_key_merge(std::move(children), runtime_state, &rows));
+        RETURN_IF_ERROR(_init_agg_key_merge(std::move(children), runtime_state, &input));
     } else {
-        rows = std::make_unique<RowsetReadersIterator>(std::move(rs_readers), _read_schema);
+        input = std::make_unique<RowsetReadersIterator>(std::move(rs_readers), _read_schema);
     }
     _agg_key_iter = std::make_unique<AggKeyBlockIterator>(
-            std::move(rows), merge, batch_max_rows(), _reader_context.preferred_block_size_bytes,
-            _read_schema, read_params.get_be_exec_version(), &_merged_rows);
+            std::move(input), merge, batch_max_rows(), preferred_block_size_bytes(), _read_schema,
+            read_params.get_be_exec_version(), &_merged_rows);
     Status st = _agg_key_iter->init();
     if (!st.ok()) {
         st.prepend(fmt::format(
@@ -653,24 +656,22 @@ Status BlockReader::_add_merge_children(const RowsetReaderSharedPtr& rs_reader,
 }
 
 Status BlockReader::_init_agg_key_merge(std::vector<RowwiseIteratorUPtr> children,
-                                        RuntimeState* runtime_state, RowwiseIteratorUPtr* rows) {
+                                        RuntimeState* runtime_state, RowwiseIteratorUPtr* input) {
     SCOPED_RAW_TIMER(&_stats.block_reader_build_heap_init_timer_ns);
-    // By the whole key, the rows of a key in the order they were written and never split between
-    // two merged Blocks: the fold takes every key from one merged Block and copies the REPLACE
-    // values of its last row, the newest one.
+    // By the whole key, the rows of a key in the order they were written: the fold copies the
+    // REPLACE values of a key's last row, the newest one.
     MergeDecision decision;
     for (uint32_t ordinal = 0; ordinal < _read_schema->num_key_columns(); ++ordinal) {
         decision.keys.emplace_back(static_cast<int>(ordinal), /*direction=*/1,
                                    /*nulls_direction=*/-1);
     }
-    decision.whole_key_groups = true;
-    *rows = new_heap_merge_iterator(std::move(children), _read_schema, decision);
+    *input = std::make_unique<VHeapMergeIterator>(std::move(children), _read_schema, decision);
     StorageReadOptions opts(_stats);
     opts.block_row_max = cast_set<uint32_t>(batch_max_rows());
-    opts.preferred_block_size_bytes = _reader_context.preferred_block_size_bytes;
+    opts.preferred_block_size_bytes = preferred_block_size_bytes();
     opts.runtime_state = runtime_state;
     opts.tablet_id = _tablet->tablet_id();
-    return (*rows)->init(opts);
+    return (*input)->init(opts);
 }
 
 Status BlockReader::init(const ReaderParams& read_params) {
