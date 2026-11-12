@@ -36,6 +36,8 @@ Status geography_relation(std::string_view name, const GeoShape& lhs, const GeoS
                           StringRef left_wkb, StringRef right_wkb, bool* result);
 bool geography_bearing(StringRef from, StringRef to, double* bearing);
 bool geography_bearing(const GeoCoordinate& from, const GeoCoordinate& to, double* bearing);
+bool geography_clockwise_angle(const GeoCoordinate& start, const GeoCoordinate& vertex,
+                               const GeoCoordinate& end, double* angle);
 double geography_distance(const GeoShape& left_shape, const GeoShape& right_shape,
                           StringRef left_wkb, StringRef right_wkb);
 double geography_length(StringRef wkb);

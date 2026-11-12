@@ -814,6 +814,25 @@ public class SpatialAggregateLegalityTest {
     }
 
     @Test
+    public void mapAggDistinctRejectsSpatialValuesForBothNames() {
+        for (String name : List.of("map_agg", "map_agg_v2")) {
+            for (String type : List.of("GEOMETRY", "GEOGRAPHY", "ARRAY<GEOMETRY>")) {
+                String source = " from (select number, CAST(NULL AS " + type
+                        + ") shape from numbers('number'='3')) shapes";
+                String sql = "select " + name + "(distinct number, shape)" + source;
+                Exception error = Assertions.assertThrows(Exception.class,
+                        () -> PlanChecker.from(MemoTestUtils.createConnectContext()).analyze(sql).rewrite(), sql);
+                Assertions.assertTrue(error.getMessage().contains("map_agg DISTINCT does not support spatial values"),
+                        error.getMessage());
+                Assertions.assertDoesNotThrow(() -> PlanChecker.from(MemoTestUtils.createConnectContext())
+                        .analyze("select " + name + "(number, shape)" + source).rewrite());
+            }
+            Assertions.assertDoesNotThrow(() -> PlanChecker.from(MemoTestUtils.createConnectContext())
+                    .analyze("select " + name + "(distinct number, number + 1) from numbers('number'='3')").rewrite());
+        }
+    }
+
+    @Test
     public void nestedSpatialMapKeysAndNdvRejectThroughSqlRewrite() {
         for (String spatial : List.of("GEOMETRY('EPSG:3857')", "GEOGRAPHY")) {
             for (String nested : List.of("ARRAY<" + spatial + ">", "MAP<INT, " + spatial + ">",

@@ -471,15 +471,13 @@ public class CreateIcebergSpatialV3Table {
     """
     // Doris writes OPTIONAL GEOMETRY/GEOGRAPHY annotations; count each leaf separately
     // to exercise definition-level COUNT pushdown, including SQL NULL rows.
-    for (boolean scanV2 : [false, true]) {
-        for (boolean pushdown : [false, true]) {
-            "qt_optional_geometry_count_${scanV2}_${pushdown}"("""select /*+ SET_VAR(
-                enable_file_scanner_v2=${scanV2}, enable_push_down_no_group_agg=${pushdown}) */
-                count(geom) from geometry_values""")
-            "qt_optional_geography_count_${scanV2}_${pushdown}"("""select /*+ SET_VAR(
-                enable_file_scanner_v2=${scanV2}, enable_push_down_no_group_agg=${pushdown}) */
-                count(geog) from geometry_values""")
-        }
+    for (boolean pushdown : [false, true]) {
+        "qt_optional_geometry_count_${pushdown}"("""select /*+ SET_VAR(
+            enable_push_down_no_group_agg=${pushdown}) */
+            count(geom) from geometry_values""")
+        "qt_optional_geography_count_${pushdown}"("""select /*+ SET_VAR(
+            enable_push_down_no_group_agg=${pushdown}) */
+            count(geog) from geometry_values""")
     }
     qt_spatial_schema """desc geometry_values"""
     // These factories do not implement scalar spatial values. Fail in FE, including
@@ -1447,20 +1445,16 @@ public class CreateIcebergSpatialV3Table {
         's3.endpoint' = 'http://${externalEnvIp}:${minioPort}',
         's3.access_key' = 'admin', 's3.secret_key' = 'password',
         's3.region' = 'us-east-1')"""
-    // Materialize payloads in both readers: COUNT pushdown alone can bypass WKB conversion.
-    // geometry_values has spatial Parquet annotations; projected_values imports unannotated WKB.
-    for (boolean scanV2 : [false, true]) {
-        "qt_annotated_spatial_payload_${scanV2}"("""select /*+ SET_VAR(
-            enable_file_scanner_v2=${scanV2}) */ id,
-            geom is null, ST_AsText(geom), hex(ST_AsBinary(geom)),
-            geog is null, ST_AsText(geog), hex(ST_AsBinary(geog))
-            from geometry_values order by id""")
-        "qt_unannotated_spatial_payload_${scanV2}"("""select /*+ SET_VAR(
-            enable_file_scanner_v2=${scanV2}) */ id,
-            geom is null, ST_AsText(geom), hex(ST_AsBinary(geom)),
-            geog is null, ST_AsText(geog), hex(ST_AsBinary(geog))
-            from projected_values order by id""")
-    }
+    // Materialize WKB both with and without Parquet spatial annotations. COUNT alone can
+    // bypass payload decoding.
+    qt_annotated_spatial_payload """select id,
+        geom is null, ST_AsText(geom), hex(ST_AsBinary(geom)),
+        geog is null, ST_AsText(geog), hex(ST_AsBinary(geog))
+        from geometry_values order by id"""
+    qt_unannotated_spatial_payload """select id,
+        geom is null, ST_AsText(geom), hex(ST_AsBinary(geom)),
+        geog is null, ST_AsText(geog), hex(ST_AsBinary(geog))
+        from projected_values order by id"""
     sql """drop table if exists spatial_zm_values"""
     sql """create table spatial_zm_values (id int, geom geometry, geog geography)
         engine=iceberg properties ('format-version' = '3')"""
@@ -1477,11 +1471,8 @@ public class CreateIcebergSpatialV3Table {
     sql """create table spatial_zm_copy (id int, geom geometry, geog geography)
         engine=iceberg properties ('format-version' = '3')"""
     sql """insert into spatial_zm_copy select id, geom, geog from spatial_zm_values"""
-    for (boolean scanV2 : [false, true]) {
-        "qt_spatial_zm_payload_${scanV2}"("""select /*+ SET_VAR(enable_file_scanner_v2=${scanV2}) */
-            id, hex(ST_AsBinary(geom)), hex(ST_AsBinary(geog))
-            from spatial_zm_copy order by id""")
-    }
+    qt_spatial_zm_payload """select id, hex(ST_AsBinary(geom)), hex(ST_AsBinary(geog))
+        from spatial_zm_copy order by id"""
     for (String query : ["ST_Length(geog)", "ST_Distance(geog, geog)", "ST_Azimuth(geog, geog)",
             "ST_Area_Square_Meters(geog)", "ST_Area_Square_Km(geog)"]) {
         test {

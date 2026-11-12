@@ -312,6 +312,37 @@ static Status execute_geography_test(const std::string& name, const Strings& val
     return function->execute(nullptr, *block, numbers, result, 1);
 }
 
+TEST(VGeoFunctionsTest, GeographyBearingAndAnglePreserveSmallDirections) {
+    const std::string origin = "010100000000000000000000000000000000000000";
+    const std::string north = "01010000000000000000000000000000000000f03f";
+    const std::string just_east = "0101000000bc89d897b2d29c3c000000000000f03f";
+    const std::string just_west = "0101000000bc89d897b2d29cbc000000000000f03f";
+    const auto result_type = make_nullable(std::make_shared<DataTypeFloat64>());
+    for (const std::string name : {"st_azimuth", "st_angle"}) {
+        SCOPED_TRACE(name);
+        for (const auto& end : {north, just_east, just_west}) {
+            SCOPED_TRACE(end);
+            Strings arguments =
+                    name == "st_azimuth" ? Strings {origin, end} : Strings {north, origin, end};
+            Block block;
+            const auto status = execute_geography_test(name, arguments, result_type, &block);
+            ASSERT_TRUE(status.ok()) << status;
+            const auto& result = assert_cast<const ColumnNullable&>(
+                    *block.get_by_position(arguments.size()).column);
+            ASSERT_FALSE(result.is_null_at(0));
+            const double angle =
+                    assert_cast<const ColumnFloat64&>(result.get_nested_column()).get_data()[0];
+            if (end == north) {
+                EXPECT_EQ(angle, 0);
+            } else if (end == just_east) {
+                EXPECT_NEAR(angle, 9.99898458797972e-17, 1e-30);
+            } else {
+                EXPECT_EQ(angle, std::nextafter(2 * M_PI, 0.0));
+            }
+        }
+    }
+}
+
 TEST(VGeoFunctionsTest, GeographyAreaPreservesNullableEvaluation) {
     const auto type = std::make_shared<DataTypeSpatial>(TYPE_GEOGRAPHY);
     const auto point = spatial_test_wkb("0101000000000000000000F03F0000000000000040");

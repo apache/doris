@@ -1813,8 +1813,8 @@ static std::pair<double, double> geography_point_coordinate(StringRef wkb) {
 }
 
 template <typename Float>
-static bool geography_bearing_impl(const GeoCoordinate& from, const GeoCoordinate& to,
-                                   double* bearing) {
+static bool geography_signed_bearing(const GeoCoordinate& from, const GeoCoordinate& to,
+                                     Float* bearing) {
     const auto start = geography_point_coordinate(from);
     const auto end = geography_point_coordinate(to);
     // Coincident or antipodal positions have no unique initial bearing. Compare original degrees:
@@ -1839,8 +1839,33 @@ static bool geography_bearing_impl(const GeoCoordinate& from, const GeoCoordinat
             geography_degree_sincos<Float>(end.second, -start.second).first * cos_half * cos_half +
             geography_degree_sincos<Float>(end.second, start.second).first * sin_half * sin_half;
     using std::atan2;
-    *bearing = static_cast<double>(atan2(east, north));
-    *bearing = std::fmod(*bearing + 2 * M_PI, 2 * M_PI);
+    *bearing = atan2(east, north);
+    return true;
+}
+
+template <typename Float>
+static double geography_positive_angle(Float angle) {
+    const Float turn = 2 * geography_pi<Float>();
+    if (angle < 0) {
+        angle += turn;
+    } else if (angle >= turn) {
+        angle -= turn;
+    }
+    const double result = static_cast<double>(angle);
+    const double upper = static_cast<double>(turn);
+    // Preserve small positive angles as-is. A wrapped negative angle that rounds to a full
+    // turn must stay on the west side of zero and inside the half-open range.
+    return result >= upper ? std::nextafter(upper, 0.0) : (result == 0 ? 0.0 : result);
+}
+
+template <typename Float>
+static bool geography_bearing_impl(const GeoCoordinate& from, const GeoCoordinate& to,
+                                   double* bearing) {
+    Float signed_bearing;
+    if (!geography_signed_bearing(from, to, &signed_bearing)) {
+        return false;
+    }
+    *bearing = geography_positive_angle(signed_bearing);
     return true;
 }
 
@@ -1851,6 +1876,18 @@ bool geography_bearing(StringRef from, StringRef to, double* bearing) {
 
 bool geography_bearing(const GeoCoordinate& from, const GeoCoordinate& to, double* bearing) {
     return geography_bearing_impl<GeographyFloat>(from, to, bearing);
+}
+
+bool geography_clockwise_angle(const GeoCoordinate& start, const GeoCoordinate& vertex,
+                               const GeoCoordinate& end, double* angle) {
+    GeographyFloat start_bearing;
+    GeographyFloat end_bearing;
+    if (!geography_signed_bearing(vertex, start, &start_bearing) ||
+        !geography_signed_bearing(vertex, end, &end_bearing)) {
+        return false;
+    }
+    *angle = geography_positive_angle<GeographyFloat>(end_bearing - start_bearing);
+    return true;
 }
 
 #ifdef BE_TEST

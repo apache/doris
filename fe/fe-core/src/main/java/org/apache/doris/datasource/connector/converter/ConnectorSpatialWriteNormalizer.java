@@ -130,6 +130,9 @@ public final class ConnectorSpatialWriteNormalizer {
         }
         Resolver resolver = new Resolver(source, cteContext);
         List<NamedExpression> outputs = new ArrayList<>(source.getOutput());
+        LogicalProject<?> producer = source instanceof LogicalProject && !((LogicalProject<?>) source).isDistinct()
+                ? (LogicalProject<?>) source : null;
+        List<NamedExpression> producerOutputs = null;
         boolean changed = false;
         for (int i = 0; i < targets.size(); i++) {
             Column target = targets.get(i);
@@ -147,6 +150,24 @@ public final class ConnectorSpatialWriteNormalizer {
                 value = normalizeSpatialNullsBeforeBinding(value, targetType);
             }
             ConnectorSpatialWriteValidator.validate(target, value);
+            if (!literal && producer != null && sourceOrdinals.indexOf(sourceOrdinal)
+                    == sourceOrdinals.lastIndexOf(sourceOrdinal)) {
+                // Retag a constructor where it is computed, so its dynamic ordinary siblings
+                // still use the same inputs and are evaluated only once. Do not follow slots
+                // through joins, other producers, or a DISTINCT projection.
+                NamedExpression project = producer.getProjects().get(sourceOrdinal);
+                if (project instanceof Alias && canRetargetSpatialNulls(project.child(0), targetType, true)) {
+                    Expression normalized = normalizeSpatialNullsBeforeBinding(project.child(0), targetType);
+                    if (!normalized.getDataType().equals(slot.getDataType())) {
+                        if (producerOutputs == null) {
+                            producerOutputs = new ArrayList<>(producer.getProjects());
+                        }
+                        Alias replacement = new Alias(normalized, slot.getName());
+                        producerOutputs.set(sourceOrdinal, replacement);
+                        outputs.set(sourceOrdinal, replacement.toSlot());
+                    }
+                }
+            }
             // Never lift arbitrary producer expressions above their input scope, or
             // replace outer-join NULL padding with a non-NULL container constant.
             if (literal) {
@@ -159,7 +180,8 @@ public final class ConnectorSpatialWriteNormalizer {
                 }
             }
         }
-        return changed ? new LogicalProject<>(outputs, source) : source;
+        LogicalPlan normalizedSource = producerOutputs == null ? source : producer.withProjects(producerOutputs);
+        return changed ? new LogicalProject<>(outputs, normalizedSource) : normalizedSource;
     }
 
     private static boolean isForwardingProject(LogicalProject<?> project) {
@@ -427,13 +449,15 @@ public final class ConnectorSpatialWriteNormalizer {
         return input.withChildren(children);
     }
 
-    /** Proves NULL on spatial paths without lifting dynamic ordinary siblings. */
     private static boolean canRetargetSpatialNulls(Expression value, DataType target) {
+        return canRetargetSpatialNulls(value, target, false);
+    }
+
+    /** Proves NULL on spatial paths; ordinary expressions can stay only in their own producer. */
+    private static boolean canRetargetSpatialNulls(Expression value, DataType target, boolean sameProducer) {
         if (!target.toCatalogDataType().typeContainsSpatialType()) {
-            // Preserve a constant ordinary cast rather than evaluating or removing it.
-            // A Slot/UDF sibling still cannot be lifted out of its producer scope.
-            return isLiteralConstruction(value) || (value.getClass() == Cast.class
-                    && canRetargetSpatialNulls(value.child(0), target));
+            return sameProducer || isLiteralConstruction(value) || (value.getClass() == Cast.class
+                    && canRetargetSpatialNulls(value.child(0), target, false));
         }
         if (value.isNullLiteral()) {
             return true;
@@ -442,7 +466,7 @@ public final class ConnectorSpatialWriteNormalizer {
             Cast cast = (Cast) value;
             // A text bridge or incompatible container shape must retain its cast error.
             return sameSpatialContainerShape(cast.getDataType(), target)
-                    && canRetargetSpatialNulls(cast.child(), spatialLiteralType(cast.getDataType(), target));
+                    && canRetargetSpatialNulls(cast.child(), spatialLiteralType(cast.getDataType(), target), sameProducer);
         }
         String constructor = "";
         if (value instanceof UnboundFunction) {
@@ -457,18 +481,18 @@ public final class ConnectorSpatialWriteNormalizer {
             List<? extends Expression> elements = value instanceof ArrayLiteral
                     ? ((ArrayLiteral) value).getValue() : value.children();
             return elements.stream().allMatch(child ->
-                    canRetargetSpatialNulls(child, ((ArrayType) target).getItemType()));
+                    canRetargetSpatialNulls(child, ((ArrayType) target).getItemType(), sameProducer));
         }
         if (target instanceof MapType) {
             MapType map = (MapType) target;
             if (value instanceof MapLiteral) {
                 return ((MapLiteral) value).getValue().entrySet().stream().allMatch(entry ->
-                        canRetargetSpatialNulls(entry.getKey(), map.getKeyType())
-                                && canRetargetSpatialNulls(entry.getValue(), map.getValueType()));
+                        canRetargetSpatialNulls(entry.getKey(), map.getKeyType(), sameProducer)
+                                && canRetargetSpatialNulls(entry.getValue(), map.getValueType(), sameProducer));
             }
             if ((value instanceof CreateMap || constructor.equalsIgnoreCase("map")) && value.arity() % 2 == 0) {
                 return IntStream.range(0, value.arity()).allMatch(i -> canRetargetSpatialNulls(value.child(i),
-                        i % 2 == 0 ? map.getKeyType() : map.getValueType()));
+                        i % 2 == 0 ? map.getKeyType() : map.getValueType(), sameProducer));
             }
         } else if (target instanceof StructType) {
             StructType struct = (StructType) target;
@@ -482,7 +506,7 @@ public final class ConnectorSpatialWriteNormalizer {
                 return IntStream.range(0, struct.getFields().size()).allMatch(i ->
                         (!named || fields.get(i * step) instanceof StringLikeLiteral)
                                 && canRetargetSpatialNulls(fields.get(i * step + step - 1),
-                                        struct.getFields().get(i).getDataType()));
+                                        struct.getFields().get(i).getDataType(), sameProducer));
             }
         }
         return false;

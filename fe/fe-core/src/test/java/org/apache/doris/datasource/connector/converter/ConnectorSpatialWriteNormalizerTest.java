@@ -579,6 +579,33 @@ public class ConnectorSpatialWriteNormalizerTest {
     }
 
     @Test
+    public void testDirectProjectRetagsSpatialNullWithDynamicOrdinarySibling() {
+        LogicalPlan input = row(new SlotReference("runtime-key", StringType.INSTANCE));
+        SlotReference key = (SlotReference) input.getOutput().get(0);
+        Type geometry = ScalarType.createGeometryType("OGC:CRS84");
+        Expression typedNull = new Cast(NullLiteral.INSTANCE, IntegerType.INSTANCE);
+        List<Expression> values = ImmutableList.of(new CreateMap(key, typedNull),
+                new CreateNamedStruct(new StringLiteral("shape"), typedNull, new StringLiteral("label"), key));
+        List<Type> targets = ImmutableList.of(new MapType(Type.STRING, geometry),
+                new StructType(new StructField("shape", geometry), new StructField("label", Type.STRING)));
+        for (int i = 0; i < values.size(); i++) {
+            Alias producer = new Alias(values.get(i), "shape");
+            LogicalProject<?> project = new LogicalProject<>(ImmutableList.of(key, producer), input);
+            LogicalPlan normalized = ConnectorSpatialWriteNormalizer.normalize(ImmutableList.of(
+                    new Column("ordinary", Type.STRING), new Column("shape", targets.get(i))),
+                    project, new CTEContext());
+            Assertions.assertSame(input, normalized.child(0));
+            Assertions.assertSame(key, ((LogicalProject<?>) normalized).getProjects().get(0));
+            Expression rewritten = ((LogicalProject<?>) normalized).getProjects().get(1).child(0);
+            Assertions.assertSame(key, rewritten.child(i == 0 ? 0 : 3));
+            Assertions.assertEquals(DataType.fromCatalogType(geometry), rewritten.child(1).getDataType());
+            Assertions.assertTrue(rewritten.child(1).isNullLiteral());
+            Assertions.assertNotEquals(producer.getExprId(), normalized.getOutput().get(1).getExprId());
+            Assertions.assertEquals(DataType.fromCatalogType(targets.get(i)), rewritten.getDataType());
+        }
+    }
+
+    @Test
     public void testNonconstantOrdinaryKeyAndSpatialValueRemainInProducer() {
         Type geometry = ScalarType.createGeometryType("OGC:CRS84");
         LogicalPlan source = row(new CreateMap(new SlotReference("key", StringType.INSTANCE),

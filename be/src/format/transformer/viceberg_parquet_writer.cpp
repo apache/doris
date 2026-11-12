@@ -17,6 +17,10 @@
 
 #include "format/transformer/viceberg_parquet_writer.h"
 
+#include <arrow/buffer.h>
+#include <arrow/ipc/writer.h>
+#include <arrow/util/base64.h>
+#include <arrow/util/key_value_metadata.h>
 #include <parquet/api/reader.h>
 #include <parquet/arrow/schema.h>
 #include <parquet/file_writer.h>
@@ -111,16 +115,27 @@ arrow::Status VIcebergParquetWriter::_open_file_writer() {
         return VParquetWriter::_open_file_writer();
     }
 
+    const auto& arrow_schema = _arrow_convertor()->arrow_schema();
+    auto* pool = ExecEnv::GetInstance()->arrow_memory_pool();
     ARROW_ASSIGN_OR_RAISE(
             auto parquet_schema,
-            make_iceberg_parquet_schema(_arrow_convertor()->arrow_schema(), _iceberg_schema,
-                                        _writer_properties(), _arrow_writer_properties()));
-    auto parquet_writer = ::parquet::ParquetFileWriter::Open(
-            _output_stream(), std::move(parquet_schema), _writer_properties());
-    ARROW_RETURN_NOT_OK(::parquet::arrow::FileWriter::Make(
-            ExecEnv::GetInstance()->arrow_memory_pool(), std::move(parquet_writer),
-            _arrow_convertor()->arrow_schema(), _arrow_writer_properties(),
-            &_parquet_file_writer()));
+            make_iceberg_parquet_schema(arrow_schema, _iceberg_schema, _writer_properties(),
+                                        _arrow_writer_properties()));
+
+    // The low-level writer does not do the schema metadata work of Arrow FileWriter::Open.
+    std::shared_ptr<arrow::KeyValueMetadata> footer_metadata;
+    if (_arrow_writer_properties()->store_schema()) {
+        footer_metadata = arrow_schema->metadata() ? arrow_schema->metadata()->Copy()
+                                                   : std::make_shared<arrow::KeyValueMetadata>();
+        ARROW_ASSIGN_OR_RAISE(auto ipc_schema, arrow::ipc::SerializeSchema(*arrow_schema, pool));
+        footer_metadata->Append("ARROW:schema", arrow::util::base64_encode(ipc_schema->ToString()));
+    }
+    auto parquet_writer =
+            ::parquet::ParquetFileWriter::Open(_output_stream(), std::move(parquet_schema),
+                                               _writer_properties(), std::move(footer_metadata));
+    ARROW_RETURN_NOT_OK(::parquet::arrow::FileWriter::Make(pool, std::move(parquet_writer),
+                                                           arrow_schema, _arrow_writer_properties(),
+                                                           &_parquet_file_writer()));
     return arrow::Status::OK();
 }
 

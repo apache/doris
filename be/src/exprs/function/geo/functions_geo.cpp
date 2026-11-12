@@ -412,14 +412,8 @@ struct StAngle {
             if (typed) {
                 std::array<std::optional<GeoCoordinate>, 3> points;
                 RETURN_IF_ERROR(decode_bearing_points(block, arguments, row, &points, NAME));
-                double start_bearing;
-                double end_bearing;
                 computed = points[0] && points[1] && points[2] &&
-                           geography_bearing(*points[1], *points[0], &start_bearing) &&
-                           geography_bearing(*points[1], *points[2], &end_bearing);
-                if (computed) {
-                    angle = std::fmod(end_bearing - start_bearing + 2 * M_PI, 2 * M_PI);
-                }
+                           geography_clockwise_angle(*points[0], *points[1], *points[2], &angle);
             } else {
                 const auto value1 = p1->get_data_at(row);
                 const auto value2 = p2->get_data_at(row);

@@ -68,6 +68,9 @@ public class MapAggV2 extends NotNullableAggregateFunction
         if (getArgumentType(0).toCatalogDataType().typeContainsSpatialType()) {
             throw new AnalysisException("map_agg does not support spatial keys");
         }
+        if (isDistinct() && getArgumentType(1).toCatalogDataType().typeContainsSpatialType()) {
+            throw new AnalysisException("map_agg DISTINCT does not support spatial values");
+        }
     }
 
     /**
