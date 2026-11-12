@@ -83,11 +83,14 @@ final class LanceScanPlan {
     final int indexedFragmentCount;
     final int unindexedFragmentCount;
     final String scalarIndexName;
+    /** True when this plan rescores its index-segment candidates to match its flat splits. */
+    final boolean forcedDistanceRefinement;
 
     LanceScanPlan(List<Split> splits, int fragments, int fragmentsPerSplit,
             int indexSegments, int indexFragments, int unindexedFragments, String scalarIndexName,
-            VectorIndexStatus vectorIndexStatus) {
+            VectorIndexStatus vectorIndexStatus, boolean forcedDistanceRefinement) {
         this.vectorIndexStatus = vectorIndexStatus;
+        this.forcedDistanceRefinement = forcedDistanceRefinement;
         this.splits = Collections.unmodifiableList(new ArrayList<>(splits));
         this.fragmentCount = fragments;
         this.fragmentsPerSplit = fragmentsPerSplit;
@@ -98,7 +101,8 @@ final class LanceScanPlan {
     }
 
     static LanceScanPlan empty() {
-        return new LanceScanPlan(Collections.emptyList(), 0, 0, 0, 0, 0, null, VectorIndexStatus.NOT_PLANNED);
+        return new LanceScanPlan(Collections.emptyList(), 0, 0, 0, 0, 0, null,
+                VectorIndexStatus.NOT_PLANNED, false);
     }
 
     /** Backend assignment shuffles its input list; keep that mutation outside the stored plan. */

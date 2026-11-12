@@ -43,6 +43,10 @@ The generated catalog contains:
                           A vector index written by pylance 0.18.2, without index details;
                           carried over as-is because this writer cannot rebuild it
                           (see lance_build_legacy_vector_index.py).
+  - partial_vector_index.lance
+                          A quantized vector index covering the first of two fragments, so a
+                          search over it mixes index-segment splits with flat splits; rebuilt
+                          (see lance_build_partial_vector_index.py).
   - unicode_branch.lance
                           A branch named with a letter newer than the JDK's Unicode, written by
                           pylance 12.0.0; carried over as-is (see lance_build_unicode_branch.py).
@@ -108,6 +112,11 @@ from lance_build_legacy_vector_index import LEGACY_DIR as LEGACY_VECTOR_INDEX_DI
 from lance_build_legacy_vector_index import check as check_legacy_vector_index
 from lance_build_multivector import build as build_multivector, check as check_multivector
 from lance_build_nested_null import build as build_nested_null, check as check_nested_null
+from lance_build_partial_vector_index import PARTIAL_DIR as PARTIAL_VECTOR_INDEX_DIR
+from lance_build_partial_vector_index import (
+    build as build_partial_vector_index,
+    check as check_partial_vector_index,
+)
 from lance_build_search_snapshot import (
     EVOLVED_DIR as SEARCH_SNAPSHOT_EVOLVED_DIR,
     MAIN_DIR as SEARCH_SNAPSHOT_DIR,
@@ -972,6 +981,7 @@ def build(root: Path, all_types_source: Path, time_travel_source: Path, carried_
     build_multi_frag(root)
     # Recreate this fixture in staging because promotion replaces the entire catalog tree.
     build_nested_null(root / NESTED_NULL_DIR)
+    build_partial_vector_index(root / PARTIAL_VECTOR_INDEX_DIR)
     build_multivector(root / "multivector.lance")
     namespace = lance_namespace.connect("dir", {"root": str(root)})
     namespace.register_table(
@@ -1767,6 +1777,7 @@ def check_catalog(root: Path) -> None:
     check_time_travel(root / TIME_TRAVEL_DIR)
     check_search_snapshot(root)
     check_legacy_vector_index(root / LEGACY_VECTOR_INDEX_DIR)
+    check_partial_vector_index(root / PARTIAL_VECTOR_INDEX_DIR)
     check_unicode_branch(root / UNICODE_BRANCH_DIR)
     check_multivector(root / "multivector.lance")
 

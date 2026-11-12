@@ -263,7 +263,13 @@ public class LanceScanNode extends FileQueryScanNode {
                     * Math.max(numBackends, 1));
         }
         scanPlan = LanceScanPlanner.plan(plannedMetadata, searchKind, externalSearchRequest, searchFieldId,
-                lancePushedConjuncts, sessionVariable.lanceFragmentsPerSplit, countParallelism);
+                lancePushedConjuncts, sessionVariable.lanceFragmentsPerSplit, countParallelism,
+                sessionVariable.enableLanceVectorDistanceRefinement);
+        if (scanPlan.forcedDistanceRefinement) {
+            // One decision for the whole scan: every index-segment split of this plan rescores its
+            // candidates, and the splits that carry no segment score exactly and ignore it.
+            getOrCreateLanceScanParams().setRefineVectorDistances(true);
+        }
         return scanPlan.createSchedulingSplits();
     }
 
@@ -402,6 +408,10 @@ public class LanceScanNode extends FileQueryScanNode {
                     .append(scanPlan.indexSegmentCount).append("\n");
             result.append(prefix).append("lanceSearchIndexFragments=")
                     .append(scanPlan.indexedFragmentCount).append("\n");
+            if (searchKind == SearchKind.VECTOR) {
+                result.append(prefix).append("lanceSearchRefineDistances=")
+                        .append(scanPlan.forcedDistanceRefinement).append("\n");
+            }
         } else {
             appendSnapshotExplain(result, prefix);
             result.append(prefix).append("lanceFragments=").append(scanPlan.fragmentCount).append("\n");

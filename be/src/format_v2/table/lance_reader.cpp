@@ -785,6 +785,9 @@ void LanceTableReader::_init_scanner_profile() {
             _planned_flat_search_fragment_count =
                     add_lance_counter(_scanner_profile, "LancePlannedFlatSearchFragmentCount",
                                       TUnit::UNIT, LANCE_SEARCH_PLAN_PROFILE);
+            _planned_distance_refinement_splits =
+                    add_lance_counter(_scanner_profile, "LancePlannedDistanceRefinementSplits",
+                                      TUnit::UNIT, LANCE_SEARCH_PLAN_PROFILE);
         }
     }
 }
@@ -986,6 +989,12 @@ Status LanceTableReader::_configure_vector_search(LanceScanner* scanner,
                 "Lance vector search split carries {} index segments although use_index is false",
                 segment_count);
     }
+    // FE decides once for the whole plan that this index's candidate scores are merged with
+    // scores produced on another scale. Only a split that selects candidates through an index has
+    // anything to rescore: the plan's flat splits already report exact distances.
+    const bool refine_vector_distances = segment_count > 0 &&
+                                         lance_scan_params.__isset.refine_vector_distances &&
+                                         lance_scan_params.refine_vector_distances;
     if (segment_count > 0 &&
         lance_scanner_set_index_segments(scanner, segment_uuids.data(), segment_count) != 0) {
         return lance_error("set Lance vector scanner index segments");
@@ -1101,9 +1110,22 @@ Status LanceTableReader::_configure_vector_search(LanceScanner* scanner,
     }
 
     // Exact refinement validates stored elements and gives indexed and unindexed candidates
-    // the same row-level score before either path truncates its results.
-    if (query.__isset.num_vectors && lance_scanner_set_refine_factor(scanner, 1) != 0) {
-        return lance_error("enable Lance multi-vector refinement");
+    // the same row-level score before either path truncates its results. Multi-vector queries
+    // always need it. FE also requests it for the index-segment splits of a plan whose candidate
+    // scores are merged with scores from another scale - the exact distances of a flat split, or
+    // a second index segment that may carry its own codebook - because a quantized index scores
+    // these splits from its codes and the Doris TopN above the scan merges both on one distance
+    // column. lance-c keeps the last refine factor it is given, and both FE and the request
+    // validation above reject a non-positive one, so the user options block below can only raise
+    // this.
+    if ((query.__isset.num_vectors || refine_vector_distances) &&
+        lance_scanner_set_refine_factor(scanner, 1) != 0) {
+        return lance_error("enable Lance exact distance refinement");
+    }
+    if (refine_vector_distances) {
+        // The rescore reads this split's candidate vectors back, so the cost of a mixed plan is
+        // visible in the profile without reading the FE plan.
+        COUNTER_UPDATE(_planned_distance_refinement_splits, 1);
     }
     if (request.__isset.vector_search_options) {
         const auto& options = request.vector_search_options;
