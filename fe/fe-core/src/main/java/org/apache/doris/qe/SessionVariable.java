@@ -3086,6 +3086,22 @@ public class SessionVariable implements Serializable, Writable {
             description = "enable count(*) pushdown optimization for external table")
     private boolean enableCountPushDownForExternalTable = true;
 
+    public static final String MONGODB_READ_PREFERENCE = "mongodb_read_preference";
+    public static final String MONGODB_READ_CONCERN = "mongodb_read_concern";
+
+    @VarAttrDef.VarAttr(name = MONGODB_READ_PREFERENCE, needForward = true,
+            checker = "checkMongoDBReadPreference",
+            options = {"inherit", "primary", "primaryPreferred", "secondary", "secondaryPreferred", "nearest"},
+            description = "MongoDB data-read routing for this session or SET_VAR statement. "
+                    + "inherit follows the catalog policy, including URI routing criteria")
+    public String mongodbReadPreference = "inherit";
+
+    @VarAttrDef.VarAttr(name = MONGODB_READ_CONCERN, needForward = true,
+            checker = "checkMongoDBReadConcern", options = {"inherit", "local", "majority", "available"},
+            description = "MongoDB data-read visibility for this session or SET_VAR statement. "
+                    + "inherit follows the catalog policy; shared snapshots are not supported")
+    public String mongodbReadConcern = "inherit";
+
     public static final String FLUSS_UNION_READ_MODE = "fluss_union_read_mode";
 
     @VarAttrDef.VarAttr(name = FLUSS_UNION_READ_MODE,
@@ -4555,6 +4571,21 @@ public class SessionVariable implements Serializable, Writable {
         if ("require".equals(normalized) && !BackendSelectionManager.supportsRequiredSelection()) {
             throw new UnsupportedOperationException(
                     "Backend selection provider does not support required backend selection");
+        }
+    }
+
+    public void checkMongoDBReadPreference(String value) {
+        if (!Set.of("inherit", "primary", "primarypreferred", "secondary", "secondarypreferred", "nearest")
+                .contains(value.toLowerCase(Locale.ROOT))) {
+            throw new UnsupportedOperationException("Invalid mongodb_read_preference; expected inherit, primary, "
+                    + "primaryPreferred, secondary, secondaryPreferred or nearest");
+        }
+    }
+
+    public void checkMongoDBReadConcern(String value) {
+        if (!Set.of("inherit", "local", "majority", "available").contains(value.toLowerCase(Locale.ROOT))) {
+            throw new UnsupportedOperationException("Invalid mongodb_read_concern; expected inherit, local, "
+                    + "majority or available");
         }
     }
 

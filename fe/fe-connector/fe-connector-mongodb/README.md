@@ -98,9 +98,36 @@ find/getMore batches. Projection is materialized locally, and every SQL filter,
 LIKE/REGEXP, join, aggregation, sort and LIMIT remains a Doris operation. Range
 splitting, predicate/LIMIT pushdown and shared snapshots are separate work.
 
-`batch_size` and `query_timeout` are session variables. URI read preference settings
-take precedence over the catalog mode, retaining ordered tag sets and maximum staleness
-in both drivers. Without URI routing settings, `mongodb.read_preference` supplies the mode.
+`batch_size` and `query_timeout` are session variables. The following session variables
+also support statement-level `SET_VAR` hints; values are case-insensitive:
+
+| Session variable | Default | Supported values |
+|---|---|---|
+| `mongodb_read_preference` | `inherit` | `inherit`, `primary`, `primaryPreferred`, `secondary`, `secondaryPreferred`, `nearest` |
+| `mongodb_read_concern` | `inherit` | `inherit`, `local`, `majority`, `available` |
+
+`inherit` uses the catalog's effective policy: URI `readPreference` / `readConcernLevel`
+first, then `mongodb.read_preference` / `mongodb.read_concern`. An explicit session or
+statement value overrides that policy for data reads. Each scan pins its effective
+values without changing the catalog, metadata discovery, or other sessions.
+URI routing criteria (ordered tag sets, maximum staleness and hedge options) remain
+in effect when overriding the mode. A `primary` override with incompatible URI
+criteria fails at planning instead of silently dropping those criteria.
+
+```sql
+SET mongodb_read_preference = 'secondaryPreferred';
+SET mongodb_read_concern = 'local';
+SELECT /*+ SET_VAR(mongodb_read_preference='primary', mongodb_read_concern='majority') */
+    count(*) FROM mongo_native.sample.records;
+SET mongodb_read_preference = 'inherit';
+SET mongodb_read_concern = 'inherit';
+```
+
+Selecting a secondary can return stale data. `primaryPreferred` and
+`secondaryPreferred` permit fallback to the other role; `secondary` requires a
+secondary in a replica set. A read concern controls read visibility independently
+of node selection and does not establish a snapshot across Doris scans.
+
 Catalog connection defaults:
 
 | Property | Default |
@@ -131,8 +158,9 @@ bash thirdparty/build-thirdparty.sh mongo_c_driver
 
 FE unit tests reside in this module, BSON SerDe unit tests in
 `be/test/core/data_type_serde/data_type_serde_bson_test.cpp`, and reader lifecycle tests
-in `be/test/format_v2/table/mongodb_reader_test.cpp`. The regression suite
-`external_table_p0/mongodb/test_mongodb_native.groovy` uses the disposable MongoDB
+in `be/test/format_v2/table/mongodb_reader_test.cpp`. The regression suites
+`external_table_p0/mongodb/test_mongodb_native.groovy` and
+`external_table_p0/mongodb/test_mongodb_read_policy.groovy` use the disposable MongoDB
 fixture under `docker/thirdparties/docker-compose/mongodb/`, enabled with
 `enableMongoDBTest`, `externalEnvIp`, `mongodb_port`, `mongodb_user`, and
 `mongodb_password` regression settings.

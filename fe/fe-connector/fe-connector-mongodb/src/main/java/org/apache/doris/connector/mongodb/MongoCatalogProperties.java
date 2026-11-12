@@ -26,6 +26,7 @@ import com.mongodb.MongoCredential;
 import com.mongodb.ReadConcern;
 import com.mongodb.ReadConcernLevel;
 import com.mongodb.ReadPreference;
+import org.bson.BsonDocument;
 import org.bson.Document;
 
 import java.nio.charset.StandardCharsets;
@@ -142,6 +143,38 @@ public final class MongoCatalogProperties {
         if (!condition) {
             throw new IllegalArgumentException("Invalid or unsupported " + property);
         }
+    }
+
+    String resolveReadPreference(String policy) {
+        if ("inherit".equalsIgnoreCase(policy)) {
+            return readPreference;
+        }
+        String mode;
+        try {
+            mode = ReadPreference.valueOf(policy).getName();
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException("Invalid mongodb_read_preference");
+        }
+        if ("primary".equals(mode) && connectionString.getReadPreference() != null) {
+            BsonDocument inherited = connectionString.getReadPreference().toDocument();
+            // BE preserves URI routing criteria when applying the statement's mode. Reject
+            // incompatible overrides here rather than silently dropping the catalog's routing.
+            if ((inherited.containsKey("tags") && !inherited.getArray("tags").isEmpty())
+                    || inherited.containsKey("maxStalenessSeconds") || inherited.containsKey("hedge")) {
+                throw new IllegalArgumentException("mongodb_read_preference=primary is incompatible with URI "
+                        + "read preference tags, max staleness or hedge options");
+            }
+        }
+        return mode;
+    }
+
+    String resolveReadConcern(String policy) {
+        if ("inherit".equalsIgnoreCase(policy)) {
+            return readConcern;
+        }
+        String level = policy.toLowerCase(Locale.ROOT);
+        require(Set.of("local", "majority", "available").contains(level), "mongodb_read_concern");
+        return level;
     }
 
     MongoClientSettings clientSettings() {

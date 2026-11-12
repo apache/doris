@@ -60,10 +60,12 @@ final class MongoScanPlanProvider implements ConnectorScanPlanProvider {
         d.setUsername(properties.getUsername());
         d.setPassword(properties.getPassword());
         d.setAuthDatabase(properties.getAuthDatabase());
-        d.setReadPreference(properties.getReadPreference());
-        d.setReadConcern(properties.getReadConcern());
         d.setTypeMismatchAsNull("null".equals(properties.getTypeMismatch()));
         Map<String, String> policies = session.getSessionProperties();
+        // Pin effective policies in the range; never mutate the catalog or its shared metadata client.
+        d.setReadPreference(properties.resolveReadPreference(
+                policies.getOrDefault("mongodb_read_preference", "inherit")));
+        d.setReadConcern(properties.resolveReadConcern(policies.getOrDefault("mongodb_read_concern", "inherit")));
         d.setBatchSize(bounded(policies, "batch_size", 1024, 1, 65536));
         d.setTimeoutMs(1000L * bounded(policies, "query_timeout", 300, 1, Integer.MAX_VALUE / 1000));
         d.setConnectTimeoutMs(properties.getConnectTimeoutMs());
