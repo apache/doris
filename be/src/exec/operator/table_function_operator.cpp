@@ -62,7 +62,7 @@ Status TableFunctionLocalState::_clone_table_function(RuntimeState* state) {
 
         TableFunction* fn = nullptr;
         RETURN_IF_ERROR(TableFunctionFactory::get_fn(_vfn_ctxs[i]->root()->fn(), state->obj_pool(),
-                                                     &fn, state->be_exec_version(), state));
+                                                     &fn, state->be_exec_version()));
         fn->set_expr_context(_vfn_ctxs[i]);
         _fns.push_back(fn);
     }
@@ -80,7 +80,7 @@ Status TableFunctionLocalState::open(RuntimeState* state) {
     RETURN_IF_ERROR(PipelineXLocalState<>::open(state));
     RETURN_IF_ERROR(_clone_table_function(state));
     for (auto* fn : _fns) {
-        RETURN_IF_ERROR(fn->open());
+        RETURN_IF_ERROR(fn->open(state));
     }
     _cur_child_offset = -1;
     _reset_block_fast_path_state();
@@ -833,8 +833,8 @@ Status TableFunctionOperatorX::init(const TPlanNode& tnode, RuntimeState* state)
 
         auto root = ctx->root();
         TableFunction* fn = nullptr;
-        RETURN_IF_ERROR(TableFunctionFactory::get_fn(root->fn(), _pool, &fn,
-                                                     state->be_exec_version(), state));
+        RETURN_IF_ERROR(
+                TableFunctionFactory::get_fn(root->fn(), _pool, &fn, state->be_exec_version()));
         fn->set_expr_context(ctx);
         _fns.push_back(fn);
     }

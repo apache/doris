@@ -28,7 +28,7 @@ import org.junit.jupiter.api.Test;
 public class FunctionToThriftConverterTest {
 
     @Test
-    void testPythonDatetimeProtocolFlag() {
+    void testPythonArrowTimeProtocolFlag() {
         Type datetime = ScalarType.createDatetimeV2Type(6);
         Type[] args = {datetime};
         ScalarFunction scalar = ScalarFunction.createUdf(BinaryType.PYTHON_UDF,
@@ -45,12 +45,13 @@ public class FunctionToThriftConverterTest {
         for (Function fn : new Function[] {scalar, table, aggregate}) {
             fn.setRuntimeVersion("3.12.11");
             TFunction result = FunctionToThriftConverter.toThrift(fn, datetime, args, new Boolean[] {true});
-            Assertions.assertTrue(result.isSetEnablePythonUdfDatetimeWithoutTimezone());
-            Assertions.assertTrue(result.isEnablePythonUdfDatetimeWithoutTimezone());
+            Assertions.assertTrue(result.isSetEnablePythonUdfArrowTimeV2());
+            Assertions.assertTrue(result.isEnablePythonUdfArrowTimeV2());
         }
         scalar.setBinaryType(BinaryType.JAVA_UDF);
         TFunction javaFunction = FunctionToThriftConverter.toThrift(scalar, datetime, args, new Boolean[] {true});
-        Assertions.assertFalse(javaFunction.isSetEnablePythonUdfDatetimeWithoutTimezone());
+        Assertions.assertTrue(javaFunction.isSetEnablePythonUdfArrowTimeV2());
+        Assertions.assertTrue(javaFunction.isEnablePythonUdfArrowTimeV2());
     }
 
     // ======================== ScalarFunction Tests ========================

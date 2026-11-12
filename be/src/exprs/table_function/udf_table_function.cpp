@@ -45,7 +45,7 @@ UDFTableFunction::UDFTableFunction(const TFunction& t_fn) : TableFunction(), _t_
     _return_type = make_nullable(std::make_shared<DataTypeArray>(make_nullable(_return_type)));
 }
 
-Status UDFTableFunction::open() {
+Status UDFTableFunction::open(RuntimeState* /*state*/) {
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(Jni::Env::Get(&env));
     _jni_ctx = std::make_shared<JniContext>();

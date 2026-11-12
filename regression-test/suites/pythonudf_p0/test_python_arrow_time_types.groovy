@@ -18,7 +18,7 @@
 suite("test_python_arrow_time_types") {
     def runtimeVersion = getPythonUdfRuntimeVersion()
     def originalTimezone = sql("SELECT @@time_zone")[0][0]
-    assertTrue(sql("SHOW VARIABLES LIKE 'enable_python_udf_datetime_without_timezone'").isEmpty())
+    assertTrue(sql("SHOW VARIABLES LIKE 'enable_python_udf_arrow_time_v2'").isEmpty())
     sql "DROP TABLE IF EXISTS python_arrow_time_values"
     sql """CREATE TABLE python_arrow_time_values (id INT, ts DATETIME(6))
            DISTRIBUTED BY HASH(id) BUCKETS 2 PROPERTIES("replication_num"="1")"""

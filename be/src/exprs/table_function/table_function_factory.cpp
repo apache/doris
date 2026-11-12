@@ -22,6 +22,7 @@
 #include <memory>
 #include <string_view>
 
+#include "agent/be_exec_version_manager.h"
 #include "common/object_pool.h"
 #include "exec/common/util.hpp"
 #include "exprs/table_function/python_udtf_function.h"
@@ -35,7 +36,6 @@
 #include "exprs/table_function/vexplode_v2.h"
 #include "exprs/table_function/vjson_each.h"
 #include "exprs/table_function/vstack.h"
-#include "runtime/runtime_state.h"
 
 namespace doris {
 
@@ -63,7 +63,7 @@ const std::unordered_map<std::string, std::string> TableFunctionFactory::_functi
         {"explode", "explode_old"}, {"explode_variant_array", "explode_variant_array_old"}};
 
 Status TableFunctionFactory::get_fn(const TFunction& t_fn, ObjectPool* pool, TableFunction** fn,
-                                    int be_version, RuntimeState* state) {
+                                    int be_version = BeExecVersionManager::get_newest_version()) {
     bool is_outer = match_suffix(t_fn.name.function_name, COMBINATOR_SUFFIX_OUTER);
     if (t_fn.binary_type == TFunctionBinaryType::JAVA_UDF) {
         *fn = pool->add(UDFTableFunction::create_unique(t_fn).release());
@@ -72,9 +72,7 @@ Status TableFunctionFactory::get_fn(const TFunction& t_fn, ObjectPool* pool, Tab
         }
         return Status::OK();
     } else if (t_fn.binary_type == TFunctionBinaryType::PYTHON_UDF) {
-        *fn = pool->add(
-                PythonUDTFFunction::create_unique(t_fn, state->timezone(), state->timezone_obj())
-                        .release());
+        *fn = pool->add(PythonUDTFFunction::create_unique(t_fn).release());
         if (is_outer) {
             (*fn)->set_outer();
         }

@@ -423,7 +423,7 @@ struct TFunction {
 
   // New FE sends true for Python functions; absent fields preserve the legacy DATETIME mapping.
   // Keep this field id reserved after removing the compatibility option.
-  2000: optional bool enable_python_udf_datetime_without_timezone = false
+  2000: optional bool enable_python_udf_arrow_time_v2 = false
 }
 
 enum TJdbcOperation {

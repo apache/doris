@@ -33,8 +33,7 @@
 namespace doris {
 
 bool PythonUDFMeta::uses_naive_datetime(const TFunction& fn) {
-    return fn.__isset.enable_python_udf_datetime_without_timezone &&
-           fn.enable_python_udf_datetime_without_timezone;
+    return fn.__isset.enable_python_udf_arrow_time_v2 && fn.enable_python_udf_arrow_time_v2;
 }
 
 Status PythonUDFMeta::convert_types_to_schema(const DataTypes& types, const std::string& timezone,

@@ -45,13 +45,10 @@
 #include "udf/python/python_env.h"
 #include "udf/python/python_server.h"
 #include "udf/python/python_udf_meta.h"
-#include "util/timezone_utils.h"
 
 namespace doris {
 
-PythonUDTFFunction::PythonUDTFFunction(const TFunction& t_fn, const std::string& timezone,
-                                       const cctz::time_zone& timezone_obj)
-        : TableFunction(), _t_fn(t_fn), _timezone(timezone), _timezone_obj(timezone_obj) {
+PythonUDTFFunction::PythonUDTFFunction(const TFunction& t_fn) : TableFunction(), _t_fn(t_fn) {
     _fn_name = _t_fn.name.function_name;
 
     // Like Java UDTF, FE passes the element type T, and we wrap it into array<T> here
@@ -60,7 +57,10 @@ PythonUDTFFunction::PythonUDTFFunction(const TFunction& t_fn, const std::string&
     _return_type = make_nullable(std::make_shared<DataTypeArray>(make_nullable(element_type)));
 }
 
-Status PythonUDTFFunction::open() {
+Status PythonUDTFFunction::open(RuntimeState* state) {
+    _timezone = state->timezone();
+    _timezone_obj = state->timezone_obj();
+
     PythonUDFMeta python_udf_meta;
     python_udf_meta.id = _t_fn.id;
     python_udf_meta.name = _t_fn.name.function_name;

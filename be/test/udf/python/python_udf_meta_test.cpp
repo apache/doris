@@ -482,12 +482,12 @@ TEST_F(PythonUDFMetaTest, ConvertTypesToSchemaEmpty) {
 TEST_F(PythonUDFMetaTest, DatetimeSchemasPreserveWallClockSemantics) {
     TFunction fn;
     EXPECT_FALSE(PythonUDFMeta::uses_naive_datetime(fn));
-    fn.__set_enable_python_udf_datetime_without_timezone(true);
+    fn.__set_enable_python_udf_arrow_time_v2(true);
     EXPECT_TRUE(PythonUDFMeta::uses_naive_datetime(fn));
-    fn.__set_enable_python_udf_datetime_without_timezone(false);
+    fn.__set_enable_python_udf_arrow_time_v2(false);
     EXPECT_FALSE(PythonUDFMeta::uses_naive_datetime(fn));
-    fn.enable_python_udf_datetime_without_timezone = true;
-    fn.__isset.enable_python_udf_datetime_without_timezone = false;
+    fn.enable_python_udf_arrow_time_v2 = true;
+    fn.__isset.enable_python_udf_arrow_time_v2 = false;
     EXPECT_FALSE(PythonUDFMeta::uses_naive_datetime(fn));
     DataTypes types;
     for (int scale : {0, 3, 6}) {
