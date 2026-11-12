@@ -850,11 +850,11 @@ TEST(SparseColumnMergeIteratorTest, KeepsByteOrderWhenMergingMaterializedSubcolu
     SubstreamReaderTree src_subcolumns;
     ASSERT_TRUE(src_subcolumns.add(
             PathInData("a.d"),
-            SubstreamIterator(ColumnNullable::create(ColumnInt64::create(), ColumnUInt8::create()),
-                              std::make_unique<FixedSparseIterator>(
-                                      std::move(dense_values),
-                                      std::make_shared<SparseReadCounters>()),
-                              dense_type)));
+            SubstreamIterator(
+                    ColumnNullable::create(ColumnInt64::create(), ColumnUInt8::create()),
+                    std::make_unique<FixedSparseIterator>(std::move(dense_values),
+                                                          std::make_shared<SparseReadCounters>()),
+                    dense_type)));
 
     VariantCompactionPaths path_set_info;
     OlapReaderStatistics stats;
