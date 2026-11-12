@@ -47,6 +47,7 @@ import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer;
+import org.apache.doris.nereids.rules.expression.check.CheckCast;
 import org.apache.doris.nereids.rules.expression.rules.ConvertAggStateCast;
 import org.apache.doris.nereids.rules.expression.rules.PartitionPruner;
 import org.apache.doris.nereids.rules.expression.rules.PartitionPruner.PartitionTableType;
@@ -359,7 +360,7 @@ public class NereidsLoadPlanInfoCollector extends DefaultPlanVisitor<Void, PlanT
                     output = TypeCoercionUtils.castIfNotSameType(output, targetType);
                 }
                 if (output instanceof Cast && output.getDataType().isAggStateType()) {
-                    output = ConvertAggStateCast.convert((Cast) output);
+                    output = CheckCast.validate(ConvertAggStateCast.convert((Cast) output));
                 }
             }
             Expr expr = ExpressionTranslator.translate(output, context);

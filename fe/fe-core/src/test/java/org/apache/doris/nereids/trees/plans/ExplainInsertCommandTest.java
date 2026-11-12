@@ -28,6 +28,7 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
+import org.apache.doris.nereids.trees.plans.commands.insert.FastInsertIntoValuesPlanner;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.util.MemoTestUtils;
@@ -135,6 +136,40 @@ public class ExplainInsertCommandTest extends TestWithFeService {
         Assertions.assertEquals(6, getOutputFragment(sql).getOutputExprs().size());
         sql = "explain insert into agg_have_dup_base values(-4, -4, -4, 'd')";
         Assertions.assertEquals(9, getOutputFragment(sql).getOutputExprs().size());
+    }
+
+    @Test
+    public void testInsertAggStateCasts() throws Exception {
+        boolean enabled = connectContext.getSessionVariable().enableAggState;
+        connectContext.getSessionVariable().enableAggState = true;
+        try {
+            createTable("create table values_avg (k int, s agg_state<avg(bigint not null)> generic) "
+                    + "aggregate key(k) distributed by hash(k) buckets 1 properties('replication_num'='1')");
+            String insert = "insert into values_avg ";
+            getOutputFragment("explain " + insert + "select 1, avg_combine(cast(1 as bigint))");
+            AnalysisException mismatch = Assertions.assertThrows(AnalysisException.class,
+                    () -> getOutputFragment("explain " + insert + "select 1, avg_combine(cast(1 as int))"));
+            Assertions.assertTrue(mismatch.getMessage().contains("cannot cast agg_state<avg("), mismatch.getMessage());
+
+            String valid = "(1, avg_state(cast(1 as int)))";
+            String invalid = "(2, if(rand() < 0.5, avg_state(cast(2 as int)), avg_state(cast(3 as int))))";
+            for (boolean batch : new boolean[] {false, true}) {
+                planFastValues(insert + "values " + valid, batch);
+                for (String rows : new String[] {invalid, valid + "," + invalid}) {
+                    AnalysisException error = Assertions.assertThrows(AnalysisException.class,
+                            () -> planFastValues(insert + "values " + rows, batch));
+                    Assertions.assertTrue(error.getMessage().contains("cannot cast agg_state<avg("), error.getMessage());
+                }
+            }
+        } finally {
+            connectContext.getSessionVariable().enableAggState = enabled;
+        }
+    }
+
+    private void planFastValues(String sql, boolean batch) throws Exception {
+        StatementContext context = MemoTestUtils.createStatementContext(connectContext, sql);
+        LogicalPlan logical = (LogicalPlan) ((Explainable) parser.parseSingle(sql)).getExplainPlan(connectContext);
+        new FastInsertIntoValuesPlanner(context, true, batch).planWithLock(logical, PhysicalProperties.ANY);
     }
 
     @Test
