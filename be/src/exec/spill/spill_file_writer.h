@@ -73,7 +73,7 @@ public:
     size_t max_footer_bytes() const { return _max_footer_bytes; }
 
 protected:
-    virtual void _configure_file_writer_options(io::FileWriterOptions* options) {}
+    virtual void _on_part_opened() {}
 
     /// Preserve the first append failure for the whole part, including its footer.
     virtual Status _append_to_part(const Slice& data);

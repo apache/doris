@@ -45,7 +45,8 @@ Do not remove local spill paths if such writers are used.
 - `spill_s3_max_inflight_upload_bytes`: mutable, default 256 MiB. Backpressure counts submitted
   spill upload buffers, both queued and running, across writers of the BE's spill manager.
   Uploads from unrelated load jobs do not throttle spill merely because they share the S3 upload
-  thread pool. Idle partial buffers
+  thread pool. Each S3 writer owns its upload progress; spill aggregates read-only weak views
+  without retaining writers or injecting a shared counter into them. Idle partial buffers
   are excluded so they cannot block all writers. This is a soft threshold: concurrent appends
   can overshoot it, and final buffers must still be submitted to finish a part.
 - `spill_s3_read_coalesce_bytes`: mutable, default 8 MiB, further bounded by the query's
