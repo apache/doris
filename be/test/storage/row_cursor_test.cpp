@@ -592,6 +592,47 @@ TEST_F(TestRowCursor, encode_key_with_padding_mow) {
     }
 }
 
+// The full encode escapes each VARCHAR/STRING byte up to 0x03 with 0x03, the bytes RowKeyEncoder
+// stores in the primary key index, so mow seeks and point lookups find them; the short key keeps
+// the raw bytes.
+TEST_F(TestRowCursor, encode_key_escapes_string_bytes) {
+    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
+    tablet_schema->_cols.push_back(create_varchar_key(0)); // index_length=4
+    tablet_schema->_cols.push_back(create_string_key(1));  // index_length=4
+    tablet_schema->_num_columns = 2;
+    tablet_schema->_num_key_columns = 2;
+    tablet_schema->_num_short_key_columns = 2;
+
+    {
+        RowCursor row;
+        init_row_cursor_with_nulls(row, tablet_schema, 2);
+        row.mutable_field(0) = Field::create_field<TYPE_STRING>(String("a\x01", 2));
+        row.mutable_field(1) = Field::create_field<TYPE_STRING>(String("b\000c", 3));
+
+        std::string buf;
+        row.encode_key<true>(&buf, 2);
+        EXPECT_STREQ("026103010262030063", hexdump(buf.c_str(), buf.size()).c_str());
+
+        buf.clear();
+        row.encode_key(&buf, 2);
+        EXPECT_STREQ("02610102620063", hexdump(buf.c_str(), buf.size()).c_str());
+    }
+
+    {
+        RowCursor row;
+        init_row_cursor_with_nulls(row, tablet_schema, 1);
+        row.mutable_field(0) = Field::create_field<TYPE_STRING>(String("a\x01", 2));
+
+        std::string buf;
+        row.encode_key_with_padding<true>(&buf, 2, false);
+        EXPECT_STREQ("0261030103", hexdump(buf.c_str(), buf.size()).c_str());
+
+        buf.clear();
+        row.encode_key_with_padding<true>(&buf, 2, true);
+        EXPECT_STREQ("0261030100", hexdump(buf.c_str(), buf.size()).c_str());
+    }
+}
+
 // Test: negative values for various types
 TEST_F(TestRowCursor, encode_key_negative_values) {
     TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();

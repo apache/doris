@@ -31,10 +31,26 @@ class TabletSchema;
 // Encodes rows into the sortable binary key format shared by the short key
 // index and the primary key index. Each column is encoded as a one byte
 // marker (KeyConsts) followed by the KeyCoder encoded value, a null column
-// is encoded as KEY_NULL_FIRST_MARKER without value bytes.
+// is encoded as KEY_NULL_FIRST_MARKER without value bytes. A full encoded
+// VARCHAR/STRING value is escaped by full_encode_string().
 class RowKeyEncoder {
 public:
     RowKeyEncoder(const TabletSchema& schema, bool mow);
+
+    // Append a VARCHAR/STRING key value to a full encoded key, with KEY_STRING_ESCAPE put before
+    // each byte that is not above it. Unescaped, a byte up to 0x02 read as the next column's
+    // marker: ("a\x01", "a") encoded below ("a", "z"), and ("a\x02", "b") the same as ("a", "\x02b").
+    // A value without such a byte keeps the bytes it was always encoded to.
+    static void full_encode_string(const char* data, size_t size, std::string* buf);
+
+    // Cut `key` to the prefix whose bytes compare like the key values they encode, whether
+    // full_encode_string() or the unescaped encoding before it wrote `key`, and set `*truncated`
+    // when it is cut. `key` is a full encode of the key columns of `schema`, or a prefix of one
+    // when `*truncated`, e.g. a segment key bound. The whole key is kept when its column boundaries
+    // can only be where they are and none of its strings holds a byte up to KEY_STRING_ESCAPE,
+    // which are the keys both encodings write alike.
+    static void cut_to_trusted_prefix(const TabletSchema& schema, std::string* key,
+                                      bool* truncated);
 
     // Encode the sort key columns at `pos` with full length.
     std::string full_encode(const std::vector<const IColumn*>& key_columns, size_t pos) const;

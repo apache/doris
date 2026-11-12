@@ -156,17 +156,16 @@ bool is_rowset_tidy(std::string& pre_max_key, bool& pre_rs_key_bounds_truncated,
         }
     }
     std::string min_key;
-    auto ret = rhs->first_key(&min_key);
+    bool min_key_truncated {false};
+    auto ret = rhs->first_key(&min_key, &min_key_truncated);
     if (!ret) {
         return false;
     }
-    bool cur_rs_key_bounds_truncated {rhs->is_segments_key_bounds_truncated()};
     if (!Slice::lhs_is_strictly_less_than_rhs(Slice {pre_max_key}, pre_rs_key_bounds_truncated,
-                                              Slice {min_key}, cur_rs_key_bounds_truncated)) {
+                                              Slice {min_key}, min_key_truncated)) {
         return false;
     }
-    CHECK(rhs->last_key(&pre_max_key));
-    pre_rs_key_bounds_truncated = cur_rs_key_bounds_truncated;
+    CHECK(rhs->last_key(&pre_max_key, &pre_rs_key_bounds_truncated));
     return true;
 }
 

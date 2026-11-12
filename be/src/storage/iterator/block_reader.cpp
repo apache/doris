@@ -439,19 +439,19 @@ bool BlockReader::_rowsets_not_mono_asc_disjoint(const ReaderParams& read_params
             return true;
         }
         std::string rs_first_key;
-        bool has_first_key = rs_split.rs_reader->rowset()->first_key(&rs_first_key);
+        bool rs_first_key_truncated {false};
+        bool has_first_key =
+                rs_split.rs_reader->rowset()->first_key(&rs_first_key, &rs_first_key_truncated);
         if (!has_first_key) {
             return true;
         }
-        bool cur_rs_key_bounds_truncated {
-                rs_split.rs_reader->rowset()->is_segments_key_bounds_truncated()};
         if (!Slice::lhs_is_strictly_less_than_rhs(Slice {pre_rs_last_key},
                                                   pre_rs_key_bounds_truncated, Slice {rs_first_key},
-                                                  cur_rs_key_bounds_truncated)) {
+                                                  rs_first_key_truncated)) {
             return true;
         }
-        bool has_last_key = rs_split.rs_reader->rowset()->last_key(&pre_rs_last_key);
-        pre_rs_key_bounds_truncated = cur_rs_key_bounds_truncated;
+        bool has_last_key = rs_split.rs_reader->rowset()->last_key(&pre_rs_last_key,
+                                                                   &pre_rs_key_bounds_truncated);
         CHECK(has_last_key);
     }
     return false;

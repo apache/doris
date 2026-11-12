@@ -27,6 +27,7 @@
 #include "common/consts.h"
 #include "core/data_type/primitive_type.h"
 #include "core/field.h"
+#include "storage/key/row_key_encoder.h"
 #include "storage/key_coder.h"
 #include "storage/olap_common.h"
 #include "storage/olap_define.h"
@@ -135,7 +136,8 @@ void RowCursor::_encode_column_value(const TabletColumn* column, const Field& va
             // VARCHAR / STRING: use actual length
             Slice slice(str.data(), str.size());
             if (full_encode) {
-                coder->full_encode_ascending(&slice, buf);
+                // the same bytes as the full encoded keys RowKeyEncoder writes
+                RowKeyEncoder::full_encode_string(str.data(), str.size(), buf);
             } else {
                 coder->encode_ascending(&slice, column->index_length(), buf);
             }

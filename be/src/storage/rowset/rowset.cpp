@@ -24,6 +24,7 @@
 #include "common/config.h"
 #include "io/cache/block_file_cache_factory.h"
 #include "storage/index/inverted/common/inverted_index_desc.h"
+#include "storage/key/row_key_encoder.h"
 #include "storage/olap_define.h"
 #include "storage/segment/segment_loader.h"
 #include "storage/tablet/tablet_schema.h"
@@ -100,6 +101,28 @@ void Rowset::make_visible(Version version, int64_t commit_tso) {
 
 void Rowset::set_version(Version version) {
     _rowset_meta->set_version(version);
+}
+
+bool Rowset::first_key(std::string* min_key, bool* truncated) {
+    KeyBoundsPB key_bounds;
+    if (!_rowset_meta->get_first_segment_key_bound(&key_bounds)) {
+        return false;
+    }
+    *min_key = key_bounds.min_key();
+    *truncated = _rowset_meta->is_segments_key_bounds_truncated();
+    RowKeyEncoder::cut_to_trusted_prefix(*_schema, min_key, truncated);
+    return true;
+}
+
+bool Rowset::last_key(std::string* max_key, bool* truncated) {
+    KeyBoundsPB key_bounds;
+    if (!_rowset_meta->get_last_segment_key_bound(&key_bounds)) {
+        return false;
+    }
+    *max_key = key_bounds.max_key();
+    *truncated = _rowset_meta->is_segments_key_bounds_truncated();
+    RowKeyEncoder::cut_to_trusted_prefix(*_schema, max_key, truncated);
+    return true;
 }
 
 bool Rowset::check_rowset_segment() {

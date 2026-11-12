@@ -281,27 +281,12 @@ public:
         _rowset_meta->get_num_segment_rows(num_segment_rows);
     }
 
-    // min key of the first segment
-    bool first_key(std::string* min_key) {
-        KeyBoundsPB key_bounds;
-        bool ret = _rowset_meta->get_first_segment_key_bound(&key_bounds);
-        if (!ret) {
-            return false;
-        }
-        *min_key = key_bounds.min_key();
-        return true;
-    }
+    // min key of the first segment, cut to the prefix that compares like the keys it bounds
+    // (RowKeyEncoder::cut_to_trusted_prefix); `truncated` tells whether it is a prefix
+    bool first_key(std::string* min_key, bool* truncated);
 
-    // max key of the last segment
-    bool last_key(std::string* max_key) {
-        KeyBoundsPB key_bounds;
-        bool ret = _rowset_meta->get_last_segment_key_bound(&key_bounds);
-        if (!ret) {
-            return false;
-        }
-        *max_key = key_bounds.max_key();
-        return true;
-    }
+    // max key of the last segment, cut the same way as first_key()
+    bool last_key(std::string* max_key, bool* truncated);
 
     bool is_segments_key_bounds_truncated() const {
         return _rowset_meta->is_segments_key_bounds_truncated();
