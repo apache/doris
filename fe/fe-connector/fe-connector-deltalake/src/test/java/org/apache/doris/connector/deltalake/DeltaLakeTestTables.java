@@ -38,10 +38,14 @@ final class DeltaLakeTestTables {
 
     static void commit(Path table, long version, String id, StructType schema, List<String> partitions)
             throws IOException {
+        commit(table, version, id, schema, partitions, Map.of("minReaderVersion", 1, "minWriterVersion", 2));
+    }
+
+    static void commit(Path table, long version, String id, StructType schema, List<String> partitions,
+            Map<String, Object> protocolFields) throws IOException {
         ObjectMapper mapper = new ObjectMapper();
         Path log = Files.createDirectories(table.resolve("_delta_log"));
-        String protocol = mapper.writeValueAsString(Map.of("protocol",
-                Map.of("minReaderVersion", 1, "minWriterVersion", 2)));
+        String protocol = mapper.writeValueAsString(Map.of("protocol", protocolFields));
         String metadata = mapper.writeValueAsString(Map.of("metaData", Map.of(
                 "id", id, "format", Map.of("provider", "parquet", "options", Collections.emptyMap()),
                 "schemaString", schema.toJson(), "partitionColumns", partitions,

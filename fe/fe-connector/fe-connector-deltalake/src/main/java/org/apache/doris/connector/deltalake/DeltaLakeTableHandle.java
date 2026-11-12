@@ -76,13 +76,12 @@ final class DeltaLakeTableHandle implements ConnectorTableHandle {
     }
 
     DeltaLakeTableHandle atVersion(Engine engine, long requestedVersion) {
-        if (version == requestedVersion) {
-            return this;
-        }
         Snapshot pinned = TableManager.loadSnapshot(path).atVersion(requestedVersion).build(engine);
         if (!tableId.equals(DeltaKernelCompat.tableId(pinned))) {
             throw new DorisConnectorException("Delta table was recreated during the statement: " + path);
         }
+        DeltaLakeFeatureCheck.check(pinned);
+        DeltaKernelCompat.prepareForConcurrentReads(pinned);
         return new DeltaLakeTableHandle(database, table, pinned);
     }
 

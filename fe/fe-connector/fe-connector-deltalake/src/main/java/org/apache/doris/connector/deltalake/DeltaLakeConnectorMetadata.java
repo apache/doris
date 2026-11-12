@@ -29,6 +29,7 @@ import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.handle.NamedColumnHandle;
 import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
+import org.apache.doris.connector.spi.mvcc.ConnectorTimeTravelSpec;
 import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
 import org.apache.doris.thrift.THiveTable;
 import org.apache.doris.thrift.TTableDescriptor;
@@ -120,6 +121,17 @@ final class DeltaLakeConnectorMetadata implements ConnectorMetadata {
     }
 
     @Override
+    public Map<String, ConnectorColumnHandle> getColumnHandles(ConnectorSession session, ConnectorTableHandle handle,
+            ConnectorMvccSnapshot snapshot) {
+        return getColumnHandles(session, applySnapshot(session, handle, snapshot));
+    }
+
+    @Override
+    public boolean supportsColumnHandleSnapshotPin(ConnectorSession session) {
+        return true;
+    }
+
+    @Override
     public List<String> listPartitionNames(ConnectorSession session, ConnectorTableHandle handle) {
         return listPartitions(session, handle, Optional.empty()).stream()
                 .map(ConnectorPartitionInfo::getPartitionName).collect(Collectors.toList());
@@ -164,13 +176,47 @@ final class DeltaLakeConnectorMetadata implements ConnectorMetadata {
     }
 
     @Override
+    public Optional<ConnectorMvccSnapshot> resolveTimeTravel(ConnectorSession session, ConnectorTableHandle handle,
+            ConnectorTimeTravelSpec spec) {
+        if (spec.getKind() == ConnectorTimeTravelSpec.Kind.VERSION_REF) {
+            throw invalidVersion(spec.getStringValue());
+        }
+        if (spec.getKind() != ConnectorTimeTravelSpec.Kind.SNAPSHOT_ID) {
+            return Optional.empty();
+        }
+        long version;
+        try {
+            version = Long.parseLong(spec.getStringValue());
+        } catch (NumberFormatException e) {
+            throw invalidVersion(spec.getStringValue());
+        }
+        if (version < 0) {
+            throw invalidVersion(spec.getStringValue());
+        }
+        // Even a matching latest pointer may be cached across statements. Open the explicit target
+        // once in this statement so a recreated table or truncated version cannot use that pointer.
+        return beginQuerySnapshot(session, loadVersion(session, (DeltaLakeTableHandle) handle, version));
+    }
+
+    private static DorisConnectorException invalidVersion(String value) {
+        return new DorisConnectorException("Delta Lake FOR VERSION AS OF requires a non-negative 64-bit integer: "
+                + value);
+    }
+
+    @Override
     public ConnectorTableHandle applySnapshot(ConnectorSession session, ConnectorTableHandle handle,
             ConnectorMvccSnapshot snapshot) {
         DeltaLakeTableHandle delta = (DeltaLakeTableHandle) handle;
         if (!delta.getTableId().equals(snapshot.getProperties().get(TABLE_ID))) {
             throw new DorisConnectorException("Delta snapshot belongs to another table: " + delta.getPath());
         }
-        return runtime.execute(() -> delta.atVersion(runtime.engine, snapshot.getSnapshotId()));
+        return delta.getVersion() == snapshot.getSnapshotId()
+                ? delta : loadVersion(session, delta, snapshot.getSnapshotId());
+    }
+
+    private DeltaLakeTableHandle loadVersion(ConnectorSession session, DeltaLakeTableHandle delta, long version) {
+        return DeltaLakeStatementScope.atVersion(session, delta, version,
+                () -> runtime.execute(() -> delta.atVersion(runtime.engine, version)));
     }
 
     @Override

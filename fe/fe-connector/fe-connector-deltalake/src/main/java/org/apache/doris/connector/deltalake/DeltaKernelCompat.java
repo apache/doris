@@ -59,16 +59,19 @@ final class DeltaKernelCompat {
                 crc.getNumFiles() == 0 ? 0 : -1, crc.getTableSizeBytes()));
     }
 
-    static long snapshotRetainedBytes(Snapshot snapshot) {
-        // Materialize the read-side lazy metadata before publishing across queries. Kernel's Lazy
-        // is not synchronized. Never retain scan iterators or the active AddFile list in this cache.
+    static void prepareForConcurrentReads(Snapshot snapshot) {
+        // Kernel's Lazy is not synchronized. Materialize read-side metadata before sharing a snapshot.
         snapshot.getSchema();
         snapshot.getTableProperties();
         snapshot.getMetadata().getDataSchema();
         snapshot.getScanBuilder();
         snapshot.getCurrentCrcInfo();
+        snapshot.getLogSegment().allFilesWithCompactionsReversed();
+    }
+
+    static long snapshotRetainedBytes(Snapshot snapshot) {
+        prepareForConcurrentReads(snapshot);
         LogSegment segment = snapshot.getLogSegment();
-        segment.allFilesWithCompactionsReversed();
         // Kernel 4.4.1 retains metadata/schema copies, lazy lookup maps and log FileStatus lists.
         // Charge a conservative expansion of schema JSON and CRC bytes, including optional allFiles
         // embedded in a CRC. The catalog's shared Engine/FileIO service graph is not entry-owned.

@@ -26,6 +26,7 @@ import java.util.function.Supplier;
 
 final class DeltaLakeStatementScope {
     static final String SNAPSHOT_NAMESPACE = "deltalake.snapshot";
+    static final String VERSION_NAMESPACE = "deltalake.snapshot-version";
 
     static final String FILE_COUNT_NAMESPACE = "deltalake.file-count";
 
@@ -45,5 +46,13 @@ final class DeltaLakeStatementScope {
     static Optional<DeltaLakeTableHandle> resolve(ConnectorSession session, String database, String table,
             Supplier<Optional<DeltaLakeTableHandle>> loader) {
         return ConnectorStatementScopes.resolveInStatement(session, SNAPSHOT_NAMESPACE, database, table, loader);
+    }
+
+    static DeltaLakeTableHandle atVersion(ConnectorSession session, DeltaLakeTableHandle handle, long version,
+            Supplier<DeltaLakeTableHandle> loader) {
+        String key = String.join("\0", handle.getTable(), handle.getPath(), handle.getTableId(),
+                Long.toString(version));
+        return ConnectorStatementScopes.resolveInStatement(session, VERSION_NAMESPACE, handle.getDatabase(),
+                key, loader);
     }
 }

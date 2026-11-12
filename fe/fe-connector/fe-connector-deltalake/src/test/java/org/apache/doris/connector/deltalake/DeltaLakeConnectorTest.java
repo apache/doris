@@ -25,7 +25,9 @@ import org.apache.doris.connector.spi.ConnectorTableSchema;
 import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
+import org.apache.doris.connector.spi.mvcc.ConnectorTimeTravelSpec;
 
+import io.delta.kernel.exceptions.KernelException;
 import io.delta.kernel.types.LongType;
 import io.delta.kernel.types.StringType;
 import io.delta.kernel.types.StructType;
@@ -38,9 +40,16 @@ import java.lang.reflect.Modifier;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collections;
+import java.util.List;
+import java.util.Map;
 import java.util.ServiceLoader;
+import java.util.Set;
 
 class DeltaLakeConnectorTest {
+    private static final Map<String, Object> VARIANT_PROTOCOL = Map.of(
+            "minReaderVersion", 3, "minWriterVersion", 7,
+            "readerFeatures", List.of("variantType"), "writerFeatures", List.of("variantType"));
+
     @TempDir
     Path warehouse;
 
@@ -92,6 +101,127 @@ class DeltaLakeConnectorTest {
             DeltaLakeTestTables.commit(warehouse.resolve("db/other"), 0, "other", original);
             ConnectorTableHandle other = metadata.getTableHandle(next, "db", "other").orElseThrow();
             Assertions.assertThrows(DorisConnectorException.class, () -> metadata.applySnapshot(next, other, pin));
+        }
+    }
+
+    @Test
+    void readsExplicitVersionsWithTheirOwnSchemaAndColumnHandles() throws Exception {
+        Path table = warehouse.resolve("db/table");
+        DeltaLakeTestTables.commit(table, 0, "first", new StructType().add("old_name", LongType.LONG));
+        DeltaLakeTestTables.commit(table, 1, "first", new StructType().add("new_name", StringType.STRING));
+        TestingConnectorSession session = new TestingConnectorSession("versioned-read");
+        try (Connector connector = connector(); ConnectorMetadata metadata = connector.getMetadata(session)) {
+            ConnectorTableHandle latest = metadata.getTableHandle(session, "db", "table").orElseThrow();
+            ConnectorMvccSnapshot old = metadata.resolveTimeTravel(session, latest,
+                    ConnectorTimeTravelSpec.snapshotId("0")).orElseThrow();
+            Assertions.assertEquals(0, old.getSnapshotId());
+            Assertions.assertEquals(0, old.getSchemaId());
+            Assertions.assertTrue(old.isSchemaRetained());
+            Assertions.assertEquals("old_name", metadata.getTableSchema(session, latest, old)
+                    .getColumns().get(0).getName());
+            Assertions.assertTrue(metadata.supportsColumnHandleSnapshotPin(session));
+            Assertions.assertEquals(Set.of("old_name"), metadata.getColumnHandles(session, latest, old).keySet());
+            Assertions.assertSame(metadata.applySnapshot(session, latest, old),
+                    metadata.applySnapshot(session, latest, old));
+            Assertions.assertEquals(Set.of("new_name"), metadata.getColumnHandles(session, latest).keySet());
+
+            // An explicit version can already exist even when the statement's latest handle predates it.
+            DeltaLakeTestTables.commit(table, 2, "first", new StructType().add("later", LongType.LONG));
+            ConnectorMvccSnapshot later = metadata.resolveTimeTravel(session, latest,
+                    ConnectorTimeTravelSpec.snapshotId("2")).orElseThrow();
+            Assertions.assertEquals(Set.of("later"), metadata.getColumnHandles(session, latest, later).keySet());
+            Assertions.assertEquals(1, metadata.beginQuerySnapshot(session, latest).orElseThrow().getSnapshotId());
+        }
+    }
+
+    @Test
+    void rejectsInvalidOrUnavailableVersionsWithoutReadingLatest() throws Exception {
+        DeltaLakeTestTables.commit(warehouse.resolve("db/table"), 0, "id", new StructType().add("id", LongType.LONG));
+        TestingConnectorSession session = new TestingConnectorSession("unavailable-version");
+        try (Connector connector = connector(); ConnectorMetadata metadata = connector.getMetadata(session)) {
+            ConnectorTableHandle table = metadata.getTableHandle(session, "db", "table").orElseThrow();
+            for (ConnectorTimeTravelSpec spec : List.of(ConnectorTimeTravelSpec.versionRef("release"),
+                    ConnectorTimeTravelSpec.versionRef("-1"), ConnectorTimeTravelSpec.snapshotId("-1"),
+                    ConnectorTimeTravelSpec.snapshotId("9223372036854775808"))) {
+                DorisConnectorException error = Assertions.assertThrows(DorisConnectorException.class,
+                        () -> metadata.resolveTimeTravel(session, table, spec));
+                Assertions.assertTrue(error.getMessage().contains("non-negative 64-bit integer: "
+                        + spec.getStringValue()), error.getMessage());
+            }
+            KernelException missing = Assertions.assertThrows(KernelException.class, () -> metadata.resolveTimeTravel(
+                    session, table, ConnectorTimeTravelSpec.snapshotId("7")));
+            Assertions.assertTrue(missing.getMessage().contains("Cannot load table version 7"), missing.getMessage());
+            Assertions.assertTrue(metadata.resolveTimeTravel(session, table,
+                    ConnectorTimeTravelSpec.timestamp("0", true)).isEmpty());
+        }
+    }
+
+    @Test
+    void rejectsVersionBeforeEarliestRetainedCheckpoint() throws Exception {
+        Path log = Files.createDirectories(warehouse.resolve("db/table/_delta_log"));
+        Path original = Path.of(getClass().getResource("/deltalake/dv-partitioned-with-checkpoint/_delta_log")
+                .toURI());
+        for (String file : List.of("_last_checkpoint", "00000000000000000010.checkpoint.parquet",
+                "00000000000000000010.json")) {
+            Files.copy(original.resolve(file), log.resolve(file));
+        }
+        TestingConnectorSession session = new TestingConnectorSession("truncated-version");
+        try (Connector connector = connector(); ConnectorMetadata metadata = connector.getMetadata(session)) {
+            ConnectorTableHandle latest = metadata.getTableHandle(session, "db", "table").orElseThrow();
+            Assertions.assertEquals(10, metadata.beginQuerySnapshot(session, latest).orElseThrow().getSnapshotId());
+            KernelException missing = Assertions.assertThrows(KernelException.class, () -> metadata.resolveTimeTravel(
+                    session, latest, ConnectorTimeTravelSpec.snapshotId("9")));
+            Assertions.assertTrue(missing.getMessage().contains("version 9"), missing.getMessage());
+        }
+    }
+
+    @Test
+    void checksReaderFeaturesAndIdentityOfRequestedVersion() throws Exception {
+        Path table = warehouse.resolve("db/table");
+        StructType schema = new StructType().add("id", LongType.LONG);
+        DeltaLakeTestTables.commit(table, 0, "another-table", schema);
+        DeltaLakeTestTables.commit(table, 1, "first", schema, List.of(), VARIANT_PROTOCOL);
+        DeltaLakeTestTables.commit(table, 2, "first", schema);
+        TestingConnectorSession session = new TestingConnectorSession("unsupported-version");
+        try (Connector connector = connector(); ConnectorMetadata metadata = connector.getMetadata(session)) {
+            ConnectorTableHandle latest = metadata.getTableHandle(session, "db", "table").orElseThrow();
+            DorisConnectorException identity = Assertions.assertThrows(DorisConnectorException.class,
+                    () -> metadata.resolveTimeTravel(session, latest, ConnectorTimeTravelSpec.snapshotId("0")));
+            Assertions.assertTrue(identity.getMessage().contains("recreated"), identity.getMessage());
+            DorisConnectorException features = Assertions.assertThrows(DorisConnectorException.class,
+                    () -> metadata.resolveTimeTravel(session, latest, ConnectorTimeTravelSpec.snapshotId("1")));
+            Assertions.assertTrue(features.getMessage().contains("variantType"), features.getMessage());
+        }
+    }
+
+    @Test
+    void verifiesExplicitVersionEvenWhenItEqualsTheCachedLatestVersion() throws Exception {
+        Path table = warehouse.resolve("db/table");
+        StructType schema = new StructType().add("id", LongType.LONG);
+        DeltaLakeTestTables.commit(table, 0, "first", schema);
+        TestingConnectorSession session = new TestingConnectorSession("recreated-at-version-zero");
+        try (Connector connector = connector(); ConnectorMetadata metadata = connector.getMetadata(session)) {
+            ConnectorTableHandle latest = metadata.getTableHandle(session, "db", "table").orElseThrow();
+            DeltaLakeTestTables.commit(table, 0, "replacement", schema);
+            DorisConnectorException identity = Assertions.assertThrows(DorisConnectorException.class,
+                    () -> metadata.resolveTimeTravel(session, latest, ConnectorTimeTravelSpec.snapshotId("0")));
+            Assertions.assertTrue(identity.getMessage().contains("recreated"), identity.getMessage());
+        }
+    }
+
+    @Test
+    void rejectsUnsupportedLatestBeforeOpeningTheTable() throws Exception {
+        Path table = warehouse.resolve("db/table");
+        StructType schema = new StructType().add("id", LongType.LONG);
+        DeltaLakeTestTables.commit(table, 0, "first", schema);
+        DeltaLakeTestTables.commit(table, 1, "first", schema, List.of(), VARIANT_PROTOCOL);
+        TestingConnectorSession session = new TestingConnectorSession("unsupported-latest");
+        try (Connector connector = connector(); ConnectorMetadata metadata = connector.getMetadata(session)) {
+            DorisConnectorException unsupported = Assertions.assertThrows(DorisConnectorException.class,
+                    () -> metadata.getTableHandle(session, "db", "table"));
+            Assertions.assertTrue(unsupported.getMessage().contains("Unsupported Delta Lake reader features"),
+                    unsupported.getMessage());
+            Assertions.assertTrue(unsupported.getMessage().contains("variantType"), unsupported.getMessage());
         }
     }
 
