@@ -237,19 +237,8 @@ Status ScanLocalState<Derived>::open(RuntimeState* state) {
         RETURN_IF_ERROR(_on_runtime_filter_update(new_conjuncts));
     }
 
-    // Disable condition cache in topn filter valid. TODO:: Try to support the topn filter in condition cache
-    if (p._enable_condition_cache && state->query_options().condition_cache_digest &&
-        p._topn_filter_source_node_ids.empty()) {
-        _condition_cache_digest = state->query_options().condition_cache_digest;
-        for (auto& conjunct : _conjuncts) {
-            _condition_cache_digest = conjunct->get_digest(_condition_cache_digest);
-            if (!_condition_cache_digest) {
-                break;
-            }
-        }
-    } else {
-        _condition_cache_digest = 0;
-    }
+    // Compute the static predicate digest before _process_conjuncts() adds TopN filters.
+    _init_condition_cache(state);
 
     RETURN_IF_ERROR(_process_conjuncts(state));
 
@@ -266,6 +255,27 @@ Status ScanLocalState<Derived>::open(RuntimeState* state) {
     }
     _opened = true;
     return status;
+}
+
+template <typename Derived>
+void ScanLocalState<Derived>::_init_condition_cache(RuntimeState* state) {
+    const auto& p = _parent->cast<typename Derived::Parent>();
+    const bool has_topn_filter = !p._topn_filter_source_node_ids.empty();
+    // TopN can consume a static predicate's cache, but its dynamic threshold must never
+    // contribute exclusions to that cache. External TopN scans keep condition cache disabled.
+    _condition_cache_write_enabled = !has_topn_filter;
+    _condition_cache_digest = 0;
+    if (!p._enable_condition_cache || !state->query_options().condition_cache_digest ||
+        (has_topn_filter && !_supports_topn_condition_cache())) {
+        return;
+    }
+    _condition_cache_digest = state->query_options().condition_cache_digest;
+    for (const auto& conjunct : _conjuncts) {
+        _condition_cache_digest = conjunct->get_digest(_condition_cache_digest);
+        if (!_condition_cache_digest) {
+            break;
+        }
+    }
 }
 
 void ScanLocalStateBase::_init_slot_value_range(

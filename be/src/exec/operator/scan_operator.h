@@ -101,6 +101,7 @@ public:
     [[nodiscard]] std::string get_name() { return _parent->get_name(); }
 
     uint64_t get_condition_cache_digest() const { return _condition_cache_digest; }
+    bool condition_cache_write_enabled() const { return _condition_cache_write_enabled; }
 
     Status update_late_arrival_runtime_filter(RuntimeState* state, int& arrived_rf_num);
 
@@ -150,6 +151,7 @@ protected:
     RuntimeFilterConsumerHelper _helper;
     // magic number as seed to generate hash value for condition cache
     uint64_t _condition_cache_digest = 0;
+    bool _condition_cache_write_enabled = true;
     // condition cache filter stats
     RuntimeProfile::Counter* _condition_cache_hit_counter = nullptr;
     RuntimeProfile::Counter* _condition_cache_filtered_rows_counter = nullptr;
@@ -296,6 +298,8 @@ protected:
     friend class Scanner;
 
     Status _init_profile() override;
+    void _init_condition_cache(RuntimeState* state);
+    virtual bool _supports_topn_condition_cache() const { return false; }
     virtual Status _process_conjuncts(RuntimeState* state) { return _normalize_conjuncts(state); }
     virtual bool _should_push_down_common_expr(const VExprSPtr&) { return false; }
 

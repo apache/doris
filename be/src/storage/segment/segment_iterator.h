@@ -335,6 +335,11 @@ private:
     void _prepare_score_column_materialization();
 
     void _init_row_bitmap_by_condition_cache();
+    bool _should_write_condition_cache() const {
+        return _opts.condition_cache_digest && _opts.condition_cache_write_enabled &&
+               !_find_condition_cache;
+    }
+    void _write_condition_cache();
 
     void _init_segment_prefetchers();
 
