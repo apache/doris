@@ -38,7 +38,6 @@ public:
 
 protected:
     Status finalize_chunk(Block* block, size_t rows) override;
-    Status annotate_file_schema(std::vector<ColumnDefinition>* file_schema) override;
     Status validate_file_mapping(const TableColumnMapper& mapper) const override;
     Status customize_file_scan_request(FileScanRequest* request) override;
     Status create_file_reader(std::unique_ptr<FileReader>* reader) override;
@@ -46,7 +45,6 @@ protected:
 
 private:
     Status _init_source_columns();
-    void _init_parquet_variant_projections();
     Status _materialize_missing_values();
     Status _convert(Block* output);
     Status _reject_row(size_t row, const std::string& reason);
@@ -61,9 +59,6 @@ private:
     VExprContextSPtrs _destination_exprs;
     std::map<size_t, VExprContextSPtr> _source_defaults;
     std::vector<int> _direct_source_positions;
-    // Destination to source positions for implicit string-to-Variant projections that may
-    // consume the native Variant column directly when a Parquet file supplies one.
-    std::vector<int> _parquet_variant_source_positions;
     std::vector<int> _partition_positions;
     int _skip_bitmap_position = -1;
     int _sequence_map_uid = -1;

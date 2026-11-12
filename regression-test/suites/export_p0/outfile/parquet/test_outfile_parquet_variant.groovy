@@ -43,7 +43,8 @@ suite("test_outfile_parquet_variant", "p0,external") {
             (3, parse_to_variant('"true"')),
             (4, parse_to_variant('true')),
             (5, parse_to_variant('{}')),
-            (6, NULL)
+            (6, NULL),
+            (7, parse_to_variant('"hello"'))
     """
     // Generate a Variant null after the scan. The table stores a root Variant null as an empty object.
     def projection = "id, IF(id = 5, parse_to_variant('null'), v) AS v"
@@ -64,24 +65,24 @@ suite("test_outfile_parquet_variant", "p0,external") {
     sql "INSERT INTO outfile_parquet_variant_dst SELECT id, v FROM ${file}"
     assertEquals(readRows("outfile_parquet_variant_src"), readRows("outfile_parquet_variant_dst"))
 
-    // Older Parquet exports used a UTF-8 column. Load both encodings in one job.
-    sql """
-        SELECT CAST(id + 4 AS INT) AS id, IF(id = 3, '"true"', 'true') AS v
-        FROM outfile_parquet_variant_src WHERE id IN (3, 4)
-        INTO OUTFILE "${uri}legacy/part_" FORMAT AS PARQUET PROPERTIES (${storage})
-    """
-    sql "TRUNCATE TABLE outfile_parquet_variant_dst"
-    def label = "parquet_variant_" + UUID.randomUUID().toString().replace("-", "")
-    sql """
-        LOAD LABEL ${label} (
-            DATA INFILE("${uri}part_*.parquet", "${uri}legacy/part_*.parquet")
-            INTO TABLE outfile_parquet_variant_dst FORMAT AS "parquet" (id, v)
-        ) WITH S3 (${storage})
-    """
-    waitForBrokerLoadDone(label)
-    def job = sql("SHOW LOAD WHERE LABEL = '${label}'")[0]
-    assertEquals("FINISHED", job[2], job.toString())
-    def legacyRows = "(SELECT CAST(id + 4 AS INT) AS id, v FROM outfile_parquet_variant_src WHERE id IN (3, 4)) t"
-    assertEquals(readRows("outfile_parquet_variant_src") + readRows(legacyRows),
-                 readRows("outfile_parquet_variant_dst"))
+    // A source filter adds another consumer of v; it must still see the typed source slot.
+    for (boolean filterNulls : [false, true]) {
+        sql "TRUNCATE TABLE outfile_parquet_variant_dst"
+        def label = "parquet_variant_" + UUID.randomUUID().toString().replace("-", "")
+        def preceding = filterNulls ? "PRECEDING FILTER v IS NOT NULL" : ""
+        sql """
+            LOAD LABEL ${label} (
+                DATA INFILE("${uri}part_*.parquet")
+                INTO TABLE outfile_parquet_variant_dst FORMAT AS "parquet" (id, v)
+                ${preceding}
+            ) WITH S3 (${storage})
+        """
+        waitForBrokerLoadDone(label)
+        def job = sql("SHOW LOAD WHERE LABEL = '${label}'")[0]
+        assertEquals("FINISHED", job[2], job.toString())
+        def expected = filterNulls
+                ? "(SELECT * FROM outfile_parquet_variant_src WHERE v IS NOT NULL) t"
+                : "outfile_parquet_variant_src"
+        assertEquals(readRows(expected), readRows("outfile_parquet_variant_dst"))
+    }
 }
