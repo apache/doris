@@ -64,11 +64,17 @@ import java.util.Map;
  * expression, through a variant to variant cast and the arguments an IF, CASE WHEN, COALESCE, NVL, NULLABLE or
  * NON_NULLABLE can return, as in the short-circuit IF that MERGE INTO wraps around every value it assigns. It
  * therefore reaches every INSERT shape alike, including the fast VALUES planner, which runs no Rewriter, and it
- * never touches a call outside a sink. A call behind a CTE consumer is not reached (its producer is not below the sink;
- * a CTE inlined by {@link CTEInline} is), a slot feeding several templated columns takes the first column's
- * template, and the slots above a typed call keep the plain VARIANT type they were bound with: the template is an
- * ingestion hint on the call's own result type, which the BE reads from the function node, and a variant to
- * variant cast on the way to the sink is a passthrough there.
+ * never touches a call outside a sink.
+ *
+ * <p>The call is typed where it is computed. Every reader of its slot between the call and the sink, a filter, a
+ * join condition or a sort key among them, therefore sees the value the template reads, which is the value the
+ * column stores: a DECIMAL carrying the text's digits where a query outside a sink sees a DOUBLE.
+ *
+ * <p>A call behind a CTE consumer is not reached (its producer is not below the sink; a CTE inlined by
+ * {@link CTEInline} is), a slot feeding several templated columns takes the first column's template, and the
+ * slots above a typed call keep the plain VARIANT type they were bound with: the template is an ingestion hint
+ * on the call's own result type, which the BE reads from the function node, and a variant to variant cast on
+ * the way to the sink is a passthrough there.
  */
 public class TypeVariantTemplateParse extends DefaultPlanRewriter<Void> implements CustomRewriter {
 

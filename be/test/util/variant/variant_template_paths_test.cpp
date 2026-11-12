@@ -267,6 +267,10 @@ TEST(VariantTemplatePathsTest, ReadsAnExponentOfAnyLength) {
               parse_json_number_as_decimal("0." + std::string(999, '0') + "1e10000", out));
     EXPECT_EQ(JsonNumberToDecimal::OUT_OF_RANGE,
               parse_json_number_as_decimal("0." + std::string(999, '0') + "1e-10000", out));
+    // The bound has to clear every exponent a decimal can still hold, not only the token's length:
+    // cut where it first exceeds the five characters of 1e370, the exponent would be read as 37.
+    EXPECT_EQ(JsonNumberToDecimal::OUT_OF_RANGE, parse_json_number_as_decimal("1e370", out));
+    EXPECT_EQ(JsonNumberToDecimal::OUT_OF_RANGE, parse_json_number_as_decimal("1e-370", out));
     // an exponent past every bound stays there however many digits follow
     EXPECT_EQ(JsonNumberToDecimal::OUT_OF_RANGE,
               parse_json_number_as_decimal("1e" + std::string(400, '9'), out));

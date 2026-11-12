@@ -21,8 +21,10 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ParseToVariant;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.TryParseToVariant;
@@ -30,6 +32,7 @@ import org.apache.doris.nereids.trees.plans.Explainable;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.insert.AbstractInsertExecutor;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.util.PlanChecker;
@@ -181,6 +184,41 @@ public class TypeVariantTemplateParseTest extends TestWithFeService {
         Assertions.assertEquals(VariantType.INSTANCE, value.getDataType());
         Assertions.assertInstanceOf(ParseToVariant.class, value.child(0), value.toString());
         Assertions.assertEquals(templateOfTargetColumn(), ((ParseToVariant) value.child(0)).getReturnType());
+    }
+
+    @Test
+    public void testAReaderBetweenTheCallAndTheSinkSeesTheTypedCall() throws Exception {
+        // the call is typed where it is computed, so the filter over its slot reads what the column will store
+        String sql = "insert into " + TABLE + " select id, v from (select id, parse_to_variant(j) as v from "
+                + SOURCE + ") s where cast(v['money']['amount'] as string) = '1.5'";
+        createStatementCtx(sql);
+        Explainable command = (Explainable) new NereidsParser().parseSingle(sql);
+        Plan plan = PlanChecker.from(connectContext)
+                .analyze(command.getExplainPlan(connectContext))
+                .applyCustom(new TypeVariantTemplateParse())
+                .getPlan();
+        List<Alias> calls = new ArrayList<>();
+        List<LogicalFilter<?>> filters = new ArrayList<>();
+        plan.foreach(node -> {
+            if (node instanceof LogicalFilter) {
+                filters.add((LogicalFilter<?>) node);
+            }
+            for (Expression expression : ((Plan) node).getExpressions()) {
+                if (expression instanceof Alias && expression.child(0) instanceof ParseToVariant) {
+                    calls.add((Alias) expression);
+                }
+            }
+        });
+        Assertions.assertEquals(1, calls.size());
+        Assertions.assertEquals(templateOfTargetColumn(), ((ParseToVariant) calls.get(0).child()).getReturnType());
+        Assertions.assertEquals(1, filters.size());
+        boolean filterReadsTheCall = false;
+        for (Expression conjunct : filters.get(0).getConjuncts()) {
+            for (Slot slot : conjunct.getInputSlots()) {
+                filterReadsTheCall |= slot.getExprId().equals(calls.get(0).getExprId());
+            }
+        }
+        Assertions.assertTrue(filterReadsTheCall, filters.get(0).toString());
     }
 
     @Test
