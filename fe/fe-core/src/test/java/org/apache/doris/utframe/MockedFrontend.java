@@ -19,7 +19,7 @@ package org.apache.doris.utframe;
 
 import org.apache.doris.DorisFE;
 import org.apache.doris.DorisFE.StartupOptions;
-import org.apache.doris.catalog.Env;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.util.DatasourcePrintableMap;
 
 import com.google.common.base.Strings;
@@ -77,7 +77,7 @@ public class MockedFrontend {
         MIN_FE_CONF = Maps.newHashMap();
         MIN_FE_CONF.put("sys_log_level", "INFO");
         MIN_FE_CONF.put("http_port", "8030");
-        MIN_FE_CONF.put("rpc_port", "9020");
+        MIN_FE_CONF.put("rpc_port", "0");
         MIN_FE_CONF.put("query_port", "9030");
         MIN_FE_CONF.put("arrow_flight_sql_port", "8070");
         MIN_FE_CONF.put("edit_log_port", "9010");
@@ -177,6 +177,7 @@ public class MockedFrontend {
         @Override
         public void run() {
             StartupOptions options = new StartupOptions();
+            options.useEphemeralRpcPort = frontend.getRpcPort() == 0;
             // For FE unit tests, we don't need these 2 servers.
             // And it also cost time to start up.
             options.enableHttpServer = false;
@@ -192,14 +193,15 @@ public class MockedFrontend {
         }
         Thread feThread = new Thread(new FERunnable(this, args), FE_PROCESS);
         feThread.start();
-        // wait the catalog to be ready until timeout (30 seconds)
-        waitForCatalogReady(30 * 1000);
+        // wait for the FE services to be ready until timeout (30 seconds)
+        waitForServerReady(30 * 1000);
+        finalFeConf.put("rpc_port", String.valueOf(Config.rpc_port));
     }
 
-    private void waitForCatalogReady(long timeoutMs) throws FeStartException {
+    private void waitForServerReady(long timeoutMs) throws FeStartException {
         long left = timeoutMs;
-        while (!Env.getCurrentEnv().isReady() && left > 0) {
-            System.out.println("catalog is not ready");
+        while (!DorisFE.isServerReady() && left > 0) {
+            System.out.println("FE services are not ready");
             try {
                 Thread.sleep(100);
             } catch (InterruptedException e) {
@@ -208,7 +210,7 @@ public class MockedFrontend {
             left -= 100;
         }
 
-        if (left <= 0 && !Env.getCurrentEnv().isReady()) {
+        if (left <= 0 && !DorisFE.isServerReady()) {
             throw new FeStartException("fe start failed");
         }
     }

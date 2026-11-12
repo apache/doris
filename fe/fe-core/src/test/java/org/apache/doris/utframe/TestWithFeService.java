@@ -372,14 +372,12 @@ public abstract class TestWithFeService {
         System.out.println("CREATE FE SERVER DIR: " + Config.custom_config_dir);
 
         int feHttpPort = findValidPort();
-        int feRpcPort = findValidPort();
         int feQueryPort = findValidPort();
         int arrowFlightSqlPort = findValidPort();
         int feEditLogPort = findValidPort();
         Map<String, String> feConfMap = Maps.newHashMap();
         // set additional fe config
         feConfMap.put("http_port", String.valueOf(feHttpPort));
-        feConfMap.put("rpc_port", String.valueOf(feRpcPort));
         feConfMap.put("query_port", String.valueOf(feQueryPort));
         feConfMap.put("arrow_flight_sql_port", String.valueOf(arrowFlightSqlPort));
         feConfMap.put("edit_log_port", String.valueOf(feEditLogPort));
@@ -388,8 +386,8 @@ public abstract class TestWithFeService {
         MockedFrontend frontend = new MockedFrontend();
         frontend.init(dorisHome + "/" + runningDir, feConfMap);
         frontend.start(new String[0]);
-        lastFeRpcPort = feRpcPort;
-        return feRpcPort;
+        lastFeRpcPort = frontend.getRpcPort();
+        return lastFeRpcPort;
     }
 
     protected void createDorisCluster()
