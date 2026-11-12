@@ -137,12 +137,14 @@ public class PluginDrivenScanNodeCastPredicateTest extends TestWithFeService {
     /**
      * A column cast to a string stays in Doris even for a connector that accepts CASTs, such as Iceberg.
      * Stripped, {@code CAST(id AS VARCHAR) >= '100'} would reach the connector as {@code id >= 100} and
-     * prune a file holding only {@code 15}, although {@code '15' >= '100'}.
+     * prune a file holding only {@code 15}, although {@code '15' >= '100'}. The converter strips nested
+     * CASTs too, so a chain through a non-string type is held back the same way.
      */
     @ParameterizedTest
     @ValueSource(strings = {"cast(id as varchar) >= '100'", "cast(id as string) < '200'",
             "cast(id as varchar) >= '100' and cast(id as varchar) < '200'",
-            "cast(id as varchar) >= '15' or id = 1", "cast(amount as string) > '9'"})
+            "cast(id as varchar) >= '15' or id = 1", "cast(amount as string) > '9'",
+            "cast(cast(id as bigint) as varchar) >= '100'", "cast(cast(code as int) as varchar) >= '100'"})
     public void columnCastToStringStaysInDorisWhenTheConnectorAcceptsCasts(String predicate)
             throws Exception {
         List<Expr> conjuncts = planConjuncts(predicate);
@@ -160,12 +162,14 @@ public class PluginDrivenScanNodeCastPredicateTest extends TestWithFeService {
     }
 
     /**
-     * Only a cast of a column to a string changes the order the connector compares in. A string column
-     * compared with a cast constant ({@code code > date '2023-03-07'}), or a string column cast to another
-     * type, keeps being pushed.
+     * Only a cast of a column to a string through a non-string value changes the order the connector
+     * compares in. A string column compared with a cast constant ({@code code > date '2023-03-07'}), a
+     * string column cast to another type, or a chain of string casts over a string column keeps being
+     * pushed.
      */
     @ParameterizedTest
-    @ValueSource(strings = {"code > date '2023-03-07'", "cast(code as int) = 5", "cast(id as bigint) > 5"})
+    @ValueSource(strings = {"code > date '2023-03-07'", "cast(code as int) = 5", "cast(id as bigint) > 5",
+            "cast(cast(code as varchar(10)) as string) > '5'"})
     public void otherCastsArePushedWhenTheConnectorAcceptsCasts(String predicate) throws Exception {
         List<Expr> conjuncts = planConjuncts(predicate);
         Assertions.assertFalse(conjuncts.stream().anyMatch(PluginDrivenScanNode::containsColumnCastToString),

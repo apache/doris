@@ -2999,16 +2999,28 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
     }
 
     /**
-     * Whether {@code expr} casts a non-string column to a string type. The converter strips the CAST, so a
-     * connector would bind the string literal to the column's own type and prune on that order instead:
-     * {@code CAST(int_col AS VARCHAR) >= '100'} becomes {@code int_col >= 100}, which skips a file holding
-     * only {@code 15} although {@code '15' >= '100'}. A cast of a constant is harmless and not matched.
+     * Whether {@code expr} casts a column to a string type through a non-string value. The converter strips
+     * every CAST in the chain, so a connector would bind the string literal to the column's own type and
+     * prune on that order instead: {@code CAST(int_col AS VARCHAR) >= '100'}, or the nested
+     * {@code CAST(CAST(int_col AS BIGINT) AS VARCHAR) >= '100'}, becomes {@code int_col >= 100}, which skips
+     * a file holding only {@code 15} although {@code '15' >= '100'}. A cast of a constant, or a chain of
+     * string casts over a string column, compares in string order on both sides and is not matched.
      */
     static boolean containsColumnCastToString(Expr expr) {
         List<Expr> casts = new ArrayList<>();
         expr.collect(node -> node instanceof CastExpr && node.getType().isStringType()
-                && node.getChild(0) instanceof SlotRef && !node.getChild(0).getType().isStringType(), casts);
+                && castsColumnThroughNonString(node.getChild(0)), casts);
         return !casts.isEmpty();
+    }
+
+    /** Whether {@code expr} is a column, under zero or more CASTs, with a non-string type on the way. */
+    private static boolean castsColumnThroughNonString(Expr expr) {
+        boolean nonString = !expr.getType().isStringType();
+        while (expr instanceof CastExpr) {
+            expr = expr.getChild(0);
+            nonString |= !expr.getType().isStringType();
+        }
+        return expr instanceof SlotRef && nonString;
     }
 
     static boolean containsCastExpr(Expr expr) {

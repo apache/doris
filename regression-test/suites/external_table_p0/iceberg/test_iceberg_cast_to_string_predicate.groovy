@@ -60,6 +60,16 @@ suite("test_iceberg_cast_to_string_predicate", "p0,external") {
         notContains """ref(name="id") >= 100"""
     }
 
+    // The converter strips nested CASTs as well, so a chain through BIGINT must stay in Doris too.
+    def nestedCastToString = """select id from cast_to_string_predicate
+        where cast(cast(id as bigint) as varchar) >= '100' and cast(cast(id as bigint) as varchar) < '200'"""
+    order_qt_nested_cast_to_string """${nestedCastToString}"""
+    explain {
+        sql("""${nestedCastToString}""")
+        contains "inputSplitNum=2"
+        notContains """ref(name="id") >= 100"""
+    }
+
     // A plain numeric predicate still prunes the file it cannot match.
     def numeric = """select id from cast_to_string_predicate where id >= 100"""
     order_qt_numeric """${numeric}"""
