@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_python_arrow_time_types") {
+suite("test_python_arrow_time_types", "p0,nonConcurrent") {
     def runtimeVersion = getPythonUdfRuntimeVersion()
     def originalTimezone = sql("SELECT @@time_zone")[0][0]
     assertTrue(sql("SHOW VARIABLES LIKE 'enable_python_udf_arrow_time_v2'").isEmpty())
@@ -459,6 +459,75 @@ def evaluate(index):
             quickTest("rows_${index}", """SELECT id, ts, result.value
                 FROM python_arrow_time_values
                 LATERAL VIEW python_arrow_datetime_rows(ts) result AS value ORDER BY id""")
+        }
+        sql "DROP TABLE IF EXISTS python_arrow_time_point_values"
+        sql """CREATE TABLE python_arrow_time_point_values (
+            k INT NOT NULL, ts TIMESTAMPTZ(6), dt DATETIME(6))
+            UNIQUE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1
+            PROPERTIES("replication_num"="1", "enable_unique_key_merge_on_write"="true",
+                       "store_row_column"="true")"""
+        sql """INSERT INTO python_arrow_time_point_values VALUES
+            (1, '2026-10-10 10:00:00.123456+06:00', '2026-10-10 10:00:00.123456'),
+            (2, '2026-01-10 10:00:00.123456+06:00', '2026-01-10 10:00:00.123456'),
+            (3, NULL, NULL)"""
+        def pointProjection = """python_arrow_timestamptz_format(ts),
+            date_format(python_arrow_timestamptz_scalar(ts), '%Y-%m-%d %H:%i:%s.%f'),
+            python_arrow_datetime_format(dt)"""
+        def nativePointProjection = """date_format(ts, '%Y-%m-%d %H:%i:%s.%f'),
+            date_format(ts, '%Y-%m-%d %H:%i:%s.%f'),
+            date_format(dt, '%Y-%m-%d %H:%i:%s.%f')"""
+        def originalShortCircuit = sql("SELECT @@enable_short_circuit_query")[0][0]
+        def originalLightweightLookup = sql(
+            "ADMIN SHOW FRONTEND CONFIG LIKE 'enable_lightweight_lookup_request'")[0][1]
+        def pointQueryZones = ["+08:00", "UTC", "+06:00", "America/New_York", "UTC", "+08:00"]
+        try {
+            sql "SET enable_short_circuit_query = true"
+            explain {
+                sql "SELECT ${pointProjection} FROM python_arrow_time_point_values WHERE k = 1"
+                contains "SHORT-CIRCUIT"
+            }
+            def database = sql("SELECT DATABASE()")[0][0]
+            def prepareUrl = getServerPrepareJdbcUrl(context.config.jdbcUrl, database, false)
+            [false, true].each { lightweight ->
+                sql """ADMIN SET FRONTEND CONFIG ("enable_lightweight_lookup_request" = "${lightweight}")"""
+                connectToDoris(context.config.jdbcUser, context.config.jdbcPassword, prepareUrl) {
+                    sql "SET enable_short_circuit_query = true"
+                    try (def statement = prepareStatement("""SELECT ${pointProjection}
+                            FROM python_arrow_time_point_values WHERE k = ?""")) {
+                        assertEquals(statement.class, com.mysql.cj.jdbc.ServerPreparedStatement)
+                        pointQueryZones.each { zone ->
+                            sql "SET time_zone = '${zone}'"
+                            2.times {
+                                (1..3).each { key ->
+                                    def expected = sql("""SELECT ${nativePointProjection}
+                                        FROM python_arrow_time_point_values WHERE k = ${key}""")
+                                    statement.setInt(1, key)
+                                    def actual = []
+                                    try (def result = statement.executeQuery()) {
+                                        while (result.next()) {
+                                            actual.add([result.getString(1), result.getString(2),
+                                                        result.getString(3)])
+                                        }
+                                    }
+                                    assertEquals(expected, actual)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            pointQueryZones.eachWithIndex { zone, index ->
+                sql "SET time_zone = '${zone}'"
+                (1..3).each { key ->
+                    quickTest("point_query_${index}_${key}", """SELECT ${pointProjection}
+                        FROM python_arrow_time_point_values WHERE k = ${key}""",
+                        """SELECT ${nativePointProjection}
+                        FROM python_arrow_time_point_values WHERE k = ${key}""")
+                }
+            }
+        } finally {
+            sql """ADMIN SET FRONTEND CONFIG ("enable_lightweight_lookup_request" = "${originalLightweightLookup}")"""
+            sql "SET enable_short_circuit_query = ${originalShortCircuit}"
         }
     } finally {
         sql "SET time_zone = '${originalTimezone}'"

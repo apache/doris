@@ -236,7 +236,7 @@ public:
         return dtb.desc_tbl();
     }
 
-    static std::shared_ptr<Reusable> create_reusable() {
+    static std::shared_ptr<Reusable> create_reusable(const std::string& timezone = "+08:00") {
         auto obj_pool = std::make_unique<ObjectPool>();
         auto runtime_state = RuntimeState::create_unique();
         auto reusable = std::make_shared<Reusable>();
@@ -245,7 +245,8 @@ public:
         TDescriptorTable t_desc_tbl = create_descriptor_tablet();
 
         // Initialize Reusable
-        Status st = reusable->init(t_desc_tbl, output_exprs, query_options, *tablet_schema, 2);
+        Status st = reusable->init(t_desc_tbl, output_exprs, query_options, timezone,
+                                   *tablet_schema, 2);
         if (!st.ok()) {
             return nullptr;
         }
@@ -471,19 +472,26 @@ TEST_F(LookupConnectionCacheTest, PQTestInvalidKeys) {
     cache.add(1, large_reusable);
 }
 
-// Test key collision handling
+// A prepared statement can replace its cached context after SET time_zone.
 TEST_F(LookupConnectionCacheTest, PQTestDuplicateAdd) {
     LookupConnectionCache cache(1024 * 1024);
-    auto reusable1 = ReusableTestHelper::create_reusable();
-    auto reusable2 = ReusableTestHelper::create_reusable();
+    auto reusable1 = ReusableTestHelper::create_reusable("UTC");
+    auto reusable2 = ReusableTestHelper::create_reusable("+06:00");
+    ASSERT_NE(reusable1, nullptr);
+    ASSERT_NE(reusable2, nullptr);
 
     // Overwrite existing key
     cache.add(123, reusable1);
+    auto previous = cache.get(123);
     cache.add(123, reusable2);
 
     auto entry = cache.get(123);
     ASSERT_NE(entry, nullptr);
     EXPECT_EQ(entry.get(), reusable2.get()) << "Last write should win in key collision";
+    ASSERT_NE(previous, nullptr);
+    EXPECT_EQ(previous.get(), reusable1.get());
+    EXPECT_EQ(previous->runtime_state()->timezone(), "UTC");
+    EXPECT_EQ(entry->runtime_state()->timezone(), "+06:00");
 }
 
 // Test reference counting mechanism
@@ -693,7 +701,7 @@ protected:
         TQueryOptions options;
         executor->_tablet = _tablet;
         executor->_reusable = std::make_shared<Reusable>();
-        RETURN_IF_ERROR(executor->_reusable->init(descriptor, output_exprs, options,
+        RETURN_IF_ERROR(executor->_reusable->init(descriptor, output_exprs, options, "+08:00",
                                                   *_tablet->tablet_schema(), 1));
         PTabletKeyLookupRequest request;
         ThriftSerializer serializer(false, 128);
