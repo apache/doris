@@ -157,6 +157,8 @@ private:
         return format::TableColumnMappingMode::BY_NAME;
     }
     void _apply_positional_id_fallback(std::vector<format::ColumnDefinition>* file_schema);
+    Status _apply_equality_delete_data_binary_types(
+            std::vector<format::ColumnDefinition>* file_schema);
     Status _apply_table_timestamp_semantics(std::vector<format::ColumnDefinition>* file_schema,
                                             format::TableColumnMappingMode mode) const;
 
@@ -199,9 +201,10 @@ private:
     Status _build_converted_equality_delete_filter(const EqualityDeleteFilter& filter,
                                                    const DataTypes& comparison_types,
                                                    EqualityDeleteFilter* result) const;
-    Status _find_equality_delete_data_field(const EqualityDeleteFilter& filter, size_t key_idx,
-                                            EqualityDeleteColumnPath* data_path,
-                                            bool* complete_path) const;
+    Status _find_equality_delete_data_field(
+            const EqualityDeleteFilter& filter, size_t key_idx,
+            const std::vector<format::ColumnDefinition>& file_schema,
+            EqualityDeleteColumnPath* data_path, bool* complete_path) const;
     Status _find_equality_delete_table_field(const EqualityDeleteFilter& filter, size_t key_idx,
                                              format::ColumnDefinition* table_field) const;
     void _append_equality_delete_row_count_carrier(format::FileScanRequest* request);
@@ -223,7 +226,8 @@ private:
                                       IcebergDeleteFileIOContext* delete_io_ctx,
                                       EqualityDeleteFilter* result);
     Status _resolve_equality_delete_fields(const TIcebergDeleteFileDesc& delete_file,
-                                           const std::vector<format::ColumnDefinition>& schema,
+                                           format::FileReader& reader,
+                                           std::vector<format::ColumnDefinition>& schema,
                                            std::vector<EqualityDeleteColumnPath>* delete_paths,
                                            EqualityDeleteFilter* result) const;
     Status _read_position_delete_file(const TIcebergDeleteFileDesc& delete_file,

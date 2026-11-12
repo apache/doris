@@ -6968,19 +6968,22 @@ void check_iceberg_opaque_binary_read(const std::string& file_path,
     ASSERT_TRUE(reader.close().ok());
 }
 
+std::string opaque_triangle_wkb() {
+    // TRIANGLE is valid WKB but is outside Doris's supported typed spatial subset.
+    return {"\x01\x11\x00\x00\x00\x01\x00\x00\x00\x04\x00\x00\x00"
+            "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+            "\x00\x00\x00\x00\x00\x00\xf0\x3f\x00\x00\x00\x00\x00\x00\x00\x00"
+            "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xf0\x3f"
+            "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00",
+            77};
+}
+
 TEST(IcebergV2ReaderTest, BinaryColumnReadsOpaqueAnnotatedParquetWkb) {
     const auto test_dir =
             std::filesystem::temp_directory_path() / "doris_iceberg_binary_spatial_annotation";
     std::filesystem::create_directories(test_dir);
     Defer cleanup([&] { std::filesystem::remove_all(test_dir); });
-    // TRIANGLE is valid WKB but is outside Doris's supported typed spatial subset.
-    const std::string triangle(
-            "\x01\x11\x00\x00\x00\x01\x00\x00\x00\x04\x00\x00\x00"
-            "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
-            "\x00\x00\x00\x00\x00\x00\xf0\x3f\x00\x00\x00\x00\x00\x00\x00\x00"
-            "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xf0\x3f"
-            "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00",
-            77);
+    const auto triangle = opaque_triangle_wkb();
     const std::vector<std::optional<std::string>> values {triangle, std::nullopt, triangle};
     for (const auto& type : schema_evolution_spatial_types()) {
         for (bool nested : {false, true}) {
@@ -6990,6 +6993,70 @@ TEST(IcebergV2ReaderTest, BinaryColumnReadsOpaqueAnnotatedParquetWkb) {
             ASSERT_NO_FATAL_FAILURE(check_iceberg_opaque_binary_read(
                     file_path, assert_cast<const DataTypeSpatial&>(*type), nested, values));
         }
+    }
+}
+
+void check_opaque_binary_equality_delete(const std::filesystem::path& test_dir,
+                                         const DataTypeSpatial& annotation, bool annotate_data,
+                                         bool nested) {
+    const auto data_path = (test_dir / "data.parquet").string();
+    const auto delete_path = (test_dir / "delete.parquet").string();
+    const auto triangle = opaque_triangle_wkb();
+    const std::string point(
+            "\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\xf0?\x00\x00\x00\x00\x00\x00\x00@", 21);
+    write_iceberg_spatial_key_parquet_file(data_path, annotation, {triangle, point, std::nullopt},
+                                           true, annotate_data, nested);
+    write_iceberg_spatial_key_parquet_file(delete_path, annotation, {triangle, std::nullopt}, false,
+                                           true, nested);
+
+    std::vector<ColumnDefinition> columns {
+            make_table_column(0, "id", std::make_shared<DataTypeInt32>())};
+    auto scan_params = make_local_parquet_scan_params();
+    scan_params.__set_enable_mapping_varbinary(true);
+    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_2);
+    scan_params.__set_current_schema_id(100);
+    // The equality key is not projected. Its BINARY type is available in the table schema by ID.
+    auto key =
+            external_schema_field("renamed_shape", 1, {}, std::nullopt,
+                                  external_primitive_type(TPrimitiveType::VARBINARY), false, true);
+    if (nested) {
+        key = external_struct_schema_field("payload", 2, {key});
+    }
+    scan_params.__set_history_schema_info(
+            {external_schema(100, {external_schema_field("id", 0), key})});
+
+    RuntimeProfile profile("opaque_binary_equality_delete");
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    io::FileReaderStats stats;
+    io::FileCacheStatistics cache_stats;
+    auto io_ctx = make_io_context(&stats, &cache_stats);
+    ShardedKVCache cache(1);
+    iceberg::IcebergTableReader reader;
+    init_iceberg_reader(&reader, columns, &scan_params, io_ctx, &state, &profile);
+    auto split = build_split_options(data_path);
+    split.cache = &cache;
+    split.current_range.__set_table_format_params(make_iceberg_table_format_desc(
+            data_path, {make_iceberg_equality_delete_file(delete_path, {1})}, 3));
+    const auto status = reader.prepare_split(split);
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_EQ(read_iceberg_ids(&reader, columns), std::vector<int32_t>({2}));
+    ASSERT_TRUE(reader.close().ok());
+}
+
+TEST(IcebergV2ReaderTest, EqualityDeletesUseOpaqueAnnotatedBinaryKeys) {
+    const auto dir = std::filesystem::temp_directory_path() / "doris_iceberg_opaque_binary_delete";
+    Defer cleanup([&] { std::filesystem::remove_all(dir); });
+    const DataTypeSpatial geometry(TYPE_GEOMETRY);
+    const DataTypeSpatial geography(TYPE_GEOGRAPHY);
+    for (const auto& [name, annotate_data, nested, annotation] :
+         {std::tuple {"plain", false, false, &geometry},
+          std::tuple {"annotated", true, false, &geography},
+          std::tuple {"nested", true, true, &geometry}}) {
+        SCOPED_TRACE(name);
+        const auto test_dir = dir / name;
+        std::filesystem::create_directories(test_dir);
+        ASSERT_NO_FATAL_FAILURE(
+                check_opaque_binary_equality_delete(test_dir, *annotation, annotate_data, nested));
     }
 }
 

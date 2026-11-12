@@ -60,7 +60,7 @@ public:
     void set_batch_size(size_t batch_size) override;
 
     Status get_schema(std::vector<format::ColumnDefinition>* file_schema) const override;
-    void apply_spatial_binary_types(format::ColumnDefinition* file_column);
+    Status apply_spatial_binary_types(format::ColumnDefinition* file_column) override;
 
     std::unique_ptr<format::TableColumnMapper> create_column_mapper(
             format::TableColumnMapperOptions options) const override;

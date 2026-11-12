@@ -359,10 +359,11 @@ DataTypePtr restore_current_primitive_type(const schema::external::TField& field
                 primitive_type, field.type.spatial_crs, field.type.spatial_algorithm);
         return fallback_type->is_nullable() ? make_nullable(spatial) : spatial;
     }
-    // Legacy schema carriers used STRING placeholders. Retain an already resolved spatial
-    // type for those descriptors, including its CRS and algorithm.
+    // Legacy schema carriers used STRING placeholders. Retain the spatial type for those
+    // descriptors, but honor a declared BINARY even when its file has a spatial annotation.
     const auto fallback_primitive = fallback_type->get_primitive_type();
-    if (fallback_primitive == TYPE_GEOMETRY || fallback_primitive == TYPE_GEOGRAPHY) {
+    if (primitive_type != TYPE_VARBINARY &&
+        (fallback_primitive == TYPE_GEOMETRY || fallback_primitive == TYPE_GEOGRAPHY)) {
         return fallback_type;
     }
     if (is_complex_type(primitive_type)) {

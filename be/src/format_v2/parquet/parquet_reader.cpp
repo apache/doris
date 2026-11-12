@@ -718,9 +718,10 @@ Status ParquetReader::get_schema(std::vector<format::ColumnDefinition>* file_sch
     return Status::OK();
 }
 
-void ParquetReader::apply_spatial_binary_types(format::ColumnDefinition* file_column) {
+Status ParquetReader::apply_spatial_binary_types(format::ColumnDefinition* file_column) {
     auto* schema = _state->file_schema.at(file_column->local_id).get();
     parquet::apply_spatial_binary_types(file_column, schema);
+    return Status::OK();
 }
 
 std::unique_ptr<format::TableColumnMapper> ParquetReader::create_column_mapper(
