@@ -17,7 +17,6 @@
 # under the License.
 
 """Exercise the existing shell entry points without a network or real credentials."""
-import hashlib
 import json
 import os
 import re
@@ -50,25 +49,8 @@ if 'vcs-root-entries' in route:
  emit({'vcs-root-entry':[{'vcs-root':{'id':state.get('root','DorisMigrationValidation_ApacheDoris')}}]})
 elif route.startswith('vcs-root-instances'):
  emit({'vcs-root-instance':[{'id':3,'vcs-root-id':'DorisMigrationValidation_ApacheDoris'}]})
-elif route.startswith('builds?'):
- state.setdefault('lookups',[]).append(route);path.write_text(json.dumps(state))
- if state.get('list_error'): sys.exit(22)
- if state.get('pages'):
-  emit(state['pages'][min(len(state['lookups'])-1,len(state['pages'])-1)])
- else:
-  emit({'build':[b for b in rows if b['buildTypeId']=='Doris_Compile' and b['state']=='finished' and b['status']=='SUCCESS' and b['branchName']=='pull/123']})
 elif route.startswith('builds/id:'):
- bid=int(re.search(r'builds/id:(\d+)',route)[1])
- if '/artifacts/content/' in route:
-  if state.get('missing_manifest'): sys.exit(22)
-  sys.stdout.write(state['manifest'])
- elif '/artifacts/children/' in route:
-  emit(state.get('artifacts',{}))
- else:
-  value=next(b for b in rows if b['id']==bid)
-  if bid==1 and state.get('refresh'): value.update(state['refresh'])
-  if state.get('bad_readback') and bid>=100: value['properties']['property']=[]
-  emit(value)
+ bid=int(route.split(':')[1].split('?')[0]);emit(next(b for b in rows if b['id']==bid))
 else: raise AssertionError(route)
 '''
 
@@ -303,143 +285,17 @@ teamcity_request --fail https://ci.example
                                 check=False, env={'TEAMCITY_CURRENT_TOKEN': ''})
         self.assertEqual(result.returncode, 1)
 
-    def compile_fixture(self):
-        manifest = {
-            'schema': 1, 'trust_class': 'pr-merge',
-            'source': {'repository': 'apache/doris', 'pr_number': 123, 'target_branch': 'master',
-                       'pr_head_sha': HEAD, 'target_head_sha': 'b' * 40, 'checkout_sha': 'c' * 40,
-                       'modified': False},
-            'producer': {'compiled_in_build': '1', 'packaged_in_build': '1', 'image': 'test-image'},
-            'frameworkSource': {'modified': False, 'checkout_sha': 'c' * 40},
-            'unchangedTestTree': {'unchanged': True, 'treeSha256': 'd' * 64},
-            'publication_state': 'uploaded-awaiting-teamcity-terminal-success',
-            'consumer_gate': {'teamcity_status': 'SUCCESS', 'pr_head_must_match': True, 'verify_sha256': True},
-            'expires_at': '2099-01-01T00:00:00Z',
-            'packages': {name: {'sha256': char * 64, 'bytes': size} for name, char, size in
-                         [('binary.tar.gz', 'e', 1234), ('cases.tar.gz', 'f', 5678)]},
-        }
-        return {'builds': [build(lane='Doris_Compile', state='finished')],
-                'manifest': json.dumps(manifest, indent=2) + '\n',
-                'artifacts': {'file': [{'name': k, 'size': v['bytes']} for k, v in manifest['packages'].items()]}}
-
-    def test_regressions_bind_existing_compile_without_rebuilding(self):
+    def test_regressions_submit_directly_with_only_pr_parameters(self):
         for lane, pipeline in [('p0', 'Doris_P0'), ('cloud_p0', 'Doris_CloudP0'),
                                ('vault_p0', 'Doris_VaultP0'), ('external', 'Doris_External'),
                                ('nonconcurrent', 'Doris_NonConcurrent')]:
-            fixture = self.compile_fixture()
-            self.save(fixture)
-            self.trigger(lane, count=2)
-            self.assertEqual(len(self.state()['posts']), 2)
-            for body in self.state()['posts']:
-                self.assertEqual(body['buildType']['id'], pipeline)
-                params = {p['name']: p['value'] for p in body['properties']['property']}
-                self.assertIn('env.CI_PREPARED_BUILD_NUMBER', params)
-                self.assertEqual(len(params), 43)
-                self.assertEqual(params['env.CI_PREPARED_BUILD_NUMBER'], '1')
-                self.assertEqual(params['env.EXPECTED_COMPILE_BUILD_ID'], '1')
-                self.assertEqual(params['env.EXPECTED_PREPARED_BUILD_ID'], '1')
-                self.assertEqual(params['env.PR_HEAD_SHA'], HEAD)
-                self.assertEqual(params['env.PR_BASE_SHA'], 'b' * 40)
-                self.assertEqual(params['env.SOURCE_SHA'], 'c' * 40)
-                self.assertEqual(params['env.EXPECTED_BINARY_SHA256'], 'e' * 64)
-                self.assertEqual(params['env.CI_PREPARED_MANIFEST_SHA256'],
-                                 hashlib.sha256(fixture['manifest'].encode()).hexdigest())
-                self.assertFalse(body['triggeringOptions']['rebuildAllDependencies'])
-                self.assertNotIn('snapshot-dependencies', body)
-
-    def test_missing_compile_fails_each_regression_without_enqueue(self):
-        for lane in ['p0', 'cloud_p0', 'vault_p0', 'external', 'nonconcurrent']:
-            self.save({})
-            result = self.trigger(lane, check=False)
-            self.assertNotEqual(result.returncode, 0)
-            self.assertIn('No successful Compile', result.stderr)
-            self.assertFalse(self.state().get('posts'))
-            status = json.loads((self.root / 'statuses.json').read_text())[-1]
-            self.assertEqual(status['state'], 'failure')
-            self.assertEqual(status['context'], 'TeamCity/' + lane)
-            self.assertNotIn('Skip', status['description'])
-
-    def test_explicit_regression_is_not_skipped_by_file_filters(self):
-        self.save(self.compile_fixture())
-        self.run_shell('trigger_or_skip_build false 123 master ' + HEAD + ' p0 1')
-        self.assertEqual(len(self.state()['posts']), 1)
-        self.assertFalse(self.skipped_contexts())
-        self.save({})
-        self.assertNotEqual(self.run_shell('trigger_or_skip_build false 123 master ' + HEAD + ' p0 1',
-                                          check=False).returncode, 0)
-        self.assertFalse(self.state().get('posts'))
-
-    def test_nonmatching_compiles_are_not_used(self):
-        for changes in [{'state': 'running'}, {'status': 'FAILURE'}, {'branchName': 'pull/124'},
-                        {'revisions': {'revision': [{'version': 'f' * 40}]}},
-                        {'buildTypeId': 'Doris_FEUT'}]:
-            fixture = self.compile_fixture(); fixture['builds'][0].update(changes)
-            self.save(fixture)
-            self.assertNotEqual(self.trigger('p0', check=False).returncode, 0)
-            self.assertFalse(self.state().get('posts'))
-
-    def test_invalid_or_missing_artifacts_fail_closed(self):
-        for change in ['missing_manifest', 'list_error', 'missing_cases', 'size', 'producer', 'head',
-                       'pr', 'branch', 'expiry', 'sha', 'modified', 'proof', 'gate', 'canceled', 'refresh']:
-            with self.subTest(change=change):
-                fixture = self.compile_fixture(); m = json.loads(fixture['manifest'])
-                if change in ['missing_manifest', 'list_error']: fixture[change] = True
-                elif change == 'missing_cases': fixture['artifacts']['file'].pop()
-                elif change == 'size': fixture['artifacts']['file'][0]['size'] += 1
-                elif change == 'producer': m['producer']['packaged_in_build'] = '2'
-                elif change == 'head': m['source']['pr_head_sha'] = 'f' * 40
-                elif change == 'pr': m['source']['pr_number'] = 124
-                elif change == 'branch': m['source']['target_branch'] = 'branch-4.2'
-                elif change == 'expiry': m['expires_at'] = '2000-01-01T00:00:00Z'
-                elif change == 'sha': m['packages']['binary.tar.gz']['sha256'] = 'invalid'
-                elif change == 'modified': m['frameworkSource']['modified'] = True
-                elif change == 'proof': m['unchangedTestTree']['unchanged'] = False
-                elif change == 'gate': m['consumer_gate']['verify_sha256'] = False
-                elif change == 'canceled': fixture['builds'][0]['canceledInfo'] = {'text': 'canceled'}
-                elif change == 'refresh': fixture['refresh'] = {'status': 'FAILURE'}
-                fixture['manifest'] = json.dumps(m)
-                self.save(fixture)
-                self.assertNotEqual(self.trigger('external', check=False).returncode, 0)
-                self.assertFalse(self.state().get('posts'))
-
-    def test_compile_lookup_paginates_and_does_not_use_another_revision(self):
-        fixture = self.compile_fixture()
-        fixture['pages'] = [{'build': [build(lane='Doris_Compile', state='finished', head='f' * 40)],
-                             'nextHref': '/app/rest/builds?locator=start:100'},
-                            {'build': fixture['builds']}]
-        self.save(fixture)
-        self.trigger('p0')
-        self.assertEqual(len(self.state()['lookups']), 2)
-        self.assertEqual(len(self.state()['posts']), 1)
-
-    def test_compile_lookup_rejects_external_pagination(self):
-        fixture = self.compile_fixture()
-        fixture['pages'] = [{'build': [], 'nextHref': 'https://other.example/app/rest/builds'}]
-        self.save(fixture)
-        self.assertNotEqual(self.trigger('p0', check=False).returncode, 0)
-        self.assertFalse(self.state().get('posts'))
-
-    def test_head_changes_after_artifact_lookup_prevent_submission(self):
-        self.save(self.compile_fixture())
-        result = self.run_shell('''teamcity_current_pr(){
-            [[ ! -e "$FIXTURE_ROOT/checked" ]] || return 1
-            touch "$FIXTURE_ROOT/checked"
-        }
-        trigger_or_skip_build true 123 master ''' + HEAD + ' p0 1', check=False)
-        self.assertNotEqual(result.returncode, 0)
-        self.assertFalse(self.state().get('posts'))
-        self.assertFalse(self.skipped_contexts())
-
-    def test_wrong_binding_readback_is_an_error_without_retry(self):
-        fixture = self.compile_fixture(); fixture['bad_readback'] = True; self.save(fixture)
-        self.assertNotEqual(self.trigger('p0', count=2, check=False).returncode, 0)
-        self.assertEqual(len(self.state()['posts']), 1)
-
-    def test_independent_lanes_do_not_lookup_compile(self):
-        for lane in ['compile', 'feut', 'beut', 'cloudut', 'performance']:
             self.save({})
             self.trigger(lane)
-            self.assertFalse(self.state().get('lookups'))
+            body = self.state()['posts'][0]
+            self.assertEqual(body['buildType']['id'], pipeline)
+            self.assertEqual({p['name']: p['value'] for p in body['properties']['property']},
+                             {'env.PR_NUMBER': '123', 'env.CI_BRANCH': 'master', 'env.CI_REQUESTED_PR_HEAD': HEAD})
+            self.assertNotIn('custom-artifact-dependencies', body)
             self.assertEqual(len(self.state()['posts']), 1)
 
     def test_workflow_dispatch_matrix(self):
@@ -458,6 +314,13 @@ teamcity_request --fail https://ci.example
                 expected = {'feut', 'beut', 'cloudut', 'compile', 'performance'} if command == 'buildall' else {command}
                 if branch != 'master': expected.discard('performance')
                 self.assertEqual(selected, expected, (branch, command))
+
+    def test_direct_regression_always_reaches_teamcity_preflight(self):
+        for lane in ['p0', 'external', 'cloud_p0', 'vault_p0', 'nonconcurrent']:
+            self.save({})
+            self.run_shell('trigger_or_skip_build false 123 master ' + HEAD + ' ' + lane + ' 1')
+            self.assertEqual(len(self.state()['posts']), 1)
+            self.assertFalse(self.skipped_contexts())
 
     def test_exact_revision_submission(self):
         self.trigger()

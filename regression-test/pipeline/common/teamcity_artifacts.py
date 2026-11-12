@@ -18,17 +18,25 @@
 
 """Validate the published Compile contract and pin every regression consumer.
 
-No network or credentials here: teamcity-utils.sh fetches these three documents
-through the existing authenticated REST helper. Consumers verify package hashes
-again after download. The compiled base/merge are pinned from the manifest; a
+Run on the TeamCity agent as the first trusted build step, using only the
+build-scoped credentials supplied by TeamCity. Comments do not resolve artifacts.
+Consumers verify package hashes again after download. The compiled base/merge are pinned from the manifest; a
 later advance of the target branch does not invalidate the same PR head.
 """
+import argparse
+import base64
 import datetime
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
+import shlex
+import shutil
 import sys
+import urllib.error
+import urllib.parse
+import urllib.request
 
 
 def require(condition, reason):
@@ -110,13 +118,183 @@ def consumer_parameters(build, raw_manifest, artifacts, pr, head, branch):
     return {'env.' + key: str(value) for key, value in values.items()}
 
 
-if __name__ == '__main__':
-    directory = Path(sys.argv[1])
+DESTINATIONS = {'Doris_P0': 'packages', 'Doris_NonConcurrent': 'packages',
+                'Doris_CloudP0': 'compile-artifacts', 'Doris_VaultP0': 'compile-artifacts',
+                'Doris_External': 'compile-pair'}
+BUILD_FIELDS = 'id,number,buildTypeId,state,status,branchName,canceledInfo,revisions(revision(version))'
+
+
+def build_properties(path):
+    # TeamCity writes generated system properties as key=value, with Java escapes.
+    def unescape(match):
+        value = match.group(1)
+        return chr(int(value[1:], 16)) if value.startswith('u') else {
+            't': '\t', 'r': '\r', 'n': '\n', 'f': '\f'}.get(value, value)
+    result = {}
+    for line in Path(path).read_text().splitlines():
+        if line and not line.startswith(('#', '!')) and '=' in line:
+            key, value = line.split('=', 1)
+            result[key] = re.sub(r'\\(u[0-9a-fA-F]{4}|.)', unescape, value)
+    return result
+
+
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *args, **kwargs):
+        raise ValueError('Artifact redirect rejected')
+
+
+class TeamCity:
+    def __init__(self, server, properties):
+        require(re.fullmatch(r'https://[A-Za-z0-9.-]+(:[0-9]+)?', server), 'TeamCity HTTPS URL required')
+        self.server = server
+        credentials = properties['teamcity.auth.userId'] + ':' + properties['teamcity.auth.password']
+        self.headers = {'Authorization': 'Basic ' + base64.b64encode(credentials.encode()).decode(),
+                        'Accept': 'application/json'}
+        self.opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
+
+    def open(self, path):
+        require(path.startswith('builds') and not path.startswith('//'), 'Unexpected REST resource')
+        return self.opener.open(urllib.request.Request(self.server + '/app/rest/' + path,
+                                                       headers=self.headers), timeout=60)
+
+    def read(self, path):
+        with self.open(path) as response:
+            raw = response.read(8 * 1024 * 1024 + 1)
+        require(len(raw) <= 8 * 1024 * 1024, 'Oversized TeamCity response')
+        return raw
+
+    def get(self, path):
+        return json.loads(self.read(path))
+
+    def download(self, bid, name, destination, metadata):
+        digest, size = hashlib.sha256(), 0
+        with self.open('builds/id:' + bid + '/artifacts/content/regression/' +
+                       urllib.parse.quote(name, safe='/')) as response, destination.open('xb') as output:
+            while True:
+                chunk = response.read(8 * 1024 * 1024)
+                if not chunk:
+                    break
+                size += len(chunk)
+                require(size <= metadata['bytes'], 'Oversized artifact: ' + name)
+                digest.update(chunk)
+                output.write(chunk)
+        require(size == metadata['bytes'] and digest.hexdigest() == metadata['sha256'],
+                'Artifact size/SHA256 mismatch: ' + name)
+
+
+def resolve(api, current, env):
+    require(current['buildTypeId'] in DESTINATIONS, 'Not a regression consumer')
+    match = re.fullmatch(r'pull/([1-9][0-9]*)', current['branchName'])
+    require(match, 'Consumer must have a PR branch')
+    pr = match.group(1)
+    revisions = current['revisions']['revision']
+    require(len(revisions) == 1 and re.fullmatch(r'[0-9a-f]{40}', revisions[0]['version']),
+            'Consumer must have one exact PR revision')
+    head = revisions[0]['version']
+    require(env['PR_NUMBER'] == pr and env.get('CI_REQUESTED_PR_HEAD', head) == head,
+            'Requested PR/commit differs from TeamCity revision')
+    branch = env['CI_BRANCH']
+    require(branch in {'master', 'branch-4.2', 'branch-4.1'}, 'Unsupported target branch')
+    bid = env.get('CI_COMPILE_BUILD_ID', '')
+    pinned = bool(bid and env.get('CI_PREPARED_BUILD_NUMBER', 'UNBOUND') != 'UNBOUND')
+    if not pinned:
+        require(not env.get('CI_FANOUT_KEY'), 'Compile fanout is missing its producer binding')
+        path = ('builds?locator=buildType:(id:Doris_Compile),branch:(name:pull/' + pr +
+                '),state:finished,status:SUCCESS,defaultFilter:false,count:100&fields=nextHref,build(' + BUILD_FIELDS + ')')
+        seen = set()
+        while True:
+            require(path not in seen, 'Repeated Compile listing page')
+            seen.add(path)
+            page = api.get(path)
+            candidates = [b for b in page.get('build', [])
+                          if [r['version'] for r in b['revisions']['revision']] == [head]]
+            if candidates:
+                bid = str(candidates[0]['id'])
+                break
+            next_page = page.get('nextHref', '')
+            require(next_page, 'No successful Compile for PR ' + pr + ' at ' + head + '; run compile first')
+            require(next_page.startswith('/app/rest/builds?'), 'Invalid Compile listing page')
+            path = next_page[len('/app/rest/'):]
+    require(re.fullmatch(r'[1-9][0-9]*', bid), 'Invalid Compile build ID')
+    build = api.get('builds/id:' + bid + '?fields=' + BUILD_FIELDS)
+    raw = api.read('builds/id:' + bid + '/artifacts/content/regression/manifest.json')
+    files = api.get('builds/id:' + bid + '/artifacts/children/regression?fields=file(name,size)')
+    params = consumer_parameters(build, raw, files, pr, head, branch)
+    if pinned:
+        require(env['CI_PREPARED_BUILD_NUMBER'] == build['number'], 'Pinned Compile number differs')
+    if env.get('CI_FANOUT_KEY'):
+        for key, value in params.items():
+            require(env.get(key[4:]) == value, 'Compile fanout binding differs: ' + key)
+    return bid, raw, params
+
+
+def download_pair(api, bid, raw, destination, build_id):
+    manifest = json.loads(raw)
+    stage = destination.with_name('.' + destination.name + '-' + build_id)
+    require(not stage.exists() and not destination.is_symlink(), 'Artifact staging already exists or is a link')
+    stage.mkdir(mode=0o700)
     try:
-        parameters = consumer_parameters(json.loads((directory / 'build.json').read_bytes()),
-                                         (directory / 'manifest.json').read_bytes(),
-                                         json.loads((directory / 'artifacts.json').read_bytes()),
-                                         *sys.argv[2:5])
-    except (KeyError, TypeError, ValueError) as error:
-        sys.exit('Cannot use Compile artifacts: ' + str(error))
-    print(json.dumps(parameters))
+        files = {**manifest['packages'], **manifest.get('tools', {})}
+        for name, metadata in files.items():
+            path = Path(name)
+            require(not path.is_absolute() and '..' not in path.parts and path.parts,
+                    'Unsafe artifact path')
+            require(name in manifest['packages'] or name.startswith('tools/'), 'Unexpected artifact path')
+            require(re.fullmatch(r'[0-9a-f]{64}', metadata['sha256']) and 0 < metadata['bytes'] < 30 * 1024**3,
+                    'Invalid artifact digest/size')
+            target = stage / path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            print('Downloading Compile ' + bid + ': ' + name, flush=True)
+            api.download(bid, name, target, metadata)
+        (stage / 'manifest.json').write_bytes(raw)
+        (stage / 'manifest.sha256').write_text(hashlib.sha256(raw).hexdigest() + '  manifest.json\n')
+        # The same dedicated directory was previously cleaned by the native
+        # artifact dependency. Never remove a checkout or an arbitrary path.
+        require(destination.name in set(DESTINATIONS.values()) and destination.parent == Path.cwd(),
+                'Unexpected artifact destination')
+        if destination.exists():
+            shutil.rmtree(destination)
+        stage.rename(destination)
+    finally:
+        if stage.exists():
+            shutil.rmtree(stage)
+
+
+def escape(value):
+    for source, replacement in [('|', '||'), ("'", "|'"), ('\n', '|n'), ('\r', '|r'), ('[', '|['), (']', '|]')]:
+        value = value.replace(source, replacement)
+    return value
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--server', required=True)
+    parser.add_argument('--environment', required=True, help='Private export file for this build step')
+    args = parser.parse_args()
+    require(os.getuid() != 0, 'Artifact preflight must run as the ordinary agent user')
+    properties = build_properties(os.environ['TEAMCITY_BUILD_PROPERTIES_FILE'])
+    build_id = properties['teamcity.build.id']
+    require(re.fullmatch(r'[1-9][0-9]*', build_id), 'Invalid consumer build ID')
+    api = TeamCity(args.server, properties)
+    current = api.get('builds/id:' + build_id + '?fields=' + BUILD_FIELDS)
+    bid, raw, params = resolve(api, current, os.environ)
+    print('Matched Compile ' + bid + ' (' + params['env.CI_PREPARED_BUILD_NUMBER'] + ') for ' +
+          current['branchName'] + ' at ' + params['env.PR_HEAD_SHA'], flush=True)
+    download_pair(api, bid, raw, Path.cwd() / DESTINATIONS[current['buildTypeId']], build_id)
+    # Publish only after the entire package pair and tools verify. Subsequent
+    # TeamCity steps receive these parameters; credentials are never exported.
+    Path(args.environment).write_text(''.join('export ' + key[4:] + '=' + shlex.quote(value) + '\n'
+                                              for key, value in params.items()))
+    Path(args.environment).chmod(0o600)
+    for key, value in params.items():
+        print("##teamcity[setParameter name='" + escape(key) + "' value='" + escape(value) + "']")
+    print('Compile artifact preflight passed: producer=' + bid, flush=True)
+
+
+if __name__ == '__main__':
+    try:
+        main()
+    except (KeyError, TypeError, ValueError, OSError) as error:
+        message = 'Compile artifact preflight failed: ' + str(error)
+        print("##teamcity[buildProblem description='" + escape(message) + "']", flush=True)
+        sys.exit(1)
