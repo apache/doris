@@ -61,6 +61,7 @@ import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.commands.RefreshMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateIndexOp;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition;
@@ -80,6 +81,7 @@ import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.GlobalVariable;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.qe.StmtExecutor;
 
@@ -1727,6 +1729,51 @@ public class NereidsParserTest extends ParserTestBase {
                 Assertions.assertThrowsExactly(NotSupportedException.class, () -> parser.parseSingle(sql));
         Assertions.assertTrue(exception.getMessage()
                 .contains("variant_enable_nested_group and variant_enable_doc_mode cannot both be true"));
+    }
+
+    @Test
+    public void testCreateTableVariantSessionDefaultsOnlyWithDebugPoints() {
+        SessionVariable sessionVariable = ConnectContext.get().getSessionVariable();
+        boolean originalEnableDebugPoints = Config.enable_debug_points;
+        boolean docMode = sessionVariable.defaultVariantEnableDocMode;
+        int count = sessionVariable.defaultVariantMaxSubcolumnsCount;
+        String sql = "CREATE TABLE t_variant (k1 INT, v VARIANT<'a':INT>, n VARIANT) DISTRIBUTED BY HASH(k1) BUCKETS 1";
+        try {
+            sessionVariable.defaultVariantEnableDocMode = false;
+            sessionVariable.defaultVariantMaxSubcolumnsCount = 7;
+            Config.enable_debug_points = false;
+            // Without debug points a VARIANT column takes the built-in values, whatever the session holds.
+            List<ColumnDefinition> columns = ((CreateTableCommand) new NereidsParser().parseSingle(sql))
+                    .getCreateTableInfo().getColumnDefinitions();
+            for (int i = 1; i < 3; i++) {
+                org.apache.doris.nereids.types.VariantType type =
+                        (org.apache.doris.nereids.types.VariantType) columns.get(i).getType();
+                Assertions.assertFalse(type.getEnableVariantDocMode());
+                Assertions.assertEquals(new SessionVariable().defaultVariantMaxSubcolumnsCount,
+                        type.getVariantMaxSubcolumnsCount());
+            }
+            sessionVariable.defaultVariantEnableDocMode = true;
+            columns = ((CreateTableCommand) new NereidsParser().parseSingle(sql))
+                    .getCreateTableInfo().getColumnDefinitions();
+            Assertions.assertFalse(((org.apache.doris.nereids.types.VariantType) columns.get(2).getType())
+                    .getEnableVariantDocMode());
+
+            // The tests run with debug points enabled and use the session variables.
+            Config.enable_debug_points = true;
+            columns = ((CreateTableCommand) new NereidsParser().parseSingle(sql))
+                    .getCreateTableInfo().getColumnDefinitions();
+            Assertions.assertTrue(((org.apache.doris.nereids.types.VariantType) columns.get(2).getType())
+                    .getEnableVariantDocMode());
+            sessionVariable.defaultVariantEnableDocMode = false;
+            columns = ((CreateTableCommand) new NereidsParser().parseSingle(sql))
+                    .getCreateTableInfo().getColumnDefinitions();
+            Assertions.assertEquals(7, ((org.apache.doris.nereids.types.VariantType) columns.get(2).getType())
+                    .getVariantMaxSubcolumnsCount());
+        } finally {
+            Config.enable_debug_points = originalEnableDebugPoints;
+            sessionVariable.defaultVariantEnableDocMode = docMode;
+            sessionVariable.defaultVariantMaxSubcolumnsCount = count;
+        }
     }
 
     @Test
