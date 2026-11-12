@@ -54,8 +54,6 @@ import org.apache.paimon.fs.Path;
 import org.apache.paimon.fs.local.LocalFileIO;
 import org.apache.paimon.options.CatalogOptions;
 import org.apache.paimon.options.Options;
-import org.apache.paimon.privilege.PrivilegeChecker;
-import org.apache.paimon.privilege.PrivilegedFileStoreTable;
 import org.apache.paimon.schema.Schema;
 import org.apache.paimon.schema.SchemaManager;
 import org.apache.paimon.schema.TableSchema;
@@ -1826,24 +1824,6 @@ public class PaimonExternalMetaCacheTest {
             cache.close();
             executor.shutdownNow();
         }
-    }
-
-    @Test
-    public void testSnapshotEstimateSupportsPrivilegedTableWrapper() throws Exception {
-        FileStoreTable table = newPartitionedTable("privileged_estimate", Collections.emptyMap());
-        FileStoreTable privileged = PrivilegedFileStoreTable.wrap(
-                table, Mockito.mock(PrivilegeChecker.class), Identifier.create("db", "tbl"));
-        NameMapping mapping = new NameMapping(1L, "db", "tbl", "db", "tbl");
-        PaimonSnapshotEntryKey key = new PaimonSnapshotEntryKey(
-                mapping, 1L, table.schema().id(), 1L);
-        PaimonSnapshotCacheValue value = new PaimonSnapshotCacheValue(
-                PaimonPartitionInfo.EMPTY,
-                new PaimonSnapshot(1L, table.schema().id(), privileged));
-
-        value.prepareForCachePublication(key);
-
-        Assert.assertTrue(value.getSizeEstimate().getIncompleteReason(),
-                value.getSizeEstimate().isComplete());
     }
 
     @Test

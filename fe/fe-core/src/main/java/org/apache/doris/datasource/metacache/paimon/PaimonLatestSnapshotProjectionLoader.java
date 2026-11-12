@@ -134,7 +134,7 @@ public final class PaimonLatestSnapshotProjectionLoader {
 
     private PaimonSnapshot resolveLatestSnapshot(Table paimonTable, boolean normalizeForPartitionLoad) {
         FileStoreTable selectedTable = (FileStoreTable) paimonTable;
-        // The SDK guards tagManager() as a writer API; read selectors must not require INSERT.
+        // Resolve selectors against the underlying metadata handle without hiding fallback readers.
         FileStoreTable metadataTable = PaimonTableDecorators.unwrapToFallbackOrBase(selectedTable);
         Optional<Snapshot> selectedSnapshot = PaimonScanParams.hasStartupOptions(selectedTable.options())
                 ? TimeTravelUtil.tryTravelToSnapshot(Options.fromMap(selectedTable.options()),
