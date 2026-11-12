@@ -19,6 +19,7 @@
 
 #include <bvar/bvar.h>
 
+#include <algorithm>
 #include <atomic>
 #include <condition_variable>
 #include <exception>
@@ -29,11 +30,139 @@
 
 #include "core/custom_allocator.h"
 #include "cpp/sync_point.h"
+#include "runtime/memory/lru_cache_policy.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/thread_context.h"
+#include "util/defer_op.h"
 #include "util/s3_util.h"
 
 namespace doris {
+
+class S3ClientRegistry::ClientCache final : public LRUCachePolicy {
+public:
+    ClientCache(size_t capacity, uint32_t idle_timeout_seconds)
+            : LRUCachePolicy(CacheType::S3_CLIENT_CACHE, capacity, LRUCacheType::NUMBER,
+                             idle_timeout_seconds, /*num_shards=*/1,
+                             /*element_count_capacity=*/0, /*enable_prune=*/true,
+                             /*is_lru_k=*/false),
+              _cached_metric(
+                      [](void* p) { return static_cast<ClientCache*>(p)->get_element_count(); },
+                      this) {
+        DORIS_CHECK(idle_timeout_seconds > 0);
+    }
+
+    void expose_metrics() { DORIS_CHECK(_cached_metric.expose_as("s3_client", "cached") == 0); }
+
+    ~ClientCache() override {
+        // Unregister while the derived object is still intact: a concurrent
+        // memory-GC sweep must finish before its cache and sampler disappear.
+        CacheManager::instance()->unregister_cache(type());
+        close();
+    }
+
+    void retain(const Client& client) {
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(mem_tracker());
+        {
+            std::lock_guard lock(_lifecycle_mutex);
+            // A completed acquisition can reach here after close() stopped the
+            // registry. Return its real owner without refilling the cache.
+            if (_closed) {
+                return;
+            }
+            ++_retainers;
+        }
+        Defer finished([this] {
+            std::lock_guard lock(_lifecycle_mutex);
+            --_retainers;
+            _retainers_done.notify_all();
+        });
+        // LRU callbacks can destroy an SDK client and re-enter acquisition.
+        // Neither the registry nor the lifecycle mutex covers these operations.
+        // The full-configuration weak index already selected this client. Its
+        // address is unique while any real/cache owner exists; unlike a config
+        // hash, it cannot merge distinct identities on a collision.
+        const auto* identity = client.get();
+        CacheKey key(reinterpret_cast<const char*>(&identity), sizeof(identity));
+        auto* handle = lookup(key);
+        const auto now = now_millis();
+        if (handle) {
+            static_cast<Value*>(value(handle))
+                    ->last_access_ms.store(now, std::memory_order_relaxed);
+        } else {
+            handle = insert(key, new Value(client, now), 1, sizeof(Value));
+        }
+        release(handle);
+    }
+
+    void prune_stale() override {
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(mem_tracker());
+        std::lock_guard lock(_lock);
+        COUNTER_SET(_freed_memory_counter, int64_t {0});
+        COUNTER_SET(_freed_entrys_counter, int64_t {0});
+        COUNTER_SET(_cost_timer, int64_t {0});
+        const auto now = now_millis();
+        const auto timeout_ms = int64_t(_stale_sweep_time_s) * 1000;
+        SCOPED_TIMER(_cost_timer);
+        auto info = _cache->prune_if(
+                [&](const LRUHandle* handle) {
+                    return now - static_cast<const Value*>(handle->value)
+                                           ->last_access_ms.load(std::memory_order_relaxed) >=
+                           timeout_ms;
+                },
+                false);
+        COUNTER_SET(_freed_entrys_counter, info.pruned_count);
+        // SDK-owned allocations are not measured by this metadata accounting.
+        COUNTER_SET(_freed_memory_counter,
+                    static_cast<int64_t>(info.pruned_count *
+                                         (sizeof(LRUHandle) - 1 + sizeof(void*) + sizeof(Value))));
+        COUNTER_UPDATE(_prune_stale_number_counter, 1);
+    }
+
+    bool exceed_prune_limit() override {
+        // Even one idle SDK client must expire; the generic 1024-object GC
+        // threshold would otherwise retain a small cache indefinitely.
+        return true;
+    }
+
+    int64_t adjust_capacity_weighted(double weight) override {
+        return LRUCachePolicy::adjust_capacity_weighted(std::min(weight, 1.0));
+    }
+
+    int64_t reset_initial_capacity(double weight) override {
+        // Raising mem_limit scales byte-cache budgets, but must not increase
+        // the configured SDK object-count ceiling (e.g. 64 must not become 128).
+        return adjust_capacity_weighted(weight);
+    }
+
+    void close() {
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(mem_tracker());
+        {
+            std::unique_lock lock(_lifecycle_mutex);
+            _closed = true;
+            _retainers_done.wait(lock, [this] { return _retainers == 0; });
+        }
+        prune_all(true);
+    }
+
+private:
+    struct Value final : LRUCacheValueBase {
+        Value(Client owner, int64_t now) : client(std::move(owner)), last_access_ms(now) {}
+        Client client;
+        std::atomic<int64_t> last_access_ms;
+    };
+
+    static int64_t now_millis() {
+        int64_t now = MonotonicMillis();
+        TEST_SYNC_POINT_CALLBACK("S3ClientRegistry::cache_clock", &now);
+        return now;
+    }
+
+    bool _closed = false;
+    size_t _retainers = 0;
+    std::mutex _lifecycle_mutex;
+    std::condition_variable _retainers_done;
+    bvar::PassiveStatus<size_t> _cached_metric;
+};
 
 struct S3ClientRegistry::Impl : std::enable_shared_from_this<Impl> {
     struct Counter {
@@ -198,7 +327,8 @@ struct S3ClientRegistry::Impl : std::enable_shared_from_this<Impl> {
                 .created = created.get_value(),
                 .destroyed = destroyed.get_value(),
                 .live = live.get_value(),
-                .failures = failures.get_value()};
+                .failures = failures.get_value(),
+                .cached = 0};
     }
 
     mutable std::mutex mutex;
@@ -214,6 +344,9 @@ struct S3ClientRegistry::Impl : std::enable_shared_from_this<Impl> {
     Map<std::weak_ptr<ObjStorageClient>> entries;
     Map<std::shared_ptr<Pending>> pending;
     bool closed = false;
+    // Only the process factory publishes the global bvar names. Isolated
+    // registries used by tests must not replace its sampler registrations.
+    bool metrics_exposed = false;
     std::unique_ptr<bvar::PassiveStatus<size_t>> indexed_metric;
     std::unique_ptr<bvar::PassiveStatus<size_t>> inflight_metric;
 };
@@ -226,15 +359,42 @@ S3ClientRegistry::~S3ClientRegistry() {
 
 Result<S3ClientRegistry::Client> S3ClientRegistry::get_or_create(const S3ClientConf& conf,
                                                                  const Creator& creator) {
-    return _impl->acquire(conf, creator);
+    auto result = _impl->acquire(conf, creator);
+    // Invalid configuration/provider failures never enter the retention cache.
+    if (result.has_value() && _cache) {
+        // LRU eviction can destroy SDK clients and re-enter the weak index.
+        // Do this after acquire() has released the registry mutex.
+        _cache->retain(result.value());
+    }
+    return result;
 }
 
 S3ClientRegistry::Stats S3ClientRegistry::stats() const {
-    return _impl->snapshot();
+    auto snapshot = _impl->snapshot();
+    snapshot.cached = _cache ? _cache->get_element_count() : 0;
+    return snapshot;
+}
+
+void S3ClientRegistry::init_cache(size_t capacity, uint32_t idle_timeout_seconds) {
+    DORIS_CHECK(_cache == nullptr);
+    // Explicitly disabling retention leaves active-client sharing unchanged.
+    if (capacity > 0) {
+        _cache = std::make_unique<ClientCache>(capacity, idle_timeout_seconds);
+        if (_impl->metrics_exposed) {
+            _cache->expose_metrics();
+        }
+    }
+}
+
+void S3ClientRegistry::release_cache() {
+    _cache.reset();
 }
 
 void S3ClientRegistry::close() {
     _impl->close();
+    if (_cache) {
+        _cache->close();
+    }
 }
 
 void S3ClientRegistry::expose_metrics() {
@@ -249,6 +409,10 @@ void S3ClientRegistry::expose_metrics() {
     }
     DORIS_CHECK(_impl->indexed_metric->expose_as("s3_client", "indexed") == 0);
     DORIS_CHECK(_impl->inflight_metric->expose_as("s3_client", "inflight") == 0);
+    _impl->metrics_exposed = true;
+    if (_cache) {
+        _cache->expose_metrics();
+    }
 }
 
 struct S3ClientScope::Impl {
