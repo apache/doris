@@ -86,6 +86,9 @@ public class SetPassVarOp extends SetVarOp {
 
     @Override
     public void afterForwardToMaster(ConnectContext ctx) {
+        if (ctx.getExecutor().getProxyStatusCode() != 0) {
+            return;
+        }
         if (userIdent.equals(ctx.getCurrentUserIdentity()) && passVar.getScrambled().length != 0) {
             ctx.setPasswordResetRequired(false);
         }

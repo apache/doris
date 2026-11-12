@@ -122,7 +122,7 @@ public final class BootstrapPasswordGuard {
         }
         // SubqueryExpr owns a separate plan: allowing only these expression shapes also excludes
         // nested table reads, UDF calls and file sinks without relying on Plan.children() traversal.
-        return query.getExpressions().stream().allMatch(BootstrapPasswordGuard::isConnectionExpression);
+        return query.getExpressions().stream().allMatch(expression -> isConnectionExpression(ctx, expression));
     }
 
     private static boolean isAllowedSet(ConnectContext ctx, SetOptionsCommand command) throws UserException {
@@ -150,15 +150,19 @@ public final class BootstrapPasswordGuard {
         return true;
     }
 
-    private static boolean isConnectionExpression(Expression expression) {
+    private static boolean isConnectionExpression(ConnectContext ctx, Expression expression) {
         if (expression instanceof Alias || expression instanceof UnboundAlias) {
-            return isConnectionExpression(expression.child(0));
+            return isConnectionExpression(ctx, expression.child(0));
         }
         if (expression instanceof Literal || expression instanceof UnboundVariable
                 || expression instanceof CurrentUser || expression instanceof SessionUser) {
             return true;
         }
         if (!(expression instanceof UnboundFunction)) {
+            return false;
+        }
+        // These names are safe only when binding selects their built-in implementations.
+        if (ctx.getSessionVariable().preferUdfOverBuiltin) {
             return false;
         }
         UnboundFunction function = (UnboundFunction) expression;

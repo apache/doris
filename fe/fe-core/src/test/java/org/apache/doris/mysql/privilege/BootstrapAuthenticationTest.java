@@ -18,6 +18,9 @@
 package org.apache.doris.mysql.privilege;
 
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.auth.certificate.CertificateAuthDecision;
+import org.apache.doris.auth.certificate.ForwardedCertificateInfo;
+import org.apache.doris.auth.certificate.StreamLoadCertificateAuthHelper;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.common.Config;
@@ -28,16 +31,24 @@ import org.apache.doris.common.lock.MonitoredReentrantLock;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.job.extensions.insert.InsertTask;
+import org.apache.doris.load.StreamLoadHandler;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mtmv.MTMVPlanUtil;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.MysqlPassword;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.Forward;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.BootstrapPasswordGuard;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.service.ExecuteEnv;
+import org.apache.doris.service.FrontendServiceImpl;
 import org.apache.doris.system.Frontend;
+import org.apache.doris.thrift.TStreamLoadPutRequest;
+import org.apache.doris.thrift.TStreamLoadPutResult;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
@@ -283,6 +294,68 @@ class BootstrapAuthenticationTest {
         Assertions.assertEquals(UserIdentity.ADMIN, mv.getCurrentUserIdentity());
         Assertions.assertFalse(mv.isPasswordResetRequired());
         BootstrapPasswordGuard.check(mv, new NereidsParser().parseSingle("SELECT * FROM internal_mtmv_table"));
+    }
+
+    @Test
+    void testRejectedForwardedPasswordChangeKeepsBootstrapRestriction() throws Exception {
+        StmtExecutor executor = Mockito.mock(StmtExecutor.class);
+        context.setExecutor(executor);
+        NereidsParser parser = new NereidsParser();
+        for (String sql : List.of("SET PASSWORD = PASSWORD('root-password')",
+                "ALTER USER root IDENTIFIED BY 'root-password'")) {
+            LogicalPlan plan = parser.parseSingle(sql);
+            context.setPasswordResetRequired(true);
+            BootstrapPasswordGuard.check(context, plan);
+            Mockito.when(executor.getProxyStatusCode()).thenReturn(1);
+            ((Forward) plan).afterForwardToMaster(context);
+            Assertions.assertTrue(context.isPasswordResetRequired(), sql);
+            Assertions.assertThrows(UserException.class,
+                    () -> BootstrapPasswordGuard.check(context, parser.parseSingle("SHOW FRONTENDS")));
+            Mockito.when(executor.getProxyStatusCode()).thenReturn(0);
+            ((Forward) plan).afterForwardToMaster(context);
+            Assertions.assertFalse(context.isPasswordResetRequired(), sql);
+        }
+    }
+
+    @Test
+    void testUnboundConnectionFunctionsCannotPreferUdfs() throws Exception {
+        context.setPasswordResetRequired(true);
+        NereidsParser parser = new NereidsParser();
+        context.getSessionVariable().preferUdfOverBuiltin = true;
+        UserException error = Assertions.assertThrows(UserException.class,
+                () -> BootstrapPasswordGuard.check(context, parser.parseSingle("SELECT version()")));
+        Assertions.assertEquals(ErrorCode.ERR_MUST_CHANGE_PASSWORD, error.getMysqlErrorCode());
+        // These expressions are already concrete builtin classes, independent of function lookup.
+        BootstrapPasswordGuard.check(context, parser.parseSingle("SELECT current_user, session_user"));
+        context.getSessionVariable().preferUdfOverBuiltin = false;
+        BootstrapPasswordGuard.check(context, parser.parseSingle("SELECT version()"));
+    }
+
+    @Test
+    void testForwardedCertificateCannotOpenEmptyBuiltinAccounts() throws Exception {
+        auth.setSecureInitialization();
+        FrontendServiceImpl frontend = new FrontendServiceImpl(Mockito.mock(ExecuteEnv.class));
+        TStreamLoadPutRequest request = new TStreamLoadPutRequest();
+        request.setUserIp("10.0.0.8");
+        StreamLoadHandler load = new StreamLoadHandler(request, null, new TStreamLoadPutResult(), "10.0.0.8");
+        try (MockedStatic<StreamLoadCertificateAuthHelper> certificate =
+                Mockito.mockStatic(StreamLoadCertificateAuthHelper.class)) {
+            for (UserIdentity identity : List.of(UserIdentity.ROOT, UserIdentity.ADMIN)) {
+                certificate.when(() -> StreamLoadCertificateAuthHelper.authenticateForwarded(
+                        Mockito.any(), Mockito.eq(identity.getQualifiedUser()), Mockito.eq("10.0.0.8"),
+                        Mockito.isNull())).thenReturn(CertificateAuthDecision.verified(identity, true));
+                Assertions.assertThrows(AuthenticationException.class, () -> Deencapsulation.invoke(frontend,
+                        "resolveForwardedAuthUserIdentity", identity.getQualifiedUser(), "", "10.0.0.8",
+                        ForwardedCertificateInfo.class));
+                Assertions.assertThrows(UserException.class, () -> Deencapsulation.invoke(load,
+                        "resolveCloudLoadUserIdentity", identity.getQualifiedUser()));
+                auth.setPassword(identity, MysqlPassword.makeScrambledPassword("configured-password"));
+                Assertions.assertEquals(identity, Deencapsulation.invoke(frontend, "resolveForwardedAuthUserIdentity",
+                        identity.getQualifiedUser(), "", "10.0.0.8", ForwardedCertificateInfo.class));
+                Assertions.assertEquals(identity, Deencapsulation.invoke(load, "resolveCloudLoadUserIdentity",
+                        identity.getQualifiedUser()));
+            }
+        }
     }
 
     @Test

@@ -32,12 +32,13 @@ suite("test_bootstrap_authentication", "docker,account") {
     options.feConfigs.add('allow_empty_password_for_root_admin=false')
     options.feConfigs.add('skip_localhost_auth_check=false')
     options.feConfigs.add('enable_job_schedule_second_for_test=true')
-    String password = 'Bootstrap_root_123'
+    // A CRLF secret exercises identical file handling by Python, shell and JVM clients.
+    String password = 'Bootstrap_root_123\r'
     File secretDir = new File(context.config.realDataPath)
     secretDir.mkdirs()
     def secret = Files.createTempFile(secretDir.toPath(), 'bootstrap-root-', '.secret',
             PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString('rw-------')))
-    Files.writeString(secret, password)
+    Files.writeString(secret, password + '\n')
     options.rootPasswordFile = secret.toString()
 
     try {

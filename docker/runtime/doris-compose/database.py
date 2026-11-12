@@ -304,7 +304,7 @@ class DBManager(object):
     def _reset_conn(self, read_timeout=10, connect_timeout=3):
         password = ""
         if self.root_password_file:
-            with open(self.root_password_file, encoding="utf-8") as secret:
+            with open(self.root_password_file, encoding="utf-8", newline="") as secret:
                 password = secret.read().rstrip("\n")
         self.conn = pymysql.connect(user="root",
                                     password=password,

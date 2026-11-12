@@ -720,7 +720,7 @@ class UpCommand(Command):
         if args.root_password_file:
             import hashlib
             password_file = os.path.abspath(os.path.expanduser(args.root_password_file))
-            with open(password_file, encoding="utf-8") as secret:
+            with open(password_file, encoding="utf-8", newline="") as secret:
                 root_password = secret.read().rstrip("\n")
             if not root_password:
                 raise ValueError("--root-password-file must contain a nonempty password")

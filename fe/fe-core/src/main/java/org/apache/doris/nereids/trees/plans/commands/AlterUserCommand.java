@@ -60,6 +60,9 @@ public class AlterUserCommand extends AlterCommand implements NeedAuditEncryptio
 
     @Override
     public void afterForwardToMaster(ConnectContext ctx) {
+        if (ctx.getExecutor().getProxyStatusCode() != 0) {
+            return;
+        }
         byte[] password = alterUserInfo.getPassword();
         if (alterUserInfo.getUserIdent().equals(ctx.getCurrentUserIdentity())
                 && password != null && password.length != 0) {

@@ -18,6 +18,7 @@
 import hashlib
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -150,6 +151,59 @@ class BootstrapAuthTest(unittest.TestCase):
         self.assertEqual(0, result.returncode, result.stderr)
         self.assertIn("initial_root_password = *", custom.read_text())
         self.assertFalse((self.home / "another-conf/fe_custom.conf").exists())
+
+    def run_k8s_entrypoint(self, existing=False):
+        # Relocate only the image's fixed installation prefix; execute the real main dispatch.
+        container = self.home / "container"
+        binary = container / "fe/bin"
+        binary.mkdir(parents=True)
+        conf = container / "fe/conf"
+        conf.mkdir()
+        (conf / "fe.conf").write_text("# FE config\n")
+        if existing:
+            image = container / "fe/doris-meta/image"
+            image.mkdir(parents=True)
+            (image / "VERSION").write_text("clusterId=123\n")
+        shutil.copyfile(HELPER, binary / HELPER.name)
+        start = binary / "start_fe.sh"
+        start.write_text('#!/bin/bash\ntouch "$(dirname "$0")/started"\n')
+        start.chmod(0o700)
+        entrypoint = ROOT / "docker/runtime/fe/resource/init_fe.sh"
+        script = entrypoint.read_text().replace('readonly DORIS_HOME="/opt/apache-doris"',
+                                               'readonly DORIS_HOME="' + str(container) + '"', 1)
+        self.environment["BUILD_TYPE"] = "k8s"
+        result = subprocess.run(["bash", "-c", script], env=self.environment, timeout=10,
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+        return result, conf / "fe_custom.conf", binary / "started"
+
+    def test_k8s_main_applies_initial_secret_before_starting_fe(self):
+        secret = self.home / "k8s-root-password"
+        secret.write_text("k8s-initial-password\n")
+        self.environment["DORIS_ROOT_PASSWORD_FILE"] = str(secret)
+        result, config, started = self.run_k8s_entrypoint()
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertTrue(started.exists())
+        expected = "*" + hashlib.sha1(hashlib.sha1(b"k8s-initial-password").digest()).hexdigest().upper()
+        self.assertIn("initial_root_password = " + expected, config.read_text())
+
+    def test_k8s_main_requires_credentials_before_starting_fe(self):
+        result, config, started = self.run_k8s_entrypoint()
+        self.assertNotEqual(0, result.returncode)
+        self.assertFalse(started.exists())
+        self.assertFalse(config.exists())
+
+    def test_k8s_main_applies_explicit_test_mode(self):
+        self.environment["DORIS_ALLOW_EMPTY_PASSWORD"] = "true"
+        result, config, started = self.run_k8s_entrypoint()
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertTrue(started.exists())
+        self.assertIn("allow_empty_password_for_root_admin = true", config.read_text())
+
+    def test_k8s_main_preserves_existing_metadata_without_credentials(self):
+        result, config, started = self.run_k8s_entrypoint(existing=True)
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertTrue(started.exists())
+        self.assertFalse(config.exists())
 
     def check_master(self, root_error):
         auth = self.home / "auth"
