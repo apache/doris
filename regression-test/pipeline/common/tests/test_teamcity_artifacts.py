@@ -18,10 +18,14 @@
 
 """Check PR/commit binding after TeamCity downloads native dependencies."""
 import hashlib
+import io
 import importlib.util
 import json
 from pathlib import Path
 import unittest
+import tempfile
+from contextlib import redirect_stdout
+from unittest.mock import patch
 
 from test_teamcity_utils import HEAD, build
 
@@ -105,6 +109,35 @@ class ArtifactTests(unittest.TestCase):
             self.env[key] = 'wrong'
             with self.assertRaisesRegex(ValueError, 'fanout binding differs'): self.bind()
             self.env[key] = original
+
+    def test_main_reads_the_resolved_dependency_of_the_current_build(self):
+        with tempfile.TemporaryDirectory() as temp:
+            manifest = Path(temp) / 'manifest.json'
+            manifest.write_text(self.fixture['manifest'])
+            properties = Path(temp) / 'build.properties'
+            properties.write_text('teamcity.build.id=2\nteamcity.auth.userId=build-user\n'
+                                  'teamcity.auth.password=temporary-password\n')
+            current = {'branchName': 'pull/123', 'revisions': {'revision': [{'version': HEAD}]},
+                       'artifact-dependencies': {'build': self.fixture['builds']}}
+            env = {'PR_NUMBER': '123', 'CI_BRANCH': 'master', 'CI_REQUESTED_PR_HEAD': HEAD,
+                   'TEAMCITY_BUILD_PROPERTIES_FILE': str(properties)}
+            args = ['binding', '--server', 'https://tc.example', '--manifest', str(manifest)]
+            with patch.dict(a.os.environ, env, clear=True), patch.object(a.sys, 'argv', args), \
+                    patch.object(a.os, 'getuid', return_value=1000), \
+                    patch.object(a.urllib.request, 'build_opener') as opener:
+                output = io.StringIO()
+                opener.return_value.open.return_value = io.StringIO(json.dumps(current))
+                with redirect_stdout(output): a.main()
+                self.assertEqual(output.getvalue().count('##teamcity[setParameter'), 43)
+                self.assertNotIn('temporary-password', output.getvalue())
+                request = opener.return_value.open.call_args.args[0]
+                self.assertTrue(request.full_url.startswith('https://tc.example/app/rest/builds/id:2?'))
+                self.assertEqual(opener.return_value.open.call_count, 1)
+                current['revisions']['revision'][0]['version'] = 'f' * 40
+                opener.return_value.open.return_value = io.StringIO(json.dumps(current))
+                output = io.StringIO()
+                with redirect_stdout(output), self.assertRaises(ValueError): a.main()
+                self.assertEqual(output.getvalue(), '')
 
     def test_service_message_escaping(self):
         self.assertEqual(a.escape("a|'[b]\n\r"), "a|||'|[b|]|n|r")

@@ -120,30 +120,33 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--server', required=True)
     parser.add_argument('--manifest', required=True)
-    parser.add_argument('--build-id', required=True, help='Native artifact dependency build ID')
-    parser.add_argument('--head', required=True, help='Actual TeamCity VCS revision')
-    parser.add_argument('--pr-branch', required=True, help='Actual TeamCity logical branch')
     args = parser.parse_args()
     require(os.getuid() != 0, 'Artifact preflight must run as the ordinary agent user')
     require(re.fullmatch(r'https://[A-Za-z0-9.-]+(:[0-9]+)?', args.server), 'TeamCity HTTPS URL required')
-    require(re.fullmatch(r'[1-9][0-9]*', args.build_id), 'Missing native Compile dependency')
-    require(re.fullmatch(r'[0-9a-f]{40}', args.head), 'Invalid TeamCity revision')
-    pr = os.environ['PR_NUMBER']
-    require(args.pr_branch == 'pull/' + pr, 'Requested PR differs from TeamCity branch')
     raw = Path(args.manifest).read_bytes()
     properties = build_properties(os.environ['TEAMCITY_BUILD_PROPERTIES_FILE'])
     credentials = properties['teamcity.auth.userId'] + ':' + properties['teamcity.auth.password']
-    request = urllib.request.Request(args.server + '/app/rest/builds/id:' + args.build_id +
-                                    '?fields=id,number,buildTypeId,state,status,branchName,canceledInfo,revisions(revision(version))',
+    build_id = properties['teamcity.build.id']
+    require(re.fullmatch(r'[1-9][0-9]*', build_id), 'Invalid current build ID')
+    request = urllib.request.Request(args.server + '/app/rest/builds/id:' + build_id +
+                                    '?fields=branchName,revisions(revision(version)),artifact-dependencies(build('
+                                    'id,number,buildTypeId,state,status,branchName,canceledInfo,revisions(revision(version))))',
                                     headers={'Accept': 'application/json', 'Authorization': 'Basic ' +
                                              base64.b64encode(credentials.encode()).decode()})
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
     with opener.open(request, timeout=30) as response:
-        build = json.load(response)
-    params = consumer_parameters(build, raw, pr, args.head, os.environ['CI_BRANCH'], os.environ)
+        current = json.load(response)
+    dependencies = current['artifact-dependencies']['build']
+    require(len(dependencies) == 1, 'Expected one resolved Compile artifact dependency')
+    revisions = current['revisions']['revision']
+    require(len(revisions) == 1, 'Expected one PR revision')
+    head = revisions[0]['version']
+    pr = os.environ['PR_NUMBER']
+    require(current['branchName'] == 'pull/' + pr, 'Requested PR differs from TeamCity branch')
+    params = consumer_parameters(dependencies[0], raw, pr, head, os.environ['CI_BRANCH'], os.environ)
     for key, value in params.items():
         print("##teamcity[setParameter name='" + escape(key) + "' value='" + escape(value) + "']")
-    print('Compile artifact preflight passed: producer=' + args.build_id + ', PR=' + pr + ', head=' + args.head)
+    print('Compile artifact preflight passed: producer=' + str(dependencies[0]['id']) + ', PR=' + pr + ', head=' + head)
 
 
 if __name__ == '__main__':

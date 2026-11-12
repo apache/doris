@@ -25,9 +25,7 @@ set -euo pipefail
 set +x
 python3 /trusted/ci/teamcity_artifacts.py \
   --server 'https://<teamcity-host>' \
-  --manifest '<destination>/manifest.json' \
-  --build-id '%dep.Doris_Compile.system.teamcity.build.id%' \
-  --head '%build.vcs.number%' --pr-branch '%teamcity.build.branch%'
+  --manifest '<destination>/manifest.json'
 ```
 
 This step checks the downloaded manifest against the actual requested PR/revision
@@ -36,7 +34,8 @@ or inconsistent automatic fanout binding fails immediately; it does not search
 older builds or rebuild anything. It then fills the parameter aliases expected by
 the existing runners. Those runners retain their full manifest/checksum checks.
 
-The single metadata read uses TeamCity's temporary build credentials. Artifact
+The single metadata read gets the current build's actual revision and resolved
+artifact dependency, using TeamCity's temporary build credentials. Artifact
 selection and download remain entirely native. Use a trusted HTTPS endpoint;
 `teamcity.serverUrl` can be an internal HTTP address. When embedding the Python
 source, escape its literal percent characters as `%%`.
