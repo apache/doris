@@ -17,10 +17,13 @@
 
 package org.apache.doris.datasource.iceberg;
 
+import org.apache.doris.analysis.CreateOrReplaceBranchClause;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.RefreshManager;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.BranchOptions;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceBranchInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceTagInfo;
@@ -303,7 +306,7 @@ public class IcebergExternalTableBranchAndTagTest {
         assertSnapshotRef(
                 icebergTable.refs().get(branch2),
                 icebergTable.currentSnapshot().snapshotId(),
-                true, 1L, 2, 3L);
+                true, 3L, 2, 1L);
 
         // total branch:
         //   'main','branch1','branch2'
@@ -329,7 +332,7 @@ public class IcebergExternalTableBranchAndTagTest {
         assertSnapshotRef(
                 icebergTable.refs().get(branch3),
                 snapshots.get(4).snapshotId(),
-                true, 1L, 2, 3L);
+                true, 3L, 2, 1L);
 
         // update branch1
         catalog.createOrReplaceBranch(dorisTable, info2);
@@ -339,6 +342,66 @@ public class IcebergExternalTableBranchAndTagTest {
                 true, null, null, null);
 
         Assertions.assertEquals(4, icebergTable.refs().size());
+    }
+
+    @Test
+    public void testCreateBranchWithSqlRetentionOptions() throws UserException, IOException {
+        addSomeDataIntoIcebergTable();
+        applyBranchSql("ALTER TABLE db.tbl CREATE BRANCH retained RETAIN 2 DAYS"
+                + " WITH SNAPSHOT RETENTION 3 SNAPSHOTS 12 HOURS");
+
+        assertSnapshotRef(loadRef("retained"), icebergTable.currentSnapshot().snapshotId(),
+                true, 43200000L, 3, 172800000L);
+    }
+
+    @Test
+    public void testCreateBranchWithRetainOnly() throws UserException, IOException {
+        addSomeDataIntoIcebergTable();
+        applyBranchSql("ALTER TABLE db.tbl CREATE BRANCH retained RETAIN 2 HOURS");
+
+        assertSnapshotRef(loadRef("retained"), icebergTable.currentSnapshot().snapshotId(),
+                true, null, null, 7200000L);
+    }
+
+    @Test
+    public void testCreateBranchWithSnapshotRetentionOnly() throws UserException, IOException {
+        addSomeDataIntoIcebergTable();
+        applyBranchSql("ALTER TABLE db.tbl CREATE BRANCH retained"
+                + " WITH SNAPSHOT RETENTION 3 SNAPSHOTS 4 DAYS");
+
+        assertSnapshotRef(loadRef("retained"), icebergTable.currentSnapshot().snapshotId(),
+                true, 345600000L, 3, null);
+    }
+
+    @Test
+    public void testReplaceBranchKeepsOmittedRetentionOptions() throws UserException, IOException {
+        addSomeDataIntoIcebergTable();
+        applyBranchSql("ALTER TABLE db.tbl CREATE BRANCH retained RETAIN 3 DAYS"
+                + " WITH SNAPSHOT RETENTION 3 SNAPSHOTS 4 DAYS");
+
+        applyBranchSql("ALTER TABLE db.tbl REPLACE BRANCH retained RETAIN 2 HOURS");
+        assertSnapshotRef(loadRef("retained"), icebergTable.currentSnapshot().snapshotId(),
+                true, 345600000L, 3, 7200000L);
+
+        applyBranchSql("ALTER TABLE db.tbl CREATE OR REPLACE BRANCH retained"
+                + " WITH SNAPSHOT RETENTION 5 SNAPSHOTS 7 DAYS");
+        assertSnapshotRef(loadRef("retained"), icebergTable.currentSnapshot().snapshotId(),
+                true, 604800000L, 5, 7200000L);
+
+        applyBranchSql("ALTER TABLE db.tbl CREATE BRANCH IF NOT EXISTS retained RETAIN 1 MINUTES"
+                + " WITH SNAPSHOT RETENTION 1 SNAPSHOTS 1 MINUTES");
+        assertSnapshotRef(loadRef("retained"), icebergTable.currentSnapshot().snapshotId(),
+                true, 604800000L, 5, 7200000L);
+    }
+
+    private void applyBranchSql(String sql) throws UserException {
+        AlterTableCommand command = (AlterTableCommand) new NereidsParser().parseSingle(sql);
+        CreateOrReplaceBranchClause clause = (CreateOrReplaceBranchClause) command.getOps().get(0);
+        catalog.createOrReplaceBranch(dorisTable, clause.getBranchInfo());
+    }
+
+    private SnapshotRef loadRef(String name) {
+        return icebergCatalog.loadTable(TableIdentifier.of(dbName, tblName)).refs().get(name);
     }
 
     private void addSomeDataIntoIcebergTable() throws IOException {
