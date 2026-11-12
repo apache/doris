@@ -91,6 +91,12 @@ final class IcebergWriteSchemaContext {
     static IcebergWriteSchemaContext create(Table table, String tableName,
             Optional<String> branchName, boolean enableMappingVarbinary,
             boolean enableMappingTimestampTz) {
+        return create(table, tableName, branchName, table.spec(), enableMappingVarbinary, enableMappingTimestampTz);
+    }
+
+    static IcebergWriteSchemaContext create(Table table, String tableName,
+            Optional<String> branchName, PartitionSpec outputSpec, boolean enableMappingVarbinary,
+            boolean enableMappingTimestampTz) {
         Objects.requireNonNull(table, "table should not be null");
         Objects.requireNonNull(tableName, "tableName should not be null");
         Objects.requireNonNull(branchName, "branchName should not be null");
@@ -105,7 +111,7 @@ final class IcebergWriteSchemaContext {
         return new IcebergWriteSchemaContext(
                 tableName, schema, formatVersion, branchName, identity.uuid,
                 identity.v1MetadataFileLocation, identity.v1MetadataTimestampMillis,
-                bindPartitionSpec(table.spec(), schema, tableName),
+                bindPartitionSpec(outputSpec, schema, tableName),
                 bindSortOrder(table.sortOrder(), schema, tableName),
                 IcebergWriterHelper.getFileFormat(table), MetricsConfig.forTable(table),
                 IcebergWritePlanProvider.getFileCompress(table),

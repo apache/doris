@@ -179,6 +179,7 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
     private Map<String, String> staticPartitionValues = Collections.emptyMap();
     private String branchName;
     private IcebergWriteSchemaContext writeSchemaContext;
+    private final IcebergWriteSchemaContext rewriteSchemaContext;
     // The snapshot pinned at begin time for DELETE/MERGE and OVERWRITE (null for INSERT). Consumed by the
     // commit validation suite (validateFromSnapshot).
     private Long baseSnapshotId;
@@ -214,11 +215,18 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
 
     IcebergConnectorTransaction(long transactionId, IcebergCatalogOps catalogOps,
             ConnectorContext context, IcebergCatalogResourceTracker resourceTracker, String catalogFlavor) {
+        this(transactionId, catalogOps, context, resourceTracker, catalogFlavor, null);
+    }
+
+    IcebergConnectorTransaction(long transactionId, IcebergCatalogOps catalogOps,
+            ConnectorContext context, IcebergCatalogResourceTracker resourceTracker, String catalogFlavor,
+            IcebergWriteSchemaContext rewriteSchemaContext) {
         this.transactionId = transactionId;
         this.catalogOps = catalogOps;
         this.context = context;
         this.resourceTracker = resourceTracker;
         this.catalogFlavor = catalogFlavor;
+        this.rewriteSchemaContext = rewriteSchemaContext;
     }
 
     /**
@@ -891,7 +899,7 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
             return;
         }
         WriteResult writeResult =
-                IcebergWriterHelper.convertToWriterResult(transaction.table(), commitDataList, zone);
+                IcebergWriterHelper.convertToWriterResult(writeSchemaContext, commitDataList, zone);
         synchronized (filesToAdd) {
             filesToAdd.addAll(Arrays.asList(writeResult.dataFiles()));
         }
@@ -1662,6 +1670,11 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
     }
 
     // ─────────────────── REWRITE accessors (P6.4-T06; consumed by the rewrite coordinator + tests) ───────────────────
+
+    IcebergWriteSchemaContext getRewriteSchemaContext() {
+        Preconditions.checkState(rewriteSchemaContext != null, "Missing rewrite output schema context");
+        return rewriteSchemaContext;
+    }
 
     /** REWRITE OCC anchor captured at begin time (-1 when the table had no snapshot); the value passed to
      *  {@code RewriteFiles.validateFromSnapshot} at commit. */

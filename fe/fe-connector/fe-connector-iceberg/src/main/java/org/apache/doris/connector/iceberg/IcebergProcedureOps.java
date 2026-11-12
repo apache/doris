@@ -43,6 +43,7 @@ import java.util.Arrays;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -65,10 +66,7 @@ import java.util.stream.Collectors;
  */
 public class IcebergProcedureOps implements ConnectorProcedureOps {
 
-    // Catalog-level properties seam, retained for structural symmetry with IcebergWritePlanProvider. The
-    // per-procedure arguments arrive through execute()'s own {@code properties} parameter (the EXECUTE
-    // properties), so this field is not read here.
-    private final Map<String, String> properties;
+    private final IcebergCatalogProperties catalogProps;
     // Per-request catalog-ops resolver: applied with the current ConnectorSession to obtain the IcebergCatalogOps
     // for that request. For a iceberg.rest.session=user catalog the connector passes this::newCatalogBackedOps so
     // ALTER TABLE ... EXECUTE loads the target table through the querying user's per-request delegated REST catalog
@@ -98,7 +96,7 @@ public class IcebergProcedureOps implements ConnectorProcedureOps {
     IcebergProcedureOps(Map<String, String> properties,
             Function<ConnectorSession, IcebergCatalogOps> catalogOpsResolver, ConnectorContext context,
             IcebergCatalogResourceTracker resourceTracker) {
-        this.properties = properties;
+        this.catalogProps = IcebergCatalogProperties.of(properties);
         this.catalogOpsResolver = catalogOpsResolver;
         this.context = context;
         this.resourceTracker = resourceTracker;
@@ -237,15 +235,25 @@ public class IcebergProcedureOps implements ConnectorProcedureOps {
         // Resolve the per-request ops before the auth scope (see runInAuthScope): a session=user fail-closed
         // surfaces verbatim.
         IcebergCatalogOps ops = catalogOpsResolver.apply(session);
+        Function<Table, List<RewriteDataGroup>> planTable = table -> {
+            RewriteDataFilePlanner.Plan plan = planner.plan(table);
+            IcebergWriteSchemaContext schemaContext = IcebergWriteSchemaContext.create(
+                    table, handle.getTableName(), Optional.empty(), plan.getOutputSpec(),
+                    catalogProps.isEnableMappingVarbinary(), catalogProps.isEnableMappingTimestampTz());
+            // Group sessions have their own statement scopes. Transfer the selected definition through the
+            // outer statement's shared transaction instead of resolving the current spec in each group.
+            IcebergStatementScope.pinRewriteSchema(session, handle.getDbName(), handle.getTableName(), schemaContext);
+            return plan.getGroups();
+        };
         List<RewriteDataGroup> groups;
         if (context == null) {
-            groups = ops.withTable(handle.getDbName(), handle.getTableName(), planner::planAndOrganizeTasks);
+            groups = ops.withTable(handle.getDbName(), handle.getTableName(), planTable);
         } else {
             try {
                 // A server-planned table (RESTTable) keeps its own newScan(), which asks the REST server for the
                 // file scan tasks; rebuilding it as a plain BaseTable would plan from local manifests instead.
                 groups = context.executeAuthenticated(() -> ops.withTable(handle.getDbName(), handle.getTableName(),
-                        table -> planner.planAndOrganizeTasks(IcebergScanPlanning.requiresServerSideScanPlanning(table)
+                        table -> planTable.apply(IcebergScanPlanning.requiresServerSideScanPlanning(table)
                                 ? table : wrapTableForProcedure(table))));
             } catch (DorisConnectorException e) {
                 throw e;

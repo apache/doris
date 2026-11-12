@@ -55,6 +55,7 @@ public class IcebergRewriteDataFilesActionTest {
         Assertions.assertEquals((long) (536870912L * 1.8), p.getMaxFileSizeBytes());
         Assertions.assertEquals(5, p.getMinInputFiles());
         Assertions.assertFalse(p.isRewriteAll());
+        Assertions.assertNull(p.getOutputSpecId(), "an omitted output spec is resolved against the table");
     }
 
     @Test
@@ -87,6 +88,7 @@ public class IcebergRewriteDataFilesActionTest {
                         .put("rewrite-all", "true")
                         .put("delete-file-threshold", "7")
                         .put("delete-ratio-threshold", "0.5")
+                        .put("output-spec-id", "0")
                         .build(),
                 Collections.emptyList());
         a.validate();
@@ -98,9 +100,18 @@ public class IcebergRewriteDataFilesActionTest {
         Assertions.assertTrue(p.isRewriteAll());
         Assertions.assertEquals(7, p.getDeleteFileThreshold());
         Assertions.assertEquals(0.5, p.getDeleteRatioThreshold());
+        Assertions.assertEquals(0L, p.getOutputSpecId());
         // min/max still derive off the explicit target (750 / 1800) since they were not given.
         Assertions.assertEquals(750L, p.getMinFileSizeBytes());
         Assertions.assertEquals(1800L, p.getMaxFileSizeBytes());
+    }
+
+    @Test
+    public void rejectsOutputSpecOutsideIntegerRange() {
+        for (String value : new String[] {"-1", "2147483648", "9223372036854775808", "invalid"}) {
+            Assertions.assertThrows(DorisConnectorException.class,
+                    () -> action(ImmutableMap.of("output-spec-id", value), Collections.emptyList()).validate(), value);
+        }
     }
 
     @Test

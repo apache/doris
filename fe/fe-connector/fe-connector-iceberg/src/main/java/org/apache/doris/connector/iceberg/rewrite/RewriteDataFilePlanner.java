@@ -23,6 +23,7 @@ import org.apache.doris.connector.spi.pushdown.ConnectorAnd;
 import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
 import org.apache.doris.connector.spi.pushdown.ConnectorPredicate;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -82,6 +83,17 @@ public class RewriteDataFilePlanner {
      * Plan and organize file scan tasks into rewrite groups
      */
     public List<RewriteDataGroup> planAndOrganizeTasks(Table icebergTable) {
+        return plan(icebergTable).getGroups();
+    }
+
+    /** Resolves the output spec once, including when there are no files to rewrite. */
+    public Plan plan(Table icebergTable) {
+        Long requestedSpecId = parameters.getOutputSpecId();
+        PartitionSpec outputSpec = requestedSpecId == null ? icebergTable.spec()
+                : icebergTable.specs().get(Math.toIntExact(requestedSpecId));
+        if (outputSpec == null) {
+            throw new DorisConnectorException("Unknown output partition spec ID: " + requestedSpecId);
+        }
         try (CloseableIterable<FileScanTask> allTasks = planFileScanTasks(icebergTable)) {
             // Step 1: Plan FileScanTask from Iceberg table
             // Step 2: First layer - Group tasks by partition (without filtering files)
@@ -93,11 +105,31 @@ public class RewriteDataFilePlanner {
                     filesByPartition, this::packGroupsInPartition);
 
             // Step 4: Flatten all groups from all partitions
-            return fileGroupsByPartition.values().stream()
+            List<RewriteDataGroup> groups = fileGroupsByPartition.values().stream()
                     .flatMap(List::stream)
                     .collect(Collectors.toList());
+            return new Plan(outputSpec, groups);
         } catch (Exception e) {
             throw new DorisConnectorException("Failed to plan file scan tasks: " + e.getMessage(), e);
+        }
+    }
+
+    /** The selected output definition and its input groups belong to the same planning operation. */
+    public static final class Plan {
+        private final PartitionSpec outputSpec;
+        private final List<RewriteDataGroup> groups;
+
+        private Plan(PartitionSpec outputSpec, List<RewriteDataGroup> groups) {
+            this.outputSpec = outputSpec;
+            this.groups = ImmutableList.copyOf(groups);
+        }
+
+        public PartitionSpec getOutputSpec() {
+            return outputSpec;
+        }
+
+        public List<RewriteDataGroup> getGroups() {
+            return groups;
         }
     }
 
@@ -326,6 +358,7 @@ public class RewriteDataFilePlanner {
         private final long maxFileGroupSizeBytes;
         private final int deleteFileThreshold;
         private final double deleteRatioThreshold;
+        private final Long outputSpecId;
 
         // Engine-lowered WHERE predicate (over the target table's own columns), or null when none.
         private final ConnectorPredicate whereCondition;
@@ -339,7 +372,7 @@ public class RewriteDataFilePlanner {
                 long maxFileGroupSizeBytes,
                 int deleteFileThreshold,
                 double deleteRatioThreshold,
-                long outputSpecId,
+                Long outputSpecId,
                 ConnectorPredicate whereCondition) {
             this.targetFileSizeBytes = targetFileSizeBytes;
             this.minFileSizeBytes = minFileSizeBytes;
@@ -349,7 +382,7 @@ public class RewriteDataFilePlanner {
             this.maxFileGroupSizeBytes = maxFileGroupSizeBytes;
             this.deleteFileThreshold = deleteFileThreshold;
             this.deleteRatioThreshold = deleteRatioThreshold;
-            // outputSpecId is accepted but unused (verbatim with legacy: the field is never stored or read).
+            this.outputSpecId = outputSpecId;
             this.whereCondition = whereCondition;
         }
 
@@ -385,6 +418,10 @@ public class RewriteDataFilePlanner {
             return deleteRatioThreshold;
         }
 
+        public Long getOutputSpecId() {
+            return outputSpecId;
+        }
+
         public boolean hasWhereCondition() {
             return whereCondition != null && whereCondition.getExpression() != null;
         }
@@ -404,6 +441,7 @@ public class RewriteDataFilePlanner {
                     + ", maxFileGroupSizeBytes=" + maxFileGroupSizeBytes
                     + ", deleteFileThreshold=" + deleteFileThreshold
                     + ", deleteRatioThreshold=" + deleteRatioThreshold
+                    + ", outputSpecId=" + outputSpecId
                     + ", hasWhereCondition=" + hasWhereCondition()
                     + '}';
         }
