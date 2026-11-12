@@ -401,6 +401,71 @@ TEST(DataTypeVariantV2SerdeInputTest, DecimalTemplatePathsAtTheEdgesOfTheTextRea
     EXPECT_NE(std::string::npos, after_big_integer.find("amount")) << after_big_integer;
 }
 
+TEST(DataTypeVariantV2SerdeInputTest, TemplatePathsAreSpelledAndComparedLikeTheShredder) {
+    auto column = ColumnVariantV2::create();
+    size_t row = 0;
+    // The shredder joins every key below the first with '.', an empty one included, so a key
+    // under an empty key is the path ".b". A field declared 'b' does not match it: the number is
+    // parsed as before, a double, and an integer beyond 64 bits keeps the lenient verdict.
+    DataTypeVariantV2SerDe decimal_b(
+            1, template_of({{.pattern = "b", .is_glob = false, .type = TYPE_DECIMAL128I}}));
+    for (const char* text : {R"({"":{"b":1.50}})", R"({"":{"":{"b":1.50}}})"}) {
+        ASSERT_TRUE(deserialize_json(decimal_b, *column, text).ok()) << text;
+        const std::string json = json_at(decimal_b, *column, row++);
+        EXPECT_NE(std::string::npos, json.find(R"("b":1.5)")) << text << " -> " << json;
+        EXPECT_EQ(std::string::npos, json.find("1.50")) << text << " -> " << json;
+    }
+    ASSERT_TRUE(deserialize_json(decimal_b, *column, R"({"b":1.50})").ok());
+    EXPECT_EQ(R"({"b":1.50})", json_at(decimal_b, *column, row++));
+    DataTypeVariantV2SerDe largeint_b(
+            1, template_of({{.pattern = "b", .is_glob = false, .type = TYPE_LARGEINT}}));
+    ASSERT_TRUE(deserialize_json(largeint_b, *column, R"({"":{"b":18446744073709551616}})").ok());
+    EXPECT_EQ('"', json_at(largeint_b, *column, row++).front());
+    ASSERT_TRUE(deserialize_json(largeint_b, *column, R"({"b":18446744073709551616})").ok());
+    EXPECT_EQ(R"({"b":18446744073709551616})", json_at(largeint_b, *column, row++));
+
+    // An empty key is a path of its own, which a glob can match. A value with no key above it,
+    // the root or an element of an array at the root, is on no path.
+    DataTypeVariantV2SerDe every(
+            1, template_of({{.pattern = "*", .is_glob = true, .type = TYPE_DECIMAL128I}}));
+    ASSERT_TRUE(deserialize_json(every, *column, R"({"":1.50})").ok());
+    EXPECT_NE(std::string::npos, json_at(every, *column, row++).find(":1.50}"));
+    ASSERT_TRUE(deserialize_json(every, *column, R"({"":{"b":1.50}})").ok());
+    EXPECT_NE(std::string::npos, json_at(every, *column, row++).find(R"("b":1.50)"));
+    ASSERT_TRUE(deserialize_json(every, *column, "[1.50]").ok());
+    EXPECT_EQ("[1.5]", json_at(every, *column, row++));
+    ASSERT_TRUE(deserialize_json(every, *column, "1.50").ok());
+    EXPECT_EQ("1.5", json_at(every, *column, row++));
+    // with '*.b':string declared first, the shredder types ".b" as STRING
+    DataTypeVariantV2SerDe string_first(
+            1, template_of({{.pattern = "*.b", .is_glob = true, .type = TYPE_STRING},
+                            {.pattern = "*", .is_glob = true, .type = TYPE_DECIMAL128I}}));
+    ASSERT_TRUE(deserialize_json(string_first, *column, R"({"":{"b":1.50}})").ok());
+    const std::string under_empty_key = json_at(string_first, *column, row++);
+    EXPECT_NE(std::string::npos, under_empty_key.find(R"("b":1.5)")) << under_empty_key;
+    EXPECT_EQ(std::string::npos, under_empty_key.find("1.50")) << under_empty_key;
+
+    // The shredder compares a MATCH_NAME field with strcmp, which stops at the first NUL of a
+    // key. With 'a':string before 'a*':decimal it types the key "a\u0000x" as STRING, and with
+    // 'id':string before 'id*':largeint the key "id\u0000" likewise.
+    DataTypeVariantV2SerDe name_then_glob(
+            1, template_of({{.pattern = "a", .is_glob = false, .type = TYPE_STRING},
+                            {.pattern = "a*", .is_glob = true, .type = TYPE_DECIMAL128I},
+                            {.pattern = "id", .is_glob = false, .type = TYPE_STRING},
+                            {.pattern = "id*", .is_glob = true, .type = TYPE_LARGEINT}}));
+    ASSERT_TRUE(deserialize_json(name_then_glob, *column, R"({"a\u0000x":1.50})").ok());
+    const std::string nul_key = json_at(name_then_glob, *column, row++);
+    EXPECT_NE(std::string::npos, nul_key.find(":1.5}")) << nul_key;
+    EXPECT_EQ(std::string::npos, nul_key.find("1.50")) << nul_key;
+    ASSERT_TRUE(deserialize_json(name_then_glob, *column, R"({"ax":1.50})").ok());
+    EXPECT_EQ(R"({"ax":1.50})", json_at(name_then_glob, *column, row++));
+    ASSERT_TRUE(
+            deserialize_json(name_then_glob, *column, R"({"id\u0000":18446744073709551616})").ok());
+    EXPECT_EQ('"', json_at(name_then_glob, *column, row++).front());
+    ASSERT_TRUE(deserialize_json(name_then_glob, *column, R"({"idx":18446744073709551616})").ok());
+    EXPECT_EQ(R"({"idx":18446744073709551616})", json_at(name_then_glob, *column, row++));
+}
+
 TEST(DataTypeVariantV2SerdeInputTest, DecimalTemplatePathsStopAtAnObjectInsideAnArray) {
     DataTypeVariantV2SerDe serde(
             1, template_of({{.pattern = "a.b", .is_glob = false, .type = TYPE_DECIMAL128I},

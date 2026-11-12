@@ -68,7 +68,9 @@ public:
     // typed paths (variant_util.cpp walks the template in declaration order, strcmp for
     // MATCH_NAME, fnmatch with FNM_PATHNAME for a glob), so that with 'amount*':string declared
     // before 'amount':decimal(10,2) the number under "amount" is a STRING on both sides instead of
-    // a decimal 1.50 stored into a STRING column.
+    // a decimal 1.50 stored into a STRING column. An empty `path` is the path of an empty key,
+    // {"":1}, which a glob can match; a value under no key at all is on no path, and the caller
+    // does not ask.
     VariantNumberRead number_read(const std::string& path) const;
 
 private:

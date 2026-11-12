@@ -21,6 +21,7 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <cstring>
 #include <utility>
 
 #include "core/data_type/primitive_type.h"
@@ -35,13 +36,12 @@ VariantTemplatePaths::VariantTemplatePaths(std::vector<VariantTemplatePath> path
                   [](const VariantTemplatePath& field) { return is_decimalv3(field.type); })) {}
 
 VariantNumberRead VariantTemplatePaths::number_read(const std::string& path) const {
-    if (path.empty()) {
-        return VariantNumberRead::NATIVE;
-    }
     for (const VariantTemplatePath& field : _paths) {
+        // Both sides as C strings, as the shredder compares them (generate_sub_column_info): a key
+        // holding a NUL is matched up to it there, so it has to be here.
         const bool matched =
                 field.is_glob ? fnmatch(field.pattern.c_str(), path.c_str(), FNM_PATHNAME) == 0
-                              : field.pattern == path;
+                              : std::strcmp(field.pattern.c_str(), path.c_str()) == 0;
         if (!matched) {
             continue;
         }

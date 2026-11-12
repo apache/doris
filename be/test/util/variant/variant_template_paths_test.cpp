@@ -150,13 +150,37 @@ TEST(VariantTemplatePathsTest, ReadsDecimalTextOnlyWithADecimalField) {
     EXPECT_EQ(VariantNumberRead::NATIVE, shadowed.number_read("amount"));
 }
 
-TEST(VariantTemplatePathsTest, ANumberUnderNoObjectKeyIsOnNoPath) {
-    // An element of a root array has no object key above it, so its path is empty; "*" matches the
-    // empty string under fnmatch, and only the empty-path check keeps such a number native.
+TEST(VariantTemplatePathsTest, AnEmptyPathIsThePathOfAnEmptyKey) {
+    // {"":1.50} is the path "" to the shredder and {"":{"b":1.50}} the path ".b". "*" matches both
+    // under fnmatch, so the matcher answers for them as for any other path. A value with no key
+    // above it (the root, an element of a root array) is on no path, and the collector never asks.
     const VariantTemplatePaths every =
             paths_of({{.pattern = "*", .is_glob = true, .type = TYPE_DECIMAL128I}});
-    EXPECT_EQ(VariantNumberRead::NATIVE, every.number_read(""));
+    EXPECT_EQ(VariantNumberRead::DECIMAL_TEXT, every.number_read(""));
+    EXPECT_EQ(VariantNumberRead::DECIMAL_TEXT, every.number_read(".b"));
     EXPECT_EQ(VariantNumberRead::DECIMAL_TEXT, every.number_read("amount"));
+    // a field declared 'b' is the path "b", not the path under an empty key
+    const VariantTemplatePaths named =
+            paths_of({{.pattern = "b", .is_glob = false, .type = TYPE_DECIMAL128I}});
+    EXPECT_EQ(VariantNumberRead::DECIMAL_TEXT, named.number_read("b"));
+    EXPECT_EQ(VariantNumberRead::NATIVE, named.number_read(".b"));
+    EXPECT_EQ(VariantNumberRead::NATIVE, named.number_read(""));
+}
+
+TEST(VariantTemplatePathsTest, ANameIsComparedAsACStringLikeTheShredder) {
+    // The shredder compares a MATCH_NAME field with strcmp, which stops at the first NUL of a key
+    // such as "a\u0000x". With 'a':string declared before 'a*':decimal it types that path STRING,
+    // so the number under it has to stay as parsed here too.
+    const std::string key("a\0x", 3);
+    const VariantTemplatePaths string_first =
+            paths_of({{.pattern = "a", .is_glob = false, .type = TYPE_STRING},
+                      {.pattern = "a*", .is_glob = true, .type = TYPE_DECIMAL128I}});
+    EXPECT_EQ(VariantNumberRead::NATIVE, string_first.number_read(key));
+    EXPECT_EQ(VariantNumberRead::DECIMAL_TEXT, string_first.number_read("ax"));
+    const VariantTemplatePaths named =
+            paths_of({{.pattern = "a", .is_glob = false, .type = TYPE_DECIMAL128I}});
+    EXPECT_EQ(VariantNumberRead::DECIMAL_TEXT, named.number_read(key));
+    EXPECT_EQ(VariantNumberRead::NATIVE, named.number_read("ax"));
 }
 
 TEST(VariantTemplatePathsTest, TheFirstMatchingTemplateFieldDecidesLikeTheShredder) {

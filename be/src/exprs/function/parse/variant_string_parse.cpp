@@ -253,9 +253,11 @@ private:
     // Only a number that may be read from its text pays for the match (a glob is an fnmatch per
     // template field): an int64 / uint64 is stored as it is, and so is a double when no field is a
     // DECIMAL. Under an object that is an array element nothing is on a declared path
-    // (collect_object).
+    // (collect_object), and neither is a value with no key above it: the root, or an element of
+    // an array at the root.
     VariantNumberRead number_read() const {
-        return _unmatched == 0 ? _paths.number_read(_path) : VariantNumberRead::NATIVE;
+        return _unmatched == 0 && _keys != 0 ? _paths.number_read(_path)
+                                             : VariantNumberRead::NATIVE;
     }
 
     bool collect_number(simdjson::ondemand::value& value) {
@@ -402,13 +404,18 @@ private:
             }
             require_json_key_length(key, _options.max_json_key_length);
             scope.add_key(to_string_ref(key));
+            // The shredder joins every key below the first with '.', an empty one included:
+            // {"":{"b":1}} is the path ".b", which a field declared 'b' does not match. So the
+            // separator goes by the number of keys above, not by whether the path is still empty.
             const size_t path_size = _path.size();
-            if (!_path.empty()) {
+            if (_keys != 0) {
                 _path.push_back('.');
             }
             _path.append(key);
+            ++_keys;
             simdjson::ondemand::value child = field.value();
             const bool collected = collect(child, depth + 1);
+            --_keys;
             _path.resize(path_size);
             if (!collected) {
                 return false;
@@ -426,9 +433,11 @@ private:
     const JsonToVariantOptions& _options;
     const VariantTemplatePaths& _paths;
     std::string _path;
+    // The number of object keys `_path` joins: 0 for a value with no key above it.
+    uint32_t _keys = 0;
     // Set while an array's elements are collected; an object or array element raises `_unmatched`
-    // for its whole subtree. A `false` return abandons the collector with its row, so neither is
-    // restored on that path.
+    // for its whole subtree. A `false` return abandons the collector with its row, so none of the
+    // three is restored on that path.
     bool _in_array = false;
     uint32_t _unmatched = 0;
 };
