@@ -22,10 +22,13 @@
 #include <gen_cpp/internal_service.pb.h>
 #include <gtest/gtest.h>
 
+#include <atomic>
 #include <string>
 #include <utility>
 #include <vector>
 
+#include "cloud/config.h"
+#include "common/config.h"
 #include "common/object_pool.h"
 #include "core/block/block.h"
 #include "core/block/column_with_type_and_name.h"
@@ -33,17 +36,210 @@
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type_serde/data_type_serde.h"
+#include "cpp/sync_point.h"
 #include "exprs/vexpr.h"
+#include "io/fs/local_file_system.h"
 #include "runtime/descriptor_helper.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "service/point_query_executor.h"
+#include "storage/data_dir.h"
+#include "storage/options.h"
+#include "storage/rowset/beta_rowset.h"
+#include "storage/rowset/rowset_factory.h"
+#include "storage/rowset/rowset_writer.h"
+#include "storage/rowset/rowset_writer_context.h"
+#include "storage/segment/segment_loader.h"
+#include "storage/segment/segment_read_ahead.h"
+#include "storage/storage_engine.h"
+#include "storage/tablet/tablet.h"
+#include "storage/tablet/tablet_meta.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/utils.h"
+#include "util/defer_op.h"
 #include "util/jsonb/serialize.h"
+#include "util/thrift_util.h"
 
 namespace doris {
+
+class PointQueryReadAheadTest : public testing::Test {
+protected:
+    void SetUp() override {
+        char buffer[1024];
+        ASSERT_NE(getcwd(buffer, sizeof(buffer)), nullptr);
+        _root = std::string(buffer) + "/point_query_read_ahead_ut";
+        _old_storage_root = config::storage_root_path;
+        config::storage_root_path = _root;
+        const auto fs = io::global_local_filesystem();
+        ASSERT_TRUE(fs->delete_directory(_root).ok());
+        ASSERT_TRUE(fs->create_directory(_root).ok());
+        EngineOptions options;
+        options.store_paths.emplace_back(_root, -1);
+        auto engine = std::make_unique<StorageEngine>(options);
+        ASSERT_TRUE(engine->open().ok());
+        _engine = engine.get();
+        ExecEnv::GetInstance()->set_storage_engine(std::move(engine));
+        _data_dir = std::make_unique<DataDir>(*_engine, _root);
+        static_cast<void>(_data_dir->update_capacity());
+    }
+
+    void TearDown() override {
+        _data_dir.reset();
+        ExecEnv::GetInstance()->set_storage_engine(nullptr);
+        static_cast<void>(io::global_local_filesystem()->delete_directory(_root));
+        config::storage_root_path = _old_storage_root;
+    }
+
+    TabletSchemaSPtr create_row_store_schema() {
+        TabletSchemaPB pb;
+        pb.set_keys_type(UNIQUE_KEYS);
+        pb.set_num_short_key_columns(1);
+        pb.set_num_rows_per_row_block(1024);
+        pb.set_compress_kind(COMPRESS_LZ4);
+        pb.set_next_column_unique_id(4);
+        pb.set_store_row_column(true);
+        const auto add = [&](int uid, const std::string& name, const std::string& type, bool is_key,
+                             int length) {
+            auto* column = pb.add_column();
+            column->set_unique_id(uid);
+            column->set_name(name);
+            column->set_type(type);
+            column->set_is_key(is_key);
+            column->set_length(length);
+            column->set_index_length(type == "STRING" ? 4 : length);
+            column->set_is_nullable(!is_key && name == "v");
+            column->set_is_bf_column(false);
+            column->set_aggregation("NONE");
+            if (name == "v" || name == DELETE_SIGN) {
+                column->set_default_value("0");
+            }
+        };
+        add(0, "k", "INT", true, 4);
+        add(1, "v", "INT", false, 4);
+        add(2, DELETE_SIGN, "TINYINT", false, 1);
+        add(3, BeConsts::ROW_STORE_COL, "STRING", false, 2147483643);
+        auto schema = std::make_shared<TabletSchema>();
+        schema->init_from_pb(pb);
+        return schema;
+    }
+
+    RowsetSharedPtr write_rowset(const TabletSchemaSPtr& schema, int64_t rowset_id, int64_t version,
+                                 const std::vector<std::pair<int32_t, int32_t>>& rows,
+                                 TabletSharedPtr* tablet) {
+        TabletMetaPB tablet_pb;
+        tablet_pb.set_tablet_id(90001);
+        tablet_pb.set_partition_id(10);
+        tablet_pb.set_enable_unique_key_merge_on_write(true);
+        schema->to_schema_pb(tablet_pb.mutable_schema());
+        auto tablet_meta = std::make_shared<TabletMeta>();
+        tablet_meta->init_from_pb(tablet_pb);
+        *tablet = std::make_shared<Tablet>(*_engine, tablet_meta, _data_dir.get(), "point_read_ut");
+
+        RowsetWriterContext context;
+        context.rowset_id.init(rowset_id);
+        context.tablet_id = 90001;
+        context.tablet_schema_hash = 1;
+        context.partition_id = 10;
+        context.rowset_type = BETA_ROWSET;
+        context.tablet_path = _root;
+        context.rowset_state = VISIBLE;
+        context.tablet_schema = schema;
+        context.version = {version, version};
+        context.enable_unique_key_merge_on_write = true;
+        context.write_type = DataWriteType::TYPE_DIRECT;
+        context.tablet = *tablet;
+        auto result = RowsetFactory::create_rowset_writer(*_engine, context, false);
+        EXPECT_TRUE(result.has_value()) << result.error();
+        if (!result.has_value()) {
+            return nullptr;
+        }
+        auto writer = std::move(result).value();
+        Block block = schema->create_block();
+        {
+            auto guard = block.mutate_columns_scoped();
+            auto& columns = guard.mutable_columns();
+            for (const auto& [key, value] : rows) {
+                columns[0]->insert_data(reinterpret_cast<const char*>(&key), sizeof(key));
+                columns[1]->insert_data(reinterpret_cast<const char*>(&value), sizeof(value));
+                columns[2]->insert_default();
+                columns[3]->insert_default();
+            }
+        }
+        EXPECT_TRUE(writer->add_block(&block).ok());
+        EXPECT_TRUE(writer->flush().ok());
+        RowsetSharedPtr rowset;
+        EXPECT_TRUE(writer->build(rowset).ok());
+        return rowset;
+    }
+
+    StorageEngine* _engine = nullptr;
+    std::unique_ptr<DataDir> _data_dir;
+    std::string _root;
+    std::string _old_storage_root;
+};
+
+TEST_F(PointQueryReadAheadTest, RowStoreFallsBackWhenReadAheadSwitchChanges) {
+    auto schema = create_row_store_schema();
+    TabletSharedPtr tablet;
+    auto rowset = write_rowset(schema, 5101, 2, {{1, 11}, {2, 22}}, &tablet);
+    ASSERT_NE(rowset, nullptr);
+    const RowLocation location {rowset->rowset_id(), 0, 1};
+    const std::string key = "key";
+    OlapReaderStatistics expected_stats;
+    std::string expected;
+    ASSERT_TRUE(
+            tablet->lookup_row_data(Slice(key), location, rowset, expected_stats, expected).ok());
+    SegmentCacheHandle segment_cache;
+    ASSERT_TRUE(
+            SegmentLoader::instance()
+                    ->load_segments(std::static_pointer_cast<BetaRowset>(rowset), &segment_cache)
+                    .ok());
+    ASSERT_EQ(segment_cache.get_segments().size(), 1);
+    const auto& segment = segment_cache.get_segments().front();
+
+    const auto old_cloud_unique_id = config::cloud_unique_id;
+    const bool old_read_ahead = config::enable_query_read_ahead;
+    const bool old_async_write = config::enable_async_file_cache_write;
+    auto* sync_point = SyncPoint::get_instance();
+    Defer restore {[&] {
+        sync_point->disable_processing();
+        config::cloud_unique_id = old_cloud_unique_id;
+        config::enable_query_read_ahead = old_read_ahead;
+        config::enable_async_file_cache_write = old_async_write;
+    }};
+    config::cloud_unique_id = "PointQueryReadAheadTest";
+
+    for (int switch_index = 0; switch_index < 2; ++switch_index) {
+        SCOPED_TRACE(switch_index);
+        config::enable_query_read_ahead = true;
+        config::enable_async_file_cache_write = true;
+        ASSERT_TRUE(segment_v2::SegmentReadAhead::enabled());
+        auto context = std::make_shared<io::FileRangeReadContext>(1024 * 1024);
+
+        // Model a switch closing after the request created its context and resolved the segment.
+        // Both the read-ahead and fallback paths must reuse that segment without loading it again.
+        if (switch_index == 0) {
+            config::enable_query_read_ahead = false;
+        } else {
+            config::enable_async_file_cache_write = false;
+        }
+        size_t segment_loads = 0;
+        SyncPoint::CallbackGuard guard;
+        sync_point->set_call_back(
+                "SegmentLoader::load_segments", [&](auto&&) { ++segment_loads; }, &guard);
+        sync_point->enable_processing();
+        OlapReaderStatistics stats;
+        std::string actual;
+        const auto status = tablet->lookup_row_data_with_read_ahead(
+                Slice(key), location, segment, rowset, stats, actual, false, nullptr, context);
+        sync_point->disable_processing();
+        ASSERT_TRUE(status.ok()) << status;
+        EXPECT_EQ(segment_loads, 0);
+        EXPECT_EQ(actual, expected);
+        EXPECT_EQ(context->resident_bytes(), 0);
+    }
+}
 
 // Helper class for setting up Reusable objects to test LookupConnectionCache
 class ReusableTestHelper {
