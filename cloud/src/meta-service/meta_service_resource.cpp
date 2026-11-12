@@ -3380,12 +3380,11 @@ void handle_update_node_status(const std::string& instance_id, const AlterCluste
 
     ClusterInfo cluster;
     cluster.cluster.CopyFrom(requested_cluster);
-    if (cluster.cluster.cluster_id().empty()) {
-        // Older HTTP callers can identify the cluster through the node alone.
-        msg = resolve_cluster_from_node(*resource_mgr, requested_cluster.nodes(0), cluster.cluster);
-        if (!msg.empty()) {
-            return;
-        }
+    // Node resolution is authoritative: older HTTP callers may omit cluster_id or
+    // carry a stale one, so always locate the cluster through the node itself.
+    msg = resolve_cluster_from_node(*resource_mgr, requested_cluster.nodes(0), cluster.cluster);
+    if (!msg.empty()) {
+        return;
     }
 
     const auto& cluster_id = cluster.cluster.cluster_id();
