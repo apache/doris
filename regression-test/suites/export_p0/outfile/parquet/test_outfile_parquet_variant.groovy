@@ -30,12 +30,14 @@ suite("test_outfile_parquet_variant", "p0,external") {
 
     sql "DROP TABLE IF EXISTS outfile_parquet_variant_src"
     sql "DROP TABLE IF EXISTS outfile_parquet_variant_dst"
+    sql "DROP TABLE IF EXISTS outfile_parquet_variant_alias_dst"
     sql """
         CREATE TABLE outfile_parquet_variant_src (id INT NOT NULL, v VARIANT NULL)
         DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1
         PROPERTIES ("replication_num" = "1")
     """
     sql "CREATE TABLE outfile_parquet_variant_dst LIKE outfile_parquet_variant_src"
+    sql "CREATE TABLE outfile_parquet_variant_alias_dst LIKE outfile_parquet_variant_src"
     sql """
         INSERT INTO outfile_parquet_variant_src VALUES
             (1, parse_to_variant('{"nested":{"n":17},"a":[true,null,"x"]}')),
@@ -44,7 +46,9 @@ suite("test_outfile_parquet_variant", "p0,external") {
             (4, parse_to_variant('true')),
             (5, parse_to_variant('{}')),
             (6, NULL),
-            (7, parse_to_variant('"hello"'))
+            (7, parse_to_variant('"hello"')),
+            (8, parse_to_variant('{"a":1}')),
+            (9, parse_to_variant('[{"a":1}]'))
     """
     // Generate a Variant null after the scan. The table stores a root Variant null as an empty object.
     def projection = "id, IF(id = 5, parse_to_variant('null'), v) AS v"
@@ -84,5 +88,39 @@ suite("test_outfile_parquet_variant", "p0,external") {
                 ? "(SELECT * FROM outfile_parquet_variant_src WHERE v IS NOT NULL) t"
                 : "outfile_parquet_variant_src"
         assertEquals(readRows(expected), readRows("outfile_parquet_variant_dst"))
+    }
+
+    // These two root containers must survive the text source contract of a renamed input.
+    // Root scalars have different SQL string-cast semantics and are outside this coverage.
+    sql """
+        SELECT id, v AS raw_v FROM outfile_parquet_variant_src WHERE id IN (8, 9)
+        INTO OUTFILE "${uri}alias/part_" FORMAT AS PARQUET PROPERTIES (${storage})
+    """
+    def aliasFile = """s3("uri" = "${uri}alias/*.parquet", "format" = "parquet", ${storage})"""
+    def aliasColumn = sql("DESC FUNCTION ${aliasFile}").find { it[0] == "raw_v" }
+    assertTrue(aliasColumn[1].toLowerCase(Locale.ROOT).startsWith("variant"), aliasColumn.toString())
+    def aliasQuery = """SELECT id, CAST(v AS STRING), variant_type(v), v IS NULL
+                        FROM outfile_parquet_variant_alias_dst ORDER BY id"""
+    for (boolean explicitParse : [false, true]) {
+        sql "TRUNCATE TABLE outfile_parquet_variant_alias_dst"
+        def label = "parquet_variant_alias_" + UUID.randomUUID().toString().replace("-", "")
+        def mapping = explicitParse ? "parse_to_variant(raw_v)" : "raw_v"
+        sql """
+            LOAD LABEL ${label} (
+                DATA INFILE("${uri}alias/part_*.parquet")
+                INTO TABLE outfile_parquet_variant_alias_dst FORMAT AS "parquet" (id, raw_v)
+                SET (v = ${mapping})
+            ) WITH S3 (${storage})
+        """
+        waitForBrokerLoadDone(label)
+        def job = sql("SHOW LOAD WHERE LABEL = '${label}'")[0]
+        assertEquals("FINISHED", job[2], job.toString())
+        assertEquals(readRows("(SELECT * FROM outfile_parquet_variant_src WHERE id IN (8, 9)) t"),
+                     readRows("outfile_parquet_variant_alias_dst"))
+        if (explicitParse) {
+            order_qt_alias_containers_parse aliasQuery
+        } else {
+            order_qt_alias_containers_direct aliasQuery
+        }
     }
 }
