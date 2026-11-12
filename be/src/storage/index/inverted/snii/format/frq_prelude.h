@@ -36,7 +36,7 @@ namespace doris::snii::format {
 
 namespace frq_prelude_flags {
 inline constexpr uint8_t kHasPrx = 1u << 0;
-// Reserved extension point (T18): kSlimRows = 1u << 2 would gate the trimmed
+// Reserved extension point: kSlimRows = 1u << 2 would gate the trimmed
 // window-row layout (no stored dd_off/prx_off, conditional uncomp_len)
 // as a distinct on-disk path. It is NOT emitted today: the trim folds into the
 // single pre-launch v1 encoding (writer/reader symmetric, no dual decode path).

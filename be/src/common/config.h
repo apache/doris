@@ -1477,9 +1477,9 @@ DECLARE_mInt32(snii_inline_read_max_segments);
 DECLARE_mInt32(snii_target_dict_block_bytes);
 // Maximum process-memory share for SNII index builds. Above this share, writers with reclaimable posting arenas receive spill requests; zero disables the share trigger but keeps process-pressure backstops.
 DECLARE_mInt32(snii_index_build_max_memory_limit_percent);
-// Minimum reclaimable posting-arena size for a forced spill. Requests below this floor remain pending until the arena grows enough.
+// Minimum reclaimable posting-arena size for a forced spill. Smaller requests remain pending.
 DECLARE_mInt64(snii_forced_spill_min_arena_bytes);
-// Maximum active inputs per spill-run merge. Zero leaves fan-in to workspace and file-descriptor limits.
+// Additional cap on active merge inputs, with a minimum of two. Zero retains workspace and file descriptor limits.
 DECLARE_mInt32(snii_spill_max_run_files_per_buffer);
 // Shared posting-workspace budget for spill, merge, and encoding.
 DECLARE_mInt64(snii_postings_workspace_bytes);

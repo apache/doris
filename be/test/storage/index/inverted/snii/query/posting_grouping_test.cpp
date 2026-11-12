@@ -409,7 +409,7 @@ TEST(SniiPostingGrouping, ContiguousDdBlockSavesAllThreeMetrics) {
                         .is<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>());
 
     // ---- (b) docid-only posting read fetches the dd-block CONTIGUOUSLY --------
-    // GROUPED = the Phase-D grouped docid-only path: read [prelude][dd-block] as
+    // Read [prelude][dd-block] as
     // one contiguous range. The lookup is deliberately outside this metrics
     // window so the assertion covers posting I/O.
     metered.reset_metrics();

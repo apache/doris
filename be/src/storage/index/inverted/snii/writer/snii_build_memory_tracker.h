@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <cstdint>
+
 #include "storage/index/inverted/snii/writer/memory_reporter.h"
 
 namespace doris {
@@ -37,7 +39,14 @@ enum class BuildMemoryPopulation {
     kUnregistered,
 };
 
-// Mirrors a reporter's live bytes into the process tracker.
+// Batch reporter updates to reduce contention on the process-wide counters.
+// Each reporter stays exact; published totals lag by less than one step and become
+// exact when its live bytes reach zero or it is destroyed.
+inline constexpr int64_t kBuildBytesPublishStep = 1LL << 20;
+
+// Mirrors a reporter's live bytes into the process tracker, to within one publish step
+// while they are above zero, and exactly whenever they are zero or the reporter is
+// destroyed.
 MemoryReporter::ConsumeReleaseFn snii_build_consume_release(BuildMemoryPopulation population);
 
 // Returns reclaimable build bytes from registered writers.

@@ -18,6 +18,9 @@
 #include "storage/index/inverted/snii/writer/snii_build_memory_tracker.h"
 
 #include <atomic>
+#include <cstdlib>
+#include <memory>
+#include <utility>
 
 #include "common/metrics/doris_metrics.h"
 #include "common/metrics/metrics.h"
@@ -53,6 +56,47 @@ namespace {
 // maintained directly instead of being derived by subtraction, and why it is a
 // plain atomic rather than a second MemTracker.
 std::atomic<int64_t> g_registered_build_bytes {0};
+
+// Holds one reporter's changes until they reach a publish step or its live bytes reach zero.
+// Flush any remainder on destruction because IndexFileWriter can retain a reporter after its writer finishes.
+class HeldBackBuildBytes {
+public:
+    HeldBackBuildBytes(doris::MemTracker* tracker, bool registered)
+            : tracker_(tracker), registered_(registered) {}
+    ~HeldBackBuildBytes() { publish(pending_.exchange(0, std::memory_order_relaxed)); }
+
+    void add(int64_t delta) {
+        const int64_t pending = pending_.fetch_add(delta, std::memory_order_relaxed) + delta;
+        // acq_rel, so that whoever brings live_ to zero sees every change counted in
+        // live_ before it already in pending_ when it exchanges.
+        const int64_t live = live_.fetch_add(delta, std::memory_order_acq_rel) + delta;
+        // At zero only a non-empty remainder is published: a scratch reservation that is
+        // taken and given back per term leaves pending_ at zero too, and must not touch
+        // the shared counters.
+        if (std::abs(pending) >= kBuildBytesPublishStep || (live == 0 && pending != 0)) {
+            publish(pending_.exchange(0, std::memory_order_relaxed));
+        }
+    }
+
+private:
+    // The limiter reads only the registered counter; the tracker provides observations.
+    // Their atomic updates do not need to form one transaction.
+    void publish(int64_t delta) {
+        if (delta >= 0) {
+            tracker_->consume(delta);
+        } else {
+            tracker_->release(-delta);
+        }
+        if (registered_) {
+            g_registered_build_bytes.fetch_add(delta, std::memory_order_relaxed);
+        }
+    }
+
+    doris::MemTracker* const tracker_;
+    const bool registered_;
+    std::atomic<int64_t> pending_ {0};
+    std::atomic<int64_t> live_ {0};
+};
 } // namespace
 
 int64_t snii_registered_build_bytes() {
@@ -60,27 +104,13 @@ int64_t snii_registered_build_bytes() {
 }
 
 MemoryReporter::ConsumeReleaseFn snii_build_consume_release(BuildMemoryPopulation population) {
-    auto* tracker = snii_build_mem_tracker();
-    // MemTracker and the subset counter are both thread-safe atomics, which is
-    // what MemoryReporter requires of this callback: it is invoked
-    // concurrently, from Reservation destructors, and must not throw.
-    //
-    // The registered path updates two of them, which is NOT atomic as a pair --
-    // and does not need to be. The decision layer reads only
-    // g_registered_build_bytes; the tracker is observation. Because no consumer
-    // combines the two, there is no window in which they can disagree with each
-    // other in a way anything can observe.
-    const bool registered = population == BuildMemoryPopulation::kRegistered;
-    return [tracker, registered](int64_t delta) {
-        if (delta >= 0) {
-            tracker->consume(delta);
-        } else {
-            tracker->release(-delta);
-        }
-        if (registered) {
-            g_registered_build_bytes.fetch_add(delta, std::memory_order_relaxed);
-        }
-    };
+    // pending_ is atomic because MemoryReporter requires this callback to be safe
+    // to invoke concurrently; it is also invoked from Reservation destructors and
+    // must not throw. It is shared because std::function must be copyable: the
+    // last copy to go publishes the remainder.
+    auto held_back = std::make_shared<HeldBackBuildBytes>(
+            snii_build_mem_tracker(), population == BuildMemoryPopulation::kRegistered);
+    return [held_back = std::move(held_back)](int64_t delta) { held_back->add(delta); };
 }
 
 } // namespace doris::snii::writer

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// Checks count-only default-row emission and ensures other scan shapes use normal row processing.
+// Checks count-only default-row emission and other scan shapes.
 #include <gtest/gtest.h>
 
 #include <cstddef>
@@ -136,7 +136,7 @@ struct Fixture {
         }
     }
 
-    // Simulates the reader having fabricated a count bitmap (G02 hit).
+    // Simulates a count bitmap fabricated by the reader.
     void set_hit() { iter->_count_fastpath_hit = true; }
 
     // Simulates the _lazy_init engage step for a fabricated bitmap of
@@ -265,7 +265,7 @@ TEST(CountEmitShortcut, NullableColumnsEmitNotNullDefaults) {
 }
 
 // The shortcut consumes only the CARDINALITY of the post-apply bitmap; the id
-// positions are irrelevant. Pins the null-bearing G02 shape (null-disjoint
+// positions are irrelevant. Pins the null-bearing shape (null-disjoint
 // fabrication produces a SHIFTED range like [100, 150), not [0, 50)).
 TEST(CountEmitShortcut, NullDisjointFabricatedShapeCountsByCardinality) {
     Fixture fx;
@@ -298,7 +298,7 @@ TEST(CountEmitShortcut, MultipleIteratorsEmitIndependently) {
     EXPECT_EQ(emit_batches(), 3U);
 }
 
-// G02->G03 handshake teardown: the reply flag is captured into the iterator
+// Handshake teardown: the reply flag is captured into the iterator
 // and BOTH context flags are cleared so no later read_from_index call can
 // observe or forge them.
 TEST(CountEmitShortcut, CaptureHitRecordsReplyAndResetsHandshake) {
