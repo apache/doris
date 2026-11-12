@@ -309,6 +309,7 @@ std::unique_ptr<GeoShape> decode_geography_calculation_shape(StringRef value) {
 static thread_local size_t geography_exact_proofs = 0;
 static thread_local size_t geography_candidate_visits = 0;
 static thread_local size_t geography_polygon_crossing_checks = 0;
+static thread_local size_t geography_polygon_admission_checks = 0;
 #endif
 
 // Test coplanarity of the original degree ordinates, not independently rounded S2 vectors.
@@ -1247,23 +1248,31 @@ static bool geography_has_raw_polygon_edge_crossing(
     return false;
 }
 
+static bool geography_raw_rounded_side_mismatch(const GeographyVertex& start,
+                                                const GeographyVertex& end,
+                                                const GeographyVertex& point,
+                                                S1Angle conversion_error) {
+#ifdef BE_TEST
+    ++geography_polygon_admission_checks;
+#endif
+    if (start == end || point == start || point == end ||
+        S2::GetDistance(point.point, start.point, end.point) > conversion_error) {
+        return false;
+    }
+    const auto determinant =
+            geography_raw_determinant(start.coordinate, end.coordinate, point.coordinate);
+    const int raw_side = (determinant > 0) - (determinant < 0);
+    const int rounded_side = s2pred::ExpensiveSign(start.point, end.point, point.point, false);
+    return raw_side != 0 && rounded_side != 0 && raw_side != rounded_side;
+}
+
 static bool geography_raw_rounded_side_mismatch(const GeographyCoordinates& polygon,
                                                 const GeographyVertex& point) {
-    const S1Angle conversion_error = geography_conversion_error().ToAngle();
+    const auto conversion_error = geography_conversion_error().ToAngle();
     for (const auto& ring : polygon.sequences) {
         for (size_t i = 0; i + 1 < ring.size(); ++i) {
-            const auto& start = ring[i];
-            const auto& end = ring[i + 1];
-            if (start == end || point == start || point == end ||
-                S2::GetDistance(point.point, start.point, end.point) > conversion_error) {
-                continue;
-            }
-            const auto determinant =
-                    geography_raw_determinant(start.coordinate, end.coordinate, point.coordinate);
-            const int raw_side = (determinant > 0) - (determinant < 0);
-            const int rounded_side =
-                    s2pred::ExpensiveSign(start.point, end.point, point.point, false);
-            if (raw_side != 0 && rounded_side != 0 && raw_side != rounded_side) {
+            if (geography_raw_rounded_side_mismatch(ring[i], ring[i + 1], point,
+                                                    conversion_error)) {
                 return true;
             }
         }
@@ -1276,6 +1285,9 @@ static bool geography_polygon_boundary_contains_point(const GeographyCoordinates
                                                       const GeographyVertex& point) {
     for (const auto& ring : polygon.sequences) {
         for (size_t i = 0; i + 1 < ring.size(); ++i) {
+#ifdef BE_TEST
+            ++geography_polygon_admission_checks;
+#endif
             if (nodes.contains_point(ring[i], ring[i + 1], point)) {
                 return true;
             }
@@ -1286,18 +1298,23 @@ static bool geography_polygon_boundary_contains_point(const GeographyCoordinates
 
 enum class GeographyPolygonInterior { OUTSIDE, INSIDE, ROUNDED_BOUNDARY, ROUNDED_SIDE };
 
-// The caller has already excluded exact raw boundary contact. Reuse this admission for both
-// point relations and independent interior witnesses in a pair with a rounded vertex collision.
-static GeographyPolygonInterior geography_polygon_point_interior(
-        const GeographyCoordinates& polygon, const S2ShapeIndex& index,
-        const GeographyVertex& point) {
+static std::pair<bool, bool> geography_rounded_polygon_contains(const S2ShapeIndex& index,
+                                                                const GeographyVertex& point) {
     MutableS2ShapeIndex point_index;
     point_index.Add(std::make_unique<S2PointVectorShape>(std::vector<S2Point> {point.point}));
     S2BooleanOperation::Options options;
     options.set_polygon_model(S2BooleanOperation::PolygonModel::CLOSED);
     const bool closed = S2BooleanOperation::Contains(index, point_index, options);
     options.set_polygon_model(S2BooleanOperation::PolygonModel::OPEN);
-    const bool interior = S2BooleanOperation::Contains(index, point_index, options);
+    return {closed, S2BooleanOperation::Contains(index, point_index, options)};
+}
+
+// The caller has already excluded exact raw boundary contact. Reuse this admission for both
+// point relations and independent interior witnesses in a pair with a rounded vertex collision.
+static GeographyPolygonInterior geography_polygon_point_interior(
+        const GeographyCoordinates& polygon, const S2ShapeIndex& index,
+        const GeographyVertex& point) {
+    const auto [closed, interior] = geography_rounded_polygon_contains(index, point);
     // A raw vertex can round onto a different boundary vertex without owning its interior.
     if (closed && !interior) {
         return GeographyPolygonInterior::ROUNDED_BOUNDARY;
@@ -1323,6 +1340,68 @@ static bool geography_polygon_has_rounded_side_mismatch(const GeographyCoordinat
             if (location == GeographyPolygonInterior::ROUNDED_BOUNDARY ||
                 location == GeographyPolygonInterior::ROUNDED_SIDE) {
                 return true;
+            }
+        }
+    }
+    return false;
+}
+
+static bool geography_polygon_line_has_ambiguous_vertex(const GeographyCoordinates& polygon,
+                                                        const S2ShapeIndex& polygon_index,
+                                                        const GeographyCoordinates& line,
+                                                        const GeographyEdgeNodes& nodes) {
+    const auto conversion_error = geography_conversion_error();
+    const auto& vertices = line.sequences.front();
+    S2ClosestEdgeQuery boundary_query(&polygon_index);
+    boundary_query.mutable_options()->set_include_interiors(false);
+    S2PointIndex<const GeographyVertex*> line_index;
+    for (const auto& point : vertices) {
+#ifdef BE_TEST
+        ++geography_polygon_admission_checks;
+#endif
+        S2ClosestEdgeQuery::PointTarget target(point.point);
+        // An interior vertex far from the rounded ring cannot switch membership
+        // between OPEN and CLOSED. Near it, keep the original model and raw contact checks.
+        if (boundary_query.IsConservativeDistanceLessOrEqual(&target, conversion_error)) {
+            const auto [closed, interior] =
+                    geography_rounded_polygon_contains(polygon_index, point);
+            if (closed && !interior &&
+                !geography_polygon_boundary_contains_point(polygon, nodes, point)) {
+                return true;
+            }
+        }
+        line_index.Add(point.point, &point);
+    }
+
+    // The side predicate tests the original endpoint pair, not the noded polygon
+    // index. Query the line vertices from each original edge and retain the exact test.
+    S2ClosestPointQuery<const GeographyVertex*> side_query(&line_index);
+    side_query.mutable_options()->set_conservative_max_distance(conversion_error.ToAngle());
+    for (const auto& ring : polygon.sequences) {
+        for (size_t i = 0; i + 1 < ring.size(); ++i) {
+            const auto& start = ring[i];
+            const auto& end = ring[i + 1];
+            const auto ambiguous = [&](const GeographyVertex& point) {
+                return geography_raw_rounded_side_mismatch(start, end, point,
+                                                           conversion_error.ToAngle()) &&
+                       !geography_polygon_boundary_contains_point(polygon, nodes, point);
+            };
+            // Near-antipodal rounded endpoints can make EdgeTarget's cap unreliable
+            // (e.g. (30,58) -> (-150,-58-ulp)). Keep the original check on long arcs.
+            if (start.point.DotProd(end.point) < 0) {
+                if (std::ranges::any_of(vertices, ambiguous)) {
+                    return true;
+                }
+                continue;
+            }
+#ifdef BE_TEST
+            ++geography_polygon_admission_checks;
+#endif
+            S2ClosestPointQuery<const GeographyVertex*>::EdgeTarget target(start.point, end.point);
+            for (const auto& candidate : side_query.FindClosestPoints(&target)) {
+                if (ambiguous(*candidate.data())) {
+                    return true;
+                }
             }
         }
     }
@@ -1424,6 +1503,19 @@ Status geography_relation(std::string_view name, const GeoShape& lhs, const GeoS
     return geography_relation_impl(name, lhs, rhs, nodes, result);
 }
 
+#ifdef BE_TEST
+Status geography_polygon_line_admission_for_test(std::string_view name, const std::string& left,
+                                                 const std::string& right, bool* result,
+                                                 size_t* checks) {
+    geography_polygon_admission_checks = 0;
+    const auto lhs = decode_geography_calculation_shape(StringRef(left));
+    const auto rhs = decode_geography_calculation_shape(StringRef(right));
+    auto status = geography_relation(name, *lhs, *rhs, StringRef(left), StringRef(right), result);
+    *checks = geography_polygon_admission_checks;
+    return status;
+}
+#endif
+
 // Keep operation-specific raw/S2 admission together so uncertain rounded boundaries are checked
 // before accepting a Boolean, while independent raw contact or interior witnesses stay valid.
 // NOLINTNEXTLINE(readability-function-size,readability-function-cognitive-complexity)
@@ -1468,6 +1560,10 @@ static Status geography_relation_impl(std::string_view name, const GeoShape& lhs
                     geography_has_polygon_intersection_witness(polygon_raw, polygon_index,
                                                                other_raw, nodes)) {
                     return false;
+                }
+                if (containment) {
+                    return geography_polygon_line_has_ambiguous_vertex(polygon_raw, polygon_index,
+                                                                       other_raw, nodes);
                 }
                 return geography_polygon_has_rounded_side_mismatch(polygon_raw, polygon_index,
                                                                    other_raw, nodes);

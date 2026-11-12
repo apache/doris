@@ -1753,6 +1753,36 @@ TEST(VGeoFunctionsTest, GeographyPolygonWitnessAvoidsQuadraticCrossingScan) {
     }
 }
 
+TEST(VGeoFunctionsTest, GeographyPolygonLineContainmentBoundsAdmissionWork) {
+    for (const int count : {32, 64, 128}) {
+        SCOPED_TRACE(count);
+        std::ostringstream polygon;
+        std::ostringstream line;
+        polygon << std::setprecision(17) << "POLYGON ((";
+        line << std::setprecision(17) << "LINESTRING (";
+        for (int i = 0; i < count; ++i) {
+            polygon << -10.0 + 20.0 * i / (count - 1) << " -10,";
+            line << (i == 0 ? "" : ",") << "0 " << -1.0 + 2.0 * i / (count - 1);
+        }
+        polygon << "0 10,-10 -10))";
+        line << ")";
+        const auto area = spatial_test_wkb(geography_test_hex(polygon.str()));
+        const auto inside = spatial_test_wkb(geography_test_hex(line.str()));
+        for (const auto* name : {"st_contains", "st_within"}) {
+            SCOPED_TRACE(name);
+            const bool reverse = std::string_view(name) == "st_within";
+            bool result = false;
+            size_t checks = 0;
+            const auto status = geography_polygon_line_admission_for_test(
+                    name, reverse ? inside : area, reverse ? area : inside, &result, &checks);
+            ASSERT_TRUE(status.ok()) << status;
+            EXPECT_TRUE(result);
+            EXPECT_GT(checks, 0);
+            EXPECT_LE(checks, 4 * count);
+        }
+    }
+}
+
 TEST(VGeoFunctionsTest, GeographyBearingUsesOriginalNearAntipodalDirections) {
     struct Case {
         std::string from;
