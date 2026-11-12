@@ -24,6 +24,7 @@
 #include <string.h>
 #include <zlib.h>
 
+#include <array>
 #include <cstdint>
 #include <limits>
 #include <vector>
@@ -464,6 +465,53 @@ TEST(ZlibCRC32Fixed, SequentialInt32) {
     }
 }
 */
+template <size_t Size>
+void check_zlib_crc32_byte_patterns() {
+    std::array<uint8_t, Size> value {};
+    for (uint32_t seed : {0U, 1U, 0xFFFFFFFFU, 0xDEADBEEFU}) {
+        for (int pattern = 0; pattern < 256; ++pattern) {
+            for (size_t i = 0; i < Size; ++i) {
+                value[i] = static_cast<uint8_t>(pattern + i * 37);
+            }
+            EXPECT_EQ(HashUtil::zlib_crc32_fixed(value, seed), zlib_crc32_reference(value, seed))
+                    << "size=" << Size << " seed=" << seed << " pattern=" << pattern;
+        }
+        for (size_t bit = 0; bit < Size * 8; ++bit) {
+            value.fill(0);
+            value[bit / 8] = static_cast<uint8_t>(1U << (bit % 8));
+            EXPECT_EQ(HashUtil::zlib_crc32_fixed(value, seed), zlib_crc32_reference(value, seed))
+                    << "size=" << Size << " seed=" << seed << " bit=" << bit;
+        }
+    }
+}
+
+TEST(ZlibCRC32Fixed, FixedSizeBytePatterns) {
+    check_zlib_crc32_byte_patterns<1>();
+    check_zlib_crc32_byte_patterns<2>();
+    check_zlib_crc32_byte_patterns<4>();
+    check_zlib_crc32_byte_patterns<8>();
+}
+
+TEST(ZlibCRC32Fixed, MixedWidthChain) {
+    const uint8_t a = 0x81;
+    const uint16_t b = 0x1234;
+    const uint32_t c = 0x89ABCDEF;
+    const uint64_t d = 0x0123456789ABCDEFULL;
+    std::array<uint8_t, sizeof(a) + sizeof(b) + sizeof(c) + sizeof(d)> bytes {};
+    memcpy(bytes.data(), &a, sizeof(a));
+    memcpy(bytes.data() + sizeof(a), &b, sizeof(b));
+    memcpy(bytes.data() + sizeof(a) + sizeof(b), &c, sizeof(c));
+    memcpy(bytes.data() + sizeof(a) + sizeof(b) + sizeof(c), &d, sizeof(d));
+    for (uint32_t seed : {0U, 1U, 0xFFFFFFFFU, 0xDEADBEEFU}) {
+        uint32_t hash = HashUtil::zlib_crc32_fixed(a, seed);
+        hash = HashUtil::zlib_crc32_fixed(b, hash);
+        hash = HashUtil::zlib_crc32_fixed(c, hash);
+        hash = HashUtil::zlib_crc32_fixed(d, hash);
+        EXPECT_EQ(hash, HashUtil::zlib_crc_hash(bytes.data(), bytes.size(), seed))
+                << "seed=" << seed;
+    }
+}
+
 // ==================== Large 16-byte type fallback test ====================
 
 TEST(ZlibCRC32Fixed, LargeTypeFallback) {
