@@ -32,28 +32,6 @@
 
 namespace doris {
 
-namespace {
-
-// Whether the storage function of `aggregation` returns the single input of a one-row group
-// unchanged: the sum, extremum or replacement of one value is that value, and the union of one
-// HLL or bitmap holds the same values.
-bool reader_function_returns_single_input(FieldAggregationMethod aggregation) {
-    switch (aggregation) {
-    case FieldAggregationMethod::OLAP_FIELD_AGGREGATION_SUM:
-    case FieldAggregationMethod::OLAP_FIELD_AGGREGATION_MIN:
-    case FieldAggregationMethod::OLAP_FIELD_AGGREGATION_MAX:
-    case FieldAggregationMethod::OLAP_FIELD_AGGREGATION_REPLACE:
-    case FieldAggregationMethod::OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL:
-    case FieldAggregationMethod::OLAP_FIELD_AGGREGATION_HLL_UNION:
-    case FieldAggregationMethod::OLAP_FIELD_AGGREGATION_BITMAP_UNION:
-        return true;
-    default:
-        return false;
-    }
-}
-
-} // namespace
-
 AggKeyBlockIterator::ValueAggregator::~ValueAggregator() {
     for (auto& column : _columns) {
         column.function->destroy(column.place);
@@ -88,28 +66,15 @@ Status AggKeyBlockIterator::ValueAggregator::init(const ReadSchema& read_schema,
         const IColumn* columns[] = {column.get()};
         function->check_input_columns_type(columns);
         function->check_result_column_type(*column);
-        _returns_single_row_unchanged =
-                _returns_single_row_unchanged &&
-                reader_function_returns_single_input(tablet_column.aggregation());
 
         AggregateDataPtr place =
                 _state_arena.aligned_alloc(function->size_of_data(), function->align_of_data());
         // A throwing create() leaves the memory to the arena; the places created before are in
         // _columns, which is reserved, and the destructor destroys them.
         function->create(place);
-        _columns.push_back({.ordinal = ordinal,
-                            .function = std::move(function),
-                            .place = place,
-                            .block_has_null = false});
+        _columns.push_back({.ordinal = ordinal, .function = std::move(function), .place = place});
     }
     return Status::OK();
-}
-
-void AggKeyBlockIterator::ValueAggregator::start_block(const Block& block) {
-    const size_t rows = block.rows();
-    for (auto& column : _columns) {
-        column.block_has_null = block.get_by_position(column.ordinal).column->has_null(0, rows);
-    }
 }
 
 void AggKeyBlockIterator::ValueAggregator::fold_group(const Block& block, size_t begin, size_t end,
@@ -117,20 +82,20 @@ void AggKeyBlockIterator::ValueAggregator::fold_group(const Block& block, size_t
     DCHECK_LT(begin, end);
     for (auto& column : _columns) {
         const IColumn* source = block.get_by_position(column.ordinal).column.get();
+        // A nullable function adds the rows as one batch when none of them is NULL.
         column.function->add_batch_range(begin, end - 1, column.place, &source, _arena,
-                                         column.block_has_null);
+                                         source->has_null(begin, end));
         column.function->insert_result_into(column.place, *out[column.ordinal]);
         column.function->reset(column.place);
     }
     _arena.clear();
 }
 
-AggKeyBlockIterator::AggKeyBlockIterator(RowwiseIteratorUPtr input, bool merged, size_t max_rows,
+AggKeyBlockIterator::AggKeyBlockIterator(RowwiseIteratorUPtr input, size_t max_rows,
                                          size_t preferred_block_size_bytes,
                                          ReadSchemaSPtr read_schema, int be_exec_version,
                                          uint64_t* merged_rows)
         : _input(std::move(input)),
-          _merged_input(merged),
           _max_rows(max_rows),
           _preferred_block_size_bytes(preferred_block_size_bytes),
           _read_schema(std::move(read_schema)),
@@ -155,32 +120,38 @@ Status AggKeyBlockIterator::init() {
         }
     }
     RETURN_IF_ERROR(_aggregator.init(*_read_schema, std::move(agg_ordinals), _be_exec_version));
-    _copy_one_row_groups = _aggregator.returns_single_row_unchanged();
     _input_block = _read_schema->create_read_block();
+    return _read_input_block();
+}
+
+Status AggKeyBlockIterator::next_block(Block* block, bool* eof) {
+    auto columns_guard = block->mutate_columns_scoped();
+    auto& columns = columns_guard.mutable_columns();
+    size_t rows = 0;
+    // `_input_block` holds the next rows to fold; it always fits into an empty output Block.
+    while (!_done && (rows == 0 || _input_fits(columns, rows))) {
+        RETURN_IF_ERROR(_fold_input_block(columns));
+        rows += _num_groups;
+        RETURN_IF_ERROR(_read_input_block());
+        // An input Block never splits the rows of one key, so its first row must not have the key
+        // of the last output row.
+        DORIS_CHECK(_done || !_continues_last_output_key(columns))
+                << "an input block goes on with the key of the input block before it";
+    }
+    *eof = rows == 0;
     return Status::OK();
 }
 
 Status AggKeyBlockIterator::_read_input_block() {
     _input_block.clear_column_data();
-    _pos = 0;
     Status st = _input->next_batch(&_input_block);
     if (st.is<ErrorCode::END_OF_FILE>()) {
         _done = true;
         return Status::OK();
     }
     RETURN_IF_ERROR(st);
-    _mark_same_keys();
-    _aggregator.start_block(_input_block);
-    return Status::OK();
-}
-
-void AggKeyBlockIterator::_mark_same_keys() {
     const size_t rows = _input_block.rows();
     DCHECK_GT(rows, 0);
-    if (!_merged_input) {
-        _same_key.assign(rows, 0);
-        return;
-    }
     _same_key.assign(rows, 1);
     for (uint32_t ordinal : _key_ordinals) {
         const ColumnWithTypeAndName& key = _input_block.get_by_position(ordinal);
@@ -189,6 +160,69 @@ void AggKeyBlockIterator::_mark_same_keys() {
     }
     // An input Block never splits the rows of one key, so its first row starts a group.
     _same_key[0] = 0;
+    _num_groups = static_cast<size_t>(std::ranges::count(_same_key, 0));
+    // The heap merge ends a Block at the row limit, but for the rows of its last key.
+    DCHECK_LE(_num_groups, _max_rows);
+    return Status::OK();
+}
+
+bool AggKeyBlockIterator::_input_fits(const MutableColumns& columns, size_t rows) const {
+    if (rows + _num_groups > _max_rows) {
+        return false;
+    }
+    if (_preferred_block_size_bytes == 0) {
+        return true;
+    }
+    // The input Block folds into `_num_groups` rows of about its average row size.
+    const size_t folded_bytes = _input_block.bytes() * _num_groups / _input_block.rows();
+    return Block::columns_byte_size(columns) + folded_bytes <= _preferred_block_size_bytes;
+}
+
+Status AggKeyBlockIterator::_fold_input_block(MutableColumns& columns) {
+    const size_t rows = _input_block.rows();
+    // Whether row `row`, which starts a group, is the whole group: the next row starts another.
+    auto one_row_group = [&](size_t row) { return row + 1 == rows || !_same_key[row + 1]; };
+    // The last row of every group, which the key and REPLACE columns are copied from.
+    std::vector<uint32_t> last_rows;
+    last_rows.reserve(_num_groups);
+    uint64_t merged_rows = 0;
+    for (size_t begin = 0; begin < rows;) {
+        size_t end = begin + 1;
+        if (one_row_group(begin)) {
+            // A stretch of one-row groups is copied as it is stored, as a read that needs no merge
+            // returns it.
+            while (end < rows && one_row_group(end)) {
+                ++end;
+            }
+            RETURN_IF_CATCH_EXCEPTION({
+                for (auto ordinal : _aggregator.agg_ordinals()) {
+                    columns[ordinal]->insert_range_from(
+                            *_input_block.get_by_position(ordinal).column, begin, end - begin);
+                }
+            });
+            for (size_t row = begin; row < end; ++row) {
+                last_rows.push_back(static_cast<uint32_t>(row));
+            }
+        } else {
+            // The group goes on while the rows have its key.
+            while (end < rows && _same_key[end]) {
+                ++end;
+            }
+            _aggregator.fold_group(_input_block, begin, end, columns);
+            last_rows.push_back(static_cast<uint32_t>(end - 1));
+            merged_rows += end - begin - 1;
+        }
+        begin = end;
+    }
+    RETURN_IF_CATCH_EXCEPTION({
+        for (auto ordinal : _copied_ordinals) {
+            columns[ordinal]->insert_indices_from(*_input_block.get_by_position(ordinal).column,
+                                                  last_rows.data(),
+                                                  last_rows.data() + last_rows.size());
+        }
+    });
+    *_merged_rows += merged_rows;
+    return Status::OK();
 }
 
 bool AggKeyBlockIterator::_continues_last_output_key(const MutableColumns& columns) const {
@@ -197,135 +231,6 @@ bool AggKeyBlockIterator::_continues_last_output_key(const MutableColumns& colum
         const IColumn& input = *_input_block.get_by_position(ordinal).column;
         return output.compare_at(output.size() - 1, 0, input, -1) == 0;
     });
-}
-
-size_t AggKeyBlockIterator::_group_end(size_t begin) const {
-    size_t end = begin + 1;
-    while (end < _same_key.size() && _same_key[end]) {
-        ++end;
-    }
-    return end;
-}
-
-Status AggKeyBlockIterator::_copy_last_rows(MutableColumns& columns) {
-    if (_last_rows.empty()) {
-        return Status::OK();
-    }
-    RETURN_IF_CATCH_EXCEPTION({
-        for (auto ordinal : _copied_ordinals) {
-            columns[ordinal]->insert_indices_from(*_input_block.get_by_position(ordinal).column,
-                                                  _last_rows.data(),
-                                                  _last_rows.data() + _last_rows.size());
-        }
-    });
-    _last_rows.clear();
-    return Status::OK();
-}
-
-Status AggKeyBlockIterator::_copy_single_rows(MutableColumns& columns, size_t begin, size_t end) {
-    for (size_t row = begin; row < end; ++row) {
-        _last_rows.push_back(static_cast<uint32_t>(row));
-    }
-    RETURN_IF_CATCH_EXCEPTION({
-        for (auto ordinal : _aggregator.agg_ordinals()) {
-            columns[ordinal]->insert_range_from(*_input_block.get_by_position(ordinal).column,
-                                                begin, end - begin);
-        }
-    });
-    return Status::OK();
-}
-
-Status AggKeyBlockIterator::_advance_input_block(MutableColumns& columns) {
-    // The collected last rows point into `_input_block`: copy them before it is refilled.
-    RETURN_IF_ERROR(_copy_last_rows(columns));
-    RETURN_IF_ERROR(_read_input_block());
-    // An input Block never splits the rows of one key, so its first row must not have the key of
-    // the last output row. The output is empty only in front of the first input Block: a full
-    // output Block is noticed in front of an unconsumed row, never at the end of a Block.
-    if (!_done && _merged_input && !columns[_key_ordinals.front()]->empty()) {
-        DORIS_CHECK(!_continues_last_output_key(columns))
-                << "an input block goes on with the key of the input block before it";
-    }
-    return Status::OK();
-}
-
-Status AggKeyBlockIterator::_output_full(MutableColumns& columns, OutputProgress* progress,
-                                         bool* full) {
-    *full = progress->rows == _max_rows;
-    if (!*full && _has_byte_budget() &&
-        progress->rows - progress->rows_at_last_check >= BYTE_BUDGET_CHECK_INTERVAL_ROWS) {
-        progress->rows_at_last_check = progress->rows;
-        // The budget measures the copied columns.
-        RETURN_IF_ERROR(_copy_last_rows(columns));
-        *full = Block::columns_byte_size(columns) >= _preferred_block_size_bytes;
-    }
-    return Status::OK();
-}
-
-bool AggKeyBlockIterator::_has_byte_budget() const {
-    return _preferred_block_size_bytes > 0;
-}
-
-size_t AggKeyBlockIterator::_one_row_groups_end(size_t room) const {
-    // Row r is a one-row group when the row after it starts another group or r is the last row,
-    // since an input Block holds the whole group of its last row.
-    const size_t rows = _input_block.rows();
-    const size_t limit = std::min(rows, _pos + room);
-    size_t end = _pos;
-    while (end < limit && (end + 1 == rows || !_same_key[end + 1])) {
-        ++end;
-    }
-    return end;
-}
-
-Status AggKeyBlockIterator::_fold_input_rows(MutableColumns& columns, OutputProgress* progress,
-                                             bool* full) {
-    while (_pos < _input_block.rows()) {
-        // Row `_pos` starts a group; stopping in front of it is safe since it is unconsumed.
-        DCHECK(!_same_key[_pos]);
-        RETURN_IF_ERROR(_output_full(columns, progress, full));
-        if (*full) {
-            return Status::OK();
-        }
-        if (_copy_one_row_groups) {
-            const size_t end = _one_row_groups_end(_max_rows - progress->rows);
-            if (end > _pos) {
-                RETURN_IF_ERROR(_copy_single_rows(columns, _pos, end));
-                progress->rows += end - _pos;
-                _pos = end;
-                continue;
-            }
-        }
-        const size_t end = _group_end(_pos);
-        _last_rows.push_back(static_cast<uint32_t>(end - 1));
-        _aggregator.fold_group(_input_block, _pos, end, columns);
-        ++progress->rows;
-        progress->merged_rows += end - _pos - 1;
-        _pos = end;
-    }
-    return Status::OK();
-}
-
-Status AggKeyBlockIterator::next_block(Block* block, bool* eof) {
-    if (_done) {
-        *eof = true;
-        return Status::OK();
-    }
-    auto target_columns_guard = block->mutate_columns_scoped();
-    auto& columns = target_columns_guard.mutable_columns();
-    OutputProgress progress;
-    bool full = false;
-    while (!full && !_done) {
-        if (_pos == _input_block.rows()) {
-            RETURN_IF_ERROR(_advance_input_block(columns));
-        } else {
-            RETURN_IF_ERROR(_fold_input_rows(columns, &progress, &full));
-        }
-    }
-    RETURN_IF_ERROR(_copy_last_rows(columns));
-    *_merged_rows += progress.merged_rows;
-    *eof = progress.rows == 0;
-    return Status::OK();
 }
 
 } // namespace doris

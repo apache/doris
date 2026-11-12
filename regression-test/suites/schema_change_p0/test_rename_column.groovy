@@ -181,7 +181,7 @@ suite ("test_rename_column") {
         """
     sql """ sync """
 
-    qt_select """ select * from ${tableName} order by user_id """
+    order_qt_select """ select * from ${tableName} order by user_id """
 
     qt_select """ select user_id, sum(cost) from ${tableName} group by user_id order by user_id """
 
@@ -195,7 +195,7 @@ suite ("test_rename_column") {
         """
     qt_desc """ desc ${tableName} """
 
-    qt_select""" select * from ${tableName} order by new_user_id """
+    order_qt_select""" select * from ${tableName} order by new_user_id """
 
     qt_select """ select new_user_id, sum(cost) from ${tableName} group by new_user_id order by new_user_id """
 
@@ -250,7 +250,7 @@ suite ("test_rename_column") {
         """
     sql """ sync """
 
-    qt_select """ select * from ${tableName} order by user_id """
+    order_qt_select """ select * from ${tableName} order by user_id """
 
     qt_select """ select user_id, sum(cost) from ${tableName} group by user_id order by user_id """
 
@@ -267,7 +267,7 @@ suite ("test_rename_column") {
         """
     qt_desc """ desc ${tableName} """
 
-    qt_select""" select * from ${tableName} order by user_id """
+    order_qt_select""" select * from ${tableName} order by user_id """
     qt_select """ select user_id, max_cost, "${viewName}" from ${viewName} order by user_id """
 
     qt_select """ select user_id, sum(cost) from ${tableName} group by user_id order by user_id """

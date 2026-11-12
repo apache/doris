@@ -90,6 +90,9 @@ private:
 
     Status _init_collect_iter(const ReaderParams& read_params);
 
+    // Whether this read folds the rows of an AGG_KEYS key with _agg_key_iter: not a changelog or a
+    // direct read, over rowsets that may hold a key more than once.
+    bool _folds_agg_keys(const ReaderParams& read_params, bool map_changelog_columns);
     // Set up _agg_key_iter for the reads that _agg_key_next_block() serves.
     Status _init_agg_key_iter(const ReaderParams& read_params);
     // Add the children of the merge that read `rs_reader`: its segments when its reader would

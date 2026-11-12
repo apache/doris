@@ -317,7 +317,8 @@ protected:
 // AGG_KEYS: both overlapping segments of the lowest-version rowset hold keys 1..3, so its
 // segment merge yields 1 1 2 2 3 3 and the row limits of Blocks of 1, 2 or 3 rows fall inside key
 // groups. Every key must still come back once, with the SUM of all its rows and the REPLACE value
-// of its newest row: the later segment within the rowset, the newer rowset when there is one.
+// of its newest row: the later segment within the rowset, the newer rowset when there is one. Two
+// one-segment rowsets whose key ranges share key 2 are merged as well.
 TEST_F(BlockReaderOverlappingSegmentsTest, AggKeysFoldEveryKeyGroupOnce) {
     auto schema = make_schema(
             {{"k", "INT", true}, {"s", "BIGINT", false, "SUM"}, {"r", "INT", false, "REPLACE"}});
@@ -326,9 +327,12 @@ TEST_F(BlockReaderOverlappingSegmentsTest, AggKeysFoldEveryKeyGroupOnce) {
             schema, {{{1, 1, 10}, {2, 2, 20}, {3, 3, 30}}, {{1, 10, 11}, {2, 20, 21}, {3, 30, 31}}},
             /*version=*/2);
     auto newer = write_rowset(schema, {{{2, 200, 22}, {3, 300, 32}}}, /*version=*/3);
+    auto lower = write_rowset(schema, {{{1, 1, 10}, {2, 2, 20}}}, /*version=*/4);
+    auto upper = write_rowset(schema, {{{2, 20, 21}, {3, 3, 30}}}, /*version=*/5);
     const std::vector<std::pair<std::vector<RowsetSharedPtr>, std::vector<Row>>> cases = {
             {{overlapping}, {{1, 11, 11}, {2, 22, 21}, {3, 33, 31}}},
             {{overlapping, newer}, {{1, 11, 11}, {2, 222, 22}, {3, 333, 32}}},
+            {{lower, upper}, {{1, 1, 10}, {2, 22, 21}, {3, 3, 30}}},
     };
 
     for (const auto& [rowsets, expected] : cases) {
