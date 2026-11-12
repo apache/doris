@@ -58,14 +58,15 @@
 #include "common/logging.h"
 #include "common/metrics/doris_metrics.h"
 #include "common/status.h"
-#include "cpp/obj-client/obj_storage_client.h"
+#include "cpp/obj-storage/client/obj_storage_client.h"
 #include "exec/spill/spill_file_manager.h"
 #include "io/fs/file_system.h"
 #include "io/fs/hdfs_file_system.h"
 #include "io/fs/local_file_system.h"
+#include "io/fs/obj_storage_file_system.h"
 #include "io/fs/path.h"
 #include "io/fs/remote_file_system.h"
-#include "io/fs/s3_file_system.h"
+#include "io/object_storage/obj_storage_config_parser.h"
 #include "runtime/cluster_info.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
@@ -103,7 +104,6 @@
 #include "util/jni_plugin_registry.h"
 #include "util/mem_info.h"
 #include "util/random.h"
-#include "util/s3_util.h"
 #include "util/stopwatch.hpp"
 #include "util/threadpool.h"
 #include "util/time.h"
@@ -1792,22 +1792,21 @@ void update_s3_resource(const TStorageResource& param, io::RemoteFileSystemSPtr 
     Status st;
     io::RemoteFileSystemSPtr fs;
 
-    if (!existed_fs) {
-        // No such FS instance on BE
-        auto res = io::S3FileSystem::create(S3Conf::get_s3_conf(param.s3_storage_param),
-                                            std::to_string(param.id));
+    auto storage_config = ObjStorageConfigParser::from_storage_param(param.s3_storage_param);
+    auto current = std::static_pointer_cast<io::ObjStorageFileSystem>(existed_fs);
+    DCHECK(!existed_fs || existed_fs->type() == io::FileSystemType::OBJECT_STORAGE);
+    // A changed target needs its own filesystem. Open readers and writers still own the old holder.
+    if (current && current->same_target(storage_config)) {
+        st = current->client_holder()->reset(storage_config);
+        fs = std::move(current);
+    } else {
+        auto res = io::ObjStorageFileSystem::create(std::move(storage_config),
+                                                    std::to_string(param.id));
         if (!res.has_value()) {
             st = std::move(res).error();
         } else {
             fs = std::move(res).value();
         }
-    } else {
-        DCHECK_EQ(existed_fs->type(), io::FileSystemType::S3) << param.id << ' ' << param.name;
-        auto client = static_cast<io::S3FileSystem*>(existed_fs.get())->client_holder();
-        auto new_s3_conf = S3Conf::get_s3_conf(param.s3_storage_param);
-        S3ClientConf conf = std::move(new_s3_conf.client_conf);
-        st = client->reset(conf);
-        fs = std::move(existed_fs);
     }
 
     if (!st.ok()) {

@@ -26,14 +26,15 @@
 #include <string_view>
 
 namespace doris {
-enum class S3RateLimitType : int {
+// HEAD and LIST share the GET quota. Uploads and deletes share the PUT quota.
+enum class ObjStorageRateLimitType : int {
     GET = 0,
     PUT,
     UNKNOWN,
 };
 
-extern std::string to_string(S3RateLimitType type);
-extern S3RateLimitType string_to_s3_rate_limit_type(std::string_view value);
+extern std::string to_string(ObjStorageRateLimitType type);
+extern ObjStorageRateLimitType string_to_obj_storage_rate_limit_type(std::string_view value);
 
 inline auto metric_func_factory(bvar::Adder<int64_t>& sleep_ns_bvar,
                                 bvar::Adder<int64_t>& sleep_count_bvar,
@@ -135,7 +136,7 @@ private:
 using S3RateLimiter = TokenBucketRateLimiter;
 using S3RateLimiterHolder = TokenBucketRateLimiterHolder;
 
-std::function<void(int64_t)> s3_rate_limiter_metric_func(S3RateLimitType type);
-int64_t apply_s3_rate_limit(S3RateLimitType type, S3RateLimiterHolder* rate_limiter,
+std::function<void(int64_t)> s3_rate_limiter_metric_func(ObjStorageRateLimitType type);
+int64_t apply_s3_rate_limit(ObjStorageRateLimitType type, S3RateLimiterHolder* rate_limiter,
                             int64_t log_interval);
 } // namespace doris

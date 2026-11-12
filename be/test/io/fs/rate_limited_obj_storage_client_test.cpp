@@ -15,11 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "cpp/obj-client/rate_limited_obj_storage_client.h"
+#include "cpp/obj-storage/rate_limited_obj_storage_client.h"
 
 #include <gen_cpp/Status_types.h>
 #include <gtest/gtest.h>
 
+#include <limits>
 #include <memory>
 #include <string>
 #include <utility>
@@ -76,7 +77,8 @@ public:
         return {};
     }
 
-    ObjStorageResponse delete_objects(const ObjStoragePath&, std::vector<std::string>) override {
+    ObjStorageResponse delete_objects_batch(const ObjStoragePath&,
+                                            std::span<std::string>) override {
         ++calls;
         return ObjStorageResponse::OK();
     }
@@ -122,20 +124,21 @@ public:
 class RecordingRateLimitPolicy final : public ObjStorageRateLimitPolicy {
 public:
     struct Request {
-        S3RateLimitType type;
+        ObjStorageRateLimitType type;
         size_t estimated_bytes;
     };
 
-    ObjStorageAdmission acquire(S3RateLimitType type, size_t estimated_bytes) const override {
+    ObjStorageAdmission acquire(ObjStorageRateLimitType type,
+                                size_t estimated_bytes) const override {
         requests.push_back({type, estimated_bytes});
-        if (reject) {
+        if (requests.size() > allowed_requests) {
             return {.resp = ObjStorageResponse::rate_limit(TStatusCode::LIMIT_REACH, 429,
                                                            "rejected by test policy")};
         }
         return {.settle = [this](size_t actual_bytes) { settled_bytes.push_back(actual_bytes); }};
     }
 
-    bool reject = false;
+    size_t allowed_requests = std::numeric_limits<size_t>::max();
     mutable std::vector<Request> requests;
     mutable std::vector<size_t> settled_bytes;
 };
@@ -175,11 +178,13 @@ TEST(RateLimitedObjStorageClientTest, AppliesAdmissionPolicyToEveryClientOperati
     EXPECT_EQ(client->capabilities().max_list_page, 23);
 
     const std::vector<RecordingRateLimitPolicy::Request> expected = {
-            {S3RateLimitType::PUT, 0}, {S3RateLimitType::PUT, 3}, {S3RateLimitType::PUT, 4},
-            {S3RateLimitType::PUT, 0}, {S3RateLimitType::GET, 0}, {S3RateLimitType::GET, 10},
-            {S3RateLimitType::GET, 0}, {S3RateLimitType::PUT, 0}, {S3RateLimitType::PUT, 0},
-            {S3RateLimitType::GET, 0}, {S3RateLimitType::GET, 0}, {S3RateLimitType::GET, 0},
-            {S3RateLimitType::PUT, 0},
+            {ObjStorageRateLimitType::PUT, 0}, {ObjStorageRateLimitType::PUT, 3},
+            {ObjStorageRateLimitType::PUT, 4}, {ObjStorageRateLimitType::PUT, 0},
+            {ObjStorageRateLimitType::GET, 0}, {ObjStorageRateLimitType::GET, 10},
+            {ObjStorageRateLimitType::GET, 0}, {ObjStorageRateLimitType::PUT, 0},
+            {ObjStorageRateLimitType::PUT, 0}, {ObjStorageRateLimitType::GET, 0},
+            {ObjStorageRateLimitType::GET, 0}, {ObjStorageRateLimitType::GET, 0},
+            {ObjStorageRateLimitType::PUT, 0},
     };
     ASSERT_EQ(policy->requests.size(), expected.size());
     for (size_t i = 0; i < expected.size(); ++i) {
@@ -195,7 +200,7 @@ TEST(RateLimitedObjStorageClientTest, AppliesAdmissionPolicyToEveryClientOperati
 TEST(RateLimitedObjStorageClientTest, RejectsEveryOperationBeforeDispatchingToInnerClient) {
     auto inner_client = std::make_shared<FakeObjStorageClient>();
     auto policy = std::make_shared<RecordingRateLimitPolicy>();
-    policy->reject = true;
+    policy->allowed_requests = 0;
     auto client = std::make_shared<RateLimitedObjStorageClient>(inner_client, policy);
     ObjStoragePath opts {.bucket = "bucket", .key = "key"};
 
@@ -222,6 +227,18 @@ TEST(RateLimitedObjStorageClientTest, RejectsEveryOperationBeforeDispatchingToIn
     EXPECT_TRUE(policy->settled_bytes.empty());
 }
 
+TEST(RateLimitedObjStorageClientTest, StopsBatchDeleteWhenTheNextBatchIsRejected) {
+    auto inner_client = std::make_shared<FakeObjStorageClient>();
+    auto policy = std::make_shared<RecordingRateLimitPolicy>();
+    policy->allowed_requests = 1;
+    RateLimitedObjStorageClient client(inner_client, policy);
+
+    std::vector<std::string> keys(2 * inner_client->capabilities().max_delete_batch + 1, "key");
+    expect_rejected(client.delete_objects({.bucket = "bucket"}, std::move(keys)));
+    EXPECT_EQ(policy->requests.size(), 2);
+    EXPECT_EQ(inner_client->calls, 1);
+}
+
 TEST(RateLimitedObjStorageClientTest, DoesNotSettleFailedReads) {
     auto inner_client = std::make_shared<FakeObjStorageClient>();
     inner_client->fail_get = true;
@@ -236,7 +253,7 @@ TEST(RateLimitedObjStorageClientTest, DoesNotSettleFailedReads) {
     EXPECT_FALSE(response.ok());
     EXPECT_EQ(inner_client->calls, 1);
     ASSERT_EQ(policy->requests.size(), 1);
-    EXPECT_EQ(policy->requests[0].type, S3RateLimitType::GET);
+    EXPECT_EQ(policy->requests[0].type, ObjStorageRateLimitType::GET);
     EXPECT_EQ(policy->requests[0].estimated_bytes, sizeof(buffer));
     EXPECT_TRUE(policy->settled_bytes.empty());
 }
@@ -244,7 +261,7 @@ TEST(RateLimitedObjStorageClientTest, DoesNotSettleFailedReads) {
 TEST(RateLimitedObjStorageClientTest, PresignedUrlBypassesRejectedPolicy) {
     auto inner_client = std::make_shared<FakeObjStorageClient>();
     auto policy = std::make_shared<RecordingRateLimitPolicy>();
-    policy->reject = true;
+    policy->allowed_requests = 0;
     RateLimitedObjStorageClient client(inner_client, policy);
 
     EXPECT_EQ(client.generate_presigned_url({.bucket = "bucket", .key = "key"}, 60), "url");
@@ -260,7 +277,7 @@ TEST(RateLimitedObjStorageClientTest, MultipartCreateUsesOneLogicalAdmission) {
 
     EXPECT_TRUE(client.create_multipart_upload({.bucket = "bucket", .key = "key"}).resp.ok());
     ASSERT_EQ(policy->requests.size(), 1);
-    EXPECT_EQ(policy->requests[0].type, S3RateLimitType::PUT);
+    EXPECT_EQ(policy->requests[0].type, ObjStorageRateLimitType::PUT);
     EXPECT_EQ(policy->requests[0].estimated_bytes, 0);
     EXPECT_EQ(inner_client->create_multipart_upload_calls, 1);
     EXPECT_EQ(inner_client->create_multipart_upload_provider_calls, 2);

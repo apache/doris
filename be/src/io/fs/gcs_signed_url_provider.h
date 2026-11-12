@@ -18,15 +18,17 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <string>
 
 #include "common/status.h"
-#include "cpp/obj-client/auth/gcp/gcp_auth.h"
+#include "cpp/obj-storage/auth/gcp/gcp_auth.h"
 
 namespace doris {
+struct ObjStoragePath;
 class GcpTokenProvider;
-}
+} // namespace doris
 
 namespace doris::io {
 
@@ -38,6 +40,10 @@ struct GcsV4SignedUrlProviderOptions {
     int64_t request_timeout_ms = 10000;
     std::string ca_cert_file_path;
 };
+
+std::function<std::string(const ObjStoragePath&, int64_t)> make_gcs_signed_url_generator(
+        const GcpCredentialConfig& credential, std::string endpoint, int request_timeout_ms,
+        std::string ca_cert_path);
 
 // Resolve the identity selected by ADC or explicit impersonation, without falling back
 // to an unrelated VM service account when the selected credentials have no identity.

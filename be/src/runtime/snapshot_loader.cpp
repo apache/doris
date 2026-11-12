@@ -44,10 +44,11 @@
 #include "io/fs/file_system.h"
 #include "io/fs/hdfs_file_system.h"
 #include "io/fs/local_file_system.h"
+#include "io/fs/obj_storage_file_system.h"
 #include "io/fs/path.h"
 #include "io/fs/remote_file_system.h"
-#include "io/fs/s3_file_system.h"
 #include "io/hdfs_builder.h"
+#include "io/object_storage/obj_storage_config_parser.h"
 #include "runtime/cluster_info.h"
 #include "runtime/exec_env.h"
 #include "service/http/http_client.h"
@@ -58,7 +59,6 @@
 #include "storage/tablet/tablet_manager.h"
 #include "util/client_cache.h"
 #include "util/s3_uri.h"
-#include "util/s3_util.h"
 #include "util/thrift_rpc_helper.h"
 
 namespace doris {
@@ -189,7 +189,7 @@ Status upload_with_checksum(io::RemoteFileSystem& fs, std::string_view local_pat
         RETURN_IF_ERROR(fs.rename(temp, full_remote_path));
         break;
     }
-    case io::FileSystemType::S3:
+    case io::FileSystemType::OBJECT_STORAGE:
         RETURN_IF_ERROR(fs.upload(local_path, full_remote_path));
         break;
     default:
@@ -757,12 +757,12 @@ BaseSnapshotLoader::BaseSnapshotLoader(ExecEnv* env, int64_t job_id, int64_t tas
 
 Status BaseSnapshotLoader::init(TStorageBackendType::type type, const std::string& location) {
     if (TStorageBackendType::type::S3 == type || TStorageBackendType::type::AZURE == type) {
-        S3Conf s3_conf;
+        ObjStorageConfig storage_config;
         S3URI s3_uri(location);
         RETURN_IF_ERROR(s3_uri.parse());
-        RETURN_IF_ERROR(S3ClientFactory::convert_properties_to_s3_conf(_prop, s3_uri, &s3_conf));
-        _remote_fs =
-                DORIS_TRY(io::S3FileSystem::create(std::move(s3_conf), io::FileSystem::TMP_FS_ID));
+        RETURN_IF_ERROR(ObjStorageConfigParser::from_properties(_prop, s3_uri, &storage_config));
+        _remote_fs = DORIS_TRY(io::ObjStorageFileSystem::create(std::move(storage_config),
+                                                                io::FileSystem::TMP_FS_ID));
     } else if (TStorageBackendType::type::HDFS == type) {
         THdfsParams hdfs_params = parse_properties(_prop);
         _remote_fs = DORIS_TRY(io::HdfsFileSystem::create(hdfs_params, hdfs_params.fs_name,

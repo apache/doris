@@ -51,8 +51,6 @@ static std::unique_ptr<cloud::MetaServiceProxy> create_meta_service() {
     return std::make_unique<cloud::MetaServiceProxy>(std::move(meta_service_impl));
 }
 
-static std::unique_ptr<cloud::MetaServiceProxy> meta_service;
-
 int main(int argc, char** argv) {
     const std::string conf_file = "doris_cloud.conf";
     if (!cloud::config::init(conf_file.c_str(), true)) {
@@ -98,15 +96,18 @@ int main(int argc, char** argv) {
     sp->set_call_back("resource_manager::set_safe_drop_time",
                       [](auto&& args) { *try_any_cast<int64_t*>(args[0]) = -1; });
 
-    meta_service = create_meta_service();
+    return RUN_ALL_TESTS();
+}
 
-    int ret = RUN_ALL_TESTS();
-    if (ret != 0) {
-        std::cerr << "run first round of tests failed" << std::endl;
-        meta_service.reset();
-        return ret;
-    }
+namespace doris::cloud {
 
+static void exercise_meta_service(MetaService* service);
+
+TEST(FdbInjectionTest, AllInOne) {
+    auto meta_service = create_meta_service();
+    ASSERT_NO_FATAL_FAILURE(exercise_meta_service(meta_service.get()));
+
+    auto sp = SyncPoint::get_instance();
     std::vector<std::string> sync_points {
             "transaction:init:create_transaction_err",
             "transaction:commit:get_err",
@@ -144,44 +145,40 @@ int main(int argc, char** argv) {
             continue;
         }
         for (auto&& name : sync_points) {
-            for (auto&& clear_name : sync_points) {
-                sp->clear_call_back(clear_name);
-            }
-
+            SCOPED_TRACE(
+                    fmt::format("sync_point={}, err={}, msg={}", name, err, fdb_get_error(err)));
+            SyncPoint::CallbackGuard inject_guard, begin_rpc_guard, retry_guard;
             auto count = std::make_shared<std::atomic<uint64_t>>(0);
             auto inject_at = std::make_shared<std::atomic<uint64_t>>(0);
-            sp->set_call_back(name, [=](auto&& args) mutable {
-                size_t n = count->fetch_add(1);
-                if (n == *inject_at) {
-                    *try_any_cast<fdb_error_t*>(args[0]) = err;
-                }
-            });
-            sp->set_call_back("MetaServiceProxy::call_impl:1", [=](auto&&) {
-                // For each RPC invoking, inject every fdb txn kv call.
-                count->store(0);
-                inject_at->store(0);
-            });
-            sp->set_call_back("MetaServiceProxy::call_impl:2", [=](auto&&) {
-                count->store(0);
-                inject_at->fetch_add(1);
-            });
+            sp->set_call_back(
+                    name,
+                    [=](auto&& args) mutable {
+                        size_t n = count->fetch_add(1);
+                        if (n == *inject_at) {
+                            *try_any_cast<fdb_error_t*>(args[0]) = err;
+                        }
+                    },
+                    &inject_guard);
+            sp->set_call_back(
+                    "MetaServiceProxy::call_impl:1",
+                    [=](auto&&) {
+                        // For each RPC invoking, inject every fdb txn kv call.
+                        count->store(0);
+                        inject_at->store(0);
+                    },
+                    &begin_rpc_guard);
+            sp->set_call_back(
+                    "MetaServiceProxy::call_impl:2",
+                    [=](auto&&) {
+                        count->store(0);
+                        inject_at->fetch_add(1);
+                    },
+                    &retry_guard);
 
-            ret = RUN_ALL_TESTS();
-            if (ret != 0) {
-                std::cerr << "run test failed, sync_point=" << name << ", err=" << err
-                          << ", msg=" << fdb_get_error(err) << std::endl;
-                meta_service.reset();
-                return ret;
-            }
+            ASSERT_NO_FATAL_FAILURE(exercise_meta_service(meta_service.get()));
         }
     }
-
-    meta_service.reset();
-
-    return 0;
 }
-
-namespace doris::cloud {
 
 using Status = MetaServiceResponseStatus;
 
@@ -788,14 +785,14 @@ static Status get_rowset_meta(MetaService* service, const std::string& instance_
     return Status();
 }
 
-TEST(FdbInjectionTest, AllInOne) {
+static void exercise_meta_service(MetaService* service) {
     auto now = std::chrono::high_resolution_clock::now();
     auto ns = std::chrono::duration_cast<std::chrono::nanoseconds>(now.time_since_epoch());
     std::string instance_id = fmt::format("fdb_injection_test_{}", ns.count());
-    int ret = create_instance(meta_service.get(), instance_id);
+    int ret = create_instance(service, instance_id);
     ASSERT_EQ(ret, 0);
 
-    ret = add_cluster(meta_service.get(), instance_id);
+    ret = add_cluster(service, instance_id);
     ASSERT_EQ(ret, 0);
 
     int64_t db_id = 1;
@@ -804,44 +801,43 @@ TEST(FdbInjectionTest, AllInOne) {
     int64_t partition_id = 1;
     std::vector<uint64_t> tablet_ids;
     for (int64_t tablet_id = 1; tablet_id <= 10; ++tablet_id) {
-        ret = create_tablet(meta_service.get(), instance_id, db_id, table_id, index_id,
-                            partition_id, tablet_id);
+        ret = create_tablet(service, instance_id, db_id, table_id, index_id, partition_id,
+                            tablet_id);
         ASSERT_EQ(ret, 0) << tablet_id;
         tablet_ids.push_back(tablet_id);
     }
 
     // Run copy into.
     std::string label = fmt::format("{}-label", instance_id);
-    auto status = copy_into(meta_service.get(), instance_id, label, db_id, index_id, partition_id,
-                            tablet_ids);
+    auto status = copy_into(service, instance_id, label, db_id, index_id, partition_id, tablet_ids);
     ASSERT_EQ(status.code(), MetaServiceCode::OK) << status.msg();
 
     // Get version
     int64_t version = 0;
-    status = get_version(meta_service.get(), instance_id, db_id, partition_id, table_id, &version);
+    status = get_version(service, instance_id, db_id, partition_id, table_id, &version);
     ASSERT_EQ(status.code(), MetaServiceCode::OK) << status.msg();
 
     // Get tablet meta & stats
     TabletStatsPB stats;
-    status = get_tablet_stats(meta_service.get(), instance_id, tablet_ids.back(), &stats);
+    status = get_tablet_stats(service, instance_id, tablet_ids.back(), &stats);
     ASSERT_EQ(status.code(), MetaServiceCode::OK) << status.msg();
 
-    status = get_tablet_meta(meta_service.get(), instance_id, tablet_ids.back());
+    status = get_tablet_meta(service, instance_id, tablet_ids.back());
     ASSERT_EQ(status.code(), MetaServiceCode::OK) << status.msg();
 
     // Get rowset metas.
-    status = get_rowset_meta(meta_service.get(), instance_id, tablet_ids.back(), version, stats);
+    status = get_rowset_meta(service, instance_id, tablet_ids.back(), version, stats);
     ASSERT_EQ(status.code(), MetaServiceCode::OK) << status.msg();
 
     int64_t max_txn_id = 0;
-    status = get_read_version(meta_service.get(), instance_id, &max_txn_id);
+    status = get_read_version(service, instance_id, &max_txn_id);
     ASSERT_EQ(status.code(), MetaServiceCode::OK) << status.msg();
     ASSERT_GE(max_txn_id, version);
 
-    ret = drop_cluster(meta_service.get(), instance_id);
+    ret = drop_cluster(service, instance_id);
     ASSERT_EQ(ret, 0);
 
-    ret = remove_instance(meta_service.get(), instance_id);
+    ret = remove_instance(service, instance_id);
     ASSERT_EQ(ret, 0);
 }
 

@@ -65,7 +65,7 @@ private:
     std::shared_ptr<TxnLazyCommitter> txn_lazy_committer_;
 };
 
-extern int reset_s3_rate_limiter(S3RateLimitType type, size_t max_speed, size_t max_burst,
+extern int reset_s3_rate_limiter(ObjStorageRateLimitType type, size_t max_speed, size_t max_burst,
                                  size_t limit);
 
 void recycle_copy_jobs(const std::shared_ptr<TxnKv>& txn_kv, const std::string& instance_id,

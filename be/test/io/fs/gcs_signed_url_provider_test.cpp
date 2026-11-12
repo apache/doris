@@ -22,7 +22,7 @@
 #include <chrono>
 #include <utility>
 
-#include "cpp/obj-client/auth/gcp/gcp_token_provider.h"
+#include "cpp/obj-storage/auth/gcp/gcp_token_provider.h"
 #include "cpp/sync_point.h"
 
 namespace doris::io {

@@ -17,60 +17,31 @@
 
 #pragma once
 
-#include <aws/core/Aws.h>
-
 #include <array>
 #include <cstdint>
 #include <memory>
 #include <optional>
 
 #include "cpp/aws_common.h"
-#include "cpp/obj-client/auth/aws_credential_factory.h"
-#include "cpp/obj-client/auth/obj_credential.h"
-#include "cpp/obj-client/obj_storage_client.h"
+#include "cpp/obj-storage/auth/obj_credential.h"
+#include "cpp/obj-storage/ca_bundle_cache.h"
+#include "cpp/obj-storage/client/obj_storage_client.h"
 #include "recycler/storage_vault_accessor.h"
-
-namespace Aws::S3 {
-class S3Client;
-} // namespace Aws::S3
 
 namespace doris {
 class TokenBucketRateLimiterHolder;
 using S3RateLimiterHolder = TokenBucketRateLimiterHolder;
 
-enum class S3RateLimitType;
+enum class ObjStorageRateLimitType;
 namespace cloud {
 class ObjectStoreInfoPB;
 class SimpleThreadPool;
 
-class S3Environment {
-public:
-    S3Environment(const S3Environment&) = delete;
-    S3Environment& operator=(const S3Environment&) = delete;
-
-    static S3Environment& getInstance();
-
-    static Aws::Client::ClientConfiguration& getClientConfiguration() {
-        // The default constructor of ClientConfiguration will do some http call
-        // such as Aws::Internal::GetEC2MetadataClient and other init operation,
-        // which is unnecessary.
-        // So here we use a static instance, and deep copy every time
-        // to avoid unnecessary operations.
-        static Aws::Client::ClientConfiguration instance;
-        return instance;
-    }
-
-    ~S3Environment();
-
-private:
-    S3Environment();
-    Aws::SDKOptions aws_options_;
-};
 struct AccessorRateLimiter {
 public:
     ~AccessorRateLimiter() = default;
     static AccessorRateLimiter& instance();
-    S3RateLimiterHolder* rate_limiter(S3RateLimitType type);
+    S3RateLimiterHolder* rate_limiter(ObjStorageRateLimitType type);
 
 private:
     AccessorRateLimiter();
@@ -91,13 +62,7 @@ struct S3Conf {
     std::string external_id;
     doris::CredentialConfig credential {};
 
-    enum Provider : uint8_t {
-        S3,
-        GCS,
-        AZURE,
-    };
-
-    Provider provider;
+    ObjectStoreInfoPB::Provider provider = ObjectStoreInfoPB::S3;
 
     static std::optional<S3Conf> from_obj_store_info(const ObjectStoreInfoPB& obj_info,
                                                      bool skip_aksk = false);
@@ -150,14 +115,12 @@ protected:
 
     virtual int delete_prefix_impl(const std::string& path_prefix, int64_t expiration_time = 0);
 
-    AwsCredentialResult create_aws_credentials_provider(const S3Conf& s3_conf);
-
     std::string get_key(const std::string& relative_path) const;
     std::string to_uri(const std::string& relative_path) const;
 
     S3Conf conf_;
     std::shared_ptr<ObjStorageClient> obj_client_;
-    std::string _ca_cert_file_path;
+    CaBundleCache _ca_bundle;
 };
 
 class GcsAccessor final : public S3Accessor {

@@ -295,7 +295,7 @@ TEST_F(AdaptiveThreadPoolControllerTest, TestConstants) {
     EXPECT_EQ(AdaptiveThreadPoolController::kQueueThreshold, 10);
     EXPECT_EQ(AdaptiveThreadPoolController::kIOBusyThresholdPercent, 90);
     EXPECT_EQ(AdaptiveThreadPoolController::kCPUBusyThresholdPercent, 90);
-    EXPECT_EQ(AdaptiveThreadPoolController::kS3QueueBusyThreshold, 10);
+    EXPECT_EQ(AdaptiveThreadPoolController::kUploadQueueBusyThreshold, 10);
 }
 
 // Test add after controller is already running

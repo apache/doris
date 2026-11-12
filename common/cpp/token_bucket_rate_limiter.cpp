@@ -221,32 +221,32 @@ size_t TokenBucketRateLimiterHolder::get_limit() const {
     return rate_limiter->get_limit();
 }
 
-std::string to_string(S3RateLimitType type) {
+std::string to_string(ObjStorageRateLimitType type) {
     switch (type) {
-    case S3RateLimitType::GET:
+    case ObjStorageRateLimitType::GET:
         return "get";
-    case S3RateLimitType::PUT:
+    case ObjStorageRateLimitType::PUT:
         return "put";
     default:
         return std::to_string(static_cast<size_t>(type));
     }
 }
 
-S3RateLimitType string_to_s3_rate_limit_type(std::string_view value) {
+ObjStorageRateLimitType string_to_obj_storage_rate_limit_type(std::string_view value) {
     if (value == "get") {
-        return S3RateLimitType::GET;
+        return ObjStorageRateLimitType::GET;
     } else if (value == "put") {
-        return S3RateLimitType::PUT;
+        return ObjStorageRateLimitType::PUT;
     }
-    return S3RateLimitType::UNKNOWN;
+    return ObjStorageRateLimitType::UNKNOWN;
 }
 
-std::function<void(int64_t)> s3_rate_limiter_metric_func(S3RateLimitType type) {
+std::function<void(int64_t)> s3_rate_limiter_metric_func(ObjStorageRateLimitType type) {
     switch (type) {
-    case S3RateLimitType::GET:
+    case ObjStorageRateLimitType::GET:
         return metric_func_factory(s3_get_rate_limit_sleep_ns, s3_get_rate_limit_sleep_count,
                                    &s3_get_rate_limit_rejected_count);
-    case S3RateLimitType::PUT:
+    case ObjStorageRateLimitType::PUT:
         return metric_func_factory(s3_put_rate_limit_sleep_ns, s3_put_rate_limit_sleep_count,
                                    &s3_put_rate_limit_rejected_count);
     default:
@@ -254,7 +254,7 @@ std::function<void(int64_t)> s3_rate_limiter_metric_func(S3RateLimitType type) {
     }
 }
 
-int64_t apply_s3_rate_limit(S3RateLimitType type, S3RateLimiterHolder* rate_limiter,
+int64_t apply_s3_rate_limit(ObjStorageRateLimitType type, S3RateLimiterHolder* rate_limiter,
                             int64_t log_interval) {
     auto result = rate_limiter->add_with_config(1);
     auto sleep_duration = result.sleep_duration;
@@ -262,7 +262,7 @@ int64_t apply_s3_rate_limit(S3RateLimitType type, S3RateLimiterHolder* rate_limi
         return sleep_duration;
     }
 
-    auto is_get = type == S3RateLimitType::GET;
+    auto is_get = type == ObjStorageRateLimitType::GET;
     auto* sleep_log_count =
             is_get ? &s3_get_rate_limit_sleep_log_count : &s3_put_rate_limit_sleep_log_count;
     auto* rejected_log_count =

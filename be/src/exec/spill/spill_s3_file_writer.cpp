@@ -63,7 +63,7 @@ Status SpillS3FileWriter::_wait_for_upload_queue() {
     if (is_cancelled()) {
         return Status::Cancelled("query cancelled before uploading spill data");
     }
-    auto* upload_pool = ExecEnv::GetInstance()->s3_file_upload_thread_pool();
+    auto* upload_pool = ExecEnv::GetInstance()->obj_storage_upload_thread_pool();
     auto queue_full = [upload_pool]() {
         return static_cast<int64_t>(upload_pool->get_queue_size()) * config::s3_write_buffer_size >=
                config::spill_s3_max_inflight_upload_bytes;
@@ -87,7 +87,7 @@ Status SpillS3FileWriter::_wait_for_upload_queue() {
 
 Status SpillS3FileWriter::_append_to_part(const Slice& data) {
     RETURN_IF_ERROR(_part_append_status);
-    // S3FileWriter splits `data` into upload buffers and queues every full one without waiting,
+    // ObjStorageFileWriter splits `data` into upload buffers and queues every full one without waiting,
     // so the queue is checked once per append: `data` is already in memory, and the wait keeps
     // the next append from producing faster than object storage takes the data.
     _part_append_status = _wait_for_upload_queue();

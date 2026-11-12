@@ -212,7 +212,7 @@ TEST_F(S3AccessorTest, s3) {
                     .region = config::test_s3_region,
                     .bucket = config::test_s3_bucket,
                     .prefix = config::test_s3_prefix + "/S3AccessorTest/" + butil::GenerateGUID(),
-                    .provider = S3Conf::S3,
+                    .provider = ObjectStoreInfoPB::S3,
             },
             &accessor);
     ASSERT_EQ(ret, 0);
@@ -228,7 +228,7 @@ TEST_F(S3AccessorTest, s3) {
             },
             &guards.emplace_back());
     sp->set_call_back(
-            "S3ObjClient::delete_objects",
+            "ObjStorageClient::delete_batch_size",
             [](auto&& args) {
                 auto* delete_batch_size = try_any_cast<size_t*>(args[0]);
                 *delete_batch_size = 7;
@@ -255,7 +255,7 @@ TEST_F(S3AccessorTest, azure) {
                     .region = config::test_s3_region,
                     .bucket = config::test_s3_bucket,
                     .prefix = config::test_s3_prefix + "/S3AccessorTest/" + butil::GenerateGUID(),
-                    .provider = S3Conf::AZURE,
+                    .provider = ObjectStoreInfoPB::AZURE,
             },
             &accessor);
     ASSERT_EQ(ret, 0);
@@ -272,7 +272,7 @@ TEST_F(S3AccessorTest, azure) {
             },
             &guards.emplace_back());
     sp->set_call_back(
-            "AzureObjClient::delete_objects",
+            "ObjStorageClient::delete_batch_size",
             [](auto&& args) {
                 auto* delete_batch_size = try_any_cast<size_t*>(args[0]);
                 *delete_batch_size = 7;
@@ -299,7 +299,7 @@ TEST_F(S3AccessorTest, gcs) {
                     .region = config::test_s3_region,
                     .bucket = config::test_s3_bucket,
                     .prefix = config::test_s3_prefix + "/S3AccessorTest/" + butil::GenerateGUID(),
-                    .provider = S3Conf::GCS,
+                    .provider = ObjectStoreInfoPB::GCP,
             },
             &accessor);
     ASSERT_EQ(ret, 0);
@@ -314,7 +314,7 @@ TEST_F(S3AccessorTest, gcs) {
             },
             &guards.emplace_back());
     sp->set_call_back(
-            "S3ObjClient::delete_objects",
+            "ObjStorageClient::delete_batch_size",
             [](auto&& args) {
                 auto* delete_batch_size = try_any_cast<size_t*>(args[0]);
                 *delete_batch_size = 7;
@@ -397,6 +397,30 @@ TEST_F(S3AccessorTest, path_style_test) {
     }
 }
 
+TEST(S3AccessorConfigTest, PreservesS3CompatibleVaultProvider) {
+    ObjectStoreInfoPB info;
+    for (auto provider : {ObjectStoreInfoPB::S3, ObjectStoreInfoPB::OSS, ObjectStoreInfoPB::COS,
+                          ObjectStoreInfoPB::OBS, ObjectStoreInfoPB::BOS, ObjectStoreInfoPB::GCP,
+                          ObjectStoreInfoPB::TOS}) {
+        info.set_provider(provider);
+        const auto config = S3Conf::from_obj_store_info(info);
+        ASSERT_TRUE(config.has_value());
+        EXPECT_EQ(provider, config->provider);
+    }
+}
+
+TEST(S3AccessorConfigTest, InfersProviderForLegacyVault) {
+    ObjectStoreInfoPB info;
+    info.set_endpoint("oss-cn-hangzhou.aliyuncs.com");
+    auto config = S3Conf::from_obj_store_info(info);
+    ASSERT_TRUE(config.has_value());
+    EXPECT_EQ(ObjectStoreInfoPB::OSS, config->provider);
+    info.set_provider(ObjectStoreInfoPB::S3);
+    config = S3Conf::from_obj_store_info(info);
+    ASSERT_TRUE(config.has_value());
+    EXPECT_EQ(ObjectStoreInfoPB::S3, config->provider);
+}
+
 TEST(S3AccessorConfigTest, GcpCredentialFromObjectStoreInfo) {
     ObjectStoreInfoPB obj_info;
     obj_info.set_provider(ObjectStoreInfoPB::GCP);
@@ -409,7 +433,7 @@ TEST(S3AccessorConfigTest, GcpCredentialFromObjectStoreInfo) {
 
     auto s3_conf = S3Conf::from_obj_store_info(obj_info);
     ASSERT_TRUE(s3_conf.has_value());
-    EXPECT_EQ(s3_conf->provider, S3Conf::GCS);
+    EXPECT_EQ(s3_conf->provider, ObjectStoreInfoPB::GCP);
     ASSERT_TRUE(std::holds_alternative<doris::GcpCredentialConfig>(s3_conf->credential));
     const auto& credential = std::get<doris::GcpCredentialConfig>(s3_conf->credential);
     EXPECT_EQ(credential.provider_type, doris::GcpCredentialProviderType::ComputeEngine);
@@ -484,7 +508,7 @@ TEST_F(S3AccessorRoleTest, s3) {
                     .cred_provider_type = CredProviderType::InstanceProfile,
                     .role_arn = role_arn,
                     .external_id = external_id,
-                    .provider = S3Conf::S3},
+                    .provider = ObjectStoreInfoPB::S3},
             &accessor);
     ASSERT_EQ(ret, 0);
 
@@ -498,7 +522,7 @@ TEST_F(S3AccessorRoleTest, s3) {
             },
             &guards.emplace_back());
     sp->set_call_back(
-            "S3ObjClient::delete_objects",
+            "ObjStorageClient::delete_batch_size",
             [](auto&& args) {
                 auto* delete_batch_size = try_any_cast<size_t*>(args[0]);
                 *delete_batch_size = 7;

@@ -17,11 +17,14 @@
 
 #include "aws_common.h"
 
+#include <aws/core/Aws.h>
 #include <aws/core/auth/GeneralHTTPCredentialsProvider.h>
 #include <aws/core/client/ClientConfiguration.h>
 #include <aws/core/platform/Environment.h>
 #include <aws/core/utils/memory/AWSMemory.h>
 #include <glog/logging.h>
+
+#include "cpp/aws_logger.h"
 
 namespace doris {
 
@@ -133,6 +136,33 @@ std::shared_ptr<Aws::Auth::AWSCredentialsProvider> create_container_credentials_
                    "SDK's own reason.";
     }
     return provider;
+}
+
+namespace {
+class AwsSdkLifetime {
+public:
+    explicit AwsSdkLifetime(int log_level) {
+        auto level = static_cast<Aws::Utils::Logging::LogLevel>(log_level);
+        _options.loggingOptions.logLevel = level;
+        _options.loggingOptions.logger_create_fn = [level] {
+            return std::make_shared<DorisAWSLogger>(level);
+        };
+        Aws::InitAPI(_options);
+    }
+    ~AwsSdkLifetime() { Aws::ShutdownAPI(_options); }
+
+private:
+    Aws::SDKOptions _options;
+};
+} // namespace
+
+void ensure_aws_sdk_initialized(int log_level) {
+    static AwsSdkLifetime sdk(log_level);
+}
+
+const Aws::Client::ClientConfiguration& default_aws_client_configuration() {
+    static const Aws::Client::ClientConfiguration configuration;
+    return configuration;
 }
 
 std::string get_valid_ca_cert_path(const std::vector<std::string>& ca_cert_file_paths) {

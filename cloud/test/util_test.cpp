@@ -446,9 +446,8 @@ TEST(UtilTest, test_normalize_http_uri) {
 }
 
 TEST(UtilTest, test_set_s3_client_default_http_scheme) {
-    doris::cloud::S3Environment::getInstance();
-    Aws::Client::ClientConfiguration client_config =
-            doris::cloud::S3Environment::getClientConfiguration();
+    doris::ensure_aws_sdk_initialized(config::aws_log_level);
+    Aws::Client::ClientConfiguration client_config = doris::default_aws_client_configuration();
 
     client_config.endpointOverride = "example.com:9000";
     doris::set_s3_client_default_http_scheme(client_config, "http");

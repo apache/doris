@@ -20,7 +20,7 @@
 #include <fstream>
 
 #include "io/fs/benchmark/benchmark_factory.hpp"
-#include "io/fs/s3_file_bufferpool.h"
+#include "io/fs/obj_storage_file_buffer.h"
 #include "util/cpu_info.h"
 #include "util/threadpool.h"
 
@@ -114,11 +114,11 @@ int main(int argc, char** argv) {
     int num_cores = doris::CpuInfo::num_cores();
 
     // init s3 write buffer pool
-    std::unique_ptr<doris::ThreadPool> s3_file_upload_thread_pool;
+    std::unique_ptr<doris::ThreadPool> obj_storage_upload_thread_pool;
     doris::Status st = doris::ThreadPoolBuilder("S3FileUploadThreadPool")
                                .set_min_threads(num_cores)
                                .set_max_threads(num_cores)
-                               .build(&s3_file_upload_thread_pool);
+                               .build(&obj_storage_upload_thread_pool);
     if (!st.ok()) {
         std::cerr << "init s3 write buffer pool failed" << std::endl;
         return 1;

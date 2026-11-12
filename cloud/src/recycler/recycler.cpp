@@ -72,6 +72,7 @@
 #include "common/rowset_segment_id.h"
 #include "common/simple_thread_pool.h"
 #include "common/util.h"
+#include "cpp/aws_common.h"
 #include "cpp/sync_point.h"
 #include "meta-store/codec.h"
 #include "meta-store/document_message.h"
@@ -495,7 +496,7 @@ void Recycler::check_recycle_tasks() {
 
 int Recycler::start(brpc::Server* server) {
     g_bvar_recycler_task_max_concurrency.set_value(config::recycle_concurrency);
-    S3Environment::getInstance();
+    ensure_aws_sdk_initialized(config::aws_log_level);
 
     if (config::enable_checker) {
         checker_ = std::make_unique<Checker>(txn_kv_);

@@ -273,7 +273,7 @@ void DorisFSDirectory::FSIndexInput::readInternal(uint8_t* b, const int32_t len)
 
 void DorisFSDirectory::FSIndexOutput::init(const io::FileSystemSPtr& fs, const char* path) {
     DBUG_EXECUTE_IF("DorisFSDirectory::FSIndexOutput::init.file_cache", {
-        if (fs->type() == io::FileSystemType::S3 && _opts.write_file_cache == false) {
+        if (fs->type() == io::FileSystemType::OBJECT_STORAGE && _opts.write_file_cache == false) {
             _CLTHROWA(CL_ERR_IO, "Inverted index failed to enter file cache");
         }
     });

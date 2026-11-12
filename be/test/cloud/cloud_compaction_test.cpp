@@ -37,8 +37,9 @@
 #include "cloud/cloud_tablet_mgr.h"
 #include "cloud/config.h"
 #include "common/metrics/doris_metrics.h"
+#include "cpp/obj-storage/obj_storage_config.h"
 #include "cpp/sync_point.h"
-#include "io/fs/s3_file_system.h"
+#include "io/fs/obj_storage_file_system.h"
 #include "json2pb/json_to_pb.h"
 #include "storage/changelog.h"
 #include "storage/compaction/cumulative_compaction_time_series_policy.h"
@@ -48,7 +49,6 @@
 #include "storage/storage_policy.h"
 #include "storage/tablet/tablet_meta.h"
 #include "util/defer_op.h"
-#include "util/s3_util.h"
 #include "util/threadpool.h"
 #include "util/time.h"
 #include "util/uid_util.h"
@@ -1280,20 +1280,15 @@ TEST_F(CloudCompactionTest, parallel_pick_does_not_advance_from_high_range_delet
 }
 
 TEST_F(CloudCompactionTest, test_set_storage_resource_from_input_rowsets) {
-    S3Conf s3_conf {.bucket = "bucket",
-                    .prefix = "prefix",
-                    .client_conf = {
-                            .endpoint = "endpoint",
-                            .region = "region",
-                            .ak = "ak",
-                            .sk = "sk",
-                            .token = "",
-                            .bucket = "",
-                            .role_arn = "",
-                            .external_id = "",
-                    }};
+    AwsConfig s3_conf;
+    s3_conf.bucket = "bucket";
+    s3_conf.prefix = "prefix";
+    s3_conf.endpoint = "endpoint";
+    s3_conf.region = "region";
+    s3_conf.ak = "ak";
+    s3_conf.sk = "sk";
     std::string resource_id = "10000";
-    auto res = io::S3FileSystem::create(std::move(s3_conf), resource_id);
+    auto res = io::ObjStorageFileSystem::create(std::move(s3_conf), resource_id);
     ASSERT_TRUE(res.has_value()) << res.error();
     auto fs = res.value();
     StorageResource storage_resource(fs);

@@ -56,8 +56,9 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "cpp/obj-client/obj_storage_client.h"
+#include "cpp/obj-storage/client/obj_storage_client.h"
 #include "cpp/sync_point.h"
+#include "io/object_storage/obj_storage_config_parser.h"
 #include "load/stream_load/stream_load_context.h"
 #include "runtime/cluster_info.h"
 #include "runtime/exec_env.h"
@@ -72,7 +73,6 @@
 #include "util/client_cache.h"
 #include "util/client_connection_provider.h"
 #include "util/network_util.h"
-#include "util/s3_util.h"
 #include "util/thrift_rpc_helper.h"
 #include "util/time.h"
 
@@ -1910,7 +1910,7 @@ Status CloudMetaMgr::get_storage_vault_info(StorageVaultInfos* vault_infos, bool
     *is_vault_mode = resp.enable_storage_vault();
 
     auto add_obj_store = [&vault_infos](const auto& obj_store) {
-        vault_infos->emplace_back(obj_store.id(), S3Conf::get_s3_conf(obj_store),
+        vault_infos->emplace_back(obj_store.id(), ObjStorageConfigParser::from_vault(obj_store),
                                   StorageVaultPB_PathFormat {});
     };
 

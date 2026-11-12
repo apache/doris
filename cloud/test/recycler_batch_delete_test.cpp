@@ -27,8 +27,8 @@
 
 #include "common/config.h"
 #include "common/simple_thread_pool.h"
-#include "cpp/obj-client/obj_storage_client.h"
-#include "cpp/obj-client/rate_limited_obj_storage_client.h"
+#include "cpp/obj-storage/client/obj_storage_client.h"
+#include "cpp/obj-storage/rate_limited_obj_storage_client.h"
 #include "recycler/s3_accessor.h"
 
 namespace doris {
@@ -83,8 +83,8 @@ public:
         }
         return page;
     }
-    ObjStorageResponse delete_objects(const ObjStoragePath&,
-                                      std::vector<std::string> keys) override {
+    ObjStorageResponse delete_objects_batch(const ObjStoragePath&,
+                                            std::span<std::string> keys) override {
         const int call = delete_calls_.fetch_add(1);
         if (fail_delete_after_.load() >= 0 && call >= fail_delete_after_.load()) {
             return {.status = {TStatusCode::INTERNAL_ERROR, "simulated delete failure"}};
@@ -223,8 +223,8 @@ public:
     CountingRateLimitPolicy(size_t* get_requests, size_t* put_requests)
             : get_requests_(get_requests), put_requests_(put_requests) {}
 
-    ObjStorageAdmission acquire(S3RateLimitType type, size_t) const override {
-        if (type == S3RateLimitType::GET) {
+    ObjStorageAdmission acquire(ObjStorageRateLimitType type, size_t) const override {
+        if (type == ObjStorageRateLimitType::GET) {
             ++*get_requests_;
         } else {
             ++*put_requests_;
@@ -259,7 +259,7 @@ TEST(RecyclerBatchDeleteTest, UsesProviderBatchCapability) {
     EXPECT_EQ(provider_client->deleted_keys().size(), 10);
 }
 
-TEST(RecyclerBatchDeleteTest, CountsDeleteObjectsOperationOnce) {
+TEST(RecyclerBatchDeleteTest, RateLimitsEachProviderDeleteBatch) {
     auto inner_client = std::make_shared<MockObjStorageClient>(std::vector<ObjectMeta> {}, 3);
     size_t get_requests = 0;
     size_t put_requests = 0;
@@ -271,8 +271,9 @@ TEST(RecyclerBatchDeleteTest, CountsDeleteObjectsOperationOnce) {
 
     EXPECT_TRUE(response.ok());
     EXPECT_EQ(get_requests, 0);
-    EXPECT_EQ(put_requests, 1);
-    EXPECT_EQ(inner_client->delete_calls(), 1);
+    EXPECT_EQ(put_requests, 3);
+    EXPECT_EQ(inner_client->delete_calls(), 3);
+    EXPECT_EQ(inner_client->deleted_keys().size(), 7);
 }
 
 TEST(RecyclerBatchDeleteTest, RateLimitsEveryRecursiveDeleteRequest) {

@@ -17,42 +17,34 @@
 
 #include "recycler/s3_accessor.h"
 
-#include <aws/core/auth/AWSAuthSigner.h>
-#include <aws/core/auth/AWSCredentials.h>
-#include <aws/core/auth/AWSCredentialsProviderChain.h>
-#include <aws/core/client/DefaultRetryStrategy.h>
-#include <aws/s3/S3Client.h>
 #include <gen_cpp/cloud.pb.h>
 
 #include <algorithm>
 #include <cstdlib>
-
-#ifdef USE_AZURE
-#include <azure/core/diagnostics/logger.hpp>
-#include <azure/storage/blobs/blob_container_client.hpp>
-#include <azure/storage/common/storage_credential.hpp>
-#endif
 #include <execution>
 #include <memory>
 #include <utility>
+#include <variant>
 
 #include "common/config.h"
 #include "common/encryption_util.h"
 #include "common/logging.h"
 #include "common/simple_thread_pool.h"
 #include "common/string_util.h"
-#include "common/util.h"
-#include "cpp/obj-client/auth/aws_credential_factory.h"
 #ifdef USE_AZURE
-#include "cpp/obj-client/auth/azure_auth_factory.h"
-#include "cpp/obj-client/azure_obj_storage_client.h"
+#include "cpp/obj-storage/client/azure_obj_storage_client.h"
 #endif
-#include "cpp/aws_logger.h"
-#include "cpp/obj-client/auth/obj_credential.h"
-#include "cpp/obj-client/auth/obj_s3_client_factory.h"
-#include "cpp/obj-client/rate_limited_obj_storage_client.h"
-#include "cpp/obj-client/s3_obj_storage_client.h"
-#include "cpp/obj_retry_strategy.h"
+#include "cpp/obj-storage/auth/obj_credential.h"
+#include "cpp/obj-storage/client/bos_obj_storage_client.h"
+#include "cpp/obj-storage/client/cos_obj_storage_client.h"
+#include "cpp/obj-storage/client/gcp_obj_storage_client.h"
+#include "cpp/obj-storage/client/obj_storage_client_runtime.h"
+#include "cpp/obj-storage/client/obs_obj_storage_client.h"
+#include "cpp/obj-storage/client/oss_obj_storage_client.h"
+#include "cpp/obj-storage/client/s3_obj_storage_client.h"
+#include "cpp/obj-storage/client/tos_obj_storage_client.h"
+#include "cpp/obj-storage/obj_storage_config.h"
+#include "cpp/obj-storage/rate_limited_obj_storage_client.h"
 #include "cpp/sync_point.h"
 #include "cpp/token_bucket_rate_limiter.h"
 #include "cpp/util.h"
@@ -65,14 +57,15 @@ AccessorRateLimiter::AccessorRateLimiter()
         : _rate_limiters({std::make_unique<S3RateLimiterHolder>(
                                   config::s3_get_token_per_second, config::s3_get_bucket_tokens,
                                   config::s3_get_token_limit,
-                                  s3_rate_limiter_metric_func(S3RateLimitType::GET)),
+                                  s3_rate_limiter_metric_func(ObjStorageRateLimitType::GET)),
                           std::make_unique<S3RateLimiterHolder>(
                                   config::s3_put_token_per_second, config::s3_put_bucket_tokens,
                                   config::s3_put_token_limit,
-                                  s3_rate_limiter_metric_func(S3RateLimitType::PUT))}) {}
+                                  s3_rate_limiter_metric_func(ObjStorageRateLimitType::PUT))}) {}
 
-S3RateLimiterHolder* AccessorRateLimiter::rate_limiter(S3RateLimitType type) {
-    CHECK(type == S3RateLimitType::GET || type == S3RateLimitType::PUT) << to_string(type);
+S3RateLimiterHolder* AccessorRateLimiter::rate_limiter(ObjStorageRateLimitType type) {
+    CHECK(type == ObjStorageRateLimitType::GET || type == ObjStorageRateLimitType::PUT)
+            << to_string(type);
     return _rate_limiters[static_cast<size_t>(type)].get();
 }
 
@@ -81,11 +74,12 @@ AccessorRateLimiter& AccessorRateLimiter::instance() {
     return instance;
 }
 
-int reset_s3_rate_limiter(S3RateLimitType type, size_t max_speed, size_t max_burst, size_t limit) {
-    if (type == S3RateLimitType::UNKNOWN) {
+int reset_s3_rate_limiter(ObjStorageRateLimitType type, size_t max_speed, size_t max_burst,
+                          size_t limit) {
+    if (type == ObjStorageRateLimitType::UNKNOWN) {
         return -1;
     }
-    if (type == S3RateLimitType::GET) {
+    if (type == ObjStorageRateLimitType::GET) {
         max_speed = (max_speed == 0) ? config::s3_get_token_per_second : max_speed;
         max_burst = (max_burst == 0) ? config::s3_get_bucket_tokens : max_burst;
         limit = (limit == 0) ? config::s3_get_token_limit : limit;
@@ -101,8 +95,8 @@ namespace {
 
 class RecyclerObjStorageRateLimitPolicy final : public ObjStorageRateLimitPolicy {
 public:
-    ObjStorageAdmission acquire(S3RateLimitType type, size_t) const override {
-        if (config::enable_s3_rate_limit_inject && type == S3RateLimitType::PUT &&
+    ObjStorageAdmission acquire(ObjStorageRateLimitType type, size_t) const override {
+        if (config::enable_s3_rate_limit_inject && type == ObjStorageRateLimitType::PUT &&
             rand() % 100 < config::s3_rate_limit_inject_probility) {
             return ObjStorageAdmission {
                     .resp = ObjStorageResponse::rate_limit(
@@ -169,53 +163,6 @@ private:
 
 } // namespace
 
-S3Environment::S3Environment() {
-    LOG(INFO) << "Initializing S3 environment";
-    aws_options_ = Aws::SDKOptions {};
-    auto logLevel = static_cast<Aws::Utils::Logging::LogLevel>(config::aws_log_level);
-    aws_options_.loggingOptions.logLevel = logLevel;
-    aws_options_.loggingOptions.logger_create_fn = [logLevel] {
-        return std::make_shared<DorisAWSLogger>(logLevel);
-    };
-    Aws::InitAPI(aws_options_);
-
-#ifdef USE_AZURE
-    auto azureLogLevel =
-            static_cast<Azure::Core::Diagnostics::Logger::Level>(config::azure_log_level);
-    Azure::Core::Diagnostics::Logger::SetLevel(azureLogLevel);
-    Azure::Core::Diagnostics::Logger::SetListener(
-            [&](Azure::Core::Diagnostics::Logger::Level level, const std::string& message) {
-                switch (level) {
-                case Azure::Core::Diagnostics::Logger::Level::Verbose:
-                    LOG(INFO) << message;
-                    break;
-                case Azure::Core::Diagnostics::Logger::Level::Informational:
-                    LOG(INFO) << message;
-                    break;
-                case Azure::Core::Diagnostics::Logger::Level::Warning:
-                    LOG(WARNING) << message;
-                    break;
-                case Azure::Core::Diagnostics::Logger::Level::Error:
-                    LOG(ERROR) << message;
-                    break;
-                default:
-                    LOG(WARNING) << "Unknown level: " << static_cast<int>(level)
-                                 << ", message: " << message;
-                    break;
-                }
-            });
-#endif
-}
-
-S3Environment& S3Environment::getInstance() {
-    static S3Environment instance;
-    return instance;
-}
-
-S3Environment::~S3Environment() {
-    Aws::ShutdownAPI(aws_options_);
-}
-
 class S3ListIterator final : public ListIterator {
 public:
     S3ListIterator(std::unique_ptr<ObjStorageListIterator> iter, size_t prefix_length)
@@ -253,22 +200,20 @@ std::optional<S3Conf> S3Conf::from_obj_store_info(const ObjectStoreInfoPB& obj_i
                                                   bool skip_aksk) {
     S3Conf s3_conf;
 
-    switch (obj_info.provider()) {
+    const auto provider = vault_storage_provider(obj_info);
+    switch (provider) {
     case ObjectStoreInfoPB_Provider_OSS:
     case ObjectStoreInfoPB_Provider_S3:
     case ObjectStoreInfoPB_Provider_COS:
     case ObjectStoreInfoPB_Provider_OBS:
     case ObjectStoreInfoPB_Provider_BOS:
-        s3_conf.provider = S3Conf::S3;
-        break;
     case ObjectStoreInfoPB_Provider_GCP:
-        s3_conf.provider = S3Conf::GCS;
-        break;
     case ObjectStoreInfoPB_Provider_AZURE:
-        s3_conf.provider = S3Conf::AZURE;
+    case ObjectStoreInfoPB_Provider_TOS:
+        s3_conf.provider = provider;
         break;
     default:
-        LOG_WARNING("unknown provider type {}").tag("obj_info", proto_to_json(obj_info));
+        LOG_WARNING("unknown object storage provider {}", provider);
         return std::nullopt;
     }
 
@@ -279,7 +224,7 @@ std::optional<S3Conf> S3Conf::from_obj_store_info(const ObjectStoreInfoPB& obj_i
                 int ret = decrypt_ak_sk_helper(obj_info.ak(), obj_info.sk(),
                                                obj_info.encryption_info(), &plain_ak_sk_pair);
                 if (ret != 0) {
-                    LOG_WARNING("fail to decrypt ak sk").tag("obj_info", proto_to_json(obj_info));
+                    LOG_WARNING("fail to decrypt ak sk").tag("object_store_id", obj_info.id());
                     return std::nullopt;
                 } else {
                     s3_conf.ak = std::move(plain_ak_sk_pair.first);
@@ -330,7 +275,7 @@ std::string S3Accessor::to_uri(const std::string& relative_path) const {
 int S3Accessor::create(S3Conf conf, std::shared_ptr<S3Accessor>* accessor) {
     TEST_SYNC_POINT_RETURN_WITH_VALUE("S3Accessor::init.s3_init_failed", (int)-1);
     switch (conf.provider) {
-    case S3Conf::GCS:
+    case ObjectStoreInfoPB::GCP:
         if (!config::enable_gcs_batch_delete_object) {
             *accessor = std::make_shared<GcsAccessor>(conf);
             break;
@@ -363,23 +308,39 @@ ObjStorageRecursiveDeleteOptions S3Accessor::make_recursive_delete_options(
     return options;
 }
 
-AwsCredentialResult S3Accessor::create_aws_credentials_provider(const S3Conf& s3_conf) {
-    auto sts_config = S3Environment::getClientConfiguration();
-    if (!_ca_cert_file_path.empty()) {
-        sts_config.caFile = _ca_cert_file_path;
+static ObjStorageClientRuntime recycler_client_runtime(std::string ca_cert_path) {
+    return {.credential_provider_version = config::aws_credentials_provider_version,
+            .ca_cert_path = std::move(ca_cert_path),
+            .http_scheme = config::s3_client_http_scheme,
+            .max_retries = static_cast<int>(config::max_s3_client_retry),
+            .min_connections = static_cast<int64_t>(config::recycle_pool_parallelism) +
+                               config::instance_recycler_worker_pool_size};
+}
+
+static ObjStorageClientBuildResult create_recycler_client(const ObjStorageConfig& config,
+                                                          const ObjStorageClientRuntime& runtime) {
+    if (const auto* aws = std::get_if<AwsConfig>(&config)) {
+        return S3ObjStorageClient::create(*aws, runtime);
     }
-    return AwsCredentialFactory::create({
-            .version = config::aws_credentials_provider_version == "v2"
-                               ? AwsCredentialProviderVersion::V2
-                               : AwsCredentialProviderVersion::V1,
-            .access_key = s3_conf.ak,
-            .secret_key = s3_conf.sk,
-            .provider_type = s3_conf.cred_provider_type,
-            .role_arn = s3_conf.role_arn,
-            .external_id = s3_conf.external_id,
-            .empty_credentials = EmptyCredentialsBehavior::DEFAULT_CHAIN,
-            .sts_client_config = std::move(sts_config),
-    });
+    if (const auto* oss = std::get_if<OssConfig>(&config)) {
+        return OssObjStorageClient::create(*oss, runtime);
+    }
+    if (const auto* cos = std::get_if<CosConfig>(&config)) {
+        return CosObjStorageClient::create(*cos, runtime);
+    }
+    if (const auto* bos = std::get_if<BosConfig>(&config)) {
+        return BosObjStorageClient::create(*bos, runtime);
+    }
+    if (const auto* obs = std::get_if<ObsConfig>(&config)) {
+        return ObsObjStorageClient::create(*obs, runtime);
+    }
+    if (const auto* gcp = std::get_if<GcpConfig>(&config)) {
+        return GcpObjStorageClient::create(*gcp, runtime);
+    }
+    if (const auto* tos = std::get_if<TosConfig>(&config)) {
+        return TosObjStorageClient::create(*tos, runtime);
+    }
+    return {.error = "Unsupported object storage provider"};
 }
 
 int S3Accessor::init() {
@@ -390,111 +351,56 @@ int S3Accessor::init() {
                 std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism, "s3_accessor");
         worker_pool->start();
     });
-    S3Environment::getInstance();
-    switch (conf_.provider) {
-    case S3Conf::AZURE: {
+    ensure_aws_sdk_initialized(config::aws_log_level);
+    auto storage_config = make_vault_storage_config(conf_.provider);
+    if (!storage_config) {
+        LOG_WARNING("unknown object storage provider {}", conf_.provider);
+        return -1;
+    }
+
+    auto& fields = storage_config_base(*storage_config);
+    fields.bucket = conf_.bucket;
+    fields.prefix = conf_.prefix;
+    fields.endpoint = conf_.endpoint;
+    fields.region = conf_.region;
+    fields.ak = conf_.ak;
+    fields.sk = conf_.sk;
+    fields.connect_timeout_ms = 5000;
+    fields.use_virtual_addressing = conf_.use_virtual_addressing;
+    fields.cred_provider_type = conf_.cred_provider_type;
+    fields.role_arn = conf_.role_arn;
+    fields.external_id = conf_.external_id;
+    fields.credential = conf_.credential;
+
+    ObjStorageClientBuildResult built;
+    if (const auto* azure = std::get_if<AzureConfig>(&*storage_config)) {
 #ifdef USE_AZURE
-        Azure::Storage::Blobs::BlobClientOptions options;
-        options.Retry.MaxRetries = config::max_s3_client_retry;
-        uri_ = fmt::format("{}/{}", conf_.endpoint, conf_.bucket);
-        if (uri_.find("://") == std::string::npos) {
-            uri_ = "https://" + uri_;
-        }
-        uri_ = normalize_http_uri(uri_);
-        // In Azure's HTTP requests, all policies in the vector are called in a chained manner following the HTTP pipeline approach.
-        // Within the RetryPolicy, the nextPolicy is called multiple times inside a loop.
-        // All policies in the PerRetryPolicies are downstream of the RetryPolicy.
-        // Therefore, the policy can record retries after the RetryPolicy has handled the response.
-        options.PerRetryPolicies.emplace_back(std::make_unique<AzureRetryRecordPolicy>());
-        auto built = AzureAuthFactory::create(uri_,
-                                              {
-                                                      .type = AzureCredentialType::SHARED_KEY,
-                                                      .account_name = conf_.ak,
-                                                      .account_key = conf_.sk,
-                                              },
-                                              std::move(options));
-        if (!built) {
-            LOG_WARNING("failed to create Azure client").tag("error", built.error);
-            return -1;
-        }
-        // uri format for debug: ${scheme}://${ak}.blob.core.windows.net/${bucket}/${prefix}
-        uri_ = normalize_http_uri(uri_ + '/' + conf_.prefix);
-        auto client =
-                std::make_shared<AzureObjStorageClient>(std::move(built.container_client),
-                                                        ObjStorageEndpointInfo {
-                                                                .endpoint = conf_.endpoint,
-                                                                .ak = conf_.ak,
-                                                                .sk = conf_.sk,
-                                                        },
-                                                        std::move(built.shared_key_credential));
-        obj_client_ = std::make_shared<RateLimitedObjStorageClient>(
-                std::move(client), std::make_shared<RecyclerObjStorageRateLimitPolicy>());
-        return 0;
+        uri_ = normalize_http_uri(AzureObjStorageClient::container_url(*azure) + '/' +
+                                  azure->prefix);
+        built = AzureObjStorageClient::create(
+                *azure, {.max_retries = static_cast<int>(config::max_s3_client_retry),
+                         .azure_log_level = config::azure_log_level});
 #else
-        LOG_FATAL("BE is not compiled with azure support, export BUILD_AZURE=ON before building");
-        return 0;
+        LOG_FATAL(
+                "Recycler is not compiled with Azure support, export BUILD_AZURE=ON before "
+                "building");
+        __builtin_unreachable();
 #endif
+    } else {
+        uri_ = normalize_http_uri(conf_.prefix.empty() ? conf_.endpoint + '/' + conf_.bucket
+                                                       : conf_.endpoint + '/' + conf_.bucket + '/' +
+                                                                 conf_.prefix);
+        built = create_recycler_client(
+                *storage_config,
+                recycler_client_runtime(_ca_bundle.path(config::ca_cert_file_paths)));
     }
-    default: {
-        if (conf_.prefix.empty()) {
-            uri_ = conf_.endpoint + '/' + conf_.bucket;
-        } else {
-            uri_ = conf_.endpoint + '/' + conf_.bucket + '/' + conf_.prefix;
-        }
-        uri_ = normalize_http_uri(uri_);
-
-        // S3Conf::S3
-        Aws::Client::ClientConfiguration aws_config = S3Environment::getClientConfiguration();
-        aws_config.endpointOverride = conf_.endpoint;
-        aws_config.region = conf_.region;
-        // Aws::Http::CurlHandleContainer::AcquireCurlHandle() may be blocked if the connecitons are bottleneck
-        aws_config.maxConnections = std::max((long)(config::recycle_pool_parallelism +
-                                                    config::instance_recycler_worker_pool_size),
-                                             (long)aws_config.maxConnections);
-
-        set_s3_client_default_http_scheme(aws_config, config::s3_client_http_scheme);
-        // Recycler should fail fast on S3 SlowDown instead of retrying and blocking worker threads.
-        aws_config.retryStrategy = std::make_shared<S3CustomRetryStrategy>(
-                config::max_s3_client_retry, /*retry_slow_down=*/false);
-
-        if (_ca_cert_file_path.empty()) {
-            _ca_cert_file_path =
-                    get_valid_ca_cert_path(doris::cloud::split(config::ca_cert_file_paths, ';'));
-        }
-        if (!_ca_cert_file_path.empty()) {
-            aws_config.caFile = _ca_cert_file_path;
-        }
-        // Mirror BE PR #49315: default ClientConfiguration leaves requestTimeoutMs=3000,
-        // which the vendored aws-sdk-cpp maps to CURLOPT_LOW_SPEED_TIME=3 and causes
-        // curl error 28 on slow/large S3 DeleteObjects (OVH cold vault).
-        aws_config.requestTimeoutMs = 30000;
-        aws_config.connectTimeoutMs = 5000;
-        auto credentials = create_aws_credentials_provider(conf_);
-        if (!credentials) {
-            LOG(WARNING) << "failed to create AWS credential provider: " << credentials.error;
-            return -1;
-        }
-        auto s3_client = doris::make_s3_client(
-                conf_.credential,
-                doris::S3ClientBuildContext {
-                        .fallback_provider = std::move(credentials.provider),
-                        .config = std::move(aws_config),
-                        .payload_signing_policy =
-                                Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never,
-                        .use_virtual_addressing = conf_.use_virtual_addressing,
-                        .ca_cert_path = _ca_cert_file_path,
-                });
-        auto client = std::make_shared<S3ObjStorageClient>(std::move(s3_client),
-                                                           ObjStorageEndpointInfo {
-                                                                   .endpoint = conf_.endpoint,
-                                                                   .ak = conf_.ak,
-                                                                   .sk = conf_.sk,
-                                                           });
-        obj_client_ = std::make_shared<RateLimitedObjStorageClient>(
-                std::move(client), std::make_shared<RecyclerObjStorageRateLimitPolicy>());
-        return 0;
+    if (!built.client) {
+        LOG_WARNING("failed to create object storage client").tag("error", built.error);
+        return -1;
     }
-    }
+    obj_client_ = std::make_shared<RateLimitedObjStorageClient>(
+            std::move(built.client), std::make_shared<RecyclerObjStorageRateLimitPolicy>());
+    return 0;
 }
 
 int S3Accessor::delete_prefix_impl(const std::string& path_prefix, int64_t expiration_time) {

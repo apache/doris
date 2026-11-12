@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "cpp/obj-client/auth/obj_credential.h"
+#include "cpp/obj-storage/auth/obj_credential.h"
 
 #include <gen_cpp/AgentService_types.h>
 #include <gen_cpp/cloud.pb.h>

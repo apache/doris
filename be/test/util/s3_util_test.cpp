@@ -15,15 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "util/s3_util.h"
-
-#include <gtest/gtest-test-part.h>
+#include <gtest/gtest.h>
 
 #include <string>
 
 #include "common/config.h"
-#include "gtest/gtest_pred_impl.h"
-#include "util/s3_rate_limiter_manager.h"
+#include "cpp/obj-storage/obj_storage_config.h"
+#include "io/object_storage/obj_storage_rate_limiter_manager.h"
 #include "util/s3_uri.h"
 
 namespace doris {
@@ -78,12 +76,12 @@ TEST_F(S3UTILTest, hide_access_key_typical_aws_key) {
     EXPECT_EQ("xxxxxxxFODNN7xxxxxxx", result);
 }
 
-// Verifies that S3RateLimiterManager::refresh() rebuilds the global GET rate limiter
+// Verifies that ObjStorageRateLimiterManager::refresh() rebuilds the global GET rate limiter
 // when the related configs change. This is the behavior the daemon refresh thread
 // relies on to apply dynamically modified s3_get_* rate limiter configs.
 TEST_F(S3UTILTest, refresh_rebuilds_limiter_on_config_change) {
-    auto& manager = S3RateLimiterManager::instance();
-    auto* get_limiter = manager.qps_limiter(S3RateLimitType::GET);
+    auto& manager = ObjStorageRateLimiterManager::instance();
+    auto* get_limiter = manager.qps_limiter(ObjStorageRateLimitType::GET);
     ASSERT_NE(get_limiter, nullptr);
 
     // Save originals so other tests are not affected.

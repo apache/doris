@@ -70,6 +70,11 @@ std::shared_ptr<Aws::Auth::AWSCredentialsProvider> create_container_credentials_
 // True when the runtime advertises a container credentials endpoint through either URI variable.
 bool container_credentials_available();
 
+void ensure_aws_sdk_initialized(int log_level);
+
+// Reuse the SDK defaults: constructing ClientConfiguration may query EC2 metadata.
+const Aws::Client::ClientConfiguration& default_aws_client_configuration();
+
 std::string get_valid_ca_cert_path(const std::vector<std::string>& ca_cert_file_paths);
 
 // Configures the default S3 client transport scheme for endpoints without an explicit scheme.

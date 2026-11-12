@@ -24,8 +24,9 @@
 #include <string_view>
 #include <utility>
 
-#include "cpp/obj-client/auth/gcp/gcp_token_provider.h"
-#include "cpp/obj-client/auth/gcp/gcs_signed_url.h"
+#include "cpp/obj-storage/auth/gcp/gcp_token_provider.h"
+#include "cpp/obj-storage/auth/gcp/gcs_signed_url.h"
+#include "cpp/obj-storage/client/obj_storage_client.h"
 #include "cpp/sync_point.h"
 #include "service/http/http_client.h"
 #include "util/url_coding.h"
@@ -126,6 +127,33 @@ Status call_iam_sign_blob(std::string_view access_token, std::string_view servic
 }
 
 } // namespace
+
+std::function<std::string(const ObjStoragePath&, int64_t)> make_gcs_signed_url_generator(
+        const GcpCredentialConfig& credential, std::string endpoint, int request_timeout_ms,
+        std::string ca_cert_path) {
+    // signBlob uses the source identity even when object I/O impersonates a target.
+    auto source = credential;
+    source.impersonation_service_account.clear();
+    auto provider =
+            std::make_shared<GcpTokenProvider>(source, ca_cert_path, GcpTokenScope::CloudPlatform);
+    return [credential, endpoint = std::move(endpoint), request_timeout_ms,
+            ca_cert_path = std::move(ca_cert_path),
+            provider = std::move(provider)](const ObjStoragePath& path, int64_t expiration_secs) {
+        std::string url;
+        auto status = generate_gcs_v4_signed_url({.endpoint = endpoint,
+                                                  .bucket = path.bucket,
+                                                  .key = path.key,
+                                                  .expiration_secs = expiration_secs,
+                                                  .request_timeout_ms = request_timeout_ms,
+                                                  .ca_cert_file_path = ca_cert_path},
+                                                 credential, provider, &url);
+        if (!status.ok()) {
+            LOG(WARNING) << "failed to generate GCS V4 signed URL: " << status;
+            return std::string {};
+        }
+        return url;
+    };
+}
 
 Status resolve_gcs_signer_email(const GcpCredentialConfig& credential,
                                 const GcpTokenProvider& token_provider, std::string* signer_email) {

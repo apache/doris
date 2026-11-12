@@ -21,7 +21,7 @@
 
 #include <string_view>
 
-#include "cpp/obj-client/auth/obj_credential.h"
+#include "cpp/obj-storage/auth/obj_credential.h"
 
 namespace doris {
 namespace {

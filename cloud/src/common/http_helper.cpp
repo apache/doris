@@ -868,8 +868,8 @@ HttpResponse process_adjust_rate_limiter(RecyclerServiceImpl*, brpc::Controller*
     auto max_speed = speed->empty() ? 0 : std::stoul(*speed);
     auto max_burst = burst->empty() ? 0 : std::stoul(*burst);
     auto max_limit = limit->empty() ? 0 : std::stoul(*limit);
-    if (reset_s3_rate_limiter(string_to_s3_rate_limit_type(*type_string), max_speed, max_burst,
-                              max_limit) != 0) {
+    if (reset_s3_rate_limiter(string_to_obj_storage_rate_limit_type(*type_string), max_speed,
+                              max_burst, max_limit) != 0) {
         return http_json_reply(MetaServiceCode::UNDEFINED_ERR, "adjust failed");
     }
     return http_json_reply(MetaServiceCode::OK, "");

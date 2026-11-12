@@ -16,9 +16,9 @@
 // under the License.
 
 #ifdef USE_AZURE
-#include "cpp/obj-client/azure_obj_storage_client.h"
+#include "cpp/obj-storage/client/azure_obj_storage_client.h"
 
-#include "cpp/obj-client/auth/azure_auth_factory.h"
+#include "cpp/obj-storage/auth/azure_auth_factory.h"
 #endif
 
 #include <gtest/gtest.h>
@@ -27,9 +27,9 @@
 #include <cstdint>
 #include <memory>
 
-#include "cpp/obj-client/obj_storage_client.h"
+#include "cpp/obj-storage/client/obj_storage_client.h"
 #include "io/fs/file_system.h"
-#include "util/s3_util.h"
+#include "io/object_storage/obj_storage_client_factory.h"
 
 #ifdef USE_AZURE
 #include <aws/core/utils/HashingUtils.h>
@@ -131,18 +131,15 @@ protected:
         std::string containerName = std::getenv("AZURE_CONTAINER_NAME");
 
         // Initialize Azure SDK
-        [[maybe_unused]] auto& s3ClientFactory = S3ClientFactory::instance();
+        [[maybe_unused]] auto& s3ClientFactory = ObjStorageClientFactory::instance();
 
-        auto client_result = S3ClientFactory::instance().create(
-                {.endpoint = fmt::format("https://{}.blob.core.windows.net", accountName),
-                 .region = "dummy-region",
-                 .ak = accountName,
-                 .sk = accountKey,
-                 .token = "",
-                 .bucket = containerName,
-                 .provider = ObjStorageProvider::AZURE,
-                 .role_arn = "",
-                 .external_id = ""});
+        AzureConfig config;
+        config.bucket = containerName;
+        config.endpoint = fmt::format("https://{}.blob.core.windows.net", accountName);
+        config.region = "dummy-region";
+        config.ak = accountName;
+        config.sk = accountKey;
+        auto client_result = ObjStorageClientFactory::instance().create(config);
         ASSERT_TRUE(client_result.has_value()) << client_result.error();
         AzureObjStorageClientTest::obj_storage_client = std::move(client_result).value();
     }

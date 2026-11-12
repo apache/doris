@@ -49,7 +49,6 @@ DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(thread_pool_task_execution_count_total, Met
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(thread_pool_task_wait_worker_time_ns_total,
                                      MetricUnit::NANOSECONDS);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(thread_pool_task_wait_worker_count_total, MetricUnit::NOUNIT);
-using namespace ErrorCode;
 
 using std::string;
 
@@ -286,7 +285,7 @@ Status ThreadPool::try_create_thread(int thread_num, std::lock_guard<std::mutex>
 }
 
 Status ThreadPool::init() {
-    if (!_pool_status.is<UNINITIALIZED>()) {
+    if (!_pool_status.is<ErrorCode::UNINITIALIZED>()) {
         return Status::NotSupported("The thread pool {} is already initialized", _name);
     }
     _pool_status = Status::OK();
@@ -352,7 +351,7 @@ void ThreadPool::shutdown() {
     // concern though because shutting down a pool typically requires clients to
     // be quiesced first, so there's no danger of a client getting confused.
     // Not print stack trace here
-    _pool_status = Status::Error<SERVICE_UNAVAILABLE, false>(
+    _pool_status = Status::Error<ErrorCode::SERVICE_UNAVAILABLE, false>(
             "The thread pool {} has been shut down.", _name);
 
     // Clear the various queues under the lock, but defer the releasing
@@ -435,7 +434,8 @@ Status ThreadPool::do_submit(std::shared_ptr<Runnable> r, ThreadPoolToken* token
     }
 
     if (!token->may_submit_new_tasks()) [[unlikely]] {
-        return Status::Error<SERVICE_UNAVAILABLE>("Thread pool({}) token was shut down", _name);
+        return Status::Error<ErrorCode::SERVICE_UNAVAILABLE>("Thread pool({}) token was shut down",
+                                                             _name);
     }
 
     // Size limit check.
@@ -443,7 +443,7 @@ Status ThreadPool::do_submit(std::shared_ptr<Runnable> r, ThreadPoolToken* token
                                  static_cast<int64_t>(_max_queue_size) - _total_queued_tasks;
     if (capacity_remaining < 1) {
         thread_pool_submit_failed->increment(1);
-        return Status::Error<SERVICE_UNAVAILABLE>(
+        return Status::Error<ErrorCode::SERVICE_UNAVAILABLE>(
                 "Thread pool {} is at capacity ({}/{} tasks running, {}/{} tasks queued)", _name,
                 _num_threads + _num_threads_pending_start, _max_threads, _total_queued_tasks,
                 _max_queue_size);

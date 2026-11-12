@@ -21,12 +21,12 @@
 #include <aws/s3/model/ListObjectsV2Result.h>
 #include <aws/s3/model/Object.h>
 
-#include "cpp/obj-client/obj_storage_client.h"
-#include "cpp/obj-client/rate_limited_obj_storage_client.h"
-#include "cpp/obj-client/s3_obj_storage_client.h"
+#include "cpp/obj-storage/client/obj_storage_client.h"
+#include "cpp/obj-storage/client/s3_obj_storage_client.h"
+#include "cpp/obj-storage/rate_limited_obj_storage_client.h"
 #include "gmock/gmock.h"
 #include "io/fs/file_system.h"
-#include "util/s3_util.h"
+#include "io/object_storage/obj_storage_client_factory.h"
 #include "util/string_util.h"
 
 using namespace Aws::S3::Model;
@@ -48,8 +48,8 @@ class CountingGetRateLimitPolicy final : public ObjStorageRateLimitPolicy {
 public:
     explicit CountingGetRateLimitPolicy(size_t* request_count) : request_count_(request_count) {}
 
-    ObjStorageAdmission acquire(S3RateLimitType type, size_t) const override {
-        EXPECT_EQ(type, S3RateLimitType::GET);
+    ObjStorageAdmission acquire(ObjStorageRateLimitType type, size_t) const override {
+        EXPECT_EQ(type, ObjStorageRateLimitType::GET);
         ++*request_count_;
         return {};
     }
@@ -59,7 +59,7 @@ private:
 };
 
 class S3ObjStorageClientMockTest : public testing::Test {
-    static void SetUpTestSuite() { S3ClientFactory::instance(); };
+    static void SetUpTestSuite() { ObjStorageClientFactory::instance(); };
     static void TearDownTestSuite() {};
 
 private:

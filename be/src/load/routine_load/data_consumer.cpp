@@ -46,6 +46,9 @@
 #include "common/config.h"
 #include "common/metrics/doris_metrics.h"
 #include "common/status.h"
+#include "cpp/aws_common.h"
+#include "cpp/obj-storage/auth/aws_credential_factory.h"
+#include "io/object_storage/aws_client_settings.h"
 #include "load/routine_load/consumer_helpers.h"
 #include "load/routine_load/kinesis_conf.h"
 #include "runtime/aws_msk_iam_auth.h"
@@ -55,7 +58,6 @@
 #include "util/blocking_queue.hpp"
 #include "util/debug_points.h"
 #include "util/defer_op.h"
-#include "util/s3_util.h"
 #include "util/stopwatch.hpp"
 #include "util/string_util.h"
 #include "util/uid_util.h"
@@ -673,48 +675,8 @@ Status KinesisDataConsumer::init(std::shared_ptr<StreamLoadContext> ctx) {
 }
 
 Status KinesisDataConsumer::_create_kinesis_client(std::shared_ptr<StreamLoadContext> ctx) {
-    // Reuse S3ClientFactory's credential provider logic
-    // This supports all AWS authentication methods:
-    // - Simple AK/SK
-    // - IAM instance profile (EC2)
-    // - STS assume role
-    // - Session tokens
-    // - Environment variables
-    // - Default credential chain
-
-    S3ClientConf s3_conf;
-    s3_conf.region = _region;
-    s3_conf.endpoint = _endpoint;
-
-    auto get_property = [this](const char* key) -> std::string {
-        auto it = _custom_properties.find(key);
-        if (it != _custom_properties.end() && !it->second.empty()) {
-            return it->second;
-        }
-        return "";
-    };
-
-    // Keep one naming convention aligned with FE-side Kinesis properties.
-    s3_conf.ak = get_property("aws.access_key");
-    s3_conf.sk = get_property("aws.secret_key");
-    s3_conf.token = get_property("aws.session_key");
-    s3_conf.role_arn = get_property("aws.role_arn");
-    s3_conf.external_id = get_property("aws.external.id");
-
-    const std::string provider = get_property("aws.credentials.provider");
-    if (!provider.empty()) {
-        // Map provider type string to enum
-        if (provider == "instance_profile") {
-            s3_conf.cred_provider_type = CredProviderType::InstanceProfile;
-        } else if (provider == "env") {
-            s3_conf.cred_provider_type = CredProviderType::Env;
-        } else if (provider == "simple") {
-            s3_conf.cred_provider_type = CredProviderType::Simple;
-        }
-    }
-
-    // Create AWS ClientConfiguration
-    Aws::Client::ClientConfiguration aws_config = S3ClientFactory::getClientConfiguration();
+    const auto sdk_defaults = be_default_aws_client_configuration();
+    auto aws_config = sdk_defaults;
     aws_config.region = _region;
 
     if (!_endpoint.empty()) {
@@ -752,8 +714,29 @@ Status KinesisDataConsumer::_create_kinesis_client(std::shared_ptr<StreamLoadCon
                                          &aws_config.connectTimeoutMs));
     }
 
-    // Create credentials provider (reuses S3 infrastructure)
-    auto credentials = S3ClientFactory::instance().create_aws_credentials_provider(s3_conf);
+    // AssumeRole uses STS with the BE defaults, independently of the Kinesis endpoint and timeouts.
+    auto options = AwsCredentialOptions::from_sdk_defaults(config::aws_credentials_provider_version,
+                                                           sdk_defaults, be_ca_bundle_path(),
+                                                           EmptyCredentialsBehavior::ANONYMOUS);
+    auto get_property = [this](const char* key) -> std::string {
+        auto it = _custom_properties.find(key);
+        return it != _custom_properties.end() ? it->second : "";
+    };
+    options.access_key = get_property("aws.access_key");
+    options.secret_key = get_property("aws.secret_key");
+    options.session_token = get_property("aws.session_key");
+    options.role_arn = get_property("aws.role_arn");
+    options.external_id = get_property("aws.external.id");
+    const auto provider = get_property("aws.credentials.provider");
+    if (provider == "instance_profile") {
+        options.provider_type = CredProviderType::InstanceProfile;
+    } else if (provider == "env") {
+        options.provider_type = CredProviderType::Env;
+    } else if (provider == "simple") {
+        options.provider_type = CredProviderType::Simple;
+    }
+
+    auto credentials = AwsCredentialFactory::create(options);
     if (!credentials) {
         return Status::InvalidArgument("Failed to create AWS credential provider: {}",
                                        credentials.error);

@@ -1819,7 +1819,7 @@ DEFINE_mInt64(s3_put_requests_per_second_max, "0");
 // Note: the derived per-BE bytes/s should not be set below the single IO upper bound
 // per second (s3_write_buffer_size, 5MB by default). A single IO larger than 1 second
 // of quota only reserves 1 second worth of tokens; the excess bytes are not accounted
-// (reservation clamp in S3RateLimitGuard).
+// (reservation clamp in ObjStorageRateLimitGuard).
 DEFINE_mInt64(s3_get_bytes_per_second_per_core, "-1");
 DEFINE_mInt64(s3_put_bytes_per_second_per_core, "-1");
 // Hard caps for the CPU-derived GET/PUT bytes/s. A non-positive value means no cap.
