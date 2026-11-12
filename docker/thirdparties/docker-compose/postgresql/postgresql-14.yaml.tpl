@@ -29,6 +29,9 @@ services:
       - bash
       - -c
       - |
+        set -e
+        mkdir -p /var/lib/postgresql/certs
+        cp /var/lib/postgresql/certs-source/* /var/lib/postgresql/certs/
         chmod 600 /var/lib/postgresql/certs/server.key
         chmod 644 /var/lib/postgresql/certs/server.crt
         chmod 644 /var/lib/postgresql/certs/root.crt
@@ -59,7 +62,7 @@ services:
     volumes:
       - ./data/data/:/var/lib/postgresql/data/
       - ./init:/docker-entrypoint-initdb.d
-      - ./certs:/var/lib/postgresql/certs
+      - ./certs:/var/lib/postgresql/certs-source:ro
     networks:
       - doris--postgres
 
