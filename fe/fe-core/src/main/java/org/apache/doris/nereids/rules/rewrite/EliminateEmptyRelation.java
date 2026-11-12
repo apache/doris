@@ -239,6 +239,8 @@ public class EliminateEmptyRelation implements RewriteRuleFactory {
             || join.getJoinType() == JoinType.LEFT_SEMI_JOIN
             || join.getJoinType() == JoinType.RIGHT_SEMI_JOIN
             || join.getJoinType() == JoinType.CROSS_JOIN)
+            || (join.getJoinType() == JoinType.LEFT_ANTI_JOIN && join.left() instanceof EmptyRelation)
+            || (join.getJoinType() == JoinType.RIGHT_ANTI_JOIN && join.right() instanceof EmptyRelation)
             || (join.getJoinType().isLeftOuterJoin() && join.left() instanceof EmptyRelation)
             || (join.getJoinType().isAsofLeftOuterJoin() && join.left() instanceof EmptyRelation)
             || (join.getJoinType().isRightOuterJoin() && join.right() instanceof EmptyRelation)

@@ -17,11 +17,16 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.AssertNumRowsElement;
 import org.apache.doris.nereids.trees.expressions.AssertNumRowsElement.Assertion;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.AssertTrue;
+import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
@@ -40,18 +45,125 @@ import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * Tests for {@link EliminateEmptyRelation}.
  */
 class EliminateEmptyRelationTest implements MemoPatternMatchSupported {
     private static final LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
+
+    @ParameterizedTest
+    @EnumSource(value = JoinType.class, names = {"LEFT_ANTI_JOIN", "RIGHT_ANTI_JOIN"})
+    void testAntiJoinWithEmptyOutputSide(JoinType joinType) {
+        LogicalPlan join = antiJoin(joinType, emptyRelation(), scan1);
+        Plan rewritten = eliminateEmptyRelation(join);
+        Assertions.assertInstanceOf(LogicalEmptyRelation.class, rewritten);
+        Assertions.assertEquals(join.getOutput(), rewritten.getOutput());
+        for (int i = 0; i < join.getOutput().size(); i++) {
+            Assertions.assertEquals(join.getOutput().get(i).getDataType(), rewritten.getOutput().get(i).getDataType());
+            Assertions.assertEquals(join.getOutput().get(i).nullable(), rewritten.getOutput().get(i).nullable());
+        }
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = JoinType.class, names = {"LEFT_ANTI_JOIN", "RIGHT_ANTI_JOIN"})
+    void testAntiJoinWithEmptyOtherSide(JoinType joinType) {
+        Assertions.assertInstanceOf(LogicalJoin.class,
+                eliminateEmptyRelation(antiJoin(joinType, scan1, emptyRelation())));
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = JoinType.class, names = {"LEFT_ANTI_JOIN", "RIGHT_ANTI_JOIN"})
+    void testAntiJoinWithBothSidesEmpty(JoinType joinType) {
+        LogicalPlan join = antiJoin(joinType, emptyRelation(), emptyRelation());
+        Plan rewritten = eliminateEmptyRelation(join);
+        Assertions.assertInstanceOf(LogicalEmptyRelation.class, rewritten);
+        Assertions.assertEquals(join.getOutput(), rewritten.getOutput());
+    }
+
+    @Test
+    void testEmptyAntiMarkJoinNotEliminated() {
+        LogicalPlan join = new LogicalPlanBuilder(emptyRelation())
+                .markJoin(scan1, JoinType.LEFT_ANTI_JOIN, Pair.of(0, 0)).build();
+        Assertions.assertInstanceOf(LogicalJoin.class, eliminateEmptyRelation(join));
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = JoinType.class, names = {"LEFT_ANTI_JOIN", "RIGHT_ANTI_JOIN"})
+    void testEmptyAntiJoinPreservesNestedAssertNumRows(JoinType joinType) {
+        LogicalPlan checked = new LogicalPlanBuilder(new LogicalAssertNumRows<>(
+                new AssertNumRowsElement(1, "", Assertion.EQ), scan1)).projectAll().build();
+        Assertions.assertInstanceOf(LogicalJoin.class,
+                eliminateEmptyRelation(antiJoin(joinType, emptyRelation(), checked)));
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = JoinType.class, names = {"LEFT_ANTI_JOIN", "RIGHT_ANTI_JOIN"})
+    void testEmptyAntiJoinPreservesNonMovableProject(JoinType joinType) {
+        LogicalPlan checked = new LogicalPlanBuilder(scan1).projectExprs(ImmutableList.of(
+                new Alias(new AssertTrue(BooleanLiteral.FALSE, new VarcharLiteral("must fail"))))).build();
+        Assertions.assertInstanceOf(LogicalJoin.class,
+                eliminateEmptyRelation(antiJoin(joinType, emptyRelation(), checked)));
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = JoinType.class, names = {"LEFT_ANTI_JOIN", "RIGHT_ANTI_JOIN"})
+    void testEmptyAntiJoinPreservesNonMovableCondition(JoinType joinType) {
+        LogicalPlan join = antiJoin(joinType, emptyRelation(), scan1);
+        LogicalPlan checked = new LogicalPlanBuilder((LogicalPlan) join.child(0))
+                .join((LogicalPlan) join.child(1), joinType, ImmutableList.of(), ImmutableList.of(
+                        new AssertTrue(BooleanLiteral.FALSE, new VarcharLiteral("must fail")))).build();
+        Assertions.assertInstanceOf(LogicalJoin.class, eliminateEmptyRelation(checked));
+    }
+
+    @Test
+    void testEmptyAntiJoinPropagatesThroughProjectAndNestedUnion() {
+        LogicalPlan left = new LogicalPlanBuilder(antiJoin(JoinType.LEFT_ANTI_JOIN, emptyRelation(), scan1))
+                .projectAll().build();
+        LogicalPlan right = antiJoin(JoinType.RIGHT_ANTI_JOIN, emptyRelation(),
+                PlanConstructor.newLogicalOlapScan(1, "t2", 0));
+        LogicalPlan nested = union(left, right);
+        LogicalPlan root = union(nested, antiJoin(JoinType.LEFT_ANTI_JOIN, emptyRelation(),
+                PlanConstructor.newLogicalOlapScan(2, "t3", 0)));
+        Plan rewritten = eliminateEmptyRelation(root);
+        Assertions.assertInstanceOf(LogicalEmptyRelation.class, rewritten);
+        Assertions.assertEquals(root.getOutput(), rewritten.getOutput());
+    }
+
+    private LogicalEmptyRelation emptyRelation() {
+        return new LogicalEmptyRelation(PlanConstructor.getNextRelationId(), ImmutableList.of(
+                new SlotReference("k", IntegerType.INSTANCE, false),
+                new SlotReference("v", StringType.INSTANCE, true)));
+    }
+
+    private LogicalPlan antiJoin(JoinType joinType, LogicalPlan outputSide, LogicalPlan otherSide) {
+        if (joinType == JoinType.LEFT_ANTI_JOIN) {
+            return new LogicalPlanBuilder(outputSide).joinEmptyOn(otherSide, joinType).build();
+        }
+        return new LogicalPlanBuilder(otherSide).joinEmptyOn(outputSide, joinType).build();
+    }
+
+    private LogicalUnion union(LogicalPlan left, LogicalPlan right) {
+        return new LogicalUnion(Qualifier.ALL, new ArrayList<>(left.getOutput()),
+                ImmutableList.of(left.getOutput().stream().map(SlotReference.class::cast).collect(Collectors.toList()),
+                        right.getOutput().stream().map(SlotReference.class::cast).collect(Collectors.toList())),
+                ImmutableList.of(), false, ImmutableList.of(left, right));
+    }
+
+    private Plan eliminateEmptyRelation(LogicalPlan plan) {
+        return PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .applyBottomUp(new EliminateEmptyRelation()).getPlan();
+    }
 
     @Test
     void testEliminateUnionEmptyChild() {
