@@ -89,6 +89,11 @@ Their complete index is built before producing data splits, without waiting for 
 demand or a first inline read to enable parallel reads. Native uncached scans retain
 the SDK ScanEvent,
 planning timer and close-time table/catalog ScanReport around local enumeration.
+Per-file row and partition predicates select deletes for the query-local index after
+partition type adaptation; shared parsed values remain complete. The built index
+determines the uncached data projection: position-only unfiltered scans need no
+extra column statistics, while equality deletes and predicates retain the required
+statistics. Explicitly requested SDK statistics are preserved.
 
 ## Configuration and limits
 

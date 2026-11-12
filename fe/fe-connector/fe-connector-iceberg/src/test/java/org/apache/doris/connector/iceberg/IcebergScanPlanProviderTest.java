@@ -5457,6 +5457,137 @@ public class IcebergScanPlanProviderTest {
     }
 
     @ParameterizedTest
+    @CsvSource({"false,unpartitioned", "true,unpartitioned", "false,bucket", "true,bucket",
+            "false,identity", "true,identity"})
+    public void streamingDeletePruningMatchesSdkWithoutChangingCachedFiles(boolean cacheEnabled, String layout)
+            throws IOException {
+        Schema schema = layout.equals("identity") ? PART_SCHEMA : SCHEMA;
+        PartitionSpec spec = layout.equals("identity") ? PartitionSpec.builderFor(schema).identity("p").build()
+                : layout.equals("bucket") ? PartitionSpec.builderFor(schema).bucket("id", 1).build()
+                        : PartitionSpec.unpartitioned();
+        Table table = createTable("delete_pruning", schema, spec, Map.of("format-version", "2"));
+        for (int i = 0; i < 2; i++) {
+            AppendFiles append = table.newFastAppend();
+            for (int p = 1; p <= (layout.equals("identity") ? 2 : 1); p++) {
+                DataFiles.Builder file = DataFiles.builder(spec).withPath("/d/data_" + i + "_" + p + ".parquet")
+                        .withFormat(FileFormat.PARQUET).withFileSizeInBytes(100)
+                        .withMetrics(new Metrics(1000L, null, null, null, null,
+                                Map.of(1, Conversions.toByteBuffer(Types.IntegerType.get(), 1)),
+                                Map.of(1, Conversions.toByteBuffer(Types.IntegerType.get(), 1000))));
+                if (spec.isPartitioned()) {
+                    file.withPartitionPath(layout.equals("identity") ? "p=" + p : "id_bucket=0");
+                }
+                append.appendFile(file.build());
+            }
+            append.commit();
+        }
+        RowDelta delta = table.newRowDelta();
+        for (int p = 1; p <= (layout.equals("identity") ? 2 : 1); p++) {
+            // Both partitions share one manifest: its summaries cannot eliminate either file individually.
+            for (int id : new int[] {1, 500}) {
+                Map<Integer, ByteBuffer> bounds = Map.of(1,
+                        Conversions.toByteBuffer(Types.IntegerType.get(), id));
+                FileMetadata.Builder delete = FileMetadata.deleteFileBuilder(spec).ofEqualityDeletes(1)
+                        .withPath("/d/delete_" + id + "_" + p + ".parquet").withFormat(FileFormat.PARQUET)
+                        .withFileSizeInBytes(100)
+                        .withMetrics(new Metrics(1L, null, null, null, null, bounds, bounds));
+                if (spec.isPartitioned()) {
+                    delete.withPartitionPath(layout.equals("identity") ? "p=" + p : "id_bucket=0");
+                }
+                delta.addDeletes(delete.build());
+            }
+            FileMetadata.Builder unknown = FileMetadata.deleteFileBuilder(spec).ofEqualityDeletes(1)
+                    .withPath("/d/unknown_" + p + ".parquet").withFormat(FileFormat.PARQUET)
+                    .withFileSizeInBytes(100).withRecordCount(1);
+            if (spec.isPartitioned()) {
+                unknown.withPartitionPath(layout.equals("identity") ? "p=" + p : "id_bucket=0");
+            }
+            delta.addDeletes(unknown.build());
+        }
+        delta.commit();
+        IcebergManifestCache cache = new IcebergManifestCache();
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(
+                IcebergCatalogProperties.of(cacheEnabled ? manifestCacheProps() : Collections.emptyMap()),
+                opsReturning(table), new RecordingConnectorContext(), cache);
+        for (int id : new int[] {1, 500, 1}) {
+            ConnectorExpression filter = eqInt("id", id);
+            if (layout.equals("identity")) {
+                filter = new ConnectorAnd(Arrays.asList(filter, eqInt("p", id == 1 ? 1 : 2)));
+            }
+            ConnectorScanRequest request = scanOf(new IcebergTableHandle("db1", "delete_pruning"))
+                    .filter(Optional.of(filter)).build();
+            List<ConnectorScanRange> sdk = providerOver(table).planScan(null, request);
+            List<ConnectorScanRange> actual = drain(provider.streamSplits(emptySession(), request));
+            Assertions.assertEquals(sortedPaths(sdk), sortedPaths(actual));
+            Assertions.assertEquals(2, actual.size());
+            Map<String, Set<String>> expectedDeletes = sdk.stream().collect(Collectors.toMap(
+                    range -> range.getPath().get(), IcebergScanPlanProviderTest::deletePaths));
+            for (ConnectorScanRange range : actual) {
+                Assertions.assertEquals(2, deleteCount(range), "keep matching and unknown-statistics deletes");
+                Assertions.assertEquals(expectedDeletes.get(range.getPath().get()), deletePaths(range));
+            }
+        }
+        Assertions.assertEquals(cacheEnabled, cache.size() > 0);
+        if (cacheEnabled) {
+            ManifestFile manifest = table.currentSnapshot().deleteManifests(table.io()).get(0);
+            Assertions.assertEquals(layout.equals("identity") ? 6 : 3,
+                    cache.getCachedManifestValue(manifest, null).getDeleteFiles().size(),
+                    "query-local pruning must leave the shared cache complete");
+        }
+    }
+
+    @ParameterizedTest
+    @CsvSource({"false,false,false,false", "false,false,true,false", "false,true,false,false", "false,true,true,false",
+            "true,false,false,false", "true,false,true,false", "true,true,false,false", "true,true,true,false",
+            "false,false,false,true", "true,false,false,true"})
+    public void streamingDataProjectionUsesDeleteIndexRequirements(boolean cacheEnabled, boolean equality,
+            boolean filtered, boolean explicitStats) throws Exception {
+        List<Types.NestedField> fields = new ArrayList<>();
+        Map<Integer, ByteBuffer> bounds = new HashMap<>();
+        for (int id = 1; id <= 64; id++) {
+            fields.add(Types.NestedField.required(id, id == 1 ? "id" : "column_" + id, Types.IntegerType.get()));
+            bounds.put(id, Conversions.toByteBuffer(Types.IntegerType.get(), 1));
+        }
+        Table table = createTable("delete_projection", new Schema(fields), PartitionSpec.unpartitioned(),
+                Map.of("format-version", "2"));
+        for (int i = 0; i < 2; i++) {
+            table.newFastAppend().appendFile(DataFiles.builder(table.spec()).withPath("/d/wide_" + i + ".parquet")
+                    .withFormat(FileFormat.PARQUET).withFileSizeInBytes(100)
+                    .withMetrics(new Metrics(1L, null, null, null, null, bounds, bounds)).build()).commit();
+        }
+        table.newRowDelta().addDeletes(equality
+                ? equalityDeleteFile("/d/equality.parquet", FileFormat.PARQUET, 1)
+                : positionDeleteFile("/d/position.parquet", FileFormat.PARQUET, null, null)).commit();
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(
+                IcebergCatalogProperties.of(cacheEnabled ? manifestCacheProps() : Collections.emptyMap()),
+                opsReturning(table), new RecordingConnectorContext(), new IcebergManifestCache());
+        java.lang.reflect.Method method = IcebergScanPlanProvider.class.getDeclaredMethod("manifestFileScanTasks",
+                TableScan.class, ConnectorSession.class, Table.class, Optional.class, String.class,
+                IcebergTableHandle.class);
+        method.setAccessible(true);
+        TableScan scan = explicitStats ? table.newScan().includeColumnStats() : table.newScan();
+        @SuppressWarnings("unchecked")
+        CloseableIterable<FileScanTask> tasks = (CloseableIterable<FileScanTask>) method.invoke(provider,
+                scan, emptySession(), table, filtered ? Optional.of(eqInt("id", 1)) : Optional.empty(),
+                null, new IcebergTableHandle("db1", "delete_projection"));
+        int count = 0;
+        try (CloseableIterable<FileScanTask> closeable = tasks) {
+            for (FileScanTask task : closeable) {
+                count++;
+                Assertions.assertEquals(1, task.deletes().size());
+                if (cacheEnabled || equality || filtered || explicitStats) {
+                    Assertions.assertEquals(bounds, task.file().lowerBounds());
+                } else {
+                    Assertions.assertNull(task.file().lowerBounds(),
+                            "an unfiltered position-delete scan must not retain per-column statistics");
+                    Assertions.assertNull(task.file().upperBounds());
+                }
+            }
+        }
+        Assertions.assertEquals(2, count);
+    }
+
+    @ParameterizedTest
     @CsvSource({"false,false", "false,true", "true,false", "true,true"})
     public void uncachedStreamingReportsNativeScanMetrics(boolean historical, boolean earlyStop) throws IOException {
         Table table = createTable("streaming_metrics", SCHEMA, PartitionSpec.unpartitioned());
@@ -6340,6 +6471,11 @@ public class IcebergScanPlanProviderTest {
             return 0;
         }
         return d.getTableFormatParams().getIcebergParams().getDeleteFiles().size();
+    }
+
+    private static Set<String> deletePaths(ConnectorScanRange range) {
+        return populate(range).getTableFormatParams().getIcebergParams().getDeleteFiles().stream()
+                .map(TIcebergDeleteFileDesc::getPath).collect(Collectors.toSet());
     }
 
     @Test
