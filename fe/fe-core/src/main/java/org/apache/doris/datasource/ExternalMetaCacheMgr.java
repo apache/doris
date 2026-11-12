@@ -609,13 +609,19 @@ public class ExternalMetaCacheMgr {
         long catalogId = database.getCatalog().getId();
         CatalogIf<?> owner = getCatalog(catalogId);
         try {
-            routeCatalogEngines(catalogId, cache -> safeInvalidate(
-                    cache, catalogId, "invalidateDb", () -> cache.invalidateDb(database)));
+            invalidateDbMetadataCache(database);
         } finally {
             if (owner != null) {
                 Env.getCurrentEnv().onDatabaseChanged(owner.getName(), database.getFullName());
             }
         }
+    }
+
+    /** Retire engine entries for a local DB object without reporting a metadata change. */
+    void invalidateDbMetadataCache(ExternalDatabase<?> database) {
+        long catalogId = database.getCatalog().getId();
+        routeCatalogEngines(catalogId, cache -> safeInvalidate(
+                cache, catalogId, "invalidateDb", () -> cache.invalidateDb(database)));
     }
 
     public void invalidateTable(long catalogId, String dbName, String tableName) {

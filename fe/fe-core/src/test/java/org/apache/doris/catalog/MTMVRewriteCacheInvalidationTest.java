@@ -40,6 +40,31 @@ import java.util.concurrent.atomic.AtomicInteger;
 class MTMVRewriteCacheInvalidationTest {
     @ParameterizedTest
     @ValueSource(booleans = {false, true})
+    void repeatedMetadataChangesBoundCacheConstruction(boolean sameSessionVariables) {
+        AtomicInteger builds = new AtomicInteger();
+        MTMVCache stale = Mockito.mock(MTMVCache.class);
+        MTMV view = new MTMV() {
+            @Override
+            protected MTMVCache createRewriteCache(ConnectContext context, boolean needLock, boolean addGuard) {
+                Assertions.assertTrue(builds.incrementAndGet() <= 8, "cache construction retried indefinitely");
+                invalidateRewriteCache();
+                return stale;
+            }
+        };
+        if (!sameSessionVariables) {
+            Deencapsulation.setField(view, "sessionVariables", ImmutableMap.of("test", "different"));
+        }
+        ConnectContext connection = Mockito.mock(ConnectContext.class);
+        Mockito.when(connection.getSessionVariable()).thenReturn(new SessionVariable());
+        Assertions.assertThrows(org.apache.doris.nereids.exceptions.AnalysisException.class,
+                () -> view.getOrGenerateCache(connection));
+        Assertions.assertTrue(builds.get() <= 4);
+        Assertions.assertNull(Deencapsulation.getField(view, "cacheWithGuard"));
+        Assertions.assertNull(Deencapsulation.getField(view, "cacheWithoutGuard"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
     void invalidationRejectsAnOlderBuildForBothCacheVariants(boolean sameSessionVariables) throws Exception {
         CountDownLatch firstBuild = new CountDownLatch(1);
         CountDownLatch finishBuild = new CountDownLatch(1);
