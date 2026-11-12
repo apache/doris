@@ -705,6 +705,25 @@ public class ExternalRowLevelMergePlanBuilderTest {
         Assertions.assertThrows(AnalysisException.class, () -> analyzer.analyze(mergeBranch(invalid, target)));
     }
 
+    @Test
+    public void mergeRetagsSpatialNullThroughOuterStructCastWithSourceField() {
+        SlotReference id = new SlotReference("id", IntegerType.INSTANCE);
+        ExpressionAnalyzer analyzer = mergeExpressionAnalyzer(id);
+        NereidsParser parser = new NereidsParser();
+        DataType spatial = new GeometryType("OGC:CRS84");
+        DataType target = new StructType(ImmutableList.of(
+                new StructField("shape", spatial, true, ""), new StructField("label", StringType.INSTANCE, true, "")));
+        String sql = "cast(named_struct('shape', %s, 'label', id) as struct<shape:int,label:string>)";
+        Expression result = analyzer.analyze(mergeBranch(
+                parser.parseExpression(String.format(sql, "cast(null as int)")), target));
+        Assertions.assertEquals(target, result.getDataType());
+        Assertions.assertTrue(result.getInputSlots().contains(id));
+        Assertions.assertTrue(result.anyMatch(expression -> expression instanceof NullLiteral
+                && ((NullLiteral) expression).getDataType().equals(spatial)));
+        Assertions.assertThrows(AnalysisException.class, () -> analyzer.analyze(mergeBranch(
+                parser.parseExpression(String.format(sql, "cast(null as geometry('OGC:CRS84'))")), target)));
+    }
+
     private static Expression mergeBranch(Expression value, DataType target) {
         return ExternalRowLevelMergePlanBuilder.generateFinalProjections(
                 ImmutableList.of("payload"), ImmutableList.of(target),

@@ -401,14 +401,19 @@ public final class ConnectorSpatialWriteNormalizer {
     /** Casts a MERGE branch in place so only the selected branch is evaluated. */
     public static Expression castSpatialMergeBranch(Expression input, DataType target) {
         Expression normalized = normalizeSpatialNullsBeforeBinding(input, target);
-        if (normalized == input && input.getClass() == Cast.class && input.getDataType() instanceof MapType
-                && target instanceof MapType && !input.getDataType().equals(target)
+        if (normalized == input && input.getClass() == Cast.class
+                && isMapOrStructCast(input.getDataType(), target) && !input.getDataType().equals(target)
                 && canRetargetSpatialNulls(input, target, true)) {
-            // The key is still in the MERGE input scope. Let the analyzer validate the original
-            // MAP cast before changing its NULL leaves and applying the sink type.
+            // Ordinary children may still reference the MERGE input scope. Validate the
+            // original cast after binding them and before retagging its NULL leaves.
             return new SpatialMergeBranchCast(input, target);
         }
         return TypeCoercionUtils.castUnbound(normalized, target);
+    }
+
+    public static boolean isMapOrStructCast(DataType source, DataType target) {
+        return (source instanceof MapType && target instanceof MapType)
+                || (source instanceof StructType && target instanceof StructType);
     }
 
     /** Analysis-only cast for the MERGE branch above. */
@@ -537,13 +542,17 @@ public final class ConnectorSpatialWriteNormalizer {
         return canRetargetSpatialNulls(value, target, false);
     }
 
-    /** Proves NULL on spatial paths; ordinary expressions can stay only in their own producer. */
+    /** Proves spatial NULLs, allowing unchanged ordinary expressions and matching slots in the same producer. */
     private static boolean canRetargetSpatialNulls(Expression value, DataType target, boolean sameProducer) {
         if (!target.toCatalogDataType().typeContainsSpatialType()) {
             return sameProducer || isLiteralConstruction(value) || (value.getClass() == Cast.class
                     && canRetargetSpatialNulls(value.child(0), target, false));
         }
         if (value.isNullLiteral()) {
+            return true;
+        }
+        if (sameProducer && (target instanceof GeometryType || target instanceof GeographyType)
+                && value instanceof SlotReference && value.getDataType().equals(target)) {
             return true;
         }
         if (value.getClass() == Cast.class) {

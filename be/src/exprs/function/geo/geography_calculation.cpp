@@ -1626,26 +1626,6 @@ static Status geography_relation_impl(std::string_view name, const GeoShape& lhs
         return std::ranges::any_of(
                 left_vertices, [&](const auto& vertex) { return right_vertices.contains(vertex); });
     };
-    const auto has_rounded_only_endpoint = [&] {
-        if (lhs.type() != GeoShapeType::GEO_SHAPE_LINE_STRING ||
-            rhs.type() != GeoShapeType::GEO_SHAPE_LINE_STRING) {
-            return false;
-        }
-        const auto endpoint = [](const GeographyCoordinates& shape, size_t index) {
-            const auto& line = shape.sequences.front();
-            return line[index == 0 ? 0 : line.size() - 1];
-        };
-        for (size_t left_index : {size_t {0}, size_t {1}}) {
-            for (size_t right_index : {size_t {0}, size_t {1}}) {
-                const auto left = endpoint(nodes.left, left_index);
-                const auto right = endpoint(nodes.right, right_index);
-                if (left != right && left.point == right.point) {
-                    return true;
-                }
-            }
-        }
-        return false;
-    };
     if (name == "st_equals") {
         *result = left_edges.line == right_edges.line &&
                   left_edges.polygon == right_edges.polygon &&
@@ -1716,11 +1696,14 @@ static Status geography_relation_impl(std::string_view name, const GeoShape& lhs
         return Status::OK();
     }
     bool intersects = S2BooleanOperation::Intersects(left, right, options);
-    if ((name == "st_intersects" || name == "st_disjoint") && has_rounded_only_endpoint()) {
+    if (intersects && (name == "st_intersects" || name == "st_disjoint") &&
+        lhs.type() == GeoShapeType::GEO_SHAPE_LINE_STRING &&
+        rhs.type() == GeoShapeType::GEO_SHAPE_LINE_STRING &&
+        geography_rounded_vertex_collision(left_edges, nodes.left, right_edges, nodes.right)) {
         if (!shares_raw_vertex() &&
             !geography_has_raw_line_edge_crossing(left_edges.line, right_edges.line)) {
             return Status::NotSupported(
-                    "{} does not support ambiguous spherical Polygon boundary line endpoint "
+                    "{} does not support ambiguous spherical Polygon boundary line vertex "
                     "contact",
                     name);
         }
@@ -1949,8 +1932,12 @@ static GeographyFloat geography_relative_cross(const GeoCoordinate& start,
     const auto [nx, ny, nz] = geography_raw_normal(
             GeoCoordinate {.x = ax, .y = ay}, GeoCoordinate {.x = bx, .y = by}, sin_half, cos_half);
     const auto [vx, vy] = geography_point_coordinate(vertex);
-    const auto [sin_lon, cos_lon] = geography_degree_sincos(vx, -ax);
     const auto [sin_lat, cos_lat] = geography_degree_sincos(vy);
+    if (ay == 0 && by == 0) {
+        // The equatorial normal has only a z component, so this product has no cancellation.
+        return -nz * sin_lat;
+    }
+    const auto [sin_lon, cos_lon] = geography_degree_sincos(vx, -ax);
     const GeographyFloat residual = -cos_lat * (nx * (cos_lon * cos_half + sin_lon * sin_half) +
                                                 ny * (sin_lon * cos_half - cos_lon * sin_half)) -
                                     nz * sin_lat;

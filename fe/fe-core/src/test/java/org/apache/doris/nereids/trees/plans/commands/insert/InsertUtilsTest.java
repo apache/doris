@@ -22,6 +22,8 @@ import org.apache.doris.analysis.DefaultValueExprDef;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.StructField;
+import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.datasource.connector.converter.ConnectorSpatialWriteValidator;
@@ -149,21 +151,34 @@ public class InsertUtilsTest {
 
     @Test
     public void normalizeValuesWithDynamicMapKeyAndOuterCast() {
+        ScalarType geometry = ScalarType.createGeometryType("OGC:CRS84");
+        checkValuesWithDynamicSiblingAndOuterCast(new org.apache.doris.catalog.MapType(Type.STRING, geometry),
+                "cast(map(cast(rand() * 100 as int), %s) as map<string,int>)", geometry);
+    }
+
+    @Test
+    public void normalizeValuesWithDynamicStructFieldAndOuterCast() {
+        ScalarType geometry = ScalarType.createGeometryType("OGC:CRS84");
+        checkValuesWithDynamicSiblingAndOuterCast(
+                new StructType(new StructField("shape", geometry), new StructField("label", Type.STRING)),
+                "cast(named_struct('shape', %s, 'label', cast(rand() * 100 as int)) as struct<shape:int,label:string>)",
+                geometry);
+    }
+
+    private void checkValuesWithDynamicSiblingAndOuterCast(Type container, String sql, ScalarType geometry) {
         ConnectContext connectContext = new ConnectContext();
         ConnectContext previous = ConnectContext.get();
         connectContext.setThreadLocalInfo();
         StatementContext statementContext = new StatementContext(connectContext, new OriginStatement("", 0));
         connectContext.setStatementContext(statementContext);
         try {
-            ScalarType geometry = ScalarType.createGeometryType("OGC:CRS84");
-            Column column = new Column("m", new org.apache.doris.catalog.MapType(Type.STRING, geometry));
+            Column column = new Column("m", container);
             TableIf table = Mockito.mock(TableIf.class);
             Mockito.when(table.getBaseSchema(false)).thenReturn(ImmutableList.of(column));
             for (String leaf : ImmutableList.of("cast(null as int)", "cast(null as geometry('OGC:CRS84'))")) {
-                Expression map = PARSER.parseExpression(
-                        "cast(map(cast(rand() * 100 as int), " + leaf + ") as map<string,int>)");
+                Expression value = PARSER.parseExpression(String.format(sql, leaf));
                 UnboundInlineTable values = new UnboundInlineTable(ImmutableList.of(
-                        ImmutableList.of(new Alias(map, "m"))));
+                        ImmutableList.of(new Alias(value, "m"))));
                 UnboundConnectorTableSink<?> sink = new UnboundConnectorTableSink<>(
                         ImmutableList.of("t"), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(),
                         DMLCommandType.INSERT, Optional.empty(), Optional.empty(), values);

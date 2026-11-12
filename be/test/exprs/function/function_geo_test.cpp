@@ -399,6 +399,14 @@ TEST(VGeoFunctionsTest, GeographyAnglePreservesTinyNoncardinalTurn) {
     check_geography_direction("st_angle", {b, vertex, a}, std::nextafter(2 * M_PI, 0.0), 0);
 }
 
+TEST(VGeoFunctionsTest, GeographyAnglePreservesTinyTurnBetweenEquatorialEndpoints) {
+    const std::string a = "010100000030058ee42eff2b2b0000000000000000";
+    const std::string vertex = "0101000000000000000000f0bf30058ee42eff2b2b";
+    const std::string b = "010100000000000000000000000000000000000000";
+    check_geography_direction("st_angle", {a, vertex, b}, 1.000101545326e-200, 1e-212);
+    check_geography_direction("st_angle", {b, vertex, a}, std::nextafter(2 * M_PI, 0.0), 0);
+}
+
 TEST(VGeoFunctionsTest, GeographyAreaPreservesNullableEvaluation) {
     const auto type = std::make_shared<DataTypeSpatial>(TYPE_GEOGRAPHY);
     const auto point = spatial_test_wkb("0101000000000000000000F03F0000000000000040");
@@ -2398,6 +2406,26 @@ static void expect_geography_zero_distance(const std::string& left, const std::s
     expect_dwithin_zero(left, right, true);
 }
 
+TEST(VGeoFunctionsTest, GeographyRejectsRoundedOnlyLineInteriorVertexContact) {
+    const std::string a = "LINESTRING (0 57,0 58,1 57)";
+    const std::string rounded = "LINESTRING (0 58.00000000000001,0 59)";
+    const std::string shared = "LINESTRING (0 58,0 59)";
+    for (const bool reverse : {false, true}) {
+        const auto& left = reverse ? rounded : a;
+        const auto& right = reverse ? a : rounded;
+        for (const auto* name : {"st_intersects", "st_disjoint"}) {
+            expect_rounded_polygon_interior_error(name, left, right);
+        }
+        expect_rounded_zero_distance_error(left, right);
+
+        const auto& shared_left = reverse ? shared : a;
+        const auto& shared_right = reverse ? a : shared;
+        expect_geography_relation("st_intersects", shared_left, shared_right, true);
+        expect_geography_relation("st_disjoint", shared_left, shared_right, false);
+        expect_geography_zero_distance(shared_left, shared_right);
+    }
+}
+
 TEST(VGeoFunctionsTest, GeographyLineContactSurvivesUnrelatedRoundedEndpoints) {
     const std::string a = "LINESTRING (0 58,-1 59,0 60)";
     const std::string b = "LINESTRING (0 58.00000000000001,1 59,0 60)";
@@ -2412,6 +2440,18 @@ TEST(VGeoFunctionsTest, GeographyLineContactSurvivesUnrelatedRoundedEndpoints) {
 
 TEST(VGeoFunctionsTest, GeographyLineCrossingSurvivesUnrelatedRoundedEndpoints) {
     const std::string a = "LINESTRING (0 58,-2 59,2 60)";
+    const std::string b = "LINESTRING (0 58.00000000000001,2 59,-2 60)";
+    for (const bool reverse : {false, true}) {
+        const auto& left = reverse ? b : a;
+        const auto& right = reverse ? a : b;
+        expect_geography_relation("st_intersects", left, right, true);
+        expect_geography_relation("st_disjoint", left, right, false);
+        expect_geography_zero_distance(left, right);
+    }
+}
+
+TEST(VGeoFunctionsTest, GeographyLineCrossingSurvivesUnrelatedRoundedInteriorVertex) {
+    const std::string a = "LINESTRING (0 57,0 58,-2 59,2 60)";
     const std::string b = "LINESTRING (0 58.00000000000001,2 59,-2 60)";
     for (const bool reverse : {false, true}) {
         const auto& left = reverse ? b : a;

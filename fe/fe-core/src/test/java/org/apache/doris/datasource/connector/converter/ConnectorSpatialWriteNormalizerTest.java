@@ -611,6 +611,33 @@ public class ConnectorSpatialWriteNormalizerTest {
     }
 
     @Test
+    public void testDirectProjectKeepsMatchingSpatialSlotWhenRetaggingAnotherField() {
+        Type geometry = ScalarType.createGeometryType("OGC:CRS84");
+        Type target = new StructType(new StructField("shape", geometry), new StructField("extra", geometry));
+        List<Column> columns = ImmutableList.of(new Column("payload", target));
+        for (Type sourceType : ImmutableList.of(geometry, ScalarType.createGeometryType("EPSG:3857"),
+                ScalarType.createGeographyType("OGC:CRS84", "spherical"))) {
+            LogicalPlan input = row(new SlotReference("geom", DataType.fromCatalogType(sourceType)));
+            SlotReference geom = (SlotReference) input.getOutput().get(0);
+            Alias payload = new Alias(new CreateNamedStruct(new StringLiteral("shape"), geom,
+                    new StringLiteral("extra"), new Cast(NullLiteral.INSTANCE, IntegerType.INSTANCE)), "payload");
+            LogicalProject<?> project = new LogicalProject<>(ImmutableList.of(payload), input);
+            if (!sourceType.equals(geometry)) {
+                Assertions.assertThrows(AnalysisException.class,
+                        () -> ConnectorSpatialWriteNormalizer.normalize(columns, project, new CTEContext()));
+                continue;
+            }
+            LogicalPlan normalized = ConnectorSpatialWriteNormalizer.normalize(columns, project, new CTEContext());
+            Assertions.assertSame(input, normalized.child(0));
+            Expression rewritten = ((LogicalProject<?>) normalized).getProjects().get(0).child(0);
+            Assertions.assertEquals(DataType.fromCatalogType(target), rewritten.getDataType());
+            Assertions.assertSame(geom, rewritten.child(1));
+            Assertions.assertTrue(rewritten.child(3).isNullLiteral());
+            Assertions.assertEquals(DataType.fromCatalogType(geometry), rewritten.child(3).getDataType());
+        }
+    }
+
+    @Test
     public void testOrderByLimitPreservesTheSortKeyWhileRetaggingTheMap() {
         LogicalPlan input = row(new SlotReference("id", IntegerType.INSTANCE));
         SlotReference id = (SlotReference) input.getOutput().get(0);
