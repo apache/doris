@@ -674,6 +674,27 @@ TEST(DataTypeVariantV2SerdeInputTest, ThriftTemplatePathsReachTheDataType) {
     const auto* plain_variant = dynamic_cast<const DataTypeVariantV2*>(plain.get());
     ASSERT_NE(nullptr, plain_variant);
     EXPECT_EQ(nullptr, plain_variant->template_paths());
+
+    // An entry with a part missing leaves the whole template out. Skipping that entry alone would
+    // let the fields after it match in its place: here 'name':string is first, and without it
+    // "name" would fall to a later field.
+    for (int part = 0; part < 3; ++part) {
+        std::vector<TVariantTemplatePath> incomplete_paths = template_paths;
+        incomplete_paths[0].__isset.pattern = part != 0;
+        incomplete_paths[0].__isset.is_glob = part != 1;
+        incomplete_paths[0].__isset.type = part != 2;
+        TScalarType incomplete_scalar_type = scalar_type;
+        incomplete_scalar_type.__set_variant_template_paths(incomplete_paths);
+        TTypeNode incomplete_node;
+        incomplete_node.__set_type(TTypeNodeType::SCALAR);
+        incomplete_node.__set_scalar_type(incomplete_scalar_type);
+        TTypeDesc incomplete_desc;
+        incomplete_desc.types.push_back(incomplete_node);
+        DataTypePtr incomplete = DataTypeFactory::instance().create_data_type(incomplete_desc);
+        const auto* incomplete_variant = dynamic_cast<const DataTypeVariantV2*>(incomplete.get());
+        ASSERT_NE(nullptr, incomplete_variant) << part;
+        EXPECT_EQ(nullptr, incomplete_variant->template_paths()) << part;
+    }
 }
 
 TEST(DataTypeVariantV2SerdeInputTest, TheFirstMatchingTemplateFieldDecidesADecimalPath) {

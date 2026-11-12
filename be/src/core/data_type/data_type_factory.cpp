@@ -559,12 +559,22 @@ DataTypePtr DataTypeFactory::create_data_type(const std::vector<TTypeNode>& type
                 !scalar_type.variant_template_paths.empty()) {
                 std::vector<VariantTemplatePath> paths;
                 paths.reserve(scalar_type.variant_template_paths.size());
+                // The first matching field decides how a number is read, so an entry with a part
+                // missing cannot be skipped on its own: the fields after it would match in its
+                // place. The template is then left out as a whole.
+                bool complete = true;
                 for (const TVariantTemplatePath& path : scalar_type.variant_template_paths) {
+                    if (!path.__isset.pattern || !path.__isset.is_glob || !path.__isset.type) {
+                        complete = false;
+                        break;
+                    }
                     paths.push_back({.pattern = path.pattern,
                                      .is_glob = path.is_glob,
                                      .type = thrift_to_type(path.type)});
                 }
-                template_paths = std::make_shared<const VariantTemplatePaths>(std::move(paths));
+                if (complete) {
+                    template_paths = std::make_shared<const VariantTemplatePaths>(std::move(paths));
+                }
             }
             DataTypePtr dt = std::make_shared<DataTypeVariantV2>(
                     scalar_type.variant_max_subcolumns_count, doc_mode, std::move(template_paths));
