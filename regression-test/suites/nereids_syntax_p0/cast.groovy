@@ -186,9 +186,15 @@ suite("cast") {
 
     qt_group31 "select count(*) from cast_test where (k11='2015-03-13 12:36:38' or k11 = '2000-01-01 00:00:00') and k5 is not null group by k1%2, k2%2, k3%3, k4%3, k11%2 order by count(*)"
 
-    test {
-        sql "select true + 1 + 'x'"
-        exception "string literal 'x' cannot be cast to double"
+    def originalEnableStrictCast = sql("select @@enable_strict_cast")[0][0]
+    try {
+        sql "set enable_strict_cast = true"
+        test {
+            sql "select true + 1 + 'x'"
+            exception "can't cast to double in strict mode"
+        }
+    } finally {
+        sql "set enable_strict_cast = ${originalEnableStrictCast}"
     }
 
     qt_sql_test_DecimalV3_mode """select cast(1 as DECIMALV3(1, 0)) % 2.1;""";

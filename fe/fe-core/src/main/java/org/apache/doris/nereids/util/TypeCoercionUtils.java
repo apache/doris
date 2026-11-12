@@ -65,7 +65,6 @@ import org.apache.doris.nereids.trees.expressions.literal.MapLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Result;
 import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TimeStampNsLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TimeV2Literal;
@@ -1023,18 +1022,8 @@ public class TypeCoercionUtils {
         // but if string literal could be cast to small type, we could use smaller type than double.
         binaryArithmetic = TypeCoercionUtils.processCharacterLiteralInBinaryOperator(binaryArithmetic);
 
-        // check string literal can cast to double
-        for (Expression expr : binaryArithmetic.children()) {
-            if (expr instanceof StringLikeLiteral) {
-                try {
-                    new BigDecimal(((StringLikeLiteral) expr).getStringValue());
-                } catch (NumberFormatException e) {
-                    throw new IllegalStateException(String.format(
-                            "string literal %s cannot be cast to double", expr.toSql()));
-                }
-            }
-        }
-
+        // Keep other strings for the CAST expressions below. CAST evaluation must use enable_strict_cast.
+        // For example, 'abc' + 1 returns NULL in non-strict mode and reports an error in strict mode.
         Expression left = binaryArithmetic.left();
         Expression right = binaryArithmetic.right();
         // 1. choose default numeric type for left and right
