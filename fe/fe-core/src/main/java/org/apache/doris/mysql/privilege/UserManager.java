@@ -112,11 +112,6 @@ public class UserManager implements Writable {
         }
     }
 
-    public void checkPassword(String remoteUser, String remoteHost, byte[] remotePasswd, byte[] randomString,
-            List<UserIdentity> currentUser) throws AuthenticationException {
-        checkPassword(remoteUser, remoteHost, remotePasswd, randomString, currentUser, AuthenticationProtocol.OTHER);
-    }
-
     public boolean checkPassword(String remoteUser, String remoteHost, byte[] remotePasswd, byte[] randomString,
             List<UserIdentity> currentUser, AuthenticationProtocol protocol) throws AuthenticationException {
         return checkPasswordInternal(remoteUser, remoteHost, remotePasswd, randomString, null,
@@ -126,12 +121,6 @@ public class UserManager implements Writable {
     public void checkPlainPassword(String remoteUser, String remoteHost, String remotePasswd,
             List<UserIdentity> currentUser) throws AuthenticationException {
         checkPasswordInternal(remoteUser, remoteHost, null, null, remotePasswd, currentUser, true,
-                AuthenticationProtocol.OTHER);
-    }
-
-    public void checkPasswordForUserIdentity(UserIdentity userIdentity, byte[] remotePasswd, byte[] randomString,
-            List<UserIdentity> currentUser) throws AuthenticationException {
-        checkPasswordInternalForUser(userIdentity, null, remotePasswd, randomString, null, currentUser, false,
                 AuthenticationProtocol.OTHER);
     }
 

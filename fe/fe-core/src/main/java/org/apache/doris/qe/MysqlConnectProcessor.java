@@ -40,6 +40,7 @@ import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.MysqlServerStatusFlag;
 import org.apache.doris.mysql.authenticate.password.NativePasswordResolver;
 import org.apache.doris.mysql.privilege.Auth;
+import org.apache.doris.mysql.privilege.AuthenticationProtocol;
 import org.apache.doris.mysql.protocol.MysqlProtocolAdapter;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
@@ -561,9 +562,13 @@ public class MysqlConnectProcessor extends ConnectProcessor {
 
         // Check password.
         List<UserIdentity> currentUserIdentity = Lists.newArrayList();
+        AuthenticationProtocol protocol = AuthenticationProtocol.MYSQL;
+        if (ctx.getMysqlChannel().hasProxyProtocol()) {
+            protocol = AuthenticationProtocol.PROXIED_MYSQL;
+        }
         try {
             Env.getCurrentEnv().getAuth()
-                .checkPassword(userName, ctx.remoteIP, password, authPluginData, currentUserIdentity);
+                .checkPassword(userName, ctx.remoteIP, password, authPluginData, currentUserIdentity, protocol);
         } catch (AuthenticationException e) {
             ctx.getState().setError(ErrorCode.ERR_ACCESS_DENIED_ERROR, "Authentication failed.");
             return;

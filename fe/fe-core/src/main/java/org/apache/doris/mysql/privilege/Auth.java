@@ -197,11 +197,6 @@ public class Auth implements Writable {
      * check password, if matched, save the userIdentity in matched entry.
      * the following auth checking should use userIdentity saved in currentUser.
      */
-    public void checkPassword(String remoteUser, String remoteHost, byte[] remotePasswd, byte[] randomString,
-            List<UserIdentity> currentUser) throws AuthenticationException {
-        checkPassword(remoteUser, remoteHost, remotePasswd, randomString, currentUser, AuthenticationProtocol.OTHER);
-    }
-
     public boolean checkPassword(String remoteUser, String remoteHost, byte[] remotePasswd, byte[] randomString,
             List<UserIdentity> currentUser, AuthenticationProtocol protocol) throws AuthenticationException {
         if (BootstrapAuthPolicy.isRecoveryLogin(remoteUser, remoteHost, protocol, isSecureInitialization())) {
@@ -293,16 +288,6 @@ public class Auth implements Writable {
         readLock();
         try {
             userManager.checkPlainPasswordForUserIdentity(userIdentity, remotePasswd, currentUser);
-        } finally {
-            readUnlock();
-        }
-    }
-
-    public void checkPasswordForUserIdentity(UserIdentity userIdentity, byte[] remotePasswd, byte[] randomString,
-            List<UserIdentity> currentUser) throws AuthenticationException {
-        readLock();
-        try {
-            userManager.checkPasswordForUserIdentity(userIdentity, remotePasswd, randomString, currentUser);
         } finally {
             readUnlock();
         }

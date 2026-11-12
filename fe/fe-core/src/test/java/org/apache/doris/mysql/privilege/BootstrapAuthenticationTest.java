@@ -212,9 +212,11 @@ class BootstrapAuthenticationTest {
     void testLegacyExplicitRecoveryKeepsItsOriginalAddressRules() throws Exception {
         auth.setPassword(UserIdentity.ROOT, MysqlPassword.makeScrambledPassword("root-password"));
         Config.skip_localhost_auth_check = true;
-        auth.checkPassword("root", "127.0.0.1", new byte[0], new byte[20], new ArrayList<>());
+        auth.checkPassword("root", "127.0.0.1", new byte[0], new byte[20], new ArrayList<>(),
+                AuthenticationProtocol.OTHER);
         Assertions.assertThrows(AuthenticationException.class,
-                () -> auth.checkPassword("root", "::1", new byte[0], new byte[20], new ArrayList<>()));
+                () -> auth.checkPassword("root", "::1", new byte[0], new byte[20], new ArrayList<>(),
+                        AuthenticationProtocol.OTHER));
     }
 
     @Test
