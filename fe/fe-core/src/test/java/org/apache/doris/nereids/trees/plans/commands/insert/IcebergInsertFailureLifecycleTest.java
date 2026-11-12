@@ -21,17 +21,24 @@ import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.hive.HiveTransactionMgr;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergMetadataOps;
+import org.apache.doris.datasource.iceberg.IcebergTransaction;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSink;
 import org.apache.doris.planner.DataSink;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.Coordinator;
+import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.thrift.TDataSink;
+import org.apache.doris.thrift.TDataSinkType;
+import org.apache.doris.thrift.TIcebergCommitData;
+import org.apache.doris.thrift.TIcebergTableSink;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.GlobalExternalTransactionInfoMgr;
 import org.apache.doris.transaction.IcebergTransactionManager;
@@ -43,6 +50,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.util.Collections;
 import java.util.Optional;
 
 class IcebergInsertFailureLifecycleTest {
@@ -54,15 +62,21 @@ class IcebergInsertFailureLifecycleTest {
 
     @Test
     void testNormalInsertBeginFailureClearsLocalAndGlobalRegistriesAfterReset() throws Exception {
-        assertBeginFailureClearsRegistries(false);
+        assertFailureClearsRegistries(false, false);
     }
 
     @Test
     void testEmptyInsertBeginFailureClearsLocalAndGlobalRegistriesAfterReset() throws Exception {
-        assertBeginFailureClearsRegistries(true);
+        assertFailureClearsRegistries(true, false);
     }
 
-    private void assertBeginFailureClearsRegistries(boolean emptyInsert) throws Exception {
+    @Test
+    void testCommitPathRejectionFailsStatementAndClearsRegistries() throws Exception {
+        // Exercise the completion/error path without a BE; the transaction already has a final report.
+        assertFailureClearsRegistries(true, true);
+    }
+
+    private void assertFailureClearsRegistries(boolean emptyInsert, boolean rejectCommitPath) throws Exception {
         Env env = Mockito.mock(Env.class);
         GlobalExternalTransactionInfoMgr globalTransactions = new GlobalExternalTransactionInfoMgr();
         Mockito.when(env.getNextId()).thenReturn(101L);
@@ -99,7 +113,7 @@ class IcebergInsertFailureLifecycleTest {
             factoryMock.when(EnvFactory::getInstance).thenReturn(factory);
 
             FailingIcebergExecutor executor = new FailingIcebergExecutor(
-                    context, table, emptyInsert);
+                    context, table, emptyInsert, rejectCommitPath);
             executor.beginTransaction();
             long transactionId = executor.getTxnId();
             Assertions.assertNotNull(transactionManager.getTransaction(transactionId));
@@ -112,6 +126,9 @@ class IcebergInsertFailureLifecycleTest {
                 executor.executeSingleInsert(stmtExecutor);
             }
 
+            Assertions.assertEquals(QueryState.MysqlStateType.ERR, context.getState().getStateType());
+            Assertions.assertTrue(context.getState().getErrorMessage().contains(
+                    rejectCommitPath ? "outside the sink locations" : "catalog runtime changed before begin"));
             Assertions.assertThrows(UserException.class,
                     () -> transactionManager.getTransaction(transactionId));
             Assertions.assertThrows(RuntimeException.class,
@@ -122,19 +139,30 @@ class IcebergInsertFailureLifecycleTest {
     }
 
     private static class FailingIcebergExecutor extends BaseExternalTableInsertExecutor {
+        private final boolean rejectCommitPath;
+
         FailingIcebergExecutor(ConnectContext context, IcebergExternalTable table,
-                boolean emptyInsert) {
+                boolean emptyInsert, boolean rejectCommitPath) {
             super(context, table, "label", Mockito.mock(NereidsPlanner.class),
                     Optional.empty(), emptyInsert, -1L);
+            this.rejectCommitPath = rejectCommitPath;
         }
 
         @Override
         protected void beforeExec() throws UserException {
-            throw new UserException("catalog runtime changed before begin");
+            if (!rejectCommitPath) {
+                throw new UserException("catalog runtime changed before begin");
+            }
         }
 
         @Override
-        protected void doBeforeCommit() {
+        protected void doBeforeCommit() throws UserException {
+            IcebergTransaction transaction = (IcebergTransaction) transactionManager.getTransaction(txnId);
+            transaction.addCommitLocations(new TDataSink(TDataSinkType.ICEBERG_TABLE_SINK)
+                    .setIcebergTableSink(new TIcebergTableSink().setOriginalOutputPath("oss://bucket/table/data")));
+            transaction.updateIcebergCommitData(Collections.singletonList(
+                    new TIcebergCommitData().setFilePath("s3://bucket/table/data/file.parquet")));
+            transaction.finishInsert(NameMapping.createForTest("db", "table"));
         }
 
         @Override

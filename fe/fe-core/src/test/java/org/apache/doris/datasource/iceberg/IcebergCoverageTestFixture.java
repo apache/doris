@@ -20,7 +20,12 @@ package org.apache.doris.datasource.iceberg;
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.nereids.trees.plans.commands.insert.IcebergInsertCommandContext;
+import org.apache.doris.thrift.TDataSink;
+import org.apache.doris.thrift.TDataSinkType;
 import org.apache.doris.thrift.TIcebergCommitData;
+import org.apache.doris.thrift.TIcebergDeleteSink;
+import org.apache.doris.thrift.TIcebergMergeSink;
+import org.apache.doris.thrift.TIcebergTableSink;
 
 import org.apache.iceberg.MetricsConfig;
 import org.apache.iceberg.Table;
@@ -39,6 +44,9 @@ import java.util.concurrent.TimeUnit;
 
 /** Supplies the retained catalog generation required by the 4.2 metadata and write entry points. */
 final class IcebergCoverageTestFixture implements AutoCloseable {
+    // Stands in for the raw location sent by the planner; all reported test files live under it.
+    private static final String COMMIT_LOCATION = "s3://bucket/events";
+
     final Table table;
     final IcebergMetadataOps ops;
     final IcebergExternalTable dorisTable;
@@ -104,6 +112,10 @@ final class IcebergCoverageTestFixture implements AutoCloseable {
         }
 
         void beginWrite(WriteContext context) {
+            beginWrite(context, "static");
+        }
+
+        void beginWrite(WriteContext context, String partitionOverwriteMode) {
             operation = context.operation;
             try {
                 if (context.insert.isStaticPartitionOverwrite()) {
@@ -114,17 +126,26 @@ final class IcebergCoverageTestFixture implements AutoCloseable {
                             IcebergUtils.getFileCompress(table), IcebergUtils.dataLocation(table), table.properties(),
                             true, true)));
                 }
+                TDataSink sink;
                 switch (operation) {
                     case DELETE:
                         transaction.beginDelete(dorisTable, table);
+                        sink = new TDataSink(TDataSinkType.ICEBERG_DELETE_SINK).setIcebergDeleteSink(
+                                new TIcebergDeleteSink().setTableLocation(COMMIT_LOCATION));
                         break;
                     case UPDATE:
                     case MERGE:
                         transaction.beginMerge(dorisTable, table, Optional.of(context.insert));
+                        sink = new TDataSink(TDataSinkType.ICEBERG_MERGE_SINK).setIcebergMergeSink(
+                                new TIcebergMergeSink().setOriginalOutputPath(COMMIT_LOCATION)
+                                        .setTableLocation(COMMIT_LOCATION));
                         break;
                     default:
-                        transaction.beginInsert(dorisTable, table, Optional.of(context.insert));
+                        transaction.beginInsert(dorisTable, table, Optional.of(context.insert), partitionOverwriteMode);
+                        sink = new TDataSink(TDataSinkType.ICEBERG_TABLE_SINK).setIcebergTableSink(
+                                new TIcebergTableSink().setOriginalOutputPath(COMMIT_LOCATION));
                 }
+                transaction.addCommitLocations(sink);
             } catch (Exception failure) {
                 throw new RuntimeException(failure.getMessage(), failure);
             }
