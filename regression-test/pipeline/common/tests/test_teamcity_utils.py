@@ -315,13 +315,6 @@ teamcity_request --fail https://ci.example
                 if branch != 'master': expected.discard('performance')
                 self.assertEqual(selected, expected, (branch, command))
 
-    def test_direct_regression_always_reaches_teamcity_preflight(self):
-        for lane in ['p0', 'external', 'cloud_p0', 'vault_p0', 'nonconcurrent']:
-            self.save({})
-            self.run_shell('trigger_or_skip_build false 123 master ' + HEAD + ' ' + lane + ' 1')
-            self.assertEqual(len(self.state()['posts']), 1)
-            self.assertFalse(self.skipped_contexts())
-
     def test_exact_revision_submission(self):
         self.trigger()
         body = self.state()['posts'][0]

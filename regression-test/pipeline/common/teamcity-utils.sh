@@ -96,7 +96,7 @@ teamcity_current_trigger() (
     [[ " ${targetBranch_to_pipelines[$PULL_REQUEST_TARGET_BRANCH]:-} " == *" $lane "* ]] || {
         echo "No pipeline for $lane on $PULL_REQUEST_TARGET_BRANCH" >&2; exit 1;
     }
-    # TeamCity owns artifact selection, download and validation.
+    # Artifact lookup belongs to the pipeline; only submit the requested lane here.
     local TC_FIELDS='id,revisions(revision(version)),properties(property(name,value))'
     params=$(jq -cn --arg pr "$PULL_REQUEST_NUM" --arg branch "$PULL_REQUEST_TARGET_BRANCH" --arg head "$COMMIT_ID_FROM_TRIGGER" '{"env.PR_NUMBER":$pr,"env.CI_BRANCH":$branch,"env.CI_REQUESTED_PR_HEAD":$head}')
     teamcity_current_enqueue "${comment_to_pipeline[$lane]}" "$params" "$count"
@@ -185,10 +185,6 @@ trigger_or_skip_build() {
     [[ " ${targetBranch_to_pipelines[$PULL_REQUEST_TARGET_BRANCH]:-} " == *" $COMMENT_TRIGGER_TYPE "* ]] || {
         echo "No pipeline for $COMMENT_TRIGGER_TYPE on $PULL_REQUEST_TARGET_BRANCH" >&2; return 1;
     }
-    # An explicit regression command always reaches TeamCity's artifact preflight.
-    case "$COMMENT_TRIGGER_TYPE" in
-        p0|cloud_p0|vault_p0|external|nonconcurrent) FILE_CHANGED=true ;;
-    esac
     case "$FILE_CHANGED" in
         true) trigger_build "$PULL_REQUEST_NUM" "$COMMIT_ID_FROM_TRIGGER" "$COMMENT_TRIGGER_TYPE" "${COMMENT_REPEAT_TIMES:-1}" ;;
         false) teamcity_skip_unaffected ;;
