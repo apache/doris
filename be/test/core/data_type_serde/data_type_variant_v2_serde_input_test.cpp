@@ -560,16 +560,33 @@ TEST(DataTypeVariantV2SerdeInputTest, TemplatePathsReadPrettyPrintedTextAndOneDo
     const std::string pretty = json_at(serde, *column, 0);
     EXPECT_NE(std::string::npos, pretty.find(R"("amount":1.50)")) << pretty;
     EXPECT_NE(std::string::npos, pretty.find(R"("id":18446744073709551616)")) << pretty;
+    // What simdjson passes over before a document does not hide it from the text read: leading
+    // whitespace and a UTF-8 byte order mark.
+    size_t row = 1;
+    for (const char* text : {" \n\t\r{\"amount\":1.50}", "\xEF\xBB\xBF{\"amount\":1.50}",
+                             "\xEF\xBB\xBF \n{\"amount\":1.50}"}) {
+        ASSERT_TRUE(deserialize_json(serde, *column, text).ok()) << text;
+        const std::string json = json_at(serde, *column, row++);
+        EXPECT_NE(std::string::npos, json.find(R"("amount":1.50)")) << json;
+    }
+    // A root scalar is on no path and goes to the DOM parser alone, the "null" the parse functions
+    // add for a SQL NULL row included: read as without a template.
+    for (const char* text : {"null", " 1.50", "\"s\""}) {
+        ASSERT_TRUE(deserialize_json(serde, *column, text).ok()) << text;
+        ASSERT_TRUE(deserialize_json(plain, *plain_column, text).ok()) << text;
+        EXPECT_EQ(json_at(plain, *plain_column, plain_column->size() - 1),
+                  json_at(serde, *column, row++))
+                << text;
+    }
     // A second value after the document makes the text no JSON document: the ondemand pass stops
     // after the first, the DOM parser rejects the whole text, and the lenient serde keeps it as a
     // string row, as it does without a template.
-    size_t row = 1;
     for (const char* text : {R"({"amount":1.50}{"amount":2.50})", R"({"amount":1.50} })"}) {
         ASSERT_TRUE(deserialize_json(serde, *column, text).ok()) << text;
         ASSERT_TRUE(deserialize_json(plain, *plain_column, text).ok()) << text;
         const std::string json = json_at(serde, *column, row);
         EXPECT_EQ('"', json.front()) << text << " -> " << json;
-        EXPECT_EQ(json_at(plain, *plain_column, row - 1), json) << text;
+        EXPECT_EQ(json_at(plain, *plain_column, plain_column->size() - 1), json) << text;
         ++row;
     }
     // A long fraction and a five-digit exponent: 0.<999 zeros>1e10000 is 10^9000, which no decimal

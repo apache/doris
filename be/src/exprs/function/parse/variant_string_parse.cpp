@@ -644,8 +644,11 @@ struct JsonStringToVariantEncoder::Impl {
             throw Exception(ErrorCode::INVALID_ARGUMENT,
                             "Variant JSON input has a null data pointer");
         }
-        const bool has_template = json.size != 0 && options.template_paths != nullptr &&
-                                  !options.template_paths->empty();
+        // A root scalar has no path, so the ondemand pass could only decline it after copying and
+        // indexing the text: the "null" the parse functions add for every SQL NULL row is the
+        // commonest one. Only an object or an array is given to it.
+        const bool has_template = options.template_paths != nullptr &&
+                                  !options.template_paths->empty() && starts_a_container(json);
         // The DOM parser reads a fraction into a binary64 without complaint, so under a template
         // with a DECIMAL field every document is read from its text first. Under one without
         // (LARGEINT fields only) the two reads differ only on an integer beyond 64 bits, which
@@ -672,6 +675,22 @@ struct JsonStringToVariantEncoder::Impl {
         }
         JsonTreeCollector(row, options).collect(root, 0);
         row.finish();
+    }
+
+    // Whether the first byte of the document opens an object or an array, past what simdjson
+    // itself passes over before a document: a UTF-8 byte order mark and JSON whitespace.
+    static bool starts_a_container(StringRef json) {
+        size_t pos = 0;
+        if (json.size >= 3 && std::memcmp(json.data, "\xEF\xBB\xBF", 3) == 0) {
+            pos = 3;
+        }
+        for (; pos < json.size; ++pos) {
+            const char c = json.data[pos];
+            if (c != ' ' && c != '\t' && c != '\n' && c != '\r') {
+                return c == '{' || c == '[';
+            }
+        }
+        return false;
     }
 
     // Adds the document as the ondemand pass reads it, or nothing: false means the row it began
@@ -742,7 +761,8 @@ struct JsonStringToVariantEncoder::Impl {
     VariantBatchBuilder builder;
     SimdJSONParser parser;
     simdjson::ondemand::parser ondemand_parser;
-    // the ondemand parser's input: a padded copy of the current document, reused across rows
+    // The ondemand parser's input: a padded copy of the current document, reused across rows and
+    // freed with the encoder. Untracked, like the DOM parser's own copy of the document.
     std::string padding_buffer;
     State state = State::COLLECTING;
 };
