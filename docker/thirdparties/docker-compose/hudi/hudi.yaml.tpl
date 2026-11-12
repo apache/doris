@@ -34,6 +34,11 @@ services:
     ports:
       - "${MINIO_API_PORT}:9000"
       - "${MINIO_CONSOLE_PORT}:9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/ready"]
+      interval: 5s
+      timeout: 10s
+      retries: 60
     networks:
       - ${HUDI_NETWORK}
 
@@ -43,13 +48,13 @@ services:
     entrypoint: |
       /bin/bash -c "
       set -euo pipefail
-      sleep 5
       mc alias set myminio http://${CONTAINER_UID}hudi-minio:9000 ${MINIO_ROOT_USER} ${MINIO_ROOT_PASSWORD}
-      mc mb --quiet myminio/${HUDI_BUCKET} || true
-      mc mb --quiet myminio/${HUDI_BUCKET}-tmp || true
+      mc mb --quiet --ignore-existing myminio/${HUDI_BUCKET}
+      mc mb --quiet --ignore-existing myminio/${HUDI_BUCKET}-tmp
       "
     depends_on:
-      - ${CONTAINER_UID}hudi-minio
+      ${CONTAINER_UID}hudi-minio:
+        condition: service_healthy
     networks:
       - ${HUDI_NETWORK}
 

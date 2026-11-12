@@ -1477,6 +1477,13 @@ start_mariadb() {
 
 start_fluss() {
     local fluss_dir="${ROOT}/docker-compose/fluss"
+    local fluss_host_ip
+
+    if [[ "${STOP}" -ne 1 ]]; then
+        . "${fluss_dir}/fluss-network.sh"
+        fluss_host_ip="$(resolve_fluss_host_ip)" || return
+        export FLUSS_HOST_IP="${fluss_host_ip}"
+    fi
 
     # The compose file bind mounts remote.data.dir and the paimon warehouse at
     # the same absolute paths it uses inside the containers, so Doris (running on

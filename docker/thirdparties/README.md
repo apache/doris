@@ -53,9 +53,10 @@ user namespace, using `alpine:3.20`. It does not change host ownership to root.
 
 Hive, Kerberos and Iceberg REST's built-in HDFS require Docker Engine 29.5 or
 newer for rootless host networking. Hive defaults to `HIVE_HOST_ALIAS=localhost`
-and uses loopback for its same-host services. For Fluss, set `FLUSS_HOST_IP` to
-a host address reachable by both containers and host clients when `IP_HOST`
-is loopback. Iceberg REST HDFS uses host ports 20020, 20870, 20864, 20866 and
+and uses loopback for its same-host services. On Linux, when `IP_HOST` is loopback, Fluss
+detects a host IPv4 address; set `FLUSS_HOST_IP` explicitly when a different
+address is needed for both containers and host clients. Iceberg REST HDFS uses
+host ports 20020, 20870, 20864, 20866 and
 20867, so its DataNode block addresses are reachable by host clients.
 
 Kerberos client configuration and keytabs remain under
