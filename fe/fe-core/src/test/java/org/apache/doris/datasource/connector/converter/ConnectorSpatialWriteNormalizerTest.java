@@ -36,6 +36,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Array;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Cardinality;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateMap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateNamedStruct;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
@@ -631,6 +632,37 @@ public class ConnectorSpatialWriteNormalizerTest {
         Assertions.assertEquals(2, normalizedLimit.getOffset());
         LogicalSort<?> normalizedSort = (LogicalSort<?>) normalizedLimit.child();
         Assertions.assertEquals(ImmutableList.of(order), normalizedSort.getOrderKeys());
+        LogicalProject<?> normalizedProject = (LogicalProject<?>) normalizedSort.child();
+        Assertions.assertSame(input, normalizedProject.child());
+        Assertions.assertSame(id, normalizedProject.getProjects().get(0));
+        Assertions.assertEquals(DataType.fromCatalogType(target), normalized.getOutput().get(1).getDataType());
+        Assertions.assertNotEquals(map.getExprId(), normalized.getOutput().get(1).getExprId());
+    }
+
+    @Test
+    public void testOrderByCardinalityUsesTheSameRetaggedMap() {
+        LogicalPlan input = row(new SlotReference("id", IntegerType.INSTANCE));
+        SlotReference id = (SlotReference) input.getOutput().get(0);
+        Type geometry = ScalarType.createGeometryType("OGC:CRS84");
+        Type target = new MapType(Type.STRING, geometry);
+        Alias map = new Alias(new CreateMap(new Cast(id, StringType.INSTANCE),
+                new Cast(NullLiteral.INSTANCE, IntegerType.INSTANCE)), "shape");
+        LogicalProject<?> project = new LogicalProject<>(ImmutableList.of(id, map), input);
+        OrderKey order = new OrderKey(new Cardinality(map.toSlot()), false, true);
+        LogicalSort<?> sort = new LogicalSort<>(ImmutableList.of(order, new OrderKey(id, true, false)), project);
+        LogicalLimit<?> limit = new LogicalLimit<>(1, 2, LimitPhase.ORIGIN, sort);
+
+        LogicalPlan normalized = ConnectorSpatialWriteNormalizer.normalize(ImmutableList.of(
+                new Column("id", Type.INT), new Column("shape", target)), limit, new CTEContext());
+
+        Assertions.assertInstanceOf(LogicalLimit.class, normalized);
+        LogicalLimit<?> normalizedLimit = (LogicalLimit<?>) normalized;
+        Assertions.assertEquals(1, normalizedLimit.getLimit());
+        Assertions.assertEquals(2, normalizedLimit.getOffset());
+        LogicalSort<?> normalizedSort = (LogicalSort<?>) normalizedLimit.child();
+        SlotReference retagged = (SlotReference) normalized.getOutput().get(1);
+        Assertions.assertEquals(ImmutableList.of(order.withExpression(new Cardinality(retagged)),
+                new OrderKey(id, true, false)), normalizedSort.getOrderKeys());
         LogicalProject<?> normalizedProject = (LogicalProject<?>) normalizedSort.child();
         Assertions.assertSame(input, normalizedProject.child());
         Assertions.assertSame(id, normalizedProject.getProjects().get(0));

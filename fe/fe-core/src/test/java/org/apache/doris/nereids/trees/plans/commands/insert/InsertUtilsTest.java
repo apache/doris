@@ -148,6 +148,48 @@ public class InsertUtilsTest {
     }
 
     @Test
+    public void normalizeValuesWithDynamicMapKeyAndOuterCast() {
+        ConnectContext connectContext = new ConnectContext();
+        ConnectContext previous = ConnectContext.get();
+        connectContext.setThreadLocalInfo();
+        StatementContext statementContext = new StatementContext(connectContext, new OriginStatement("", 0));
+        connectContext.setStatementContext(statementContext);
+        try {
+            ScalarType geometry = ScalarType.createGeometryType("OGC:CRS84");
+            Column column = new Column("m", new org.apache.doris.catalog.MapType(Type.STRING, geometry));
+            TableIf table = Mockito.mock(TableIf.class);
+            Mockito.when(table.getBaseSchema(false)).thenReturn(ImmutableList.of(column));
+            for (String leaf : ImmutableList.of("cast(null as int)", "cast(null as geometry('OGC:CRS84'))")) {
+                Expression map = PARSER.parseExpression(
+                        "cast(map(cast(rand() * 100 as int), " + leaf + ") as map<string,int>)");
+                UnboundInlineTable values = new UnboundInlineTable(ImmutableList.of(
+                        ImmutableList.of(new Alias(map, "m"))));
+                UnboundConnectorTableSink<?> sink = new UnboundConnectorTableSink<>(
+                        ImmutableList.of("t"), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(),
+                        DMLCommandType.INSERT, Optional.empty(), Optional.empty(), values);
+                CascadesContext context = CascadesContext.initContext(statementContext, sink, PhysicalProperties.ANY);
+                if (leaf.contains("geometry")) {
+                    Assertions.assertThrows(AnalysisException.class, () -> InsertUtils.normalizePlan(
+                            sink, table, Optional.of(context), Optional.empty()));
+                    continue;
+                }
+                Plan normalized = InsertUtils.normalizePlan(sink, table, Optional.of(context), Optional.empty());
+                LogicalInlineTable inline = (LogicalInlineTable) normalized.child(0);
+                NamedExpression result = inline.getConstantExprsList().get(0).get(0);
+                Assertions.assertEquals(DataType.fromCatalogType(column.getType()), result.getDataType());
+                Assertions.assertTrue(result.anyMatch(expression -> expression instanceof NullLiteral
+                        && ((NullLiteral) expression).getDataType().equals(DataType.fromCatalogType(geometry))));
+            }
+        } finally {
+            if (previous == null) {
+                ConnectContext.remove();
+            } else {
+                previous.setThreadLocalInfo();
+            }
+        }
+    }
+
+    @Test
     public void normalizeNestedSpatialValuesAcceptTypedNullLeaves() {
         ConnectContext connectContext = new ConnectContext();
         ConnectContext previous = ConnectContext.get();

@@ -23,9 +23,11 @@
 #include <s2/s2closest_edge_query.h>
 #include <s2/s2closest_point_query.h>
 #include <s2/s2contains_point_query.h>
+#include <s2/s2crossing_edge_query.h>
 #include <s2/s2earth.h>
 #include <s2/s2edge_crossings.h>
 #include <s2/s2edge_distances.h>
+#include <s2/s2edge_vector_shape.h>
 #include <s2/s2lax_polygon_shape.h>
 #include <s2/s2loop.h>
 #include <s2/s2loop_measures.h>
@@ -129,10 +131,18 @@ static std::pair<Float, Float> geography_degree_sincos(double a, double b = 0, b
     }
 }
 
-// Unlike cross(ToPoint(a), ToPoint(b)), these product identities do not subtract
-// rounded nearly opposite vectors. Longitude-midpoint coordinates give
-// (-sin(dLon/2)*sin(latA+latB), cos(dLon/2)*sin(latA-latB),
-//  cos(latA)*cos(latB)*sin(dLon)) for the oriented normal.
+// In longitude-midpoint coordinates, the raw normal retains the low bits of both
+// endpoint differences. A Cartesian cross product would subtract rounded products.
+template <typename Float>
+static std::array<Float, 3> geography_raw_normal(const GeoCoordinate& a, const GeoCoordinate& b,
+                                                 const Float& sin_half, const Float& cos_half) {
+    return {-sin_half * geography_degree_sincos<Float>(a.y, b.y).first,
+            cos_half * geography_degree_sincos<Float>(a.y, -b.y).first,
+            geography_degree_sincos<Float>(a.y).second *
+                    geography_degree_sincos<Float>(b.y).second *
+                    geography_degree_sincos<Float>(b.x, -a.x).first};
+}
+
 template <typename Float = GeographyFloat>
 struct GeographyRawArc {
     S2Point normal;
@@ -149,11 +159,8 @@ struct GeographyRawArc {
                            static_cast<double>((sm * x + cm * y) / norm),
                            static_cast<double>(z / norm));
         };
-        normal = rotate_unit(-sd * geography_degree_sincos<Float>(a.y, b.y).first,
-                             cd * geography_degree_sincos<Float>(a.y, -b.y).first,
-                             geography_degree_sincos<Float>(a.y).second *
-                                     geography_degree_sincos<Float>(b.y).second *
-                                     geography_degree_sincos<Float>(b.x, -a.x).first);
+        const auto [nx, ny, nz] = geography_raw_normal(a, b, sd, cd);
+        normal = rotate_unit(nx, ny, nz);
         const auto [sl, cl] = geography_degree_sincos<Float>(a.y, b.y, true);
         const auto [st, ct] = geography_degree_sincos<Float>(b.y, -a.y, true);
         midpoint = rotate_unit(cd * cl * ct, -sd * sl * st, sl * ct);
@@ -1201,9 +1208,8 @@ static boost::multiprecision::cpp_bin_float_quad geography_raw_determinant(
     return determinant;
 }
 
-static bool geography_has_raw_polygon_edge_crossing(
-        const GeographyEdgeNodes::RawEdges& left_edges,
-        const GeographyEdgeNodes::RawEdges& right_edges) {
+static bool geography_raw_edges_cross(const GeographyEdgeNodes::LineEdge& left,
+                                      const GeographyEdgeNodes::LineEdge& right) {
     const auto side = [](const GeoCoordinate& a, const GeoCoordinate& b,
                          const GeoCoordinate& point) {
         const auto determinant = geography_raw_determinant(a, b, point);
@@ -1216,24 +1222,49 @@ static bool geography_has_raw_polygon_edge_crossing(
         }
         return (determinant > 0) - (determinant < 0);
     };
-    const auto crosses = [&](const auto& left, const auto& right) {
+    if (S2::CrossingSign(left.first.point, left.second.point, right.first.point,
+                         right.second.point) <= 0) {
+        return false;
+    }
+    const auto& a = left.first.coordinate;
+    const auto& b = left.second.coordinate;
+    const auto& c = right.first.coordinate;
+    const auto& d = right.second.coordinate;
+    // The crossing need not have an intersection representable in binary64 degrees.
+    // ACB, CBD, BDA and DAC must have the same nonzero orientation, as in S2.
+    const int acb = side(a, c, b);
+    return acb != 0 && side(c, b, d) == acb && side(b, d, a) == acb && side(d, a, c) == acb;
+}
+
+static bool geography_has_raw_line_edge_crossing(const GeographyEdgeNodes::LineEdges& left,
+                                                 const GeographyEdgeNodes::LineEdges& right) {
+    // Only called when rounded endpoints collide without an exact shared vertex.
+    // The index recalls rounded crossing candidates and the raw coordinates certify contact.
+    MutableS2ShapeIndex index;
+    auto shape = std::make_unique<S2EdgeVectorShape>();
+    DorisVector<const GeographyEdgeNodes::LineEdge*> raw_edges;
+    raw_edges.reserve(right.size());
+    for (const auto& edge : right) {
+        shape->Add(edge.first.point, edge.second.point);
+        raw_edges.push_back(&edge);
+    }
+    index.Add(std::move(shape));
+    S2CrossingEdgeQuery query(&index);
+    return std::ranges::any_of(left, [&](const auto& edge) {
+        return !query.VisitRawCandidates(edge.first.point, edge.second.point, [&](const auto& id) {
+            return !geography_raw_edges_cross(edge, *raw_edges[id.edge_id]);
+        });
+    });
+}
+
+static bool geography_has_raw_polygon_edge_crossing(
+        const GeographyEdgeNodes::RawEdges& left_edges,
+        const GeographyEdgeNodes::RawEdges& right_edges) {
+    const auto crosses = [](const auto& left, const auto& right) {
 #ifdef BE_TEST
         ++geography_polygon_crossing_checks;
 #endif
-        if (S2::CrossingSign(left.first.point, left.second.point, right.first.point,
-                             right.second.point) <= 0) {
-            return false;
-        }
-        const auto& a = left.first.coordinate;
-        const auto& b = left.second.coordinate;
-        const auto& c = right.first.coordinate;
-        const auto& d = right.second.coordinate;
-        // Crossing arcs need not have an intersection representable in binary64 degrees.
-        // For example, (0,58+ulp)->(2,60) crosses (0,58)->(0.5,61), but converting S2's
-        // approximate intersection back to degrees cannot prove exact raw coplanarity.
-        // ACB, CBD, BDA and DAC must instead have the same nonzero orientation, as in S2.
-        const int acb = side(a, c, b);
-        return acb != 0 && side(c, b, d) == acb && side(b, d, a) == acb && side(d, a, c) == acb;
+        return geography_raw_edges_cross(left, right);
     };
     for (const auto& left_ring : left_edges.polygon) {
         for (const auto& right_ring : right_edges.polygon) {
@@ -1686,13 +1717,14 @@ static Status geography_relation_impl(std::string_view name, const GeoShape& lhs
     }
     bool intersects = S2BooleanOperation::Intersects(left, right, options);
     if ((name == "st_intersects" || name == "st_disjoint") && has_rounded_only_endpoint()) {
-        if (!shares_raw_vertex()) {
+        if (!shares_raw_vertex() &&
+            !geography_has_raw_line_edge_crossing(left_edges.line, right_edges.line)) {
             return Status::NotSupported(
                     "{} does not support ambiguous spherical Polygon boundary line endpoint "
                     "contact",
                     name);
         }
-        // A separate exact contact decides this existential predicate.
+        // A separate proven contact decides this existential predicate.
         *result = name == "st_intersects";
         return Status::OK();
     }
@@ -1893,6 +1925,38 @@ bool geography_bearing(const GeoCoordinate& from, const GeoCoordinate& to, doubl
     return geography_bearing_impl<GeographyFloat>(from, to, bearing);
 }
 
+static GeographyFloat geography_relative_cross(const GeoCoordinate& start,
+                                               const GeoCoordinate& vertex,
+                                               const GeoCoordinate& end,
+                                               const GeographyTangent<GeographyFloat>& first,
+                                               const GeographyTangent<GeographyFloat>& last) {
+    using std::abs;
+    const GeographyFloat eastward = first.north * last.east;
+    const GeographyFloat westward = first.east * last.north;
+    const GeographyFloat cross = eastward - westward;
+    const GeographyFloat error = 64 * std::numeric_limits<GeographyFloat>::epsilon();
+    if (abs(cross) > error * (abs(eastward) + abs(westward))) {
+        return cross;
+    }
+    const auto [ax, ay] = geography_point_coordinate(start);
+    const auto [bx, by] = geography_point_coordinate(end);
+    if (ax == bx && ay == by) {
+        return 0;
+    }
+    // -(start × end) · vertex is the same signed numerator. Compute the normal
+    // from raw endpoint differences when rounded tangent products nearly cancel.
+    const auto [sin_half, cos_half] = geography_degree_sincos(bx, -ax, true);
+    const auto [nx, ny, nz] = geography_raw_normal(
+            GeoCoordinate {.x = ax, .y = ay}, GeoCoordinate {.x = bx, .y = by}, sin_half, cos_half);
+    const auto [vx, vy] = geography_point_coordinate(vertex);
+    const auto [sin_lon, cos_lon] = geography_degree_sincos(vx, -ax);
+    const auto [sin_lat, cos_lat] = geography_degree_sincos(vy);
+    const GeographyFloat residual = -cos_lat * (nx * (cos_lon * cos_half + sin_lon * sin_half) +
+                                                ny * (sin_lon * cos_half - cos_lon * sin_half)) -
+                                    nz * sin_lat;
+    return abs(residual) > error * (abs(nx) + abs(ny) + abs(nz)) ? residual : cross;
+}
+
 bool geography_clockwise_angle(const GeoCoordinate& start, const GeoCoordinate& vertex,
                                const GeoCoordinate& end, double* angle) {
     GeographyTangent<GeographyFloat> first;
@@ -1901,7 +1965,7 @@ bool geography_clockwise_angle(const GeoCoordinate& start, const GeoCoordinate& 
         return false;
     }
     // Compute the relative bearing before any rounding of absolute angles.
-    const GeographyFloat cross = first.north * last.east - first.east * last.north;
+    const GeographyFloat cross = geography_relative_cross(start, vertex, end, first, last);
     const GeographyFloat dot = first.north * last.north + first.east * last.east;
     using std::atan2;
     *angle = geography_positive_angle<GeographyFloat>(atan2(cross, dot));

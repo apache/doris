@@ -20,6 +20,7 @@ package org.apache.doris.datasource.connector.converter;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.nereids.CTEContext;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
+import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer;
 import org.apache.doris.nereids.rules.rewrite.PushProjectThroughUnion;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -32,6 +33,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Array;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Cardinality;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateMap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateNamedStruct;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateStruct;
@@ -136,8 +138,11 @@ public final class ConnectorSpatialWriteNormalizer {
         while (producerInput instanceof LogicalSort || producerInput instanceof LogicalLimit) {
             wrappers.add(producerInput);
             for (Expression expression : producerInput.getExpressions()) {
-                for (Slot input : expression.getInputSlots()) {
-                    sortInputs.add(input.getExprId());
+                // A direct CARDINALITY(map_slot) depends on the entry count, which retagging preserves.
+                if (!isMapCardinality(expression)) {
+                    for (Slot input : expression.getInputSlots()) {
+                        sortInputs.add(input.getExprId());
+                    }
                 }
             }
             producerInput = (LogicalPlan) producerInput.child(0);
@@ -145,6 +150,7 @@ public final class ConnectorSpatialWriteNormalizer {
         LogicalProject<?> producer = producerInput instanceof LogicalProject
                 && !((LogicalProject<?>) producerInput).isDistinct() ? (LogicalProject<?>) producerInput : null;
         List<NamedExpression> producerOutputs = null;
+        Map<ExprId, Slot> replacedSlots = new HashMap<>();
         boolean changed = false;
         for (int i = 0; i < targets.size(); i++) {
             Column target = targets.get(i);
@@ -176,7 +182,9 @@ public final class ConnectorSpatialWriteNormalizer {
                         }
                         Alias replacement = new Alias(normalized, slot.getName());
                         producerOutputs.set(sourceOrdinal, replacement);
-                        outputs.set(sourceOrdinal, replacement.toSlot());
+                        Slot replacementSlot = replacement.toSlot();
+                        outputs.set(sourceOrdinal, replacementSlot);
+                        replacedSlots.put(slot.getExprId(), replacementSlot);
                     }
                 }
             }
@@ -197,10 +205,31 @@ public final class ConnectorSpatialWriteNormalizer {
         if (producerOutputs != null) {
             normalizedSource = producer.withProjects(producerOutputs);
             for (int i = wrappers.size() - 1; i >= 0; i--) {
-                normalizedSource = (LogicalPlan) wrappers.get(i).withChildren(ImmutableList.of(normalizedSource));
+                LogicalPlan wrapper = wrappers.get(i);
+                if (wrapper instanceof LogicalSort) {
+                    LogicalSort<?> sort = (LogicalSort<?>) wrapper;
+                    List<OrderKey> keys = sort.getOrderKeys().stream().map(key -> {
+                        Expression expr = key.getExpr();
+                        if (isMapCardinality(expr)) {
+                            Slot input = replacedSlots.get(((Slot) expr.child(0)).getExprId());
+                            if (input != null) {
+                                return key.withExpression(new Cardinality(input));
+                            }
+                        }
+                        return key;
+                    }).collect(ImmutableList.toImmutableList());
+                    normalizedSource = sort.withOrderKeysAndChild(keys, normalizedSource);
+                } else {
+                    normalizedSource = (LogicalPlan) wrapper.withChildren(ImmutableList.of(normalizedSource));
+                }
             }
         }
         return changed ? new LogicalProject<>(outputs, normalizedSource) : normalizedSource;
+    }
+
+    private static boolean isMapCardinality(Expression expression) {
+        return expression instanceof Cardinality && expression.child(0) instanceof Slot
+                && expression.child(0).getDataType() instanceof MapType;
     }
 
     private static boolean isForwardingProject(LogicalProject<?> project) {
@@ -361,6 +390,37 @@ public final class ConnectorSpatialWriteNormalizer {
 
     public static Expression normalizeSpatialNullsBeforeBinding(Expression input, DataType target) {
         return normalizeSpatialNullsBeforeBinding(input, target, false);
+    }
+
+    /** Retags proven NULLs in a bound write value while retaining its ordinary children. */
+    public static Expression normalizeBoundSpatialNulls(Expression input, DataType target) {
+        return canRetargetSpatialNulls(input, target, true)
+                ? normalizeSpatialNullsBeforeBinding(input, target, true) : input;
+    }
+
+    /** Casts a MERGE branch in place so only the selected branch is evaluated. */
+    public static Expression castSpatialMergeBranch(Expression input, DataType target) {
+        Expression normalized = normalizeSpatialNullsBeforeBinding(input, target);
+        if (normalized == input && input.getClass() == Cast.class && input.getDataType() instanceof MapType
+                && target instanceof MapType && !input.getDataType().equals(target)
+                && canRetargetSpatialNulls(input, target, true)) {
+            // The key is still in the MERGE input scope. Let the analyzer validate the original
+            // MAP cast before changing its NULL leaves and applying the sink type.
+            return new SpatialMergeBranchCast(input, target);
+        }
+        return TypeCoercionUtils.castUnbound(normalized, target);
+    }
+
+    /** Analysis-only cast for the MERGE branch above. */
+    public static final class SpatialMergeBranchCast extends Cast {
+        private SpatialMergeBranchCast(Expression child, DataType target) {
+            super(child, target);
+        }
+
+        @Override
+        public Cast withChildren(List<Expression> children) {
+            return new SpatialMergeBranchCast(children.get(0), getDataType());
+        }
     }
 
     private static Expression normalizeSpatialNullsBeforeBinding(Expression input, DataType target,

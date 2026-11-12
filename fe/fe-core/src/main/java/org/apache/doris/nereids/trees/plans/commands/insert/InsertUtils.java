@@ -75,6 +75,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.UnboundLogicalSink;
 import org.apache.doris.nereids.types.AggStateType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.util.MoreFieldsThread;
 import org.apache.doris.nereids.util.RelationUtil;
@@ -751,6 +752,11 @@ public class InsertUtils {
             }
             value = (NamedExpression) analyzer.get().analyze(value,
                     new ExpressionRewriteContext(analyzer.get().getCascadesContext()));
+            if (value instanceof Alias && value.child(0) instanceof Cast
+                    && value.child(0).getDataType() instanceof MapType && targetType instanceof MapType) {
+                value = (NamedExpression) value.withChildren(ConnectorSpatialWriteNormalizer.normalizeBoundSpatialNulls(
+                        value.child(0), targetType));
+            }
             ConnectorSpatialWriteValidator.validate(targetColumn, value);
             if (value instanceof Alias) {
                 value = (NamedExpression) value.withChildren(

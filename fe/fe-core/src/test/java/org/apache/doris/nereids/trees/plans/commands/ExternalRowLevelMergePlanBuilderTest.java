@@ -686,17 +686,36 @@ public class ExternalRowLevelMergePlanBuilderTest {
         }
     }
 
+    @Test
+    public void mergeRetagsSpatialNullThroughOuterCastWithSourceKey() {
+        SlotReference id = new SlotReference("id", IntegerType.INSTANCE);
+        ExpressionAnalyzer analyzer = mergeExpressionAnalyzer(id);
+        NereidsParser parser = new NereidsParser();
+        DataType spatial = new GeometryType("OGC:CRS84");
+        DataType target = MapType.of(StringType.INSTANCE, spatial);
+        Expression branch = mergeBranch(parser.parseExpression(
+                "cast(map(id, cast(null as int)) as map<string,int>)"), target);
+        Expression analyzed = analyzer.analyze(branch);
+        Assertions.assertEquals(target, analyzed.getDataType());
+        Assertions.assertTrue(analyzed.getInputSlots().contains(id));
+        Assertions.assertTrue(analyzed.anyMatch(expression -> expression instanceof NullLiteral
+                && ((NullLiteral) expression).getDataType().equals(spatial)));
+        Expression invalid = parser.parseExpression(
+                "cast(map(id, cast(null as geometry('OGC:CRS84'))) as map<string,int>)");
+        Assertions.assertThrows(AnalysisException.class, () -> analyzer.analyze(mergeBranch(invalid, target)));
+    }
+
     private static Expression mergeBranch(Expression value, DataType target) {
         return ExternalRowLevelMergePlanBuilder.generateFinalProjections(
                 ImmutableList.of("payload"), ImmutableList.of(target),
                 ImmutableList.of(ImmutableList.of(value))).get(0).child(0).child(1);
     }
 
-    private static ExpressionAnalyzer mergeExpressionAnalyzer() {
+    private static ExpressionAnalyzer mergeExpressionAnalyzer(SlotReference... inputSlots) {
         ConnectContext ctx = new ConnectContext();
         ctx.setStatementContext(new StatementContext());
         ctx.setThreadLocalInfo();
-        return new ExpressionAnalyzer(null, new Scope(ImmutableList.of()), null, true, true);
+        return new ExpressionAnalyzer(null, new Scope(ImmutableList.copyOf(inputSlots)), null, true, true);
     }
 
     @Test

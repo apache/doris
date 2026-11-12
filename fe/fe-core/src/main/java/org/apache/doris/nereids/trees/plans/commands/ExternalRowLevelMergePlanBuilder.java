@@ -314,10 +314,9 @@ public class ExternalRowLevelMergePlanBuilder {
                 // Binding ARRAY(CAST(NULL AS INT)) to ARRAY<GEOMETRY> otherwise rejects
                 // the eager complex cast before sink NULL normalization. Retag only proven
                 // NULL leaves; retain actual values and ordinary siblings for normal validation.
-                if (spatialTarget) {
-                    value = ConnectorSpatialWriteNormalizer.normalizeSpatialNullsBeforeBinding(value, outputType);
-                }
-                Expression branch = TypeCoercionUtils.castUnbound(value, outputType);
+                Expression branch = spatialTarget
+                        ? ConnectorSpatialWriteNormalizer.castSpatialMergeBranch(value, outputType)
+                        : TypeCoercionUtils.castUnbound(value, outputType);
                 project = MergeUtils.selectBranch(
                         new EqualTo(new UnboundSlot(BRANCH_LABEL), new IntegerLiteral(j)),
                         branch, project);

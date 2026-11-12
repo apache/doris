@@ -2003,4 +2003,27 @@ public class CreateIcebergSpatialV3Table {
             }
         }
     }
+
+    sql """insert into spatial_write_cast_null_containers(id,g_map)
+        select id + 900 as id, map(cast(id as string),cast(null as int)) as m
+        from geometry_values order by cardinality(m),id limit 1"""
+    check_sqls_result_equal(
+        """select id, cardinality(g_map), g_map[cast(id - 900 as string)] is null
+            from spatial_write_cast_null_containers where id between 900 and 910""",
+        """select min(id) + 900, 1, true from geometry_values""")
+
+    sql """merge into spatial_write_cast_null_containers t using (select 1 id, 42 k) s
+        on t.id = s.id when matched then update set
+        g_map = cast(map(s.k,cast(null as int)) as map<string,int>)"""
+    check_sqls_result_equal(
+        """select cardinality(g_map), array_contains(map_keys(g_map),'42'), g_map['42'] is null
+            from spatial_write_cast_null_containers where id = 1""",
+        """select 1, true, true""")
+
+    sql """insert into spatial_write_cast_null_containers(id,g_map) values
+        (999,cast(map(cast(rand() * 100 as int),cast(null as int)) as map<string,int>))"""
+    check_sqls_result_equal(
+        """select cardinality(g_map), element_at(map_values(g_map),1) is null
+            from spatial_write_cast_null_containers where id = 999""",
+        """select 1, true""")
 }
