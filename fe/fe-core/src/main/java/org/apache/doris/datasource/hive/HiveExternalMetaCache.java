@@ -679,11 +679,36 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
         return getAllPartitions(dorisTable, partitionValuesList, false);
     }
 
+    /** Cache-only scan probe. A miss must not perform remote I/O on the split producer. */
+    public Optional<List<HivePartition>> getCachedPartitions(NameMapping nameMapping,
+            List<List<String>> partitionValuesList) {
+        MetaCacheEntry<PartitionCacheKey, HivePartition> entry = partitionEntry.get(nameMapping.getCtlId());
+        List<HivePartition> partitions = new ArrayList<>(partitionValuesList.size());
+        for (List<String> values : partitionValuesList) {
+            HivePartition partition = entry.getIfPresent(new PartitionCacheKey(nameMapping, values));
+            if (partition == null) {
+                return Optional.empty();
+            }
+            partitions.add(partition);
+        }
+        return Optional.of(partitions);
+    }
+
+    /** Load one bounded scan batch, allowing partitions dropped after pruning to be absent. */
+    public List<HivePartition> getExistingPartitionsWithCache(NameMapping nameMapping,
+            List<List<String>> partitionValuesList) {
+        return getAllPartitions(nameMapping, partitionValuesList, true, true);
+    }
+
     private List<HivePartition> getAllPartitions(ExternalTable dorisTable,
             List<List<String>> partitionValuesList,
             boolean withCache) {
+        return getAllPartitions(dorisTable.getOrBuildNameMapping(), partitionValuesList, withCache, false);
+    }
+
+    private List<HivePartition> getAllPartitions(NameMapping nameMapping,
+            List<List<String>> partitionValuesList, boolean withCache, boolean ignoreMissing) {
         long start = System.currentTimeMillis();
-        NameMapping nameMapping = dorisTable.getOrBuildNameMapping();
         long catalogId = nameMapping.getCtlId();
         List<PartitionCacheKey> keys = partitionValuesList.stream()
                 .map(p -> new PartitionCacheKey(nameMapping, p))
@@ -714,7 +739,11 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
                 HivePartition partition = resolved.get(key);
                 // A key the bulk load did not return (partition dropped remotely) falls back to the
                 // per-key loader, preserving the original single-load not-found error for that partition.
-                partitions.add(partition != null ? partition : partitionEntry.get(key));
+                if (partition != null) {
+                    partitions.add(partition);
+                } else if (!ignoreMissing) {
+                    partitions.add(partitionEntry.get(key));
+                }
             }
         } else {
             partitions = new ArrayList<>(loadPartitions(keys).values());

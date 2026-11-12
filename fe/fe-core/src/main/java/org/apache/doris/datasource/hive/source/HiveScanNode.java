@@ -28,12 +28,14 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalScanTaskCacheKey;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.FileSplit;
 import org.apache.doris.datasource.FileSplitter;
+import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.SplitAssignment;
 import org.apache.doris.datasource.SplitProducer;
 import org.apache.doris.datasource.TableFormatType;
@@ -79,6 +81,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.Closeable;
 import java.io.IOException;
+import java.util.AbstractList;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -87,6 +90,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Random;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -106,6 +110,7 @@ public class HiveScanNode extends FileQueryScanNode {
 
     private boolean partitionInit = false;
     private List<HivePartition> prunedPartitions;
+    private HivePartitionBatchLoader partitionBatchLoader;
     private Boolean batchMode;
     private boolean fileCountBatch;
     private long estimatedFileCount;
@@ -263,22 +268,61 @@ public class HiveScanNode extends FileQueryScanNode {
                 }
             });
         }
-        if (prunedPartitions.isEmpty()) {
+        int partitionCount = partitionInit ? prunedPartitions.size() : (int) selectedPartitionNum;
+        if (partitionCount == 0) {
             splitAssignment.finishSchedule();
             return;
         }
         HiveExternalMetaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
                 .hive(hmsTable.getCatalog().getId());
         Executor executor = getSplitTaskExecutor();
-        String broker = hmsTable.getCatalog().bindBrokerName();
+        HMSExternalCatalog catalog = (HMSExternalCatalog) hmsTable.getCatalog();
+        String broker = catalog.bindBrokerName();
         // Without the file cache, the eager path listed partitions concurrently. Keep that overlap.
         boolean parallelListing = !fileCountBatch || Config.max_external_file_cache_num <= 0;
         int producers = parallelListing
-                ? Math.min(prunedPartitions.size(), Config.max_external_cache_loader_thread_pool_size) : 1;
+                ? Math.min(partitionCount, Config.max_external_cache_loader_thread_pool_size) : 1;
+        // Listing concurrency is independent of the directory claim size. Small selections must leave
+        // work for the other producers; larger scans still amortize claims up to the configured batch.
+        int partitionsPerProducer = Math.min(sessionVariable.splitPartitionBatchSize,
+                (partitionCount - 1) / producers + 1);
+        if (!partitionInit) {
+            NameMapping mapping = hmsTable.getOrBuildNameMapping();
+            List<PartitionItem> items = new ArrayList<>(selectedPartitions.selectedPartitions.values());
+            // Convert only a requested metadata batch, retaining the pruning view selected by this query.
+            List<List<String>> values = new AbstractList<List<String>>() {
+                @Override
+                public List<String> get(int index) {
+                    return ((ListPartitionItem) items.get(index)).getItems().get(0)
+                            .getPartitionValuesAsStringListForHive();
+                }
+
+                @Override
+                public int size() {
+                    return items.size();
+                }
+            };
+            SummaryProfile profile = getSummaryProfile();
+            partitionBatchLoader = new HivePartitionBatchLoader(getMetadataTaskExecutor(),
+                    splitAssignment::needMoreSplit, values,
+                    catalog.getClient().getPartitionBatchSize(), producers,
+                    batch -> cache.getCachedPartitions(mapping, batch), batch -> {
+                        long start = System.currentTimeMillis();
+                        try {
+                            return cache.getExistingPartitionsWithCache(mapping, batch);
+                        } finally {
+                            if (profile != null) {
+                                profile.addExternalTableGetPartitionsTime(System.currentTimeMillis() - start);
+                            }
+                        }
+                    });
+            splitAssignment.addCloseable(partitionBatchLoader);
+        }
         AtomicInteger nextPartition = new AtomicInteger();
         long started = System.currentTimeMillis();
         if (!usesCountFileSplitPolicy()) {
-            startSplitProducers(cache, executor, broker, numBackends, producers, nextPartition, null, started);
+            startSplitProducers(cache, executor, broker, numBackends, producers,
+                    partitionsPerProducer, nextPartition, null, started);
             return;
         }
         int parallelism = sessionVariable.getParallelExecInstanceNum(scanContext.getClusterName());
@@ -288,26 +332,76 @@ public class HiveScanNode extends FileQueryScanNode {
         // The count policy needs only a scan-wide lower bound. Reuse the same cancellable workers
         // and singleton partition loads, then publish one decision before starting range producers.
         for (int i = 0; i < producers; i++) {
-            new SplitProducer(splitAssignment, executor, () -> {
-                prefetchCountFiles(countPlan, cache, broker, parallelism, numBackends, nextPartition);
-                return Collections.emptyList();
-            }, failure -> {
+            SplitProducer.BatchSource source = createCountPrefetchSource(
+                    countPlan, cache, broker, parallelism, numBackends, nextPartition);
+            new SplitProducer(splitAssignment, executor, source, failure -> {
                 if (failure != null) {
                     splitAssignment.setException(createSplitPlanningException(failure));
+                    closePartitionBatchLoader();
                 }
                 if (remaining.decrementAndGet() == 0) {
                     if (splitAssignment.needMoreSplit()) {
                         countPlan.needSplit = FileSplitter.needSplitForCountPushdown(
                                 parallelism, numBackends, countPlan.fileCount.get());
                         startSplitProducers(cache, executor, broker, numBackends,
-                                producers, nextPartition, countPlan, started);
+                                producers, partitionsPerProducer, nextPartition, countPlan, started);
                     } else {
                         closeCountSplitPlan(countPlan);
+                        closePartitionBatchLoader();
                         splitAssignment.finishSchedule();
                     }
                 }
             }).start();
         }
+    }
+
+    private SplitProducer.BatchSource createCountPrefetchSource(CountSplitPlan plan, HiveExternalMetaCache cache,
+            String broker, int parallelism, int numBackends, AtomicInteger nextPartition) {
+        return new SplitProducer.BatchSource() {
+            private CompletableFuture<Void> blocked;
+            private boolean finished;
+
+            @Override
+            public CompletableFuture<Void> isBlocked() {
+                return finished ? null : blocked;
+            }
+
+            @Override
+            public List<Split> getNextBatch() throws IOException, UserException {
+                blocked = null;
+                if (partitionBatchLoader == null) {
+                    prefetchCountFiles(plan, cache, broker, parallelism, numBackends, nextPartition);
+                } else {
+                    while (splitAssignment.needMoreSplit() && FileSplitter.needSplitForCountPushdown(
+                            parallelism, numBackends, plan.fileCount.get())) {
+                        List<HivePartition> batch = partitionBatchLoader.take(1);
+                        if (batch.isEmpty()) {
+                            CompletableFuture<Void> dependency = partitionBatchLoader.isBlocked();
+                            if (dependency != null) {
+                                blocked = CompletableFuture.anyOf(dependency, plan.enoughFiles)
+                                        .thenApply(unused -> null);
+                                return Collections.emptyList();
+                            }
+                            if (partitionBatchLoader.isFinished()) {
+                                break;
+                            }
+                            continue;
+                        }
+                        for (FileCacheValue value : getFileCachesByPartitions(cache, batch, broker, true)) {
+                            if (value.getFiles() != null && !value.getFiles().isEmpty()) {
+                                plan.prefetched.add(value);
+                                plan.fileCount.addAndGet(value.getFiles().size());
+                            }
+                        }
+                        if (!FileSplitter.needSplitForCountPushdown(parallelism, numBackends, plan.fileCount.get())) {
+                            plan.enoughFiles.complete(null);
+                        }
+                    }
+                }
+                finished = true;
+                return Collections.emptyList();
+            }
+        };
     }
 
     private void prefetchCountFiles(CountSplitPlan plan, HiveExternalMetaCache cache, String broker,
@@ -333,11 +427,13 @@ public class HiveScanNode extends FileQueryScanNode {
     private static class CountSplitPlan implements Closeable {
         private final ConcurrentLinkedQueue<FileCacheValue> prefetched = new ConcurrentLinkedQueue<>();
         private final AtomicLong fileCount = new AtomicLong();
+        private final CompletableFuture<Void> enoughFiles = new CompletableFuture<>();
         private boolean needSplit;
 
         @Override
         public void close() {
             prefetched.clear();
+            enoughFiles.complete(null);
         }
     }
 
@@ -346,40 +442,53 @@ public class HiveScanNode extends FileQueryScanNode {
         plan.close();
     }
 
+    private void closePartitionBatchLoader() {
+        if (partitionBatchLoader != null) {
+            splitAssignment.removeCloseable(partitionBatchLoader);
+            partitionBatchLoader.close();
+        }
+    }
+
     private void startSplitProducers(HiveExternalMetaCache cache, Executor executor, String broker,
-            int numBackends, int producers, AtomicInteger nextPartition, CountSplitPlan countPlan, long started) {
+            int numBackends, int producers, int partitionsPerProducer,
+            AtomicInteger nextPartition, CountSplitPlan countPlan, long started) {
         AtomicInteger remaining = new AtomicInteger(producers);
         for (int i = 0; i < producers; i++) {
-            new SplitProducer(splitAssignment, executor,
-                    createSplitBatchSource(cache, nextPartition, broker, numBackends, countPlan), failure -> {
-                        try {
-                            if (failure != null) {
-                                splitAssignment.setException(createSplitPlanningException(failure));
-                            }
-                        } finally {
-                            if (remaining.decrementAndGet() == 0) {
-                                if (countPlan != null) {
-                                    closeCountSplitPlan(countPlan);
-                                }
-                                if (getSummaryProfile() != null) {
-                                    getSummaryProfile().addExternalTableGetPartitionFilesTime(
-                                            System.currentTimeMillis() - started);
-                                }
-                                splitAssignment.finishSchedule();
-                            }
+            SplitProducer.BatchSource source = createSplitBatchSource(cache, nextPartition, broker, numBackends,
+                    countPlan, partitionsPerProducer);
+            new SplitProducer(splitAssignment, executor, source, failure -> {
+                try {
+                    if (failure != null) {
+                        splitAssignment.setException(createSplitPlanningException(failure));
+                        closePartitionBatchLoader();
+                    }
+                } finally {
+                    if (remaining.decrementAndGet() == 0) {
+                        if (countPlan != null) {
+                            closeCountSplitPlan(countPlan);
                         }
-                    }).start();
+                        closePartitionBatchLoader();
+                        if (getSummaryProfile() != null) {
+                            getSummaryProfile().addExternalTableGetPartitionFilesTime(
+                                    System.currentTimeMillis() - started);
+                        }
+                        splitAssignment.finishSchedule();
+                    }
+                }
+            }).start();
         }
     }
 
     SplitProducer.BatchSource createSplitBatchSource(HiveExternalMetaCache cache, AtomicInteger nextPartition,
             String broker, int numBackends) {
-        return createSplitBatchSource(cache, nextPartition, broker, numBackends, null);
+        return createSplitBatchSource(cache, nextPartition, broker, numBackends, null,
+                sessionVariable.splitPartitionBatchSize);
     }
 
     private SplitProducer.BatchSource createSplitBatchSource(HiveExternalMetaCache cache, AtomicInteger nextPartition,
-            String broker, int numBackends, CountSplitPlan countPlan) {
+            String broker, int numBackends, CountSplitPlan countPlan, int partitionsPerProducer) {
         return new SplitProducer.BatchSource() {
+            private Iterator<HivePartition> partitions = Collections.emptyIterator();
             private Iterator<FileCacheValue> fileCaches = Collections.emptyIterator();
             private Iterator<HiveExternalMetaCache.HiveFileStatus> files = Collections.emptyIterator();
             private Iterator<Split> ranges = Collections.emptyIterator();
@@ -387,9 +496,20 @@ public class HiveScanNode extends FileQueryScanNode {
             private long targetSize;
             private boolean needSplit;
             private long partitionSplitCount;
+            private CompletableFuture<Void> blockedOnPartitions;
+
+            @Override
+            public CompletableFuture<Void> isBlocked() {
+                if (partitionBatchLoader == null || ranges.hasNext() || files.hasNext() || fileCaches.hasNext()
+                        || partitions.hasNext() || countPlan != null && !countPlan.prefetched.isEmpty()) {
+                    return null;
+                }
+                return blockedOnPartitions != null ? blockedOnPartitions : partitionBatchLoader.isBlocked();
+            }
 
             @Override
             public List<Split> getNextBatch() throws IOException, UserException {
+                blockedOnPartitions = null;
                 List<Split> batch = SplitProducer.newBatch(splitAssignment.getSplitBatchSize());
                 while (batch.size() < splitAssignment.getSplitBatchSize() && splitAssignment.needMoreSplit()) {
                     if (ranges.hasNext()) {
@@ -434,6 +554,19 @@ public class HiveScanNode extends FileQueryScanNode {
                     List<FileCacheValue> loaded;
                     if (prefetched != null) {
                         loaded = Collections.singletonList(prefetched);
+                    } else if (partitionBatchLoader != null) {
+                        if (!partitions.hasNext()) {
+                            partitions = partitionBatchLoader.take(partitionsPerProducer).iterator();
+                            if (!partitions.hasNext()) {
+                                blockedOnPartitions = partitionBatchLoader.isBlocked();
+                                if (blockedOnPartitions == null && !partitionBatchLoader.isFinished()) {
+                                    continue;
+                                }
+                                return false;
+                            }
+                        }
+                        loaded = getFileCachesByPartitions(cache,
+                                Collections.singletonList(partitions.next()), broker, true);
                     } else {
                         int index = nextPartition.getAndIncrement();
                         if (index >= prunedPartitions.size()) {
@@ -451,10 +584,14 @@ public class HiveScanNode extends FileQueryScanNode {
 
             @Override
             public void close() {
+                partitions = Collections.emptyIterator();
                 ranges = Collections.emptyIterator();
                 files = Collections.emptyIterator();
                 fileCaches = Collections.emptyIterator();
                 currentCache = null;
+                if (partitionBatchLoader != null) {
+                    partitionBatchLoader.readerClosed();
+                }
             }
         };
     }
@@ -474,6 +611,14 @@ public class HiveScanNode extends FileQueryScanNode {
         }
         if (!partitionInit) {
             try {
+                if (!hmsTable.getPartitionColumnTypes(MvccUtil.getSnapshotFromContext(hmsTable)).isEmpty()) {
+                    totalPartitionNum = selectedPartitions.totalPartitionNum;
+                    selectedPartitionNum = selectedPartitions.selectedPartitions.size();
+                    int threshold = sessionVariable.getNumPartitionsInBatchMode();
+                    if (threshold >= 0 && selectedPartitionNum >= threshold) {
+                        return true;
+                    }
+                }
                 prunedPartitions = getPartitions();
             } catch (Exception e) {
                 return false;
@@ -502,7 +647,7 @@ public class HiveScanNode extends FileQueryScanNode {
     @Override
     public int numApproximateSplits() {
         long estimate = fileCountBatch ? estimatedFileCount
-                : (long) numSplitsPerPartition.get() * prunedPartitions.size();
+                : (long) numSplitsPerPartition.get() * (partitionInit ? prunedPartitions.size() : selectedPartitionNum);
         return (int) Math.min(Integer.MAX_VALUE, estimate);
     }
 
