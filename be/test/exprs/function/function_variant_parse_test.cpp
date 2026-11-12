@@ -317,6 +317,43 @@ TEST(FunctionVariantParseTest, StrictFailureDoesNotPublishPartialBatch) {
     EXPECT_FALSE(static_cast<bool>(result.output));
 }
 
+TEST(FunctionVariantParseTest, AMalformedDocumentReportsTheSyntaxErrorUnderATemplateToo) {
+    // With a DECIMAL template the document is read by the ondemand pass, which checks keys and
+    // depth as it reads, where the DOM parser reads the whole text first. On a document that is
+    // duplicate-keyed and then malformed the strict function still reports the syntax error, as
+    // it does without a template, and a well-formed duplicate-keyed document still fails on its
+    // key in both.
+    const DataTypePtr string_type = std::make_shared<DataTypeString>();
+    auto paths = std::make_shared<const VariantTemplatePaths>(std::vector<VariantTemplatePath> {
+            {.pattern = "amount", .is_glob = false, .type = TYPE_DECIMAL128I}});
+    const DataTypePtr typed = std::make_shared<DataTypeVariantV2>(0, false, paths);
+    const std::string syntax_error = "Failed to parse JSON as Variant";
+
+    const std::string malformed = R"({"o":{"a":1,"a":2},"k":x})";
+    ExecutionResult plain =
+            execute_parse("parse_to_variant", make_strings({malformed}), string_type, 1);
+    ExecutionResult templated =
+            execute_parse("parse_to_variant", make_strings({malformed}), string_type, 1, typed);
+    EXPECT_FALSE(plain.status.ok());
+    EXPECT_FALSE(templated.status.ok());
+    EXPECT_NE(plain.status.to_string().find(syntax_error), std::string::npos)
+            << plain.status.to_string();
+    EXPECT_NE(templated.status.to_string().find(syntax_error), std::string::npos)
+            << templated.status.to_string();
+
+    const std::string duplicate = R"({"o":{"a":1,"a":2}})";
+    ExecutionResult plain_duplicate =
+            execute_parse("parse_to_variant", make_strings({duplicate}), string_type, 1);
+    ExecutionResult templated_duplicate =
+            execute_parse("parse_to_variant", make_strings({duplicate}), string_type, 1, typed);
+    EXPECT_FALSE(plain_duplicate.status.ok());
+    EXPECT_FALSE(templated_duplicate.status.ok());
+    EXPECT_EQ(plain_duplicate.status.to_string().find(syntax_error) != std::string::npos,
+              templated_duplicate.status.to_string().find(syntax_error) != std::string::npos)
+            << plain_duplicate.status.to_string() << " / "
+            << templated_duplicate.status.to_string();
+}
+
 TEST(FunctionVariantParseTest, ErrorToNullOnlyNullsRecoverableFailures) {
     const DataTypePtr string_type = std::make_shared<DataTypeString>();
     ExecutionResult result =

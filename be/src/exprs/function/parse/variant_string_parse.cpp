@@ -189,8 +189,10 @@ private:
 // DECIMAL path becomes an exact decimal and an integer beyond 64 bits on a LARGEINT path an exact
 // 128-bit integer. It reads every document of a template with a DECIMAL field, and of any other
 // only a document the DOM parser rejects (add_json_row). Any simdjson error makes the collect
-// return false and the caller gives the text the DOM parser's verdict, the documented one. Builder
-// exceptions (depth, key length, duplicate keys) propagate as they do there.
+// return false and the caller gives the text the DOM parser's verdict, the documented one. A
+// builder exception (depth, key length, duplicate keys) ends the same way: the caller rolls the row
+// back and the DOM parser meets the same check, or the syntax error it reports before any check
+// (add_row_with_template_paths).
 class OndemandTreeCollector {
 public:
     OndemandTreeCollector(VariantBatchBuilder::Row& builder, const JsonToVariantOptions& options)
@@ -704,21 +706,19 @@ struct JsonStringToVariantEncoder::Impl {
     bool add_row_with_template_paths(StringRef json) {
         auto row = builder.begin_row();
         bool collected = false;
-        if (options.throw_on_invalid_json) {
+        // The DOM parser reads the whole text before any depth or key check runs, and the ondemand
+        // pass checks as it reads. So on a document whose prefix is over-deep or duplicate-keyed
+        // AND whose tail is malformed, {"o":{"a":1,"a":2},"k":x}, the ondemand pass meets the
+        // builder's check where the DOM parser meets the syntax error. It would throw where the
+        // lenient serde stored the text as a string row, and the strict functions would report
+        // the prefix's defect where they reported the syntax error. Let the DOM parser give the
+        // verdict in both: a well-formed document meets the same check there and fails as it
+        // always did.
+        try {
             collected = collect_with_template_paths(row, json);
-        } else {
-            // The lenient serde keeps a document the DOM parser rejects as a string row, and the
-            // DOM parser reads the whole text before any depth or key check runs. The ondemand
-            // pass checks as it reads, so on a document whose prefix is over-deep or
-            // duplicate-keyed AND whose tail is malformed, {"o":{"a":1,"a":2},"k":x}, it would
-            // throw where the DOM path stored the text. Let the DOM parser give the verdict: a
-            // well-formed document meets the same check there and fails as it always did.
-            try {
-                collected = collect_with_template_paths(row, json);
-            } catch (const Exception& exception) {
-                if (exception.code() != ErrorCode::INVALID_ARGUMENT) {
-                    throw;
-                }
+        } catch (const Exception& exception) {
+            if (exception.code() != ErrorCode::INVALID_ARGUMENT) {
+                throw;
             }
         }
         if (!collected) {
