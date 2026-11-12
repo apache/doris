@@ -339,6 +339,8 @@ public interface TableIf {
                     return "jdbc";
                 case TABLE_VALUED_FUNCTION:
                     return "Table_Valued_Function";
+                case MATERIALIZED_VIEW:
+                    return "MaterializedView";
                 case DICTIONARY:
                     return "dictionary";
                 case DORIS_EXTERNAL_TABLE:
