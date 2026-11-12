@@ -22,6 +22,7 @@ import org.apache.doris.analysis.ColumnAccessPath;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprToSqlVisitor;
 import org.apache.doris.analysis.SlotDescriptor;
+import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TableSample;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
@@ -2972,8 +2973,10 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         for (int i = 0; i < conjuncts.size(); i++) {
             Expr conjunct = conjuncts.get(i);
             // The neutral converter strips CASTs. Instant casts can depend on the Doris session
-            // timezone, so both the predicate and its LIMIT must stay local before type information is lost.
-            if ((!supportsCast && containsCastExpr(conjunct)) || containsTimestampTzCast(conjunct)) {
+            // timezone, and a column cast to a string compares in a different order than the column itself,
+            // so both the predicate and its LIMIT must stay local before type information is lost.
+            if ((!supportsCast && containsCastExpr(conjunct)) || containsTimestampTzCast(conjunct)
+                    || containsColumnCastToString(conjunct)) {
                 continue;
             }
             pushableConjuncts.add(conjunct);
@@ -2992,6 +2995,19 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         List<Expr> casts = new ArrayList<>();
         expr.collect(node -> node instanceof CastExpr
                 && (node.getType().isTimeStampTz() || node.getChild(0).getType().isTimeStampTz()), casts);
+        return !casts.isEmpty();
+    }
+
+    /**
+     * Whether {@code expr} casts a non-string column to a string type. The converter strips the CAST, so a
+     * connector would bind the string literal to the column's own type and prune on that order instead:
+     * {@code CAST(int_col AS VARCHAR) >= '100'} becomes {@code int_col >= 100}, which skips a file holding
+     * only {@code 15} although {@code '15' >= '100'}. A cast of a constant is harmless and not matched.
+     */
+    static boolean containsColumnCastToString(Expr expr) {
+        List<Expr> casts = new ArrayList<>();
+        expr.collect(node -> node instanceof CastExpr && node.getType().isStringType()
+                && node.getChild(0) instanceof SlotRef && !node.getChild(0).getType().isStringType(), casts);
         return !casts.isEmpty();
     }
 

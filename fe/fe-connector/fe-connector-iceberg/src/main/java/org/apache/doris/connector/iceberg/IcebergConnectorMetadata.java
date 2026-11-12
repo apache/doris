@@ -2491,7 +2491,9 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
      * prunes manifests and data files AT THE SOURCE, and the engine has already unwrapped the CAST — a
      * comparison whose literal iceberg binds differently than Doris coerced it can skip files that hold
      * matching rows, which BE cannot recover. It stays {@code true} for parity with the legacy
-     * {@code IcebergScanNode}, which pushed the same converted predicate; no defect has been observed. A
+     * {@code IcebergScanNode}, which pushed the same converted predicate. The one shape where that binding
+     * was seen to lose rows, a column cast to a string ({@code CAST(int_col AS VARCHAR) >= '100'} pruning the
+     * file that holds {@code 15}), is kept in Doris by {@code PluginDrivenScanNode} for every connector. A
      * connector added later should default to {@code false} instead (see the SPI javadoc).</p>
      */
     @Override
