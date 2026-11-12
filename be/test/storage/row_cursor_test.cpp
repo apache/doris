@@ -592,13 +592,13 @@ TEST_F(TestRowCursor, encode_key_with_padding_mow) {
     }
 }
 
-// The full encode escapes each VARCHAR/STRING byte up to 0x03 with 0x03, the bytes RowKeyEncoder
-// stores in the primary key index, so mow seeks and point lookups find them; the short key keeps
-// the raw bytes.
+// The full encode escapes each VARCHAR byte up to 0x03 with 0x03, the bytes RowKeyEncoder stores
+// in the primary key index, so mow seeks and point lookups find them; the short key keeps the raw
+// bytes.
 TEST_F(TestRowCursor, encode_key_escapes_string_bytes) {
     TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
     tablet_schema->_cols.push_back(create_varchar_key(0)); // index_length=4
-    tablet_schema->_cols.push_back(create_string_key(1));  // index_length=4
+    tablet_schema->_cols.push_back(create_varchar_key(1)); // index_length=4
     tablet_schema->_num_columns = 2;
     tablet_schema->_num_key_columns = 2;
     tablet_schema->_num_short_key_columns = 2;

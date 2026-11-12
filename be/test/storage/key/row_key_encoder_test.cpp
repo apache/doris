@@ -44,7 +44,6 @@
 #include "storage/tablet/tablet_schema_helper.h"
 #include "storage/utils.h"
 #include "testutil/test_util.h"
-#include "util/slice.h"
 
 // The tests are organized as three orthogonal axes plus two suffix cases:
 //
@@ -78,15 +77,6 @@ std::string to_hex(const std::string& s) {
     for (unsigned char c : s) {
         out.push_back(kDigits[c >> 4]);
         out.push_back(kDigits[c & 0xf]);
-    }
-    return out;
-}
-
-std::string from_hex(std::string_view hex) {
-    std::string out;
-    out.reserve(hex.size() / 2);
-    for (size_t i = 0; i + 1 < hex.size(); i += 2) {
-        out.push_back(static_cast<char>(std::stoi(std::string(hex.substr(i, 2)), nullptr, 16)));
     }
     return out;
 }
@@ -832,14 +822,6 @@ TEST_F(RowKeyEncoderTest, AllKeyTypesTable) {
             }
             short_keys.push_back(encoder.encode_short_keys(short_key_columns, row));
 
-            // A key bound of this table has one layout and no string byte up to 0x03, so all of
-            // it is trusted; a fixed width read wrong for any type would misplace a marker.
-            std::string bound = primary_keys.back();
-            bool bound_truncated = false;
-            RowKeyEncoder::cut_to_trusted_prefix(*schema, &bound, &bound_truncated);
-            EXPECT_FALSE(bound_truncated);
-            EXPECT_EQ(to_hex(bound), to_hex(primary_keys.back()));
-
             const size_t primary_source_row =
                     schema_case.has_cluster_keys ? kAllKeyData.size() - 1 - row : row;
             if (mow) {
@@ -1386,127 +1368,6 @@ TEST_F(RowKeyEncoderTest, StringKeyBytesAreEscaped) {
         }
         previous_key = key;
     }
-}
-
-// Key bounds written before the escape hold the raw string bytes, and nothing records which
-// encoding wrote a bound. A bound is cut to the prefix that every reading of its bytes lays out
-// alike and that holds no string byte up to 0x03, which both encodings write the same way.
-TEST_F(RowKeyEncoderTest, CutToTrustedPrefix) {
-    const auto make_schema = [](const std::vector<FieldType>& types) {
-        auto schema = std::make_shared<TabletSchema>();
-        for (size_t cid = 0; cid < types.size(); ++cid) {
-            const int32_t length = types[cid] == FieldType::OLAP_FIELD_TYPE_INT ? 4 : 16;
-            schema->append_column(
-                    *make_key_column(static_cast<int32_t>(cid), types[cid], length, length));
-        }
-        schema->_keys_type = DUP_KEYS;
-        schema->_num_short_key_columns = 1;
-        return schema;
-    };
-    const auto varchar_int_int =
-            make_schema({FieldType::OLAP_FIELD_TYPE_VARCHAR, FieldType::OLAP_FIELD_TYPE_INT,
-                         FieldType::OLAP_FIELD_TYPE_INT});
-    const auto varchar_varchar =
-            make_schema({FieldType::OLAP_FIELD_TYPE_VARCHAR, FieldType::OLAP_FIELD_TYPE_VARCHAR});
-    const auto int_varchar =
-            make_schema({FieldType::OLAP_FIELD_TYPE_INT, FieldType::OLAP_FIELD_TYPE_VARCHAR});
-
-    struct CutCase {
-        const char* name;
-        const TabletSchema* schema;
-        std::string_view key_hex;
-        bool truncated;
-        std::string_view trusted_hex;
-        bool trusted_truncated;
-    };
-    const std::array<CutCase, 9> kCases = {{
-            // ("ab", 5, NULL): no other layout fits these bytes.
-            {.name = "clean",
-             .schema = varchar_int_int.get(),
-             .key_hex = "026162028000000501",
-             .truncated = false,
-             .trusted_hex = "026162028000000501",
-             .trusted_truncated = false},
-            // (NULL, 5, 6): no string, one layout.
-            {.name = "null string",
-             .schema = varchar_int_int.get(),
-             .key_hex = "0102800000050280000006",
-             .truncated = false,
-             .trusted_hex = "0102800000050280000006",
-             .trusted_truncated = false},
-            // Unescaped ("a\x02XYZ", NULL, NULL) also reads as ("a", 0x58595a01 - 2^31, NULL).
-            {.name = "two layouts",
-             .schema = varchar_int_int.get(),
-             .key_hex = "02610258595a0101",
-             .truncated = false,
-             .trusted_hex = "0261",
-             .trusted_truncated = true},
-            // Unescaped ("a\x01", "a") reads as ("a", NULL) and a spare byte.
-            {.name = "spare bytes",
-             .schema = varchar_varchar.get(),
-             .key_hex = "0261010261",
-             .truncated = false,
-             .trusted_hex = "0261",
-             .trusted_truncated = true},
-            // Escaped ("a\x01", 5, 6): the escape is a string byte up to 0x03.
-            {.name = "escaped",
-             .schema = varchar_int_int.get(),
-             .key_hex = "0261030102800000050280000006",
-             .truncated = false,
-             .trusted_hex = "0261",
-             .trusted_truncated = true},
-            // (5, "a\x03"): a last string byte up to 0x03 is written differently by the two.
-            {.name = "last string",
-             .schema = int_varchar.get(),
-             .key_hex = "0280000005026103",
-             .truncated = false,
-             .trusted_hex = "02800000050261",
-             .trusted_truncated = true},
-            // ("ab", 5, 6) cut to 6 bytes: the string could also run on past the cut.
-            {.name = "cut after a string",
-             .schema = varchar_int_int.get(),
-             .key_hex = "026162028000",
-             .truncated = true,
-             .trusted_hex = "026162",
-             .trusted_truncated = true},
-            // ("abcdef", ...) cut inside the string.
-            {.name = "cut inside a string",
-             .schema = varchar_int_int.get(),
-             .key_hex = "02616263",
-             .truncated = true,
-             .trusted_hex = "02616263",
-             .trusted_truncated = true},
-            // (5, "ab") cut inside the string, after a fixed column.
-            {.name = "cut after a fixed column",
-             .schema = int_varchar.get(),
-             .key_hex = "02800000050261",
-             .truncated = true,
-             .trusted_hex = "02800000050261",
-             .trusted_truncated = true},
-    }};
-    for (const auto& c : kCases) {
-        SCOPED_TRACE(c.name);
-        std::string key = from_hex(c.key_hex);
-        bool truncated = c.truncated;
-        RowKeyEncoder::cut_to_trusted_prefix(*c.schema, &key, &truncated);
-        EXPECT_EQ(to_hex(key), c.trusted_hex);
-        EXPECT_EQ(truncated, c.trusted_truncated);
-    }
-
-    // The bounds from the motivating case: one rowset ends with an unescaped ("a\x01", "a") and
-    // the next starts with ("a", "z"). The raw bytes put them in order, so the rowsets read as
-    // disjoint; the trusted prefixes cannot tell, so they read as overlapping.
-    std::string last_key = from_hex("0261010261");
-    std::string first_key = from_hex("0261027a");
-    EXPECT_LT(last_key, first_key);
-    bool last_key_truncated = false;
-    bool first_key_truncated = false;
-    RowKeyEncoder::cut_to_trusted_prefix(*varchar_varchar, &last_key, &last_key_truncated);
-    RowKeyEncoder::cut_to_trusted_prefix(*varchar_varchar, &first_key, &first_key_truncated);
-    EXPECT_EQ(to_hex(first_key), "0261027a");
-    EXPECT_FALSE(first_key_truncated);
-    EXPECT_FALSE(Slice::lhs_is_strictly_less_than_rhs(Slice(last_key), last_key_truncated,
-                                                      Slice(first_key), first_key_truncated));
 }
 
 TEST_F(RowKeyEncoderTest, KeyColumnWithoutKeyCoderIsRejected) {

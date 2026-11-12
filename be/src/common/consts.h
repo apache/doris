@@ -77,7 +77,7 @@ constexpr uint8_t KEY_NORMAL_MARKER = 0x02;
 constexpr uint8_t KEY_MAXIMAL_MARKER = 0xFF;
 // Used to represent a value greater than the normal marker by 1, using by MoW
 constexpr uint8_t KEY_NORMAL_NEXT_MARKER = 0x03;
-// Put before each VARCHAR/STRING key byte that is not above it, so no string byte reads as a
+// Put before each VARCHAR key byte that is not above it, so no string byte reads as a
 // marker and a string followed by the next column's marker still sorts before its extensions.
 constexpr uint8_t KEY_STRING_ESCAPE = 0x03;
 } // namespace KeyConsts

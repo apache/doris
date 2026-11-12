@@ -608,11 +608,8 @@ TEST_F(OrderedDataCompactionTest, RowTtlRequiresRowMergeForOrderedInputs) {
     // 200 expired rows need the reader's visibility filter before publishing a new rowset.
     std::string first_max_key;
     std::string second_min_key;
-    bool first_max_key_truncated = false;
-    bool second_min_key_truncated = false;
-    ASSERT_TRUE(compaction._input_rowsets[0]->last_key(&first_max_key, &first_max_key_truncated));
-    ASSERT_TRUE(
-            compaction._input_rowsets[1]->first_key(&second_min_key, &second_min_key_truncated));
+    ASSERT_TRUE(compaction._input_rowsets[0]->last_key(&first_max_key));
+    ASSERT_TRUE(compaction._input_rowsets[1]->first_key(&second_min_key));
     ASSERT_LT(first_max_key, second_min_key);
     EXPECT_FALSE(compaction.handle_ordered_data_compaction());
     EXPECT_EQ(nullptr, compaction._output_rowset);
