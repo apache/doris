@@ -294,7 +294,7 @@ teamcity_request --fail https://ci.example
             body = self.state()['posts'][0]
             self.assertEqual(body['buildType']['id'], pipeline)
             self.assertEqual({p['name']: p['value'] for p in body['properties']['property']},
-                             {'env.PR_NUMBER': '123', 'env.CI_BRANCH': 'master', 'env.CI_REQUESTED_PR_HEAD': HEAD})
+                             {'env.PR_NUMBER': '123', 'env.COMMIT_ID': HEAD})
             self.assertNotIn('custom-artifact-dependencies', body)
             self.assertEqual(len(self.state()['posts']), 1)
 
@@ -320,7 +320,9 @@ teamcity_request --fail https://ci.example
         body = self.state()['posts'][0]
         self.assertEqual(body['buildType']['id'], 'Doris_CloudUT')
         self.assertEqual(body['branchName'], 'pull/123')
-        self.assertEqual(body['properties']['property'][0]['name'], 'env.PR_NUMBER')
+        self.assertEqual({p['name']: p['value'] for p in body['properties']['property']},
+                         {'env.PR_NUMBER': '123', 'env.COMMIT_ID': HEAD})
+        self.assertEqual(body['revisions']['revision'][0]['version'], HEAD)
 
     def test_active_build_does_not_prevent_submission(self):
         self.save({'builds': [build()]})

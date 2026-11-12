@@ -98,7 +98,7 @@ teamcity_current_trigger() (
     }
     # Artifact lookup belongs to the pipeline; only submit the requested lane here.
     local TC_FIELDS='id,revisions(revision(version)),properties(property(name,value))'
-    params=$(jq -cn --arg pr "$PULL_REQUEST_NUM" --arg branch "$PULL_REQUEST_TARGET_BRANCH" --arg head "$COMMIT_ID_FROM_TRIGGER" '{"env.PR_NUMBER":$pr,"env.CI_BRANCH":$branch,"env.CI_REQUESTED_PR_HEAD":$head}')
+    params=$(jq -cn --arg pr "$PULL_REQUEST_NUM" --arg head "$COMMIT_ID_FROM_TRIGGER" '{"env.PR_NUMBER":$pr,"env.COMMIT_ID":$head}')
     teamcity_current_enqueue "${comment_to_pipeline[$lane]}" "$params" "$count"
 )
 
