@@ -17,10 +17,18 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.analysis.CastExpr;
+import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprToThriftVisitor;
+import org.apache.doris.analysis.StringLiteral;
+import org.apache.doris.analysis.TryCastExpr;
 import org.apache.doris.common.Config;
+import org.apache.doris.thrift.TExprNode;
+import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TPrimitiveType;
 import org.apache.doris.thrift.TScalarType;
 import org.apache.doris.thrift.TTypeDesc;
+import org.apache.doris.thrift.TTypeNode;
 import org.apache.doris.thrift.TVariantTemplatePath;
 
 import org.junit.jupiter.api.Assertions;
@@ -137,6 +145,41 @@ public class VariantTypeTemplatePathsThriftTest {
                 "a*", false, TPrimitiveType.DECIMAL64);
         assertPath(scalarTypeOf(new VariantType(globFields)).getVariantTemplatePaths().get(0),
                 "a*", true, TPrimitiveType.DECIMAL64);
+    }
+
+    @Test
+    public void castTargetCarriesNoTemplate() {
+        // A cast does not read by a template: parse_to_variant and a load do. The template rides on a VARIANT
+        // type wherever the type goes, and the BE hands it to the type's JSON reader, which a cast of a JSON
+        // string to an ARRAY of that VARIANT runs. So it is taken off the target of a CAST and of a TRY_CAST:
+        // such a cast reads what it read before the template rode, and two casts that differ only in the
+        // template, one cast to the FE and to the BE's condition cache, return the same.
+        ArrayList<VariantField> fields = new ArrayList<>();
+        fields.add(new VariantField("a", ScalarType.createDecimalV3Type(10, 2), ""));
+        VariantType templated = new VariantType(fields);
+        Assertions.assertEquals(1, scalarTypeOf(templated).getVariantTemplatePaths().size());
+        Type array = ArrayType.create(templated, true);
+        StringLiteral text = new StringLiteral("[{\"a\":1.50}]");
+        Expr[] casts = {
+                new CastExpr(array, text, true),
+                new TryCastExpr(array, text, true, true),
+                new CastExpr(templated, text, true)};
+        for (Expr cast : casts) {
+            TExprNode node = ExprToThriftVisitor.treeToThrift(cast).getNodes().get(0);
+            Assertions.assertTrue(node.getNodeType() == TExprNodeType.CAST_EXPR
+                    || node.getNodeType() == TExprNodeType.TRY_CAST_EXPR, node.toString());
+            int variants = 0;
+            for (TTypeNode typeNode : node.getType().getTypes()) {
+                if (typeNode.isSetScalarType()
+                        && typeNode.getScalarType().getType() == TPrimitiveType.VARIANT) {
+                    variants++;
+                    Assertions.assertFalse(typeNode.getScalarType().isSetVariantTemplatePaths(), node.toString());
+                }
+            }
+            Assertions.assertEquals(1, variants, node.toString());
+        }
+        // the type itself still sends it: the type of a slot and of a parse call is not touched
+        Assertions.assertEquals(1, scalarTypeOf(templated).getVariantTemplatePaths().size());
     }
 
     @Test
