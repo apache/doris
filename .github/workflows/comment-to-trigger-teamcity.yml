@@ -307,12 +307,9 @@ jobs:
           "${{ steps.parse.outputs.COMMENT_REPEAT_TIMES }}"
 
     - name: "Trigger p0"
-      if: ${{ fromJSON(steps.parse.outputs.comment_trigger) && contains(fromJSON('["p0", "buildall"]'), steps.parse.outputs.COMMENT_TRIGGER_TYPE) }}
+      if: ${{ fromJSON(steps.parse.outputs.comment_trigger) && steps.parse.outputs.COMMENT_TRIGGER_TYPE == 'p0' }}
       run: |
         source ./regression-test/pipeline/common/teamcity-utils.sh
-        if [[ ${{ steps.parse.outputs.COMMENT_TRIGGER_TYPE }} == "buildall" ]]; then
-          echo "COMMENT_TRIGGER_TYPE is buildall, trigger compile is enough, compile will trigger p0" && exit
-        fi
         set +x
         trigger_or_skip_build \
           "${{ steps.changes.outputs.changed_p0 }}" \
@@ -323,12 +320,9 @@ jobs:
           "${{ steps.parse.outputs.COMMENT_REPEAT_TIMES }}"
 
     - name: "Trigger external"
-      if: ${{ fromJSON(steps.parse.outputs.comment_trigger) && contains(fromJSON('["external", "buildall"]'), steps.parse.outputs.COMMENT_TRIGGER_TYPE) }}
+      if: ${{ fromJSON(steps.parse.outputs.comment_trigger) && steps.parse.outputs.COMMENT_TRIGGER_TYPE == 'external' }}
       run: |
         source ./regression-test/pipeline/common/teamcity-utils.sh
-        if [[ ${{ steps.parse.outputs.COMMENT_TRIGGER_TYPE }} == "buildall" ]]; then
-          echo "COMMENT_TRIGGER_TYPE is buildall, trigger compile is enough, compile will trigger external" && exit
-        fi
         set +x
         trigger_or_skip_build \
           "${{ steps.changes.outputs.changed_external }}" \
@@ -339,12 +333,9 @@ jobs:
           "${{ steps.parse.outputs.COMMENT_REPEAT_TIMES }}"
 
     - name: "Trigger cloud_p0"
-      if: ${{ fromJSON(steps.parse.outputs.comment_trigger) && contains(fromJSON('["cloud_p0", "buildall"]'), steps.parse.outputs.COMMENT_TRIGGER_TYPE) }}
+      if: ${{ fromJSON(steps.parse.outputs.comment_trigger) && steps.parse.outputs.COMMENT_TRIGGER_TYPE == 'cloud_p0' }}
       run: |
         source ./regression-test/pipeline/common/teamcity-utils.sh
-        if [[ ${{ steps.parse.outputs.COMMENT_TRIGGER_TYPE }} == "buildall" ]]; then
-          echo "COMMENT_TRIGGER_TYPE is buildall, trigger compile is enough, compile will trigger cloud_p0" && exit
-        fi
         set +x
         trigger_or_skip_build \
           "${{ steps.changes.outputs.changed_cloud_p0 }}" \
@@ -356,12 +347,9 @@ jobs:
 
 
     - name: "Trigger vault_p0"
-      if: ${{ fromJSON(steps.parse.outputs.comment_trigger) && contains(fromJSON('["vault_p0", "buildall"]'), steps.parse.outputs.COMMENT_TRIGGER_TYPE) }}
+      if: ${{ fromJSON(steps.parse.outputs.comment_trigger) && steps.parse.outputs.COMMENT_TRIGGER_TYPE == 'vault_p0' }}
       run: |
         source ./regression-test/pipeline/common/teamcity-utils.sh
-        if [[ ${{ steps.parse.outputs.COMMENT_TRIGGER_TYPE }} == "buildall" ]]; then
-          echo "COMMENT_TRIGGER_TYPE is buildall, trigger compile is enough, compile will trigger vault_p0" && exit
-        fi
         set +x
         trigger_or_skip_build \
           "${{ steps.changes.outputs.changed_vault_p0 }}" \
@@ -372,12 +360,9 @@ jobs:
           "${{ steps.parse.outputs.COMMENT_REPEAT_TIMES }}"
 
     - name: "Trigger nonconcurrent"
-      if: ${{ fromJSON(steps.parse.outputs.comment_trigger) && contains(fromJSON('["nonconcurrent", "buildall"]'), steps.parse.outputs.COMMENT_TRIGGER_TYPE) }}
+      if: ${{ fromJSON(steps.parse.outputs.comment_trigger) && steps.parse.outputs.COMMENT_TRIGGER_TYPE == 'nonconcurrent' }}
       run: |
         source ./regression-test/pipeline/common/teamcity-utils.sh
-        if [[ ${{ steps.parse.outputs.COMMENT_TRIGGER_TYPE }} == "buildall" ]]; then
-          echo "COMMENT_TRIGGER_TYPE is buildall, trigger compile is enough, compile will trigger nonconcurrent" && exit
-        fi
         set +x
         trigger_or_skip_build \
           "${{ steps.changes.outputs.changed_nonconcurrent }}" \
@@ -388,7 +373,7 @@ jobs:
           "${{ steps.parse.outputs.COMMENT_REPEAT_TIMES }}"
   
     - name: "Trigger performance"
-      if: ${{ fromJSON(steps.parse.outputs.comment_trigger) && steps.parse.outputs.COMMENT_TRIGGER_TYPE == 'performance' && steps.parse.outputs.TARGET_BRANCH == 'master' }}
+      if: ${{ fromJSON(steps.parse.outputs.comment_trigger) && contains(fromJSON('["performance", "buildall"]'), steps.parse.outputs.COMMENT_TRIGGER_TYPE) && steps.parse.outputs.TARGET_BRANCH == 'master' }}
       run: |
         source ./regression-test/pipeline/common/teamcity-utils.sh
         set +x
