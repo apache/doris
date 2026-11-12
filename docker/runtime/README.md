@@ -109,3 +109,44 @@ $ cd doris/runtime/ms && docker build . -t doris.ms:3.0.2 -f Dockerfile --build-
 ### Latest update time
 
 2025-02-12
+
+## Running FE and BE without root
+
+FE and BE images run as `doris` (`10001:10001`) by default. Build arguments
+`DORIS_UID` and `DORIS_GID` customize these IDs. Image-owned configuration,
+logs, metadata and storage directories are writable by this user. The SQL
+administrator account is independent of the operating-system user. The image
+provides `/etc/krb5.conf` as a link into the writable Doris configuration
+directory, so Operator-mounted Kerberos configuration does not require writes
+to `/etc` at startup.
+
+For Kubernetes, configure the FE and BE Pod security context, for example:
+
+```yaml
+runAsNonRoot: true
+runAsUser: 10001
+runAsGroup: 10001
+fsGroup: 10001
+```
+
+Use the container security context to set `allowPrivilegeEscalation: false`
+and drop all capabilities. With Doris Operator, set BE `enableWorkloadGroup`
+to `false` and `skipDefaultSystemInit` to `true` to avoid privileged cgroup
+setup and the default system init container. Check the generated Pod to
+confirm these settings; custom init containers must also be omitted.
+
+Skipping system initialization does not tune the host. Doris recommends
+`vm.max_map_count >= 2000000`, disabled swap and a sufficient file-descriptor
+limit. A non-root image cannot change these host settings. Operator versions
+that set `SKIP_CHECK_ULIMIT=true` bypass startup checks, but this does not
+remove the underlying kernel limits or their effects under load. Persistent
+volumes must be writable by the configured UID/GID; `fsGroup` requires volume
+driver support. Existing root-owned data needs its permissions prepared
+separately. Custom log, cache, Kerberos and keytab paths must also be readable
+or writable as required by Doris. A read-only container root filesystem is
+not implied by running without root.
+
+Without a writable, delegated CPU cgroup, Workload Group CPU weights and CPU
+hard limits are unavailable. Leave `doris_cgroup_cpu_path` unset in this mode.
+Other Workload Group controls, including query admission and memory limits,
+remain available; Kubernetes container CPU limits continue to apply.

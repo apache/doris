@@ -100,7 +100,8 @@ update_conf_from_configmap()
             mv -f $tgt ${tgt}.bak
         fi
         if [[ "$conffile" == "be.conf" ]]; then
-             cp $CONFIGMAP_MOUNT_PATH/$conffile $DORIS_HOME/conf/$file
+             cp "$CONFIGMAP_MOUNT_PATH/$conffile" "$tgt"
+             chmod u+w "$tgt"
              continue
         fi
         ln -sfT $CONFIGMAP_MOUNT_PATH/$conffile $tgt
@@ -114,6 +115,16 @@ mount_kerberos_config()
     fi
 
     KRB5_CONFIG_DIR=$(dirname "$KRB5_CONFIG")
+    # Resolve only the first link: the conf file may already link to a read-only ConfigMap.
+    if [[ -L "$KRB5_CONFIG" ]]; then
+        local config_link
+        config_link=$(readlink "$KRB5_CONFIG")
+        if [[ "$config_link" == /* ]]; then
+            KRB5_CONFIG_DIR=$(dirname "$config_link")
+        else
+            KRB5_CONFIG_DIR="$KRB5_CONFIG_DIR/$(dirname "$config_link")"
+        fi
+    fi
     # If the krb5 directory does not exist, need to create it.
     if [[ ! -d "$KRB5_CONFIG_DIR" ]]; then
         log_stderr "[info] Creating krb5 directory: $KRB5_CONFIG_DIR"
