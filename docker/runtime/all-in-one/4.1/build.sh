@@ -29,7 +29,7 @@ VERSION=""
 SOURCE="image"
 FLAVORS=""
 STRIP_MODE="debug"
-PLATFORM=""
+PLATFORM="linux/amd64,linux/arm64"
 LOCAL_OUTPUT="output"
 TARBALL_DIR=""
 RUN_TEST=false
@@ -64,8 +64,10 @@ Options:
                           debug -> strip --strip-debug, keeps .symtab
                           full  -> strip -s
                           none  -> ship doris_be and doris_cloud as-is (+2.2 GB)
-      --platform <p>    Target platform(s), e.g. linux/amd64 or
-                        linux/amd64,linux/arm64. Comma-separated values produce
+      --platform <p>    Target platform(s) (default: linux/amd64,linux/arm64).
+                        Pass one platform for a single-architecture build.
+                        Local output and tarballs need one matching platform.
+                        Comma-separated values produce
                         one multi-arch tag (an OCI image index) that resolves to
                         the right image per host, the way apache/doris:fe-* does.
                         Keeping a multi-platform result locally needs the
@@ -74,16 +76,19 @@ Options:
   -i, --image <name>    Image name without tag    (default: apache/doris)
       --no-cache        Pass --no-cache to docker build.
   -t, --test            Run resource/smoke-test.sh against each image built.
+                        Requires a single --platform that runs on this host.
   -h, --help            This message.
 
 Examples:
-  ./build.sh -v 4.1.3                     # both flavors from the official images
-  ./build.sh -v 4.1.3 -f base -t          # base only, then smoke test it
-  ./build.sh -v dev -s local -f full      # from a local ./output (build.sh --fe --be --cloud)
-  ./build.sh -v 4.1.4 -s tarball --tarball-dir ~/apache-doris-4.1.4-bin-arm64
+  ./build.sh -v 4.1.3                     # both flavors, amd64 + arm64
+  ./build.sh -v 4.1.3 -f base --platform linux/arm64 -t
+                                          # base for arm64, then smoke test it
+  ./build.sh -v dev -s local -f full --platform linux/arm64
+                                          # from an arm64 ./output (build.sh --fe --be --cloud)
+  ./build.sh -v 4.1.4 -s tarball --platform linux/arm64 --tarball-dir ~/apache-doris-4.1.4-bin-arm64
                                           # from a release tarball, e.g. before the
                                           # component images are on Docker Hub
-  ./build.sh -v 4.1.3 --platform linux/amd64,linux/arm64 --push
+  ./build.sh -v 4.1.3 --push
                                           # one multi-arch tag for both
 
 Building a foreign architecture goes through emulation, and the two apt layers
@@ -169,7 +174,11 @@ command -v docker >/dev/null || { echo "error: docker not found" >&2; exit 1; }
 # nowhere to put a second architecture, so the build has to go straight to a
 # registry.
 MULTI_PLATFORM=false
-case "${PLATFORM}" in *,*) MULTI_PLATFORM=true ;; esac
+case "${PLATFORM}" in *,*) MULTI_PLATFORM=true ;; *) ;; esac
+if [[ "${MULTI_PLATFORM}" == true && -n "${ARTIFACT_DIR}" ]]; then
+    echo "error: --source ${SOURCE} contains single-architecture binaries; pass --platform with the matching single platform" >&2
+    exit 1
+fi
 if [[ "${MULTI_PLATFORM}" == true && "${PUSH}" != true ]]; then
     if ! docker info --format '{{range .DriverStatus}}{{.}}{{end}}' 2>/dev/null | grep -q containerd; then
         echo "error: a multi-platform build needs --push, or the containerd image store" >&2
@@ -190,8 +199,7 @@ if ! docker buildx version >/dev/null 2>&1; then
     fi
 fi
 
-# Say which platforms are being built. Leaving --platform unset means the host
-# architecture only, which is easy to mistake for a multi-arch build.
+# Report the selected platforms, including the multi-architecture default.
 if [[ -n "${PLATFORM}" ]]; then
     platform_note="${PLATFORM}"
 else
