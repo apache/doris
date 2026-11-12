@@ -75,13 +75,15 @@ public class BaseTableInfo {
     }
 
     public BaseTableInfo(TableNameInfo tableNameInfo) {
-        java.util.Objects.requireNonNull(tableNameInfo, "tableNameInfo is null");
-        java.util.Objects.requireNonNull(tableNameInfo.getTbl(), "tableName is null");
-        java.util.Objects.requireNonNull(tableNameInfo.getDb(), "dbName is null");
-        java.util.Objects.requireNonNull(tableNameInfo.getCtl(), "catalogName is null");
-        this.tableName = tableNameInfo.getTbl();
-        this.dbName = tableNameInfo.getDb();
-        this.ctlName = tableNameInfo.getCtl();
+        this(java.util.Objects.requireNonNull(tableNameInfo, "tableNameInfo is null").getCtl(),
+                tableNameInfo.getDb(), tableNameInfo.getTbl());
+    }
+
+    /** Build an identity from canonical metadata names without SQL name normalization. */
+    public BaseTableInfo(String catalogName, String databaseName, String tableName) {
+        this.ctlName = java.util.Objects.requireNonNull(catalogName, "catalogName is null");
+        this.dbName = java.util.Objects.requireNonNull(databaseName, "dbName is null");
+        this.tableName = java.util.Objects.requireNonNull(tableName, "tableName is null");
     }
 
     // for replay MTMV, can not use  `table.getDatabase();`,because database not added to catalog
