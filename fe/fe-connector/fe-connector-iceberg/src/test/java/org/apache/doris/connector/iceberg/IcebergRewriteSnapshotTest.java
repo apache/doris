@@ -20,6 +20,7 @@ package org.apache.doris.connector.iceberg;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.WriteOperation;
+import org.apache.doris.connector.spi.procedure.ConnectorRewriteGroup;
 import org.apache.doris.thrift.TFileContent;
 import org.apache.doris.thrift.TIcebergCommitData;
 
@@ -44,6 +45,7 @@ import org.junit.jupiter.api.Test;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -53,6 +55,39 @@ public class IcebergRewriteSnapshotTest {
     private static final String ORIGINAL = "s3://bucket/events/original.parquet";
     private static final String REPLACEMENT = "s3://bucket/events/replacement.parquet";
     private static final String UNRELATED = "s3://bucket/events/unrelated.parquet";
+
+    @Test
+    public void groupsShareTheOperationSnapshotAcrossAnUnrelatedAppend() throws Exception {
+        Fixture fixture = new Fixture();
+        String secondOriginal = "s3://bucket/events/second-original.parquet";
+        String secondReplacement = "s3://bucket/events/second-replacement.parquet";
+        Table table = fixture.currentTable();
+        table.newAppend().appendFile(DataFiles.builder(table.spec()).withPath(secondOriginal)
+                .withFormat(FileFormat.PARQUET).withFileSizeInBytes(1024L).withRecordCount(5L).build()).commit();
+        long operationSnapshot = table.currentSnapshot().snapshotId();
+        fixture.ops.table = table;
+        IcebergTableHandle handle = new IcebergTableHandle("db", "events").withSnapshot(
+                operationSnapshot, null, table.schema().schemaId());
+        IcebergProcedureOps procedures = new IcebergProcedureOps(Collections.emptyMap(), fixture.ops,
+                new RecordingConnectorContext());
+        List<ConnectorRewriteGroup> groups = procedures.planRewrite(fixture, handle, "rewrite_data_files",
+                Map.of("rewrite-all", "true", "max-file-group-size-bytes", "1024"), null, Collections.emptyList());
+        Assertions.assertEquals(2, groups.size());
+
+        fixture.begin(operationSnapshot);
+        fixture.appendUnrelatedFile();
+        fixture.begin(operationSnapshot);
+        Set<String> sourceFiles = new HashSet<>();
+        groups.forEach(group -> sourceFiles.addAll(group.getDataFilePaths()));
+        fixture.transaction.registerRewriteSourceFiles(sourceFiles);
+        fixture.addCommitFile(REPLACEMENT, 5L);
+        fixture.addCommitFile(secondReplacement, 5L);
+        fixture.transaction.commit();
+
+        Assertions.assertEquals(operationSnapshot, fixture.transaction.getStartingSnapshotId());
+        Assertions.assertEquals(new HashSet<>(Arrays.asList(REPLACEMENT, secondReplacement, UNRELATED)),
+                fixture.currentPaths());
+    }
 
     @Test
     public void rejectsDeleteBetweenReadAndBegin() throws Exception {
@@ -222,9 +257,13 @@ public class IcebergRewriteSnapshotTest {
 
         private void addReplacement(long recordCount) throws Exception {
             transaction.registerRewriteSourceFiles(Collections.singleton(ORIGINAL));
+            addCommitFile(REPLACEMENT, recordCount);
+        }
+
+        private void addCommitFile(String path, long recordCount) throws Exception {
             // Only commit metadata is simulated; no physical data file is read or written by this fixture.
             TIcebergCommitData replacement = new TIcebergCommitData();
-            replacement.setFilePath(REPLACEMENT);
+            replacement.setFilePath(path);
             replacement.setRowCount(recordCount);
             replacement.setFileSize(1024L);
             replacement.setFileContent(TFileContent.DATA);

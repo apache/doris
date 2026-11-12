@@ -23,6 +23,8 @@ import org.apache.doris.common.Status;
 import org.apache.doris.connector.spi.handle.ConnectorTransaction;
 import org.apache.doris.connector.spi.procedure.ConnectorRewriteGroup;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.mvcc.MvccSnapshot;
+import org.apache.doris.datasource.mvcc.MvccTableInfo;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundConnectorTableSink;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
@@ -73,6 +75,7 @@ public class ConnectorRewriteGroupTask implements TransientTaskExecutor {
     private final ConnectorTransaction sharedTransaction;
     private final ExternalTable dorisTable;
     private final ConnectContext connectContext;
+    private final Optional<MvccSnapshot> operationSnapshot;
     private final RewriteResultCallback resultCallback;
     private final Long taskId;
     private final AtomicBoolean isCanceled;
@@ -95,12 +98,14 @@ public class ConnectorRewriteGroupTask implements TransientTaskExecutor {
             ConnectorTransaction sharedTransaction,
             ExternalTable dorisTable,
             ConnectContext connectContext,
+            Optional<MvccSnapshot> operationSnapshot,
             RewriteResultCallback resultCallback) {
         this.group = group;
         this.transactionId = transactionId;
         this.sharedTransaction = sharedTransaction;
         this.dorisTable = dorisTable;
         this.connectContext = connectContext;
+        this.operationSnapshot = operationSnapshot;
         this.resultCallback = resultCallback;
         this.taskId = UUID.randomUUID().getMostSignificantBits();
         this.isCanceled = new AtomicBoolean(false);
@@ -268,6 +273,8 @@ public class ConnectorRewriteGroupTask implements TransientTaskExecutor {
         StatementContext statementContext = new StatementContext();
         statementContext.setConnectContext(taskContext);
         taskContext.setStatementContext(statementContext);
+        operationSnapshot.ifPresent(snapshot ->
+                statementContext.setSnapshot(new MvccTableInfo(dorisTable), snapshot));
         return taskContext;
     }
 
