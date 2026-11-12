@@ -1851,11 +1851,14 @@ static double geography_positive_angle(Float angle) {
     } else if (angle >= turn) {
         angle -= turn;
     }
-    const double result = static_cast<double>(angle);
-    const double upper = static_cast<double>(turn);
+    const auto result = static_cast<double>(angle);
+    const auto upper = static_cast<double>(turn);
     // Preserve small positive angles as-is. A wrapped negative angle that rounds to a full
     // turn must stay on the west side of zero and inside the half-open range.
-    return result >= upper ? std::nextafter(upper, 0.0) : (result == 0 ? 0.0 : result);
+    if (result >= upper) {
+        return std::nextafter(upper, 0.0);
+    }
+    return result == 0 ? 0.0 : result;
 }
 
 template <typename Float>
