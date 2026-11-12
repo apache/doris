@@ -612,10 +612,11 @@ protected:
         if (!ancestor_first) {
             queue_ancestor();
         }
-        EXPECT_EQ(_manager->pending_delete_dir_count(), 1);
+        EXPECT_EQ(_manager->pending_delete_dir_count(), 3); // Coalescing is deferred to GC.
         for (int i = 0; i < 10; ++i) {
             _manager->gc(1000);
         }
+        EXPECT_EQ(_manager->pending_delete_dir_count(), 1);
         _expect_file_counts(created + 2, deleted);
         EXPECT_EQ(logs.count(google::WARNING, "[spill][delete] query_id=" + query_id + ','), 0);
         EXPECT_LE(logs.count(google::WARNING, "[spill][delete_retry] query_id=" + query_id + ','),
@@ -1109,8 +1110,8 @@ TEST_F(SpillFileS3Test, PendingRemoteDeletesAreBoundedByGcWorkTime) {
 }
 
 // The directories a time-sliced pass did not get to are queued again as one batch, in order,
-// and the ones queued while the pass ran are merged into them: a duplicate of a queued
-// directory adds no entry, a new directory does.
+// and requests queued while the pass ran remain untouched until the next GC batch. A duplicate
+// is merged only after the next drain, without scanning the producer queue.
 TEST_F(SpillFileS3Test, PendingRemoteDeleteBacklogIsRequeuedInBulk) {
     _create_manager();
     std::mt19937 rng(129);
@@ -1157,7 +1158,7 @@ TEST_F(SpillFileS3Test, PendingRemoteDeleteBacklogIsRequeuedInBulk) {
     mock_store().delete_delay_ms = 20;
     _manager->gc(1);
     ASSERT_EQ(after_drain_debug_point->execute_num.load(), 1);
-    ASSERT_EQ(_manager->pending_delete_dir_count(), kFiles + 1);
+    ASSERT_EQ(_manager->pending_delete_dir_count(), kFiles + 2);
     for (int i = 0; i < kFiles; ++i) {
         ASSERT_FALSE(_query_objects(fmt::format("query_bulk_requeue_{}", i)).empty());
     }

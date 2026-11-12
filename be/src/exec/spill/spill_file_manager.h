@@ -18,6 +18,7 @@
 
 #pragma once
 #include <atomic>
+#include <list>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -151,7 +152,7 @@ public:
     // Sum submitted, unfinished upload capacities across this manager's spill writers.
     int64_t pending_upload_bytes();
 
-    /// Number of spill directories waiting for initial deletion or retry.
+    /// Queued cleanup requests, coalesced when GC drains a batch.
     size_t pending_delete_dir_count();
 
     /// Bytes of completed spill objects this process currently holds in object storage;
@@ -195,9 +196,10 @@ private:
                                           int64_t max_work_time_ns);
     void _gc_spill_store(LocalSpillDataDir* store_dir, const MonotonicStopWatch& watch,
                          int64_t max_work_time_ns, SpillGcStats* stats);
-    /// Queue a failed deletion, merged with a pending ancestor or absorbing pending descendants
-    /// of the same store so that an outage keeps about one entry per query.
+    /// Append without scanning the backlog; coalescing runs only on a drained GC batch.
     void _add_pending_directory(PendingSpillDirectory pending_directory);
+    static std::list<PendingSpillDirectory> _coalesce_pending_directories(
+            std::list<PendingSpillDirectory> pending_directories);
     Status _initialize_external_spill_session(ExternalSpillSession* spill_session);
     void _release_external_spill_session(ExternalSpillSession* spill_session);
     std::vector<SpillDataDir*> _get_stores_for_spill(TStorageMedium::type storage_medium);
@@ -221,7 +223,7 @@ private:
     // External spill leases defer query-directory deletion until native callbacks finish.
     // Filesystem I/O never holds this mutex.
     std::mutex _pending_spill_directories_mutex;
-    std::vector<PendingSpillDirectory> _pending_spill_directories;
+    std::list<PendingSpillDirectory> _pending_spill_directories;
     std::unordered_map<std::string, size_t> _external_spill_directory_leases;
 
     std::atomic_uint64_t id_ = 0;

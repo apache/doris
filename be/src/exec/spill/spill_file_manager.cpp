@@ -25,8 +25,11 @@
 #include <filesystem>
 #include <iterator>
 #include <limits>
+#include <list>
 #include <memory>
 #include <string>
+#include <string_view>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -551,38 +554,63 @@ void SpillFileManager::queue_spill_directory_deletion(SpillDataDir* data_dir, io
 }
 
 void SpillFileManager::_add_pending_directory(PendingSpillDirectory pending_directory) {
-    auto is_under = [](const std::string& dir, const std::string& ancestor) {
-        return dir.size() > ancestor.size() && dir.starts_with(ancestor) &&
-               dir[ancestor.size()] == '/';
-    };
+    // Normal SpillFile teardown uses this path too. A sibling-heavy backlog must not make
+    // each producer scan all earlier entries while holding the shared queue mutex.
     std::lock_guard lock(_pending_spill_directories_mutex);
-    for (auto& pending : _pending_spill_directories) {
-        if (pending.data_dir == pending_directory.data_dir && pending.fs == pending_directory.fs &&
-            (pending.dir == pending_directory.dir ||
-             is_under(pending_directory.dir, pending.dir))) {
-            // Deleting the pending ancestor deletes these objects too.
-            pending.charged_bytes += pending_directory.charged_bytes;
-            pending.persisted_bytes += pending_directory.persisted_bytes;
-            pending.file_log_contexts.insert(
-                    pending.file_log_contexts.end(),
-                    std::make_move_iterator(pending_directory.file_log_contexts.begin()),
-                    std::make_move_iterator(pending_directory.file_log_contexts.end()));
-            return;
+    _pending_spill_directories.emplace_back(std::move(pending_directory));
+}
+
+std::list<SpillFileManager::PendingSpillDirectory> SpillFileManager::_coalesce_pending_directories(
+        std::list<PendingSpillDirectory> pending_directories) {
+    using DirectoryIterator = std::list<PendingSpillDirectory>::iterator;
+    struct IndexedDirectory {
+        DirectoryIterator entry;
+        bool emitted = false;
+    };
+    using DirectoryIndex = std::unordered_map<std::string_view, IndexedDirectory>;
+    std::list<PendingSpillDirectory> coalesced;
+    // Keep absorbed nodes alive until the index is destroyed: its string_views borrow dir.
+    std::list<PendingSpillDirectory> absorbed;
+    std::unordered_map<SpillDataDir*, std::unordered_map<io::FileSystem*, DirectoryIndex>> indices;
+    for (auto it = pending_directories.begin(); it != pending_directories.end(); ++it) {
+        indices[it->data_dir][it->fs.get()].try_emplace(it->dir, IndexedDirectory {.entry = it});
+    }
+    while (!pending_directories.empty()) {
+        auto current = pending_directories.begin();
+        auto& index = indices.at(current->data_dir).at(current->fs.get());
+        const std::string_view dir = current->dir;
+        auto* root = &index.at(dir);
+        // Search component-boundary ancestors, not the backlog. Indexing the whole batch
+        // first also finds a parent enqueued after its children. For q/run-1 and q/run-10,
+        // neither is an ancestor; only an indexed q can absorb both.
+        for (auto slash = dir.find('/'); slash != std::string_view::npos;
+             slash = dir.find('/', slash + 1)) {
+            if (auto it = index.find(dir.substr(0, slash)); it != index.end()) {
+                root = &it->second;
+                break;
+            }
+        }
+        if (!root->emitted) {
+            // Emit groups at their first encountered member, not in path/hash order, so a
+            // time-sliced retry still puts untried directories before earlier failures.
+            coalesced.splice(coalesced.end(), pending_directories, root->entry);
+            root->emitted = true;
+        }
+        auto& ancestor = *root->entry;
+        // A duplicate/descendant contributes its metadata once; the root already carries
+        // its own charge and must not add itself after being spliced to coalesced.
+        if (&ancestor != &*current) {
+            ancestor.charged_bytes += current->charged_bytes;
+            ancestor.persisted_bytes += current->persisted_bytes;
+            ancestor.failed_count = std::max(ancestor.failed_count, current->failed_count);
+            ancestor.file_log_contexts.insert(
+                    ancestor.file_log_contexts.end(),
+                    std::make_move_iterator(current->file_log_contexts.begin()),
+                    std::make_move_iterator(current->file_log_contexts.end()));
+            absorbed.splice(absorbed.end(), pending_directories, current);
         }
     }
-    std::erase_if(_pending_spill_directories, [&](const PendingSpillDirectory& pending) {
-        if (pending.data_dir == pending_directory.data_dir && pending.fs == pending_directory.fs &&
-            is_under(pending.dir, pending_directory.dir)) {
-            pending_directory.charged_bytes += pending.charged_bytes;
-            pending_directory.persisted_bytes += pending.persisted_bytes;
-            pending_directory.file_log_contexts.insert(pending_directory.file_log_contexts.end(),
-                                                       pending.file_log_contexts.begin(),
-                                                       pending.file_log_contexts.end());
-            return true;
-        }
-        return false;
-    });
-    _pending_spill_directories.emplace_back(std::move(pending_directory));
+    return coalesced;
 }
 
 Status SpillFileManager::_try_delete_spill_directory(
@@ -627,7 +655,7 @@ Status SpillFileManager::_try_delete_spill_directory(
 
 void SpillFileManager::_retry_pending_spill_directories(const MonotonicStopWatch& watch,
                                                         int64_t max_work_time_ns) {
-    std::vector<PendingSpillDirectory> pending_directories;
+    std::list<PendingSpillDirectory> pending_directories;
     {
         std::lock_guard lock(_pending_spill_directories_mutex);
         pending_directories.swap(_pending_spill_directories);
@@ -635,24 +663,29 @@ void SpillFileManager::_retry_pending_spill_directories(const MonotonicStopWatch
     DBUG_EXECUTE_IF("fault_inject::spill_file_manager::retry_pending_spill_directories_after_drain",
                     { DBUG_RUN_CALLBACK(); });
 
+    // Index/coalesce only the owned batch, outside the producer mutex.
+    pending_directories = _coalesce_pending_directories(std::move(pending_directories));
     // Limit repeated warnings for a persistently unavailable directory while retaining it for
     // every subsequent retry.
-    std::vector<PendingSpillDirectory> untried_directories;
-    std::vector<PendingSpillDirectory> failed_directories;
+    std::list<PendingSpillDirectory> untried_directories;
+    std::list<PendingSpillDirectory> failed_directories;
     size_t tried = 0;
-    for (auto& pending_directory : pending_directories) {
+    while (!pending_directories.empty()) {
+        auto current = pending_directories.begin();
+        auto& pending_directory = *current;
         // A remote deletion can wait for a request timeout: after the time slice is used up the
         // remaining directories are queued again without being tried, ahead of the ones that
         // just failed, so that a slow failing directory cannot starve the others.
         if (tried > 0 && watch.elapsed_time() >= max_work_time_ns) {
-            untried_directories.emplace_back(std::move(pending_directory));
-            continue;
+            untried_directories.splice(untried_directories.end(), pending_directories);
+            break;
         }
         ++tried;
         auto status = _try_delete_spill_directory(pending_directory);
         if (status.ok()) {
             pending_directory.data_dir->release(pending_directory.charged_bytes);
             pending_directory.data_dir->release_persisted_bytes(pending_directory.persisted_bytes);
+            pending_directories.erase(current);
             continue;
         }
 
@@ -682,24 +715,15 @@ void SpillFileManager::_retry_pending_spill_directories(const MonotonicStopWatch
                                  << ", files=" << pending_directory.file_log_contexts.size()
                                  << ", failed_attempts=" << pending_directory.failed_count
                                  << ", status=" << status;
-        failed_directories.emplace_back(std::move(pending_directory));
+        failed_directories.splice(failed_directories.end(), pending_directories, current);
     }
 
-    // The directories kept are already merged with each other, so they go back as one batch;
-    // only the ones queued while this pass ran are merged into them one by one. A backlog of
-    // many spill-file prefixes (an outage during a partitioned spill) thus costs one rescan
-    // per new entry, not one per kept entry.
-    std::vector<PendingSpillDirectory> queued_meanwhile;
+    // Return complete batches in constant time under the mutex. Requests enqueued while
+    // GC was doing I/O remain intact and will coalesce with these retries on the next pass.
+    untried_directories.splice(untried_directories.end(), failed_directories);
     {
         std::lock_guard lock(_pending_spill_directories_mutex);
-        queued_meanwhile.swap(_pending_spill_directories);
-        _pending_spill_directories = std::move(untried_directories);
-        _pending_spill_directories.insert(_pending_spill_directories.end(),
-                                          std::make_move_iterator(failed_directories.begin()),
-                                          std::make_move_iterator(failed_directories.end()));
-    }
-    for (auto& pending_directory : queued_meanwhile) {
-        _add_pending_directory(std::move(pending_directory));
+        _pending_spill_directories.splice(_pending_spill_directories.begin(), untried_directories);
     }
 }
 
