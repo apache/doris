@@ -1686,9 +1686,15 @@ static Status geography_relation_impl(std::string_view name, const GeoShape& lhs
     }
     bool intersects = S2BooleanOperation::Intersects(left, right, options);
     if ((name == "st_intersects" || name == "st_disjoint") && has_rounded_only_endpoint()) {
-        return Status::NotSupported(
-                "{} does not support ambiguous spherical Polygon boundary line endpoint contact",
-                name);
+        if (!shares_raw_vertex()) {
+            return Status::NotSupported(
+                    "{} does not support ambiguous spherical Polygon boundary line endpoint "
+                    "contact",
+                    name);
+        }
+        // A separate exact contact decides this existential predicate.
+        *result = name == "st_intersects";
+        return Status::OK();
     }
     if (intersects && (name == "st_intersects" || name == "st_disjoint") &&
         (lhs.type() == GeoShapeType::GEO_SHAPE_POLYGON ||
@@ -1813,8 +1819,14 @@ static std::pair<double, double> geography_point_coordinate(StringRef wkb) {
 }
 
 template <typename Float>
-static bool geography_signed_bearing(const GeoCoordinate& from, const GeoCoordinate& to,
-                                     Float* bearing) {
+struct GeographyTangent {
+    Float east;
+    Float north;
+};
+
+template <typename Float>
+static bool geography_tangent(const GeoCoordinate& from, const GeoCoordinate& to,
+                              GeographyTangent<Float>* tangent) {
     const auto start = geography_point_coordinate(from);
     const auto end = geography_point_coordinate(to);
     // Coincident or antipodal positions have no unique initial bearing. Compare original degrees:
@@ -1838,8 +1850,7 @@ static bool geography_signed_bearing(const GeoCoordinate& from, const GeoCoordin
     const Float north =
             geography_degree_sincos<Float>(end.second, -start.second).first * cos_half * cos_half +
             geography_degree_sincos<Float>(end.second, start.second).first * sin_half * sin_half;
-    using std::atan2;
-    *bearing = atan2(east, north);
+    *tangent = {east, north};
     return true;
 }
 
@@ -1864,11 +1875,12 @@ static double geography_positive_angle(Float angle) {
 template <typename Float>
 static bool geography_bearing_impl(const GeoCoordinate& from, const GeoCoordinate& to,
                                    double* bearing) {
-    Float signed_bearing;
-    if (!geography_signed_bearing(from, to, &signed_bearing)) {
+    GeographyTangent<Float> tangent;
+    if (!geography_tangent(from, to, &tangent)) {
         return false;
     }
-    *bearing = geography_positive_angle(signed_bearing);
+    using std::atan2;
+    *bearing = geography_positive_angle<Float>(atan2(tangent.east, tangent.north));
     return true;
 }
 
@@ -1883,13 +1895,16 @@ bool geography_bearing(const GeoCoordinate& from, const GeoCoordinate& to, doubl
 
 bool geography_clockwise_angle(const GeoCoordinate& start, const GeoCoordinate& vertex,
                                const GeoCoordinate& end, double* angle) {
-    GeographyFloat start_bearing;
-    GeographyFloat end_bearing;
-    if (!geography_signed_bearing(vertex, start, &start_bearing) ||
-        !geography_signed_bearing(vertex, end, &end_bearing)) {
+    GeographyTangent<GeographyFloat> first;
+    GeographyTangent<GeographyFloat> last;
+    if (!geography_tangent(vertex, start, &first) || !geography_tangent(vertex, end, &last)) {
         return false;
     }
-    *angle = geography_positive_angle<GeographyFloat>(end_bearing - start_bearing);
+    // Compute the relative bearing before any rounding of absolute angles.
+    const GeographyFloat cross = first.north * last.east - first.east * last.north;
+    const GeographyFloat dot = first.north * last.north + first.east * last.east;
+    using std::atan2;
+    *angle = geography_positive_angle<GeographyFloat>(atan2(cross, dot));
     return true;
 }
 

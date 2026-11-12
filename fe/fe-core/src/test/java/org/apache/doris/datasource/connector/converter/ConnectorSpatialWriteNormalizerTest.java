@@ -26,6 +26,7 @@ import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.CTEContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
 import org.apache.doris.nereids.rules.rewrite.MergeProjectable;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -45,6 +46,7 @@ import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StructLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
+import org.apache.doris.nereids.trees.plans.LimitPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
@@ -52,9 +54,11 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.logical.ProjectMergeable;
@@ -603,6 +607,58 @@ public class ConnectorSpatialWriteNormalizerTest {
             Assertions.assertNotEquals(producer.getExprId(), normalized.getOutput().get(1).getExprId());
             Assertions.assertEquals(DataType.fromCatalogType(targets.get(i)), rewritten.getDataType());
         }
+    }
+
+    @Test
+    public void testOrderByLimitPreservesTheSortKeyWhileRetaggingTheMap() {
+        LogicalPlan input = row(new SlotReference("id", IntegerType.INSTANCE));
+        SlotReference id = (SlotReference) input.getOutput().get(0);
+        Type geometry = ScalarType.createGeometryType("OGC:CRS84");
+        Type target = new MapType(Type.STRING, geometry);
+        Alias map = new Alias(new CreateMap(new Cast(id, StringType.INSTANCE),
+                new Cast(NullLiteral.INSTANCE, IntegerType.INSTANCE)), "shape");
+        LogicalProject<?> project = new LogicalProject<>(ImmutableList.of(id, map), input);
+        OrderKey order = new OrderKey(id, false, true);
+        LogicalSort<?> sort = new LogicalSort<>(ImmutableList.of(order), project);
+        LogicalLimit<?> limit = new LogicalLimit<>(1, 2, LimitPhase.ORIGIN, sort);
+
+        LogicalPlan normalized = ConnectorSpatialWriteNormalizer.normalize(ImmutableList.of(
+                new Column("id", Type.INT), new Column("shape", target)), limit, new CTEContext());
+
+        Assertions.assertInstanceOf(LogicalLimit.class, normalized);
+        LogicalLimit<?> normalizedLimit = (LogicalLimit<?>) normalized;
+        Assertions.assertEquals(1, normalizedLimit.getLimit());
+        Assertions.assertEquals(2, normalizedLimit.getOffset());
+        LogicalSort<?> normalizedSort = (LogicalSort<?>) normalizedLimit.child();
+        Assertions.assertEquals(ImmutableList.of(order), normalizedSort.getOrderKeys());
+        LogicalProject<?> normalizedProject = (LogicalProject<?>) normalizedSort.child();
+        Assertions.assertSame(input, normalizedProject.child());
+        Assertions.assertSame(id, normalizedProject.getProjects().get(0));
+        Assertions.assertEquals(DataType.fromCatalogType(target), normalized.getOutput().get(1).getDataType());
+        Assertions.assertNotEquals(map.getExprId(), normalized.getOutput().get(1).getExprId());
+    }
+
+    @Test
+    public void testOuterMapCastRetainsTheDynamicOrdinaryKeyConversion() {
+        LogicalPlan input = row(new SlotReference("id", IntegerType.INSTANCE));
+        SlotReference id = (SlotReference) input.getOutput().get(0);
+        Type geometry = ScalarType.createGeometryType("OGC:CRS84");
+        Type target = new MapType(Type.STRING, geometry);
+        CreateMap value = new CreateMap(id, new Cast(NullLiteral.INSTANCE, IntegerType.INSTANCE));
+        DataType originalCast = DataType.fromCatalogType(new MapType(Type.STRING, Type.INT));
+        LogicalProject<?> project = new LogicalProject<>(ImmutableList.of(
+                new Alias(new Cast(value, originalCast), "shape")), input);
+
+        LogicalProject<?> normalized = (LogicalProject<?>) ConnectorSpatialWriteNormalizer.normalize(
+                ImmutableList.of(new Column("shape", target)), project, new CTEContext());
+
+        Assertions.assertSame(input, normalized.child());
+        Cast rewritten = (Cast) normalized.getProjects().get(0).child(0);
+        Assertions.assertEquals(DataType.fromCatalogType(target), rewritten.getDataType());
+        CreateMap constructor = (CreateMap) rewritten.child();
+        Assertions.assertSame(id, constructor.child(0));
+        Assertions.assertEquals(DataType.fromCatalogType(new MapType(Type.INT, geometry)), constructor.getDataType());
+        Assertions.assertTrue(constructor.child(1).isNullLiteral());
     }
 
     @Test

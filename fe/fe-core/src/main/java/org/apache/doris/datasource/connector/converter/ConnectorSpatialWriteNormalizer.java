@@ -130,8 +130,20 @@ public final class ConnectorSpatialWriteNormalizer {
         }
         Resolver resolver = new Resolver(source, cteContext);
         List<NamedExpression> outputs = new ArrayList<>(source.getOutput());
-        LogicalProject<?> producer = source instanceof LogicalProject && !((LogicalProject<?>) source).isDistinct()
-                ? (LogicalProject<?>) source : null;
+        List<LogicalPlan> wrappers = new ArrayList<>();
+        Set<ExprId> sortInputs = new HashSet<>();
+        LogicalPlan producerInput = source;
+        while (producerInput instanceof LogicalSort || producerInput instanceof LogicalLimit) {
+            wrappers.add(producerInput);
+            for (Expression expression : producerInput.getExpressions()) {
+                for (Slot input : expression.getInputSlots()) {
+                    sortInputs.add(input.getExprId());
+                }
+            }
+            producerInput = (LogicalPlan) producerInput.child(0);
+        }
+        LogicalProject<?> producer = producerInput instanceof LogicalProject
+                && !((LogicalProject<?>) producerInput).isDistinct() ? (LogicalProject<?>) producerInput : null;
         List<NamedExpression> producerOutputs = null;
         boolean changed = false;
         for (int i = 0; i < targets.size(); i++) {
@@ -149,16 +161,16 @@ public final class ConnectorSpatialWriteNormalizer {
             if (literal) {
                 value = normalizeSpatialNullsBeforeBinding(value, targetType);
             }
-            ConnectorSpatialWriteValidator.validate(target, value);
-            if (!literal && producer != null && sourceOrdinals.indexOf(sourceOrdinal)
-                    == sourceOrdinals.lastIndexOf(sourceOrdinal)) {
+            if (!literal && producer != null && !sortInputs.contains(slot.getExprId())
+                    && sourceOrdinals.indexOf(sourceOrdinal) == sourceOrdinals.lastIndexOf(sourceOrdinal)) {
                 // Retag a constructor where it is computed, so its dynamic ordinary siblings
                 // still use the same inputs and are evaluated only once. Do not follow slots
                 // through joins, other producers, or a DISTINCT projection.
                 NamedExpression project = producer.getProjects().get(sourceOrdinal);
                 if (project instanceof Alias && canRetargetSpatialNulls(project.child(0), targetType, true)) {
-                    Expression normalized = normalizeSpatialNullsBeforeBinding(project.child(0), targetType);
+                    Expression normalized = normalizeSpatialNullsBeforeBinding(project.child(0), targetType, true);
                     if (!normalized.getDataType().equals(slot.getDataType())) {
+                        value = normalized;
                         if (producerOutputs == null) {
                             producerOutputs = new ArrayList<>(producer.getProjects());
                         }
@@ -168,6 +180,7 @@ public final class ConnectorSpatialWriteNormalizer {
                     }
                 }
             }
+            ConnectorSpatialWriteValidator.validate(target, value);
             // Never lift arbitrary producer expressions above their input scope, or
             // replace outer-join NULL padding with a non-NULL container constant.
             if (literal) {
@@ -180,7 +193,13 @@ public final class ConnectorSpatialWriteNormalizer {
                 }
             }
         }
-        LogicalPlan normalizedSource = producerOutputs == null ? source : producer.withProjects(producerOutputs);
+        LogicalPlan normalizedSource = source;
+        if (producerOutputs != null) {
+            normalizedSource = producer.withProjects(producerOutputs);
+            for (int i = wrappers.size() - 1; i >= 0; i--) {
+                normalizedSource = (LogicalPlan) wrappers.get(i).withChildren(ImmutableList.of(normalizedSource));
+            }
+        }
         return changed ? new LogicalProject<>(outputs, normalizedSource) : normalizedSource;
     }
 
@@ -341,6 +360,11 @@ public final class ConnectorSpatialWriteNormalizer {
     }
 
     public static Expression normalizeSpatialNullsBeforeBinding(Expression input, DataType target) {
+        return normalizeSpatialNullsBeforeBinding(input, target, false);
+    }
+
+    private static Expression normalizeSpatialNullsBeforeBinding(Expression input, DataType target,
+            boolean sameProducer) {
         if (!target.toCatalogDataType().typeContainsSpatialType()) {
             return input;
         }
@@ -354,7 +378,7 @@ public final class ConnectorSpatialWriteNormalizer {
         }
         // Bound container constructors can already be literals. Retain their non-NULL
         // containers and ordinary values while retagging only proven NULL spatial paths.
-        if (input instanceof Literal && canRetargetSpatialNulls(input, target)) {
+        if (input instanceof Literal && canRetargetSpatialNulls(input, target, sameProducer)) {
             return normalizeSpatialNulls(input, target);
         }
         // MERGE eagerly casts each branch to its sink type. An explicit ARRAY<INT>
@@ -370,11 +394,11 @@ public final class ConnectorSpatialWriteNormalizer {
                 // NULL leaves do not make ARRAY<GEOMETRY> -> ARRAY<INT> a legal user cast.
                 // Bind the untouched container first to retain its constructor and CAST errors.
                 ExpressionAnalyzer.analyzeFunction(null, null, cast);
-                return new Cast(normalizeSpatialNullsBeforeBinding(cast.child(), target), target,
+                return new Cast(normalizeSpatialNullsBeforeBinding(cast.child(), target, sameProducer), target,
                         cast.isExplicitType(), cast.isStrict());
             }
         }
-        if (input.getClass() == Cast.class && canRetargetSpatialNulls(input, target)) {
+        if (input.getClass() == Cast.class && canRetargetSpatialNulls(input, target, sameProducer)) {
             Cast cast = (Cast) input;
             // MAP/STRUCT NULL retagging must also preserve the original container's errors.
             ExpressionAnalyzer.analyzeFunction(null, null, cast);
@@ -382,7 +406,7 @@ public final class ConnectorSpatialWriteNormalizer {
             // Patch only spatial paths: replacing ordinary key/field types could erase
             // an intermediate cast error such as STRING -> TINYINT -> STRING.
             DataType patched = spatialLiteralType(cast.getDataType(), target);
-            return new Cast(normalizeSpatialNullsBeforeBinding(cast.child(), patched), patched,
+            return new Cast(normalizeSpatialNullsBeforeBinding(cast.child(), patched, sameProducer), patched,
                     cast.isExplicitType(), cast.isStrict());
         }
         String constructor = "";
@@ -397,13 +421,13 @@ public final class ConnectorSpatialWriteNormalizer {
         List<Expression> children = new ArrayList<>(input.children());
         if ((input instanceof Array || constructor.equalsIgnoreCase("array")) && target instanceof ArrayType) {
             children.replaceAll(child -> normalizeSpatialNullsBeforeBinding(child,
-                    ((ArrayType) target).getItemType()));
+                    ((ArrayType) target).getItemType(), sameProducer));
         } else if ((input instanceof CreateMap || constructor.equalsIgnoreCase("map")) && target instanceof MapType
                 && input.arity() % 2 == 0) {
             MapType map = (MapType) target;
             for (int i = 0; i < children.size(); i++) {
                 children.set(i, normalizeSpatialNullsBeforeBinding(children.get(i),
-                        i % 2 == 0 ? map.getKeyType() : map.getValueType()));
+                        i % 2 == 0 ? map.getKeyType() : map.getValueType(), sameProducer));
             }
         } else if (target instanceof StructType) {
             boolean named = input instanceof CreateNamedStruct || constructor.equalsIgnoreCase("named_struct");
@@ -416,7 +440,7 @@ public final class ConnectorSpatialWriteNormalizer {
             }
             for (int i = step - 1; i < children.size(); i += step) {
                 children.set(i, normalizeSpatialNullsBeforeBinding(children.get(i),
-                        struct.getFields().get(i / step).getDataType()));
+                        struct.getFields().get(i / step).getDataType(), sameProducer));
             }
         }
         if (children.equals(input.children())) {

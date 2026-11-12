@@ -41,6 +41,7 @@
 #include "core/data_type/data_type_spatial.h"
 #include "core/data_type/data_type_varbinary.h"
 #include "core/data_type/data_type_variant.h"
+#include "format/arrow/arrow_row_batch.h"
 #include "format/table/iceberg/schema.h"
 #include "format/table/iceberg/schema_parser.h"
 #include "format/transformer/viceberg_parquet_writer.h"
@@ -223,6 +224,7 @@ TEST(ArrowSchemaUtilTest, IcebergParquetWriterPreservesSpatialLogicalAnnotations
     EXPECT_TRUE(footer->Contains("ARROW:schema"));
 
     // Arrow's default reader uses the embedded schema to restore the ordinary Variant field.
+    ASSERT_TRUE(register_arrow_variant_extension().ok());
     auto input = arrow::io::ReadableFile::Open(path).ValueOrDie();
     auto arrow_reader = ::parquet::arrow::OpenFile(input, arrow::default_memory_pool());
     ASSERT_TRUE(arrow_reader.ok()) << arrow_reader.status();
