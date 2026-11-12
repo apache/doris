@@ -20,6 +20,7 @@ suite("test_variant_values_index_schema_change", "p0,nonConcurrent") {
     sql "SET enable_query_cache=false"
     sql "SET enable_condition_cache=false"
     sql "SET enable_inverted_index_query_cache=false"
+    sql "SET enable_common_expr_pushdown=true"
     sql "SET default_variant_enable_doc_mode=false"
     sql "SET default_variant_enable_nested_group=false"
     sql "SET default_variant_max_subcolumns_count=10"
@@ -42,6 +43,28 @@ suite("test_variant_values_index_schema_change", "p0,nonConcurrent") {
     }
     def indexByName = { meta, String name -> meta.schema.index.find { it.index_name == name } }
     def columnByName = { meta, String name -> meta.schema.column.find { it.name == name } }
+
+    // Keep the historical segment's index cold: earlier queries can retain its old binding.
+    sql "DROP TABLE IF EXISTS vvi_sc_cold_rename"
+    sql """CREATE TABLE vvi_sc_cold_rename(id INT,v VARIANT<'tag*':STRING>,
+        INDEX values_idx(v) USING INVERTED PROPERTIES("variant_index_scope"="values","parser"="english"),
+        INDEX path_idx(v) USING INVERTED PROPERTIES("parser"="english","lower_case"="false"))
+        DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES("replication_num"="1","disable_auto_compaction"="true","inverted_index_storage_format"="SNII")"""
+    sql """INSERT INTO vvi_sc_cold_rename VALUES(1,parse_to_variant('{"s":"HELLO world","tagA":"alpha"}'))"""
+    sql "ALTER TABLE vvi_sc_cold_rename RENAME COLUMN v payload"
+    sql """INSERT INTO vvi_sc_cold_rename VALUES(2,parse_to_variant('{"s":"HELLO world","tagB":"beta"}'))"""
+    sql "SET enable_match_without_inverted_index=false"
+    qt_cold_renamed_path "SELECT id FROM vvi_sc_cold_rename WHERE payload['s'] MATCH_PHRASE 'HELLO world' ORDER BY id"
+    qt_cold_renamed_root "SELECT id FROM vvi_sc_cold_rename WHERE payload MATCH_ALL 'hello world' ORDER BY id"
+    def coldRenameBefore = metadata("vvi_sc_cold_rename").rs_metas.collect { it.rowset_id_v2 }
+    trigger_and_wait_compaction("vvi_sc_cold_rename", "full", 1800)
+    def coldRenameAfter = metadata("vvi_sc_cold_rename").rs_metas.collect { it.rowset_id_v2 }
+    assertTrue(coldRenameBefore.any { !coldRenameAfter.contains(it) })
+    assertTrue(coldRenameAfter.any { !coldRenameBefore.contains(it) })
+    logger.info("Cold renamed VARIANT compaction rowsets: ${coldRenameBefore} -> ${coldRenameAfter}")
+    qt_cold_renamed_compacted_path "SELECT id FROM vvi_sc_cold_rename WHERE payload['s'] MATCH_PHRASE 'HELLO world' ORDER BY id"
+    qt_cold_renamed_compacted_root "SELECT id FROM vvi_sc_cold_rename WHERE payload MATCH_ALL 'hello world' ORDER BY id"
 
     // S1/S2: ADD on historical rowsets; separate DROP and same-name ADD on an untemplated root.
     sql "DROP TABLE IF EXISTS vvi_sc_index"
@@ -142,7 +165,14 @@ suite("test_variant_values_index_schema_change", "p0,nonConcurrent") {
     assertEquals(original.schema.index.collect { it.index_id }, renamed.schema.index.collect { it.index_id })
     assertTrue(sql_return_maparray("SHOW INDEX FROM vvi_sc_shape").every { it.Column_name == "payload" })
     for (String phase : ["renamed", "renamed_compacted"]) {
-        if (phase.endsWith("compacted")) { trigger_and_wait_compaction("vvi_sc_shape", "full", 1800) }
+        if (phase.endsWith("compacted")) {
+            def beforeRowsets = metadata("vvi_sc_shape").rs_metas.collect { it.rowset_id_v2 }
+            trigger_and_wait_compaction("vvi_sc_shape", "full", 1800)
+            def afterRowsets = metadata("vvi_sc_shape").rs_metas.collect { it.rowset_id_v2 }
+            assertTrue(beforeRowsets.any { !afterRowsets.contains(it) })
+            assertTrue(afterRowsets.any { !beforeRowsets.contains(it) })
+            logger.info("Renamed VARIANT compaction rowsets: ${beforeRowsets} -> ${afterRowsets}")
+        }
         quickTest("${phase}_root", "SELECT id FROM vvi_sc_shape WHERE payload MATCH_ALL 'hello world' ORDER BY id", true)
         quickTest("${phase}_path", "SELECT id FROM vvi_sc_shape WHERE payload['s'] MATCH_PHRASE 'HELLO world' ORDER BY id", true)
         quickTest("${phase}_template", "SELECT id FROM vvi_sc_shape WHERE payload['tagC'] MATCH_ANY 'gamma' ORDER BY id", true)

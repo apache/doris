@@ -1414,6 +1414,36 @@ static Status create_variant_root_reader(const SegmentFooterPB& footer,
     return Status::OK();
 }
 
+TEST(VariantColumnIndexBindingTest, RenamedRootKeepsStoredSubpathIndexSuffix) {
+    TabletSchemaPB schema_pb;
+    schema_pb.set_keys_type(KeysType::DUP_KEYS);
+    construct_column(schema_pb.add_column(), 1, "VARIANT", "v", 1);
+    auto* index = schema_pb.add_index();
+    index->set_index_id(10);
+    index->set_index_name("path_idx");
+    index->set_index_type(IndexType::INVERTED);
+    index->add_col_unique_id(1);
+    (*index->mutable_properties())["parser"] = "english";
+    auto schema = std::make_shared<TabletSchema>();
+    schema->init_from_pb(schema_pb);
+
+    segment_v2::VariantColumnReader reader;
+    reader._tablet_schema = schema;
+    // RENAME changes query paths to payload.s, while old segments still store v.s.
+    for (const std::string& root : {"v", "payload"}) {
+        TabletColumn column;
+        column.set_name(root + ".s");
+        column.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
+        column.set_parent_unique_id(1);
+        column.set_path_info(PathInData(root + ".s"));
+        auto indexes =
+                reader.find_subcolumn_tablet_indexes(column, std::make_shared<DataTypeString>());
+        ASSERT_EQ(indexes.size(), 1);
+        EXPECT_EQ(indexes[0]->index_id(), 10);
+        EXPECT_EQ(indexes[0]->get_index_suffix(), "v%2Es");
+    }
+}
+
 class VariantColumnWriterReaderTest : public testing::Test {
 public:
     // Parent VARIANT column with an extracted VARIANT subcolumn `v.payload`, i.e. the layout
