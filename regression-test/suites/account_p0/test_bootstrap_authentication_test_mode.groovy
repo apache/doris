@@ -22,6 +22,7 @@ suite("test_bootstrap_authentication_test_mode", "docker,account") {
     options.cloudMode = false
     options.feNum = 1
     options.beNum = 1
+    options.feConfigs.add('require_initial_root_password=true')
     docker(options) {
         connect('root', '', cluster.jdbcUrl) {
             qt_empty_root 'SELECT 1'

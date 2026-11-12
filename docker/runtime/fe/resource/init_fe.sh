@@ -305,8 +305,8 @@ setup_fe_node() {
 
 # Start FE node
 start_fe() {
-    if declare -F doris_configure_test_mode >/dev/null; then
-        doris_configure_test_mode "$FE_CONFIG_FILE" || exit 1
+    if declare -F doris_prepare_bootstrap_auth >/dev/null; then
+        doris_prepare_bootstrap_auth "$FE_CONFIG_FILE" "${DORIS_HOME}/fe/doris-meta" || exit 1
     fi
     if [ "$run_mode" = "RECOVERY" ]; then
         log_info "Starting FE node in recovery mode"
@@ -316,9 +316,6 @@ start_fe() {
 
     if [ "$is_master_fe" = "true" ]; then
         log_info "Starting master FE node"
-        if declare -F doris_prepare_bootstrap_auth >/dev/null; then
-            doris_prepare_bootstrap_auth "$FE_CONFIG_FILE" "${DORIS_HOME}/fe/doris-meta" || exit 1
-        fi
         ${DORIS_HOME}/fe/bin/start_fe.sh --console
     else
         log_info "Starting follower FE node"
@@ -402,7 +399,7 @@ main() {
     trap cleanup SIGTERM SIGINT
     
     if [ "$run_mode" = "K8S" ]; then
-        # This route starts without --helper; it creates a cluster unless metadata already exists.
+        # Cloud MS may discover a remote helper after JVM startup; only the FE can identify its creator.
         if declare -F doris_prepare_bootstrap_auth >/dev/null; then
             doris_prepare_bootstrap_auth "$FE_CONFIG_FILE" "${DORIS_HOME}/fe/doris-meta" || exit 1
         fi

@@ -99,6 +99,7 @@ MTMV、INSERT JOB、统计任务等由 FE 直接建立内部执行上下文，�
 | 配置 | 默认值 | 用途 |
 |---|---|---|
 | `initial_root_password` | 空 | 第一次创建集群时设置 root，仍只接受两阶段 SHA-1 哈希 |
+| `require_initial_root_password` | false；镜像默认 true | 首次建群必须给 root 初始密码，由 FE 确认是否创建集群 |
 | `allow_empty_password_for_root_admin` | false | 测试兼容：允许空密码 root/admin 从客户端正常访问 |
 | `skip_localhost_auth_check` | false | 密码恢复：显式跳过本机 MySQL 的 root/admin 密码校验 |
 
@@ -115,10 +116,16 @@ FE 不读取明文密码环境变量；镜像入口脚本负责读取 secret、�
 
 ## Docker、Kubernetes 与工具
 
-官方镜像首次创建集群时，需要提供 root 密码或有效的 `initial_root_password`；否则
+官方镜像默认在首次创建集群时需要提供 root 密码或有效的 `initial_root_password`；否则
 拒绝启动。测试容器可显式设置 `DORIS_ALLOW_EMPTY_PASSWORD=true`，或者在有效 FE 配置中
 明确设置 `allow_empty_password_for_root_admin=true`。已有元数据的节点
 重启和新增 FE 加入既有集群，不重新初始化账号。
+
+K8S 云 FE 可能在启动 JVM 后才从 MS 发现远端 helper；没有本地 VERSION 或 CLI helper
+不代表创建新集群。镜像入口通过非敏感的 `DORIS_REQUIRE_INITIAL_ROOT_PASSWORD=true`
+设置该配置的启动默认值并准备已有凭据，无须为此修改只读 ConfigMap。配置文件可覆盖默认值。
+由 FE 在确认创建首个 ROLE/VERSION 前检查密码要求。加入已有集群或已有本地元数据时
+不执行该检查；显式测试兼容仍允许空密码初始化。这个配置只控制初始化，不改变登录规则。
 
 入口脚本支持 `DORIS_ROOT_PASSWORD_FILE`，也支持显式提供 `DORIS_ROOT_PASSWORD`。
 root 类型的已有 basic-auth secret 可以复用；非 root 的节点管理账号凭据不能被当成

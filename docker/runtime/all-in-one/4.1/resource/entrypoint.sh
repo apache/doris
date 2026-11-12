@@ -179,10 +179,7 @@ park() {
 # ------------------------------------------------------------------ roles ---
 
 start_fe() {
-    if declare -F doris_configure_test_mode >/dev/null; then
-        doris_configure_test_mode "${FE_HOME}/conf/fe.conf" || exit 1
-    fi
-    if [[ $# -eq 0 ]] && declare -F doris_prepare_bootstrap_auth >/dev/null; then
+    if declare -F doris_prepare_bootstrap_auth >/dev/null; then
         doris_prepare_bootstrap_auth "${FE_HOME}/conf/fe.conf" "${FE_HOME}/doris-meta" || exit 1
     fi
     info "starting FE${*:+ $*}"

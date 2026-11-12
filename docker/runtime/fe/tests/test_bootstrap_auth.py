@@ -38,7 +38,7 @@ class BootstrapAuthTest(unittest.TestCase):
         self.meta = self.home / "doris-meta"
         self.environment = dict(os.environ)
         for key in ("DORIS_ROOT_PASSWORD", "DORIS_ROOT_PASSWORD_FILE", "DORIS_ALLOW_EMPTY_PASSWORD",
-                    "DB_ADMIN_USER", "DB_ADMIN_PASSWD"):
+                    "DORIS_REQUIRE_INITIAL_ROOT_PASSWORD", "DB_ADMIN_USER", "DB_ADMIN_PASSWD"):
             self.environment.pop(key, None)
 
     def tearDown(self):
@@ -47,14 +47,16 @@ class BootstrapAuthTest(unittest.TestCase):
     def prepare(self):
         return subprocess.run(
             ["bash", "-euo", "pipefail", "-c",
-             'source "$1"; doris_read_root_password; doris_prepare_bootstrap_auth "$2" "$3"',
+             'source "$1"; doris_read_root_password; doris_prepare_bootstrap_auth "$2" "$3"; '
+             'printf "%s" "${DORIS_REQUIRE_INITIAL_ROOT_PASSWORD:-false}"',
              "bootstrap-auth-test", str(HELPER), str(self.conf), str(self.meta)],
             env=self.environment, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
 
-    def test_new_cluster_requires_explicit_credentials(self):
+    def test_new_cluster_credential_requirement_is_enforced_by_fe(self):
         result = self.prepare()
-        self.assertNotEqual(0, result.returncode)
-        self.assertIn("New cluster requires", result.stderr)
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual("true", result.stdout)
+        self.assertFalse((self.conf.parent / "fe_custom.conf").exists())
         self.assertFalse(self.meta.exists())
 
     def test_secret_is_hashed_without_becoming_config_or_log_plaintext(self):
@@ -120,7 +122,10 @@ class BootstrapAuthTest(unittest.TestCase):
     def test_nonroot_management_secret_is_not_a_root_password(self):
         self.environment["DB_ADMIN_USER"] = "node_manager"
         self.environment["DB_ADMIN_PASSWD"] = "node-manager-password"
-        self.assertNotEqual(0, self.prepare().returncode)
+        result = self.prepare()
+        self.assertEqual(0, result.returncode)
+        self.assertEqual("true", result.stdout)
+        self.assertFalse((self.conf.parent / "fe_custom.conf").exists())
 
     def test_explicit_test_mode_can_be_applied_to_an_existing_member(self):
         (self.meta / "image").mkdir(parents=True)
@@ -152,7 +157,22 @@ class BootstrapAuthTest(unittest.TestCase):
         self.assertIn("initial_root_password = *", custom.read_text())
         self.assertFalse((self.home / "another-conf/fe_custom.conf").exists())
 
-    def run_k8s_entrypoint(self, existing=False):
+    def test_configured_hash_can_remain_in_read_only_configuration(self):
+        custom = self.conf.parent / "fe_custom.conf"
+        original = "initial_root_password = *" + "A" * 40 + "\n"
+        custom.write_text(original)
+        custom.chmod(0o444)
+        self.conf.chmod(0o444)
+        self.conf.parent.chmod(0o555)
+        try:
+            result = self.prepare()
+            self.assertEqual(0, result.returncode, result.stderr)
+            self.assertEqual("true", result.stdout)
+            self.assertEqual(original, custom.read_text())
+        finally:
+            self.conf.parent.chmod(0o700)
+
+    def run_k8s_entrypoint(self, existing=False, cloud=False, read_only=False):
         # Relocate only the image's fixed installation prefix; execute the real main dispatch.
         container = self.home / "container"
         binary = container / "fe/bin"
@@ -160,20 +180,29 @@ class BootstrapAuthTest(unittest.TestCase):
         conf = container / "fe/conf"
         conf.mkdir()
         (conf / "fe.conf").write_text("# FE config\n")
+        if cloud:
+            (conf / "fe.conf").write_text("deploy_mode = cloud\ncloud_unique_id = cloud-joining-fe\n")
         if existing:
             image = container / "fe/doris-meta/image"
             image.mkdir(parents=True)
             (image / "VERSION").write_text("clusterId=123\n")
         shutil.copyfile(HELPER, binary / HELPER.name)
         start = binary / "start_fe.sh"
-        start.write_text('#!/bin/bash\ntouch "$(dirname "$0")/started"\n')
+        start.write_text('#!/bin/bash\nprintf "%s" "${DORIS_REQUIRE_INITIAL_ROOT_PASSWORD:-false}" '
+                         '> "$(dirname "$0")/started"\n')
         start.chmod(0o700)
         entrypoint = ROOT / "docker/runtime/fe/resource/init_fe.sh"
         script = entrypoint.read_text().replace('readonly DORIS_HOME="/opt/apache-doris"',
                                                'readonly DORIS_HOME="' + str(container) + '"', 1)
         self.environment["BUILD_TYPE"] = "k8s"
-        result = subprocess.run(["bash", "-c", script], env=self.environment, timeout=10,
-                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+        if read_only:
+            (conf / "fe.conf").chmod(0o444)
+            conf.chmod(0o555)
+        try:
+            result = subprocess.run(["bash", "-c", script], env=self.environment, timeout=10,
+                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+        finally:
+            conf.chmod(0o700)
         return result, conf / "fe_custom.conf", binary / "started"
 
     def test_k8s_main_applies_initial_secret_before_starting_fe(self):
@@ -186,10 +215,18 @@ class BootstrapAuthTest(unittest.TestCase):
         expected = "*" + hashlib.sha1(hashlib.sha1(b"k8s-initial-password").digest()).hexdigest().upper()
         self.assertIn("initial_root_password = " + expected, config.read_text())
 
-    def test_k8s_main_requires_credentials_before_starting_fe(self):
+    def test_k8s_main_defers_cluster_creation_requirement_to_fe(self):
         result, config, started = self.run_k8s_entrypoint()
-        self.assertNotEqual(0, result.returncode)
-        self.assertFalse(started.exists())
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertTrue(started.exists())
+        self.assertEqual("true", started.read_text())
+        self.assertFalse(config.exists())
+
+    def test_k8s_main_allows_cloud_membership_discovery_without_root_credentials(self):
+        result, config, started = self.run_k8s_entrypoint(cloud=True, read_only=True)
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertTrue(started.exists())
+        self.assertEqual("true", started.read_text())
         self.assertFalse(config.exists())
 
     def test_k8s_main_applies_explicit_test_mode(self):

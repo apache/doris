@@ -103,10 +103,12 @@ doris_configure_test_mode() {
     printf '%s\n' 'SECURITY WARNING: empty root/admin passwords explicitly enabled for this container' >&2
 }
 
-# Only the node creating a cluster calls this function. A new FE joining an
-# existing cluster must never be mistaken for a cluster initialization.
+# Prepare credentials and the startup contract. Only the FE can distinguish a new
+# cluster from a metadata-less member joining through cloud MS discovery.
 doris_prepare_bootstrap_auth() {
     local config_file=$1 meta_dir=$2
+    # This non-secret default avoids writing startup policy into a read-only ConfigMap.
+    export DORIS_REQUIRE_INITIAL_ROOT_PASSWORD=true
     doris_configure_test_mode "$config_file" || return 1
     local configured_meta
     configured_meta=$(doris_fe_config_value "$config_file" meta_dir) || return 1
@@ -128,18 +130,5 @@ doris_prepare_bootstrap_auth() {
         doris_append_fe_config "$config_file" initial_root_password "$password_hash" || return 1
         return 0
     fi
-    local allow_empty
-    allow_empty=$(doris_fe_config_value "$config_file" allow_empty_password_for_root_admin) || return 1
-    if [[ "${allow_empty,,}" == true ]]; then
-        return 0
-    fi
-    # Operators can supply the hash directly in their FE configuration instead.
-    local configured_hash
-    configured_hash=$(doris_fe_config_value "$config_file" initial_root_password) || return 1
-    if [[ "$configured_hash" =~ ^\*[[:xdigit:]]{40}$ ]]; then
-        return 0
-    fi
-    printf '%s\n' 'New cluster requires DORIS_ROOT_PASSWORD_FILE, DORIS_ROOT_PASSWORD, or initial_root_password.' \
-        'For test containers only, explicitly set DORIS_ALLOW_EMPTY_PASSWORD=true.' >&2
-    return 1
+    return 0
 }

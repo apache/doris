@@ -308,9 +308,6 @@ function start_fe_no_meta()
             sleep $PROBE_INTERVAL
         done
     fi
-    if [[ -z "$FE_MASTER" ]] && declare -F doris_prepare_bootstrap_auth >/dev/null; then
-        doris_prepare_bootstrap_auth "$FE_CONFFILE" "${doris_meta_dir}" || exit 1
-    fi
     log_stderr "first start with no meta run start_fe.sh with additional options: '$opts'"
     $DORIS_HOME/bin/start_fe.sh $opts
 }
@@ -617,7 +614,7 @@ doris_root_mysql() { command mysql "$@"; }
 if [[ -f "$DORIS_HOME/bin/bootstrap_auth_fe.sh" ]]; then
     source "$DORIS_HOME/bin/bootstrap_auth_fe.sh"
     doris_read_root_password || exit 1
-    doris_configure_test_mode "$FE_CONFFILE" || exit 1
+    doris_prepare_bootstrap_auth "$FE_CONFFILE" "${DORIS_HOME}/doris-meta" || exit 1
 fi
 export -f doris_root_mysql
 #parse tls connection config

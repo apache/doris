@@ -31,6 +31,7 @@ suite("test_bootstrap_authentication", "docker,account") {
     options.feConfigs.removeAll { it.startsWith('allow_empty_password_for_root_admin=') }
     options.feConfigs.add('allow_empty_password_for_root_admin=false')
     options.feConfigs.add('skip_localhost_auth_check=false')
+    options.feConfigs.add('require_initial_root_password=true')
     options.feConfigs.add('enable_job_schedule_second_for_test=true')
     // A CRLF secret exercises identical file handling by Python, shell and JVM clients.
     String password = 'Bootstrap_root_123\r'

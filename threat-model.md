@@ -274,6 +274,7 @@ Operational assumptions:
 
 | Knob | Default | Maintainer stance | Effect on model |
 |---|---|---|---|
+| `require_initial_root_password` (FE) | **off**; container default **on**, **not runtime-mutable** | Container entrypoints supply the non-secret startup default; configuration can override it | On: requires an initial root hash or explicit empty-password test mode only when the FE confirms cluster creation; does not reject joining or initialized FEs or alter login policy |
 | `allow_empty_password_for_root_admin` (FE) | **off**, **not runtime-mutable** | Explicit test compatibility setting; edit the effective configuration and restart each FE | On: removes the empty-password restrictions of §4.8 (13); does not bypass a configured nonempty password |
 | `skip_localhost_auth_check` (FE MySQL) | **off**, **not runtime-mutable** | Explicit local password-recovery setting; remove it after recovery | On: local root/admin password verification is deliberately bypassed. New secure clusters exclude PROXY protocol connections from recovery; unmarked clusters retain their previous recovery behavior |
 | `enable_ssl` (FE MySQL/HTTP) | **off** | (Q7) Off **IS** supported production posture | §4.9 disclaims wire confidentiality unconditionally |
