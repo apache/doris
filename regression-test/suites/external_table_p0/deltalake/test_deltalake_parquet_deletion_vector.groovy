@@ -67,7 +67,9 @@ suite("test_deltalake_parquet_deletion_vector", "p0,external") {
             "order_qt_${metastore}_${name}"("""
                 select /* ${token} */ id, payload from ${table} where ${predicate} order by id
             """)
-            String profile = profileAction.getProfileBySql(token, counters)
+            String profile = profileAction.getProfileBySql(token,
+                    counters + ["Delta Scan Metrics", "EnumerationComplete: true"])
+            assertEquals([1L], counterValues(profile, "SelectedFiles"), profile)
             counters.each { String counter ->
                 assertTrue(counterValues(profile, counter).any { it > 0 },
                         "${metastore}/${name}: expected positive ${counter}; ${profile}")
@@ -81,12 +83,8 @@ suite("test_deltalake_parquet_deletion_vector", "p0,external") {
         ranges.each { String range, List<Integer> bounds ->
             int lower = bounds[0]
             int upper = bounds[1]
-            // The one file overlaps this predicate, so Kernel cannot prune the file itself.
-            explain {
-                sql "select id, payload from ${table} where id >= ${lower} and id < ${upper}"
-                contains "inputSplitNum=1"
-            }
-            checkPrunedRows(range, "id >= ${lower} and id < ${upper}", rangeCounters)
+            String profile = checkPrunedRows(range, "id >= ${lower} and id < ${upper}", rangeCounters)
+            assertEquals([1L], counterValues(profile, "GeneratedSplits").unique(), profile)
             "order_qt_${metastore}_${range}_no_pruning"("""
                 select id, payload
                 from ${table} where abs(id) >= ${lower} and abs(id) < ${upper} order by id
@@ -110,15 +108,9 @@ suite("test_deltalake_parquet_deletion_vector", "p0,external") {
         try {
             sql "set file_split_size=32768"
             String predicate = "id in (101, 102, 9005, 9006)"
-            explain {
-                sql "select id, payload from ${table} where ${predicate}"
-                check { String plan ->
-                    def splits = plan =~ /\binputSplitNum=(\d+)/
-                    return splits.find() && splits.group(1).toInteger() > 1
-                }
-            }
             // Deleted positions 101 and 9005 still refer to the whole file when its later split starts.
             String splitProfile = checkPrunedRows("cross_split", predicate, pageCounters + ["RowGroupsReadNum"])
+            assertTrue(counterValues(splitProfile, "GeneratedSplits").min() > 1, splitProfile)
             assertTrue(counterValues(splitProfile, "RowGroupsReadNum").max() >= 2, splitProfile)
         } finally {
             sql "set file_split_size=${previousSplitSize}"

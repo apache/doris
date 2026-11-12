@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import org.apache.doris.regression.action.ProfileAction
+
 suite("test_deltalake_basic", "p0,external") {
     if (!"true".equalsIgnoreCase(context.config.otherConfigs.get("enableDeltaLakeTest"))) {
         return
@@ -23,7 +25,10 @@ suite("test_deltalake_basic", "p0,external") {
     String minioPort = context.config.otherConfigs.get("deltalakeMinioPort")
     String hmsPort = context.config.otherConfigs.get("deltalakeHmsPort")
     String warehouse = context.config.otherConfigs.get("deltalakeWarehouse")
+    def profiles = new ProfileAction(context)
     sql "set time_zone='UTC'"
+    sql "set enable_profile=true"
+    sql "set enable_sql_cache=false"
     for (String source : ["filesystem", "hms"]) {
         String catalog = "test_deltalake_basic_${source}"
         sql "drop catalog if exists ${catalog}"
@@ -42,8 +47,13 @@ suite("test_deltalake_basic", "p0,external") {
         "qt_${v2Label}_count"("select count(*) from ${catalog}.delta_m1.basic")
         "order_qt_${v2Label}_null_partition"(
                 "select * from ${catalog}.delta_m1.basic where part is null order by id")
+        String token = UUID.randomUUID().toString()
         "order_qt_${v2Label}_one_partition"(
-                "select * from ${catalog}.delta_m1.basic where part='a' order by id")
+                "select /* ${token} */ * from ${catalog}.delta_m1.basic where part='a' order by id")
+        String profile = profiles.getProfileBySql(token, ["Delta Scan Metrics", "EnumerationComplete: true"])
+        def metrics = profile.readLines()*.trim()
+        assertTrue(metrics.contains("- SelectedFiles: 1"), profile)
+        assertTrue(metrics.contains("- GeneratedSplits: 1"), profile)
         "order_qt_${v2Label}_no_partition"(
                 "select * from ${catalog}.delta_m1.basic where part='missing' order by id")
         "order_qt_${v2Label}_empty"("select * from ${catalog}.delta_m1.empty order by id")
@@ -55,7 +65,6 @@ suite("test_deltalake_basic", "p0,external") {
         explain {
             sql("select * from ${catalog}.delta_m1.basic where part='a'")
             contains("partition=1/3")
-            contains("inputSplitNum=1")
         }
         sql "set file_split_size=128"
         "order_qt_${source}_byte_ranges"("""select id,b,i8,i16,i32,i64,f,d,dec,str,hex(bin),dt,ts,arr,m,nested
