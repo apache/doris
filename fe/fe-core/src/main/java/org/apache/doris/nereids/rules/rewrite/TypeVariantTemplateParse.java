@@ -37,6 +37,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ParseToVarian
 import org.apache.doris.nereids.trees.expressions.functions.scalar.TryParseToVariant;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
+import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
@@ -82,18 +83,26 @@ import java.util.Set;
  * loses its template wherever anything else names it: a filter, a join or sort key, a condition, a window, a
  * second column of the sink, a second template. So does a slot that reaches a node this rule does not know to
  * hand slots on unchanged: an aggregate, a set operation that compares rows, any other. Such a call stays as it
- * is and the statement reads and stores what it did before, a number through a binary64. Every other reader of
- * a parsed value therefore sees what it always saw, and two reads of one text in a statement still agree.
+ * is and the statement reads and stores what it did before, a number through a binary64.
  *
- * <p>A reader is what names the slot when this rule runs. One that holds a copy of the call instead reads its
- * own untyped call, and the column's call is typed: the statement may have written the call twice, or an
- * earlier rule may have pushed a filter below the alias and substituted it, as subquery unnesting does in a
- * statement that holds a subquery, for a filter that sits directly on the alias's project.
+ * <p>A reader does not have to name the slot. By the time this rule runs, earlier rules have given some readers
+ * a copy of the call instead: BindSink computes a generated column and a materialized view's column from the
+ * expression of the column they are defined over, merging two projects substitutes an alias into everything
+ * above it, and a filter pushed below the alias takes the call with it. The statement itself may write the
+ * call twice. So a call is typed only when every place the same call (the same function over the same
+ * arguments) occurs below the sink is a place a templated column takes its value from, with one template. One
+ * copy anywhere else, and every copy stays as it is: the column stores what such a reader computes from it.
+ *
+ * <p>The decision is made once for a statement. The rewrite of a plan that a materialized view has been put
+ * into runs the Rewriter's rules again on the plan recorded after this rule, and skips this one
+ * ({@code MaterializedViewUtils#rewriteByRules}).
  *
  * <p>A call behind a CTE consumer is not reached (its producer is not below the sink; a CTE inlined by
- * {@link CTEInline} is), and the slots above a typed call keep the plain VARIANT type they were bound with: the
- * template is an ingestion hint on the call's own result type, which the BE reads from the function node, and a
- * variant to variant cast on the way to the sink is a passthrough there.
+ * {@link CTEInline} is). Nor is a call behind a view, which is inlined after this rule, or a call a load's
+ * column mapping writes itself, which sits above a node of the load plan this rule does not pass: both are
+ * read as before. The slots above a typed call keep the plain VARIANT type they were bound with: the template
+ * is an ingestion hint on the call's own result type, which the BE reads from the function node, and a variant
+ * to variant cast on the way to the sink is a passthrough there.
  */
 public class TypeVariantTemplateParse extends DefaultPlanRewriter<Void> implements CustomRewriter {
 
@@ -121,20 +130,28 @@ public class TypeVariantTemplateParse extends DefaultPlanRewriter<Void> implemen
         if (templates.isEmpty()) {
             return sink;
         }
-        Plan child = typeCalls(sink.child(), templates);
+        // first which calls the columns take their values from, then whether any of them is read elsewhere
+        ValueCalls calls = new ValueCalls();
+        typeCalls(sink.child(), templates, calls);
+        if (!calls.keepThoseWithNoCopyBelow(sink.child())) {
+            return sink;
+        }
+        Plan child = typeCalls(sink.child(), templates, calls);
         return child == sink.child() ? sink : sink.withChildren(ImmutableList.of(child));
     }
 
     /**
      * {@code templates}: by ExprId, the type each of those output slots of the plan has to be computed with.
-     * Only a slot whose one reader above is its templated column is among them.
+     * Only a slot whose one reader above is its templated column is among them. Until {@code calls} has decided,
+     * the walk only records the calls it reaches and returns the plan as it is.
      */
-    private static Plan typeCalls(Plan plan, Map<ExprId, VariantType> templates) {
+    private static Plan typeCalls(Plan plan, Map<ExprId, VariantType> templates, ValueCalls calls) {
         if (plan instanceof LogicalProject) {
             LogicalProject<?> project = (LogicalProject<?>) plan;
             Map<ExprId, VariantType> childTemplates = Maps.newHashMap();
-            List<NamedExpression> projects = typeCalls(project.getProjects(), templates, childTemplates);
-            Plan child = childTemplates.isEmpty() ? project.child() : typeCalls(project.child(), childTemplates);
+            List<NamedExpression> projects = typeCalls(project.getProjects(), templates, childTemplates, calls);
+            Plan child = childTemplates.isEmpty()
+                    ? project.child() : typeCalls(project.child(), childTemplates, calls);
             if (projects == project.getProjects() && child == project.child()) {
                 return plan;
             }
@@ -143,11 +160,11 @@ public class TypeVariantTemplateParse extends DefaultPlanRewriter<Void> implemen
         if (plan instanceof LogicalOneRowRelation) {
             LogicalOneRowRelation oneRowRelation = (LogicalOneRowRelation) plan;
             List<NamedExpression> projects
-                    = typeCalls(oneRowRelation.getProjects(), templates, Maps.newHashMap());
+                    = typeCalls(oneRowRelation.getProjects(), templates, Maps.newHashMap(), calls);
             return projects == oneRowRelation.getProjects() ? plan : oneRowRelation.withProjects(projects);
         }
         if (plan instanceof LogicalUnion && ((LogicalUnion) plan).getQualifier() == Qualifier.ALL) {
-            return typeCalls((LogicalUnion) plan, templates);
+            return typeCalls((LogicalUnion) plan, templates, calls);
         }
         if (!handsItsChildrensSlotsOn(plan)) {
             // an aggregate groups by the value, a set operation that removes duplicates compares it, and what
@@ -174,7 +191,7 @@ public class TypeVariantTemplateParse extends DefaultPlanRewriter<Void> implemen
                     childTemplates.put(slot.getExprId(), template);
                 }
             }
-            Plan typed = childTemplates.isEmpty() ? child : typeCalls(child, childTemplates);
+            Plan typed = childTemplates.isEmpty() ? child : typeCalls(child, childTemplates, calls);
             changed |= typed != child;
             children.add(typed);
         }
@@ -182,7 +199,7 @@ public class TypeVariantTemplateParse extends DefaultPlanRewriter<Void> implemen
     }
 
     /** A UNION ALL's outputs map to its children's outputs and to its constant rows by position, unread. */
-    private static Plan typeCalls(LogicalUnion union, Map<ExprId, VariantType> templates) {
+    private static Plan typeCalls(LogicalUnion union, Map<ExprId, VariantType> templates, ValueCalls calls) {
         List<Slot> outputs = union.getOutput();
         boolean changed = false;
         ImmutableList.Builder<Plan> children = ImmutableList.builderWithExpectedSize(union.arity());
@@ -198,7 +215,7 @@ public class TypeVariantTemplateParse extends DefaultPlanRewriter<Void> implemen
             // a child's slot at two positions of the union feeds two of its columns
             Map<ExprId, VariantType> childTemplates = valueSlots.withNoOtherReaderAmong(childOutput);
             Plan child = union.child(childIndex);
-            Plan typed = childTemplates.isEmpty() ? child : typeCalls(child, childTemplates);
+            Plan typed = childTemplates.isEmpty() ? child : typeCalls(child, childTemplates, calls);
             changed |= typed != child;
             children.add(typed);
         }
@@ -213,7 +230,7 @@ public class TypeVariantTemplateParse extends DefaultPlanRewriter<Void> implemen
                 }
             }
             List<NamedExpression> typed = rowTemplates.isEmpty()
-                    ? row : typeCalls(row, rowTemplates, Maps.newHashMap());
+                    ? row : typeCalls(row, rowTemplates, Maps.newHashMap(), calls);
             changed |= typed != row;
             rows.add(typed);
         }
@@ -229,7 +246,7 @@ public class TypeVariantTemplateParse extends DefaultPlanRewriter<Void> implemen
      * {@code childTemplates} when nothing else among {@code expressions} reads it.
      */
     private static List<NamedExpression> typeCalls(List<NamedExpression> expressions,
-            Map<ExprId, VariantType> templates, Map<ExprId, VariantType> childTemplates) {
+            Map<ExprId, VariantType> templates, Map<ExprId, VariantType> childTemplates, ValueCalls calls) {
         ImmutableList.Builder<NamedExpression> typed = ImmutableList.builderWithExpectedSize(expressions.size());
         ValueSlots valueSlots = new ValueSlots();
         boolean changed = false;
@@ -238,7 +255,7 @@ public class TypeVariantTemplateParse extends DefaultPlanRewriter<Void> implemen
             VariantType template = templates.get(expression.getExprId());
             if (template != null) {
                 if (expression instanceof Alias) {
-                    Expression child = typeCall(expression.child(0), template, valueSlots);
+                    Expression child = typeCall(expression.child(0), template, valueSlots, calls);
                     if (child != expression.child(0)) {
                         result = ((Alias) expression).withChildren(ImmutableList.of(child));
                     }
@@ -264,33 +281,33 @@ public class TypeVariantTemplateParse extends DefaultPlanRewriter<Void> implemen
     }
 
     /** The call typed with {@code template}, or {@code expression} itself when it does not compute one. */
-    private static Expression typeCall(Expression expression, VariantType template, ValueSlots valueSlots) {
+    private static Expression typeCall(Expression expression, VariantType template, ValueSlots valueSlots,
+            ValueCalls calls) {
         if (expression instanceof Cast && expression.getDataType() instanceof VariantType
                 && expression.child(0).getDataType() instanceof VariantType) {
             // the sink's coercion, or a cast the statement wrote: variant to variant is a relabel, look through
-            Expression child = typeCall(expression.child(0), template, valueSlots);
+            Expression child = typeCall(expression.child(0), template, valueSlots, calls);
             if (child == expression.child(0)) {
                 return expression;
             }
             return child.getDataType().equals(expression.getDataType())
                     ? child : expression.withChildren(ImmutableList.of(child));
         }
-        if (expression instanceof ParseToVariant) {
-            ParseToVariant call = (ParseToVariant) expression;
-            return call.getReturnType().equalsWithPatternTypes(template) ? call : call.withReturnType(template);
-        }
-        if (expression instanceof TryParseToVariant) {
-            TryParseToVariant call = (TryParseToVariant) expression;
-            return call.getReturnType().equalsWithPatternTypes(template) ? call : call.withReturnType(template);
+        if (isParseCall(expression)) {
+            return calls.type(expression, template);
         }
         if (expression instanceof Slot) {
             valueSlots.add(((Slot) expression).getExprId(), template);
             return expression;
         }
         if (expression.getDataType() instanceof VariantType && returnsAnArgument(expression)) {
-            return typeValueArguments(expression, template, valueSlots);
+            return typeValueArguments(expression, template, valueSlots, calls);
         }
         return expression;
+    }
+
+    private static boolean isParseCall(Expression expression) {
+        return expression instanceof ParseToVariant || expression instanceof TryParseToVariant;
     }
 
     /**
@@ -304,7 +321,7 @@ public class TypeVariantTemplateParse extends DefaultPlanRewriter<Void> implemen
 
     /** Types the calls among the arguments {@code expression} can return; a condition is left as it is. */
     private static Expression typeValueArguments(Expression expression, VariantType template,
-            ValueSlots valueSlots) {
+            ValueSlots valueSlots, ValueCalls calls) {
         List<Expression> children = expression.children();
         ImmutableList.Builder<Expression> typed = ImmutableList.builderWithExpectedSize(children.size());
         boolean changed = false;
@@ -313,18 +330,18 @@ public class TypeVariantTemplateParse extends DefaultPlanRewriter<Void> implemen
             Expression result = child;
             if (child instanceof WhenClause) {
                 WhenClause clause = (WhenClause) child;
-                Expression value = typeArgument(clause.getResult(), template, valueSlots);
+                Expression value = typeArgument(clause.getResult(), template, valueSlots, calls);
                 if (value != clause.getResult()) {
                     result = clause.withChildren(ImmutableList.of(clause.getOperand(), value));
                 }
             } else if (expression instanceof If) {
                 // the first argument is the condition
                 if (i > 0) {
-                    result = typeArgument(child, template, valueSlots);
+                    result = typeArgument(child, template, valueSlots, calls);
                 }
             } else if (!(expression instanceof CaseWhen) || i > 0) {
                 // every argument of the others; of CASE WHEN, the ELSE value after its WHEN clauses
-                result = typeArgument(child, template, valueSlots);
+                result = typeArgument(child, template, valueSlots, calls);
             }
             changed |= result != child;
             typed.add(result);
@@ -336,12 +353,93 @@ public class TypeVariantTemplateParse extends DefaultPlanRewriter<Void> implemen
      * {@code argument} with its calls typed, kept at the type the enclosing expression was bound with: the typed
      * call goes under a variant to variant cast, a passthrough on the BE like the sink's own.
      */
-    private static Expression typeArgument(Expression argument, VariantType template, ValueSlots valueSlots) {
-        Expression typed = typeCall(argument, template, valueSlots);
+    private static Expression typeArgument(Expression argument, VariantType template, ValueSlots valueSlots,
+            ValueCalls calls) {
+        Expression typed = typeCall(argument, template, valueSlots, calls);
         if (typed == argument || typed.getDataType().equals(argument.getDataType())) {
             return typed;
         }
         return new Cast(typed, argument.getDataType());
+    }
+
+    /**
+     * The parse calls the templated columns of one sink take their values from, each with its template and with
+     * the number of places a value is taken from it. A call is told from another by its function and its
+     * arguments, whatever type it returns, so a copy an earlier rule made of it is the same call.
+     */
+    private static final class ValueCalls {
+        private final Map<List<Object>, VariantType> templates = Maps.newHashMap();
+        private final Map<List<Object>, Integer> valueReads = Maps.newHashMap();
+        private final Set<List<Object>> withTwoTemplates = Sets.newHashSet();
+        // null until keepThoseWithNoCopyBelow has decided: before that the walk only records
+        private Set<List<Object>> typed;
+
+        private static List<Object> keyOf(Expression call) {
+            return ImmutableList.of(call.getClass(), call.children());
+        }
+
+        /** Records {@code call} before the decision; after it, the call typed when it is one to type. */
+        Expression type(Expression call, VariantType template) {
+            List<Object> key = keyOf(call);
+            if (typed == null) {
+                VariantType first = templates.putIfAbsent(key, template);
+                if (first != null && !first.equalsWithPatternTypes(template)) {
+                    withTwoTemplates.add(key);
+                }
+                valueReads.merge(key, 1, Integer::sum);
+                return call;
+            }
+            if (!typed.contains(key)) {
+                return call;
+            }
+            if (call instanceof ParseToVariant) {
+                ParseToVariant parse = (ParseToVariant) call;
+                return parse.getReturnType().equalsWithPatternTypes(template) ? parse : parse.withReturnType(template);
+            }
+            TryParseToVariant parse = (TryParseToVariant) call;
+            return parse.getReturnType().equalsWithPatternTypes(template) ? parse : parse.withReturnType(template);
+        }
+
+        /**
+         * Decides which of the recorded calls are typed: those every occurrence of which below the sink is a
+         * place a templated column takes its value from, with one template. An occurrence anywhere else is a
+         * reader that holds its own copy: a generated or materialized view column, a sibling column or a
+         * filter that an earlier rule substituted the alias into, a call the statement wrote twice. Nothing is
+         * typed when the plan holds an expression this cannot look into (a subquery not yet unnested).
+         * Returns whether any call is left to type.
+         */
+        boolean keepThoseWithNoCopyBelow(Plan plan) {
+            typed = Sets.newHashSet();
+            if (valueReads.isEmpty()) {
+                return false;
+            }
+            Map<List<Object>, Integer> reads = Maps.newHashMap();
+            boolean[] hidden = {false};
+            plan.foreach(node -> {
+                if (node instanceof LogicalApply) {
+                    // its expressions do not list the subquery's own
+                    hidden[0] = true;
+                }
+                for (Expression expression : ((Plan) node).getExpressions()) {
+                    expression.foreach(part -> {
+                        if (part instanceof SubqueryExpr) {
+                            hidden[0] = true;
+                        } else if (isParseCall((Expression) part)) {
+                            reads.merge(keyOf((Expression) part), 1, Integer::sum);
+                        }
+                    });
+                }
+            });
+            if (hidden[0]) {
+                return false;
+            }
+            valueReads.forEach((key, count) -> {
+                if (!withTwoTemplates.contains(key) && count.equals(reads.get(key))) {
+                    typed.add(key);
+                }
+            });
+            return !typed.isEmpty();
+        }
     }
 
     /**

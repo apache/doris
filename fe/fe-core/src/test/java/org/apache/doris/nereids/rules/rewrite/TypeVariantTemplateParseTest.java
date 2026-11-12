@@ -20,7 +20,10 @@ package org.apache.doris.nereids.rules.rewrite;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.jobs.executor.Rewriter;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewUtils;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -65,7 +68,8 @@ import java.util.Optional;
 /**
  * The sink types parse_to_variant with the target column's VARIANT template for every INSERT shape, the fast
  * VALUES path included, when that column is the one reader of the call's value. It leaves a call with another
- * reader, and a call outside a sink, alone.
+ * reader, whether that reader names the call's slot or holds a copy of the call, and a call outside a sink,
+ * alone.
  */
 public class TypeVariantTemplateParseTest extends TestWithFeService {
     private static final String DATABASE = "variant_template_parse_db";
@@ -75,6 +79,8 @@ public class TypeVariantTemplateParseTest extends TestWithFeService {
     private static final String PLAIN_TEMPLATE_TABLE = "variant_template_parse_plain";
     private static final String WIDE_TABLE = "variant_template_parse_wide";
     private static final String TWO_TEMPLATES_TABLE = "variant_template_parse_two";
+    private static final String PATTERN_TYPES_TABLE = "variant_template_parse_patterns";
+    private static final String GENERATED_TABLE = "variant_template_parse_generated";
     private static final String DOCUMENT = "{\"money\":{\"amount\":188118222.011121933},\"name\":\"n\"}";
 
     @Override
@@ -118,6 +124,23 @@ public class TypeVariantTemplateParseTest extends TestWithFeService {
                 + "    id int,\n"
                 + "    v variant<'money.amount':decimal(20,6),'ratio*':decimal(30,18),'name':string>,\n"
                 + "    w variant<'money.amount':decimal(10,2)>\n"
+                + ")\n"
+                + "duplicate key(id)\n"
+                + "distributed by hash(id) buckets 1\n"
+                + "properties(\"replication_num\"=\"1\")");
+        // two templates that differ only in how the pattern matches: the BE reads "ab" by the glob only
+        createTable("create table " + PATTERN_TYPES_TABLE + " (\n"
+                + "    id int,\n"
+                + "    v variant<'a*':decimal(10,2)>,\n"
+                + "    w variant<MATCH_NAME 'a*':decimal(10,2)>\n"
+                + ")\n"
+                + "duplicate key(id)\n"
+                + "distributed by hash(id) buckets 1\n"
+                + "properties(\"replication_num\"=\"1\")");
+        createTable("create table " + GENERATED_TABLE + " (\n"
+                + "    id int,\n"
+                + "    v variant<'money.amount':decimal(20,6),'ratio*':decimal(30,18),'name':string>,\n"
+                + "    g decimal(20,6) generated always as (cast(v['money']['amount'] as decimal(20,6)))\n"
                 + ")\n"
                 + "duplicate key(id)\n"
                 + "distributed by hash(id) buckets 1\n"
@@ -246,6 +269,8 @@ public class TypeVariantTemplateParseTest extends TestWithFeService {
                 + " when not matched then insert (id, v) values (s.id, s.p)");
         // the other columns of the table take their defaults
         shapes.add("insert into " + WIDE_TABLE + " (id, v) select id, v from " + parsed + " s");
+        // a top-n over another column
+        shapes.add("insert into " + TABLE + " select id, v from " + parsed + " s order by id limit 5");
         for (String sql : shapes) {
             List<VariantType> types = callReturnTypes(rewrittenPlan(sql));
             Assertions.assertFalse(types.isEmpty(), sql);
@@ -258,8 +283,7 @@ public class TypeVariantTemplateParseTest extends TestWithFeService {
     @Test
     public void testACallSomethingElseReadsStaysAsItIs() throws Exception {
         // The template applies to the value its column stores and to nothing else. When anything else in the
-        // statement reads the call's value, the call is left untyped: that reader sees what it always saw, and
-        // two reads of one text still agree.
+        // statement reads the call's value, the call is left untyped: that reader sees what it always saw.
         String parsed = "(select id, parse_to_variant(j) as v from " + SOURCE + ")";
         String limited = "(select id, parse_to_variant(j) as v from " + SOURCE + " limit 10)";
         List<String> shapes = new ArrayList<>();
@@ -280,6 +304,11 @@ public class TypeVariantTemplateParseTest extends TestWithFeService {
                 + limited + " s");
         // a second templated column with another template
         shapes.add("insert into " + TWO_TEMPLATES_TABLE + " select id, v, v from " + limited + " s");
+        // or with a template that differs only in how its pattern matches
+        shapes.add("insert into " + PATTERN_TYPES_TABLE + " select id, v, v from " + limited + " s");
+        // a child of a UNION ALL that hands its slot to two columns of the union
+        shapes.add("insert into " + WIDE_TABLE + " (id, v, raw) select id, v, v from " + limited + " a"
+                + " union all select id, v, v from " + limited + " b");
         // a value that is grouped or compared before it is stored
         shapes.add("insert into " + TABLE + " select distinct id, v from " + parsed + " s");
         for (String operation : ImmutableList.of("union", "intersect", "except")) {
@@ -302,36 +331,89 @@ public class TypeVariantTemplateParseTest extends TestWithFeService {
     }
 
     @Test
-    public void testAReaderWithItsOwnCopyOfTheCallIsNotAReaderOfTheColumns() throws Exception {
-        VariantType template = templateOfTargetColumn();
-        // Other columns that parse the text themselves: the templated column's call is typed, theirs are not.
-        assertTypedAndUntypedCalls(template, 1, "insert into " + WIDE_TABLE
+    public void testACallReadElsewhereAsACopyStaysAsItIs() throws Exception {
+        // A reader does not have to name the call's slot: it may hold a copy of the call. Every copy then stays
+        // as it is, the column's own included, so the column stores what such a reader computes from it.
+        List<String> copies = new ArrayList<>();
+        // other columns that parse the text themselves
+        copies.add("insert into " + WIDE_TABLE
                 + " select id, parse_to_variant(j), parse_to_variant(j), cast(parse_to_variant(j)['name'] as string)"
                 + " from " + SOURCE);
-        // A filter the planner has already given its own copy of the call. With a subquery in the statement,
-        // subquery unnesting pushes a filter that sits directly on the alias's project below it, and
-        // substitutes the alias, before this rule runs. The filter no longer names the slot: the column's call
-        // is typed, and the filter's copy reads what it always read.
-        assertTypedAndUntypedCalls(template, 1, "insert into " + TABLE
+        // A filter the planner has given its own copy. With a subquery in the statement, subquery unnesting
+        // pushes a filter that sits directly on the alias's project below it and substitutes the alias.
+        copies.add("insert into " + TABLE
                 + " select id, v from (select id, v from (select id, parse_to_variant(j) as v from " + SOURCE
                 + ") x where cast(v['money']['amount'] as string) = '1.5') b"
                 + " where id in (select id from " + SOURCE + ")");
-    }
-
-    /** {@code sql} holds {@code typed} calls with the template and at least one call without it. */
-    private void assertTypedAndUntypedCalls(VariantType template, int typed, String sql) throws Exception {
-        int withTemplate = 0;
-        int withoutTemplate = 0;
-        for (VariantType type : callReturnTypes(rewrittenPlan(sql))) {
-            if (type.getPredefinedFields().isEmpty()) {
-                withoutTemplate++;
-            } else {
-                Assertions.assertTrue(template.equalsWithPatternTypes(type), sql);
-                withTemplate++;
+        // A generated column over the templated column: BindSink computes it from that column's expression, and
+        // merging the sink's project into the one below gives it the call. The stored row keeps g = f(v).
+        copies.add("insert into " + GENERATED_TABLE + " (id, v) select id, parse_to_variant(j) from " + SOURCE);
+        copies.add("insert into " + GENERATED_TABLE + " (id, v) select 1, parse_to_variant('" + DOCUMENT + "')");
+        // two templated columns that each write the call, with two templates
+        copies.add("insert into " + TWO_TEMPLATES_TABLE + " select id, parse_to_variant(j), parse_to_variant(j) from "
+                + SOURCE);
+        for (String sql : copies) {
+            List<VariantType> types = callReturnTypes(rewrittenPlan(sql));
+            Assertions.assertTrue(types.size() >= 2, sql + " holds " + types.size() + " call(s)");
+            for (VariantType type : types) {
+                Assertions.assertTrue(type.getPredefinedFields().isEmpty(), sql);
             }
         }
-        Assertions.assertEquals(typed, withTemplate, sql);
-        Assertions.assertTrue(withoutTemplate >= 1, sql);
+        // Sibling columns of a derived table the planner merges into the sink's project: with a subquery in the
+        // statement the whole plan's projects are merged, through a filtered LIMIT as well.
+        String siblings = "insert into " + WIDE_TABLE + " select id, v, v, cast(v as string) from"
+                + " (select id, parse_to_variant(j) as v from " + SOURCE + " where id in (select id from " + SOURCE
+                + ") limit 10) s where id > 0";
+        List<VariantType> types = callReturnTypes(rewrittenPlan(siblings));
+        Assertions.assertFalse(types.isEmpty(), siblings);
+        for (VariantType type : types) {
+            Assertions.assertTrue(type.getPredefinedFields().isEmpty(), siblings);
+        }
+    }
+
+    @Test
+    public void testACallWrittenTwiceForOneColumnIsTyped() throws Exception {
+        // every place the call occurs is a place the one templated column takes its value from
+        VariantType template = templateOfTargetColumn();
+        String sql = "insert into " + TABLE + " select id, if(id > 0, parse_to_variant(j), parse_to_variant(j)) from "
+                + SOURCE;
+        List<VariantType> types = callReturnTypes(rewrittenPlan(sql));
+        Assertions.assertFalse(types.isEmpty(), sql);
+        for (VariantType type : types) {
+            Assertions.assertTrue(template.equalsWithPatternTypes(type), sql);
+        }
+    }
+
+    @Test
+    public void testTheRuleDecidesOnceForAStatement() throws Exception {
+        // The rewrite of a plan a materialized view was put into runs the Rewriter's rules again
+        // (NereidsPlanner's pre-rewrite, through MaterializedViewUtils.rewriteByRules) on the plan recorded
+        // after this rule. Readers the rule counted by their slots may be copies of the call there, so the rule
+        // is skipped: the statement keeps the one decision. Here the plan is handed over before the rule ran,
+        // so a skipped rule shows as an untyped call where the statement's own rewrite types it.
+        // (a constant row: inside rewriteByRules the session's own disabled rules are set aside, and the empty
+        // source table of this test would be pruned away with the call)
+        String sql = "insert into " + TABLE + " select 1, parse_to_variant('" + DOCUMENT + "')";
+        VariantType template = templateOfTargetColumn();
+        Assertions.assertFalse(callReturnTypes(rewrittenPlan(sql)).isEmpty(), sql);
+        for (VariantType type : callReturnTypes(rewrittenPlan(sql))) {
+            Assertions.assertTrue(template.equalsWithPatternTypes(type), sql);
+        }
+        createStatementCtx(sql);
+        Explainable command = (Explainable) new NereidsParser().parseSingle(sql);
+        CascadesContext analyzed = PlanChecker.from(connectContext)
+                .analyze(command.getExplainPlan(connectContext))
+                .getCascadesContext();
+        Plan plan = analyzed.getRewritePlan();
+        Plan rewritten = MaterializedViewUtils.rewriteByRules(analyzed, childContext -> {
+            Rewriter.getWholeTreeRewriterWithoutCostBasedJobs(childContext).execute();
+            return childContext.getRewritePlan();
+        }, plan, plan, false);
+        List<VariantType> types = callReturnTypes(rewritten);
+        Assertions.assertFalse(types.isEmpty(), sql);
+        for (VariantType type : types) {
+            Assertions.assertTrue(type.getPredefinedFields().isEmpty(), sql);
+        }
     }
 
     @Test
