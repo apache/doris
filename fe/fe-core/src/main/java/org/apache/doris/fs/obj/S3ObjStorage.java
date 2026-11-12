@@ -21,6 +21,7 @@ import org.apache.doris.backup.Status;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.ObjectStorageGlob;
 import org.apache.doris.common.util.S3URI;
 import org.apache.doris.common.util.S3Util;
 import org.apache.doris.common.util.Util;
@@ -83,8 +84,6 @@ import software.amazon.awssdk.services.sts.model.Credentials;
 import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.InputStream;
-import java.nio.file.FileSystems;
-import java.nio.file.PathMatcher;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -94,6 +93,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 public class S3ObjStorage implements ObjStorage<S3Client> {
@@ -636,8 +636,8 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
         try {
             S3URI uri = S3URI.create(remotePath, isUsePathStyle, forceParsingByStandardUri);
             // Directory bucket check for limit scenario
-            if (hasLimits && uri.useS3DirectoryBucket()) {
-                throw new RuntimeException("Not support glob with limit for directory bucket");
+            if ((hasLimits || (startFile != null && !startFile.isEmpty())) && uri.useS3DirectoryBucket()) {
+                throw new RuntimeException("S3 directory buckets do not support key-based pagination");
             }
 
             bucket = uri.getBucket();
@@ -663,13 +663,12 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
                 // If headResult is null, fall through to use listing
             }
 
-            String globPath = S3Util.extendGlobs(uri.getKey());
+            String globPath = ObjectStorageGlob.expandNumericRanges(keyPattern);
 
             if (LOG.isDebugEnabled()) {
                 LOG.debug("globList globPath:{}, remotePath:{}", globPath, remotePath);
             }
-            java.nio.file.Path pathPattern = Paths.get(globPath);
-            PathMatcher matcher = FileSystems.getDefault().getPathMatcher("glob:" + pathPattern);
+            Pattern matcher = Pattern.compile(ObjectStorageGlob.globToRegex(globPath));
             HashSet<String> directorySet = new HashSet<>();
 
             String listPrefix = S3Util.getLongestPrefix(globPath); // similar to Azure
@@ -701,7 +700,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
                 Builder builder = ListObjectsV2Request.builder()
                         .bucket(bucket)
                         .prefix(currentListPrefix);
-                if (startFile != null) {
+                if (startFile != null && !startFile.isEmpty()) {
                     builder.startAfter(startFile);
                 }
                 ListObjectsV2Request request = builder.build();
@@ -717,7 +716,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
                         // remaining page(s) and expanded prefixes so pagination remains correct.
                         if (reachLimit) {
                             java.nio.file.Path checkPath = Paths.get(obj.key());
-                            if (matcher.matches(checkPath)) {
+                            if (matcher.matcher(checkPath.toString()).matches()) {
                                 currentMaxFile = obj.key();
                                 break listPrefixesLoop;
                             }
@@ -728,7 +727,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
 
                         boolean isPrefix = false;
                         while (objPath != null && objPath.normalize().toString().startsWith(listPrefix)) {
-                            if (!matcher.matches(objPath)) {
+                            if (!matcher.matcher(objPath.toString()).matches()) {
                                 isPrefix = true;
                                 objPath = objPath.getParent();
                                 continue;
@@ -814,10 +813,10 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
     private GlobListResult globListByHeadRequests(String bucket, String keyPattern,
             List<RemoteFile> result, boolean fileNameOnly, long startTime) {
         try {
-            // First expand [...] brackets to {...} braces, then expand {..} ranges, then expand braces
-            String expandedPattern = S3Util.expandBracketPatterns(keyPattern);
-            expandedPattern = S3Util.extendGlobs(expandedPattern);
-            List<String> expandedPaths = S3Util.expandBracePatterns(expandedPattern);
+            List<String> expandedPaths = ObjectStorageGlob.exactKeys(keyPattern);
+            if (expandedPaths == null) {
+                return null;
+            }
 
             // Fall back to listing if too many paths to avoid overwhelming S3 with HEAD requests
             // Controlled by config: s3_head_request_max_paths

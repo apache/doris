@@ -21,6 +21,7 @@ import org.apache.doris.backup.Status;
 import org.apache.doris.datasource.property.storage.AzureProperties;
 import org.apache.doris.datasource.property.storage.S3Properties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.fs.GlobListResult;
 import org.apache.doris.fs.remote.RemoteFile;
 
 import com.azure.core.http.HttpHeaders;
@@ -136,6 +137,25 @@ public class AzureObjStorageTest {
     }
 
     @Test
+    public void testLimitAndResumeAcrossPrefixes() {
+        String glob = "s3://gavin-test-jp/azure-test/{2,3}/tmp.ehJi0Y5QKt";
+        AzureObjStorage storage = genMockedAzureObjStorage(2);
+        List<RemoteFile> result = new ArrayList<>();
+        GlobListResult page = storage.globListWithLimit(glob, result, null, 0, 1);
+        Assertions.assertEquals(Status.OK, page.getStatus());
+        Assertions.assertEquals(1, result.size());
+        Assertions.assertEquals("s3://gavin-test-jp/azure-test/2/tmp.ehJi0Y5QKt", result.get(0).getName());
+        Assertions.assertEquals("azure-test/3/tmp.ehJi0Y5QKt", page.getMaxFile());
+
+        result.clear();
+        page = storage.globListWithLimit(glob, result, "azure-test/2/tmp.ehJi0Y5QKt", 1, 0);
+        Assertions.assertEquals(Status.OK, page.getStatus());
+        Assertions.assertEquals(1, result.size());
+        Assertions.assertEquals("s3://gavin-test-jp/" + page.getMaxFile(), result.get(0).getName());
+        Assertions.assertEquals("azure-test/3/tmp.ehJi0Y5QKt", page.getMaxFile());
+    }
+
+    @Test
     public void testFsGlob() {
         for (I i : genInputs()) {
             String pattern = i.pattern.substring(19); // remove prefix s3://gavin-test-jp/
@@ -205,12 +225,11 @@ public class AzureObjStorageTest {
         AzureProperties azureProps = (AzureProperties) StorageProperties.createPrimary(props);
         AzureObjStorage azs = new AzureObjStorage(azureProps);
         List<String> allBlobKeys = genObjectKeys();
-        final Integer[] batchIndex = {0}; // from 0 to numBatch
         new MockUp<AzureObjStorage>(AzureObjStorage.class) {
             @Mock
             public PagedResponse<BlobItem> getPagedBlobItems(BlobContainerClient client, ListBlobsOptions options,
                                                              String newContinuationToken) {
-                batchIndex[0]++;
+                int batchIndex = newContinuationToken == null ? 0 : Integer.parseInt(newContinuationToken);
                 return new PagedResponse<BlobItem>() {
                     public final List<List<String>> batches = new ArrayList<List<String>>() {
                         {
@@ -234,7 +253,7 @@ public class AzureObjStorageTest {
                     @Override
                     public IterableStream<BlobItem> getElements() {
                         List<BlobItem> blobItems = new ArrayList<>();
-                        batches.get(batchIndex[0] - 1).forEach(x -> blobItems.add(new BlobItem().setName(x).setIsPrefix(false)
+                        batches.get(batchIndex).forEach(x -> blobItems.add(new BlobItem().setName(x).setIsPrefix(false)
                                 .setProperties(new BlobItemProperties().setContentLength(17L)
                                 .setLastModified(OffsetDateTime.now()))));
                         return new IterableStream<>(blobItems);
@@ -242,7 +261,7 @@ public class AzureObjStorageTest {
 
                     @Override
                     public String getContinuationToken() {
-                        return (batchIndex[0] >= numBatch) ? null : "what ever it is";
+                        return batchIndex + 1 >= numBatch ? null : Integer.toString(batchIndex + 1);
                     }
 
                     @Override

@@ -242,4 +242,14 @@ public class S3SourceOffsetProviderTest {
             Assertions.assertFalse(matcher.matches(Paths.get(key)), "Unexpected file: " + key);
         }
     }
+
+    @Test
+    void hasMoreDataToConsumeUsesUtf8BinaryOrder() {
+        S3Offset currentOffset = new S3Offset();
+        currentOffset.setEndFile("data/" + Character.toString(0xE000));
+        S3SourceOffsetProvider provider = new S3SourceOffsetProvider();
+        provider.currentOffset = currentOffset;
+        provider.maxEndFile = "data/" + Character.toString(0x1F600);
+        Assertions.assertTrue(provider.hasMoreDataToConsume());
+    }
 }
