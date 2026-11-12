@@ -29,4 +29,6 @@ public interface JobProcessor {
     void updateFragmentExecStatus(TReportExecStatusParams params);
 
     void tryFinishSchedule();
+
+    void markFragmentDispatchCompleted();
 }
