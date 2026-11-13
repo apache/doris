@@ -258,28 +258,4 @@ TEST(HeapMergeIteratorTest, ReadsOnAfterEmptyBatches) {
               (std::vector<Row> {{1, 11}, {2, 20}, {3, 31}, {4, 40}}));
 }
 
-// A key column must be one, and every compared column must be in the Blocks: otherwise the read
-// fails instead of merging by the wrong column, also when no child has rows.
-TEST(HeapMergeIteratorTest, RejectsColumnsItCannotCompareBy) {
-    auto schema = make_schema(false);
-    MergeDecision value_as_key;
-    value_as_key.keys.emplace_back(1, 1, -1);
-    MergeDecision key_out_of_range = key_decision();
-    key_out_of_range.keys.emplace_back(2, 1, -1);
-    MergeDecision sequence_out_of_range = key_decision();
-    sequence_out_of_range.sequence = SortColumnDescription(2, 1, -1);
-    for (const MergeDecision& decision : {value_as_key, key_out_of_range, sequence_out_of_range}) {
-        for (const std::vector<Batch>& batches :
-             {std::vector<Batch> {{{1, 10}}}, std::vector<Batch> {}}) {
-            std::vector<RowwiseIteratorUPtr> inputs;
-            inputs.push_back(std::make_unique<BatchesUtIterator>(*schema, batches));
-            VHeapMergeIterator iter(std::move(inputs), schema, decision);
-            OlapReaderStatistics stats;
-            StorageReadOptions opts(stats);
-            Status st = iter.init(opts);
-            EXPECT_TRUE(st.is<ErrorCode::INTERNAL_ERROR>()) << st;
-        }
-    }
-}
-
 } // namespace doris

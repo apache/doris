@@ -643,7 +643,6 @@ Status BlockReader::_init_agg_key_merge(std::vector<RowwiseIteratorUPtr> childre
     opts.block_row_max = cast_set<uint32_t>(batch_max_rows());
     opts.preferred_block_size_bytes = preferred_block_size_bytes();
     opts.runtime_state = runtime_state;
-    opts.tablet_id = _tablet->tablet_id();
     return (*input)->init(opts);
 }
 

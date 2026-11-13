@@ -100,35 +100,28 @@ private:
     // One input of the merge and the Block it is positioned in.
     struct Child {
         RowwiseIteratorUPtr iter;
-        // The current Block, refilled in place by _fill(); the rows are copied out of it.
+        // The current Block, refilled in place by _fill_child(); the rows are copied out of it.
         Block block;
-        // The current row of `block`, its row count and its byte size; all 0 once the child is
-        // done.
+        // The current row of `block`.
         size_t pos = 0;
-        size_t rows = 0;
-        size_t bytes = 0;
     };
 
-    // Check that the merge can compare by the columns of the MergeDecision.
-    Status _validate_compare_contract() const;
-    // Read the next Block of `child` that has rows; `*exhausted` when it has no more rows.
-    Status _fill(Child& child, bool* exhausted);
+    // Read the next Block of `child` that has rows; `*eof` once the child has no more rows.
+    Status _fill_child(Child& child, bool* eof);
 
-    // Whether row `a_pos` of child `a` goes before the current row of child `b`. Two rows of
-    // different children never tie: the child order decides last.
-    bool _less(uint32_t a, size_t a_pos, uint32_t b) const;
-    // Row `a_pos` of child `a` against the current row of child `b` on `column`, in the direction
-    // of `column`: negative when the row of `a` goes first.
-    int _compare(const SortColumnDescription& column, uint32_t a, size_t a_pos, uint32_t b) const;
-    // Whether the current row of child `index` has the key of the last row of `columns`.
-    bool _has_last_key(const MutableColumns& columns, uint32_t index) const;
+    // Whether row `row` of child `child` goes before the current row of child `other`; both are
+    // indexes into `_children`. Rows that tie on the keys and the sequence column go in child
+    // order, the older child (the lower index) first.
+    bool _goes_before(uint32_t child, size_t row, uint32_t other) const;
+    // Whether the current row of child `child` has the key of the last row of `columns`.
+    bool _has_last_key(const MutableColumns& columns, uint32_t child) const;
 
-    // The order of `_heap`. std::priority_queue keeps its largest element on top, so `a` is
-    // "less" than `b` when the current row of `b` goes first.
+    // The order of `_heap`. std::priority_queue keeps its largest element on top, so `lhs` is
+    // "less" than `rhs` when the current row of `rhs` goes first.
     struct HeapOrder {
         const VHeapMergeIterator* merge;
-        bool operator()(uint32_t a, uint32_t b) const {
-            return merge->_less(b, merge->_children[b].pos, a);
+        bool operator()(uint32_t lhs, uint32_t rhs) const {
+            return merge->_goes_before(rhs, merge->_children[rhs].pos, lhs);
         }
     };
 
@@ -145,7 +138,6 @@ private:
     size_t _block_row_max = 0;
     size_t _preferred_block_size_bytes = 0;
     RuntimeState* _runtime_state = nullptr;
-    int64_t _tablet_id = 0;
 
     // The children that still have rows; the one whose current row goes first is on top.
     std::priority_queue<uint32_t, std::vector<uint32_t>, HeapOrder> _heap {HeapOrder {this}};
