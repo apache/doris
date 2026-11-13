@@ -95,19 +95,24 @@ public:
     ScopedIoCtxBinding& operator=(const ScopedIoCtxBinding&) = delete;
 };
 
-// Guard that ensures the total OpenMP threads used by concurrent index builds
-// never exceed the configured omp_threads_limit.
+// Guard that keeps the total OpenMP thread reservations for concurrent index builds
+// within omp_threads_limit. Each call reserves a fixed amount independent of other builds.
 class ScopedOmpThreadBudget {
 public:
-    // For each index build, reserve at most half of the remaining threads, at least 1 thread.
     ScopedOmpThreadBudget() {
         std::unique_lock<std::mutex> lock(g_omp_thread_mutex);
-        auto omp_threads_limit = get_omp_threads_limit();
-        // Block until there is at least one OpenMP slot available under the global cap.
-        g_omp_thread_cv.wait(lock, [&] { return g_index_threads_in_use < omp_threads_limit; });
-        auto thread_cap = omp_threads_limit - g_index_threads_in_use;
-        // Keep headroom for other concurrent index builds: take up to half of remaining budget.
-        _reserved_threads = std::max(1, thread_cap / 2);
+        const int omp_threads_limit = get_omp_threads_limit();
+        const int threads_per_task = config::ann_index_build_threads_per_task == -1
+                                             ? (get_build_num_cores() < 32 ? 1 : 4)
+                                             : config::ann_index_build_threads_per_task;
+        // Cap a reservation by the total budget so it can always fit once other calls finish.
+        _reserved_threads = std::min(threads_per_task, omp_threads_limit);
+        // Wait for the whole reservation instead of shrinking it to the remaining budget.
+        // For example, with a limit of 10 and 4 threads per call, a third call waits even
+        // though 2 slots remain. Subtraction avoids overflow for large configured limits.
+        g_omp_thread_cv.wait(lock, [&] {
+            return g_index_threads_in_use <= omp_threads_limit - _reserved_threads;
+        });
         g_index_threads_in_use += _reserved_threads;
         DorisMetrics::instance()->ann_index_build_index_threads->increment(_reserved_threads);
         omp_set_num_threads(_reserved_threads);
@@ -134,12 +139,29 @@ public:
         if (config::omp_threads_limit > 0) {
             return config::omp_threads_limit;
         }
-        int core_cap = std::max(1, CpuInfo::num_cores());
+        const int core_cap = get_build_num_cores();
         // Use at most 80% of the available CPU cores.
         return std::max(1, core_cap * 4 / 5);
     }
 
 private:
+    static int get_build_num_cores() {
+        // CpuInfo is initialized before any index build. Snapshot it on first use so
+        // both auto defaults remain consistent even if CPU detection later becomes dynamic.
+        // For example, a change from 32 cores to 1 must not reduce a later call's reservation.
+        static const int num_cores = [] {
+            const int cores = CpuInfo::num_cores();
+            // An invalid CPU count must not abort an index build or produce a zero budget.
+            if (cores <= 0) {
+                LOG(WARNING) << "Invalid CPU core count " << cores
+                             << "; using 16 cores for ANN index build thread budgets";
+                return 16;
+            }
+            return cores;
+        }();
+        return num_cores;
+    }
+
     int _reserved_threads = 1;
 };
 
