@@ -769,7 +769,9 @@ public class AnalysisManagerTest {
         MaterializedIndex indexOne = new MaterializedIndex(changelogIndexId, MaterializedIndex.IndexState.NORMAL);
         MaterializedIndex indexThree = new MaterializedIndex(changelogIndexId, MaterializedIndex.IndexState.NORMAL);
         indexOne.setIsChangelog(true);
+        indexOne.appendTablets(ImmutableList.of(new LocalTablet(2L)));
         indexThree.setIsChangelog(true);
+        indexThree.appendTablets(ImmutableList.of(new LocalTablet(3L)));
         indexThree.setRowCount(100);
         partitionOne.createRollupIndex(indexOne);
         partitionThree.createRollupIndex(indexThree);
@@ -807,6 +809,20 @@ public class AnalysisManagerTest {
             Assertions.assertEquals(9, table.getRowCountForPartitionIndex(10L, changelogIndexId, false));
             Assertions.assertEquals(106, table.getRowCountForPartitionIndex(20L, changelogIndexId, false));
             Assertions.assertEquals(115, table.getRowCountForIndex(changelogIndexId, false));
+            Assertions.assertFalse(indexOne.getRowCountReported());
+            Assertions.assertFalse(indexThree.getRowCountReported());
+
+            // No loaded row (or fewer replica rows than the partition allocation) conveys no
+            // information about the retained stock and must leave an unknown baseline untouched.
+            indexOne.setRowCount(-1);
+            indexThree.setRowCount(-1);
+            manager.replayUpdateRowsRecord(new UpdateRowsEvent(ImmutableMap.of(table.getId(),
+                    ImmutableMap.of(2L, 0L, 3L, 2L)), db.getId()));
+            Assertions.assertEquals(-1, indexOne.getRowCount());
+            Assertions.assertEquals(-1, indexThree.getRowCount());
+            indexOne.setRowCount(9);
+            indexThree.setRowCount(106);
+
 
             // A late transaction report can still contain a force-dropped changelog tablet.
             invertedIndex.deleteTablet(2L);
@@ -827,6 +843,15 @@ public class AnalysisManagerTest {
             manager.replayUpdateRowsRecord(new UpdateRowsEvent(tabletRecords, db.getId()));
             Assertions.assertEquals(4, record.updatedRows.get());
             Assertions.assertEquals(11, table.getRowCountForPartitionIndex(20L, changelogIndexId, false));
+
+            // Tablet identity protects replacements even when partition and index IDs stay the same.
+            indexThree.clearTabletsForRestore();
+            indexThree.appendTablets(ImmutableList.of(new LocalTablet(4L)));
+            manager.replayUpdateRowsRecord(new UpdateRowsEvent(ImmutableMap.of(table.getId(),
+                    ImmutableMap.of(3L, 18L)), db.getId()));
+            Assertions.assertEquals(-1, indexThree.getRowCount());
+            Assertions.assertEquals(4, record.updatedRows.get());
+
 
             // A partial TRUNCATE replaces just this partition and its changelog index. Old
             // reports must not repopulate it, even while the old tablet metadata still exists.

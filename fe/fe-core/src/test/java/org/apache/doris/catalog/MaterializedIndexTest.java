@@ -80,6 +80,36 @@ public class MaterializedIndexTest {
     }
 
     @Test
+    public void testChangelogPartialCountsAndVisibleCommitIdempotence() {
+        Assertions.assertEquals(-1, index.getRowCount());
+        index.addChangelogRows(0);
+        Assertions.assertEquals(-1, index.getRowCount());
+        index.addChangelogRows(4, 7);
+        index.addChangelogRows(3, 5);
+        index.addChangelogRows(4, 7);
+        Assertions.assertEquals(12, index.getRowCount());
+        Assertions.assertFalse(index.getRowCountReported());
+        index.setReportedRowCount(2, false, 4);
+        index.addChangelogRows(3, 5);
+        Assertions.assertEquals(2, index.getRowCount());
+        index.setReportedRowCount(0, true, 4);
+        index.addChangelogRows(3, 5);
+        Assertions.assertEquals(0, index.getRowCount());
+        index.addChangelogRows(5, 3);
+        Assertions.assertEquals(3, index.getRowCount());
+
+        // Restore can keep the index ID while replacing its data and resetting version numbers.
+        index.clearTabletsForRestore();
+        Assertions.assertEquals(-1, index.getRowCount());
+        index.addChangelogRows(2, 4);
+        Assertions.assertEquals(4, index.getRowCount());
+        MaterializedIndex restored = GsonUtils.GSON.fromJson(GsonUtils.GSON.toJson(index), MaterializedIndex.class);
+        Assertions.assertFalse(restored.getRowCountReported());
+        restored.addChangelogRows(3, 2);
+        Assertions.assertEquals(6, restored.getRowCount());
+    }
+
+    @Test
     public void testChangelogFlagGsonUpgradeCompatibility() {
         MaterializedIndex changelogIndex = new MaterializedIndex(1L, IndexState.NORMAL);
         Assertions.assertFalse(changelogIndex.isChangelog());

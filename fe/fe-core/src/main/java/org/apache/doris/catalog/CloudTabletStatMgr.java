@@ -330,7 +330,7 @@ public class CloudTabletStatMgr extends MasterDaemon {
 
                 long tableRowCount = 0L;
 
-                if (!table.readLockIfExist()) {
+                if (!table.writeLockIfExist()) {
                     continue;
                 }
                 OlapTable.Statistics tableStats;
@@ -361,6 +361,8 @@ public class CloudTabletStatMgr extends MasterDaemon {
                         for (MaterializedIndex index
                                 : partition.getMaterializedIndices(IndexExtState.VISIBLE, true)) {
                             long indexRowCount = 0L;
+                            boolean indexReported = true;
+                            boolean anyTabletReported = false;
                             List<Tablet> tablets = index.getTablets();
                             tabletCount += tablets.size();
                             for (Tablet tablet : tablets) {
@@ -368,6 +370,7 @@ public class CloudTabletStatMgr extends MasterDaemon {
                                 long tabletChangelogSize = 0L;
 
                                 long tabletRowCount = 0L;
+                                boolean tabletReported = false;
                                 long tabletIndexSize = 0L;
                                 long tabletSegmentSize = 0L;
 
@@ -385,9 +388,13 @@ public class CloudTabletStatMgr extends MasterDaemon {
                                         tableTotalChangelogSize += replica.getDataSize();
                                     }
 
-                                    if (replica.getRowCount() > tabletRowCount) {
-                                        tabletRowCount = replica.getRowCount();
+                                    // Default replica zeroes before the first successful MS fetch are
+                                    // unknown. Count a tablet once even when it has several replicas.
+                                    boolean replicaReported = ((CloudReplica) replica).isRowCountReported();
+                                    if (!index.isChangelog() || replicaReported) {
+                                        tabletRowCount = Math.max(tabletRowCount, replica.getRowCount());
                                     }
+                                    tabletReported |= replicaReported;
 
                                     if (replica.getLocalInvertedIndexSize() > tabletIndexSize) {
                                         tabletIndexSize = replica.getLocalInvertedIndexSize();
@@ -410,6 +417,8 @@ public class CloudTabletStatMgr extends MasterDaemon {
                                 }
 
                                 indexRowCount += tabletRowCount;
+                                indexReported &= tabletReported;
+                                anyTabletReported |= tabletReported;
                                 if (!index.isChangelog()) {
                                     tableRowCount += tabletRowCount;
                                 }
@@ -417,8 +426,22 @@ public class CloudTabletStatMgr extends MasterDaemon {
                                 tableTotalLocalIndexSize += tabletIndexSize;
                                 tableTotalLocalSegmentSize += tabletSegmentSize;
                             } // end for tablets
-                            index.setRowCountReported(true);
-                            index.setRowCount(indexRowCount);
+                            // Also covers a fetch started before the regression pauses publication.
+                            if (DebugPointUtil.isEnable("FE.TabletStatMgr.updateIndexRowCount.disabled")) {
+                                continue;
+                            }
+                            long previousRowCount = index.getRowCount();
+                            // A failed/absent MS fetch must not overwrite a positive immediate
+                            // changelog estimate with the replica's initial zero.
+                            if (!index.isChangelog() || anyTabletReported || indexReported) {
+                                index.setReportedRowCount(indexRowCount, indexReported,
+                                        partition.getCachedVisibleVersion());
+                            } else {
+                                index.setRowCountReported(false);
+                            }
+                            LOG.debug("Periodic row count table {}, partition {}, index {}: {} -> {}, complete {}",
+                                    table.getId(), partition.getId(), index.getId(), previousRowCount,
+                                    index.getRowCount(), indexReported);
                         } // end for indices
                         if (maxPartitionSize.second <= partitionDataSize) {
                             maxPartitionSize = Pair.of("" + partition.getId(), partitionDataSize);
@@ -434,7 +457,7 @@ public class CloudTabletStatMgr extends MasterDaemon {
                         minTableSize = Pair.of("" + table.getId(), tableDataSize);
                     }
 
-                    //  this is only one thread to update table statistics, readLock is enough
+                    // The write lock serializes retained counts with successful commit deltas.
                     tableStats = new OlapTable.Statistics(db.getName(),
                             table.getName(), tableDataSize, tableTotalReplicaDataSize, 0L,
                             tableReplicaCount, tableRowCount, 0L, 0L,
@@ -444,7 +467,7 @@ public class CloudTabletStatMgr extends MasterDaemon {
                     LOG.debug("finished to set row num for table: {} in database: {}",
                             table.getName(), db.getFullName());
                 } finally {
-                    table.readUnlock();
+                    table.writeUnlock();
                 }
                 totalTableSize += tableDataSize;
                 newCloudTableStatsList.add(tableStats);
@@ -510,7 +533,12 @@ public class CloudTabletStatMgr extends MasterDaemon {
                     || replica.getLocalInvertedIndexSize() != stat.getIndexSize()
                     || replica.getLocalSegmentSize() != stat.getSegmentSize();
             replica.setDataSize(stat.getDataSize());
-            replica.setRowCount(stat.getNumRows());
+            // Older/partial responses may omit num_rows. Missing means no row-count
+            // information, so it cannot establish a known zero or erase a previous count.
+            if (stat.hasNumRows()) {
+                replica.setRowCount(stat.getNumRows());
+                ((CloudReplica) replica).setRowCountReported(true);
+            }
             replica.setLocalInvertedIndexSize(stat.getIndexSize());
             replica.setLocalSegmentSize(stat.getSegmentSize());
 
