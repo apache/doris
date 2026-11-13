@@ -19,18 +19,26 @@ package org.apache.doris.cloud.transaction;
 
 import org.apache.doris.catalog.CatalogTestUtil;
 import org.apache.doris.catalog.ChangelogConfig;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FakeEditLog;
 import org.apache.doris.catalog.FakeEnv;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.RandomDistributionInfo;
+import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.stream.CloudOlapTableStreamUpdate;
+import org.apache.doris.catalog.stream.OlapTableStream;
+import org.apache.doris.catalog.stream.StreamRowCountBaseline;
+import org.apache.doris.catalog.stream.TableStreamManager;
 import org.apache.doris.catalog.stream.TableStreamUpdateInfo;
 import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.catalog.CloudFEVersionSynchronizer;
@@ -70,6 +78,7 @@ import org.apache.doris.thrift.TCloudVersionInfo;
 import org.apache.doris.thrift.TFrontendSyncCloudVersionRequest;
 import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
+import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTabletCommitInfo;
 import org.apache.doris.transaction.GlobalTransactionMgrIface;
 import org.apache.doris.transaction.SubTransactionState;
@@ -539,6 +548,100 @@ public class CloudGlobalTransactionMgrTest {
                     requestCaptor.getValue().getTableStreamUpdates(1).getIdentity());
             Assertions.assertEquals(secondPartitionUpdate,
                     requestCaptor.getValue().getTableStreamUpdates(1).getPartitionUpdates(0));
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"success", "failure", "replace", "duplicate", "late"})
+    public void testStreamBaselinesFollowCloudCommitOutcome(String outcome) throws Exception {
+        Database db = masterEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1);
+        Column key = new Column("k", PrimitiveType.INT);
+        key.setIsKey(true);
+        List<Column> schema = List.of(key);
+        OlapTable source = new OlapTable(1000L, "row_count_source", schema, KeysType.DUP_KEYS,
+                new PartitionInfo(), new RandomDistributionInfo(1));
+        source.setChangelogConfig(new ChangelogConfig(true, ChangelogConfig.TTL_SECONDS, false));
+        source.getPartitionInfo().addPartition(1003L, DataProperty.DEFAULT_HDD_DATA_PROPERTY,
+                new ReplicaAllocation((short) 1), false, true);
+        source.setBaseIndexId(1001L);
+        source.setIndexMeta(1001L, "row_count_source", schema, 1, 1,
+                (short) 1, TStorageType.COLUMN, KeysType.DUP_KEYS);
+        source.setChangelogIndexMeta(new MaterializedIndexMeta(1002L, source.generateTableChangelogSchema(), 1, 1,
+                (short) 1, TStorageType.COLUMN, KeysType.DUP_KEYS, null), "changelog");
+        MaterializedIndex base = new MaterializedIndex(1001L, MaterializedIndex.IndexState.NORMAL);
+        MaterializedIndex changelog = new MaterializedIndex(1002L, MaterializedIndex.IndexState.NORMAL);
+        base.setRowCount(50L);
+        changelog.setRowCount(100L);
+        CloudPartition partition = new CloudPartition(1003L, "p1", base, new RandomDistributionInfo(1),
+                db.getId(), source.getId());
+        partition.createRollupIndex(changelog);
+        source.addPartition(partition);
+        db.registerTable(source);
+        OlapTableStream stream = new OlapTableStream(1004L, "row_count_stream", source);
+        db.registerTable(stream);
+        TableStreamManager manager = masterEnv.getTableStreamManager();
+        boolean previouslyPublished = outcome.equals("duplicate") || outcome.equals("late");
+        if (previouslyPublished) {
+            manager.recordStreamRowCountBaselines(db.getId(), stream.getId(),
+                    manager.captureStreamRowCountBaselines(db.getId(), stream.getId(), Map.of(1003L, 300L)));
+            base.setRowCount(60L);
+            changelog.setRowCount(110L);
+        }
+        StreamRowCountBaseline previous = stream.getStreamRowCountBaseline(1003L);
+        long nextOffset = outcome.equals("duplicate") ? 300L : 200L;
+        Cloud.TableStreamIdentityPB identity = Cloud.TableStreamIdentityPB.newBuilder()
+                .setBaseDbId(db.getId()).setBaseTableId(source.getId())
+                .setStreamDbId(db.getId()).setStreamId(stream.getId()).build();
+        Cloud.TableStreamPartitionUpdatePB offset = Cloud.TableStreamPartitionUpdatePB.newBuilder()
+                .setPartitionId(1003L).setExpectedState(Cloud.TableStreamOffsetStatePB.TABLE_STREAM_OFFSET_CONSUMED)
+                .setExpectedOffsetTso(100L).setNextOffsetTso(nextOffset).build();
+        TableStreamUpdateInfo update = new TableStreamUpdateInfo(db.getId(), stream.getId(),
+                new CloudOlapTableStreamUpdate(identity, Map.of(1003L, offset)));
+        Table sink = db.getTableOrMetaException(CatalogTestUtil.testTableId1);
+        MetaServiceProxy proxy = Mockito.mock(MetaServiceProxy.class);
+        Mockito.when(proxy.commitTxn(Mockito.any())).thenAnswer(invocation -> {
+            Assertions.assertSame(previous, stream.getStreamRowCountBaseline(1003L),
+                    "sampling must not publish before the commit RPC succeeds");
+            // A report arriving during the RPC must not replace the pre-RPC consumption sample.
+            base.setRowCount(70L);
+            changelog.setRowCount(130L);
+            if (outcome.equals("replace")) {
+                source.writeLock();
+                try {
+                    source.dropPartitionAndReserveTablet("p1");
+                    source.addPartition(new CloudPartition(1003L, "p1",
+                            new MaterializedIndex(1001L, MaterializedIndex.IndexState.NORMAL),
+                            new RandomDistributionInfo(1), db.getId(), source.getId()));
+                } finally {
+                    source.writeUnlock();
+                }
+            }
+            return CommitTxnResponse.newBuilder()
+                    .setStatus(Cloud.MetaServiceResponseStatus.newBuilder().setCode(outcome.equals("failure")
+                            ? MetaServiceCode.TXN_ALREADY_ABORTED : MetaServiceCode.OK))
+                    .setTxnInfo(TxnInfoPB.newBuilder().setDbId(db.getId()).addTableIds(sink.getId())
+                            .setTxnId(123533L).setListenerId(-1)).build();
+        });
+        try (MockedStatic<MetaServiceProxy> mocked = Mockito.mockStatic(MetaServiceProxy.class)) {
+            mocked.when(MetaServiceProxy::getInstance).thenReturn(proxy);
+            Executable commit = () -> masterTransMgr.commitAndPublishTransaction(db, List.of(sink), 123533L,
+                    List.of(), 10_000L, null, List.of(update));
+            if (outcome.equals("failure")) {
+                Assertions.assertThrows(UserException.class, commit);
+            } else {
+                Assertions.assertDoesNotThrow(commit);
+            }
+        }
+        Mockito.verify(proxy).commitTxn(Mockito.any());
+        StreamRowCountBaseline published = stream.getStreamRowCountBaseline(1003L);
+        if (outcome.equals("success")) {
+            Assertions.assertNotNull(published);
+            Assertions.assertEquals(200L, published.getBaselineOffset());
+            Assertions.assertEquals(50L, published.getBaseRowCount());
+            Assertions.assertEquals(100L, published.getChangelogRowCount());
+        } else {
+            Assertions.assertSame(previous, published,
+                    "failure, replacement and duplicate/late callbacks must not publish the incoming sample");
         }
     }
 

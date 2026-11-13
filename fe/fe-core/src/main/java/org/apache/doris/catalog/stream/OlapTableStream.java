@@ -44,6 +44,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Predicate;
 
 public class OlapTableStream extends BaseTableStream {
@@ -89,10 +90,6 @@ public class OlapTableStream extends BaseTableStream {
     }
 
     public void unprotectedRecordStreamRowCountBaselines(Collection<Long> partitionIds) {
-        OlapTable baseTable = getBaseTableNullable();
-        if (baseTable == null) {
-            return;
-        }
         for (Long partitionId : partitionIds) {
             PartitionStreamState state = partitionStates.get(partitionId);
             Long offset = state == null ? null
@@ -103,12 +100,24 @@ public class OlapTableStream extends BaseTableStream {
 
     /** Called under the stream write lock after the authoritative offset update succeeds. */
     public void unprotectedRecordStreamRowCountBaseline(long partitionId, Long offset) {
-        OlapTable table = getBaseTableNullable();
-        if (table == null || table.getPartition(partitionId) == null || offset == null) {
+        if (offset == null) {
             return;
         }
-        unprotectedPublishStreamRowCountBaseline(partitionId,
-                StreamRowCountBaseline.capture(table, partitionId, offset));
+        OlapTable table = getBaseTableNullable();
+        // Consumption holds stream/sink locks, not the source lock. Concurrent source DDL must
+        // neither race partition capture nor make optional statistics wait after durable commit.
+        if (table == null || !table.tryReadLock(0, TimeUnit.MILLISECONDS)) {
+            return;
+        }
+        try {
+            if (table.isDropped || table.getPartition(partitionId) == null) {
+                return;
+            }
+            unprotectedPublishStreamRowCountBaseline(partitionId,
+                    StreamRowCountBaseline.capture(table, partitionId, offset));
+        } finally {
+            table.readUnlock();
+        }
     }
 
     public void unprotectedPublishStreamRowCountBaseline(long partitionId,

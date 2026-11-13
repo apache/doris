@@ -539,8 +539,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             LOG.info("computeOlapScan optStats isPresent {}, tableRowCount is {}, table name is {}",
                     optStats.isPresent(), tableRowCount, olapTable.getQualifiedName());
             if (optStats.isPresent()) {
-                double selectedPartitionsRowCount = hasScanRowCountEstimates(olapScan)
-                        ? tableRowCount : getSelectedPartitionRowCount(olapScan, tableRowCount);
+                double selectedPartitionsRowCount = getSelectedPartitionRowCount(olapScan, tableRowCount);
                 if (isRegisteredRowCount(olapScan)) {
                     // If a row count is injected for the materialized view, use it to fix the issue where
                     // the materialized view cannot be selected by cbo stable due to selectedPartitionsRowCount being 0,

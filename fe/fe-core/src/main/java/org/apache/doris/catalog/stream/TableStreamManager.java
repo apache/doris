@@ -326,12 +326,19 @@ public class TableStreamManager extends MasterDaemon implements Writable, GsonPo
     /** Sample locally before the commit RPC so a data replacement during it invalidates the sample. */
     public Map<Long, StreamRowCountBaseline> captureStreamRowCountBaselines(long dbId, long streamId,
             Map<Long, Long> offsets) {
+        if (offsets.isEmpty()) {
+            return Collections.emptyMap();
+        }
         OlapTableStream stream = findOlapTableStream(dbId, streamId);
         OlapTable baseTable = stream == null ? null : stream.getBaseTableNullable();
-        if (baseTable == null || !baseTable.readLockIfExist()) {
+        // Cloud commit may already hold sink locks; optional sampling cannot wait for source DDL.
+        if (baseTable == null || !baseTable.tryReadLock(0, TimeUnit.MILLISECONDS)) {
             return Collections.emptyMap();
         }
         try {
+            if (baseTable.isDropped) {
+                return Collections.emptyMap();
+            }
             Map<Long, StreamRowCountBaseline> states = new HashMap<>();
             offsets.forEach((id, offset) -> {
                 if (baseTable.getPartition(id) != null) {
@@ -344,15 +351,20 @@ public class TableStreamManager extends MasterDaemon implements Writable, GsonPo
         }
     }
 
-    /** Publish only after success, following the existing base-table then stream lock order. */
+    /** Publish after success without adding metadata lock waits to the committed transaction. */
     public void recordStreamRowCountBaselines(long dbId, long streamId, Map<Long, StreamRowCountBaseline> states) {
+        if (states.isEmpty()) {
+            return;
+        }
         OlapTableStream stream = findOlapTableStream(dbId, streamId);
         OlapTable baseTable = stream == null ? null : stream.getBaseTableNullable();
-        if (baseTable == null || !baseTable.readLockIfExist()) {
+        if (baseTable == null || !baseTable.tryReadLock(0, TimeUnit.MILLISECONDS)) {
             return;
         }
         try {
-            if (!stream.writeLockIfExist()) {
+            // SHOW consumption holds stream READ before source READ. With a queued source writer,
+            // waiting for stream WRITE here would form a fair-lock cycle. Skip this optional sample.
+            if (baseTable.isDropped || !stream.tryWriteLockIfExist(0, TimeUnit.MILLISECONDS)) {
                 return;
             }
             try {

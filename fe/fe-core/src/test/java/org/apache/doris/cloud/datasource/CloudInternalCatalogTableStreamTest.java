@@ -20,12 +20,16 @@ package org.apache.doris.cloud.datasource;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.RandomDistributionInfo;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.catalog.stream.BaseTableStream;
 import org.apache.doris.catalog.stream.OlapTableStream;
+import org.apache.doris.catalog.stream.StreamRowCountBaseline;
 import org.apache.doris.catalog.stream.TableStreamBaseTableInfo;
 import org.apache.doris.catalog.stream.TableStreamManager;
 import org.apache.doris.cloud.proto.Cloud;
@@ -86,7 +90,13 @@ public class CloudInternalCatalogTableStreamTest {
             Mockito.when(baseTable.getDatabase()).thenReturn(streamDb);
             Mockito.when(baseTable.getType()).thenReturn(TableIf.TableType.OLAP);
             Mockito.when(baseTable.getBaseSchema()).thenReturn(List.<Column>of());
-            Mockito.when(baseTable.getPartitionIds()).thenReturn(List.of());
+            MaterializedIndex index = new MaterializedIndex(1L, MaterializedIndex.IndexState.NORMAL);
+            index.setRowCount(50L);
+            Partition partition = new Partition(2L, "p1", index, new RandomDistributionInfo(1));
+            partition.setVisibleVersionAndTime(2L, System.currentTimeMillis(), 123L);
+            Mockito.when(baseTable.getBaseIndexId()).thenReturn(1L);
+            Mockito.when(baseTable.getPartition(2L)).thenReturn(partition);
+            Mockito.when(baseTable.getPartitionIds()).thenReturn(List.of(2L));
             Mockito.when(baseTable.getBaseSchemaVersion()).thenReturn(7);
 
             List<BaseTableStream.StreamScanType> checkedTypes = new ArrayList<>();
@@ -98,8 +108,6 @@ public class CloudInternalCatalogTableStreamTest {
                 }
                 return null;
             }).when(baseTable).checkAsTableStreamBaseTable(Mockito.any());
-            Mockito.doReturn(List.of()).when(catalog).captureTableStreamInitialOffsets(
-                    Mockito.any(OlapTableStream.class), Mockito.same(baseTable), Mockito.anyList());
 
             Env env = Mockito.mock(Env.class);
             CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
@@ -113,11 +121,18 @@ public class CloudInternalCatalogTableStreamTest {
                     .build();
             Mockito.when(proxy.prepareIndex(Mockito.any())).thenReturn(indexResponse);
             Mockito.when(proxy.commitIndex(Mockito.any())).thenReturn(indexResponse);
+            Mockito.when(proxy.commitPartition(Mockito.any())).thenReturn(Cloud.PartitionResponse.newBuilder()
+                    .setStatus(Cloud.MetaServiceResponseStatus.newBuilder().setCode(Cloud.MetaServiceCode.OK)).build());
 
             try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class);
-                    MockedStatic<MetaServiceProxy> mockedProxy = Mockito.mockStatic(MetaServiceProxy.class)) {
+                    MockedStatic<MetaServiceProxy> mockedProxy = Mockito.mockStatic(MetaServiceProxy.class);
+                    MockedStatic<VersionHelper> mockedVersions = Mockito.mockStatic(VersionHelper.class)) {
                 mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
                 mockedProxy.when(MetaServiceProxy::getInstance).thenReturn(proxy);
+                mockedVersions.when(() -> VersionHelper.getVersionFromMeta(Mockito.any())).thenAnswer(invocation -> {
+                    index.setRowCount(80L);
+                    return versionResponse(List.of(2L), List.of(900L));
+                });
 
                 catalog.createTableStream(createStreamCommand("append_only_stream", "append_only"));
                 DdlException minDeltaException = Assertions.assertThrows(DdlException.class,
@@ -146,8 +161,16 @@ public class CloudInternalCatalogTableStreamTest {
                 ArgumentCaptor<Table> streamCaptor = ArgumentCaptor.forClass(Table.class);
                 Mockito.verify(streamDb).createTableWithLock(streamCaptor.capture(), Mockito.eq(false),
                         Mockito.eq(false));
-                Assertions.assertEquals(BaseTableStream.StreamScanType.APPEND_ONLY,
-                        ((OlapTableStream) streamCaptor.getValue()).getStreamScanType());
+                OlapTableStream created = (OlapTableStream) streamCaptor.getValue();
+                Assertions.assertEquals(BaseTableStream.StreamScanType.APPEND_ONLY, created.getStreamScanType());
+                StreamRowCountBaseline baseline = created.getStreamRowCountBaseline(2L);
+                Assertions.assertNotNull(baseline);
+                Assertions.assertEquals(50L, baseline.getBaseRowCount(), "use the sample from before the MS RPC");
+                Assertions.assertEquals(900L, baseline.getBaselineOffset(), "bind to the authoritative MS offset");
+                Assertions.assertTrue(baseline.matches(baseTable, 2L, 900L));
+                ArgumentCaptor<Cloud.PartitionRequest> offsets = ArgumentCaptor.forClass(Cloud.PartitionRequest.class);
+                Mockito.verify(proxy).commitPartition(offsets.capture());
+                Assertions.assertEquals(900L, offsets.getValue().getTableStreamOffsets(0).getOffsetTso());
             }
         } finally {
             Config.enable_table_stream = previousEnableTableStream;

@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapChangelogTableWrapper;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.OlapTableWrapper;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.stream.BaseTableStream;
 import org.apache.doris.catalog.stream.OlapTableStream;
@@ -30,7 +31,9 @@ import org.apache.doris.catalog.stream.OlapTableStreamWrapper;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -46,6 +49,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 /**
  * A stream read is planned over a lightweight wrapper of its base table, and the row count it is
@@ -291,6 +295,47 @@ public class StreamScanRowCountTest extends TestWithFeService {
                         (long) scan.getStats().getRowCount());
             }
         });
+    }
+
+    @Test
+    public void testAllUnknownExplicitEstimatesPreserveJoinReorderInput() throws Exception {
+        OlapTable table = createUnknownPartitionedTable("stream_unknown_stats");
+        List<Long> ids = table.getPartitionIds();
+        OlapTableWrapper wrapper = new OlapTableWrapper(table, Map.of(), Map.of(),
+                Map.of(ids.get(0), -1L, ids.get(1), -1L, ids.get(2), -1L));
+        LogicalOlapScan scan = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), wrapper);
+        Assertions.assertEquals(-1, StatsCalculator.getMaxTableRowCount(List.of(scan), null));
+        Assertions.assertEquals(1, new StatsCalculator(null).computeOlapScan(scan).getRowCount());
+        LogicalOlapScan pruned = scan.withSelectedPartitionIds(List.of(ids.get(1)));
+        Assertions.assertEquals(-1, StatsCalculator.getMaxTableRowCount(List.of(pruned), null));
+        Assertions.assertEquals(1, new StatsCalculator(null).computeOlapScan(pruned).getRowCount());
+    }
+
+    @Test
+    public void testMixedExplicitEstimatesKeepKnownSelectedPartitions() throws Exception {
+        OlapTable table = createUnknownPartitionedTable("stream_mixed_stats");
+        List<Long> ids = table.getPartitionIds();
+        OlapTableWrapper wrapper = new OlapTableWrapper(table, Map.of(), Map.of(),
+                Map.of(ids.get(0), 10L, ids.get(1), -1L, ids.get(2), -1L));
+        LogicalOlapScan scan = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), wrapper)
+                .withSelectedPartitionIds(List.of(ids.get(0), ids.get(1)));
+        Assertions.assertEquals(11, StatsCalculator.getMaxTableRowCount(List.of(scan), null));
+        Assertions.assertEquals(11, new StatsCalculator(null).computeOlapScan(scan).getRowCount());
+        injectRowCount(table.getName(), 9000L);
+        // Only the unknown selected partition uses the ordinary table's 9000 / 3 fallback.
+        Assertions.assertEquals(3010, StatsCalculator.getMaxTableRowCount(List.of(scan), null));
+        Assertions.assertEquals(3010, new StatsCalculator(null).computeOlapScan(scan).getRowCount());
+    }
+
+    private OlapTable createUnknownPartitionedTable(String name) throws Exception {
+        createTable("CREATE TABLE " + name + " (k INT NOT NULL, v INT) DUPLICATE KEY(k) "
+                + "PARTITION BY RANGE(k) (PARTITION p1 VALUES LESS THAN (10), "
+                + "PARTITION p2 VALUES LESS THAN (20), PARTITION p3 VALUES LESS THAN (MAXVALUE)) "
+                + "DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES ('replication_num'='1')");
+        OlapTable table = (OlapTable) Env.getCurrentInternalCatalog().getDbOrMetaException("test")
+                .getTableOrMetaException(name);
+        Assertions.assertEquals(-1, table.getRowCountForIndex(table.getBaseIndexId(), true));
+        return table;
     }
 
     private static void advanceReplicaVersions(Partition partition) {
