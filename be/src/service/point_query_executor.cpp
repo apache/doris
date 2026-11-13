@@ -56,9 +56,9 @@
 #include "storage/rowset/beta_rowset.h"
 #include "storage/rowset/rowset_fwd.h"
 #include "storage/schema.h"
+#include "storage/segment/column_read_ahead_resources.h"
 #include "storage/segment/column_reader.h"
 #include "storage/segment/rowid_read_ahead.h"
-#include "storage/segment/segment_read_ahead.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/utils.h"
 #include "util/defer_op.h"
@@ -555,7 +555,7 @@ Status PointQueryExecutor::_lookup_row_data() {
     // 3. get values
     SCOPED_TIMER(&_profile_metrics.lookup_data_ns);
     std::shared_ptr<io::FileRangeReadContext> read_ahead_context;
-    if (segment_v2::SegmentReadAhead::enabled()) {
+    if (segment_v2::ColumnReadAheadResources::enabled()) {
         auto* scheduler = ExecEnv::GetInstance()->file_range_read_scheduler();
         DORIS_CHECK(scheduler != nullptr);
         read_ahead_context = scheduler->create_context();
@@ -645,9 +645,9 @@ Status PointQueryExecutor::_lookup_row_data() {
                 // a version column in rowset [7-7] must produce 7, not its stored placeholder 0.
                 read_ahead_options.version = rowset->version();
                 read_ahead_options.commit_tso = rowset->commit_tso();
-                std::unique_ptr<segment_v2::SegmentReadAhead> read_ahead;
+                std::shared_ptr<const segment_v2::ColumnReadAheadResources> read_ahead;
                 if (read_ahead_context != nullptr) {
-                    const auto status = segment_v2::SegmentReadAhead::create_for_query(
+                    const auto status = segment_v2::ColumnReadAheadResources::create_for_query(
                             segment->file_reader(), ExecEnv::GetInstance(), read_ahead_context,
                             read_ahead_options, &read_ahead);
                     if (!status.ok()) {
@@ -678,7 +678,7 @@ Status PointQueryExecutor::_lookup_row_data() {
                             static_cast<segment_v2::rowid_t>(row_loc.row_id)};
                     RETURN_IF_ERROR(segment_v2::read_columns_by_rowids_with_read_ahead(
                             *segment, *_tablet->tablet_schema(), row_ids, column_reads,
-                            *read_ahead));
+                            read_ahead));
                 } else {
                     const auto tablet_schema = _tablet->tablet_schema();
                     for (int cid : _reusable->missing_col_uids()) {

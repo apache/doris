@@ -1005,6 +1005,10 @@ Status Segment::new_column_iterator(const TabletColumn& tablet_column,
                      << " column reader meta type: " << int(reader->get_meta_type());
         return Status::InternalError("different type between schema and column reader");
     }
+    // Only this top-level request can authorize the new scalar read-ahead path. Child factories
+    // leave it disabled, and Variant LEAF may return a FileColumnIterator for an extracted path.
+    (*iter)->set_read_ahead_eligible(is_scalar_type(tablet_column.type()) &&
+                                     !tablet_column.is_extracted_column());
     return Status::OK();
 }
 

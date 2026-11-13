@@ -73,6 +73,7 @@
 #include "storage/segment/binary_plain_page.h"
 #include "storage/segment/column_meta_accessor.h"
 #include "storage/segment/column_read_ahead.h"
+#include "storage/segment/column_read_ahead_controller.h"
 #include "storage/segment/encoding_info.h" // for EncodingInfo
 #include "storage/segment/page_decoder.h"
 #include "storage/segment/page_handle.h" // for PageHandle
@@ -81,7 +82,6 @@
 #include "storage/segment/row_ranges.h"
 #include "storage/segment/segment.h"
 #include "storage/segment/segment_prefetcher.h"
-#include "storage/segment/segment_read_ahead.h"
 #include "storage/segment/variant/variant_column_reader.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/types.h" // for TypeInfo
@@ -684,7 +684,8 @@ Status ColumnReader::new_index_iterator(const std::shared_ptr<IndexFileReader>& 
 
 Status ColumnReader::read_page(const ColumnIteratorOptions& iter_opts, const PagePointer& pp,
                                PageHandle* handle, Slice* page_body, PageFooterPB* footer,
-                               BlockCompressionCodec* codec) const {
+                               BlockCompressionCodec* codec,
+                               io::ReadAheadRangeBuffer* read_ahead) const {
     SCOPED_CONCURRENCY_COUNT(ConcurrencyStatsManager::instance().column_reader_read_page);
     iter_opts.sanity_check();
     PageReadOptions opts(iter_opts.io_ctx);
@@ -697,6 +698,7 @@ Status ColumnReader::read_page(const ColumnIteratorOptions& iter_opts, const Pag
     opts.codec = codec;
     opts.stats = iter_opts.stats;
     opts.encoding_info = _encoding_info;
+    opts.read_ahead = read_ahead;
 
     return PageIO::read_and_decompress_page(opts, handle, page_body, footer);
 }
@@ -2821,12 +2823,16 @@ Status ColumnIterator::_check_and_set_meta_read_mode(ReadRequirement requirement
 }
 
 Status FileColumnIterator::init(const ColumnIteratorOptions& opts) {
+    _opts = opts;
+    if (_read_ahead_eligible && opts.read_ahead != nullptr) {
+        _read_ahead =
+                std::make_unique<ColumnReadAheadController>(_reader, opts.stats, opts.read_ahead);
+    }
     if (_read_requirement == ReadRequirement::SKIP) {
         DLOG(INFO) << "File column iterator column " << _column_name << " skip reading.";
         return Status::OK();
     }
 
-    _opts = opts;
     if (!_opts.use_page_cache) {
         _reader->disable_index_meta_cache();
     }
@@ -2858,81 +2864,11 @@ Status FileColumnIterator::init(const ColumnIteratorOptions& opts) {
 
 FileColumnIterator::~FileColumnIterator() = default;
 
-Status FileColumnIterator::_init_read_ahead(const ColumnReadAheadRequest& request) {
-    request.sanity_check();
-    if (_read_ahead != nullptr) {
-        DORIS_CHECK(_read_ahead->options() == request.options());
-        DORIS_CHECK(_read_ahead->reverse() == request.reverse);
+Status FileColumnIterator::prepare_read_ahead(const ColumnReadAheadHint& hint) {
+    if (_read_ahead == nullptr || !need_to_read()) {
         return Status::OK();
     }
-
-    OrdinalIndexReader* ordinal_index = nullptr;
-    RETURN_IF_ERROR(_reader->get_ordinal_index_reader(ordinal_index, _opts.stats));
-    DORIS_CHECK(ordinal_index != nullptr);
-    std::vector<ColumnReadAheadPage> pages;
-    pages.reserve(ordinal_index->num_data_pages());
-    for (auto page = ordinal_index->begin(); page.valid(); page.next()) {
-        pages.push_back(ColumnReadAheadPage {
-                .page_index = page.page_index(),
-                .first_ordinal = page.first_ordinal(),
-                .last_ordinal = page.last_ordinal(),
-                .range = {.offset = page.page().offset, .size = page.page().size},
-        });
-    }
-    return ColumnReadAhead::create(std::move(pages), request.options(), request.reverse,
-                                   &_read_ahead);
-}
-
-Status FileColumnIterator::prepare_read_ahead(const ColumnReadAheadRequest& request,
-                                              std::vector<ColumnReadAheadPlan>* plans) {
-    DORIS_CHECK(plans != nullptr);
-    if (!need_to_read()) {
-        return Status::OK();
-    }
-    if (_read_ahead_segment != nullptr) {
-        DORIS_CHECK(request.page_driven);
-        DORIS_CHECK(_read_ahead_segment == request.context->segment);
-        DORIS_CHECK(_read_ahead->options() == request.options());
-        DORIS_CHECK(_read_ahead->reverse() == request.reverse);
-        return Status::OK();
-    }
-    auto* statistics = _opts.stats->read_ahead_stats.get();
-    SCOPED_TIMER(statistics != nullptr ? &statistics->column_plan_time : nullptr);
-    ColumnReadAheadPlan plan;
-    {
-        SCOPED_TIMER(statistics != nullptr ? &statistics->column_init_time : nullptr);
-        RETURN_IF_ERROR(_init_read_ahead(request));
-        if (request.page_driven) {
-            DORIS_CHECK(request.context->segment != nullptr);
-            _read_ahead->start(*request.scan_rowids, &plan);
-            _read_ahead_segment = request.context->segment;
-        }
-    }
-    if (!request.page_driven) {
-        _read_ahead->plan(request.current_rowids, request.current_rowid_count, *request.scan_rowids,
-                          &plan);
-    }
-    plan.update_statistics(statistics);
-    if (!plan.empty()) {
-        plans->push_back(std::move(plan));
-    }
-    return Status::OK();
-}
-
-void FileColumnIterator::_advance_read_ahead(int32_t page_index) {
-    ColumnReadAheadPlan plan;
-    {
-        auto* statistics = _opts.stats->read_ahead_stats.get();
-        SCOPED_TIMER(statistics != nullptr ? &statistics->column_plan_time : nullptr);
-        SCOPED_TIMER(statistics != nullptr ? &statistics->page_advance_time : nullptr);
-        _read_ahead->advance(page_index, &plan);
-        plan.update_statistics(statistics);
-    }
-    if (!plan.empty()) {
-        std::vector<ColumnReadAheadPlan> plans;
-        plans.push_back(std::move(plan));
-        static_cast<void>(_read_ahead_segment->apply_plans(std::move(plans)));
-    }
+    return _read_ahead->prepare(hint);
 }
 
 void FileColumnIterator::_trigger_prefetch_if_eligible(ordinal_t ord) {
@@ -3329,22 +3265,26 @@ Status FileColumnIterator::_load_next_page(bool* eos) {
 }
 
 Status FileColumnIterator::_read_data_page(const OrdinalPageIndexIterator& iter) {
-    if (_read_ahead_segment != nullptr) {
-        _advance_read_ahead(iter.page_index());
-    }
+    auto* buffer =
+            _read_ahead != nullptr ? _read_ahead->before_page_read(iter.page_index()) : nullptr;
+    Defer finish_read_ahead {[&] {
+        if (_read_ahead != nullptr) {
+            _read_ahead->after_page_read(iter.page_index(),
+                                         {.offset = iter.page().offset, .size = iter.page().size});
+        }
+    }};
     PageHandle handle;
     Slice page_body;
     PageFooterPB footer;
     _opts.type = DATA_PAGE;
     PageDecoderOptions decoder_opts;
     decoder_opts.only_read_offsets = _opts.only_read_offsets;
-    auto* read_ahead_reader = dynamic_cast<SegmentReadAheadFileReader*>(_opts.file_reader);
-    auto read_page = [&](const ColumnIteratorOptions& options) {
+    auto read_page = [&](const ColumnIteratorOptions& options, io::ReadAheadRangeBuffer* source) {
         return _reader->read_page(options, iter.page(), &handle, &page_body, &footer,
-                                  _compress_codec);
+                                  _compress_codec, source);
     };
     auto retry_original = [&](const Status& status) {
-        if (read_ahead_reader == nullptr) {
+        if (_read_ahead == nullptr) {
             return status;
         }
         LOG(WARNING) << "failed to decode read-ahead page, falling back to original reader, file="
@@ -3360,12 +3300,11 @@ Status FileColumnIterator::_read_data_page(const OrdinalPageIndexIterator& iter)
         page_body = Slice {};
         footer.Clear();
         ColumnIteratorOptions fallback_options = _opts;
-        fallback_options.file_reader = read_ahead_reader->inner_reader().get();
         fallback_options.use_page_cache = false;
-        return read_page(fallback_options);
+        return read_page(fallback_options, nullptr);
     };
 
-    auto st = read_page(_opts);
+    auto st = read_page(_opts, buffer);
     if (!st.ok()) {
         st = retry_original(st);
     }
@@ -3374,7 +3313,7 @@ Status FileColumnIterator::_read_data_page(const OrdinalPageIndexIterator& iter)
     st = ParsedPage::create(std::move(handle), page_body, footer.data_page_footer(),
                             _reader->encoding_info(), iter.page(), iter.page_index(), &_page,
                             decoder_opts);
-    if (!st.ok() && read_ahead_reader != nullptr) {
+    if (!st.ok() && _read_ahead != nullptr) {
         st = retry_original(st);
         if (st.ok()) {
             st = ParsedPage::create(std::move(handle), page_body, footer.data_page_footer(),
@@ -3470,6 +3409,9 @@ Status FileColumnIterator::get_row_ranges_by_dict(const AndBlockColumnPredicate*
 }
 
 Status FileColumnIterator::init_prefetcher(const SegmentPrefetchParams& params) {
+    if (_read_ahead != nullptr) {
+        return Status::OK();
+    }
     if (_cached_remote_file_reader =
                 std::dynamic_pointer_cast<io::CachedRemoteFileReader>(_reader->_file_reader);
         !_cached_remote_file_reader) {

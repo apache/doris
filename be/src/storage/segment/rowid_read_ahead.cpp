@@ -18,14 +18,13 @@
 #include "storage/segment/rowid_read_ahead.h"
 
 #include <algorithm>
-#include <array>
 
 #include "common/config.h"
 #include "runtime/descriptors.h"
 #include "storage/schema.h"
+#include "storage/segment/column_read_ahead_resources.h"
 #include "storage/segment/column_reader.h"
 #include "storage/segment/segment.h"
-#include "storage/segment/segment_read_ahead.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/types.h"
 
@@ -35,7 +34,7 @@ namespace {
 Status prepare_column_iterator(Segment& segment, const TabletColumn& column,
                                StorageReadOptions& read_options,
                                std::unique_ptr<ColumnIterator>& iterator,
-                               SegmentReadAhead& read_ahead) {
+                               const std::shared_ptr<const ColumnReadAheadResources>& read_ahead) {
     DORIS_CHECK(read_options.stats != nullptr);
     if (iterator == nullptr) {
         RETURN_IF_ERROR(segment.new_column_iterator(column, &iterator, &read_options));
@@ -44,9 +43,10 @@ Status prepare_column_iterator(Segment& segment, const TabletColumn& column,
         io_ctx.file_cache_stats = &read_options.stats->file_cache_stats;
         ColumnIteratorOptions options {
                 .use_page_cache = !config::disable_storage_page_cache,
-                .file_reader = read_ahead.file_reader().get(),
+                .file_reader = segment.file_reader().get(),
                 .stats = read_options.stats,
                 .io_ctx = io_ctx,
+                .read_ahead = read_ahead,
         };
         RETURN_IF_ERROR(iterator->init(options));
     }
@@ -54,7 +54,8 @@ Status prepare_column_iterator(Segment& segment, const TabletColumn& column,
 }
 
 Status prepare_slot_iterator(Segment& segment, const TabletSchema& schema, RowIdColumnRead& column,
-                             SegmentReadAhead& read_ahead, ColumnIterator** prepared) {
+                             const std::shared_ptr<const ColumnReadAheadResources>& read_ahead,
+                             ColumnIterator** prepared) {
     DORIS_CHECK(column.slot != nullptr);
     DORIS_CHECK(column.read_options != nullptr);
     DORIS_CHECK(column.iterator != nullptr);
@@ -86,10 +87,10 @@ Status prepare_slot_iterator(Segment& segment, const TabletSchema& schema, RowId
 
 } // namespace
 
-Status prepare_columns_by_rowids_with_read_ahead(Segment& segment, const TabletSchema& schema,
-                                                 const std::vector<uint32_t>& row_ids,
-                                                 std::span<RowIdColumnRead> columns,
-                                                 SegmentReadAhead& read_ahead) {
+Status prepare_columns_by_rowids_with_read_ahead(
+        Segment& segment, const TabletSchema& schema, const std::vector<uint32_t>& row_ids,
+        std::span<RowIdColumnRead> columns,
+        const std::shared_ptr<const ColumnReadAheadResources>& read_ahead) {
     if (row_ids.empty()) {
         return Status::OK();
     }
@@ -103,17 +104,22 @@ Status prepare_columns_by_rowids_with_read_ahead(Segment& segment, const TabletS
             prepared.push_back(iterator);
         }
     }
-    if (!prepared.empty()) {
-        static_cast<void>(read_ahead.prefetch_by_rowids(row_ids.data(), row_ids.size(), prepared));
+    // Submit each column before decoding any of them. They share query admission and the IO
+    // executor, while the GET ranges and their registrations belong to each iterator.
+    for (auto* iterator : prepared) {
+        const auto status = iterator->prepare_read_ahead(ExactRowReadAheadHint {row_ids});
+        if (!status.ok()) {
+            LOG_EVERY_N(WARNING, 100) << "failed to prepare exact row-id read-ahead: " << status;
+        }
     }
 
     return Status::OK();
 }
 
-Status read_columns_by_rowids_with_read_ahead(Segment& segment, const TabletSchema& schema,
-                                              const std::vector<uint32_t>& row_ids,
-                                              std::span<RowIdColumnRead> columns,
-                                              SegmentReadAhead& read_ahead) {
+Status read_columns_by_rowids_with_read_ahead(
+        Segment& segment, const TabletSchema& schema, const std::vector<uint32_t>& row_ids,
+        std::span<RowIdColumnRead> columns,
+        const std::shared_ptr<const ColumnReadAheadResources>& read_ahead) {
     RETURN_IF_ERROR(prepare_columns_by_rowids_with_read_ahead(segment, schema, row_ids, columns,
                                                               read_ahead));
 
@@ -137,12 +143,11 @@ Status read_columns_by_rowids_with_read_ahead(Segment& segment, const TabletSche
     return Status::OK();
 }
 
-Status read_column_by_rowids_with_read_ahead(Segment& segment, const TabletColumn& column,
-                                             const std::vector<uint32_t>& row_ids,
-                                             MutableColumnPtr& result,
-                                             StorageReadOptions& read_options,
-                                             std::unique_ptr<ColumnIterator>& iterator,
-                                             SegmentReadAhead& read_ahead) {
+Status read_column_by_rowids_with_read_ahead(
+        Segment& segment, const TabletColumn& column, const std::vector<uint32_t>& row_ids,
+        MutableColumnPtr& result, StorageReadOptions& read_options,
+        std::unique_ptr<ColumnIterator>& iterator,
+        const std::shared_ptr<const ColumnReadAheadResources>& read_ahead) {
     if (row_ids.empty()) {
         return Status::OK();
     }
@@ -150,8 +155,10 @@ Status read_column_by_rowids_with_read_ahead(Segment& segment, const TabletColum
     DORIS_CHECK(std::adjacent_find(row_ids.begin(), row_ids.end()) == row_ids.end());
     DORIS_CHECK(is_scalar_type(column.type()));
     RETURN_IF_ERROR(prepare_column_iterator(segment, column, read_options, iterator, read_ahead));
-    std::array<ColumnIterator*, 1> columns {iterator.get()};
-    static_cast<void>(read_ahead.prefetch_by_rowids(row_ids.data(), row_ids.size(), columns));
+    const auto status = iterator->prepare_read_ahead(ExactRowReadAheadHint {row_ids});
+    if (!status.ok()) {
+        LOG_EVERY_N(WARNING, 100) << "failed to prepare exact row-id read-ahead: " << status;
+    }
     return iterator->read_by_rowids(row_ids.data(), row_ids.size(), result);
 }
 

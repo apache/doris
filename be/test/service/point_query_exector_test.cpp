@@ -44,8 +44,8 @@
 #include "storage/options.h"
 #include "storage/rowset/beta_rowset.h"
 #include "storage/rowset/beta_rowset_writer.h"
+#include "storage/segment/column_read_ahead_resources.h"
 #include "storage/segment/segment_loader.h"
-#include "storage/segment/segment_read_ahead.h"
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet_schema.h"
 #include "util/defer_op.h"
@@ -90,7 +90,7 @@ TEST_F(PointQueryReadAheadTest, RowStoreFallsBackWhenReadAheadSwitchChanges) {
         SCOPED_TRACE(switch_index);
         config::enable_query_read_ahead = true;
         config::enable_async_file_cache_write = true;
-        ASSERT_TRUE(segment_v2::SegmentReadAhead::enabled());
+        ASSERT_TRUE(segment_v2::ColumnReadAheadResources::enabled());
         auto context = std::make_shared<io::FileRangeReadContext>(1024 * 1024);
 
         // Model a switch closing after the request created its context and resolved the segment.
