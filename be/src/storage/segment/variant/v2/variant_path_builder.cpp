@@ -56,6 +56,9 @@
 #include "core/value/vdatetime_value.h"
 #include "exec/common/variant_util.h"
 #include "exprs/function/parse/variant_jsonb_parse.h"
+#ifdef BE_TEST
+#include "util/debug_points.h"
+#endif
 #include "util/jsonb_document.h"
 #include "util/jsonb_writer.h"
 
@@ -1225,18 +1228,27 @@ Status VariantPathBuilder::append(VariantRef value, size_t row,
         }
 
         try {
+#ifdef BE_TEST
+            DBUG_EXECUTE_IF("VariantPathBuilder.before_append_value", DBUG_RUN_CALLBACK());
+#endif
             auto& nullable = assert_cast<ColumnNullable&>(*_impl->column);
             append_value(value, _impl->type, &nullable.get_nested_column());
-            nullable.get_null_map_data().push_back(0);
-        } catch (const Exception&) {
-            if (is_array || _impl->type->get_primitive_type() == TYPE_JSONB) {
+        } catch (const Exception& exception) {
+            if (exception.code() == ErrorCode::MEM_ALLOC_FAILED ||
+                exception.code() == ErrorCode::MEM_LIMIT_EXCEEDED || is_array ||
+                _impl->type->get_primitive_type() == TYPE_JSONB) {
                 throw;
             }
             RETURN_IF_ERROR(_impl->promote(jsonb_type(), false, on_promotion));
             auto& nullable = assert_cast<ColumnNullable&>(*_impl->column);
             append_value(value, _impl->type, &nullable.get_nested_column());
-            nullable.get_null_map_data().push_back(0);
         }
+
+#ifdef BE_TEST
+        DBUG_EXECUTE_IF("VariantPathBuilder.before_append_null_map", DBUG_RUN_CALLBACK());
+#endif
+        auto& nullable = assert_cast<ColumnNullable&>(*_impl->column);
+        nullable.get_null_map_data().push_back(0);
         _impl->rowids.push_back(static_cast<uint32_t>(row));
         _impl->logical_rows = row + 1;
 #if defined(BE_TEST) && !defined(BE_BENCHMARK)
