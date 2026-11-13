@@ -85,6 +85,12 @@ suite("test_stream_scan_row_count") {
     // Wait for the aggregated FE index counts used by the baseline adapter, not just replica
     // reports: the index aggregation can still lag a SHOW TABLETS result.
     def awaitReportedRowCount = { long expected ->
+        // This endpoint is registered by the local BE handler; cloud uses its own stats sync.
+        if (!isCloudMode()) {
+            sql_return_maparray("show backends").findAll { it.Alive.toString().toBoolean() }.each { backend ->
+                be_report_tablet(backend.Host.toString(), backend.HttpPort as int)
+            }
+        }
         Awaitility.await().atMost(300, SECONDS).pollInterval(2, SECONDS).until({
             def baseStats = sql_return_maparray """
                 show index stats stream_read_rowcount_tbl stream_read_rowcount_tbl

@@ -123,7 +123,8 @@ public class StreamRowCountEstimatorTest {
         try (MockedStatic<Env> mocked = Mockito.mockStatic(Env.class)) {
             mocked.when(Env::getCurrentEnv).thenReturn(env);
             Mockito.when(env.getEpoch()).thenReturn(1L);
-            PartitionStreamState state = new PartitionStreamState(100L, -1, null).withRowCounts(table, 10);
+            PartitionStreamState state = PartitionStreamState.restored(
+                    100L, -1, null, -1L, -1L).withRowCounts(table, 10);
             Assertions.assertEquals(50, state.getBaseRowCount());
             Assertions.assertTrue(state.matches(table, 10, 100L));
             Assertions.assertFalse(state.matches(table, 10, 200L));
@@ -132,13 +133,13 @@ public class StreamRowCountEstimatorTest {
             Assertions.assertTrue(state.matches(table, 10, 100L));
             index.clearTabletsForRestore();
             Assertions.assertFalse(state.matches(table, 10, 100L));
-            state = new PartitionStreamState(100L, -1, null).withRowCounts(table, 10);
+            state = PartitionStreamState.restored(100L, -1, null, -1L, -1L).withRowCounts(table, 10);
             partition.updateVersionForRestore(3L);
             Assertions.assertFalse(state.matches(table, 10, 100L));
-            state = new PartitionStreamState(100L, -1, null).withRowCounts(table, 10);
+            state = PartitionStreamState.restored(100L, -1, null, -1L, -1L).withRowCounts(table, 10);
             Mockito.when(env.getEpoch()).thenReturn(2L);
             Assertions.assertFalse(state.matches(table, 10, 100L));
-            state = new PartitionStreamState(100L, -1, null).withRowCounts(table, 10);
+            state = PartitionStreamState.restored(100L, -1, null, -1L, -1L).withRowCounts(table, 10);
             Mockito.when(table.getPartition(10L)).thenReturn(Mockito.mock(Partition.class));
             Assertions.assertFalse(state.matches(table, 10, 100L));
         }
@@ -155,13 +156,15 @@ public class StreamRowCountEstimatorTest {
         Env env = Mockito.mock(Env.class);
         try (MockedStatic<Env> mocked = Mockito.mockStatic(Env.class)) {
             mocked.when(Env::getCurrentEnv).thenReturn(env);
-            PartitionStreamState state = new PartitionStreamState(100L, -1, null).withRowCounts(table, 10);
+            PartitionStreamState state = PartitionStreamState.restored(
+                    100L, -1, null, -1L, -1L).withRowCounts(table, 10);
             Assertions.assertTrue(state.matches(table, 10, 100L));
             Object topology = index.getDataEpoch();
             partition.updateVersionForRestore(3L);
             Assertions.assertSame(topology, index.getDataEpoch());
             Assertions.assertFalse(state.matches(table, 10, 100L));
-            Assertions.assertTrue(new PartitionStreamState(200L, -1, null).withRowCounts(table, 10).matches(table, 10, 200L));
+            Assertions.assertTrue(PartitionStreamState.restored(
+                    200L, -1, null, -1L, -1L).withRowCounts(table, 10).matches(table, 10, 200L));
         }
     }
 

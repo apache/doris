@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.stream.OlapTableStream.PartitionStreamState;
+import org.apache.doris.catalog.stream.OlapTableStreamUpdate.PartitionUpdate;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
@@ -140,7 +141,7 @@ public class TableStreamManagerCleanupTest extends TestWithFeService {
         CountDownLatch allowUpdate = new CountDownLatch(1);
         CountDownLatch updateDone = new CountDownLatch(1);
         OlapTableStreamUpdate streamUpdate = new OlapTableStreamUpdate(
-                Collections.emptyMap(), Collections.singletonMap(removedPartitionId, 44L));
+                Map.of(removedPartitionId, new PartitionUpdate(null, PartitionStreamState.initial().atOffset(44L))));
         ExecutorService executor = Executors.newSingleThreadExecutor();
         Future<?> update = executor.submit(() -> {
             Assertions.assertTrue(allowUpdate.await(10, TimeUnit.SECONDS));
@@ -472,8 +473,8 @@ public class TableStreamManagerCleanupTest extends TestWithFeService {
 
     private void setPartitionState(OlapTableStream stream, long keptPartitionId, long removedPartitionId) {
         Map<Long, PartitionStreamState> partitionStates = new HashMap<>();
-        partitionStates.put(keptPartitionId, new PartitionStreamState(11L, 111L, 1001L));
-        partitionStates.put(removedPartitionId, new PartitionStreamState(22L, 222L, 2002L));
+        partitionStates.put(keptPartitionId, PartitionStreamState.restored(11L, 111L, 1001L, -1L, -1L));
+        partitionStates.put(removedPartitionId, PartitionStreamState.restored(22L, 222L, 2002L, -1L, -1L));
         Deencapsulation.setField(stream, "partitionStates", partitionStates);
     }
 
@@ -500,7 +501,7 @@ public class TableStreamManagerCleanupTest extends TestWithFeService {
         stream.writeLock();
         try {
             OlapTableStreamUpdate update = new OlapTableStreamUpdate(
-                    Collections.emptyMap(), Collections.singletonMap(partitionId, offset));
+                    Map.of(partitionId, new PartitionUpdate(null, PartitionStreamState.initial().atOffset(offset))));
             stream.unprotectedPrepareStreamUpdate(update);
             stream.unprotectedUpdateStreamUpdate(update, commitTimeMs);
         } finally {

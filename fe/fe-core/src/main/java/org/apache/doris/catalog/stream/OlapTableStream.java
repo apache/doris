@@ -71,14 +71,19 @@ public class OlapTableStream extends BaseTableStream {
         // Persisted numbers survive recovery, but their source binding is FE-instance local.
         private final transient SourceEpoch sourceEpoch;
 
-        public PartitionStreamState(Long offset, long consumptionTime, Long historicalTso) {
-            this(offset, consumptionTime, historicalTso, StreamRowCountEstimator.UNKNOWN_ROW_COUNT,
-                    StreamRowCountEstimator.UNKNOWN_ROW_COUNT, null);
+        private static final PartitionStreamState INITIAL_STATE = new PartitionStreamState(
+                null, -1, null, StreamRowCountEstimator.UNKNOWN_ROW_COUNT,
+                StreamRowCountEstimator.UNKNOWN_ROW_COUNT, null);
+
+        public static PartitionStreamState initial() {
+            return INITIAL_STATE;
         }
 
-        public PartitionStreamState(Long offset, long consumptionTime, Long historicalTso,
+        /** Restore persisted fields without re-establishing an FE-local source binding. */
+        public static PartitionStreamState restored(Long offset, long consumptionTime, Long historicalTso,
                 long baseRowCount, long changelogRowCount) {
-            this(offset, consumptionTime, historicalTso, baseRowCount, changelogRowCount, null);
+            return new PartitionStreamState(offset, consumptionTime, historicalTso,
+                    baseRowCount, changelogRowCount, null);
         }
 
         private PartitionStreamState(Long offset, long consumptionTime, Long historicalTso,
@@ -313,13 +318,13 @@ public class OlapTableStream extends BaseTableStream {
         if (!showInitialRows) {
             // set partition offset
             baseTable.getPartitions()
-                    .forEach(p -> partitionStates.put(p.getId(), new PartitionStreamState(p.getTso(), -1, null)));
+                    .forEach(p -> partitionStates.put(p.getId(), PartitionStreamState.initial().atOffset(p.getTso())));
         } else {
             baseTable.getPartitions()
                     .stream()
                     .filter(p -> p.getVisibleVersion() > Partition.PARTITION_INIT_VERSION)
                     .forEach(p -> partitionStates.put(p.getId(),
-                            new PartitionStreamState(null, -1, p.getTso())));
+                            PartitionStreamState.initial().atHistoricalTso(p.getTso())));
         }
         partitionStates.replaceAll((id, state) -> state.withRowCounts(baseTable, id));
     }
@@ -480,7 +485,7 @@ public class OlapTableStream extends BaseTableStream {
 
     public void unprotectedUpdateStreamUpdate(AbstractTableStreamUpdate update, Long ts, boolean isReplay) {
         ((OlapTableStreamUpdate) update).getPartitionUpdates().forEach((id, state) ->
-                partitionStates.put(id, state.second.committedAt(ts, isReplay)));
+                partitionStates.put(id, state.getNextState().committedAt(ts, isReplay)));
     }
 
     Set<Long> unprotectedCollectStalePartitionOffsetIds(Set<Long> validPartitionIds) {

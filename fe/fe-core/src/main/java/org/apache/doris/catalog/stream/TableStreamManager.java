@@ -24,6 +24,8 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.stream.OlapTableStream.PartitionStreamState;
+import org.apache.doris.catalog.stream.OlapTableStreamUpdate.PartitionUpdate;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.rpc.CloudTableStreamReadStateHelper;
 import org.apache.doris.common.Config;
@@ -42,6 +44,7 @@ import org.apache.doris.thrift.TCell;
 import org.apache.doris.thrift.TRow;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -325,7 +328,10 @@ public class TableStreamManager extends MasterDaemon implements Writable, GsonPo
 
     /** The pending update owns the complete offset/count tuple before the Cloud commit RPC. */
     public OlapTableStreamUpdate prepareStreamUpdate(long dbId, long streamId, Map<Long, Long> offsets) {
-        OlapTableStreamUpdate update = new OlapTableStreamUpdate(Collections.emptyMap(), offsets);
+        Map<Long, PartitionUpdate> partitions = Maps.newHashMapWithExpectedSize(offsets.size());
+        offsets.forEach((id, offset) ->
+                partitions.put(id, new PartitionUpdate(null, PartitionStreamState.initial().atOffset(offset))));
+        OlapTableStreamUpdate update = new OlapTableStreamUpdate(partitions);
         OlapTableStream stream = findOlapTableStream(dbId, streamId);
         if (stream != null) {
             stream.unprotectedPrepareStreamUpdate(update);
@@ -343,7 +349,7 @@ public class TableStreamManager extends MasterDaemon implements Writable, GsonPo
         }
         try {
             committed.getPartitionUpdates().forEach((id, update) ->
-                    stream.unprotectedPublishPartitionState(id, update.second));
+                    stream.unprotectedPublishPartitionState(id, update.getNextState()));
         } finally {
             stream.writeUnlock();
         }

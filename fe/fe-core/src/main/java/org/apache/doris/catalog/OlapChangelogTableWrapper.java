@@ -20,10 +20,8 @@ package org.apache.doris.catalog;
 import org.apache.doris.catalog.stream.StreamReadMode;
 import org.apache.doris.cloud.catalog.CloudPartition;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.Pair;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.Maps;
 
 import java.util.Collection;
 import java.util.Collections;
@@ -43,22 +41,12 @@ public class OlapChangelogTableWrapper extends OlapTableWrapper {
     private final MaterializedIndexMeta changelogIndexMeta;
 
     public OlapChangelogTableWrapper(OlapTable originTable) {
-        this(originTable, Maps.newHashMap());
+        this(originTable, Collections.emptyMap());
     }
 
-    public OlapChangelogTableWrapper(OlapTable originTable, Map<Long, Pair<Long, Long>> partitionOffsetMap) {
-        this(originTable, partitionOffsetMap, Collections.emptyMap());
-    }
-
-    public OlapChangelogTableWrapper(OlapTable originTable, Map<Long, Pair<Long, Long>> partitionOffsetMap,
-            Map<Long, Long> partitionVisibleVersionMap) {
-        this(originTable, partitionOffsetMap, partitionVisibleVersionMap, Collections.emptyMap());
-    }
-
-    public OlapChangelogTableWrapper(OlapTable originTable, Map<Long, Pair<Long, Long>> partitionOffsetMap,
-            Map<Long, Long> partitionVisibleVersionMap, Map<Long, Long> partitionRowCounts) {
+    public OlapChangelogTableWrapper(OlapTable originTable, Map<Long, PartitionScanState> partitionScanStates) {
         super(originTable, originTable.getName(), originTable.getChangelogIndexMeta().getSchema(), KeysType.DUP_KEYS,
-                partitionOffsetMap, partitionVisibleVersionMap, partitionRowCounts);
+                partitionScanStates);
         this.changelogIndexMeta = originTable.getChangelogIndexMeta();
         Preconditions.checkNotNull(changelogIndexMeta, "changelog meta is null, table=%s", originTable.getName());
         this.setBaseIndexId(changelogIndexMeta.getIndexId());

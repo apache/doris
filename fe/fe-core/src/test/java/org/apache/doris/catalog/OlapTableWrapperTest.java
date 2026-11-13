@@ -18,20 +18,19 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.binlog.BinlogTestUtils;
+import org.apache.doris.catalog.OlapTableWrapper.PartitionScanState;
 import org.apache.doris.cloud.catalog.CloudPartition;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.thrift.TStorageType;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -175,8 +174,9 @@ public class OlapTableWrapperTest {
         OlapTable table = Mockito.spy(newTestTable(BinlogTestUtils.newTestChangelogConfig(true, true)));
         Mockito.doReturn(ImmutableList.of(nonEmptyPartitionId)).when(table)
                 .selectNonEmptyPartitionIds(partitionIds, Optional.empty());
-        OlapChangelogTableWrapper wrapper = new OlapChangelogTableWrapper(table, Collections.emptyMap(),
-                ImmutableMap.of(emptyPartitionId, Partition.PARTITION_INIT_VERSION, nonEmptyPartitionId, 2L));
+        OlapChangelogTableWrapper wrapper = new OlapChangelogTableWrapper(table, Map.of(
+                emptyPartitionId, new PartitionScanState(null, Partition.PARTITION_INIT_VERSION, null),
+                nonEmptyPartitionId, new PartitionScanState(null, 2L, null)));
 
         try (MockedStatic<Config> mockedConfig = Mockito.mockStatic(Config.class);
                 MockedStatic<CloudPartition> mockedPartition = Mockito.mockStatic(CloudPartition.class)) {
@@ -264,8 +264,8 @@ public class OlapTableWrapperTest {
 
         // What a stream read is about to return: the change rows of an offset range, which neither
         // the changelog index nor the table reports.
-        OlapTableWrapper wrapper = new OlapTableWrapper(table, Collections.emptyMap(), Collections.emptyMap(),
-                ImmutableMap.of(partitionId, 3L));
+        OlapTableWrapper wrapper = new OlapTableWrapper(table,
+                Map.of(partitionId, new PartitionScanState(null, null, 3L)));
 
         Assertions.assertEquals(3L, wrapper.getRowCountEstimate());
         Assertions.assertEquals(3L, wrapper.getRowCountForIndex(table.getBaseIndexId(), true));
@@ -273,8 +273,9 @@ public class OlapTableWrapperTest {
         // A partition the caller did not estimate answers with the rows of the wrapped table.
         Assertions.assertEquals(42L,
                 wrapper.getRowCountForPartitionIndex(otherPartitionId, table.getBaseIndexId(), true));
-        OlapTableWrapper partial = new OlapTableWrapper(table, Collections.emptyMap(), Collections.emptyMap(),
-                ImmutableMap.of(partitionId, 3L, otherPartitionId, -1L));
+        OlapTableWrapper partial = new OlapTableWrapper(table, Map.of(
+                partitionId, new PartitionScanState(null, null, 3L),
+                otherPartitionId, new PartitionScanState(null, null, -1L)));
         Assertions.assertEquals(45L, partial.getRowCountForIndex(table.getBaseIndexId(), true));
         // An estimate for the base index must not be applied to another selected index.
         MaterializedIndex rollup = new MaterializedIndex(99L, null);
@@ -295,29 +296,38 @@ public class OlapTableWrapperTest {
             index.setRowCountReported(true);
             table.addPartition(new Partition(id, "p" + id, index, new RandomDistributionInfo(1)));
         }
-        Map<Long, Pair<Long, Long>> offsets = Map.of(1L, Pair.of(100L, 200L));
-        Map<Long, Long> versions = Map.of(2L, 3L);
-        OlapTableWrapper wrapper = new OlapTableWrapper(table, offsets, versions, Map.of(3L, 7L));
-        Assertions.assertEquals(offsets.get(1L), wrapper.getPartitionOffset(1L));
+        Pair<Long, Long> offsets = Pair.of(100L, 200L);
+        Map<Long, PartitionScanState> states = Map.of(
+                1L, new PartitionScanState(offsets, null, null),
+                2L, new PartitionScanState(null, 3L, null),
+                3L, new PartitionScanState(null, null, 7L));
+        OlapTableWrapper wrapper = new OlapTableWrapper(table, states);
+        Assertions.assertEquals(offsets, wrapper.getPartitionOffset(1L));
         Assertions.assertNull(wrapper.getPartitionOffset(2L));
         Assertions.assertNull(wrapper.getPartitionOffset(3L));
         Assertions.assertTrue(wrapper.hasFixedVisibleVersions());
-        Assertions.assertEquals(versions, wrapper.getPartitionVisibleVersionMap());
+        Assertions.assertEquals(Map.of(2L, 3L), wrapper.getPartitionVisibleVersionMap());
         // Offset-only and version-only partitions are not added to the estimated partition total.
         Assertions.assertEquals(7L, wrapper.getRowCountForIndex(table.getBaseIndexId(), true));
         Assertions.assertEquals(42L, wrapper.getRowCountForPartitionIndex(1L, table.getBaseIndexId(), true));
         Assertions.assertEquals(7L, wrapper.getRowCountForPartitionIndex(3L, table.getBaseIndexId(), true));
-        OlapTableWrapper otherEstimates = new OlapTableWrapper(table, offsets, versions, Map.of(2L, 9L, 3L, 10L));
+        OlapTableWrapper otherEstimates = new OlapTableWrapper(table, Map.of(
+                1L, states.get(1L),
+                2L, new PartitionScanState(null, 3L, 9L),
+                3L, new PartitionScanState(null, null, 10L)));
         Assertions.assertEquals(wrapper, otherEstimates);
         Assertions.assertEquals(wrapper.hashCode(), otherEstimates.hashCode());
-        OlapTableWrapper estimateOnly = new OlapTableWrapper(table, Map.of(), Map.of(), Map.of(3L, -1L));
+        OlapTableWrapper estimateOnly = new OlapTableWrapper(table,
+                Map.of(3L, new PartitionScanState(null, null, -1L)));
         Assertions.assertEquals(new OlapTableWrapper(table), estimateOnly);
         Assertions.assertEquals(new OlapTableWrapper(table).hashCode(), estimateOnly.hashCode());
         Assertions.assertFalse(estimateOnly.hasFixedVisibleVersions());
         Assertions.assertTrue(estimateOnly.hasRowCountEstimates(table.getBaseIndexId()));
-        Assertions.assertNotEquals(wrapper, new OlapTableWrapper(table, offsets, Map.of(2L, 4L), Map.of(3L, 7L)));
-        Assertions.assertNotEquals(wrapper, new OlapTableWrapper(table,
-                Map.of(1L, Pair.of(100L, 201L)), versions, Map.of(3L, 7L)));
+        Assertions.assertNotEquals(wrapper, new OlapTableWrapper(table, Map.of(
+                1L, states.get(1L), 2L, new PartitionScanState(null, 4L, null), 3L, states.get(3L))));
+        Assertions.assertNotEquals(wrapper, new OlapTableWrapper(table, Map.of(
+                1L, new PartitionScanState(Pair.of(100L, 201L), null, null),
+                2L, states.get(2L), 3L, states.get(3L))));
     }
 
 }

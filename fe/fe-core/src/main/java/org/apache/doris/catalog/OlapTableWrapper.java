@@ -26,7 +26,6 @@ import com.google.common.collect.Maps;
 
 import java.util.Collection;
 import java.util.Collections;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -44,17 +43,17 @@ public class OlapTableWrapper extends OlapTable {
 
     protected final OlapTable originTable;
     // Fields are optional independently: SN has no fixed version, and ordinary wrappers have
-    // no explicit estimate. Keep the union of their partition IDs in one immutable snapshot.
+    // no explicit estimate. Keep the participating partitions in one immutable snapshot.
     private final Map<Long, PartitionScanState> partitionScanStates;
     private final int estimatedPartitionCount;
     private final boolean fixedVisibleVersions;
 
-    private static class PartitionScanState {
+    public static class PartitionScanState {
         private final Pair<Long, Long> offsets;
         private final Long visibleVersion;
         private final Long rowCount;
 
-        private PartitionScanState(Pair<Long, Long> offsets, Long visibleVersion, Long rowCount) {
+        public PartitionScanState(Pair<Long, Long> offsets, Long visibleVersion, Long rowCount) {
             this.offsets = offsets;
             this.visibleVersion = visibleVersion;
             this.rowCount = rowCount;
@@ -62,53 +61,28 @@ public class OlapTableWrapper extends OlapTable {
     }
 
     protected OlapTableWrapper(OlapTable originTable, String wrapperName, List<Column> baseSchema, KeysType keysType,
-                               Map<Long, Pair<Long, Long>> partitionOffsetMap) {
-        this(originTable, wrapperName, baseSchema, keysType, partitionOffsetMap, Collections.emptyMap(),
-                Collections.emptyMap());
-    }
-
-    protected OlapTableWrapper(OlapTable originTable, String wrapperName, List<Column> baseSchema, KeysType keysType,
-                               Map<Long, Pair<Long, Long>> partitionOffsetMap,
-                               Map<Long, Long> partitionVisibleVersionMap) {
-        this(originTable, wrapperName, baseSchema, keysType, partitionOffsetMap, partitionVisibleVersionMap,
-                Collections.emptyMap());
-    }
-
-    protected OlapTableWrapper(OlapTable originTable, String wrapperName, List<Column> baseSchema, KeysType keysType,
-                               Map<Long, Pair<Long, Long>> partitionOffsetMap,
-                               Map<Long, Long> partitionVisibleVersionMap,
-                               Map<Long, Long> partitionRowCounts) {
+            Map<Long, PartitionScanState> partitionScanStates) {
         super(originTable.getId(), wrapperName, baseSchema,
                 keysType, originTable.getPartitionInfo(), originTable.getDefaultDistributionInfo());
         this.originTable = originTable;
         this.setBaseIndexId(originTable.getBaseIndexId());
         this.setQualifiedDbName(originTable.getQualifiedDbName());
-        Set<Long> partitionIds = new HashSet<>(partitionOffsetMap.keySet());
-        partitionIds.addAll(partitionVisibleVersionMap.keySet());
-        partitionIds.addAll(partitionRowCounts.keySet());
-        ImmutableMap.Builder<Long, PartitionScanState> states = ImmutableMap.builder();
-        for (Long id : partitionIds) {
-            states.put(id, new PartitionScanState(partitionOffsetMap.get(id),
-                    partitionVisibleVersionMap.get(id), partitionRowCounts.get(id)));
+        this.partitionScanStates = ImmutableMap.copyOf(partitionScanStates);
+        int estimates = 0;
+        boolean fixedVersions = false;
+        for (PartitionScanState state : partitionScanStates.values()) {
+            if (state.rowCount != null) {
+                estimates++;
+            }
+            fixedVersions |= state.visibleVersion != null;
         }
-        this.partitionScanStates = states.build();
-        this.estimatedPartitionCount = partitionRowCounts.size();
-        this.fixedVisibleVersions = !partitionVisibleVersionMap.isEmpty();
+        this.estimatedPartitionCount = estimates;
+        this.fixedVisibleVersions = fixedVersions;
     }
 
-    public OlapTableWrapper(OlapTable originTable, Map<Long, Pair<Long, Long>> partitionOffsetMap) {
-        this(originTable, partitionOffsetMap, Collections.emptyMap());
-    }
-
-    public OlapTableWrapper(OlapTable originTable, Map<Long, Pair<Long, Long>> partitionOffsetMap,
-                            Map<Long, Long> partitionVisibleVersionMap) {
-        this(originTable, partitionOffsetMap, partitionVisibleVersionMap, Collections.emptyMap());
-    }
-
-    public OlapTableWrapper(OlapTable originTable, Map<Long, Pair<Long, Long>> partitionOffsetMap,
-                            Map<Long, Long> partitionVisibleVersionMap, Map<Long, Long> partitionRowCounts) {
+    public OlapTableWrapper(OlapTable originTable, Map<Long, PartitionScanState> partitionScanStates) {
         this(originTable, originTable.getName(), originTable.getBaseSchema(), originTable.getKeysType(),
-                partitionOffsetMap, partitionVisibleVersionMap, partitionRowCounts);
+                partitionScanStates);
     }
 
     protected OlapTableWrapper(OlapTable originTable) {

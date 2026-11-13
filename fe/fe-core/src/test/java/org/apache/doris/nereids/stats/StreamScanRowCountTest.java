@@ -23,10 +23,13 @@ import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapChangelogTableWrapper;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTableWrapper;
+import org.apache.doris.catalog.OlapTableWrapper.PartitionScanState;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.stream.BaseTableStream;
 import org.apache.doris.catalog.stream.OlapTableStream;
+import org.apache.doris.catalog.stream.OlapTableStream.PartitionStreamState;
 import org.apache.doris.catalog.stream.OlapTableStreamUpdate;
+import org.apache.doris.catalog.stream.OlapTableStreamUpdate.PartitionUpdate;
 import org.apache.doris.catalog.stream.OlapTableStreamWrapper;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.common.Config;
@@ -233,14 +236,14 @@ public class StreamScanRowCountTest extends TestWithFeService {
         Assertions.assertFalse(restored.getPartitionState(id).matches(base, id, START_TSO));
         restored.writeLock();
         try {
-            OlapTableStreamUpdate update = new OlapTableStreamUpdate(ImmutableMap.of(id, START_TSO),
-                    ImmutableMap.of(id, START_TSO + 300));
+            OlapTableStreamUpdate update = new OlapTableStreamUpdate(Map.of(
+                    id, new PartitionUpdate(START_TSO, PartitionStreamState.initial().atOffset(START_TSO + 300))));
             restored.unprotectedPrepareStreamUpdate(update);
             restored.unprotectedUpdateStreamUpdate(update, 1000L, true);
             Assertions.assertEquals(START_TSO + 300, restored.getPartitionState(id).getOffset());
             Assertions.assertFalse(restored.getPartitionState(id).matches(base, id, START_TSO + 300));
-            update = new OlapTableStreamUpdate(ImmutableMap.of(id, START_TSO + 300),
-                    ImmutableMap.of(id, START_TSO + 400));
+            update = new OlapTableStreamUpdate(Map.of(
+                    id, new PartitionUpdate(START_TSO + 300, PartitionStreamState.initial().atOffset(START_TSO + 400))));
             restored.unprotectedPrepareStreamUpdate(update);
             restored.unprotectedUpdateStreamUpdate(update, 2000L);
             Assertions.assertEquals(START_TSO + 400, restored.getPartitionState(id).getBaselineOffset());
@@ -326,8 +329,10 @@ public class StreamScanRowCountTest extends TestWithFeService {
     public void testAllUnknownExplicitEstimatesPreserveJoinReorderInput() throws Exception {
         OlapTable table = createUnknownPartitionedTable("stream_unknown_stats");
         List<Long> ids = table.getPartitionIds();
-        OlapTableWrapper wrapper = new OlapTableWrapper(table, Map.of(), Map.of(),
-                Map.of(ids.get(0), -1L, ids.get(1), -1L, ids.get(2), -1L));
+        OlapTableWrapper wrapper = new OlapTableWrapper(table, Map.of(
+                ids.get(0), new PartitionScanState(null, null, -1L),
+                ids.get(1), new PartitionScanState(null, null, -1L),
+                ids.get(2), new PartitionScanState(null, null, -1L)));
         LogicalOlapScan scan = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), wrapper);
         Assertions.assertEquals(-1, StatsCalculator.getMaxTableRowCount(List.of(scan), null));
         Assertions.assertEquals(1, new StatsCalculator(null).computeOlapScan(scan).getRowCount());
@@ -340,8 +345,10 @@ public class StreamScanRowCountTest extends TestWithFeService {
     public void testMixedExplicitEstimatesKeepKnownSelectedPartitions() throws Exception {
         OlapTable table = createUnknownPartitionedTable("stream_mixed_stats");
         List<Long> ids = table.getPartitionIds();
-        OlapTableWrapper wrapper = new OlapTableWrapper(table, Map.of(), Map.of(),
-                Map.of(ids.get(0), 10L, ids.get(1), -1L, ids.get(2), -1L));
+        OlapTableWrapper wrapper = new OlapTableWrapper(table, Map.of(
+                ids.get(0), new PartitionScanState(null, null, 10L),
+                ids.get(1), new PartitionScanState(null, null, -1L),
+                ids.get(2), new PartitionScanState(null, null, -1L)));
         LogicalOlapScan scan = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), wrapper)
                 .withSelectedPartitionIds(List.of(ids.get(0), ids.get(1)));
         Assertions.assertEquals(11, StatsCalculator.getMaxTableRowCount(List.of(scan), null));

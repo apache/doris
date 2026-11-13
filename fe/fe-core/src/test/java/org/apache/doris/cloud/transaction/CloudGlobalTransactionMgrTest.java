@@ -590,7 +590,7 @@ public class CloudGlobalTransactionMgrTest {
         }
         if (outcome.equals("initial")) {
             stream.unprotectedPublishPartitionState(1003L,
-                    new PartitionStreamState(null, -1, 100L).withRowCounts(source, 1003L));
+                    PartitionStreamState.restored(null, -1, 100L, -1L, -1L).withRowCounts(source, 1003L));
         }
         PartitionStreamState previous = stream.getPartitionState(1003L);
         long nextOffset = outcome.equals("initial") ? 100L : outcome.equals("duplicate") ? 300L : 200L;

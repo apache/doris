@@ -164,7 +164,8 @@ public class OlapTableStreamSnapshotReadTest {
         // The offsets have to be in place before the wrapper is built: it reads them into the map the read of
         // a snapshot is built from.
         Map<Long, PartitionStreamState> partitionStates = new HashMap<>();
-        offsets.forEach((pid, offset) -> partitionStates.put(pid, new PartitionStreamState(offset, -1, null)));
+        offsets.forEach((pid, offset) -> partitionStates.put(pid, PartitionStreamState.restored(
+                offset, -1, null, -1L, -1L)));
         Deencapsulation.setField(stream, "partitionStates", partitionStates);
         return new Fixture(stream, new OlapTableStreamWrapper(stream, table,
                 Lists.newArrayList(byId.keySet())));

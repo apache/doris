@@ -21,6 +21,7 @@ import org.apache.doris.catalog.stream.AbstractTableStreamUpdate;
 import org.apache.doris.catalog.stream.CloudOlapTableStreamUpdate;
 import org.apache.doris.catalog.stream.OlapTableStream.PartitionStreamState;
 import org.apache.doris.catalog.stream.OlapTableStreamUpdate;
+import org.apache.doris.catalog.stream.OlapTableStreamUpdate.PartitionUpdate;
 import org.apache.doris.catalog.stream.OlapTableStreamWrapper;
 import org.apache.doris.catalog.stream.TableStreamUpdateInfo;
 import org.apache.doris.cloud.proto.Cloud;
@@ -106,8 +107,9 @@ public class StreamConsumptionInfoExtractor {
     }
 
     private static OlapTableStreamUpdate toOlapTableStreamUpdate(OlapTableStreamWrapper wrapper) {
-        Map<Long, Pair<Long, PartitionStreamState>> updates = Maps.newHashMap();
-        for (Map.Entry<Long, Pair<Long, Long>> entry : wrapper.getOutputUpdateMap().entrySet()) {
+        Map<Long, Pair<Long, Long>> outputUpdates = wrapper.getOutputUpdateMap();
+        Map<Long, PartitionUpdate> updates = Maps.newHashMapWithExpectedSize(outputUpdates.size());
+        for (Map.Entry<Long, Pair<Long, Long>> entry : outputUpdates.entrySet()) {
             Pair<Long, Long> update = entry.getValue();
             Long previousOffset = update.first;
             if (previousOffset != null && wrapper.isHistoryPartition(entry.getKey())) {
@@ -115,7 +117,8 @@ public class StreamConsumptionInfoExtractor {
                 previousOffset = -previousOffset;
             }
             Long nextOffset = update.second != null ? update.second : wrapper.getPartition(entry.getKey()).getTso();
-            updates.put(entry.getKey(), Pair.of(previousOffset, new PartitionStreamState(nextOffset, -1, null)));
+            updates.put(entry.getKey(),
+                    new PartitionUpdate(previousOffset, PartitionStreamState.initial().atOffset(nextOffset)));
         }
         return new OlapTableStreamUpdate(updates);
     }

@@ -143,9 +143,12 @@ public class OlapTableStreamWrapper extends OlapTable {
                         // MS restores the tuple; another FE metadata instance has no valid source binding.
                         boolean history = state.getOffsetState()
                                 == Cloud.TableStreamOffsetStatePB.TABLE_STREAM_OFFSET_INITIAL_SNAPSHOT_PENDING;
-                        consumption = new PartitionStreamState(history ? null : state.getOffsetTso(),
+                        consumption = PartitionStreamState.restored(
+                                history ? null : state.getOffsetTso(),
                                 state.hasLastConsumptionTimeMs() ? state.getLastConsumptionTimeMs() : -1,
-                                history ? state.getOffsetTso() : null, baseRows, changelogRows);
+                                history ? state.getOffsetTso() : null,
+                                baseRows,
+                                changelogRows);
                     }
                 }
                 snapshots.put(id, new PartitionReadState(range, consumption, state));

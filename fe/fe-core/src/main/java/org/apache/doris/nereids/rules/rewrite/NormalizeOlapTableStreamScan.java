@@ -23,6 +23,7 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapChangelogTableWrapper;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTableWrapper;
+import org.apache.doris.catalog.OlapTableWrapper.PartitionScanState;
 import org.apache.doris.catalog.stream.BaseTableStream;
 import org.apache.doris.catalog.stream.OlapTableStreamWrapper;
 import org.apache.doris.changelog.ChangelogUtils;
@@ -60,6 +61,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -174,15 +176,13 @@ public class NormalizeOlapTableStreamScan extends OneRewriteRuleFactory {
         offsetMap = applyChangelogTtl(cascadesContext, baseTable, offsetMap, streamScanType);
         // remap scan from changelog
         OlapTableStreamWrapper streamWrapper = scan.getTable();
-        Map<Long, Long> visibleVersions = streamWrapper.hasCloudReadStates()
-                ? streamWrapper.getCloudVisibleVersions(selectedPartitionIds)
-                : Collections.emptyMap();
         // The change rows of the range, which neither the changelog index nor the base table
         // reports. See StreamRowCountEstimator.
         Map<Long, Long> rowCountEstimates = streamWrapper.estimateChangelogRead(
                 selectedPartitionIds, offsetMap, streamScanType);
         OlapChangelogTableWrapper table =
-                new OlapChangelogTableWrapper(baseTable, offsetMap, visibleVersions, rowCountEstimates);
+                new OlapChangelogTableWrapper(baseTable, makePartitionScanStates(
+                        streamWrapper, selectedPartitionIds, offsetMap, rowCountEstimates));
         Map<String, String> scanParams = new HashMap<>();
         scanParams.put(OlapScanNode.OLAP_INCREMENT_TYPE, streamScanType.toString());
         LogicalOlapScan newScan = new LogicalOlapScan(cascadesContext.getStatementContext().getNextRelationId(),
@@ -310,11 +310,9 @@ public class NormalizeOlapTableStreamScan extends OneRewriteRuleFactory {
             // dup key table can just rebuild from base table
             Map<Long, Pair<Long, Long>> partitionOffsetMap =
                     streamWrapper.getHistoryPartitionOffsets(selectedPartitionIds);
-            Map<Long, Long> visibleVersions = streamWrapper.hasCloudReadStates()
-                    ? streamWrapper.getCloudVisibleVersions(selectedPartitionIds)
-                    : Collections.emptyMap();
-            OlapTableWrapper table = new OlapTableWrapper(baseTable, partitionOffsetMap, visibleVersions,
-                    streamWrapper.estimateSnapshotRead(selectedPartitionIds));
+            OlapTableWrapper table = new OlapTableWrapper(baseTable, makePartitionScanStates(
+                    streamWrapper, selectedPartitionIds, partitionOffsetMap,
+                    streamWrapper.estimateSnapshotRead(selectedPartitionIds)));
             return projectToOriginSlots(makeOlapScanOnBaseTable(scan, cascadesContext, table, selectedPartitionIds),
                     originSlots);
         }
@@ -336,10 +334,8 @@ public class NormalizeOlapTableStreamScan extends OneRewriteRuleFactory {
             // for row commit tso <= consumption tso we scan from base table
             Map<Long, Pair<Long, Long>> partitionOffsetMap =
                     streamWrapper.getHistoryPartitionOffsets(rebuildPartitionIds);
-            Map<Long, Long> visibleVersions = streamWrapper.hasCloudReadStates()
-                    ? streamWrapper.getCloudVisibleVersions(rebuildPartitionIds)
-                    : Collections.emptyMap();
-            OlapTableWrapper table = new OlapTableWrapper(baseTable, partitionOffsetMap, visibleVersions);
+            OlapTableWrapper table = new OlapTableWrapper(baseTable, makePartitionScanStates(
+                    streamWrapper, rebuildPartitionIds, partitionOffsetMap, Collections.emptyMap()));
             Plan basePartPlan = makeOlapScanOnBaseTable(scan, cascadesContext, table, rebuildPartitionIds);
             // we rebuild by add back updated & deleted rows from changelog
             Plan changelogPartPlan = makeIncrementalScanFromChangelog(cascadesContext, scan, rebuildPartitionIds,
@@ -350,11 +346,24 @@ public class NormalizeOlapTableStreamScan extends OneRewriteRuleFactory {
         return projectToOriginSlots(combineTwoPlan(cascadesContext, normalPlan, rebuildPlan, originSlots), originSlots);
     }
 
+    private Map<Long, PartitionScanState> makePartitionScanStates(OlapTableStreamWrapper wrapper,
+            List<Long> partitionIds, Map<Long, Pair<Long, Long>> offsets, Map<Long, Long> rowCountEstimates) {
+        Map<Long, PartitionScanState> states = Maps.newHashMapWithExpectedSize(partitionIds.size());
+        for (Long id : partitionIds) {
+            Long visibleVersion = wrapper.hasCloudReadStates()
+                    ? Preconditions.checkNotNull(wrapper.getCloudReadState(id),
+                            "Cloud Table Stream read state is missing for partition %s", id).getVisibleVersion()
+                    : null;
+            states.put(id, new PartitionScanState(offsets.get(id), visibleVersion, rowCountEstimates.get(id)));
+        }
+        return states;
+    }
+
     private Plan makeOlapScanOnBaseTable(LogicalOlapTableStreamScan scan, CascadesContext cascadesContext,
                                          OlapTable baseTable, List<Long> partitionIds) {
         if (scan.getTable().hasCloudReadStates() && !(baseTable instanceof OlapTableWrapper)) {
-            baseTable = new OlapTableWrapper(baseTable, Collections.emptyMap(),
-                    scan.getTable().getCloudVisibleVersions(partitionIds));
+            baseTable = new OlapTableWrapper(baseTable, makePartitionScanStates(
+                    scan.getTable(), partitionIds, Collections.emptyMap(), Collections.emptyMap()));
         }
         LogicalOlapScan baseScan = new LogicalOlapScan(cascadesContext.getStatementContext().getNextRelationId(),
                 baseTable, scan.qualified(), partitionIds, scan.getSelectedTabletIds(),

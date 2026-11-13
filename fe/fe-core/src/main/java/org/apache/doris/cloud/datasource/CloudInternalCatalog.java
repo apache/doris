@@ -133,7 +133,7 @@ public class CloudInternalCatalog extends InternalCatalog {
         try {
             for (Long id : basePartitionIds) {
                 if (olapBaseTable.getPartition(id) != null) {
-                    initialRowCounts.put(id, new PartitionStreamState(null, -1, null).withRowCounts(olapBaseTable, id));
+                    initialRowCounts.put(id, PartitionStreamState.initial().withRowCounts(olapBaseTable, id));
                 }
             }
         } finally {

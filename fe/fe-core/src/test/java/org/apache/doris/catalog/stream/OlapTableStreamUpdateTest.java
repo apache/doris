@@ -24,10 +24,12 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.RandomDistributionInfo;
 import org.apache.doris.catalog.stream.OlapTableStream.PartitionStreamState;
+import org.apache.doris.catalog.stream.OlapTableStreamUpdate.PartitionUpdate;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.transaction.TransactionCommitFailedException;
 
+import com.google.gson.JsonObject;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
@@ -48,12 +50,11 @@ public class OlapTableStreamUpdateTest {
     @Test
     public void testCheckPartitionOffsetForHistoricalConsumeOk() throws Exception {
         Map<Long, PartitionStreamState> partitionStates =
-                Collections.singletonMap(1L, new PartitionStreamState(null, -1, 100L));
+                Collections.singletonMap(1L, PartitionStreamState.restored(null, -1, 100L, -1L, -1L));
 
         // history partition prev offset is encoded as negative (see StreamConsumptionInfoExtractor)
-        Map<Long, Long> prev = Collections.singletonMap(1L, -100L);
-        Map<Long, Long> next = Map.of(1L, 200L);
-        OlapTableStreamUpdate update = new OlapTableStreamUpdate(prev, next);
+        OlapTableStreamUpdate update = new OlapTableStreamUpdate(Map.of(
+                1L, new PartitionUpdate(-100L, PartitionStreamState.initial().atOffset(200L))));
 
         update.checkPartitionOffset("test_db", "s1", partitionStates);
     }
@@ -61,12 +62,11 @@ public class OlapTableStreamUpdateTest {
     @Test
     public void testCheckPartitionOffsetForHistoricalConsumeConflict() {
         Map<Long, PartitionStreamState> partitionStates =
-                Collections.singletonMap(1L, new PartitionStreamState(null, -1, 99L));
+                Collections.singletonMap(1L, PartitionStreamState.restored(null, -1, 99L, -1L, -1L));
 
         // history partition prev offset is encoded as negative; -(-100)=100 != 99 -> conflict
-        Map<Long, Long> prev = Collections.singletonMap(1L, -100L);
-        Map<Long, Long> next = Map.of(1L, 200L);
-        OlapTableStreamUpdate update = new OlapTableStreamUpdate(prev, next);
+        OlapTableStreamUpdate update = new OlapTableStreamUpdate(Map.of(
+                1L, new PartitionUpdate(-100L, PartitionStreamState.initial().atOffset(200L))));
 
         TransactionCommitFailedException exception = Assertions.assertThrows(TransactionCommitFailedException.class,
                 () -> update.checkPartitionOffset("test_db", "s1", partitionStates));
@@ -75,30 +75,33 @@ public class OlapTableStreamUpdateTest {
 
     @Test
     public void testIncrementalOffsetValidation() throws Exception {
-        Map<Long, PartitionStreamState> states = Map.of(1L, new PartitionStreamState(100L, 10, null));
-        new OlapTableStreamUpdate(Map.of(1L, 100L), Map.of(1L, 200L))
+        Map<Long, PartitionStreamState> states = Map.of(1L, PartitionStreamState.restored(100L, 10, null, -1L, -1L));
+        new OlapTableStreamUpdate(Map.of(1L, new PartitionUpdate(100L, PartitionStreamState.initial().atOffset(200L))))
                 .checkPartitionOffset("test_db", "s1", states);
         Assertions.assertThrows(TransactionCommitFailedException.class,
-                () -> new OlapTableStreamUpdate(Map.of(1L, 99L), Map.of(1L, 200L))
+                () -> new OlapTableStreamUpdate(
+                        Map.of(1L, new PartitionUpdate(99L, PartitionStreamState.initial().atOffset(200L))))
                         .checkPartitionOffset("test_db", "s1", states));
         Assertions.assertThrows(TransactionCommitFailedException.class,
-                () -> new OlapTableStreamUpdate(Collections.emptyMap(), Map.of(1L, 200L))
+                () -> new OlapTableStreamUpdate(
+                        Map.of(1L, new PartitionUpdate(null, PartitionStreamState.initial().atOffset(200L))))
                         .checkPartitionOffset("test_db", "s1", states));
         // A newly added partition has no recorded offset and can be consumed without prev.
-        new OlapTableStreamUpdate(Collections.emptyMap(), Map.of(2L, 200L))
+        new OlapTableStreamUpdate(Map.of(2L, new PartitionUpdate(null, PartitionStreamState.initial().atOffset(200L))))
                 .checkPartitionOffset("test_db", "s1", states);
         // A history-only state must not be mistaken for an incremental offset.
-        new OlapTableStreamUpdate(Collections.emptyMap(), Map.of(2L, 200L))
-                .checkPartitionOffset("test_db", "s1", Map.of(2L, new PartitionStreamState(null, -1, 100L)));
+        new OlapTableStreamUpdate(Map.of(2L, new PartitionUpdate(null, PartitionStreamState.initial().atOffset(200L))))
+                .checkPartitionOffset("test_db", "s1", Map.of(2L, PartitionStreamState.restored(
+                        null, -1, 100L, -1L, -1L)));
     }
 
     @Test
     public void testPartitionStatePersistenceAndConsumption() throws Exception {
         OlapTableStream stream = new OlapTableStream();
         Map<Long, PartitionStreamState> states = new HashMap<>();
-        states.put(1L, new PartitionStreamState(null, -1, 100L));
-        states.put(2L, new PartitionStreamState(200L, 20, null));
-        states.put(3L, new PartitionStreamState(-1L, -1, null));
+        states.put(1L, PartitionStreamState.restored(null, -1, 100L, -1L, -1L));
+        states.put(2L, PartitionStreamState.restored(200L, 20, null, -1L, -1L));
+        states.put(3L, PartitionStreamState.restored(-1L, -1, null, -1L, -1L));
         Deencapsulation.setField(stream, "partitionStates", states);
         ByteArrayOutputStream bytes = new ByteArrayOutputStream();
         stream.write(new DataOutputStream(bytes));
@@ -119,7 +122,8 @@ public class OlapTableStreamUpdateTest {
         Assertions.assertEquals(20, restoredStates.get(2L).getConsumptionTime());
         restored.writeLock();
         try {
-            OlapTableStreamUpdate update = new OlapTableStreamUpdate(Map.of(1L, -100L), Map.of(1L, 150L));
+            OlapTableStreamUpdate update = new OlapTableStreamUpdate(
+                    Map.of(1L, new PartitionUpdate(-100L, PartitionStreamState.initial().atOffset(150L))));
             update.checkPartitionOffset("test_db", "s1", restoredStates);
             restored.unprotectedUpdateStreamUpdate(update, 30L);
             Assertions.assertFalse(restored.hasHistoricalData(1L));
@@ -140,16 +144,17 @@ public class OlapTableStreamUpdateTest {
             fixture.base.setRowCount(5L);
             fixture.changelog.setRowCount(10L);
             fixture.stream.unprotectedPublishPartitionState(10L,
-                    new PartitionStreamState(100L, 1L, null).withRowCounts(fixture.source, 10L));
+                    PartitionStreamState.restored(100L, 1L, null, -1L, -1L).withRowCounts(fixture.source, 10L));
             PartitionStreamState previous = fixture.stream.getPartitionState(10L);
             fixture.base.setRowCount(50L);
             fixture.changelog.setRowCount(100L);
-            OlapTableStreamUpdate update = new OlapTableStreamUpdate(Map.of(10L, 100L), Map.of(10L, 200L));
+            OlapTableStreamUpdate update = new OlapTableStreamUpdate(
+                    Map.of(10L, new PartitionUpdate(100L, PartitionStreamState.initial().atOffset(200L))));
             fixture.stream.unprotectedPrepareStreamUpdate(update);
             Assertions.assertSame(previous, fixture.stream.getPartitionState(10L));
-            Assertions.assertEquals(200L, update.getPartitionUpdates().get(10L).second.getOffset());
-            Assertions.assertEquals(50L, update.getPartitionUpdates().get(10L).second.getBaseRowCount());
-            Assertions.assertEquals(100L, update.getPartitionUpdates().get(10L).second.getChangelogRowCount());
+            Assertions.assertEquals(200L, update.getPartitionUpdates().get(10L).getNextState().getOffset());
+            Assertions.assertEquals(50L, update.getPartitionUpdates().get(10L).getNextState().getBaseRowCount());
+            Assertions.assertEquals(100L, update.getPartitionUpdates().get(10L).getNextState().getChangelogRowCount());
             // A later BE report cannot change the tuple already captured by this update.
             fixture.base.setRowCount(70L);
             fixture.changelog.setRowCount(130L);
@@ -159,7 +164,8 @@ public class OlapTableStreamUpdateTest {
             Assertions.assertEquals(50L, committed.getBaseRowCount());
             Assertions.assertEquals(100L, committed.getChangelogRowCount());
             Assertions.assertTrue(committed.matches(fixture.source, 10L, 200L));
-            OlapTableStreamUpdate unchanged = new OlapTableStreamUpdate(Map.of(10L, 200L), Map.of(10L, 200L));
+            OlapTableStreamUpdate unchanged = new OlapTableStreamUpdate(
+                    Map.of(10L, new PartitionUpdate(200L, PartitionStreamState.initial().atOffset(200L))));
             fixture.stream.unprotectedPrepareStreamUpdate(unchanged);
             fixture.stream.unprotectedUpdateStreamUpdate(unchanged, 3L);
             Assertions.assertEquals(50L, fixture.stream.getPartitionState(10L).getBaseRowCount());
@@ -172,7 +178,8 @@ public class OlapTableStreamUpdateTest {
         try (CountsFixture fixture = new CountsFixture()) {
             fixture.base.setRowCount(50L);
             fixture.changelog.setRowCount(100L);
-            OlapTableStreamUpdate update = new OlapTableStreamUpdate(Map.of(), Map.of(10L, 200L));
+            OlapTableStreamUpdate update = new OlapTableStreamUpdate(
+                    Map.of(10L, new PartitionUpdate(null, PartitionStreamState.initial().atOffset(200L))));
             fixture.stream.unprotectedPrepareStreamUpdate(update);
             ByteArrayOutputStream bytes = new ByteArrayOutputStream();
             new TableStreamUpdateInfo(1L, 2L, update).write(new DataOutputStream(bytes));
@@ -196,27 +203,37 @@ public class OlapTableStreamUpdateTest {
 
     @Test
     public void testMixedPreviousOffsetsSurviveMergeAndPersistence() throws Exception {
-        OlapTableStreamUpdate update = new OlapTableStreamUpdate(Map.of(1L, -100L),
-                Map.of(1L, 200L, 2L, 200L));
-        update.merge(new OlapTableStreamUpdate(Map.of(3L, 300L), Map.of(3L, 400L)));
+        OlapTableStreamUpdate update = new OlapTableStreamUpdate(Map.of(
+                1L, new PartitionUpdate(-100L, PartitionStreamState.initial().atOffset(200L)),
+                2L, new PartitionUpdate(null, PartitionStreamState.initial().atOffset(200L))));
+        update.merge(new OlapTableStreamUpdate(
+                Map.of(3L, new PartitionUpdate(300L, PartitionStreamState.initial().atOffset(400L)))));
         // Match the old merge contract: an incoming partition without prev does not erase
         // an already recorded previous offset, while its next state replaces the older next.
-        update.merge(new OlapTableStreamUpdate(Map.of(), Map.of(1L, 250L)));
+        update.merge(new OlapTableStreamUpdate(
+                Map.of(1L, new PartitionUpdate(null, PartitionStreamState.initial().atOffset(250L)))));
         ByteArrayOutputStream bytes = new ByteArrayOutputStream();
         new TableStreamUpdateInfo(1L, 2L, update).write(new DataOutputStream(bytes));
         OlapTableStreamUpdate restored = (OlapTableStreamUpdate) TableStreamUpdateInfo.read(new DataInputStream(
                 new ByteArrayInputStream(bytes.toByteArray()))).getUpdate();
         Assertions.assertEquals(update.getPartitionUpdates(), restored.getPartitionUpdates());
-        Assertions.assertEquals(-100L, restored.getPartitionUpdates().get(1L).first);
-        Assertions.assertEquals(250L, restored.getPartitionUpdates().get(1L).second.getOffset());
-        Assertions.assertNull(restored.getPartitionUpdates().get(2L).first);
-        Assertions.assertEquals(300L, restored.getPartitionUpdates().get(3L).first);
-        Map<Long, PartitionStreamState> current = Map.of(1L, new PartitionStreamState(null, -1, 100L),
-                3L, new PartitionStreamState(300L, 1, null));
+        JsonObject serialized = GsonUtils.GSON.toJsonTree(update).getAsJsonObject();
+        Assertions.assertEquals(Set.of("clazz", "u"), serialized.keySet());
+        JsonObject first = serialized.getAsJsonObject("u").getAsJsonObject("1");
+        Assertions.assertEquals(Set.of("p", "n"), first.keySet());
+        Assertions.assertEquals(-100L, first.get("p").getAsLong());
+        Assertions.assertEquals(250L, first.getAsJsonObject("n").get("o").getAsLong());
+        Assertions.assertEquals(-100L, restored.getPartitionUpdates().get(1L).getPreviousOffset());
+        Assertions.assertEquals(250L, restored.getPartitionUpdates().get(1L).getNextState().getOffset());
+        Assertions.assertNull(restored.getPartitionUpdates().get(2L).getPreviousOffset());
+        Assertions.assertEquals(300L, restored.getPartitionUpdates().get(3L).getPreviousOffset());
+        Map<Long, PartitionStreamState> current = Map.of(1L, PartitionStreamState.restored(null, -1, 100L, -1L, -1L),
+                3L, PartitionStreamState.restored(300L, 1, null, -1L, -1L));
         restored.checkPartitionOffset("db", "s", current);
         Assertions.assertThrows(TransactionCommitFailedException.class,
                 () -> restored.checkPartitionOffset("db", "s", Map.of(
-                        1L, current.get(1L), 2L, new PartitionStreamState(150L, 1, null), 3L, current.get(3L))));
+                        1L, current.get(1L), 2L, PartitionStreamState.restored(
+                                150L, 1, null, -1L, -1L), 3L, current.get(3L))));
     }
 
     private static class CountsFixture implements AutoCloseable {

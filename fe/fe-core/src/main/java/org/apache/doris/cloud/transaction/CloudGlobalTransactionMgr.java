@@ -897,7 +897,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             pending.add(new TableStreamUpdateInfo(identity.getStreamDbId(), identity.getStreamId(), next));
             TableStreamUpdatePB.Builder serialized = update.toBuilder();
             for (TableStreamPartitionUpdatePB.Builder partition : serialized.getPartitionUpdatesBuilderList()) {
-                PartitionStreamState state = next.getPartitionUpdates().get(partition.getPartitionId()).second;
+                PartitionStreamState state = next.getPartitionUpdates().get(partition.getPartitionId()).getNextState();
                 partition.setBaseRowCount(state.getBaseRowCount());
                 partition.setChangelogRowCount(state.getChangelogRowCount());
             }

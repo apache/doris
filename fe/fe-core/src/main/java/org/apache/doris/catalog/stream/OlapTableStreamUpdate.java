@@ -19,53 +19,83 @@ package org.apache.doris.catalog.stream;
 
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.stream.OlapTableStream.PartitionStreamState;
-import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.transaction.TransactionCommitFailedException;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 
-import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
 
 public class OlapTableStreamUpdate extends AbstractTableStreamUpdate {
-    // partitionId -> (previous offset, next complete consumption state). A null previous offset
+    // partitionId -> previous offset and next complete consumption state. A null previous offset
     // denotes a partition with no recorded consumption offset, including newly added partitions.
-    @SerializedName(value = "updates")
-    private final Map<Long, Pair<Long, PartitionStreamState>> partitionUpdates;
+    @SerializedName(value = "u")
+    private final Map<Long, PartitionUpdate> partitionUpdates;
 
-    public OlapTableStreamUpdate() {
-        this.partitionUpdates = new HashMap<>();
+    public static class PartitionUpdate {
+        @SerializedName(value = "p")
+        private final Long previousOffset;
+        @SerializedName(value = "n")
+        private final PartitionStreamState nextState;
+
+        public PartitionUpdate(Long previousOffset, PartitionStreamState nextState) {
+            this.previousOffset = previousOffset;
+            this.nextState = nextState;
+        }
+
+        public Long getPreviousOffset() {
+            return previousOffset;
+        }
+
+        public PartitionStreamState getNextState() {
+            return nextState;
+        }
+
+        private PartitionUpdate withNextState(PartitionStreamState state) {
+            return new PartitionUpdate(previousOffset, state);
+        }
+
+        @Override
+        public boolean equals(Object other) {
+            if (!(other instanceof PartitionUpdate)) {
+                return false;
+            }
+            PartitionUpdate update = (PartitionUpdate) other;
+            return Objects.equals(previousOffset, update.previousOffset) && Objects.equals(nextState, update.nextState);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(previousOffset, nextState);
+        }
     }
 
-    public OlapTableStreamUpdate(Map<Long, Pair<Long, PartitionStreamState>> partitionUpdates) {
-        this.partitionUpdates = new HashMap<>(partitionUpdates);
+    private OlapTableStreamUpdate(int expectedPartitionCount) {
+        this.partitionUpdates = Maps.newHashMapWithExpectedSize(expectedPartitionCount);
     }
 
-    public OlapTableStreamUpdate(Map<Long, Long> prev, Map<Long, Long> next) {
-        this();
-        Preconditions.checkArgument(next.keySet().containsAll(prev.keySet()),
-                "Every previous offset must have a next consumption state");
-        next.forEach((id, offset) -> partitionUpdates.put(id,
-                Pair.of(prev.get(id), new PartitionStreamState(offset, -1, null))));
+    public OlapTableStreamUpdate(Map<Long, PartitionUpdate> partitionUpdates) {
+        this(partitionUpdates.size());
+        this.partitionUpdates.putAll(partitionUpdates);
     }
 
-    public Map<Long, Pair<Long, PartitionStreamState>> getPartitionUpdates() {
+    public Map<Long, PartitionUpdate> getPartitionUpdates() {
         return partitionUpdates;
     }
 
     /** Called before transaction persistence; all pending fields are then published together. */
     public void retainUnchangedCounts(Map<Long, PartitionStreamState> current) {
-        partitionUpdates.replaceAll((id, update) -> isUnchangedOffset(update.second, current.get(id))
-                ? Pair.of(update.first, current.get(id)) : update);
+        partitionUpdates.replaceAll((id, update) -> isUnchangedOffset(update.nextState, current.get(id))
+                ? update.withNextState(current.get(id)) : update);
     }
 
     public void captureRowCounts(OlapTable table, Map<Long, PartitionStreamState> current) {
-        partitionUpdates.replaceAll((id, update) -> isUnchangedOffset(update.second, current.get(id))
+        partitionUpdates.replaceAll((id, update) -> isUnchangedOffset(update.nextState, current.get(id))
                 || table.getPartition(id) == null ? update
-                : Pair.of(update.first, update.second.withRowCounts(table, id)));
+                : update.withNextState(update.nextState.withRowCounts(table, id)));
     }
 
     private boolean isUnchangedOffset(PartitionStreamState nextState, PartitionStreamState current) {
@@ -74,9 +104,9 @@ public class OlapTableStreamUpdate extends AbstractTableStreamUpdate {
     }
 
     public OlapTableStreamUpdate committedAt(long timestamp) {
-        OlapTableStreamUpdate committed = new OlapTableStreamUpdate();
+        OlapTableStreamUpdate committed = new OlapTableStreamUpdate(partitionUpdates.size());
         partitionUpdates.forEach((id, update) -> committed.partitionUpdates.put(id,
-                Pair.of(update.first, update.second.committedAt(timestamp, false))));
+                update.withNextState(update.nextState.committedAt(timestamp, false))));
         return committed;
     }
 
@@ -85,13 +115,14 @@ public class OlapTableStreamUpdate extends AbstractTableStreamUpdate {
         Preconditions.checkArgument(other instanceof OlapTableStreamUpdate);
         ((OlapTableStreamUpdate) other).getPartitionUpdates().forEach((id, update) ->
                 partitionUpdates.merge(id, update, (existing, incoming) ->
-                        Pair.of(incoming.first != null ? incoming.first : existing.first, incoming.second)));
+                        new PartitionUpdate(incoming.previousOffset != null
+                                ? incoming.previousOffset : existing.previousOffset, incoming.nextState)));
     }
 
     public void checkPartitionOffset(String dbName, String streamName, Map<Long, PartitionStreamState> partitionStates)
             throws UserException {
-        for (Map.Entry<Long, Pair<Long, PartitionStreamState>> entry : partitionUpdates.entrySet()) {
-            Long previousOffset = entry.getValue().first;
+        for (Map.Entry<Long, PartitionUpdate> entry : partitionUpdates.entrySet()) {
+            Long previousOffset = entry.getValue().previousOffset;
             PartitionStreamState state = partitionStates.get(entry.getKey());
             if (previousOffset != null) {
                 if (state != null && state.getHistoricalTso() != null) {
