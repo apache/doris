@@ -37,6 +37,7 @@
 #include "core/data_type/primitive_type.h"
 #include "core/data_type/storage_field_type.h"
 #include "core/data_type_serde/arrow_validation.h"
+#include "core/data_type_serde/bson_value_view.h"
 #include "core/data_type_serde/data_type_serde.h"
 #include "core/data_type_serde/decoded_column_view.h"
 #include "core/data_type_serde/orc_serde_utils.h"
@@ -2176,6 +2177,53 @@ Status DataTypeNumberSerDe<T>::write_column_to_pb(const IColumn& column, PValues
 }
 
 /// Explicit template instantiations - to avoid code bloat in headers.
+template <PrimitiveType T>
+Status DataTypeNumberSerDe<T>::decode_bson_value(IColumn& column, const BsonValueView& value,
+                                                 const BsonDecodeContext& context) const {
+    RETURN_IF_ERROR(context.validate(value));
+    const auto& v = value.value;
+    if (value.missing) {
+        return Status::InvalidArgument("Missing BSON value requires a nullable target");
+    }
+    if constexpr (T == TYPE_BOOLEAN) {
+        if (v.value_type != BSON_TYPE_BOOL) {
+            return Status::InvalidArgument("BSON boolean requires a boolean source");
+        }
+        assert_cast<ColumnType&>(column).insert_value(v.value.v_bool);
+    } else if constexpr (is_int(T)) {
+        if constexpr (T == TYPE_BIGINT) {
+            if (v.value_type == BSON_TYPE_DATE_TIME) {
+                assert_cast<ColumnType&>(column).insert_value(v.value.v_datetime);
+                return Status::OK();
+            }
+        }
+        if (v.value_type != BSON_TYPE_INT32 && v.value_type != BSON_TYPE_INT64) {
+            return Status::InvalidArgument("BSON integer requires an integer source");
+        }
+        int64_t n = v.value_type == BSON_TYPE_INT32 ? v.value.v_int32 : v.value.v_int64;
+        using Native = typename PrimitiveTypeTraits<T>::CppType;
+        if (n < std::numeric_limits<Native>::lowest() || n > std::numeric_limits<Native>::max()) {
+            return Status::InvalidArgument("BSON integer exceeds the target range");
+        }
+        assert_cast<ColumnType&>(column).insert_value(static_cast<Native>(n));
+    } else if constexpr (T == TYPE_DOUBLE || T == TYPE_FLOAT) {
+        if (v.value_type != BSON_TYPE_DOUBLE) {
+            return Status::InvalidArgument("BSON floating point requires a double source");
+        }
+        double n = v.value.v_double;
+        if constexpr (T == TYPE_FLOAT) {
+            if (std::isfinite(n) && static_cast<double>(static_cast<float>(n)) != n) {
+                return Status::InvalidArgument(
+                        "BSON double cannot be represented exactly as FLOAT");
+            }
+        }
+        assert_cast<ColumnType&>(column).insert_value(n);
+    } else {
+        return Status::NotSupported("BSON decoding is not supported for this numeric type");
+    }
+    return Status::OK();
+}
+
 template class DataTypeNumberSerDe<TYPE_BOOLEAN>;
 template class DataTypeNumberSerDe<TYPE_TINYINT>;
 template class DataTypeNumberSerDe<TYPE_SMALLINT>;

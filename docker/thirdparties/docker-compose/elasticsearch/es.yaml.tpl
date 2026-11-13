@@ -127,6 +127,8 @@ services:
       ES_8_HOST: "doris--es_8"
     command: [ "sh", "-c", "/mnt/scripts/es_init.sh" ]
     depends_on:
+      doris--es_5:
+        condition: service_healthy
       doris--es_6:
         condition: service_healthy
       doris--es_7:

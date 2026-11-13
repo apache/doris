@@ -22,6 +22,8 @@ import org.apache.doris.qe.ConnectScheduler;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.IOException;
+import java.net.ServerSocket;
 import java.util.Iterator;
 import java.util.ServiceLoader;
 
@@ -37,6 +39,10 @@ public final class FeServerStarterFactory {
 
     public static ServerStarter createThriftServerStarter(int port) {
         return provider().createThriftServerStarter(port);
+    }
+
+    public static ServerStarter createThriftServerStarter(ServerSocket listener) throws IOException {
+        return provider().createThriftServerStarter(listener);
     }
 
     public static ServerStarter createFlightServerStarter(int port) {

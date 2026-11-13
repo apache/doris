@@ -142,4 +142,6 @@ fi
 
 echo "[polaris-init] Permissions setup completed."
 echo "[polaris-init] Done."
+touch /tmp/polaris_initialized
+exec tail -f /dev/null
 
