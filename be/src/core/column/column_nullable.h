@@ -293,6 +293,9 @@ public:
 
     MutableColumnPtr get_nested_column_ptr() { return _nested_column->assert_mutable(); }
 
+    // Like Array/Map pointer slots: replacing a child requires a mutable parent.
+    ColumnPtr& get_nested_column_ptr_ref() { return _nested_column; }
+
     void clear() override {
         _null_map->clear();
         _nested_column->clear();
