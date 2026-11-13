@@ -37,8 +37,6 @@ class Status;
 std::string encode_variant_path_component(std::string_view key);
 Status decode_variant_path_component(std::string_view key, std::string* decoded);
 class PathInData;
-PathInData make_variant_storage_path(const std::string& root,
-                                     const std::vector<std::string>& components, bool escape_dots);
 
 /// Class that represents path in document, e.g. JSON.
 using PathInDataPtr = std::shared_ptr<PathInData>;

@@ -30,7 +30,6 @@
 #include <cstdint>
 #include <limits>
 #include <memory>
-#include <optional>
 #include <ostream>
 #include <string>
 #include <unordered_map>
@@ -44,7 +43,6 @@
 #include "core/column/column.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type_serde/data_type_serde.h"
-#include "exec/common/variant_util.h"
 #include "exec/scan/file_scanner_v2.h"
 #include "format_v2/table/lance_reader.h"
 #include "io/io_common.h"
@@ -1212,15 +1210,7 @@ Status RowIdStorageReader::read_doris_format_row(
                         "fetch request carries {} column descs for {} slots, slot {} has none",
                         fetch_columns.size(), slots.size(), slots[x].col_name());
             }
-            std::optional<TabletColumn> escaped_column;
-            if (tablet->tablet_schema()->variant_escape_dots_in_keys()) {
-                // Standalone request columns carry no encoding. Bind escaped paths such as
-                // v['a.b'] on a local copy; legacy tablets can use the request column directly.
-                escaped_column.emplace(fetch_columns[x]);
-                variant_util::inherit_variant_path_encoding(*tablet->tablet_schema(),
-                                                            *escaped_column);
-            }
-            const TabletColumn& read_column = escaped_column ? *escaped_column : fetch_columns[x];
+            const TabletColumn& read_column = fetch_columns[x];
             set_slot_access_paths(slots[x], read_column, iterator_item.storage_read_options);
             RETURN_IF_ERROR(segment->seek_and_read_by_rowid(read_column, &slots[x], row_ids, column,
                                                             iterator_item.storage_read_options,

@@ -1534,8 +1534,8 @@ TabletIndexes VariantColumnReader::find_subcolumn_tablet_indexes(const TabletCol
                                                  {.unique_id = -1,
                                                   .parent_unique_id = column.parent_unique_id(),
                                                   .path_info = index_path});
-        target_column.set_variant_escape_dots_in_keys(_path_encoding == 1);
-        variant_util::inherit_index(parent_index, sub_column_info.indexes, target_column);
+        variant_util::inherit_index(parent_index, sub_column_info.indexes, target_column,
+                                    _path_encoding == 1);
         for (const auto& index : sub_column_info.indexes) {
             add_variant_search_binding_diagnostic(
                     stats,

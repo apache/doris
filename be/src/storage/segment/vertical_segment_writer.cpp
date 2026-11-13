@@ -134,7 +134,7 @@ void VerticalSegmentWriter::_init_column_meta(ColumnMetaPB* meta, uint32_t colum
     if (column.is_variant_type()) {
         meta->set_variant_max_subcolumns_count(column.variant_max_subcolumns_count());
         meta->set_variant_enable_doc_mode(column.variant_enable_doc_mode());
-        if (!column.is_extracted_column() && column.variant_escape_dots_in_keys()) {
+        if (!column.is_extracted_column() && _tablet_schema->variant_escape_dots_in_keys()) {
             meta->set_variant_path_encoding(1);
         }
     }

@@ -2352,7 +2352,11 @@ TEST_F(CollectionStatisticsTest, CollectMatchUsesEncodedVariantPath) {
 
     const std::vector<std::vector<std::string>> paths {{"a.b"}, {"a", "b"}, {"a%2Eb"}, {"50%"}};
     for (size_t i = 0; i < paths.size(); ++i) {
-        auto path = make_variant_storage_path("v", paths[i], true);
+        std::vector<std::string> encoded;
+        for (const auto& component : paths[i]) {
+            encoded.push_back(encode_variant_path_component(component));
+        }
+        const PathInData path("v", encoded);
         TabletColumn leaf;
         leaf.set_unique_id(-1);
         leaf.set_name(path.get_path());
@@ -2374,13 +2378,16 @@ TEST_F(CollectionStatisticsTest, CollectMatchUsesEncodedVariantPath) {
         schema->append_index(std::move(index));
     }
     for (size_t i = 0; i < paths.size(); ++i) {
+        // FE sends escaped tables' slot paths in storage spelling.
+        std::vector<std::string> encoded;
         std::string display_name = "v";
         for (const auto& component : paths[i]) {
-            display_name += "." + component;
+            encoded.push_back(encode_variant_path_component(component));
+            display_name += "." + encoded.back();
         }
         const SlotId slot_id = 50 + i;
         runtime_state_->_mock_desc_tbl->add_slot_descriptor(slot_id, kRootUid, display_name,
-                                                            paths[i]);
+                                                            encoded);
         auto match = std::make_shared<collection_statistics::MockVExpr>(TExprNodeType::MATCH_PRED);
         match->_children.push_back(
                 std::make_shared<collection_statistics::MockVSlotRef>(display_name, slot_id));

@@ -67,19 +67,6 @@ Status decode_variant_path_component(std::string_view key, std::string* decoded)
     return Status::OK();
 }
 
-PathInData make_variant_storage_path(const std::string& root,
-                                     const std::vector<std::string>& components, bool escape_dots) {
-    if (!escape_dots) {
-        return PathInData(root, components);
-    }
-    std::vector<std::string> encoded;
-    encoded.reserve(components.size());
-    for (const auto& component : components) {
-        encoded.push_back(encode_variant_path_component(component));
-    }
-    return PathInData(root, encoded);
-}
-
 PathInData::PathInData(std::string_view path_, bool is_typed_) : path(path_), is_typed(is_typed_) {
     const char* begin = path.data();
     const char* end = path.data() + path.size();

@@ -433,6 +433,9 @@ Status OlapScanner::_init_tablet_reader_params(
     _tablet_reader_params.score_runtime = _score_runtime;
     _tablet_reader_params.output_columns = ((OlapScanLocalState*)_local_state)->_output_column_ids;
     _tablet_reader_params.ann_topn_runtime = _ann_topn_runtime;
+    for (const auto& ele : ((OlapScanLocalState*)_local_state)->_cast_types_for_variants) {
+        _tablet_reader_params.target_cast_type_for_variants[ele.first] = ele.second;
+    };
     for (const auto& predicates : slot_to_predicates) {
         for (const auto& predicate : predicates.second) {
             _tablet_reader_params.predicates.push_back(predicate->clone(predicate->column_id()));
@@ -587,10 +590,8 @@ Status OlapScanner::_init_variant_columns() {
         }
         // Materialized paths are absent from the persisted frontend schema. Build their transient
         // read-schema entries from the slot type.
-        const auto& parent = tablet_schema->column_by_uid(slot->col_unique_id());
-        const PathInData path =
-                make_variant_storage_path(parent.name_lower_case(), slot->column_paths(),
-                                          parent.variant_escape_dots_in_keys());
+        const PathInData path(tablet_schema->column_by_uid(slot->col_unique_id()).name_lower_case(),
+                              slot->column_paths());
         // Keep transient paths nullable so an absent path preserves the existing NULL result.
         TabletColumn subcol = variant_util::get_column_by_type(
                 make_nullable(slot->type()), path.get_path(),
@@ -620,10 +621,9 @@ Status OlapScanner::_init_read_schema() {
         int32_t index = 0;
         auto& tablet_schema = _tablet_reader_params.tablet_schema;
         if (slot->type()->get_primitive_type() == PrimitiveType::TYPE_VARIANT) {
-            const auto& parent = tablet_schema->column_by_uid(slot->col_unique_id());
-            index = tablet_schema->field_index(
-                    make_variant_storage_path(parent.name_lower_case(), slot->column_paths(),
-                                              parent.variant_escape_dots_in_keys()));
+            index = tablet_schema->field_index(PathInData(
+                    tablet_schema->column_by_uid(slot->col_unique_id()).name_lower_case(),
+                    slot->column_paths()));
         } else {
             index = slot->col_unique_id() >= 0 ? tablet_schema->field_index(slot->col_unique_id())
                                                : tablet_schema->field_index(slot->col_name());
@@ -634,13 +634,9 @@ Status OlapScanner::_init_read_schema() {
                     "field name is invalid. field={}, field_name_to_index={}, col_unique_id={}",
                     slot->col_name(), tablet_schema->get_all_field_names(), slot->col_unique_id());
         }
+
         const auto& column = tablet_schema->column(index);
         auto* olap_local_state = static_cast<OlapScanLocalState*>(_local_state);
-        const auto& cast_types = olap_local_state->_cast_types_for_variants;
-        if (auto it = cast_types.find(slot->col_name()); it != cast_types.end()) {
-            // Predicates use storage column names after logical paths have been encoded.
-            _tablet_reader_params.target_cast_type_for_variants[column.name()] = it->second;
-        }
         const auto& olap_scan_node = olap_local_state->olap_scan_node();
         if (olap_scan_node.__isset.extra_key_column_slot_ids &&
             olap_scan_node.extra_key_column_slot_ids.contains(slot->id())) {
@@ -657,6 +653,7 @@ Status OlapScanner::_init_read_schema() {
         if (!slot->all_access_paths().empty()) {
             _tablet_reader_params.all_access_paths.insert({unique_id, slot->all_access_paths()});
         }
+
         if (!slot->predicate_access_paths().empty()) {
             _tablet_reader_params.predicate_access_paths.insert(
                     {unique_id, slot->predicate_access_paths()});

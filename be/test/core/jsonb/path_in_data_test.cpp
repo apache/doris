@@ -260,8 +260,6 @@ TEST_F(PathInDataTest, EscapedComponentsAreStrictAndReversible) {
         std::string decoded;
         EXPECT_FALSE(decode_variant_path_component(key, &decoded).ok());
     }
-    EXPECT_EQ(make_variant_storage_path("v", {"a.b", "50%"}, true).get_path(), "v.a%2Eb.50%25");
-    EXPECT_EQ(make_variant_storage_path("v", {"a.b"}, false).get_parts().size(), 2);
 }
 
 } // namespace doris

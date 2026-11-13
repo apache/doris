@@ -9799,7 +9799,7 @@ TEST_F(VariantColumnWriterReaderTest, EscapedCompactionRejectsBadMarkersBeforePu
     }
 }
 
-TEST_F(VariantColumnWriterReaderTest, EscapedRowidFetchEncodesLogicalComponentsOnce) {
+TEST_F(VariantColumnWriterReaderTest, EscapedRowidFetchReadsStorageSpelledSlotPaths) {
     for (bool external : {false, true}) {
         init_variant_tablet(external ? 12347 : 12346, 1, false, false, false, 0, 0, true);
         _tablet_schema->mutable_column_by_uid(1).set_variant_sparse_hash_shard_count(3);
@@ -9814,8 +9814,9 @@ TEST_F(VariantColumnWriterReaderTest, EscapedRowidFetchEncodesLogicalComponentsO
         ASSERT_EQ(segments.size(), 1);
         TDescriptorTableBuilder descriptors;
         TTupleDescriptorBuilder tuple;
+        // FE sends escaped tables' slot paths in storage spelling.
         for (const auto& path :
-             std::vector<std::vector<std::string>> {{"a.b"}, {"a", "b"}, {"a%2Eb"}}) {
+             std::vector<std::vector<std::string>> {{"a%2Eb"}, {"a", "b"}, {"a%252Eb"}}) {
             auto slot = TSlotDescriptorBuilder()
                                 .type(TYPE_VARIANT)
                                 .nullable(true)

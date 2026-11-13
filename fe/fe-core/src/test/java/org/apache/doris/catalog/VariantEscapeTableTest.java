@@ -17,11 +17,16 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.analysis.DescriptorToThriftConverter;
+import org.apache.doris.analysis.SlotDescriptor;
+import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableLikeCommand;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.planner.Planner;
+import org.apache.doris.thrift.TSlotDescriptor;
 import org.apache.doris.utframe.TestWithFeService;
 
 import org.junit.jupiter.api.Assertions;
@@ -29,6 +34,8 @@ import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
+import java.util.TreeSet;
 
 public class VariantEscapeTableTest extends TestWithFeService {
     @Override
@@ -186,6 +193,32 @@ public class VariantEscapeTableTest extends TestWithFeService {
         Assertions.assertTrue(mismatch.getMessage().contains("async MV must use the same value"));
         Assertions.assertNull(Env.getCurrentInternalCatalog().getDbOrMetaException("variant_escape_table")
                 .getTableNullable("async_false"));
+    }
+
+    @Test
+    public void testScanSlotPathsUseStorageSpelling() throws Exception {
+        for (boolean escaped : new boolean[] {true, false}) {
+            String name = "slot_paths_" + escaped;
+            createTable("CREATE TABLE " + name + "(k INT, v VARIANT) DUPLICATE KEY(k) "
+                    + "DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES('replication_num'='1',"
+                    + "'variant_escape_dots_in_keys'='" + escaped + "')");
+            Planner planner = getSqlStmtExecutor(
+                    "SELECT v['a.b'], v['a']['b'], v['50%'] FROM " + name).planner();
+            Set<String> paths = new TreeSet<>();
+            for (TupleDescriptor tuple : planner.getDescTable().getTupleDescs()) {
+                for (SlotDescriptor slot : tuple.getSlots()) {
+                    TSlotDescriptor thrift = DescriptorToThriftConverter.toThrift(slot);
+                    if (thrift.isSetColumnPaths() && !thrift.getColumnPaths().isEmpty()) {
+                        paths.add(thrift.getColumnPaths() + "=" + thrift.getColName());
+                    }
+                }
+            }
+            // Escaped tables send storage components, so a literal dotted key and a nested path stay distinct.
+            Set<String> expected = escaped
+                    ? Set.of("[a%2Eb]=v.a%2Eb", "[a, b]=v.a.b", "[50%25]=v.50%25")
+                    : Set.of("[a.b]=v.a.b", "[a, b]=v.a.b", "[50%]=v.50%");
+            Assertions.assertEquals(new TreeSet<>(expected), paths, name);
+        }
     }
 
 }

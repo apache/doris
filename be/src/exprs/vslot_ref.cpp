@@ -75,15 +75,6 @@ Status VSlotRef::prepare(doris::RuntimeState* state, const doris::RowDescriptor&
     }
     _column_name = &slot_desc->col_name();
     _column_uniq_id = slot_desc->col_unique_id();
-    // Both ["a.b"] and ["a", "b"] can have the display name "v.a.b". Frame
-    // logical components by length, including empty keys, and retain the digest for clones.
-    _column_paths_digest = 0;
-    for (const auto& component : slot_desc->column_paths()) {
-        const auto size = component.size();
-        _column_paths_digest = HashUtil::hash64(&size, sizeof(size), _column_paths_digest);
-        _column_paths_digest =
-                HashUtil::hash64(component.data(), component.size(), _column_paths_digest);
-    }
     _column_id = desc.get_column_id(_slot_id);
     if (_column_id < 0) {
         return Status::Error<ErrorCode::INTERNAL_ERROR>(
@@ -141,8 +132,6 @@ Status VSlotRef::clone_node(VExprSPtr* cloned_expr) const {
     if (_column_id >= 0 && _column_name != nullptr) {
         *cloned_expr = VSlotRef::create_shared(_slot_id, _column_id, _column_uniq_id, _data_type,
                                                *_column_name);
-        auto* cloned_slot_ref = static_cast<VSlotRef*>(cloned_expr->get());
-        cloned_slot_ref->_column_paths_digest = _column_paths_digest;
         return Status::OK();
     }
     auto node = clone_texpr_node();
@@ -154,7 +143,6 @@ Status VSlotRef::clone_node(VExprSPtr* cloned_expr) const {
     auto* cloned_slot_ref = static_cast<VSlotRef*>(cloned.get());
     cloned_slot_ref->_column_id = _column_id;
     cloned_slot_ref->_column_uniq_id = _column_uniq_id;
-    cloned_slot_ref->_column_paths_digest = _column_paths_digest;
     cloned_slot_ref->_column_name = _column_name;
     *cloned_expr = std::move(cloned);
     return Status::OK();
@@ -191,8 +179,7 @@ bool VSlotRef::equals(const VExpr& other) {
 
 uint64_t VSlotRef::get_digest(uint64_t seed) const {
     seed = HashUtil::hash64(&_column_uniq_id, sizeof(int), seed);
-    seed = HashUtil::hash64(_column_name->c_str(), _column_name->size(), seed);
-    return HashUtil::hash64(&_column_paths_digest, sizeof(_column_paths_digest), seed);
+    return HashUtil::hash64(_column_name->c_str(), _column_name->size(), seed);
 }
 
 } // namespace doris

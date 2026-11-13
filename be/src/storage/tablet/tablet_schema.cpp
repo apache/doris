@@ -27,7 +27,6 @@
 
 #include <algorithm>
 #include <cctype>
-
 // IWYU pragma: no_include <bits/std_abs.h>
 #include <charconv>
 #include <cmath> // IWYU pragma: keep
@@ -45,7 +44,6 @@
 #include "core/string_ref.h"
 #include "core/types.h"
 #include "exec/common/hex.h"
-#include "exec/common/variant_util.h"
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 #include "exprs/aggregate/aggregate_function_state_union.h"
 #include "storage/index/index_writer.h" // IndexColumnWriter::check_support_*_index
@@ -891,7 +889,6 @@ int64_t TabletSchema::get_metadata_size() const {
 }
 
 void TabletSchema::append_column(TabletColumn column, ColumnType col_type) {
-    variant_util::inherit_variant_path_encoding(*this, column);
     if (column.is_key()) {
         _num_key_columns++;
     }
@@ -1052,12 +1049,7 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema, bool ignore_extrac
     }
     for (auto& column_pb : schema.column()) {
         TabletColumnPtr column;
-        // Encoding is in TabletSchemaPB, not in the ColumnPB cache key. Escaped Variant
-        // roots/extracted columns must own their in-memory encoding independently of the pool.
-        const bool escaped_column =
-                _variant_escape_dots_in_keys &&
-                (column_pb.type() == "VARIANT" || column_pb.has_column_path_info());
-        if (reuse_cache_column && !escaped_column) {
+        if (reuse_cache_column) {
             auto pair = TabletColumnObjectPool::instance()->insert(
                     deterministic_string_serialize(column_pb));
             column = pair.second;
@@ -1068,7 +1060,6 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema, bool ignore_extrac
         } else {
             column = std::make_shared<TabletColumn>();
             column->init_from_pb(column_pb);
-            variant_util::inherit_variant_path_encoding(*this, *column);
         }
         if (ignore_extracted_columns && column->is_extracted_column()) {
             continue;
@@ -1367,17 +1358,11 @@ void TabletSchema::build_current_tablet_schema(int64_t index_id, int32_t version
         TabletColumnPtr new_column;
         ColumnPB column_pb;
         column->to_schema_pb(&column_pb);
-        if (_variant_escape_dots_in_keys &&
-            (column->is_variant_type() || column->is_extracted_column())) {
-            // The pool key contains no table encoding; keep this copy private to the schema.
-            new_column = std::make_shared<TabletColumn>(column_pb);
-            variant_util::inherit_variant_path_encoding(*this, *new_column);
-        } else {
-            auto pair = TabletColumnObjectPool::instance()->insert(
-                    deterministic_string_serialize(column_pb));
-            new_column = pair.second;
-            TabletColumnObjectPool::instance()->release(pair.first);
-        }
+        auto pair = TabletColumnObjectPool::instance()->insert(
+                deterministic_string_serialize(column_pb));
+        new_column = pair.second;
+        // Release the handle quickly, because we use shared ptr to manage column
+        TabletColumnObjectPool::instance()->release(pair.first);
         _cols.emplace_back(std::move(new_column));
         _field_name_to_index.emplace(StringRef(_cols.back()->name()), _num_columns);
         _field_uniqueid_to_index[_cols.back()->unique_id()] = _num_columns;
@@ -1651,9 +1636,8 @@ bool TabletSchema::has_inverted_index_with_index_id(int64_t index_id) const {
 std::vector<const TabletIndex*> TabletSchema::inverted_indexs(
         int32_t col_unique_id, const std::string& suffix_path) const {
     std::vector<const TabletIndex*> result;
-    const int parent_index = field_index(col_unique_id);
-    const bool escaped = parent_index >= 0 && column(parent_index).variant_escape_dots_in_keys();
-    const std::string escaped_suffix = escape_for_path_name(suffix_path, escaped);
+    const std::string escaped_suffix =
+            escape_for_path_name(suffix_path, _variant_escape_dots_in_keys);
     auto it = _col_id_suffix_to_index.find(
             std::make_tuple(IndexType::INVERTED, col_unique_id, escaped_suffix));
     if (it != _col_id_suffix_to_index.end()) {
@@ -1693,13 +1677,12 @@ std::vector<const TabletIndex*> TabletSchema::inverted_indexs(const TabletColumn
 
 const TabletIndex* TabletSchema::ann_index(int32_t col_unique_id,
                                            const std::string& suffix_path) const {
-    const int parent_index = field_index(col_unique_id);
-    const bool escaped = parent_index >= 0 && column(parent_index).variant_escape_dots_in_keys();
     for (size_t i = 0; i < _indexes.size(); i++) {
         if (_indexes[i]->index_type() == IndexType::ANN) {
             for (int32_t id : _indexes[i]->col_unique_ids()) {
                 if (id == col_unique_id &&
-                    _indexes[i]->get_index_suffix() == escape_for_path_name(suffix_path, escaped)) {
+                    _indexes[i]->get_index_suffix() ==
+                            escape_for_path_name(suffix_path, _variant_escape_dots_in_keys)) {
                     return _indexes[i].get();
                 }
             }
@@ -1797,9 +1780,6 @@ bool operator==(const TabletColumn& a, const TabletColumn& b) {
     if (a._unique_id != b._unique_id) return false;
     if (a._col_name != b._col_name) return false;
     if (a._type != b._type) return false;
-    if (a._variant.escape_dots_in_keys != b._variant.escape_dots_in_keys) {
-        return false;
-    }
     if (a._is_key != b._is_key) return false;
     if (a._aggregation != b._aggregation) return false;
     if (a._is_nullable != b._is_nullable) return false;

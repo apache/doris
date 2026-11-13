@@ -1145,11 +1145,6 @@ TEST_F(TabletSchemaTest, EscapedVariantPropertyAndIndexSuffixRoundTrip) {
     column.set_unique_id(7);
     column.set_name("v");
     column.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
-    column.set_variant_escape_dots_in_keys(true);
-    ColumnPB pb;
-    column.to_schema_pb(&pb);
-    TabletColumn restored(pb);
-    EXPECT_FALSE(restored.variant_escape_dots_in_keys());
     TabletIndex index;
     index.set_escaped_escaped_index_suffix_path("v.a%2Eb_x");
     EXPECT_EQ(index.get_index_suffix(), "v%2Ea%2Eb%5Fx");
@@ -1161,7 +1156,7 @@ TEST_F(TabletSchemaTest, EscapedVariantPropertyAndIndexSuffixRoundTrip) {
     TabletSchemaPB schema_pb;
     schema_pb.set_variant_escape_dots_in_keys(true);
     schema.init_from_pb(schema_pb);
-    schema.append_column(restored);
+    schema.append_column(column);
     for (auto kind : {IndexType::INVERTED, IndexType::ANN}) {
         TabletIndexPB index_pb;
         index_pb.set_index_id(kind == IndexType::INVERTED ? 70 : 71);
@@ -1208,28 +1203,20 @@ TEST_F(TabletSchemaTest, MasterPersistedEncodingGoldenBytes) {
     EXPECT_EQ(ColumnPB::descriptor()->FindFieldByNumber(36), nullptr);
 }
 
-TEST_F(TabletSchemaTest, EscapedSchemaColumnsBypassPoolAndSurviveCopies) {
+TEST_F(TabletSchemaTest, EscapedSchemaPolicySurvivesCopies) {
     TabletSchemaPB pb;
     pb.set_keys_type(KeysType::DUP_KEYS);
     auto* root = pb.add_column();
     root->set_unique_id(7);
     root->set_name("v");
     root->set_type("VARIANT");
-    auto* child = pb.add_column();
-    child->set_unique_id(-1);
-    child->set_name("v.a%2Eb");
-    child->set_type("STRING");
-    PathInData("v.a%2Eb").to_protobuf(child->mutable_column_path_info(), 7);
     TabletSchema legacy;
     legacy.init_from_pb(pb, false, true);
     pb.set_variant_escape_dots_in_keys(true);
     TabletSchema escaped;
     escaped.init_from_pb(pb, false, true);
-    EXPECT_FALSE(legacy.column(0).variant_escape_dots_in_keys());
-    EXPECT_FALSE(legacy.column(1).variant_escape_dots_in_keys());
-    EXPECT_TRUE(escaped.column(0).variant_escape_dots_in_keys());
-    EXPECT_TRUE(escaped.column(1).variant_escape_dots_in_keys());
-    EXPECT_NE(legacy.columns()[0], escaped.columns()[0]);
+    EXPECT_FALSE(legacy.variant_escape_dots_in_keys());
+    EXPECT_TRUE(escaped.variant_escape_dots_in_keys());
     TabletSchema copied;
     copied.copy_from(escaped);
     copied.clear_columns();
@@ -1238,18 +1225,15 @@ TEST_F(TabletSchemaTest, EscapedSchemaColumnsBypassPoolAndSurviveCopies) {
     added.set_unique_id(8);
     added.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
     copied.append_column(added);
-    EXPECT_TRUE(copied.column(0).variant_escape_dots_in_keys());
-    const PathInData added_path("added");
-    EXPECT_EQ(copied.field_index(added_path), 0);
+    EXPECT_TRUE(copied.variant_escape_dots_in_keys());
     TabletSchemaPB persisted;
     copied.to_schema_pb(&persisted);
     TabletSchema reloaded;
     reloaded.init_from_pb(persisted, false, true);
-    EXPECT_TRUE(reloaded.column(0).variant_escape_dots_in_keys());
-    EXPECT_FALSE(legacy.column(0).variant_escape_dots_in_keys());
+    EXPECT_TRUE(reloaded.variant_escape_dots_in_keys());
 }
 
-TEST_F(TabletSchemaTest, CurrentAndAddedVariantColumnsInheritPersistedTablePolicy) {
+TEST_F(TabletSchemaTest, CurrentSchemaKeepsPersistedTablePolicy) {
     TabletSchemaPB pb;
     pb.set_keys_type(KeysType::DUP_KEYS);
     pb.set_variant_escape_dots_in_keys(true);
@@ -1260,21 +1244,11 @@ TEST_F(TabletSchemaTest, CurrentAndAddedVariantColumnsInheritPersistedTablePolic
     TabletSchema persisted;
     persisted.init_from_pb(pb, false, true);
     TabletColumn incoming(*root);
-    ColumnPB added_pb = *root;
-    added_pb.set_name("added");
-    added_pb.set_unique_id(8);
-    TabletColumn added(added_pb);
-    EXPECT_FALSE(incoming.variant_escape_dots_in_keys());
-    EXPECT_FALSE(added.variant_escape_dots_in_keys());
     OlapTableIndexSchema index;
-    index.columns = {&incoming, &added};
+    index.columns = {&incoming};
     TabletSchema current;
     current.build_current_tablet_schema(1, 2, &index, persisted);
     EXPECT_TRUE(current.variant_escape_dots_in_keys());
-    EXPECT_TRUE(current.column_by_uid(7).variant_escape_dots_in_keys());
-    EXPECT_TRUE(current.column_by_uid(8).variant_escape_dots_in_keys());
-    EXPECT_FALSE(incoming.variant_escape_dots_in_keys());
-    EXPECT_FALSE(added.variant_escape_dots_in_keys());
 }
 
 } // namespace doris

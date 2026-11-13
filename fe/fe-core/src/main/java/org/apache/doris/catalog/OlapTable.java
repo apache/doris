@@ -4187,6 +4187,19 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
 
     /** Look up an index using logical key components, encoding only at the storage metadata boundary. */
     public Index getInvertedIndex(Column column, List<String> subPath, String analyzer) {
+        return getInvertedIndexByStoragePath(column, toVariantStoragePath(subPath), analyzer);
+    }
+
+    /** Variant sub path components in storage spelling: each key is escaped when the table escapes dots. */
+    public List<String> toVariantStoragePath(List<String> subPath) {
+        if (subPath == null || !getVariantEscapeDotsInKeys()) {
+            return subPath;
+        }
+        return subPath.stream().map(PropertyAnalyzer::encodeVariantPathComponent).collect(Collectors.toList());
+    }
+
+    /** Look up an index using a sub path already in storage spelling, such as a translated slot's. */
+    public Index getInvertedIndexByStoragePath(Column column, List<String> storagePath, String analyzer) {
         if (indexes == null) {
             return null;
         }
@@ -4202,7 +4215,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
 
         List<Index> filteredInvertedIndexes = filterIndexesByAnalyzer(invertedIndexes, analyzer);
 
-        if (subPath == null || subPath.isEmpty()) {
+        if (storagePath == null || storagePath.isEmpty()) {
             return filteredInvertedIndexes.size() == 1 ? filteredInvertedIndexes.get(0)
                 : filteredInvertedIndexes.stream().filter(Index::isAnalyzedInvertedIndex).findFirst().orElse(null);
         }
@@ -4211,9 +4224,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         // The first match wins, the same as the BE writer that picks the physical index of a subcolumn
         // (variant_util.cpp), so a write and a query on one path land on the same index even when
         // the predefined patterns overlap.
-        String subPathString = getVariantEscapeDotsInKeys()
-                ? subPath.stream().map(PropertyAnalyzer::encodeVariantPathComponent).collect(Collectors.joining("."))
-                : String.join(".", subPath);
+        String subPathString = String.join(".", storagePath);
         String fieldPattern = "";
         if (column.getChildren() != null) {
             for (Column child : column.getChildren()) {
