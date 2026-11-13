@@ -92,6 +92,8 @@ private:
     friend class IcebergTableSinkOperatorTest;
     FRIEND_TEST(VIcebergTableWriterTest, RejectMissingPartitionSource);
     FRIEND_TEST(VIcebergTableWriterTest, ResolvesNestedPartitionSource);
+    FRIEND_TEST(VIcebergTableWriterTest, RejectsRequiredNullBeforeWriterCreation);
+    FRIEND_TEST(VIcebergTableWriterTest, RejectsNestedRequiredNullBeforeWriterCreation);
 
     // The currently active partition writer (may be VIcebergPartitionWriter or VIcebergSortWriter).
     // Updated during write() to track which writer received the most recent data.

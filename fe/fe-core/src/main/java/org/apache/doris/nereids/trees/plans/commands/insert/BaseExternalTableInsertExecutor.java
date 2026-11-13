@@ -172,8 +172,8 @@ public abstract class BaseExternalTableInsertExecutor extends AbstractInsertExec
         ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, finalErrorMsg);
 
         if (transactionType() == TransactionType.ICEBERG) {
-            // Iceberg rollback only clears transaction-local state and releases the generation
-            // lease retained by IcebergTransaction. It must remain possible after catalog reset,
+            // Iceberg rollback cleans reported files and releases the generation lease using
+            // the context retained by IcebergTransaction. It must remain possible after catalog reset,
             // when the mutable catalog authenticator is intentionally unavailable.
             try {
                 transactionManager.rollback(txnId);
