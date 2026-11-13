@@ -95,23 +95,18 @@ public class ThriftServer {
         return type;
     }
 
-    private void createSimpleServer() throws TTransportException {
-        TServerSocket.ServerSocketTransportArgs socketTransportArgs;
+    private TServerSocket createBlockingSocket(ServerSocket listener) throws TTransportException {
+        TServerSocket.ServerSocketTransportArgs args = new TServerSocket.ServerSocketTransportArgs()
+                .bindAddr(new InetSocketAddress(FrontendOptions.isBindIPV6() ? "::0" : "0.0.0.0", port))
+                .clientTimeout(Config.thrift_client_timeout_ms)
+                .backlog(Config.thrift_backlog_num)
+                .serverSocket(listener);
+        return new ImprovedTServerSocket(args);
+    }
 
-        if (FrontendOptions.isBindIPV6()) {
-            socketTransportArgs = new TServerSocket.ServerSocketTransportArgs()
-                    .bindAddr(new InetSocketAddress("::0", port))
-                    .clientTimeout(Config.thrift_client_timeout_ms)
-                    .backlog(Config.thrift_backlog_num);
-        } else {
-            socketTransportArgs = new TServerSocket.ServerSocketTransportArgs()
-                    .bindAddr(new InetSocketAddress("0.0.0.0", port))
-                    .clientTimeout(Config.thrift_client_timeout_ms)
-                    .backlog(Config.thrift_backlog_num);
-        }
-
-        TServer.Args args = new TServer.Args(new ImprovedTServerSocket(socketTransportArgs)).protocolFactory(
-                new TBinaryProtocol.Factory()).processor(processor);
+    private void createSimpleServer(ServerSocket listener) throws TTransportException {
+        TServer.Args args = new TServer.Args(createBlockingSocket(listener))
+                .protocolFactory(new TBinaryProtocol.Factory()).processor(processor);
         server = new TSimpleServer(args);
     }
 
@@ -140,22 +135,8 @@ public class ThriftServer {
         server = new TThreadedSelectorServer(args);
     }
 
-    private void createThreadPoolServer() throws TTransportException {
-        TServerSocket.ServerSocketTransportArgs socketTransportArgs;
-
-        if (FrontendOptions.isBindIPV6()) {
-            socketTransportArgs = new TServerSocket.ServerSocketTransportArgs()
-                    .bindAddr(new InetSocketAddress("::0", port))
-                    .clientTimeout(Config.thrift_client_timeout_ms)
-                    .backlog(Config.thrift_backlog_num);
-        } else {
-            socketTransportArgs = new TServerSocket.ServerSocketTransportArgs()
-                    .bindAddr(new InetSocketAddress("0.0.0.0", port))
-                    .clientTimeout(Config.thrift_client_timeout_ms)
-                    .backlog(Config.thrift_backlog_num);
-        }
-
-        TThreadPoolServer.Args serverArgs = new TThreadPoolServer.Args(new ImprovedTServerSocket(socketTransportArgs))
+    private void createThreadPoolServer(ServerSocket listener) throws TTransportException {
+        TThreadPoolServer.Args serverArgs = new TThreadPoolServer.Args(createBlockingSocket(listener))
                 .protocolFactory(new TBinaryProtocol.Factory())
                 .processor(processor);
         ThreadPoolExecutor threadPoolExecutor = ThreadPoolManager.newDaemonCacheThreadPool(
@@ -165,16 +146,24 @@ public class ThriftServer {
     }
 
     public void start() throws IOException {
+        start(null);
+    }
+
+    /** A blocking server can take ownership of a socket that is already listening. */
+    public void start(ServerSocket listener) throws IOException {
         try {
             switch (type) {
                 case SIMPLE:
-                    createSimpleServer();
+                    createSimpleServer(listener);
                     break;
                 case THREADED_SELECTOR:
+                    if (listener != null) {
+                        throw new IOException("THREADED_SELECTOR requires a nonblocking server socket");
+                    }
                     createThreadedServer();
                     break;
                 default:
-                    createThreadPoolServer();
+                    createThreadPoolServer(listener);
             }
         } catch (TTransportException ex) {
             LOG.warn("create thrift server failed.", ex);

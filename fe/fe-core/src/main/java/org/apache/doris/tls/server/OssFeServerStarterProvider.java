@@ -32,12 +32,22 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TProcessor;
 
+import java.io.IOException;
 import java.lang.reflect.Proxy;
+import java.net.ServerSocket;
 
 public class OssFeServerStarterProvider implements FeServerStarterProvider {
     @Override
     public ServerStarter createThriftServerStarter(int port) {
-        return new OssThriftServerStarter(port);
+        return new OssThriftServerStarter(port, null);
+    }
+
+    @Override
+    public ServerStarter createThriftServerStarter(ServerSocket listener) throws IOException {
+        if (ThriftServer.THREADED_SELECTOR.equalsIgnoreCase(Config.thrift_server_type)) {
+            return FeServerStarterProvider.super.createThriftServerStarter(listener);
+        }
+        return new OssThriftServerStarter(listener.getLocalPort(), listener);
     }
 
     @Override
@@ -53,10 +63,12 @@ public class OssFeServerStarterProvider implements FeServerStarterProvider {
     private static final class OssThriftServerStarter implements ServerStarter {
         private static final Logger LOG = LogManager.getLogger(OssThriftServerStarter.class);
         private final int port;
+        private final ServerSocket listener;
         private ThriftServer server;
 
-        private OssThriftServerStarter(int port) {
+        private OssThriftServerStarter(int port, ServerSocket listener) {
             this.port = port;
+            this.listener = listener;
         }
 
         @Override
@@ -89,7 +101,7 @@ public class OssFeServerStarterProvider implements FeServerStarterProvider {
                     });
             TProcessor processor = new FrontendService.Processor<>(instance);
             server = new ThriftServer(port, processor);
-            server.start();
+            server.start(listener);
             LOG.info("FE thrift starter started on {}", port);
         }
 
