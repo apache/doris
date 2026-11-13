@@ -89,9 +89,15 @@ public:
     void release_oversized() {
         DCHECK_EQ(_tokens.size(), 0);
         if (capacity_bytes() > ANALYZER_SCRATCH_HIGH_WATER_BYTES) {
-            std::vector<TokenRef>().swap(_tokens);
-            _terms.clear(/*delete_head=*/true);
+            release_all();
         }
+    }
+
+    // Drops the tokens and frees all of the batch's memory, for a consumer that is done with the
+    // batch or gives up on a value in the middle of it. The batch stays usable.
+    void release_all() {
+        std::vector<TokenRef>().swap(_tokens);
+        _terms.clear(/*delete_head=*/true);
     }
 
 private:

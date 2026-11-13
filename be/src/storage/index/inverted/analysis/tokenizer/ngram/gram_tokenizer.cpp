@@ -17,39 +17,34 @@
 
 #include "storage/index/inverted/analysis/tokenizer/ngram/gram_tokenizer.h"
 
-#include "common/logging.h"
+#include <algorithm>
+
+#include "storage/index/inverted/analysis/scratch.h"
 
 namespace doris::segment_v2::inverted_index {
 
-void GramTokenizer::reset() {
-    DorisTokenizer::reset();
+void GramTokenizer::reset(std::string_view text) {
+    release_oversized_scratch(_grams);
+    _extractor.release_oversized();
     _grams.clear();
     _next = 0;
-    _char_buffer = nullptr;
-    _char_length = 0;
-    if (_in == nullptr || _in->size() == 0) {
+    if (text.empty()) {
         return;
     }
-    // Same as NGramTokenizer::reset(): read the whole input in one go
-    // (ngram_tokenizer.cpp:83-94).
-    _char_length = _in->read(reinterpret_cast<const void**>(&_char_buffer), 0,
-                             static_cast<int32_t>(_in->size()));
-    // The read must cover everything: one byte short means a handful of grams fewer, which
-    // breaks the invariant "the grams stored in the index are a superset of the grams the query
-    // side needs" outright (rows go missing with no way to notice).
-    DCHECK_EQ(_char_length, static_cast<int32_t>(_in->size()));
-    if (_char_length <= 0 || _char_buffer == nullptr) {
-        return;
-    }
-    _extractor.extract(std::string_view(_char_buffer, _char_length), &_grams);
+    _extractor.extract(text, &_grams);
 }
 
-Token* GramTokenizer::next(Token* token) {
-    if (_next >= _grams.size()) {
-        return nullptr;
+bool GramTokenizer::next_batch(TokenBatch& batch) {
+    batch.clear();
+    const size_t end = std::min(_grams.size(), _next + kBatchTokens);
+    for (; _next < end; ++_next) {
+        batch.push(_grams[_next], 1);
     }
-    set(token, _grams[_next++], 1);
-    return token;
+    return batch.size() != 0;
+}
+
+size_t GramTokenizer::reserved_bytes() const {
+    return _grams.capacity() * sizeof(std::string_view) + _extractor.reserved_bytes();
 }
 
 } // namespace doris::segment_v2::inverted_index
