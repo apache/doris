@@ -42,6 +42,7 @@ import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TSyncCloudTabletStatsRequest;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -143,6 +144,11 @@ public class CloudTabletStatMgr extends MasterDaemon {
                 return false;
             }
             CloudReplica cloudReplica = (CloudReplica) replicas.get(0);
+            // Checkpoints retain polling timers but not report validity. A recovered idle tablet
+            // at the infinite interval must fetch a valid count before backoff can apply again.
+            if (!cloudReplica.isRowCountReported()) {
+                return true;
+            }
             int index = cloudReplica.getStatsIntervalIndex();
             if (index >= DEFAULT_INTERVAL_LADDER_MS.length) {
                 LOG.warn("get tablet stats interval index out of range, tabletId: {}, index: {}",
@@ -274,7 +280,8 @@ public class CloudTabletStatMgr extends MasterDaemon {
                 .build();
     }
 
-    private Future<Void> submitGetTabletStatsTask(GetTabletStatsRequest req, boolean activeUpdate) {
+    @VisibleForTesting
+    Future<Void> submitGetTabletStatsTask(GetTabletStatsRequest req, boolean activeUpdate) {
         return GET_TABLET_STATS_THREAD_POOL.submit(() -> {
             GetTabletStatsResponse resp;
             try {
