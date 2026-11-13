@@ -153,6 +153,9 @@ if [[ ${enable_hdfs} -eq 1 ]]; then
     export CLASSPATH="${DORIS_HOME}/conf/:${DORIS_CLASSPATH}:${CLASSPATH}"
 
     export LD_LIBRARY_PATH="${JAVA_HOME}/lib/server:${LD_LIBRARY_PATH}"
+    if [[ "$(uname -s)" == 'Darwin' ]]; then
+        export DYLD_LIBRARY_PATH="${JAVA_HOME}/lib/server:${JAVA_HOME}/lib:${DYLD_LIBRARY_PATH}"
+    fi
 
     ## set libhdfs3 conf
     if [[ -f "${DORIS_HOME}/conf/hdfs-site.xml" ]]; then
@@ -187,7 +190,12 @@ if [[ "${RUN_DAEMON}" -eq 1 ]]; then
     # append 10 blank lines to ensure the following tail -n10 works correctly
     printf "\n\n\n\n\n\n\n\n\n\n" >>"${out_file}"
     echo "$(date +'%F %T') start with args: $*" >>"${out_file}"
-    nohup "${bin}" "$@" >>"${out_file}" 2>&1 &
+    if [[ "$(uname -s)" == 'Darwin' ]]; then
+        # System nohup strips DYLD_* on macOS; pass the value as an env argument.
+        nohup env DYLD_LIBRARY_PATH="${DYLD_LIBRARY_PATH}" "${bin}" "$@" >>"${out_file}" 2>&1 &
+    else
+        nohup "${bin}" "$@" >>"${out_file}" 2>&1 &
+    fi
     echo "wait and check ${role} start successfully" >>"${out_file}"
     sleep 3
     tail -n12 "${out_file}" | grep 'successfully started service'
