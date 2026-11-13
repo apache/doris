@@ -22,14 +22,13 @@
 // IWYU pragma: no_include <bits/chrono.h>
 
 #include <chrono> // IWYU pragma: keep
-#include <map>
 
 #include "common/status.h"
 #include "core/block/block.h"
 #include "core/column/column.h"
 #include "core/data_type/data_type_factory.hpp"
-#include "core/value/decimalv2_value.h"
 #include "exec/sink/autoinc_buffer.h"
+#include "exec/sink/tablet_column_validator.h"
 #include "exprs/vexpr_fwd.h"
 #include "runtime/descriptors.h"
 #include "util/bitmap.h"
@@ -39,7 +38,7 @@ namespace doris {
 class OlapTableBlockConvertor {
 public:
     OlapTableBlockConvertor(TupleDescriptor* output_tuple_desc)
-            : _output_tuple_desc(output_tuple_desc) {}
+            : _output_tuple_desc(output_tuple_desc), _tablet_validate_context(_filter_map) {}
 
     Status validate_and_convert_block(RuntimeState* state, Block* input_block,
                                       std::shared_ptr<Block>& block,
@@ -59,28 +58,10 @@ public:
     AutoIncIDAllocator& auto_inc_id_allocator() { return _auto_inc_id_allocator; }
 
 private:
-    template <bool is_min>
-    DecimalV2Value _get_decimalv2_min_or_max(const DataTypePtr& type);
-
-    template <typename DecimalType, bool IsMin>
-    DecimalType _get_decimalv3_min_or_max(const DataTypePtr& type);
-
-    Status _validate_column(RuntimeState* state, const DataTypePtr& type, ColumnPtr& column,
-                            fmt::memory_buffer& error_prefix, const size_t row_count,
-                            IColumn::Permutation* rows = nullptr) {
-        RETURN_IF_CATCH_EXCEPTION({
-            return _internal_validate_column(state, type, column, error_prefix, row_count, rows);
-        });
-    }
-
-    Status _internal_validate_column(RuntimeState* state, const DataTypePtr& type,
-                                     ColumnPtr& column, fmt::memory_buffer& error_prefix,
-                                     const size_t row_count, IColumn::Permutation* rows = nullptr);
-
     // make input data valid for OLAP table
     // return number of invalid/filtered rows.
     // invalid row number is set in Bitmap
-    Status _validate_data(RuntimeState* state, Block* block, const size_t rows, int& filtered_rows);
+    Status _validate_data(Block* block, const size_t rows, int& filtered_rows);
 
     // some output column of output expr may have different nullable property with dest slot desc
     // so here need to do the convert operation
@@ -92,19 +73,9 @@ private:
 
     TupleDescriptor* _output_tuple_desc = nullptr;
 
-    std::map<std::pair<int, int>, DecimalV2Value> _max_decimalv2_val;
-    std::map<std::pair<int, int>, DecimalV2Value> _min_decimalv2_val;
-
-    std::map<int, int32_t> _max_decimal32_val;
-    std::map<int, int32_t> _min_decimal32_val;
-    std::map<int, int64_t> _max_decimal64_val;
-    std::map<int, int64_t> _min_decimal64_val;
-    std::map<int, int128_t> _max_decimal128_val;
-    std::map<int, int128_t> _min_decimal128_val;
-    std::map<int, wide::Int256> _max_decimal256_val;
-    std::map<int, wide::Int256> _min_decimal256_val;
-
     std::vector<char> _filter_map;
+
+    TabletValidateContext _tablet_validate_context;
 
     int64_t _validate_data_ns = 0;
     int64_t _num_filtered_rows = 0;
