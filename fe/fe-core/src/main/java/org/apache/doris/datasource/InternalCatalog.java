@@ -129,7 +129,6 @@ import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.nereids.stats.SimpleAggCacheMgr;
 import org.apache.doris.nereids.trees.plans.commands.DropCatalogRecycleBinCommand.IdType;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 import org.apache.doris.persist.AlterDatabasePropertyInfo;
@@ -1043,6 +1042,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         Env.getCurrentEnv().getQueryStats().clear(Env.getCurrentInternalCatalog().getId(), db.getId(), table.getId());
         table.removeTableIdentifierFromPrimaryTable();
         db.unregisterTable(table.getId());
+        Env.getCurrentEnv().onTableChanged(table);
         StopWatch watch = StopWatch.createStarted();
         Env.getCurrentRecycleBin().recycleTable(db.getId(), table, isReplay, isForceDrop, recycleTime);
         watch.stop();
@@ -2084,7 +2084,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
         }
         if (partition != null && !isTempPartition) {
-            SimpleAggCacheMgr.internalInstance().invalidateTable(olapTable.getId());
+            Env.getCurrentEnv().onTableChanged(olapTable);
         }
 
         // Here, we only wait for the EventProcessor to finish processing the event,
@@ -2127,7 +2127,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 }
             }
             if (partition != null && !info.isTempPartition()) {
-                SimpleAggCacheMgr.internalInstance().invalidateTable(olapTable.getId());
+                Env.getCurrentEnv().onTableChanged(olapTable);
             }
             olapTable.updateVisibleVersionAndTime(info.getVersion(), info.getVersionTime());
             // Replay set new partition loaded flag to true for auto analyze.
@@ -4011,6 +4011,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             olapTable.resetVisibleVersion();
         }
 
+        Env.getCurrentEnv().onTableChanged(olapTable);
         return oldPartitions;
     }
 

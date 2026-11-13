@@ -69,6 +69,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class MTMV extends OlapTable {
     private static final Logger LOG = LogManager.getLogger(MTMV.class);
+    private static final int MAX_REWRITE_CACHE_BUILD_ATTEMPTS = 4;
     private ReentrantReadWriteLock mvRwLock;
 
     @SerializedName("ri")
@@ -489,7 +490,7 @@ public class MTMV extends OlapTable {
         boolean sessionVarsMatch = SessionVarGuardRewriter.checkSessionVariablesMatch(
                 currentSessionVars, this.sessionVariables);
 
-        while (true) {
+        for (int attempt = 0; attempt < MAX_REWRITE_CACHE_BUILD_ATTEMPTS; attempt++) {
             long cacheGeneration;
             readMvLock();
             try {
@@ -524,6 +525,9 @@ public class MTMV extends OlapTable {
                 writeMvUnlock();
             }
         }
+        // MV rewriting and derived traits are optional; callers already skip them on analysis failure.
+        throw new org.apache.doris.nereids.exceptions.AnalysisException(
+                "Failed to build rewrite cache for MV " + getName() + " because metadata kept changing");
     }
 
     /** Invalidate both cache variants and reject any older build still in progress. */
