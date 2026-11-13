@@ -16,18 +16,11 @@
 // under the License.
 
 export function findProfileMatches(text: string, search: string): number[] {
-  const needle = search.trim().toLocaleLowerCase();
+  const needle = search.trim();
   if (!needle) return [];
-  const haystack = text.toLocaleLowerCase();
-  const matches: number[] = [];
-  let offset = 0;
-  while (offset <= haystack.length - needle.length) {
-    const index = haystack.indexOf(needle, offset);
-    if (index < 0) break;
-    matches.push(index);
-    offset = index + needle.length;
-  }
-  return matches;
+  // Case conversion can change string length; match the original text to preserve textarea offsets.
+  const literal = needle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return Array.from(text.matchAll(new RegExp(literal, 'giu')), (match) => match.index);
 }
 
 export async function copyProfileText(text: string): Promise<void> {
