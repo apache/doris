@@ -91,6 +91,7 @@ public class IcebergDeleteExecutor extends BaseExternalTableInsertExecutor {
         IcebergTransaction transaction = (IcebergTransaction) transactionManager.getTransaction(txnId);
         // DELETE conflict validation must start from the same retained generation scanned by BE.
         transaction.beginDelete((IcebergExternalTable) table, targetIcebergTable);
+        transaction.addCommitLocations(dataSink.toThrift());
         transaction.setRewrittenDeleteFilesByReferencedDataFile(
                 rewritableDeletePlan.getDeleteFilesByReferencedDataFile());
         if (conflictDetectionFilter.isPresent()) {

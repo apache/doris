@@ -93,6 +93,7 @@ public class IcebergMergeExecutor extends BaseExternalTableInsertExecutor {
     protected void beforeExec() throws UserException {
         IcebergTransaction transaction = (IcebergTransaction) transactionManager.getTransaction(txnId);
         transaction.beginMerge((IcebergExternalTable) table, targetIcebergTable, insertCtx);
+        transaction.addCommitLocations(dataSink.toThrift());
         transaction.setRewrittenDeleteFilesByReferencedDataFile(
                 rewritableDeletePlan.getDeleteFilesByReferencedDataFile());
         if (conflictDetectionFilter.isPresent()) {

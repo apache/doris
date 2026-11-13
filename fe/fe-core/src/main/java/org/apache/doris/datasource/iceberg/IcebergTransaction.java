@@ -27,6 +27,7 @@ import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.iceberg.helper.IcebergWriterHelper;
 import org.apache.doris.nereids.trees.plans.commands.insert.IcebergInsertCommandContext;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertCommandContext;
+import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TFileContent;
 import org.apache.doris.thrift.TIcebergCommitData;
 import org.apache.doris.thrift.TUpdateMode;
@@ -78,6 +79,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.BooleanSupplier;
 
 public class IcebergTransaction implements Transaction {
@@ -92,6 +94,7 @@ public class IcebergTransaction implements Transaction {
 
     private org.apache.iceberg.Transaction transaction;
     private final List<TIcebergCommitData> commitDataList = Lists.newArrayList();
+    private final Set<String> commitLocations = new HashSet<>();
     private Optional<Expression> conflictDetectionFilter = Optional.empty();
 
     private IcebergInsertCommandContext insertCtx;
@@ -114,6 +117,42 @@ public class IcebergTransaction implements Transaction {
     public void updateIcebergCommitData(List<TIcebergCommitData> commitDataList) {
         synchronized (this) {
             this.commitDataList.addAll(commitDataList);
+        }
+    }
+
+    /** Register the raw locations actually sent to BE, including every group of a rewrite. */
+    public synchronized void addCommitLocations(TDataSink sink) {
+        switch (sink.getType()) {
+            case ICEBERG_TABLE_SINK:
+                addCommitLocation(sink.getIcebergTableSink().getOriginalOutputPath());
+                break;
+            case ICEBERG_DELETE_SINK:
+                addCommitLocation(sink.getIcebergDeleteSink().getTableLocation());
+                break;
+            case ICEBERG_MERGE_SINK:
+                addCommitLocation(sink.getIcebergMergeSink().getOriginalOutputPath());
+                addCommitLocation(sink.getIcebergMergeSink().getTableLocation());
+                break;
+            default:
+                throw new IllegalArgumentException("Not an Iceberg sink: " + sink.getType());
+        }
+    }
+
+    private void addCommitLocation(String location) {
+        Preconditions.checkArgument(location != null && !location.isEmpty(),
+                "Iceberg sink is missing its raw commit location");
+        commitLocations.add(location.endsWith("/") ? location : location + "/");
+    }
+
+    // These branches do not acknowledge file reports. Validate after collection, before staging
+    // Iceberg updates, so rejection fails the statement through its normal transaction error path.
+    private synchronized void validateCommitLocations() {
+        for (TIcebergCommitData data : commitDataList) {
+            String path = data.getFilePath();
+            Preconditions.checkState(path != null && !path.isEmpty(),
+                    "Iceberg commit data is missing its file path");
+            Preconditions.checkState(commitLocations.stream().anyMatch(path::startsWith),
+                    "Iceberg commit file %s is outside the sink locations %s", path, commitLocations);
         }
     }
 
@@ -244,6 +283,7 @@ public class IcebergTransaction implements Transaction {
      */
     public void finishRewrite() {
         try {
+            validateCommitLocations();
             writableAuthenticator().execute(() -> {
                 convertCommitDataListToDataFilesToAdd();
                 if (LOG.isDebugEnabled()) {
@@ -451,6 +491,7 @@ public class IcebergTransaction implements Transaction {
             LOG.debug("iceberg table {} delete operation finished!", nameMapping.getFullLocalName());
         }
         try {
+            validateCommitLocations();
             writableAuthenticator().execute(() -> {
                 updateManifestAfterDelete();
             });
@@ -468,6 +509,7 @@ public class IcebergTransaction implements Transaction {
             LOG.debug("iceberg table {} merge operation finished!", nameMapping.getFullLocalName());
         }
         try {
+            validateCommitLocations();
             writableAuthenticator().execute(() -> {
                 updateManifestAfterMerge();
             });
@@ -628,6 +670,7 @@ public class IcebergTransaction implements Transaction {
             LOG.info("iceberg table {} insert table finished!", nameMapping.getFullLocalName());
         }
         try {
+            validateCommitLocations();
             writableAuthenticator().execute(() -> {
                 //create and start the iceberg transaction
                 TUpdateMode updateMode = TUpdateMode.APPEND;
