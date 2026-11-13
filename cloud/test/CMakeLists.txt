@@ -55,6 +55,7 @@ add_executable(meta_reader_test meta_reader_test.cpp)
 
 add_executable(meta_service_test
    meta_service_test.cpp
+   meta_service_large_bitmap_test.cpp
    meta_service_helper_test.cpp
    meta_service_job_test.cpp
    meta_service_http_test.cpp
