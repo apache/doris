@@ -28,6 +28,7 @@
 
 #include "cloud/cloud_tablet.h"
 #include "common/status.h"
+#include "io/obj_storage/obj_storage_config.h"
 #include "storage/rowset/rowset_fwd.h"
 #include "storage/rowset/rowset_meta.h"
 #include "util/s3_util.h"
@@ -52,8 +53,11 @@ class TabletIndexPB;
 class HostLevelMSRpcRateLimiters;
 class MSBackpressureHandler;
 
+// An object storage vault whose configuration is rejected keeps its place with the error: in
+// non-vault mode the last entry is the latest storage, so dropping it would select an older one.
 using StorageVaultInfos = std::vector<
-        std::tuple<std::string, std::variant<S3Conf, HdfsVaultInfo>, StorageVaultPB_PathFormat>>;
+        std::tuple<std::string, std::variant<Result<io::ObjStorageConfig>, HdfsVaultInfo>,
+                   StorageVaultPB_PathFormat>>;
 
 // run tasks in bthread with concurrency and wait until all tasks done
 // it stops running tasks if there are any tasks return !ok, leaving some tasks untouched

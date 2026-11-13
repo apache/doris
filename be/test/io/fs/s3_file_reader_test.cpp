@@ -15,8 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "io/fs/s3_file_reader.h"
-
 #include <aws/s3/S3Client.h>
 #include <aws/s3/model/GetObjectRequest.h>
 #include <aws/s3/model/GetObjectResult.h>
@@ -31,9 +29,11 @@
 
 #include "common/config.h"
 #include "cpp/obj-client/s3_obj_storage_client.h"
+#include "io/fs/obj_storage_file_reader.h"
 #include "io/fs/read_io_trace_test_util.h"
-#include "io/fs/s3_file_system.h"
 #include "io/io_common.h"
+#include "io/obj_storage/obj_client_holder.h"
+#include "io/obj_storage/obj_storage_config.h"
 #include "runtime/runtime_profile.h"
 #include "util/countdown_latch.h"
 #include "util/defer_op.h"
@@ -63,7 +63,7 @@ Aws::S3::Model::GetObjectOutcome successful_read(const Aws::S3::Model::GetObject
 
 class S3FileReaderTest : public testing::Test {
 protected:
-    static void SetUpTestSuite() { S3ClientFactory::instance(); }
+    static void SetUpTestSuite() { AwsSdkManager::instance(); }
 };
 
 TEST_F(S3FileReaderTest, ConcurrentReadsCollectAllStatistics) {
@@ -73,10 +73,10 @@ TEST_F(S3FileReaderTest, ConcurrentReadsCollectAllStatistics) {
     EXPECT_CALL(*client, GetObject(testing::_))
             .Times(thread_count * reads_per_thread)
             .WillRepeatedly(successful_read);
-    auto holder = std::make_shared<ObjClientHolder>(S3ClientConf {});
-    holder->_client = std::make_shared<S3ObjStorageClient>(client);
+    auto holder = std::make_shared<ObjClientHolder>(ObjClientConfig {});
+    holder->set_client_for_test(std::make_shared<S3ObjStorageClient>(client));
     RuntimeProfile profile("parallel-s3-reads");
-    S3FileReader reader(holder, "bucket", "key", 16 * thread_count, &profile);
+    ObjStorageFileReader reader(holder, "bucket", "key", 16 * thread_count, &profile);
     std::unique_ptr<ThreadPool> pool;
     ASSERT_TRUE(
             ThreadPoolBuilder("S3FileReaderTest").set_max_threads(thread_count).build(&pool).ok());
@@ -114,9 +114,9 @@ TEST_F(S3FileReaderTest, TraceClipsEOFAndLabelsReadSources) {
     ReadIOTraceCapture trace;
     auto client = std::make_shared<MockRangeReadS3Client>();
     EXPECT_CALL(*client, GetObject(testing::_)).Times(4).WillRepeatedly(successful_read);
-    auto holder = std::make_shared<ObjClientHolder>(S3ClientConf {});
-    holder->_client = std::make_shared<S3ObjStorageClient>(client);
-    S3FileReader reader(holder, "bucket", "key", 32, nullptr);
+    auto holder = std::make_shared<ObjClientHolder>(ObjClientConfig {});
+    holder->set_client_for_test(std::make_shared<S3ObjStorageClient>(client));
+    ObjStorageFileReader reader(holder, "bucket", "key", 32, nullptr);
     IOContext context;
     context.reader_type = ReaderType::READER_QUERY;
     std::string buffer(32, '\0');
@@ -161,10 +161,10 @@ TEST_F(S3FileReaderTest, CollectsRetryStatistics) {
                 return Aws::S3::Model::GetObjectOutcome(std::move(error));
             })
             .WillOnce(successful_read);
-    auto holder = std::make_shared<ObjClientHolder>(S3ClientConf {});
-    holder->_client = std::make_shared<S3ObjStorageClient>(client);
+    auto holder = std::make_shared<ObjClientHolder>(ObjClientConfig {});
+    holder->set_client_for_test(std::make_shared<S3ObjStorageClient>(client));
     RuntimeProfile profile("retry-s3-read");
-    S3FileReader reader(holder, "bucket", "key", 16, &profile);
+    ObjStorageFileReader reader(holder, "bucket", "key", 16, &profile);
     std::string buffer(16, '\0');
     size_t bytes_read = 0;
     IOContext io_context;

@@ -63,9 +63,10 @@
 #include "io/fs/file_system.h"
 #include "io/fs/hdfs_file_system.h"
 #include "io/fs/local_file_system.h"
+#include "io/fs/obj_storage_file_system.h"
 #include "io/fs/path.h"
 #include "io/fs/remote_file_system.h"
-#include "io/fs/s3_file_system.h"
+#include "io/obj_storage/obj_storage_config_resolver.h"
 #include "runtime/cluster_info.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
@@ -1792,26 +1793,29 @@ void update_s3_resource(const TStorageResource& param, io::RemoteFileSystemSPtr 
     Status st;
     io::RemoteFileSystemSPtr fs;
 
-    if (!existed_fs) {
+    auto config = io::ObjStorageConfigResolver::from_storage_param(param.s3_storage_param);
+    if (!config.has_value()) {
+        st = std::move(config).error();
+    } else if (!existed_fs) {
         // No such FS instance on BE
-        auto res = io::S3FileSystem::create(S3Conf::get_s3_conf(param.s3_storage_param),
-                                            std::to_string(param.id));
+        auto res = io::ObjStorageFileSystem::create(std::move(config).value(),
+                                                    std::to_string(param.id));
         if (!res.has_value()) {
             st = std::move(res).error();
         } else {
             fs = std::move(res).value();
         }
     } else {
-        DCHECK_EQ(existed_fs->type(), io::FileSystemType::S3) << param.id << ' ' << param.name;
-        auto client = static_cast<io::S3FileSystem*>(existed_fs.get())->client_holder();
-        auto new_s3_conf = S3Conf::get_s3_conf(param.s3_storage_param);
-        S3ClientConf conf = std::move(new_s3_conf.client_conf);
-        st = client->reset(conf);
+        DCHECK_EQ(existed_fs->type(), io::FileSystemType::OBJECT_STORAGE)
+                << param.id << ' ' << param.name;
+        auto existing = std::static_pointer_cast<io::ObjStorageFileSystem>(existed_fs);
+        st = existing->client_holder()->reset(config->client);
         fs = std::move(existed_fs);
     }
 
     if (!st.ok()) {
-        LOG(WARNING) << "update s3 resource failed: " << st;
+        LOG(WARNING) << "update s3 resource failed, resource_id=" << param.id
+                     << ", resource_name=" << param.name << ": " << st;
     } else {
         LOG_INFO("successfully update s3 resource")
                 .tag("resource_id", param.id)

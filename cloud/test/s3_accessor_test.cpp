@@ -32,6 +32,13 @@
 #include "common/configbase.h"
 #include "common/logging.h"
 #include "cpp/aws_common.h"
+#ifdef USE_AZURE
+#include <azure/storage/blobs/blob_container_client.hpp>
+#include <azure/storage/common/storage_credential.hpp>
+
+#include "cpp/obj-client/azure_obj_storage_client.h"
+#include "cpp/obj-client/rate_limited_obj_storage_client.h"
+#endif
 #include "cpp/sync_point.h"
 
 using namespace doris;
@@ -244,6 +251,33 @@ TEST_F(S3AccessorTest, s3) {
 
     test_s3_accessor(*accessor);
 }
+
+#ifdef USE_AZURE
+// Needs no account: nothing is sent, and the other Azure cases are skipped without credentials.
+TEST(S3AccessorAzureAuthTest, BuildsTheSharedKeyCredentialFromAkAndSk) {
+    const S3Conf conf {
+            .ak = "recycler-account",
+            .sk = "recycler-shared-key",
+            .endpoint = "https://recycler-account.blob.core.windows.net",
+            .region = "dummy_region",
+            .bucket = "recycler-container",
+            .prefix = "prefix",
+            .provider = S3Conf::AZURE,
+    };
+    std::shared_ptr<S3Accessor> accessor;
+    ASSERT_EQ(S3Accessor::create(conf, &accessor), 0);
+
+    auto limited = std::dynamic_pointer_cast<RateLimitedObjStorageClient>(accessor->obj_client_);
+    ASSERT_NE(limited, nullptr);
+    auto azure = std::dynamic_pointer_cast<AzureObjStorageClient>(limited->inner_);
+    ASSERT_NE(azure, nullptr);
+    ASSERT_NE(azure->_credential, nullptr);
+    EXPECT_EQ(azure->_credential->AccountName, conf.ak);
+    EXPECT_EQ(azure->_credential->GetAccountKey(), conf.sk);
+    EXPECT_EQ(azure->_client->GetUrl(),
+              "https://recycler-account.blob.core.windows.net/recycler-container");
+}
+#endif
 
 TEST_F(S3AccessorTest, azure) {
     std::shared_ptr<S3Accessor> accessor;

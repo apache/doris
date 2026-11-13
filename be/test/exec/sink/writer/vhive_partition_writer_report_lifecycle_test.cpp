@@ -26,8 +26,8 @@
 #include "exec/pipeline/pipeline_fragment_context.h"
 #include "exec/sink/writer/vhive_partition_writer.h"
 #include "format/transformer/vfile_format_transformer.h"
-#include "io/fs/s3_file_system.h"
-#include "io/fs/s3_file_writer.h"
+#include "io/fs/obj_storage_file_system.h"
+#include "io/fs/obj_storage_file_writer.h"
 #include "runtime/exec_env.h"
 #include "testutil/mock/mock_runtime_state.h"
 
@@ -128,13 +128,20 @@ std::unique_ptr<VHivePartitionWriter> create_closed_hive_writer(
             std::move(write_info), "part", 0, TFileFormatType::FORMAT_PARQUET,
             TFileCompressType::PLAIN, nullptr, hadoop_conf);
 
-    S3ClientConf client_conf;
-    client_conf.provider = provider;
-    auto holder = std::make_shared<io::ObjClientHolder>(client_conf);
-    holder->_client = client;
-    io::FileWriterOptions options {.used_by_s3_committer = true};
-    auto file_writer =
-            std::make_unique<io::S3FileWriter>(holder, "bucket", "table/part.parquet", &options);
+    // Only the backend type matters here: the writer's multipart protocol check reads it.
+    io::ObjClientConfig client_config;
+    if (provider == io::ObjStorageProvider::AZURE) {
+        client_config.backend = io::AzureClientConfig {};
+    } else {
+        io::S3ClientConfig s3;
+        s3.vendor = provider;
+        client_config.backend = std::move(s3);
+    }
+    auto holder = std::make_shared<io::ObjClientHolder>(std::move(client_config));
+    holder->set_client_for_test(client);
+    io::FileWriterOptions options {.deferred_completion = true};
+    auto file_writer = std::make_unique<io::ObjStorageFileWriter>(holder, "bucket",
+                                                                  "table/part.parquet", &options);
     file_writer->_upload_id = "upload-id";
     if (!staged_block_id.empty()) {
         file_writer->_completed_parts.push_back(

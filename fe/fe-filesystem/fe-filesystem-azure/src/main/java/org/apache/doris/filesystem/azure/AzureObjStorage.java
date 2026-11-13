@@ -108,14 +108,20 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
             String accountKey = requireProperty(
                     properties.getAccountKey(), AzureFileSystemProperties.ACCOUNT_KEY, "Azure account key");
             builder.credential(new StorageSharedKeyCredential(accountName, accountKey));
+        } else if (properties.isSasAuth()) {
+            builder.sasToken(requireProperty(
+                    properties.getSasToken(), AzureFileSystemProperties.SAS_TOKEN, "Azure SAS token"));
         } else {
             String tenantId = properties.resolveTenantId()
                     .orElseThrow(() -> new IOException("Azure tenant id is required for OAuth2 native SDK access"));
-            builder.credential(new ClientSecretCredentialBuilder()
+            ClientSecretCredentialBuilder credential = new ClientSecretCredentialBuilder()
                     .tenantId(tenantId)
                     .clientId(properties.getClientId())
-                    .clientSecret(properties.getClientSecret())
-                    .build());
+                    .clientSecret(properties.getClientSecret());
+            // Same authority as the BE client derives from oauth2_server_uri, so a sovereign cloud
+            // works for FE listing too instead of falling back to the public cloud.
+            properties.resolveAuthorityHost().ifPresent(credential::authorityHost);
+            builder.credential(credential.build());
         }
         return builder.buildClient();
     }
