@@ -437,7 +437,6 @@ public class CloudTabletStatMgr extends MasterDaemon {
                             if (DebugPointUtil.isEnable("FE.TabletStatMgr.updateIndexRowCount.disabled")) {
                                 continue;
                             }
-                            long previousRowCount = index.getRowCount();
                             // A failed/absent MS fetch must not overwrite a positive immediate
                             // changelog estimate with the replica's initial zero.
                             if (!index.isChangelog() || anyTabletReported || indexReported) {
@@ -446,9 +445,6 @@ public class CloudTabletStatMgr extends MasterDaemon {
                             } else {
                                 index.setRowCountReported(false);
                             }
-                            LOG.debug("Periodic row count table {}, partition {}, index {}: {} -> {}, complete {}",
-                                    table.getId(), partition.getId(), index.getId(), previousRowCount,
-                                    index.getRowCount(), indexReported);
                         } // end for indices
                         if (maxPartitionSize.second <= partitionDataSize) {
                             maxPartitionSize = Pair.of("" + partition.getId(), partitionDataSize);

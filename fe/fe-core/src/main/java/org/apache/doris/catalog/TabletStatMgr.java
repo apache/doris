@@ -289,7 +289,6 @@ public class TabletStatMgr extends MasterDaemon {
                             }
                             // No report is different from an empty report: keep immediate changelog
                             // estimates until at least one tablet has supplied a valid retained count.
-                            long previousRowCount = index.getRowCount();
                             if (!index.isChangelog() || anyTabletReported || indexReported) {
                                 index.setReportedRowCount(indexRowCount, indexReported, version);
                             } else {
@@ -298,9 +297,6 @@ public class TabletStatMgr extends MasterDaemon {
                             LOG.debug("Table {} index {} all tablets reported[{}], row count {}",
                                     olapTable.getName(), olapTable.getIndexNameById(index.getId()),
                                     indexReported, indexRowCount);
-                            LOG.debug("Periodic row count table {}, partition {}, index {}: {} -> {}, complete {}",
-                                    table.getId(), partition.getId(), index.getId(), previousRowCount,
-                                    index.getRowCount(), indexReported);
                         } // end for indices
                         if (maxPartitionSize.second <= partitionDataSize) {
                             maxPartitionSize = Pair.of("" + partition.getId(), partitionDataSize);

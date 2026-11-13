@@ -1549,9 +1549,6 @@ public class AnalysisManager implements Writable {
                                 // overestimates the count until the next report.
                                 long deltaRows = entry.getValue() / partitionReplicaNum;
                                 changelogIndex.addChangelogRows(deltaRows);
-                                LOG.debug("Changelog rows table {} partition {} index {} tablet {} delta {} count {}",
-                                        olapTable.getId(), partition.getId(), changelogIndexId, entry.getKey(),
-                                        deltaRows, changelogIndex.getRowCount());
                                 continue;
                             }
                         }
