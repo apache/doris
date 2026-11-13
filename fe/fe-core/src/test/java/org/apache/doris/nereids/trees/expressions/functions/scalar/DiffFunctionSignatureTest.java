@@ -18,18 +18,27 @@
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.ComputeSignature;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.VarcharType;
+import org.apache.doris.nereids.util.MemoTestUtils;
+import org.apache.doris.nereids.util.PlanChecker;
+import org.apache.doris.nereids.util.TypeCoercionUtils;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.function.BiFunction;
 
@@ -201,6 +210,132 @@ public class DiffFunctionSignatureTest {
                 "varchar slot + zone-less literal: arg0 should bind to DateTimeV2Type");
         Assertions.assertInstanceOf(DateTimeV2Type.class, zoneless.getArgType(1),
                 "varchar slot + zone-less literal: arg1 should bind to DateTimeV2Type");
+    }
+
+    /**
+     * Binding DATETIMEV2 alone would hand the slot to the DATETIME string parser, which rejects zone
+     * offsets the TIMESTAMPTZ parser accepts, such as {@code -14:21}. A call whose overload moved from
+     * TIMESTAMPTZ to DATETIMEV2 therefore converts each string argument through TIMESTAMPTZ(6), the
+     * cast it got before the overload moved, and reads the instant back as DATETIMEV2(6).
+     */
+    @Test
+    public void testVarcharSlotsAreConvertedThroughTimeStampTz() {
+        SlotReference left = SlotReference.of("a", VarcharType.SYSTEM_DEFAULT);
+        SlotReference right = SlotReference.of("b", VarcharType.SYSTEM_DEFAULT);
+        for (NamedDiffConstructor c : DIFF_CONSTRUCTORS) {
+            Expression coerced = TypeCoercionUtils.processBoundFunction(
+                    (BoundFunction) c.constructor.apply(left, right));
+            Assertions.assertEquals(throughTimeStampTz(left), coerced.child(0),
+                    c.name + ": varchar arg0 should be cast to TIMESTAMPTZ(6) and then to DATETIMEV2(6)");
+            Assertions.assertEquals(throughTimeStampTz(right), coerced.child(1),
+                    c.name + ": varchar arg1 should be cast to TIMESTAMPTZ(6) and then to DATETIMEV2(6)");
+            FunctionSignature signature = ((ComputeSignature) coerced).getSignature();
+            Assertions.assertInstanceOf(DateTimeV2Type.class, signature.getArgType(0),
+                    c.name + ": the converted call should still bind DateTimeV2Type on arg0");
+            Assertions.assertInstanceOf(DateTimeV2Type.class, signature.getArgType(1),
+                    c.name + ": the converted call should still bind DateTimeV2Type on arg1");
+
+            // The analyzer prepares a function more than once, so a converted call comes back unchanged.
+            Assertions.assertSame(coerced, coerced.prepareBeforeTypeCoercion(),
+                    c.name + ": a converted call should not be converted again");
+            Assertions.assertEquals(coerced, TypeCoercionUtils.processBoundFunction((BoundFunction) coerced),
+                    c.name + ": a converted call should be coerced to itself");
+        }
+    }
+
+    /**
+     * A call that binds the overload it bound before is coerced as before: one cast to the bound type
+     * and no conversion through TIMESTAMPTZ. That covers a varchar slot beside a typed temporal slot,
+     * where the number of casts decides, and beside a string literal, where the literal decides.
+     */
+    @Test
+    public void testCallsThatKeepTheirOverloadAreNotConverted() {
+        SlotReference varchar = SlotReference.of("a", VarcharType.SYSTEM_DEFAULT);
+        SlotReference timeStampTz = SlotReference.of("b", TimeStampTzType.of(6));
+        SlotReference dateTime = SlotReference.of("c", DateTimeV2Type.of(6));
+        VarcharLiteral zoned = new VarcharLiteral("2021-03-14 03:30:00-07:00");
+        VarcharLiteral zoneless = new VarcharLiteral("2021-03-14 03:30:00");
+        for (HoursDiff call : ImmutableList.of(
+                new HoursDiff(varchar, timeStampTz), new HoursDiff(timeStampTz, varchar),
+                new HoursDiff(varchar, dateTime), new HoursDiff(dateTime, varchar),
+                new HoursDiff(varchar, zoned), new HoursDiff(zoned, varchar),
+                new HoursDiff(varchar, zoneless), new HoursDiff(zoneless, varchar),
+                new HoursDiff(timeStampTz, timeStampTz), new HoursDiff(dateTime, dateTime))) {
+            Assertions.assertSame(call, call.prepareBeforeTypeCoercion(), call.toSql());
+        }
+
+        Assertions.assertEquals(new Cast(varchar, TimeStampTzType.of(6)),
+                TypeCoercionUtils.processBoundFunction(new HoursDiff(varchar, timeStampTz)).child(0),
+                "varchar slot + timestamptz slot: the slot should be cast straight to TIMESTAMPTZ(6)");
+        Assertions.assertEquals(new Cast(varchar, DateTimeV2Type.of(6)),
+                TypeCoercionUtils.processBoundFunction(new HoursDiff(varchar, dateTime)).child(0),
+                "varchar slot + datetimev2 slot: the slot should be cast straight to DATETIMEV2(6)");
+        Assertions.assertEquals(new Cast(varchar, TimeStampTzType.of(6)),
+                TypeCoercionUtils.processBoundFunction(new HoursDiff(varchar, zoned)).child(0),
+                "varchar slot + zoned literal: the slot should be cast straight to TIMESTAMPTZ(6)");
+        Assertions.assertEquals(new Cast(varchar, DateTimeV2Type.of(6)),
+                TypeCoercionUtils.processBoundFunction(new HoursDiff(varchar, zoneless)).child(0),
+                "varchar slot + zone-less literal: the slot should be cast straight to DATETIMEV2(6)");
+    }
+
+    /**
+     * The conversion is reached from SQL: the string outputs of a subquery, the shape of the
+     * apache/doris#66120 reproducer, are converted when the statement is analyzed.
+     */
+    @Test
+    public void testSubqueryStringOutputsAreConvertedByTheAnalyzer() {
+        String sql = "select hours_diff(a, b)"
+                + " from (select '1800-01-01 01:00:00-14:21' as a, '1800-01-01 00:00:00-14:21' as b) t";
+        Plan plan = PlanChecker.from(MemoTestUtils.createConnectContext()).analyze(sql).getPlan();
+        List<Expression> calls = new ArrayList<>();
+        plan.foreach(node -> {
+            for (Expression expression : ((Plan) node).getExpressions()) {
+                calls.addAll(expression.collectToList(HoursDiff.class::isInstance));
+            }
+        });
+        Assertions.assertEquals(1, calls.size(), sql);
+        for (Expression argument : calls.get(0).children()) {
+            List<Expression> slots = argument.collectToList(SlotReference.class::isInstance);
+            Assertions.assertEquals(1, slots.size(), argument.toSql());
+            Assertions.assertEquals(throughTimeStampTz(slots.get(0)), argument, sql);
+        }
+    }
+
+    /**
+     * What the conversion computes, through FE constant folding of string subquery outputs: an offset
+     * the DATETIME parser rejects is read, an offset is applied rather than dropped, and a zone-less
+     * value keeps its wall-clock time, so the reproducer of apache/doris#66120 still counts 63 civil
+     * days. The last case is where the conversion shows: 02:30 does not exist on that day in Los
+     * Angeles, TIMESTAMPTZ reads it as 03:00, the first instant after the gap, and the difference is
+     * taken from there.
+     */
+    @Test
+    public void testConvertedSubqueryOutputsFoldToWallClockResults() {
+        assertFolded("63", "+08:00", "datediff", "2025-08-01 00:00:00", "2025-05-30 11:40:09");
+        assertFolded("1", "+08:00", "hours_diff", "1800-01-01 01:00:00-14:21", "1800-01-01 00:00:00-14:21");
+        assertFolded("30", "+08:00", "minutes_diff", "2025-08-01 01:30:00+09:00", "2025-08-01 00:00:00");
+        assertFolded("150", "America/Los_Angeles", "minutes_diff", "2021-03-14 02:30:00", "2021-03-14 00:30:00");
+    }
+
+    private static void assertFolded(String expected, String timeZone, String function, String left,
+            String right) {
+        String sql = "select " + function + "(a, b) from (select '" + left + "' as a, '" + right + "' as b) t";
+        ConnectContext connectContext = MemoTestUtils.createConnectContext();
+        connectContext.getSessionVariable().setTimeZone(timeZone);
+        Plan plan = PlanChecker.from(connectContext).analyze(sql).rewrite().getPlan();
+        List<Expression> literals = new ArrayList<>();
+        plan.foreach(node -> {
+            for (Expression expression : ((Plan) node).getExpressions()) {
+                literals.addAll(expression.collectToList(Literal.class::isInstance));
+            }
+        });
+        Assertions.assertEquals(1, literals.size(), sql + " under time_zone " + timeZone + " should fold");
+        Assertions.assertEquals(expected, ((Literal) literals.get(0)).getStringValue(),
+                sql + " under time_zone " + timeZone);
+    }
+
+    private static Expression throughTimeStampTz(Expression argument) {
+        return new Cast(new Cast(argument, TimeStampTzType.of(6)), DateTimeV2Type.of(6));
     }
 
     private static final class NamedDiffConstructor {

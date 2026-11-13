@@ -20,7 +20,10 @@ package org.apache.doris.nereids.trees.expressions.functions;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.collect.ImmutableList;
 
@@ -39,16 +42,52 @@ import java.util.List;
  * the TIMESTAMPTZ overload is tried after the others, so the call binds DATETIMEV2 as it does for
  * zone-less literals. A call with an inspectable string literal is searched in list order with the
  * usual score, so results for zoned, zone-less and mixed literals do not change.
+ *
+ * <p>A string column can hold zoned and zone-less rows together, so the overload alone does not suit
+ * every row: the DATETIME string parser rejects zone offsets that the TIMESTAMPTZ one accepts, such as
+ * {@code -14:21}. A call whose overload moves away from TIMESTAMPTZ therefore converts each string
+ * argument through TIMESTAMPTZ, the cast it got before the move, and then to DATETIMEV2, which reads
+ * the instant back in the session time zone. The rows TIMESTAMPTZ parses are still parsed, and a
+ * zone-less row keeps its wall-clock time.
  */
 public interface SearchSignatureForDateDiff extends ExplicitlyCastableSignature {
 
     @Override
     default FunctionSignature searchSignature(List<FunctionSignature> signatures) {
-        List<Expression> arguments = getArguments();
-        if (hasStringArgument(arguments) && !hasInspectableStringLiteral(arguments)) {
+        if (searchesTimeStampTzLast(getArguments())) {
             return ExplicitlyCastableSignature.super.searchSignature(withTimeStampTzLast(signatures));
         }
         return ExplicitlyCastableSignature.super.searchSignature(signatures);
+    }
+
+    @Override
+    default Expression prepareBeforeTypeCoercion() {
+        if (!searchesTimeStampTzLast(getArguments())) {
+            return (Expression) this;
+        }
+        // convert only when trying TIMESTAMPTZ last is what moves the overload: beside a typed temporal
+        // argument the number of casts decides, the call binds as it did, and so does its coercion
+        List<FunctionSignature> signatures = getSignatures();
+        if (!hasTimeStampTzArgument(ExplicitlyCastableSignature.super.searchSignature(signatures))
+                || hasTimeStampTzArgument(
+                        ExplicitlyCastableSignature.super.searchSignature(withTimeStampTzLast(signatures)))) {
+            return (Expression) this;
+        }
+        // the converted arguments are no longer strings, so preparing the result again changes nothing
+        return withChildren(argument -> argument.getDataType().isStringLikeType()
+                ? TypeCoercionUtils.castIfNotSameType(
+                        TypeCoercionUtils.castIfNotSameType(argument, TimeStampTzType.MAX), DateTimeV2Type.MAX)
+                : argument);
+    }
+
+    /** whether the call has a string-typed argument and no string literal to inspect */
+    static boolean searchesTimeStampTzLast(List<Expression> arguments) {
+        return hasStringArgument(arguments) && !hasInspectableStringLiteral(arguments);
+    }
+
+    /** whether the signature takes a TIMESTAMPTZ argument */
+    static boolean hasTimeStampTzArgument(FunctionSignature signature) {
+        return signature.argumentsTypes.stream().anyMatch(DataType::isTimeStampTzType);
     }
 
     /** whether any argument is string typed */
@@ -68,7 +107,7 @@ public interface SearchSignatureForDateDiff extends ExplicitlyCastableSignature 
         ImmutableList.Builder<FunctionSignature> others = ImmutableList.builder();
         ImmutableList.Builder<FunctionSignature> timeStampTz = ImmutableList.builder();
         for (FunctionSignature signature : signatures) {
-            if (signature.argumentsTypes.stream().anyMatch(DataType::isTimeStampTzType)) {
+            if (hasTimeStampTzArgument(signature)) {
                 timeStampTz.add(signature);
             } else {
                 others.add(signature);

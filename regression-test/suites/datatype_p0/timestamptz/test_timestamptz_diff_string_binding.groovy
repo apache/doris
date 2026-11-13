@@ -20,6 +20,7 @@ suite("test_timestamptz_diff_string_binding") {
     // below are chosen so that the instant (TIMESTAMPTZ) and civil (DATETIMEV2) differences
     // disagree, so each result pins the binding.
     def originalZone = sql("select @@time_zone")[0][0]
+    def originalStrict = sql("select @@enable_strict_cast")[0][0]
     try {
         sql "set time_zone = 'America/Los_Angeles'"
 
@@ -75,8 +76,37 @@ suite("test_timestamptz_diff_string_binding") {
                   union all select '2025-08-02 00:00:00', '2024-09-30 19:40:02') t
             order by 1
         """))
+
+        // A VARCHAR column can hold zoned and zone-less rows together, so no overload suits every
+        // row. The slot binds DATETIMEV2 but is converted through TIMESTAMPTZ first: that parser
+        // takes offsets the DATETIME one rejects, such as -14:21, and those rows gave NULL, or
+        // failed the query under enable_strict_cast, while the slot was cast straight to
+        // DATETIMEV2. The instant is then read back in the session zone, so a zone-less row keeps
+        // its wall-clock time.
+        sql """
+            insert into tz_diff_string_binding values
+            (4, '1800-01-01 01:00:00-14:21', '1800-01-01 00:00:00-14:21'),
+            (5, '1800-01-01 01:00:00-13:21', '1800-01-01 00:00:00-13:21'),
+            (6, '2025-08-01 01:00:00+08:00', '2025-08-01 00:00:00+08:00'),
+            (7, '2025-08-01 01:00:00', '2025-08-01 00:00:00'),
+            (8, '2025-08-01 01:30:00+09:00', '2025-08-01 00:00:00')
+        """
+        for (def strict : [false, true]) {
+            sql "set enable_strict_cast = ${strict}"
+            assertEquals([[1L], [1L], [1L], [1L]], sql("""
+                select hours_diff(a, b) from tz_diff_string_binding where id between 4 and 7 order by id
+            """))
+            // An offset is applied, not dropped: 01:30:00+09:00 is 00:30:00 in the +08:00 session,
+            // half an hour after the zone-less 00:00:00 beside it.
+            assertEquals([[30L]], sql("select minutes_diff(a, b) from tz_diff_string_binding where id = 8"))
+            // Zone-less rows still count civil days (#66120) in either cast mode.
+            assertEquals([[63], [306]], sql("""
+                select datediff(a, b) from tz_diff_string_binding where id in (2, 3) order by id
+            """))
+        }
     } finally {
         sql "set time_zone = '${originalZone}'"
+        sql "set enable_strict_cast = ${originalStrict}"
         sql "drop table if exists tz_diff_string_binding"
     }
 }
