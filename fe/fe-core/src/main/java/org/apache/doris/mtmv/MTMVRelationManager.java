@@ -17,6 +17,7 @@
 
 package org.apache.doris.mtmv;
 
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.Partition;
@@ -24,6 +25,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.exception.JobException;
@@ -37,7 +39,9 @@ import org.apache.doris.nereids.trees.plans.commands.info.ResumeMTMVInfo;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.apache.commons.collections4.CollectionUtils;
@@ -66,6 +70,9 @@ public class MTMVRelationManager implements MTMVHookService {
     // `tableMTMVs` will have 3 pair: table1 ==> mv1, mv1==>mv2, table1 ==> mv2
     // `tableMTMVsOneLevelAndFromView` will have 2 pair: table1 ==> mv1, mv1==>mv2
     // `viewMTMVs` will have 2 pair: v1 ==> mv1, v2 ==> mv1
+    // Only dependency replacement and invalidation discovery use this lock. Release it before
+    // resolving tables or taking an MV lock: refresh completion can already hold that MV lock.
+    private final Object relationLock = new Object();
     private final Map<BaseTableInfo, Set<BaseTableInfo>> tableMTMVs = Maps.newConcurrentMap();
     private final Map<BaseTableInfo, Set<BaseTableInfo>> tableMTMVsOneLevelAndFromView = Maps.newConcurrentMap();
     // view => mtmv
@@ -77,6 +84,52 @@ public class MTMVRelationManager implements MTMVHookService {
 
     public Set<BaseTableInfo> getMtmvsByBaseView(BaseTableInfo table) {
         return viewMTMVs.getOrDefault(table, ImmutableSet.of());
+    }
+
+    /** Only discard local rewrite plans; replay must not refresh an MV or load external metadata. */
+    public void invalidateRewriteCaches(String catalog, String db, String table) {
+        Set<BaseTableInfo> affected = collectAffectedMTMVs(catalog, db, table);
+        List<MTMV> targets = Lists.newArrayList();
+        for (BaseTableInfo mv : affected) {
+            Database database = Env.getCurrentInternalCatalog().getDbNullable(mv.getDbName());
+            Table current = database == null ? null : database.getTableNullable(mv.getTableName());
+            if (current instanceof MTMV) {
+                targets.add((MTMV) current);
+            }
+        }
+        // The existing generation barrier also rejects plans whose construction was already in flight.
+        for (MTMV target : targets) {
+            try {
+                target.invalidateRewriteCache();
+            } catch (Throwable failure) {
+                LOG.warn("Failed to invalidate rewrite cache for MV {} after table metadata changed: {}.{}.{}",
+                        target.getId(), catalog, db, table, failure);
+            }
+        }
+    }
+
+    private Set<BaseTableInfo> collectAffectedMTMVs(String catalog, String db, String table) {
+        synchronized (relationLock) {
+            Set<BaseTableInfo> affected = Sets.newHashSet();
+            if (table != null) {
+                BaseTableInfo base = new BaseTableInfo(catalog, db, table);
+                affected.addAll(getMtmvsByBaseTable(base));
+                affected.addAll(getMtmvsByBaseView(base));
+                if (InternalCatalog.INTERNAL_CATALOG_NAME.equals(catalog)) {
+                    affected.add(base);
+                }
+            } else {
+                for (Map<BaseTableInfo, Set<BaseTableInfo>> relations : ImmutableList.of(tableMTMVs, viewMTMVs)) {
+                    for (Map.Entry<BaseTableInfo, Set<BaseTableInfo>> entry : relations.entrySet()) {
+                        BaseTableInfo base = entry.getKey();
+                        if (catalog.equals(base.getCtlName()) && (db == null || db.equals(base.getDbName()))) {
+                            affected.addAll(entry.getValue());
+                        }
+                    }
+                }
+            }
+            return affected;
+        }
     }
 
     public Set<BaseTableInfo> getMtmvsByBaseTableOneLevelAndFromView(BaseTableInfo table) {
@@ -150,30 +203,27 @@ public class MTMVRelationManager implements MTMVHookService {
     }
 
     private Set<BaseTableInfo> getOrCreateMTMVs(BaseTableInfo baseTableInfo) {
-        if (!tableMTMVs.containsKey(baseTableInfo)) {
-            tableMTMVs.put(baseTableInfo, Sets.newConcurrentHashSet());
-        }
-        return tableMTMVs.get(baseTableInfo);
+        return tableMTMVs.computeIfAbsent(baseTableInfo, ignored -> Sets.newConcurrentHashSet());
     }
 
     private Set<BaseTableInfo> getOrCreateMTMVsView(BaseTableInfo baseTableInfo) {
-        if (!viewMTMVs.containsKey(baseTableInfo)) {
-            viewMTMVs.put(baseTableInfo, Sets.newConcurrentHashSet());
-        }
-        return viewMTMVs.get(baseTableInfo);
+        return viewMTMVs.computeIfAbsent(baseTableInfo, ignored -> Sets.newConcurrentHashSet());
     }
 
     private Set<BaseTableInfo> getOrCreateMTMVsOneLevelAndFromView(BaseTableInfo baseTableInfo) {
-        if (!tableMTMVsOneLevelAndFromView.containsKey(baseTableInfo)) {
-            tableMTMVsOneLevelAndFromView.put(baseTableInfo, Sets.newConcurrentHashSet());
-        }
-        return tableMTMVsOneLevelAndFromView.get(baseTableInfo);
+        return tableMTMVsOneLevelAndFromView.computeIfAbsent(baseTableInfo, ignored -> Sets.newConcurrentHashSet());
     }
 
     public void refreshMTMVCache(MTMVRelation relation, BaseTableInfo mtmvInfo) {
         LOG.info("refreshMTMVCache,relation: {}, mtmvInfo: {}", relation, mtmvInfo);
-        removeMTMV(mtmvInfo);
-        addMTMV(relation, mtmvInfo);
+        updateMTMVRelations(relation, mtmvInfo);
+    }
+
+    private void updateMTMVRelations(MTMVRelation relation, BaseTableInfo mtmvInfo) {
+        synchronized (relationLock) {
+            removeMTMV(mtmvInfo);
+            addMTMV(relation, mtmvInfo);
+        }
     }
 
     private void addMTMV(MTMVRelation relation, BaseTableInfo mtmvInfo) {
@@ -242,7 +292,7 @@ public class MTMVRelationManager implements MTMVHookService {
      */
     @Override
     public void unregisterMTMV(MTMV mtmv) {
-        removeMTMV(new BaseTableInfo(mtmv));
+        updateMTMVRelations(null, new BaseTableInfo(mtmv));
     }
 
     @Override

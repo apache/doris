@@ -606,8 +606,10 @@ public class ExternalMetaCacheRouteResolverTest {
         cacheMgr.replaceRowCountCacheForTest(rowCountCache);
         HMSExternalCatalog catalog = Mockito.mock(HMSExternalCatalog.class);
         Mockito.when(catalog.getId()).thenReturn(catalogId);
+        Mockito.when(catalog.getName()).thenReturn("hms");
         ExternalDatabase<?> db = Mockito.mock(ExternalDatabase.class);
         Mockito.when(db.getId()).thenReturn(dbId);
+        Mockito.when(db.getFullName()).thenReturn("db");
         ExternalTable table = Mockito.mock(ExternalTable.class);
         Mockito.when(table.getCatalog()).thenReturn(catalog);
         Mockito.when(table.getDb()).thenReturn(db);
