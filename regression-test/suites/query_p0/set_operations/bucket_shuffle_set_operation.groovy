@@ -32,6 +32,16 @@ suite("bucket_shuffle_set_operation") {
         set runtime_filter_mode=off;
         """
 
+    // Row counts affect INTERSECT input order and the bucket-shuffle basic child. Pin
+    // both columns so plan shapes do not depend on asynchronous tablet statistics updates.
+    // Leave detailed column statistics unset to preserve the existing join-plan coverage.
+    ["bucket_shuffle_set_operation1", "bucket_shuffle_set_operation2", "bucket_shuffle_set_operation3"].each { table ->
+        ["id", "value"].each { column ->
+            sql """alter table ${table} modify column ${column} set stats
+                ('row_count'='3')"""
+        }
+    }
+
     // make bucket shuffle set operation stable
     sql "set parallel_pipeline_task_num=5"
     // disable the bucket shuffle downgrade so the chosen shapes do not depend on the
