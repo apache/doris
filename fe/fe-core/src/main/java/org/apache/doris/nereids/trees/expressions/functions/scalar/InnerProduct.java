@@ -20,7 +20,6 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
@@ -39,7 +38,7 @@ import java.util.List;
  * inner_product function
  */
 public class InnerProduct extends ScalarFunction implements ExplicitlyCastableSignature,
-        BinaryExpression, AlwaysNotNullable {
+        BinaryExpression {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(FloatType.INSTANCE)
@@ -59,6 +58,12 @@ public class InnerProduct extends ScalarFunction implements ExplicitlyCastableSi
     /** constructor for withChildren and reuse signature */
     private InnerProduct(ScalarFunctionParams functionParams) {
         super(functionParams);
+    }
+
+    @Override
+    public boolean nullable() {
+        // Array vectors can be missing (NULL or []); the MAP overload is unchanged.
+        return !getArgument(0).getDataType().isMapType();
     }
 
     @Override

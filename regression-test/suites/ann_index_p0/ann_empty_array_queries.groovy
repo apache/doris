@@ -47,6 +47,20 @@ suite("ann_empty_array_queries") {
                     "SELECT id FROM ann_empty_array_queries WHERE ${fn}(vec, ${query}) > 20.5 ORDER BY id",
                     "SELECT id FROM ann_empty_array_queries WHERE ${fn}(vec, ${query}) IS NULL ORDER BY id"
                 ]
+                for (def missing : ['CAST([] AS ARRAY<FLOAT>)', 'CAST(NULL AS ARRAY<FLOAT>)']) {
+                    queries.add("SELECT id, ${fn}(vec, ${missing}) FROM ann_empty_array_queries ORDER BY id")
+                    queries.add("SELECT id FROM ann_empty_array_queries WHERE ${fn}(vec, ${missing}) < 20.5 ORDER BY id")
+                    queries.add("SELECT id FROM ann_empty_array_queries WHERE ${fn}(vec, ${missing}) > 20.5 ORDER BY id")
+                    queries.add("SELECT id FROM ann_empty_array_queries WHERE ${fn}(vec, ${missing}) IS NULL ORDER BY id")
+                    for (def direction : ['ASC', 'DESC']) {
+                        for (def nullOrder : ['FIRST', 'LAST']) {
+                            for (def limit : [1, 1000]) {
+                                queries.add("SELECT ${fn}(vec, ${missing}) FROM ann_empty_array_queries "
+                                    + "ORDER BY ${fn}(vec, ${missing}) ${direction} NULLS ${nullOrder} LIMIT ${limit}")
+                            }
+                        }
+                    }
+                }
                 for (def direction : ['ASC', 'DESC']) {
                     for (def nullOrder : ['FIRST', 'LAST']) {
                         for (def limit : [1, 1000]) {
@@ -63,8 +77,6 @@ suite("ann_empty_array_queries") {
                     for (def threshold : [1000000, 0]) {
                         sql "SET ann_index_candidate_rows_threshold = ${threshold}"
                         for (def invalid : [
-                                ['CAST([] AS ARRAY<FLOAT>)', 'empty', 'empty'],
-                                ['CAST(NULL AS ARRAY<FLOAT>)', 'cannot', 'cannot'],
                                 ['CAST([NULL, 1] AS ARRAY<FLOAT>)', 'cannot', 'cannot'],
                                 ['CAST([1] AS ARRAY<FLOAT>)', 'input element sizes', 'dimension']]) {
                             def invalidQuery = invalid[0]

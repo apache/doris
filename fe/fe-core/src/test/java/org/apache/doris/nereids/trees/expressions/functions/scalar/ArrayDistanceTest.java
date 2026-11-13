@@ -24,13 +24,17 @@ import org.apache.doris.nereids.types.FloatType;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-public class ApproximateDistanceTest {
+public class ArrayDistanceTest {
     @Test
     public void testEmptyArraysCanProduceNullFromNonNullableArguments() {
         SlotReference vector = new SlotReference("vector", ArrayType.of(FloatType.INSTANCE), false);
         SlotReference query = new SlotReference("query", ArrayType.of(FloatType.INSTANCE), false);
         Assertions.assertTrue(new L2DistanceApproximate(vector, query).nullable());
         Assertions.assertTrue(new InnerProductApproximate(vector, query).nullable());
-        Assertions.assertFalse(new L2Distance(vector, query).nullable());
+        Assertions.assertTrue(new L1Distance(vector, query).nullable());
+        Assertions.assertTrue(new L2Distance(vector, query).nullable());
+        Assertions.assertTrue(new InnerProduct(vector, query).nullable());
+        Assertions.assertTrue(new CosineDistance(vector, query).nullable());
+        Assertions.assertTrue(new CosineSimilarity(vector, query).nullable());
     }
 }

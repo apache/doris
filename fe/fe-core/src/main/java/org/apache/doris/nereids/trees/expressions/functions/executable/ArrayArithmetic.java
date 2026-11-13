@@ -140,15 +140,15 @@ public class ArrayArithmetic {
             }
         }
 
+        // Empty vectors have no distance or similarity, just like SQL NULL.
+        if (items1.isEmpty() || items2.isEmpty()) {
+            return new NullLiteral(FloatType.INSTANCE);
+        }
+
         // Check array sizes
         if (items1.size() != items2.size()) {
             throw new AnalysisException("function cosine_similarity have different input element sizes of array: "
                     + items1.size() + " and " + items2.size());
-        }
-
-        // Handle empty arrays
-        if (items1.isEmpty()) {
-            return new FloatLiteral(0.0f);
         }
 
         // Compute dot product and squared norms
