@@ -7002,26 +7002,26 @@ TEST(IcebergV2ReaderTest, SpatialBinarySchemaSyncPreservesTimestampSibling) {
     schema.local_id = 0;
     schema.name = "payload";
     schema.kind = format::parquet::ParquetColumnSchemaKind::STRUCT;
-    schema.type = make_nullable(std::make_shared<DataTypeStruct>(
-            DataTypes {make_nullable(std::make_shared<DataTypeSpatial>(TYPE_GEOMETRY)),
-                       make_nullable(DataTypeFactory::instance().create_data_type(TYPE_DATETIMEV2,
-                                                                                  true, 0, 6))},
-            Strings {"k", "ts"}));
     auto spatial = std::make_unique<format::parquet::ParquetColumnSchema>();
     spatial->local_id = 0;
     spatial->name = "k";
     spatial->kind = format::parquet::ParquetColumnSchemaKind::PRIMITIVE;
-    spatial->type = make_nullable(std::make_shared<DataTypeSpatial>(TYPE_GEOMETRY));
+    spatial->type = std::make_shared<DataTypeSpatial>(TYPE_GEOMETRY);
     auto old_timestamp = std::make_unique<format::parquet::ParquetColumnSchema>();
     old_timestamp->local_id = 1;
     old_timestamp->name = "ts";
     old_timestamp->kind = format::parquet::ParquetColumnSchemaKind::PRIMITIVE;
-    old_timestamp->type = make_nullable(
-            DataTypeFactory::instance().create_data_type(TYPE_DATETIMEV2, true, 0, 6));
+    old_timestamp->type =
+            DataTypeFactory::instance().create_data_type(TYPE_DATETIMEV2, false, 0, 6);
+    schema.type = make_nullable(std::make_shared<DataTypeStruct>(
+            DataTypes {make_nullable(spatial->type), make_nullable(old_timestamp->type)},
+            Strings {"k", "ts"}));
     schema.children.push_back(std::move(spatial));
     schema.children.push_back(std::move(old_timestamp));
 
     ASSERT_TRUE(format::parquet::apply_spatial_binary_types(&root, &schema));
+    EXPECT_TRUE(schema.children[0]->type->equals(*binary));
+    EXPECT_TRUE(schema.children[1]->type->equals(*timestamp));
     const auto& synced = assert_cast<const DataTypeStruct&>(*remove_nullable(schema.type));
     EXPECT_EQ(synced.get_element(0)->get_primitive_type(), TYPE_VARBINARY);
     EXPECT_EQ(synced.get_element(1)->get_primitive_type(), TYPE_TIMESTAMPTZ);
@@ -7109,6 +7109,122 @@ TEST(IcebergV2ReaderTest, EqualityDeletesUseOpaqueAnnotatedBinaryKeys) {
         std::filesystem::create_directories(test_dir);
         ASSERT_NO_FATAL_FAILURE(
                 check_opaque_binary_equality_delete(test_dir, *annotation, annotate_data, nested));
+    }
+}
+
+TEST(IcebergV2ReaderTest, EqualityDeletesUseNestedBinaryAndTimestampTzKeys) {
+    TimezoneUtils::load_timezones_to_cache();
+    const auto dir =
+            std::filesystem::temp_directory_path() / "doris_iceberg_binary_timestamp_delete";
+    std::filesystem::create_directories(dir);
+    Defer cleanup([&] { std::filesystem::remove_all(dir); });
+    const auto data_path = (dir / "data.parquet").string();
+    const auto delete_path = (dir / "delete.parquet").string();
+
+    struct Key {
+        std::string bytes;
+        int64_t timestamp;
+    };
+    const auto write_file = [](const std::string& path, const std::vector<Key>& keys,
+                               bool include_id) {
+        using ::parquet::LogicalType;
+        using ::parquet::Repetition;
+        using ::parquet::schema::GroupNode;
+        using ::parquet::schema::PrimitiveNode;
+        auto binary_field =
+                PrimitiveNode::Make("k", Repetition::REQUIRED, LogicalType::Geometry(""),
+                                    ::parquet::Type::BYTE_ARRAY, -1, 1);
+        auto timestamp_field =
+                PrimitiveNode::Make("ts", Repetition::REQUIRED,
+                                    LogicalType::Timestamp(true, LogicalType::TimeUnit::MICROS),
+                                    ::parquet::Type::INT64, -1, 2);
+        ::parquet::schema::NodeVector fields;
+        if (include_id) {
+            fields.push_back(PrimitiveNode::Make("id", Repetition::REQUIRED, LogicalType::None(),
+                                                 ::parquet::Type::INT32, -1, 0));
+        }
+        fields.push_back(GroupNode::Make("payload", Repetition::REQUIRED,
+                                         {binary_field, timestamp_field},
+                                         ::parquet::ConvertedType::NONE, 3));
+        auto schema = std::static_pointer_cast<GroupNode>(
+                GroupNode::Make("schema", Repetition::REQUIRED, fields));
+        auto out = arrow::io::FileOutputStream::Open(path).ValueOrDie();
+        auto writer = ::parquet::ParquetFileWriter::Open(out, schema);
+        auto* group = writer->AppendRowGroup();
+        if (include_id) {
+            auto* ids = static_cast<::parquet::Int32Writer*>(group->NextColumn());
+            for (int32_t id = 1; id <= static_cast<int32_t>(keys.size()); ++id) {
+                ids->WriteBatch(1, nullptr, nullptr, &id);
+            }
+            ids->Close();
+        }
+        auto* binaries = static_cast<::parquet::ByteArrayWriter*>(group->NextColumn());
+        for (const auto& key : keys) {
+            const ::parquet::ByteArray value(static_cast<uint32_t>(key.bytes.size()),
+                                             reinterpret_cast<const uint8_t*>(key.bytes.data()));
+            binaries->WriteBatch(1, nullptr, nullptr, &value);
+        }
+        binaries->Close();
+        auto* timestamps = static_cast<::parquet::Int64Writer*>(group->NextColumn());
+        for (const auto& key : keys) {
+            timestamps->WriteBatch(1, nullptr, nullptr, &key.timestamp);
+        }
+        timestamps->Close();
+        group->Close();
+        writer->Close();
+        ASSERT_TRUE(out->Close().ok());
+    };
+
+    // The two instants share the 01:30 wall clock in America/New_York.
+    constexpr int64_t first_0130_micros = 1'730'611'800'000'000L;
+    constexpr int64_t second_0130_micros = 1'730'615'400'000'000L;
+    const auto triangle = opaque_triangle_wkb();
+    const std::string point(
+            "\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\xf0?\x00\x00\x00\x00\x00\x00\x00@", 21);
+    ASSERT_NO_FATAL_FAILURE(write_file(data_path,
+                                       {{triangle, first_0130_micros},
+                                        {triangle, second_0130_micros},
+                                        {point, first_0130_micros}},
+                                       true));
+    ASSERT_NO_FATAL_FAILURE(write_file(delete_path, {{triangle, first_0130_micros}}, false));
+
+    auto binary =
+            external_schema_field("k", 1, {}, std::nullopt,
+                                  external_primitive_type(TPrimitiveType::VARBINARY), false, false);
+    auto timestamp = external_schema_field(
+            "ts", 2, {}, std::nullopt, external_primitive_type(TPrimitiveType::TIMESTAMPTZ, -1, 6),
+            false, false);
+    timestamp.field_ptr->__set_timestamp_is_adjusted_to_utc(true);
+    auto scan_params = make_local_parquet_scan_params();
+    scan_params.__set_iceberg_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_2);
+    scan_params.__set_parquet_timestamp_semantics_version(1);
+    scan_params.__set_enable_mapping_varbinary(true);
+    scan_params.__set_enable_mapping_timestamp_tz(false);
+    scan_params.__set_current_schema_id(100);
+    scan_params.__set_history_schema_info({external_schema(
+            100, {external_schema_field("id", 0),
+                  external_struct_schema_field("payload", 3, {binary, timestamp}, false)})});
+    const std::vector<ColumnDefinition> columns {
+            make_table_column(0, "id", std::make_shared<DataTypeInt32>())};
+    for (const auto& field_ids : {std::vector<int32_t> {1, 2}, std::vector<int32_t> {2, 1}}) {
+        SCOPED_TRACE(::testing::PrintToString(field_ids));
+        RuntimeProfile profile("nested_binary_timestamp_equality_delete");
+        RuntimeState state {TQueryOptions(), TQueryGlobals()};
+        state.set_timezone("America/New_York");
+        io::FileReaderStats stats;
+        io::FileCacheStatistics cache_stats;
+        auto io_ctx = make_io_context(&stats, &cache_stats);
+        ShardedKVCache cache(1);
+        iceberg::IcebergTableReader reader;
+        init_iceberg_reader(&reader, columns, &scan_params, io_ctx, &state, &profile);
+        auto split = build_split_options(data_path);
+        split.cache = &cache;
+        split.current_range.__set_table_format_params(make_iceberg_table_format_desc(
+                data_path, {make_iceberg_equality_delete_file(delete_path, field_ids)}, 3));
+        const auto status = reader.prepare_split(split);
+        ASSERT_TRUE(status.ok()) << status;
+        EXPECT_EQ(read_iceberg_ids(&reader, columns), std::vector<int32_t>({2, 3}));
+        ASSERT_TRUE(reader.close().ok());
     }
 }
 

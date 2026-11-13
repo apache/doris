@@ -333,7 +333,9 @@ void sync_schema_types_from_column(const format::ColumnDefinition& column,
                                    ParquetColumnSchema* schema) {
     DORIS_CHECK(schema != nullptr);
     DORIS_CHECK(column.type != nullptr);
-    schema->type = column.type;
+    // ColumnDefinition wraps required file fields as nullable for table mapping.
+    schema->type =
+            schema->type->is_nullable() ? make_nullable(column.type) : remove_nullable(column.type);
     schema->type_descriptor.doris_type = schema->type;
     DORIS_CHECK(column.children.size() == schema->children.size());
     for (size_t i = 0; i < column.children.size(); ++i) {
