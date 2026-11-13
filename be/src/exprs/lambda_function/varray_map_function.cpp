@@ -230,8 +230,13 @@ public:
 
         std::set<int> required_input_column_ids;
         children[0]->collect_slot_column_ids(required_input_column_ids);
-        context->lambda_execution_context().collect_visible_binding_column_positions(
-                required_input_column_ids);
+        // Only outer bindings the lambda body actually references (innermost name wins).
+        // Collecting every visible binding would expand unused outer arrays once per inner
+        // element and make nested array_map quadratic in memory (#69918).
+        if (_lambda_argument_binding.bind_by_name) {
+            _collect_referenced_binding_column_positions(
+                    children[0], context->lambda_execution_context(), required_input_column_ids);
+        }
         const int lambda_argument_base =
                 required_input_column_ids.empty() ? 0 : *required_input_column_ids.rbegin() + 1;
         if (!_lambda_argument_binding.bind_by_name) {
@@ -262,7 +267,7 @@ public:
             if (!materialized_input_columns[i]) {
                 // Keep sparse input positions stable for SlotRef/parent lambda bindings without
                 // materializing unrelated wide-table columns into every lambda batch.
-                names[i] = "temp";
+                names[i] = LAMBDA_BLOCK_PAD_COLUMN_NAME;
                 data_types[i] = std::make_shared<DataTypeUInt8>();
             }
         }
@@ -551,6 +556,23 @@ private:
         captured_source_row_indices.resize(old_size + repeat_times);
         std::fill(captured_source_row_indices.begin() + old_size, captured_source_row_indices.end(),
                   source_row);
+    }
+
+    // Walk the lambda body and collect outer binding column positions that name-refs resolve to.
+    // Uses resolve_column_position so a shadowed name keeps only the innermost binding.
+    static void _collect_referenced_binding_column_positions(
+            const VExprSPtr& expr, const LambdaExecutionContext& lambda_context,
+            std::set<int>& column_positions) {
+        if (expr->is_column_ref()) {
+            const auto resolve_result =
+                    lambda_context.resolve_column_position(expr->expr_name());
+            if (resolve_result.found && resolve_result.column_position >= 0) {
+                column_positions.insert(resolve_result.column_position);
+            }
+        }
+        for (const auto& child : expr->children()) {
+            _collect_referenced_binding_column_positions(child, lambda_context, column_positions);
+        }
     }
 
     static ColumnPtr _create_result_column(ColumnPtr result_col,
