@@ -31,28 +31,10 @@ fi
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 HOST_OS="$(uname -s)"
 
-if [[ -z "${DOCKER_USE_SUDO+x}" ]]; then
-    if [[ "${HOST_OS}" == "Darwin" ]]; then
-        DOCKER_USE_SUDO=0
-    else
-        DOCKER_USE_SUDO=1
-    fi
-fi
+. "${ROOT}/docker-command.sh"
 
 docker_cli() {
-    if [[ "${DOCKER_USE_SUDO}" -eq 1 ]]; then
-        sudo docker "$@"
-    else
-        docker "$@"
-    fi
-}
-
-host_admin_cmd() {
-    if [[ "${HOST_OS}" == "Darwin" ]]; then
-        "$@"
-    else
-        sudo "$@"
-    fi
+    docker "$@"
 }
 
 . "${ROOT}/custom_settings.env"
@@ -69,19 +51,19 @@ Usage: $0 <options>
      -c mysql           start MySQL
      -c mysql,hive3     start MySQL and Hive3
      --stop             stop the specified components
-     --reserve-ports    reserve host ports by setting 'net.ipv4.ip_local_reserved_ports' to avoid port already bind error
+     --reserve-ports    unsupported; configure host port reservations separately
      --no-load-data     do not load data into the components
      --load-parallel <num>  set the parallel number to load data, default is the 50% of CPU cores
      --hive-mode <mode>     hive startup mode: fast, refresh, rebuild
      --hive-modules <list>  comma separated hive modules to refresh
 
   All valid components:
-    mysql,pg,oracle,sqlserver,clickhouse,es,hive2,hive3,iceberg,iceberg-rest,hudi,kafka,mariadb,db2,oceanbase,lakesoul,kerberos,ranger,polaris,minio,fluss
+    mysql,pg,oracle,sqlserver,clickhouse,es,hive2,hive3,iceberg,iceberg-rest,hudi,kafka,mariadb,db2,oceanbase,kerberos,ranger,polaris,minio,fluss,mongodb
   "
     exit 1
 }
 DEFAULT_COMPONENTS="mysql,es,hive2,hive3,pg,oracle,sqlserver,clickhouse,mariadb,iceberg,hudi,db2,oceanbase,kerberos,minio"
-ALL_COMPONENTS="${DEFAULT_COMPONENTS},kafka,lakesoul,ranger,polaris,fluss"
+ALL_COMPONENTS="${DEFAULT_COMPONENTS},iceberg-rest,kafka,ranger,polaris,fluss,mongodb"
 COMPONENTS=$2
 HELP=0
 STOP=0
@@ -191,8 +173,10 @@ if [[ "${CONTAINER_UID}"x == "doris--"x ]]; then
     exit 1
 fi
 
+configure_docker_access
+
 if [[ -z "${HIVE_HOST_ALIAS:-}" ]]; then
-    export HIVE_HOST_ALIAS="hadoop-master-${HIVE_SHARED_ID}"
+    export HIVE_HOST_ALIAS=localhost
 fi
 
 echo "Components are: ${COMPONENTS}"
@@ -258,6 +242,7 @@ RUN_MINIO=0
 RUN_RANGER=0
 RUN_POLARIS=0
 RUN_FLUSS=0
+RUN_MONGODB=0
 
 RESERVED_PORTS="65535"
 
@@ -279,6 +264,8 @@ for element in "${COMPONENTS_ARR[@]}"; do
         RESERVED_PORTS="${RESERVED_PORTS},50070,50075" # namenode and datanode ports
     elif [[ "${element}"x == "hive3"x ]]; then
         RUN_HIVE3=1
+    elif [[ "${element}"x == "mongodb"x ]]; then
+        RUN_MONGODB=1
     elif [[ "${element}"x == "kafka"x ]]; then
         RUN_KAFKA=1
     elif [[ "${element}"x == "iceberg"x ]]; then
@@ -294,8 +281,6 @@ for element in "${COMPONENTS_ARR[@]}"; do
         RUN_DB2=1
     elif [[ "${element}"x == "oceanbase"x ]];then
         RUN_OCEANBASE=1
-    elif [[ "${element}"x == "lakesoul"x ]]; then
-        RUN_LAKESOUL=1
     elif [[ "${element}"x == "kerberos"x ]]; then
         RUN_KERBEROS=1
     elif [[ "${element}"x == "minio"x ]]; then
@@ -352,10 +337,8 @@ reserve_ports() {
         return
     fi
 
-    if [[ "${RESERVED_PORTS}"x != ""x ]]; then
-        echo "Reserve ports: ${RESERVED_PORTS}"
-        sudo sysctl -w net.ipv4.ip_local_reserved_ports="${RESERVED_PORTS}"
-    fi
+    echo "--reserve-ports changes host sysctl settings; configure it separately as an operator" >&2
+    return 1
 }
 
 JFS_META_FORMATTED=0
@@ -580,8 +563,8 @@ prepare_juicefs_meta_for_hive() {
     fi
 
     local bucket_dir="${JFS_BUCKET_DIR:-/tmp/jfs-bucket}"
-    sudo mkdir -p "${bucket_dir}"
-    sudo chmod 777 "${bucket_dir}"
+    mkdir -p "${bucket_dir}"
+    chmod_fixture_dir 777 "${bucket_dir}"
 
     # For local docker metadata DSNs (mysql/postgresql), ensure metadata database exists.
     ensure_juicefs_meta_database "${jfs_meta}"
@@ -597,7 +580,8 @@ prepare_juicefs_meta_for_hive() {
     # and will cause "juicefs format" to fail with "Storage ... is not empty".
     if [[ -d "${bucket_dir}" ]]; then
         echo "Cleaning stale JuiceFS bucket directory: ${bucket_dir}"
-        sudo rm -rf "${bucket_dir:?}"/*
+        reset_data_dirs "${bucket_dir:?}"
+        chmod_fixture_dir 777 "${bucket_dir}"
     fi
 
     if ! run_juicefs_cli \
@@ -652,8 +636,7 @@ reset_data_dirs() {
     local data_dir
 
     for data_dir in "$@"; do
-        host_admin_cmd mkdir -p "${data_dir}"
-        host_admin_cmd rm -rf "${data_dir:?}"/*
+        reset_rootless_data_dir "${data_dir}"
     done
 }
 
@@ -941,22 +924,16 @@ start_es() {
     register_stack_metadata "es" "${ROOT}/docker-compose/elasticsearch/es.yaml" "${ROOT}/docker-compose/elasticsearch/es.env"
     compose_down_stack "${ROOT}/docker-compose/elasticsearch/es.yaml" "${ROOT}/docker-compose/elasticsearch/es.env" --remove-orphans
     if [[ "${STOP}" -ne 1 ]]; then
-        sudo mkdir -p "${ROOT}"/docker-compose/elasticsearch/data/es6/
-        sudo rm -rf "${ROOT}"/docker-compose/elasticsearch/data/es6/*
-        sudo mkdir -p "${ROOT}"/docker-compose/elasticsearch/data/es7/
-        sudo rm -rf "${ROOT}"/docker-compose/elasticsearch/data/es7/*
-        sudo mkdir -p "${ROOT}"/docker-compose/elasticsearch/data/es8/
-        sudo rm -rf "${ROOT}"/docker-compose/elasticsearch/data/es8/*
-        sudo chmod -R 777 "${ROOT}"/docker-compose/elasticsearch/data
-        sudo mkdir -p "${ROOT}"/docker-compose/elasticsearch/logs/es6/
-        sudo rm -rf "${ROOT}"/docker-compose/elasticsearch/logs/es6/*
-        sudo mkdir -p "${ROOT}"/docker-compose/elasticsearch/logs/es7/
-        sudo rm -rf "${ROOT}"/docker-compose/elasticsearch/logs/es7/*
-        sudo mkdir -p "${ROOT}"/docker-compose/elasticsearch/logs/es8/
-        sudo rm -rf "${ROOT}"/docker-compose/elasticsearch/logs/es8/*
-        sudo chmod -R 777 "${ROOT}"/docker-compose/elasticsearch/logs
-        sudo chmod -R 777 "${ROOT}"/docker-compose/elasticsearch/config
-        compose_cmd "${ROOT}/docker-compose/elasticsearch/es.yaml" "${ROOT}/docker-compose/elasticsearch/es.env" up -d --remove-orphans
+        local version
+        for version in 5 6 7 8; do
+            reset_data_dirs \
+                "${ROOT}/docker-compose/elasticsearch/data/es${version}" \
+                "${ROOT}/docker-compose/elasticsearch/logs/es${version}"
+        done
+        chmod_fixture_dir 777 "${ROOT}/docker-compose/elasticsearch/data"
+        chmod_fixture_dir 777 "${ROOT}/docker-compose/elasticsearch/logs"
+        chmod_fixture_dir 777 "${ROOT}/docker-compose/elasticsearch/config"
+        compose_cmd "${ROOT}/docker-compose/elasticsearch/es.yaml" "${ROOT}/docker-compose/elasticsearch/es.env" up -d --wait --remove-orphans
     fi
 }
 
@@ -968,6 +945,18 @@ start_mysql() {
         "${ROOT}/docker-compose/mysql/mysql-5.7.env" \
         -d --wait -- \
         "${ROOT}/docker-compose/mysql/data"
+}
+
+start_mongodb() {
+    # Pass the selected port through the rendered env file.
+    export MONGODB_PORT="${MONGODB_PORT:-27017}"
+    envsubst '${MONGODB_PORT}' <"${ROOT}/docker-compose/mongodb/mongodb.env.tpl" \
+        >"${ROOT}/docker-compose/mongodb/mongodb.env"
+    start_rendered_compose_stack "mongodb" \
+        "${ROOT}/docker-compose/mongodb/mongodb.yaml.tpl" \
+        "${ROOT}/docker-compose/mongodb/mongodb.yaml" \
+        "${ROOT}/docker-compose/mongodb/mongodb.env" \
+        -d --wait --
 }
 
 start_pg() {
@@ -1068,7 +1057,7 @@ start_kafka() {
     }
 
     if [[ "${STOP}" -ne 1 ]]; then
-        compose_up_stack "${ROOT}/docker-compose/kafka/kafka.yaml" "${ROOT}/docker-compose/kafka/kafka.env" --build --remove-orphans -d
+        compose_up_stack "${ROOT}/docker-compose/kafka/kafka.yaml" "${ROOT}/docker-compose/kafka/kafka.env" --build --remove-orphans -d --wait
         wait_for_kafka_ready "${KAFKA_CONTAINER_ID}" "${IP_HOST}"
         create_kafka_topics "${KAFKA_CONTAINER_ID}" "${IP_HOST}"
     fi
@@ -1259,41 +1248,14 @@ hive_metastore_container_for() {
 ensure_hosts_alias() {
     local alias_name="$1"
     local alias_ip="$2"
-    local tmp_hosts
-    local sudo_cmd=()
-
-    tmp_hosts="$(mktemp)"
-    awk -v alias_name="${alias_name}" '
-        {
-            keep = 1
-            for (i = 2; i <= NF; ++i) {
-                if ($i == alias_name) {
-                    keep = 0
-                    break
-                }
-            }
-            if (keep) {
-                print
-            }
-        }
-    ' /etc/hosts >"${tmp_hosts}"
-    printf "%s %s\n" "${alias_ip}" "${alias_name}" >>"${tmp_hosts}"
-
-    # Writing /etc/hosts is the only privileged step in the whole script, so
-    # take it only when the alias is actually missing or points somewhere else.
-    # On macOS sudo has no passwordless default and no tty to prompt on, which
-    # would otherwise abort every re-run of an already-correct environment.
-    if cmp -s "${tmp_hosts}" /etc/hosts; then
-        rm -f "${tmp_hosts}"
+    if [[ "${alias_name}" == "localhost" && "${alias_ip}" == "127.0.0.1" ]]; then
         return 0
     fi
-
-    if [[ "$(id -u)" -ne 0 ]]; then
-        sudo_cmd=(sudo)
+    if getent ahostsv4 "${alias_name}" | awk -v ip="${alias_ip}" '$1 == ip { found = 1 } END { exit !found }'; then
+        return 0
     fi
-    "${sudo_cmd[@]}" chmod a+w /etc/hosts
-    "${sudo_cmd[@]}" cp "${tmp_hosts}" /etc/hosts
-    rm -f "${tmp_hosts}"
+    echo "${alias_name} must already resolve to ${alias_ip}; set HIVE_HOST_ALIAS=localhost and IP_HOST=127.0.0.1 for local fixtures" >&2
+    return 1
 }
 
 render_hive_compose() {
@@ -1372,6 +1334,12 @@ start_hive_stack() {
     local volume_prefix
     local baseline_restore_result="missing"
 
+    # localhost metadata and host-network services must use loopback on both
+    # sides, even when other components advertise the host's LAN address.
+    if [[ "${HIVE_HOST_ALIAS}" == "localhost" ]]; then
+        export IP_HOST=127.0.0.1
+    fi
+
     export HIVE_BOOTSTRAP_GROUPS="$(hive_bootstrap_groups_for "${hive_version}")"
     echo "${hive_version} selected bootstrap files: ${HIVE_BOOTSTRAP_GROUPS}"
 
@@ -1380,15 +1348,16 @@ start_hive_stack() {
     export HIVE_VOLUME_PREFIX="${volume_prefix}"
     log_hive_volumes "${hive_version}" "${volume_prefix}"
 
-    # Keep a stable hostname in metastore/HDFS metadata while allowing the
-    # backing host IP to change across restarts.
-    ensure_hosts_alias "${HIVE_HOST_ALIAS}" "${IP_HOST}"
-
     if [[ "${STOP}" -eq 1 ]]; then
         render_hive_compose "${hive_version}"
         hive_compose_cmd "${hive_version}" down
         return 0
     fi
+
+    # Keep a stable hostname in metastore/HDFS metadata while allowing the
+    # backing host IP to change across restarts. Stopping needs no DNS setup.
+    require_rootless_host_network
+    ensure_hosts_alias "${HIVE_HOST_ALIAS}" "${IP_HOST}"
 
     # refresh/rebuild: tear down the stack and clear volumes first.
     # fast: keep existing volumes and only restore the baseline when they are empty.
@@ -1445,7 +1414,8 @@ start_iceberg() {
             for jar in $(grep -o '\./data/input/jars/[^:]*\.jar' "${ICEBERG_DIR}/iceberg.yaml"); do
                 if [[ ! -f "${ICEBERG_DIR}/${jar#./}" ]]; then
                     echo "${ICEBERG_DIR}/${jar#./} is missing, ${ICEBERG_DIR}/data is from an older archive"
-                    host_admin_cmd rm -rf "${ICEBERG_DIR:?}/data"
+                    reset_data_dirs "${ICEBERG_DIR:?}/data"
+                    rmdir "${ICEBERG_DIR}/data"
                     break
                 fi
             done
@@ -1462,14 +1432,15 @@ start_iceberg() {
                     wget -P "${ROOT}/docker-compose/iceberg" \
                         "https://${s3BucketName}.${s3Endpoint}/regression/datalake/pipeline_data/iceberg_data_spark40_paimon142.zip"
                 fi
-                host_admin_cmd unzip iceberg_data_spark40_paimon142.zip
-                host_admin_cmd mv iceberg_data data
-                host_admin_cmd rm -rf iceberg_data_spark40_paimon142.zip
+                unzip iceberg_data_spark40_paimon142.zip
+                mv iceberg_data data
+                rm -rf iceberg_data_spark40_paimon142.zip
             )
         else
             echo "${ICEBERG_DIR}/data exist, continue !"
         fi
 
+        bash "${ICEBERG_DIR}/encryption/prepare-jars.sh"
         compose_up_stack "${ROOT}/docker-compose/iceberg/iceberg.yaml" "${ROOT}/docker-compose/iceberg/iceberg.env" -d --wait
     fi
 }
@@ -1486,7 +1457,7 @@ start_hudi() {
     . "${HUDI_DIR}"/hudi.env
     set +a
     envsubst <"${HUDI_DIR}"/hudi.yaml.tpl >"${HUDI_DIR}"/hudi.yaml
-    sudo chmod +x "${HUDI_DIR}"/scripts/init.sh
+    chmod +x "${HUDI_DIR}"/scripts/init.sh
     register_stack_metadata "hudi" "${HUDI_DIR}/hudi.yaml" "${HUDI_DIR}/hudi.env"
     compose_down_stack "${HUDI_DIR}/hudi.yaml" "${HUDI_DIR}/hudi.env" --remove-orphans
     if [[ "${STOP}" -ne 1 ]]; then
@@ -1506,6 +1477,13 @@ start_mariadb() {
 
 start_fluss() {
     local fluss_dir="${ROOT}/docker-compose/fluss"
+    local fluss_host_ip
+
+    if [[ "${STOP}" -ne 1 ]]; then
+        . "${fluss_dir}/fluss-network.sh"
+        fluss_host_ip="$(resolve_fluss_host_ip)" || return
+        export FLUSS_HOST_IP="${fluss_host_ip}"
+    fi
 
     # The compose file bind mounts remote.data.dir and the paimon warehouse at
     # the same absolute paths it uses inside the containers, so Doris (running on
@@ -1534,49 +1512,12 @@ start_fluss() {
     bash "${fluss_dir}/fetch-paimon-s3.sh"
 
     reset_data_dirs "${FLUSS_REMOTE_DATA_DIR}" "${FLUSS_PAIMON_WAREHOUSE_DIR}"
-    # The fluss and flink images run as uid 9999, the host directories are
-    # created by root.
-    host_admin_cmd chmod 777 "${FLUSS_REMOTE_DATA_DIR}" "${FLUSS_PAIMON_WAREHOUSE_DIR}"
-    host_admin_cmd chmod +x "${fluss_dir}/scripts/run-init-sql.sh"
+    # The fluss and flink images run as uid 9999, mapped to a subordinate
+    # host UID in rootless Docker. Let both images write the fixture paths.
+    chmod 777 "${FLUSS_REMOTE_DATA_DIR}" "${FLUSS_PAIMON_WAREHOUSE_DIR}"
+    chmod +x "${fluss_dir}/scripts/run-init-sql.sh"
 
     compose_up_stack "${fluss_dir}/fluss.yaml" "${fluss_dir}/fluss.env" -d --wait
-}
-
-start_lakesoul() {
-    echo "RUN_LAKESOUL"
-    cp "${ROOT}"/docker-compose/lakesoul/lakesoul.yaml.tpl "${ROOT}"/docker-compose/lakesoul/lakesoul.yaml
-    sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/lakesoul/lakesoul.yaml
-    register_stack_metadata "lakesoul" "${ROOT}/docker-compose/lakesoul/lakesoul.yaml" ""
-    compose_cmd "${ROOT}/docker-compose/lakesoul/lakesoul.yaml" "" down --remove-orphans
-    sudo rm -rf "${ROOT}"/docker-compose/lakesoul/data
-    if [[ "${STOP}" -ne 1 ]]; then
-        echo "PREPARE_LAKESOUL_DATA"
-        compose_cmd "${ROOT}/docker-compose/lakesoul/lakesoul.yaml" "" up -d
-        ## import tpch data into lakesoul
-        ## install rustup
-        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- --default-toolchain none -y
-        # shellcheck source=/dev/null
-        . "${HOME}/.cargo/env"
-        ## install rust nightly-2023-05-20
-        rustup install nightly-2023-05-20
-        ## download&generate tpch data
-        mkdir -p lakesoul/test_files/tpch/data
-        git clone https://github.com/databricks/tpch-dbgen.git
-        (
-            cd tpch-dbgen
-            make
-            ./dbgen -f -s 0.1
-            mv *.tbl ../lakesoul/test_files/tpch/data
-        )
-        export TPCH_DATA=$(realpath lakesoul/test_files/tpch/data)
-        ## import tpch data
-        git clone https://github.com/lakesoul-io/LakeSoul.git
-        #    git checkout doris_dev
-        (
-            cd LakeSoul/rust
-            cargo test load_tpch_data --package lakesoul-datafusion --features=ci -- --nocapture
-        )
-    fi
 }
 
 dump_kerberos_container_state() {
@@ -1594,7 +1535,7 @@ cleanup_kerberos_ready_wait() {
     local wait_pid="$1"
 
     [[ -n "${wait_pid}" ]] || return 0
-    sudo kill -TERM -- "-${wait_pid}" >/dev/null 2>&1 || true
+    kill -TERM -- "-${wait_pid}" >/dev/null 2>&1 || true
     wait "${wait_pid}" >/dev/null 2>&1 || true
 }
 
@@ -1604,7 +1545,7 @@ wait_for_kerberos_ready() {
     local wait_status=0
 
     echo "Waiting for ${container} readiness event"
-    setsid sudo timeout --signal=TERM --kill-after=5s 20m bash -c '
+    setsid timeout --signal=TERM --kill-after=5s 20m bash -c '
         log_dir=$(mktemp -d)
         mkfifo "${log_dir}/container.log"
         docker logs --follow "$1" >"${log_dir}/container.log" 2>&1 &
@@ -1731,21 +1672,12 @@ start_kerberos() {
             envsubst <"${KERBEROS_DIR}/conf/${config}.tpl" >"${KERBEROS_DIR}/conf/kerberos${i}/${config}"
         done
     done
-    sudo chmod a+w /etc/hosts
-    if ! awk -v ip="${IP_HOST}" '$1 == ip && $2 == "hadoop-master" { found = 1 } END { exit !found }' /etc/hosts; then
-        sudo sed -i "1i${IP_HOST} hadoop-master" /etc/hosts
-    fi
-    if ! awk -v ip="${IP_HOST}" '$1 == ip && $2 == "hadoop-master-2" { found = 1 } END { exit !found }' /etc/hosts; then
-        sudo sed -i "1i${IP_HOST} hadoop-master-2" /etc/hosts
-    fi
     register_stack_metadata "kerberos" "${KERBEROS_DIR}/kerberos.yaml" ""
     compose_cmd "${KERBEROS_DIR}/kerberos.yaml" "" down --remove-orphans
-    sudo rm -rf "${KERBEROS_DIR}/data"
     if [[ "${STOP}" -ne 1 ]]; then
+        require_rootless_host_network
         echo "PREPARE KERBEROS DATA"
-        rm -rf "${KERBEROS_DIR}"/two-kerberos-hives/*.keytab
-        rm -rf "${KERBEROS_DIR}"/two-kerberos-hives/*.jks
-        rm -rf "${KERBEROS_DIR}"/two-kerberos-hives/*.conf
+        reset_data_dirs "${KERBEROS_DIR}/data" "${KERBEROS_DIR}/two-kerberos-hives"
         compose_cmd "${KERBEROS_DIR}/kerberos.yaml" "" up --build --remove-orphans -d
         trap 'cleanup_kerberos_readiness_jobs "${readiness_pids[@]}"' EXIT
         trap 'exit 143' TERM
@@ -1767,9 +1699,13 @@ start_kerberos() {
         for container in "${containers[@]}"; do
             validate_kerberos_container "${container}"
         done
-        sudo ln -sfn "${KERBEROS_DIR}/two-kerberos-hives" /keytabs
-        sudo cp "${KERBEROS_DIR}/common/conf/doris-krb5.conf" /keytabs/krb5.conf
-        sudo cp "${KERBEROS_DIR}/common/conf/doris-krb5.conf" /etc/krb5.conf
+        sed -e "s/kdc = hadoop-master:/kdc = ${IP_HOST}:/" \
+            -e "s/kdc = hadoop-master-2:/kdc = ${IP_HOST}:/" \
+            -e "s#FILE:/var/log/#FILE:${KERBEROS_DIR}/two-kerberos-hives/#g" \
+            "${KERBEROS_DIR}/common/conf/doris-krb5.conf" \
+            >"${KERBEROS_DIR}/two-kerberos-hives/krb5.conf"
+        echo "Kerberos client files: ${KERBEROS_DIR}/two-kerberos-hives"
+        echo "For host clients: export KRB5_CONFIG=${KERBEROS_DIR}/two-kerberos-hives/krb5.conf"
         sleep 2
     fi
 }
@@ -1880,10 +1816,22 @@ start_iceberg_rest() {
     export CONTAINER_UID=${CONTAINER_UID}
     . "${ROOT}"/docker-compose/iceberg-rest/iceberg-rest_settings.env
     envsubst <"${ICEBERG_REST_DIR}/docker-compose.yaml.tpl" >"${ICEBERG_REST_DIR}/docker-compose.yaml"
+    if [[ "${HOST_OS}" != "Darwin" ]]; then
+        if [[ "${STOP}" -ne 1 ]]; then
+            require_rootless_host_network
+        fi
+        # A host HDFS client must reach the DataNode address returned by the
+        # NameNode. A rootless bridge address is not routable from the host.
+        envsubst <"${ICEBERG_REST_DIR}/hdfs-rootless.yaml.tpl" >"${ICEBERG_REST_DIR}/hdfs-rootless.yaml"
+        docker_cli compose -f "${ICEBERG_REST_DIR}/docker-compose.yaml" \
+            -f "${ICEBERG_REST_DIR}/hdfs-rootless.yaml" config \
+            >"${ICEBERG_REST_DIR}/docker-compose.rootless.yaml"
+        mv "${ICEBERG_REST_DIR}/docker-compose.rootless.yaml" "${ICEBERG_REST_DIR}/docker-compose.yaml"
+    fi
     register_stack_metadata "iceberg-rest" "${ICEBERG_REST_DIR}/docker-compose.yaml" ""
     compose_cmd "${ICEBERG_REST_DIR}/docker-compose.yaml" "" down --remove-orphans
     if [[ "${STOP}" -ne 1 ]]; then
-        # Start all three REST catalogs (S3, OSS, COS)
+        # Start the REST catalogs and their built-in HDFS.
         compose_cmd "${ICEBERG_REST_DIR}/docker-compose.yaml" "" up -d --remove-orphans --wait
     fi
 }
@@ -1894,7 +1842,7 @@ reserve_ports
 
 # Ensure hive data is downloaded before starting hive2/hive3, but only once
 need_prepare_hive_data=0
-if [[ "$NEED_LOAD_DATA" -eq 1 ]]; then
+if [[ "${STOP}" -ne 1 && "$NEED_LOAD_DATA" -eq 1 ]]; then
     if [[ "${RUN_HIVE2}" -eq 1 ]] || [[ "${RUN_HIVE3}" -eq 1 ]]; then
         if [[ "${HIVE_MODE}" == "refresh" || "${HIVE_MODE}" == "rebuild" ]]; then
             need_prepare_hive_data=1
@@ -1928,6 +1876,10 @@ fi
 
 if [[ "${RUN_MYSQL}" -eq 1 ]]; then
     launch_component "mysql" "${LOG_ROOT}/start_mysql.log" start_mysql
+fi
+
+if [[ "${RUN_MONGODB}" -eq 1 ]]; then
+    launch_component "mongodb" "${LOG_ROOT}/start_mongodb.log" start_mongodb
 fi
 
 if [[ "${RUN_PG}" -eq 1 ]]; then
@@ -1980,10 +1932,6 @@ fi
 
 if [[ "${RUN_MARIADB}" -eq 1 ]]; then
     launch_component "mariadb" "${LOG_ROOT}/start_mariadb.log" start_mariadb
-fi
-
-if [[ "${RUN_LAKESOUL}" -eq 1 ]]; then
-    launch_component "lakesoul" "${LOG_ROOT}/start_lakesoul.log" start_lakesoul
 fi
 
 if [[ "${RUN_FLUSS}" -eq 1 ]]; then

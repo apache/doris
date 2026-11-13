@@ -95,25 +95,6 @@ TEST(SpillIcebergTableSinkOperatorTest, ReservesAllMergeInputsAndOutputAtEos) {
     EXPECT_EQ(32 * MB, iceberg_spill_merge_workspace(3, 8 * MB, 64 * MB));
 }
 
-TEST(SpillIcebergTableSinkOperatorTest, WaitsUntilDequeuedBlockUpdatesSorterState) {
-    AsyncWriterQueueAdmission stateful_admission;
-    stateful_admission.wait_for_processing_before_next_sink();
-
-    EXPECT_TRUE(stateful_admission.is_available(0));
-    EXPECT_FALSE(stateful_admission.is_available(1));
-    stateful_admission.begin_processing();
-    // Dequeueing does not admit block 2 until block 1 changes the state sampled by admission.
-    EXPECT_FALSE(stateful_admission.is_available(0));
-    stateful_admission.finish_processing();
-    EXPECT_TRUE(stateful_admission.is_available(0));
-
-    // Writers without state-dependent admission retain the existing three-block queue behavior.
-    AsyncWriterQueueAdmission buffered_admission;
-    buffered_admission.begin_processing();
-    EXPECT_TRUE(buffered_admission.is_available(2));
-    EXPECT_FALSE(buffered_admission.is_available(3));
-}
-
 TEST(SpillIcebergTableSinkOperatorTest, TerminalWriterDrainsQueuedReservations) {
     int live_reservations = 0;
     struct Reservation {

@@ -37,6 +37,15 @@ public:
     void for_terms(const IndexQueryContextPtr& context, const std::wstring& field_name,
                    const std::vector<std::wstring>& terms) override;
 
+    // for_terms of `terms` and of every term the tablet expanded `prefix` to, so that a phrase
+    // prefix is scored on the idf of the terms it matches, as Lucene's multi-phrase query does.
+    //
+    // Example: "quick bro" over a tablet holding brother and brown is scored on
+    // idf(quick) + idf(brother) + idf(brown), so a row with the rare brother ranks above one with
+    // the common brown.
+    void for_terms_and_prefix(const IndexQueryContextPtr& context, const std::wstring& field_name,
+                              const std::vector<std::wstring>& terms, const std::wstring& prefix);
+
     float score(float freq, int64_t encoded_norm) override;
     float max_score() override;
     void bind_norms(std::span<const float> lengths) override;

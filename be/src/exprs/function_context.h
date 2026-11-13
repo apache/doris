@@ -30,7 +30,7 @@
 
 namespace doris {
 
-struct ColumnPtrWrapper;
+class ConstantExprResult;
 struct StringRef;
 class RuntimeState;
 
@@ -73,7 +73,7 @@ public:
     /// it.
     std::unique_ptr<doris::FunctionContext> clone();
 
-    void set_constant_cols(const std::vector<std::shared_ptr<doris::ColumnPtrWrapper>>& cols);
+    void set_constant_cols(const std::vector<std::shared_ptr<doris::ConstantExprResult>>& cols);
 
     RuntimeState* state() { return _state; }
 
@@ -159,7 +159,7 @@ public:
     // including the FunctionContext* argument). Returns nullptr if the argument is not
     // constant. This function can be used to obtain user-specified constants in a UDF's
     // Init() or Close() functions.
-    doris::ColumnPtrWrapper* get_constant_col(int arg_idx) const;
+    doris::ConstantExprResult* get_constant_col(int arg_idx) const;
 
     // Creates a StringRef, which memory is available when this function context is used next time
     StringRef create_temp_string_val(int64_t len);
@@ -196,7 +196,7 @@ private:
     // Type descriptors for each argument of the function.
     std::vector<DataTypePtr> _arg_types;
 
-    std::vector<std::shared_ptr<doris::ColumnPtrWrapper>> _constant_cols;
+    std::vector<std::shared_ptr<doris::ConstantExprResult>> _constant_cols;
 
     // UDF execute timer
     RuntimeProfile::Counter* _udf_execute_timer = nullptr;

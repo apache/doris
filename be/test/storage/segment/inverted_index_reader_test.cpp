@@ -46,12 +46,14 @@
 #include "storage/index/inverted/analysis/analyzer/analyzer.h"
 #include "storage/index/inverted/clucene/clucene_index_reader.h"
 #include "storage/index/inverted/clucene/inverted_index_writer.h"
+#include "storage/index/inverted/clucene/lucene_backed_text_analyzer.h"
 #include "storage/index/inverted/common/inverted_index_desc.h"
 #include "storage/index/inverted/inverted_index_iterator.h"
 #include "storage/index/inverted/query/exec/term_pattern.h"
 #include "storage/index/inverted/query/scoring/collection_similarity.h"
 #include "storage/index/inverted/reader/collection_statistics.h"
 #include "storage/key_coder.h"
+#include "storage/storage_layout_test_util.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/tablet/tablet_schema_helper.h"
 #include "util/slice.h"
@@ -177,7 +179,8 @@ public:
         EXPECT_TRUE(status.ok()) << status;
 
         // Write string values
-        status = column_writer->add_values("c2", values.data(), values.size());
+        status = column_writer->add_values(reinterpret_cast<const uint8_t*>(values.data()),
+                                           values.size());
         EXPECT_TRUE(status.ok()) << status;
 
         // Finish and close
@@ -275,7 +278,8 @@ public:
 
         // Add some regular values
         std::vector<Slice> values = {Slice("apple"), Slice("banana")};
-        status = column_writer->add_values("c2", values.data(), values.size());
+        status = column_writer->add_values(reinterpret_cast<const uint8_t*>(values.data()),
+                                           values.size());
         EXPECT_TRUE(status.ok()) << status;
 
         // Add more NULL values
@@ -338,7 +342,8 @@ public:
         EXPECT_TRUE(status.ok()) << status;
 
         // Add integer values
-        status = column_writer->add_values("c1", values.data(), values.size());
+        status = column_writer->add_values(reinterpret_cast<const uint8_t*>(values.data()),
+                                           values.size());
         EXPECT_TRUE(status.ok()) << status;
 
         // Finish and close
@@ -2950,7 +2955,10 @@ public:
         if (leading_nulls > 0) {
             EXPECT_TRUE(column_writer->add_nulls(leading_nulls).ok());
         }
-        EXPECT_TRUE(column_writer->add_values("c2", values.data(), values.size()).ok());
+        EXPECT_TRUE(
+                column_writer
+                        ->add_values(reinterpret_cast<const uint8_t*>(values.data()), values.size())
+                        .ok());
         if (trailing_nulls > 0) {
             EXPECT_TRUE(column_writer->add_nulls(trailing_nulls).ok());
         }
@@ -3407,7 +3415,8 @@ public:
             // proxy, so `auto`/`&value` would give a __bit_reference/__bit_iterator
             // rather than a real pointer. Use the container's value_type.
             typename std::decay_t<decltype(values)>::value_type v = value;
-            status = column_writer->add_values(column.name(), reinterpret_cast<const void*>(&v), 1);
+            status = column_writer->add_values(
+                    reinterpret_cast<const uint8_t*>(reinterpret_cast<const void*>(&v)), 1);
             EXPECT_TRUE(status.ok()) << status;
         }
 
@@ -3711,8 +3720,9 @@ public:
         EXPECT_NE(bkd_reader, nullptr);
 
         auto run_query = [&](InvertedIndexQueryType qt, T thr) {
-            using raw_t = typename PrimitiveTypeTraits<PT>::StorageFieldType;
-            Field qp = Field::create_field_from_olap_value<PT>(static_cast<raw_t>(thr));
+            using raw_t =
+                    typename StorageLayout<primitive_type_to_storage_field_type(PT)>::StorageValue;
+            Field qp = field_of_cell<PT>(static_cast<raw_t>(thr));
             auto bitmap = std::make_shared<roaring::Roaring>();
             auto status = bkd_reader->query(context, column_name, qp, qt, bitmap);
             EXPECT_TRUE(status.ok()) << column_name << ": " << status;
@@ -4200,7 +4210,8 @@ public:
             // proxy, so `auto`/`&value` would give a __bit_reference/__bit_iterator
             // rather than a real pointer. Use the container's value_type.
             typename std::decay_t<decltype(values)>::value_type v = value;
-            status = column_writer->add_values(column.name(), reinterpret_cast<const void*>(&v), 1);
+            status = column_writer->add_values(
+                    reinterpret_cast<const uint8_t*>(reinterpret_cast<const void*>(&v)), 1);
             EXPECT_TRUE(status.ok()) << status;
         }
 
@@ -4323,8 +4334,7 @@ public:
 
             for (auto& test_case : test_cases) {
                 std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
-                Field qp_3262 =
-                        Field::create_field_from_olap_value<TYPE_TIMESTAMPTZ>(test_case.second);
+                Field qp_3262 = field_of_cell<TYPE_TIMESTAMPTZ>(test_case.second);
                 auto status = bkd_reader->query(context, "c_timestamptz", qp_3262, test_case.first,
                                                 bitmap);
                 EXPECT_TRUE(status.ok()) << "Query type: " << static_cast<int>(test_case.first);
@@ -4337,8 +4347,7 @@ public:
 
             for (auto& test_case : test_cases) {
                 size_t count = 0;
-                Field qp_3274 =
-                        Field::create_field_from_olap_value<TYPE_TIMESTAMPTZ>(test_case.second);
+                Field qp_3274 = field_of_cell<TYPE_TIMESTAMPTZ>(test_case.second);
                 auto status = bkd_reader->try_query(context, "c_timestamptz", qp_3274,
                                                     test_case.first, &count);
                 EXPECT_TRUE(status.ok()) << "Try query type: " << static_cast<int>(test_case.first);
@@ -4436,8 +4445,8 @@ public:
             uint32_t query_value = 20240102;
             std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
             // TYPE_DATE storage is uint24_t — narrow from the test's uint32_t.
-            typename PrimitiveTypeTraits<TYPE_DATE>::StorageFieldType date_storage(query_value);
-            Field qp_3366 = Field::create_field_from_olap_value<TYPE_DATE>(date_storage);
+            const uint24_t date_storage(query_value);
+            Field qp_3366 = field_of_cell<TYPE_DATE>(date_storage);
             auto status = bkd_reader->query(context, "c_date", qp_3366,
                                             InvertedIndexQueryType::EQUAL_QUERY, bitmap);
             EXPECT_TRUE(status.ok());
@@ -4463,8 +4472,7 @@ public:
 
             int64_t query_value = 20240101130000LL;
             std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
-            Field qp_3391 = Field::create_field_from_olap_value<TYPE_DATETIME>(
-                    static_cast<uint64_t>(query_value));
+            Field qp_3391 = field_of_cell<TYPE_DATETIME>(query_value);
             auto status = bkd_reader->query(context, "c_datetime", qp_3391,
                                             InvertedIndexQueryType::EQUAL_QUERY, bitmap);
             EXPECT_TRUE(status.ok());
@@ -4643,7 +4651,7 @@ public:
 
             uint64_t query_value = 20240201130000ULL;
             std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
-            Field qp_3561 = Field::create_field_from_olap_value<TYPE_TIMESTAMPTZ>(query_value);
+            Field qp_3561 = field_of_cell<TYPE_TIMESTAMPTZ>(query_value);
             auto status = bkd_reader->query(context, "c_timestamptz", qp_3561,
                                             InvertedIndexQueryType::EQUAL_QUERY, bitmap);
             EXPECT_TRUE(status.ok());
@@ -5083,7 +5091,7 @@ namespace {
 // Throws when asked for its analyzer and counts the requests.
 class FailingAnalyzerProvider final : public inverted_index::AnalyzerProvider {
 public:
-    std::shared_ptr<lucene::analysis::Analyzer> get_analyzer() const override {
+    inverted_index::TextAnalyzerPtr get_analyzer() const override {
         ++calls;
         throw Exception(ErrorCode::INVERTED_INDEX_ANALYZER_ERROR, "this test has no analyzer");
     }
@@ -5191,8 +5199,10 @@ TEST_F(InvertedIndexReaderTest, FulltextMatchPhraseUsesTheQueryAnalyzer) {
             english_fulltext_reader("fulltext_query_analyzer", {Slice("Quick Brown fox")}, &meta);
     InvertedIndexAnalyzerCtx case_keeping;
     case_keeping.parser_type = InvertedIndexParserType::PARSER_STANDARD;
-    case_keeping.analyzer = inverted_index::InvertedIndexAnalyzer::create_builtin_analyzer(
-            InvertedIndexParserType::PARSER_STANDARD, "", INVERTED_INDEX_PARSER_FALSE, "none");
+    case_keeping.analyzer = std::make_shared<inverted_index::LuceneBackedTextAnalyzer>(
+            inverted_index::InvertedIndexAnalyzer::create_builtin_analyzer(
+                    InvertedIndexParserType::PARSER_STANDARD, "", INVERTED_INDEX_PARSER_FALSE,
+                    "none"));
     // The result cache assumes one analyzer per index, which this test breaks on purpose.
     MatchContext run(/*scoring=*/false, /*query_cache=*/false);
     EXPECT_EQ(match(*reader, run.context, InvertedIndexQueryType::MATCH_PHRASE_QUERY, "Quick Brown",
@@ -5222,8 +5232,10 @@ TEST_F(InvertedIndexReaderTest, FulltextMatchPhraseAloneConsumesCandidateRows) {
     EXPECT_FALSE(run.context->candidate_rows_consumed);
 }
 
-// A phrase prefix of one token runs as a prefix of it and publishes no score.
-TEST_F(InvertedIndexReaderTest, FulltextOneTokenPhrasePrefixPublishesNoScore) {
+// A phrase prefix of one token runs as a prefix of it and scores every match 1, as SNII does. A
+// match left unscored would read 0, and `score() > 0` would then drop every row the prefix
+// matched.
+TEST_F(InvertedIndexReaderTest, FulltextOneTokenPhrasePrefixScoresMatchesAsAConstant) {
     TabletIndex meta;
     auto reader =
             english_fulltext_reader("fulltext_prefix_score",
@@ -5231,7 +5243,10 @@ TEST_F(InvertedIndexReaderTest, FulltextOneTokenPhrasePrefixPublishesNoScore) {
     MatchContext run(/*scoring=*/true);
     EXPECT_EQ(match(*reader, run.context, InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY, "qui"),
               rows({0, 1}));
-    EXPECT_TRUE(run.context->collection_similarity->_bm25_scores.empty());
+    const auto& scores = run.context->collection_similarity->_bm25_scores;
+    EXPECT_EQ(scores.size(), 2U);
+    EXPECT_FLOAT_EQ(scores.at(0), 1.0F);
+    EXPECT_FLOAT_EQ(scores.at(1), 1.0F);
 }
 
 // A keyword MATCH_PHRASE takes a trailing " ~N" or " ~N+" as its slop, as SNII does, and reading

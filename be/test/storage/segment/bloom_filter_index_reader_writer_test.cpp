@@ -67,7 +67,7 @@ Status write_bloom_filter_index_file(const std::string& file_name, const void* v
                                      size_t value_count, size_t null_count,
                                      ColumnIndexMetaPB* index_meta,
                                      bool use_primary_key_bloom_filter = false, double fpp = 0.05) {
-    using CppType = typename CppTypeTraits<type>::CppType;
+    using CppType = typename StorageTypeTraits<type>::StorageType;
     std::string fname = dname + "/" + file_name;
     auto fs = io::global_local_filesystem();
     {
@@ -89,7 +89,8 @@ Status write_bloom_filter_index_file(const std::string& file_name, const void* v
         const CppType* vals = (const CppType*)values;
         for (int i = 0; i < value_count;) {
             size_t num = std::min(1024, (int)value_count - i);
-            RETURN_IF_ERROR(bloom_filter_index_writer->add_values(vals + i, num));
+            RETURN_IF_ERROR(bloom_filter_index_writer->add_values(
+                    reinterpret_cast<const uint8_t*>(vals + i), num));
             if (i == 2048) {
                 // second page
                 bloom_filter_index_writer->add_nulls(null_count);
@@ -100,7 +101,8 @@ Status write_bloom_filter_index_file(const std::string& file_name, const void* v
             i += 1024;
         }
         if (value_count == 3072) {
-            RETURN_IF_ERROR(bloom_filter_index_writer->add_values(vals + 3071, 1));
+            RETURN_IF_ERROR(bloom_filter_index_writer->add_values(
+                    reinterpret_cast<const uint8_t*>(vals + 3071), 1));
             auto bf_size = BloomFilter::optimal_bit_num(1, fpp) / 8;
             expect_size += bf_size + 1;
         }
@@ -686,7 +688,7 @@ Status write_ngram_bloom_filter_index_file(const std::string& file_name, Slice* 
     size_t i = 0;
     while (i < num_values) {
         size_t num = std::min(static_cast<size_t>(1024), num_values - i);
-        st = bf_index_writer->add_values(values + i, num);
+        st = bf_index_writer->add_values(reinterpret_cast<const uint8_t*>(values + i), num);
         EXPECT_TRUE(st.ok());
         st = bf_index_writer->flush();
         EXPECT_TRUE(st.ok());

@@ -31,17 +31,12 @@
 #include "storage/index/inverted/analysis/gram/gram_density.h"
 #include "storage/index/inverted/analysis/gram/gram_scheme.h"
 #include "storage/index/inverted/analysis/inverted_index_parser.h"
-#include "storage/index/inverted/analysis/reader.h"
+#include "storage/index/inverted/analysis/text_analyzer.h"
 #include "storage/index/inverted/common/query_info.h"
 #include "storage/index/inverted/snii/format/format_constants.h"
 #include "storage/index/inverted/snii/writer/memory_reporter.h"
 #include "storage/index/inverted/snii/writer/spimi_term_buffer.h"
 #include "util/slice.h"
-
-namespace lucene::analysis {
-class Analyzer;
-class TokenStream;
-} // namespace lucene::analysis
 
 namespace doris::segment_v2::inverted_index {
 class GramTokenizer;
@@ -57,9 +52,9 @@ public:
 
     Status init() override;
     void set_direct_load(bool is_direct_load) override;
-    Status add_values(const std::string name, const void* values, size_t count) override;
-    Status add_array_values(size_t field_size, const void* value_ptr,
-                            const uint8_t* nested_null_map, const uint8_t* offsets_ptr,
+    Status add_values(const uint8_t* values, size_t count) override;
+    Status add_array_values(size_t field_size, const uint8_t* value_ptr,
+                            const uint8_t* nested_null_map, const uint64_t* offsets_ptr,
                             size_t count) override;
     Status add_nulls(uint32_t count) override;
     Status add_array_nulls(const uint8_t* null_map, size_t num_rows) override;
@@ -86,41 +81,37 @@ public:
     bool density_calibrating_for_test() const { return _density_calibrating; }
     int64_t density_sample_bytes_for_test() const { return _density_sample_bytes; }
     size_t density_promise_bytes_for_test() const { return _density_promise_bytes; }
-    void set_analysis_for_test(inverted_index::ReaderPtr reader,
-                               std::shared_ptr<lucene::analysis::Analyzer> analyzer) {
+    // Replaces the analyzer of an initialized writer outside the gram family.
+    void set_analysis_for_test(inverted_index::TextAnalyzerPtr analyzer) {
+        DORIS_CHECK(!_gram_scheme.has_value());
         _should_analyzer = true;
-        _char_string_reader = std::move(reader);
+        _stream.reset();
         _analyzer = std::move(analyzer);
+        _stream = _analyzer->create_stream();
     }
+    const inverted_index::TextTokenStream* stream_for_test() const { return _stream.get(); }
 #endif
 
 private:
-    // The first half of init(): build the char filter reader and (when _should_analyzer) the one
-    // analyzer provider, then let _apply_gram_family_scheme settle the gram-family decision. Must
-    // be called before SpimiTermBuffer is constructed. A CLuceneError / Exception thrown here is
-    // uniformly turned into INVERTED_INDEX_ANALYZER_ERROR.
+    // The first half of init(): build (when _should_analyzer) the one analyzer provider, then let
+    // _apply_gram_family_scheme settle the gram-family decision. Must be called before
+    // SpimiTermBuffer is constructed. An Exception thrown here is turned into
+    // INVERTED_INDEX_ANALYZER_ERROR.
     Status _create_analyzer_provider(inverted_index::AnalyzerProviderPtr* analyzer_provider);
     // Take the gram scheme from the provider and apply the consequences of the gram family
     // (forcing docs-only).
     void _apply_gram_family_scheme(const inverted_index::AnalyzerProviderPtr& analyzer_provider);
     Status _add_value_tokens(const Slice& value, uint32_t docid, uint32_t position_base,
                              uint32_t* max_position, uint32_t* token_count);
-    // One row's token stream, reset and ready to drain. `owned` receives it only when this
-    // writer must delete it; the gram lane's stream stays owned by _analyzer. See the
-    // definition for the ownership/reset contract.
-    lucene::analysis::TokenStream* _plain_lane_token_stream(
-            std::unique_ptr<lucene::analysis::TokenStream>* owned);
-    // Mirror of the above, run once the row's tokens are consumed: closes an owned stream, or
-    // charges the reused gram tokenizer's settled buffer capacity to the memory reporter.
-    void _finish_plain_lane_row(lucene::analysis::TokenStream* token_stream, bool owned);
-    // Mirrors _null_docids' capacity into _memory_reporter (delta-charged);
-    // release_all zeroes the charge (finish() handoff / close_on_error()).
-    void _report_null_docids_capacity(bool release_all = false);
+    Status _reserve_null_docids_for_append(size_t count);
     void _report_encoded_norms_capacity(bool release_all = false);
-    // Mirrors the reused gram tokenizer's buffer capacity into _memory_reporter
-    // (delta-charged), same shape as the two above. A no-op until the reusable
-    // lane has cached _gram_tokenizer.
-    void _report_gram_buffers_capacity(bool release_all = false);
+    // Mirrors what the analysis keeps between rows -- the stream's buffers and the batch -- into
+    // _memory_reporter (delta-charged), same shape as the one above. A no-op for a writer that
+    // does not analyze.
+    void _report_analysis_capacity(bool release_all = false);
+    // Destroys the stream and frees the batch once their capacity is no longer reported. After an
+    // analyzer error the batch can still hold the tokens of the row that failed.
+    void _release_analysis();
     // Solves the density from what has been held back, applies it, and tokenizes the held-back
     // rows. Idempotent, and a no-op when the scheme is not gram family or the feature is off.
     void _arm_density_calibration();
@@ -174,30 +165,22 @@ private:
     size_t _density_promise_bytes = 0;
     int64_t _density_sample_charged_bytes = 0;
     bool _density_calibrating = false;
-    // Set when the rate has been solved but the tokenizer has not been obtained yet; applied
-    // where the tokenizer is first cast, before it cuts anything.
-    std::optional<uint16_t> _pending_density_permille;
     InvertedIndexAnalyzerConfig _analyzer_config;
-    inverted_index::ReaderPtr _char_string_reader;
-    std::shared_ptr<lucene::analysis::Analyzer> _analyzer;
-    // Non-owning. The gram lane pulls its token stream from
-    // Analyzer::reusableTokenStream, which hands back a pointer into the cached
-    // components _analyzer owns, so this stays valid exactly as long as
-    // _analyzer does and must be declared after it. Null until the first
-    // analyzed row, and always null off the gram lane.
+    inverted_index::TextAnalyzerPtr _analyzer;
+    // One stream for every row of the writer, made by init() and destroyed by finish() and
+    // close_on_error(). Declared after _analyzer, which it must not outlive.
+    std::unique_ptr<inverted_index::TextTokenStream> _stream;
+    inverted_index::TokenBatch _batch;
+    // Non-owning: _stream itself when the scheme is gram family, so that the solved density can
+    // be set on it before it cuts the first row; null otherwise.
     inverted_index::GramTokenizer* _gram_tokenizer = nullptr;
     std::unique_ptr<::doris::snii::writer::MemoryReporter> _memory_reporter;
+    ::doris::snii::writer::MemoryReporter::Reservation _null_docids_reservation;
     std::unique_ptr<::doris::snii::writer::SpimiTermBuffer> _term_buffer;
     std::vector<uint32_t> _null_docids;
     std::vector<uint8_t> _encoded_norms;
-    // Bytes of _null_docids capacity currently mirrored into _memory_reporter
-    // (and through it the SNII index-build observation tracker). Re-charged on
-    // growth in add_nulls / add_array_nulls, released in finish() / close_on_error() --
-    // without it a large interleaved-null segment accumulates untracked RSS the
-    // G09 limiter cannot see.
-    int64_t _null_docids_charged_bytes = 0;
     int64_t _encoded_norms_charged_bytes = 0;
-    int64_t _gram_buffers_charged_bytes = 0;
+    int64_t _analysis_charged_bytes = 0;
     Status _failure_status = Status::OK();
 };
 

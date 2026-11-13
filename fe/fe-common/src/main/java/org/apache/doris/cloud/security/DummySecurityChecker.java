@@ -31,7 +31,17 @@ public class DummySecurityChecker extends SecurityChecker {
     }
 
     @Override
+    public void startSSRFChecking() throws Exception {
+        return;
+    }
+
+    @Override
     public void stopSSRFChecking() {
         return;
+    }
+
+    @Override
+    public boolean isEnabled() {
+        return false;
     }
 }

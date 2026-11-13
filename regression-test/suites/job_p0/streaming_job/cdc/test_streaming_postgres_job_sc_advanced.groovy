@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import groovy.json.JsonSlurper
 import org.awaitility.Awaitility
 
 import static java.util.concurrent.TimeUnit.SECONDS
@@ -109,10 +110,21 @@ suite("test_streaming_postgres_job_sc_advanced",
         def waitForSchemaPause = { boolean missingColumn ->
             Awaitility.await().atMost(180, SECONDS).pollInterval(1, SECONDS).until({
                 def rows = sql """select Status, ErrorMsg from jobs("type"="insert") where Name='${jobName}'"""
-                (rows.size() == 1 && rows[0][0] == 'PAUSED'
-                        && rows[0][1].toString().contains('[SCHEMA_CHANGE_UNSUPPORTED]')
-                        && (!missingColumn || (rows[0][1].toString().contains('missing columns')
-                                && rows[0][1].toString().contains('c3'))))
+                if (rows.size() != 1 || rows[0][0] != 'PAUSED') {
+                    return false
+                }
+                def rawError = rows[0][1].toString()
+                def error = new JsonSlurper().parseText(rawError)
+                return (error.code == 'CANNOT_RESUME_ERR'
+                        && rawError.contains(" -> ")
+                        && error.msg.contains('[SCHEMA_CHANGE_UNSUPPORTED]')
+                        && error.msg.contains("Table: ${pgSchema}.${table1} -> ${currentDb}.${table1}")
+                        && error.msg.contains('columns added=[c3]; removed=[c1]')
+                        && !error.msg.contains('Source DDL:')
+                        && error.msg.contains('Review and adjust the target schema as needed.')
+                        && error.msg.contains('RESUME confirms acceptance of unsupported changes for this recovery round.')
+                        && (!missingColumn || (error.msg.contains('Doris target:')
+                                && error.msg.contains('missing columns [c3]'))))
             })
         }
 

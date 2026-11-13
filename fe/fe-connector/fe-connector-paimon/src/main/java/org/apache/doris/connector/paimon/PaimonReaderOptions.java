@@ -189,6 +189,14 @@ public final class PaimonReaderOptions {
             }
             return rebuilt;
         }
+        // Non-file sources cannot be rebuilt through SystemTableLoader; retain their wrapper's
+        // own copy semantics after independently validating the source's effective options.
+        if (scanOptions != null && !scanOptions.isEmpty()) {
+            systemTable = PaimonScanParams.isOptionsPin(scanOptions)
+                    ? PaimonScanParams.applyOptions(systemTable, scanOptions)
+                    : PaimonScanParams.copyWithHistoricalSchema(systemTable,
+                            PaimonIncrementalScanParams.applyResetsIfIncremental(scanOptions));
+        }
         return runtimeSafeTable(systemTable);
     }
 
@@ -207,7 +215,7 @@ public final class PaimonReaderOptions {
         if (scanOptions != null && !scanOptions.isEmpty()) {
             // Incremental ranges are relation state too; rebuilding a capped system wrapper from the
             // undecorated source must not silently turn @incr back into a latest scan.
-            effectiveSource = sourceTable.copy(
+            effectiveSource = PaimonScanParams.copyWithHistoricalSchema(sourceTable,
                     PaimonIncrementalScanParams.applyResetsIfIncremental(scanOptions));
         }
         return runtimeSafeTable(effectiveSource);

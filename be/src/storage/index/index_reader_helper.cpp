@@ -24,18 +24,28 @@ namespace {
 
 bool can_score_match(const TabletIndex* index_meta) {
     const auto& properties = index_meta->properties();
-    // parser=none can inherit support_phrase=true from FE defaults. MATCH statistics skip
-    // these keyword indexes, so their filters must not request a scoring context either.
-    return inverted_index::InvertedIndexAnalyzer::should_analyzer(properties) &&
-           (get_parser_phrase_support_string_from_properties(properties) ==
-                    INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES ||
-            IndexReaderHelper::is_normalizer_only(properties));
+    // A keyword index keeps each value as one term, without positions or norms, and its postings
+    // score with unit frequency and length whatever support_phrase says, as an Elasticsearch
+    // keyword field does: over tags (x, x, y, z), tag MATCH 'x' scores idf(x) = ln(2) for both
+    // matching rows, the same as SEARCH('tag:x'). MATCH statistics collect these terms too.
+    if (!inverted_index::InvertedIndexAnalyzer::should_analyzer(properties)) {
+        return true;
+    }
+    return get_parser_phrase_support_string_from_properties(properties) ==
+                   INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES ||
+           IndexReaderHelper::is_normalizer_only(properties);
 }
 
 } // namespace
 
 bool IndexReaderHelper::is_need_similarity_score(InvertedIndexQueryType query_type,
                                                  const TabletIndex* index_meta) {
+    // A regexp scores a constant 1 per matching row, as an Elasticsearch regexp query does in
+    // query context. The constant reads no statistics, norms or positions, so every index can
+    // score it: body MATCH 'apple' AND body MATCH_REGEXP 'ap.*' adds 1 to the apple score.
+    if (query_type == InvertedIndexQueryType::MATCH_REGEXP_QUERY) {
+        return true;
+    }
     return (query_type == InvertedIndexQueryType::MATCH_ANY_QUERY ||
             query_type == InvertedIndexQueryType::MATCH_ALL_QUERY ||
             query_type == InvertedIndexQueryType::MATCH_PHRASE_QUERY ||
@@ -45,6 +55,10 @@ bool IndexReaderHelper::is_need_similarity_score(InvertedIndexQueryType query_ty
 
 bool IndexReaderHelper::is_need_similarity_score(TExprOpcode::type query_type,
                                                  const TabletIndex* index_meta) {
+    // See the InvertedIndexQueryType overload: a regexp scores a constant on every index.
+    if (query_type == TExprOpcode::MATCH_REGEXP) {
+        return true;
+    }
     return (query_type == TExprOpcode::MATCH_ANY || query_type == TExprOpcode::MATCH_ALL ||
             query_type == TExprOpcode::MATCH_PHRASE ||
             query_type == TExprOpcode::MATCH_PHRASE_PREFIX) &&

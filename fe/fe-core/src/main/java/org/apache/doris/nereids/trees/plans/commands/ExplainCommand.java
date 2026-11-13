@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.plans.commands;
 import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.StmtType;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.util.UniqueIdUtils;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.rules.exploration.mv.InitMaterializationContextHook;
@@ -33,6 +34,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.StmtExecutor;
 
 import java.util.Optional;
@@ -91,6 +93,13 @@ public class ExplainCommand extends Command implements NoForward {
         boolean resetTargetTableId = false;
         try {
             explainCtx = explainable.getExplainConnectContext(ctx);
+            if (explainCtx != ctx) {
+                // A context of its own (EXPLAIN REFRESH MATERIALIZED VIEW plans on an MTMV context) is a statement
+                // of its own, which the cleanup at the end of this one does not reach. Give it a query id for its
+                // scans to register their query-finish cleanup under, which the finally below runs: without one
+                // they register under "" (ConnectorSessionBuilder), a key every such context shares.
+                explainCtx.setQueryId(UniqueIdUtils.fastUniqueId());
+            }
             if (explainable instanceof InsertIntoTableCommand
                     || explainable instanceof InsertOverwriteTableCommand
                     || explainable instanceof UpdateCommand) {
@@ -141,15 +150,32 @@ public class ExplainCommand extends Command implements NoForward {
                 scanNode.stop();
             }
         } finally {
-            if (resetTargetTableId) {
-                explainCtx.setSyntheticWriteColTargetTableId(previousTargetTableId);
-            }
-            if (ConnectContext.get() != previousCtx) {
-                ConnectContext.remove();
-                if (previousCtx != null) {
-                    previousCtx.setThreadLocalInfo();
+            try {
+                if (resetTargetTableId) {
+                    explainCtx.setSyntheticWriteColTargetTableId(previousTargetTableId);
+                }
+                if (explainCtx != null && explainCtx != ctx) {
+                    closeExplainConnectContext(explainCtx);
+                }
+            } finally {
+                if (ConnectContext.get() != previousCtx) {
+                    ConnectContext.remove();
+                    if (previousCtx != null) {
+                        previousCtx.setThreadLocalInfo();
+                    }
                 }
             }
+        }
+    }
+
+    // Ends the statement of an explain context of its own as MTMVTask ends a refresh's: runs the query-finish
+    // cleanup its scans registered (which stops their split producers and closes their connector scope), then
+    // closes its statement context. It has no coordinator, so only the callbacks are left to finish.
+    private static void closeExplainConnectContext(ConnectContext explainCtx) {
+        try {
+            QeProcessorImpl.INSTANCE.finishQueryCallbacks(explainCtx.queryId());
+        } finally {
+            explainCtx.getStatementContext().close();
         }
     }
 

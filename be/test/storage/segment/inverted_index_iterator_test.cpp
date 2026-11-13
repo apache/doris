@@ -141,10 +141,8 @@ protected:
         const std::string text = "one two";
         const auto indexed_terms = inverted_index::InvertedIndexAnalyzer::get_analyse_result(
                 text, reader->get_index_properties());
-        auto query_reader = inverted_index::InvertedIndexAnalyzer::create_reader({});
-        query_reader->init(text.data(), static_cast<int32_t>(text.size()), false);
         const auto query_terms = inverted_index::InvertedIndexAnalyzer::get_analyse_result(
-                query_reader, predicate.query_analyzer_ctx()->get_analyzer().get());
+                text, *predicate.query_analyzer_ctx()->get_analyzer());
         EXPECT_EQ(indexed_terms.size(), expected_count);
         EXPECT_EQ(query_terms.size(), indexed_terms.size());
     }
@@ -501,14 +499,8 @@ TEST_F(InvertedIndexIteratorTest, MatchBindsDistinctIkModesAndLowercaseStates) {
     config::inverted_index_dict_path = std::string(doris_home) + "../../dict";
     Configuration dictionary_config;
     dictionary_config.setDictPath(config::inverted_index_dict_path + "/ik");
-    try {
-        Dictionary::initial(dictionary_config);
-    } catch (const CLuceneError&) {
-        // Another test may have initialized the shared dictionary with an invalid path.
-        Dictionary::getSingleton()->getConfiguration()->setDictPath(
-                dictionary_config.getDictPath());
-        Dictionary::reload();
-    }
+    // A test that failed to load the shared dictionary leaves nothing behind, so this loads it.
+    Dictionary::initial(dictionary_config);
     const std::vector<std::map<std::string, std::string>> properties {
             {{"parser", "ik"}, {"lower_case", "false"}},
             {{"analyzer", "ik"}, {"lower_case", "false"}},

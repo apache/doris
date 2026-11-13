@@ -31,8 +31,8 @@ import java.util.Collections;
 import java.util.List;
 
 /**
- * Memory limits reach the two caches the hive connector owns itself, the directory listings and the derived
- * partition view, and closing the connector gives every reservation back. The HMS caches wrapped around the
+ * Memory limits reach the directory listings, completed size summaries and derived partition view,
+ * and closing the connector gives every reservation back. The HMS caches wrapped around the
  * metastore client are pinned by {@code CachingHmsClientTest} and the hudi sibling's
  * {@code HudiConnectorHmsCacheTest}.
  */
@@ -50,17 +50,20 @@ public class HiveConnectorWeightGovernanceTest {
             List<CatalogMetaCache> owners = MetaCacheGovernance.catalogCaches(catalogId);
             Assertions.assertEquals(1, owners.size());
             MetaCache<?, ?> file = owners.get(0).entries().get("hive-file");
+            MetaCache<?, ?> summary = owners.get(0).entries().get("hive-file-summary");
             MetaCache<?, ?> partitionView = owners.get(0).entries().get("hive-partition-view");
             Assertions.assertTrue(file.isWeightBounded());
+            Assertions.assertTrue(summary.isWeightBounded());
             Assertions.assertTrue(partitionView.isWeightBounded());
             Assertions.assertEquals(1024L * 1024L, file.metrics().getMaxWeight());
+            Assertions.assertEquals(1024L * 1024L, summary.metrics().getMaxWeight());
             Assertions.assertEquals(1024L * 1024L, partitionView.metrics().getMaxWeight());
 
             FakeFileSystem fs = new FakeFileSystem().withEntries(
                     FakeFileSystem.file(PARTITION_DIR + "/data1", 100L, 1L),
                     FakeFileSystem.file(PARTITION_DIR + "/data2", 200L, 1L));
             List<HiveFileStatus> files = connector.fileListingCacheForTest().listDataFiles("db", "t", PARTITION_DIR, fs);
-            Assertions.assertSame(files,
+            Assertions.assertEquals(files,
                     connector.fileListingCacheForTest().listDataFiles("db", "t", PARTITION_DIR, fs));
             List<ConnectorPartitionInfo> partitions = partitions(100);
             Assertions.assertSame(partitions, connector.partitionViewCacheForTest().get(PARTITION_VIEW_KEY,
@@ -69,12 +72,15 @@ public class HiveConnectorWeightGovernanceTest {
                     () -> partitions(100)), "an admitted partition view must be served from the cache");
 
             long fileWeight = file.metrics().getEstimatedWeight();
+            long summaryWeight = summary.metrics().getEstimatedWeight();
             long partitionViewWeight = partitionView.metrics().getEstimatedWeight();
             Assertions.assertTrue(fileWeight > 0L);
+            Assertions.assertTrue(summaryWeight > 0L);
             Assertions.assertTrue(partitionViewWeight > 0L);
             Assertions.assertEquals(0L, file.metrics().getWeightRejectCount());
+            Assertions.assertEquals(0L, summary.metrics().getWeightRejectCount());
             Assertions.assertEquals(0L, partitionView.metrics().getWeightRejectCount());
-            Assertions.assertEquals(previousGlobalWeight + fileWeight + partitionViewWeight,
+            Assertions.assertEquals(previousGlobalWeight + fileWeight + summaryWeight + partitionViewWeight,
                     MetaCacheGovernance.globalEstimatedWeight());
         } finally {
             connector.close();

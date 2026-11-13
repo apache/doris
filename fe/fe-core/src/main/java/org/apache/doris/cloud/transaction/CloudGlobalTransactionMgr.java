@@ -536,6 +536,15 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         long dbId = commitTxnResponse.getTxnInfo().getDbId();
         long txnId = commitTxnResponse.getTxnInfo().getTxnId();
         // 1. update rowCountfor AnalysisManager
+        // The partitions the rows were loaded into are handed over as well: a report can arrive after those
+        // partitions are gone (a stream load queues its statistics report and can return before the frontend
+        // received it, and a whole table TRUNCATE replaces the partitions while it keeps the table id), and the
+        // rows of such a report are the rows which were removed.
+        Map<Long, List<Long>> reportedPartitions = Maps.newHashMap();
+        for (int idx = 0; idx < commitTxnResponse.getPartitionIdsCount(); ++idx) {
+            reportedPartitions.computeIfAbsent(commitTxnResponse.getTableIds(idx), tableId -> Lists.newArrayList())
+                    .add(commitTxnResponse.getPartitionIds(idx));
+        }
         Map<Long, Long> updatedRows = new HashMap<>();
         for (TableStatsPB tableStats : commitTxnResponse.getTableStatsList()) {
             if (tableStats.hasUpdatedRowCount()) {
@@ -545,7 +554,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             }
         }
         Env env = Env.getCurrentEnv();
-        env.getAnalysisManager().updateUpdatedRows(updatedRows);
+        env.getAnalysisManager().updateUpdatedRows(updatedRows, dbId, reportedPartitions);
         // 2. update table and partition version
         Map<Long, List<Long>> tablePartitionMap = updateVersion(commitTxnResponse);
         // 3. notify partition first load

@@ -24,7 +24,7 @@ set -eo pipefail
 #   snapshot-hive-baseline.sh <volume_prefix> <output_path>
 #
 # Example:
-#   bash snapshot-hive-baseline.sh doris--syt--hive3 /tmp/hive3-baseline.tar.gz
+#   bash snapshot-hive-baseline.sh doris-shared-hive3 /tmp/hive3-baseline.tar.gz
 #
 # Prerequisites:
 #   - All Hive containers must be STOPPED before running this script.
@@ -33,35 +33,48 @@ set -eo pipefail
 VOLUME_PREFIX="${1:?Usage: $0 <volume_prefix> <output_path>}"
 OUTPUT_PATH="${2:?Usage: $0 <volume_prefix> <output_path>}"
 
+THIRDPARTY_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." &>/dev/null && pwd)"
+HOST_OS="$(uname -s)"
+# shellcheck source=../../../docker-command.sh
+. "${THIRDPARTY_ROOT}/docker-command.sh"
+configure_docker_access
+
+docker_cli() {
+    docker "$@"
+}
+
 echo "[snapshot] volume prefix: ${VOLUME_PREFIX}"
 echo "[snapshot] output: ${OUTPUT_PATH}"
 
 # Verify all 4 volumes exist
 for suffix in namenode datanode pgdata state; do
     vol="${VOLUME_PREFIX}-${suffix}"
-    if ! sudo docker volume inspect "${vol}" >/dev/null 2>&1; then
+    if ! docker_cli volume inspect "${vol}" >/dev/null 2>&1; then
         echo "ERROR: volume ${vol} does not exist" >&2
         exit 1
     fi
 done
 
 _t0=$(date +%s)
+tmp_output="$(mktemp "${OUTPUT_PATH}.XXXXXX")"
+trap 'rm -f "${tmp_output}"' EXIT
 
 # Mount all 4 volumes read-only into a single alpine container and tar them
 # in one pass. Copy only the small state volume to ephemeral container storage
 # so legacy baseline.version files can be dropped from newly exported tarballs.
-sudo docker run --rm \
-    -v "${VOLUME_PREFIX}-namenode:/snapshot/namenode:ro" \
-    -v "${VOLUME_PREFIX}-datanode:/snapshot/datanode:ro" \
-    -v "${VOLUME_PREFIX}-pgdata:/snapshot/pgdata:ro" \
+docker_cli run --rm --network none --security-opt no-new-privileges \
+    -v "${VOLUME_PREFIX}-namenode:/work/namenode:ro" \
+    -v "${VOLUME_PREFIX}-datanode:/work/datanode:ro" \
+    -v "${VOLUME_PREFIX}-pgdata:/work/pgdata:ro" \
     -v "${VOLUME_PREFIX}-state:/snapshot/state:ro" \
-    alpine sh -c '
+    "${THIRDPARTY_FILESYSTEM_IMAGE:-alpine:3.20}" sh -ec '
         mkdir -p /work/state
         cp -a /snapshot/state/. /work/state/
         rm -f /work/state/baseline.version
-        tar czf - -C /snapshot namenode datanode pgdata -C /work state
+        tar czf - -C /work namenode datanode pgdata state
     ' \
-    > "${OUTPUT_PATH}"
+    > "${tmp_output}"
+mv "${tmp_output}" "${OUTPUT_PATH}"
 
 size=$(du -h "${OUTPUT_PATH}" | cut -f1)
 echo "[snapshot] done took=$(( $(date +%s) - _t0 ))s size=${size}"

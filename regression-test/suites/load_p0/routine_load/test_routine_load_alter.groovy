@@ -227,6 +227,15 @@ suite("test_routine_load_alter","p0") {
         }
 
         // test show after alter
+        // ALTER checks the workload group like CREATE does, so the one altered to below has to exist
+        def forComputeGroupStr = ""
+        if (isCloudMode()) {
+            def clusters = sql " SHOW CLUSTERS; "
+            assertTrue(!clusters.isEmpty())
+            def validCluster = clusters[0][0]
+            forComputeGroupStr = " for  $validCluster "
+        }
+        sql "create workload group if not exists alter_routine_load_group $forComputeGroupStr properties ( 'min_cpu_percent'='0');"
         try {
             sql """
                 CREATE ROUTINE LOAD ${jobName} ON ${tableName}
@@ -257,6 +266,10 @@ suite("test_routine_load_alter","p0") {
             sql "ALTER ROUTINE LOAD FOR ${jobName} PROPERTIES(\"timezone\" = \"Asia/Shanghai\");"
             sql "ALTER ROUTINE LOAD FOR ${jobName} PROPERTIES(\"num_as_string\" = \"true\");"
             sql "ALTER ROUTINE LOAD FOR ${jobName} PROPERTIES(\"fuzzy_parse\" = \"true\");"
+            test {
+                sql "ALTER ROUTINE LOAD FOR ${jobName} PROPERTIES(\"workload_group\" = \"test_routine_load_alter_no_such_group\");"
+                exception "Can not find workload group test_routine_load_alter_no_such_group"
+            }
             sql "ALTER ROUTINE LOAD FOR ${jobName} PROPERTIES(\"workload_group\" = \"alter_routine_load_group\");"
             sql "ALTER ROUTINE LOAD FOR ${jobName} PROPERTIES(\"max_filter_ratio\" = \"0.5\");"
             sql "ALTER ROUTINE LOAD FOR ${jobName} COLUMNS(k00, k01, k02, k03, k04, k05);"

@@ -18,9 +18,14 @@
 package org.apache.doris.connector.hive;
 
 import org.apache.doris.connector.hms.HmsClient;
+import org.apache.doris.connector.hms.HmsClientException;
 import org.apache.doris.connector.hms.HmsDatabaseInfo;
 import org.apache.doris.connector.hms.HmsPartitionInfo;
 import org.apache.doris.connector.hms.HmsTableInfo;
+import org.apache.doris.connector.spi.ConnectorTableNotFoundException;
+import org.apache.doris.connector.spi.scan.ConnectorScanContext;
+import org.apache.doris.filesystem.FileEntry;
+import org.apache.doris.filesystem.FileIterator;
 import org.apache.doris.filesystem.FileSystem;
 
 import org.junit.jupiter.api.Assertions;
@@ -33,6 +38,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.ToLongBiFunction;
 
 /**
@@ -114,12 +120,44 @@ public class HiveConnectorMetadataFileListStatsTest {
     }
 
     @Test
+    public void tableAbsenceEscapesFileEstimateAndRestoresClassLoader() {
+        PartitionFakeHmsClient client = new PartitionFakeHmsClient(Collections.emptyList());
+        ConnectorTableNotFoundException missing = new ConnectorTableNotFoundException("db", "t", null);
+        client.listingFailure = new HmsClientException("native partition listing failed", missing);
+        HiveConnectorMetadata metadata = metadata(client);
+        ClassLoader original = Thread.currentThread().getContextClassLoader();
+        ClassLoader marker = new URLClassLoader(new URL[0], original);
+        Thread.currentThread().setContextClassLoader(marker);
+        try {
+            Assertions.assertSame(missing, Assertions.assertThrows(ConnectorTableNotFoundException.class,
+                    () -> metadata.estimateDataSizeByListingFiles(null, partitioned())));
+            Assertions.assertSame(marker, Thread.currentThread().getContextClassLoader());
+        } finally {
+            Thread.currentThread().setContextClassLoader(original);
+        }
+    }
+
+    @Test
+    public void ordinaryPartitionListingFailureStillDegradesEstimate() {
+        PartitionFakeHmsClient client = new PartitionFakeHmsClient(Collections.emptyList());
+        client.listingFailure = new HmsClientException("permission denied");
+        Assertions.assertEquals(-1L, metadata(client).estimateDataSizeByListingFiles(null, partitioned()));
+    }
+
+    @Test
     public void partitionWithoutLocationIsSkipped() {
         // A partition carrying no location contributes nothing but must not break the estimate.
         PartitionFakeHmsClient client = new PartitionFakeHmsClient(Arrays.asList("p0", "p1"));
         client.dropLocationFor("p1");
         Assertions.assertEquals(100L, metadata(client).estimateDataSize(
                 partitioned(), 30, (loc, vals) -> loc.endsWith("p0") ? 100 : 0));
+    }
+
+    @Test
+    public void missingCachedPartitionMakesTheWholeEstimateUnknown() {
+        PartitionFakeHmsClient client = new PartitionFakeHmsClient(Arrays.asList("p0", "p1"));
+        Assertions.assertEquals(-1L, metadata(client).estimateDataSize(partitioned(), 30,
+                (loc, vals) -> loc.endsWith("p0") ? 100 : -1));
     }
 
     @Test
@@ -130,12 +168,8 @@ public class HiveConnectorMetadataFileListStatsTest {
     }
 
     @Test
-    public void publicEntryDegradesToMinusOneAndRestoresClassLoaderOnError() {
-        // Drives the PUBLIC entry point: its tableType guard passes for HIVE, then it pins the thread context
-        // classloader and does real FileSystem I/O. A bogus location makes the listing fail, so the estimate
-        // must degrade to -1 WITHOUT throwing, and the TCCL must be restored to whatever it was (the pin is in
-        // a try/finally). MUTATION: dropping the finally leaves the plugin loader set -> the marker assertion
-        // fails; letting the listing error propagate -> assertDoesNotThrow fails.
+    public void publicColdEntryReturnsUnknownAndRestoresClassLoaderWithoutListing() {
+        // A cold statistics lookup must neither enumerate the directory nor change the caller's TCCL.
         HiveTableHandle handle = new HiveTableHandle.Builder("db", "t", HiveTableType.HIVE)
                 .location("file:///__doris_stats_nonexistent_xyz_998877").build();
         HiveConnectorMetadata metadata = metadata(new PartitionFakeHmsClient(Collections.emptyList()));
@@ -147,11 +181,63 @@ public class HiveConnectorMetadataFileListStatsTest {
         try {
             long size = Assertions.assertDoesNotThrow(
                     () -> metadata.estimateDataSizeByListingFiles(null, handle));
-            Assertions.assertEquals(-1L, size, "an unlistable location must degrade to -1");
+            Assertions.assertEquals(-1L, size, "a cold location has no complete size hint");
             Assertions.assertSame(marker, Thread.currentThread().getContextClassLoader(),
-                    "the TCCL pin must be restored on the error path (try/finally)");
+                    "the TCCL pin must be restored on a cache miss (try/finally)");
         } finally {
             Thread.currentThread().setContextClassLoader(original);
+        }
+    }
+
+    @Test
+    public void completedSizeSurvivesAbandonedOrDisabledListCandidatesWithoutRelisting() {
+        for (String[] limits : new String[][] {{"4096", "67108864"}, {"0", "67108864"}, {"8388608", "0"}}) {
+            HiveCatalogProperties properties = HiveCatalogProperties.of(HiveTestProperties.mapWith(
+                    HiveCatalogProperties.FILE_LISTING_CACHE_ENTRY_MAX_BYTES, limits[0],
+                    HiveCatalogProperties.FILE_LISTING_CACHE_PENDING_MAX_BYTES, limits[1]));
+            HiveFileListingCache cache = new HiveFileListingCache(properties);
+            AtomicInteger listings = new AtomicInteger();
+            AtomicInteger reads = new AtomicInteger();
+            FakeFileSystem fs = new FakeFileSystem().withIteratorFactory(location -> {
+                listings.incrementAndGet();
+                return new FileIterator() {
+                    @Override
+                    public boolean hasNext() {
+                        return reads.get() < 100;
+                    }
+
+                    @Override
+                    public FileEntry next() {
+                        return FakeFileSystem.file("s3://wh/t/" + "x".repeat(300)
+                                + reads.getAndIncrement() + ".parquet", 80, 1);
+                    }
+
+                    @Override
+                    public void close() {
+                    }
+                };
+            });
+            HiveConnectorMetadata metadata = new HiveConnectorMetadata(
+                    new PartitionFakeHmsClient(Collections.emptyList()), properties, new FakeConnectorContext(),
+                    () -> null, () -> null, handle -> null, cache);
+            HiveTableHandle table = unpartitioned("s3://wh/t");
+            Assertions.assertEquals(-1, metadata.estimateDataSizeByListingFiles(null, table));
+            Assertions.assertEquals(0, listings.get(), "cold planning must not list files");
+            try (HiveFileIterator files = cache.openDataFiles("db", "t", table.getLocation(), List.of(), fs,
+                    new ConnectorScanContext())) {
+                files.next();
+                Assertions.assertEquals(-1, metadata.estimateDataSizeByListingFiles(null, table),
+                        "a consumed prefix is not a complete size summary");
+                files.forEachRemaining(file -> { });
+            }
+            Assertions.assertEquals(100, reads.get());
+            Assertions.assertEquals(0, cache.size(), "the full file list must not be retained");
+            Assertions.assertEquals(8000, metadata.estimateDataSizeByListingFiles(null, table));
+            Assertions.assertEquals(8000, metadata.estimateDataSizeByListingFiles(null, table));
+            Assertions.assertEquals(1, listings.get(), "future row-count reloads use only the complete summary");
+            cache.invalidateTable("db", "t");
+            Assertions.assertEquals(-1, metadata.estimateDataSizeByListingFiles(null, table));
+            Assertions.assertEquals(1, listings.get(), "refresh must not synchronously relist either");
         }
     }
 
@@ -200,8 +286,8 @@ public class HiveConnectorMetadataFileListStatsTest {
         }
 
         @Override
-        public List<HiveFileStatus> listDataFiles(String dbName, String tableName, String location,
-                List<String> partitionValues, FileSystem fs) {
+        HiveFileIterator openDataFiles(String dbName, String tableName, String location,
+                List<String> partitionValues, FileSystem fs, ConnectorScanContext context) {
             throw new RuntimeException("simulated listing failure");
         }
     }
@@ -213,6 +299,7 @@ public class HiveConnectorMetadataFileListStatsTest {
      */
     private static final class PartitionFakeHmsClient implements HmsClient {
         private final List<String> partitionNames;
+        private RuntimeException listingFailure;
         private final java.util.Set<String> withoutLocation = new java.util.HashSet<>();
 
         PartitionFakeHmsClient(List<String> partitionNames) {
@@ -225,6 +312,9 @@ public class HiveConnectorMetadataFileListStatsTest {
 
         @Override
         public List<String> listPartitionNames(String dbName, String tableName, int maxParts) {
+            if (listingFailure != null) {
+                throw listingFailure;
+            }
             return partitionNames;
         }
 

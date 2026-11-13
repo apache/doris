@@ -1319,10 +1319,11 @@ public class MetadataGenerator {
         ConnectorSession session = catalog.buildCrossStatementSession();
         try {
             ConnectorMetadata metadata = PluginDrivenMetadata.get(session, catalog.getConnector());
-            Optional<ConnectorTableHandle> handle = metadata.getTableHandle(
-                    session, table.getRemoteDbName(), table.getRemoteName());
+            PluginDrivenExternalTable pluginTable = (PluginDrivenExternalTable) table;
+            PluginDrivenExternalTable.MetadataRead read = pluginTable.observeConnectorMetadata(session, metadata);
+            Optional<ConnectorTableHandle> handle = pluginTable.resolveConnectorTableHandle(session, metadata);
             if (handle.isPresent()) {
-                for (String partition : metadata.listPartitionNames(session, handle.get())) {
+                for (String partition : read.execute(() -> metadata.listPartitionNames(session, handle.get()))) {
                     TRow trow = new TRow();
                     trow.addToColumnValue(new TCell().setStringVal(partition));
                     dataBatch.add(trow);
@@ -1984,6 +1985,16 @@ public class MetadataGenerator {
                     trow.addToColumnValue(new TCell().setLongVal(entryStats.getEstimatedWeight()));
                     trow.addToColumnValue(new TCell().setLongVal(entryStats.getWeightAdmissionRejectedCount()));
                     trow.addToColumnValue(new TCell().setStringVal(entryStats.getLastWeightRejectReason()));
+                    trow.addToColumnValue(new TCell().setBoolVal(entryStats.isWeightBounded())); // WEIGHT_BOUNDED
+                    trow.addToColumnValue(new TCell().setLongVal(entryStats.getEvictionWeight())); // EVICTION_WEIGHT
+                    trow.addToColumnValue(
+                            new TCell().setLongVal(entryStats.getCatalogMaxWeight())); // CATALOG_MAX_WEIGHT
+                    trow.addToColumnValue(new TCell().setLongVal(
+                            entryStats.getCatalogEstimatedWeight())); // CATALOG_ESTIMATED_WEIGHT
+                    trow.addToColumnValue(
+                            new TCell().setLongVal(entryStats.getGlobalMaxWeight())); // GLOBAL_MAX_WEIGHT
+                    trow.addToColumnValue(new TCell().setLongVal(
+                            entryStats.getGlobalEstimatedWeight())); // GLOBAL_ESTIMATED_WEIGHT
                     dataBatch.add(trow);
                 }
             }

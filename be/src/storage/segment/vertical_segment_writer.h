@@ -42,8 +42,6 @@
 
 namespace doris {
 class Block;
-class IOlapColumnDataAccessor;
-class OlapBlockDataConvertor;
 
 // TODO(lingbin): Should be a conf that can be dynamically adjusted, or a member in the context
 const uint32_t MAX_SEGMENT_SIZE = static_cast<uint32_t>(OLAP_MAX_COLUMN_SEGMENT_FILE_SIZE *
@@ -52,7 +50,6 @@ class DataDir;
 class MemTracker;
 class ShortKeyIndexBuilder;
 class PrimaryKeyIndexBuilder;
-class KeyCoder;
 struct RowsetWriterContext;
 
 namespace io {
@@ -182,8 +179,8 @@ private:
     void _init_column_meta(ColumnMetaPB* meta, uint32_t column_id, const TabletColumn& column,
                            const ColumnWriterOptions& opts);
     // pos is the column's place in the open group, which is what the column
-    // writers and the convertor are indexed by; cid is its schema column id,
-    // which only the footer meta records.
+    // writers are indexed by; cid is its schema column id, which only the
+    // footer meta records.
     Status _create_column_writer(size_t pos, uint32_t cid, const TabletSchemaSPtr& tablet_schema);
     // Opens a column group without its column writers: init() then creates
     // them all at once, write_block() one at a time.
@@ -215,19 +212,19 @@ private:
     void _set_max_key(const Slice& key);
     Status _append_generated_column(const DerivedColumnGenerator& generator, const Block& block,
                                     size_t row_pos, size_t num_rows, uint32_t cid);
-    // Remembers the accessor if this column is a cluster key. _generate_key_index
+    // Remembers the column if it is a cluster key. _generate_key_index
     // needs them in cluster key order, which is not the group's order.
-    void _collect_cluster_key_column(
-            uint32_t cid, IOlapColumnDataAccessor* column,
-            std::map<uint32_t, IOlapColumnDataAccessor*>* cluster_key_columns);
-    Status _generate_key_index(
-            std::vector<IOlapColumnDataAccessor*>& key_columns, IOlapColumnDataAccessor* seq_column,
-            size_t num_rows,
-            const std::map<uint32_t, IOlapColumnDataAccessor*>& cluster_key_columns);
-    Status _generate_primary_key_index(
-            const std::vector<IOlapColumnDataAccessor*>& primary_key_columns,
-            IOlapColumnDataAccessor* seq_column, size_t num_rows, bool need_sort);
-    Status _generate_short_key_index(std::vector<IOlapColumnDataAccessor*>& key_columns,
+    void _collect_cluster_key_column(uint32_t cid, const IColumn* column,
+                                     std::map<uint32_t, const IColumn*>* cluster_key_columns);
+    // The key columns are whole block columns, so rows are numbered from the
+    // block's start: the batch is [row_pos, row_pos + num_rows).
+    Status _generate_key_index(std::vector<const IColumn*>& key_columns, const IColumn* seq_column,
+                               size_t row_pos, size_t num_rows,
+                               const std::map<uint32_t, const IColumn*>& cluster_key_columns);
+    Status _generate_primary_key_index(const std::vector<const IColumn*>& primary_key_columns,
+                                       const IColumn* seq_column, size_t row_pos, size_t num_rows,
+                                       bool need_sort);
+    Status _generate_short_key_index(std::vector<const IColumn*>& key_columns, size_t row_pos,
                                      size_t num_rows, const std::vector<size_t>& short_key_pos);
     Status _check_column_writer_disk_capacity(size_t cid);
     Status _finalize_column_writer_and_update_meta(size_t cid);
@@ -260,7 +257,6 @@ private:
     std::vector<std::unique_ptr<ColumnWriter>> _column_writers;
     std::unique_ptr<MemTracker> _mem_tracker;
 
-    std::unique_ptr<OlapBlockDataConvertor> _olap_data_convertor;
     // used for building short key index or primary key index during vectorized write.
     // NOTE: must stay declared after _tablet_schema and _opts, the constructor
     // init list reads both through _is_mow().

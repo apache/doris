@@ -81,7 +81,9 @@ import java.util.Optional;
  * consumes — {@code id} / {@code name} / the mapped Doris column type / {@code name_mapping} — and, faithful
  * to legacy {@code ExternalUtil}, an {@code id}/{@code name} at EVERY nesting level (array element, map
  * key/value, struct child), unlike paimon which omits them on collection elements. The scalar type is also
- * required when BE parses an Iceberg initial default or resolves a promoted equality-delete field.</p>
+ * required when BE parses an Iceberg initial default or resolves a promoted equality-delete field. A
+ * timestamptz field also carries {@code timestamp_is_adjusted_to_utc}, which BE needs to read INT96 as an
+ * instant.</p>
  */
 public final class IcebergSchemaUtils {
 
@@ -393,6 +395,14 @@ public final class IcebergSchemaUtils {
         TColumnType columnType = new TColumnType();
         if (type.isPrimitiveType()) {
             tField.setType(buildPrimitiveColumnType(type, enableVarbinary, enableTimestampTz));
+            if (type.typeId() == TypeID.TIMESTAMP && ((Types.TimestampType) type).shouldAdjustToUTC()) {
+                // Iceberg decodes a Parquet timestamp by the table type, not by the file annotation. Spark and Hive
+                // write timestamptz as INT96, which has no annotation, so without this marker BE reads such a
+                // column as a UTC wall clock and shifts it by the session offset. timestamp fields stay unmarked:
+                // BE would then read an adjusted-UTC INT64 file as a UTC wall clock in its statistics but as a
+                // session-local wall clock in its rows.
+                tField.setTimestampIsAdjustedToUtc(true);
+            }
             return tField;
         }
         if (type.isVariantType()) {

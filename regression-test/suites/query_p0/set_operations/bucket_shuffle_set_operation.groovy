@@ -38,6 +38,10 @@ suite("bucket_shuffle_set_operation") {
     // backend count / parallelism of the environment running this suite
     sql "set bucket_shuffle_downgrade_ratio=0"
 
+    // Spill rewrites INTERSECT/EXCEPT into joins. Keep the physical set operations
+    // whose bucket distribution is checked by this suite, including in spill-enabled CI.
+    sql "set disable_nereids_rules='REWRITE_INTERSECT_TO_JOIN_WHEN_SPILL,REWRITE_EXCEPT_TO_JOIN_WHEN_SPILL'"
+
     def checkShapeAndResult = { String tag, String sqlStr ->
         quickTest(tag + "_shape", "explain shape plan " + sqlStr)
         quickTest(tag + "_result", sqlStr, true)
@@ -251,32 +255,12 @@ suite("bucket_shuffle_set_operation") {
     order_qt_plain_intersect_when_local_shuffle_planner_off "select id from bucket_shuffle_set_operation1 intersect select id from bucket_shuffle_set_operation2"
     sql "set enable_local_shuffle_planner=true"
 
-    // Set operation bucket shuffle is gated on setOperationBucketShuffleAllowed() =
-    // enableLocalShufflePlanner && canUseNereidsDistributePlanner. The enable_local_shuffle_planner
-    // =false cases above only exercise the first conjunct; this block guards the second one. With
-    // local shuffle and the FE local-shuffle planner both enabled but the Nereids distribute planner
-    // disabled, the set operation must still downgrade (no [bucketShuffle]) and keep correct results.
+    // The removed distributed-planner switch is accepted for compatibility and cannot select
+    // the legacy coordinator. Both set-operation paths must still return the same rows.
     sql "set enable_local_shuffle=true"
     sql "set enable_local_shuffle_planner=true"
     sql "set enable_nereids_distribute_planner=false"
-    // plain intersect goes through visitPhysicalSetOperation directly
-    explain {
-        sql "shape plan select id from bucket_shuffle_set_operation1 intersect select id from bucket_shuffle_set_operation2"
-        check { String e ->
-            assertFalse(e.contains("bucketShuffle"))
-        }
-    }
     order_qt_plain_intersect_when_nereids_distribute_planner_off "select id from bucket_shuffle_set_operation1 intersect select id from bucket_shuffle_set_operation2"
-    // the parent-hash union path (createHashRequestAccordingToParent) must downgrade too
-    explain {
-        sql "shape plan " + unionParentHashSql
-        check { String e ->
-            def unionIndex = e.indexOf("PhysicalUnion")
-            assertTrue(unionIndex >= 0)
-            assertFalse(e.substring(unionIndex,
-                    Math.min(unionIndex + "PhysicalUnion".length() + 20, e.length())).contains("bucketShuffle"))
-        }
-    }
     order_qt_union_parent_hash_when_nereids_distribute_planner_off unionParentHashSql
     sql "set enable_nereids_distribute_planner=true"
 

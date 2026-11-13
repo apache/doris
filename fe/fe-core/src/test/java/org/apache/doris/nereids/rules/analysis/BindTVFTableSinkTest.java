@@ -38,9 +38,8 @@ class BindTVFTableSinkTest {
     void duplicateOutputNamesKeepDistinctPositions() {
         ConnectContext context = MemoTestUtils.createConnectContext();
         InsertIntoTVFCommand command = (InsertIntoTVFCommand) new NereidsParser().parseSingle(
-                "INSERT INTO local("
+                "INSERT INTO s3("
                         + "'file_path'='/tmp/tvf_duplicate_columns_',"
-                        + "'backend_id'='1',"
                         + "'format'='csv') "
                         + "SELECT 1 AS x, 2 AS x");
 

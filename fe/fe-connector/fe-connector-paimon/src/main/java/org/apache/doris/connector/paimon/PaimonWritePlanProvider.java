@@ -372,8 +372,7 @@ public class PaimonWritePlanProvider implements ConnectorWritePlanProvider {
      * Paimon computes the partition and the bucket of the row, while BE would hash the unpadded values, and several
      * writers would write and compact the same bucket. Such a routing field cannot be routed natively: this returns
      * null, and the table gets the distribution of a table whose routing fields BE cannot hash, a single writer for
-     * a primary-key table. A CHAR field that the writer leaves alone, such as the bucket key of a table that writes
-     * ORC files, is routed natively.
+     * a primary-key table. A CHAR field that the writer leaves alone, the table's rowkind.field, is routed natively.
      */
     private ConnectorWriteDistribution fixedBucketDistribution(FileStoreTable table, boolean charPadding) {
         if (table.bucketMode() != BucketMode.HASH_FIXED) {

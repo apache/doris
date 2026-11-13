@@ -213,11 +213,15 @@ struct Header {
 // Verifies the trailing crc covers [start of buffer .. end of super_block_dir].
 // covered_len = header bytes (up to and including sbdir_len) + sbdir_len.
 Status verify_covered_crc(Slice prelude, size_t header_end, uint64_t sbdir_len) {
-    const size_t covered = header_end + static_cast<size_t>(sbdir_len);
-    if (covered + sizeof(uint32_t) > prelude.size()) {
+    // sbdir_len is untrusted: a plain sum could wrap to a small offset that points back into the header.
+    uint64_t covered_len = 0;
+    RETURN_IF_ERROR(checked_add_u64(header_end, sbdir_len, "frq_prelude: sbdir_len overflow",
+                                    &covered_len));
+    if (covered_len > prelude.size() || prelude.size() - covered_len < sizeof(uint32_t)) {
         return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
                 "frq_prelude: buffer too short for crc region");
     }
+    const size_t covered = static_cast<size_t>(covered_len);
     uint32_t stored = 0;
     ByteSource crc_src(prelude.subslice(covered, sizeof(uint32_t)));
     RETURN_IF_ERROR(crc_src.get_fixed32(&stored));
@@ -287,7 +291,9 @@ Status decode_super_block_dir(Slice dir, const Header& h, std::vector<SbDirRow>*
             return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
                     "frq_prelude: super-block dir inconsistent");
         }
-        expect_off += r.block_len;
+        RETURN_IF_ERROR(checked_add_u64(expect_off, r.block_len,
+                                        "frq_prelude: super-block region offset overflow",
+                                        &expect_off));
         prev_last = r.last_docid;
         rows->push_back(r);
     }
@@ -512,8 +518,11 @@ Status FrqPreludeReader::open(Slice prelude, FrqPreludeReader* out) {
     uint64_t window_region_len = 0;
     RETURN_IF_ERROR(decode_super_block_dir(dir, h, &rows, &window_region_len));
 
+    // verify_covered_crc already proved the crc fits, so region_start <= prelude.size() and the
+    // subtraction cannot underflow. window_region_len is a sum of untrusted lengths: compare it to
+    // the room left instead of adding it to region_start.
     const size_t region_start = header_end + static_cast<size_t>(h.sbdir_len) + sizeof(uint32_t);
-    if (region_start + static_cast<size_t>(window_region_len) > prelude.size()) {
+    if (window_region_len > prelude.size() - region_start) {
         return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
                 "frq_prelude: window region past buffer");
     }

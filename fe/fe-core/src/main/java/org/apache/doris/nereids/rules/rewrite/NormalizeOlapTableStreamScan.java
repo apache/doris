@@ -239,10 +239,16 @@ public class NormalizeOlapTableStreamScan extends OneRewriteRuleFactory {
         long cutoffTso = TSOTimestamp.calculateCutoff(
                 cascadesContext.getStatementContext().getChangelogReferenceTso(),
                 table.getChangelogConfig().getTtlSeconds());
+        // An expired start is rejected for MIN_DELTA and clipped to the first retained TSO otherwise. An IVM read
+        // rejects it whatever its scan type: a duplicate-key base table is read APPEND_ONLY, and a clipped start
+        // would skip the rows written between the offset and the cutoff while the refresh succeeds. The rejection
+        // is what sends the refresh to COMPLETE. A user stream keeps what its scan type does.
+        boolean rejectExpiredStart = scanType == BaseTableStream.StreamScanType.MIN_DELTA
+                || cascadesContext.getStatementContext().isIvmMTMVRewrite();
         return offsetMap.entrySet().stream().collect(Collectors.toMap(Map.Entry::getKey, entry -> {
             Pair<Long, Long> range = entry.getValue();
             return Pair.of(ChangelogUtils.effectiveStartTso(range.first, cutoffTso,
-                    range.first != null && scanType == BaseTableStream.StreamScanType.MIN_DELTA), range.second);
+                    range.first != null && rejectExpiredStart), range.second);
         }));
     }
 
@@ -377,7 +383,8 @@ public class NormalizeOlapTableStreamScan extends OneRewriteRuleFactory {
      * <p>Selected partitions are split into:
      * <ul>
      *   <li>historical partitions — never consumed history data; scanned from the base table and all
-     *       rows are treated as APPEND (change type = "APPEND", seq = commit tso, lsn = row lsn);</li>
+     *       rows are treated as APPEND (change type = "APPEND", seq = commit tso, lsn = row lsn). An IVM
+     *       read adds the incremental partitions that have no consumption baseline;</li>
      *   <li>incremental partitions — read row-level changes from changelog via
      *       {@link #makeIncrementalScanFromChangelog}.</li>
      * </ul>
@@ -390,6 +397,22 @@ public class NormalizeOlapTableStreamScan extends OneRewriteRuleFactory {
         List<Long> historicalPartitionIds = streamWrapper.filterHistoryPartitionIds(scan.getSelectedPartitionIds());
         List<Long> incrementalPartitionIds =
                 streamWrapper.filterIncrementalPartitionIds(scan.getSelectedPartitionIds());
+        if (cascadesContext.getStatementContext().isIvmMTMVRewrite()) {
+            // A partition with no consumption baseline -- added after the stream was created, or still empty when
+            // the stream was created and whenever it was consumed -- has none of its rows in the MV yet. Read from
+            // its changelog, it would be read from the first retained TSO, and the rows older than the TTL would
+            // be left out while the refresh succeeds. An IVM read takes such a partition from the base table, the
+            // way it takes a historical one. A user stream keeps reading the changelog it retains.
+            Set<Long> consumedIds = ImmutableSet.copyOf(
+                    streamWrapper.filterConsumedPartitionIds(incrementalPartitionIds));
+            historicalPartitionIds = ImmutableList.<Long>builder()
+                    .addAll(historicalPartitionIds)
+                    .addAll(incrementalPartitionIds.stream().filter(id -> !consumedIds.contains(id)).iterator())
+                    .build();
+            incrementalPartitionIds = incrementalPartitionIds.stream()
+                    .filter(consumedIds::contains)
+                    .collect(ImmutableList.toImmutableList());
+        }
         Plan historyPlan = null;
         Plan incrementalPlan = null;
         List<Slot> originSlots = scan.getOutput();

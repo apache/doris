@@ -530,6 +530,26 @@ public final class MetaCacheBudgetManager {
             }
         }
 
+        /** The catalog limit this entry is admitted under: the smaller of the catalog and FE-global limits, or -1. */
+        public long getCatalogMaxWeight() {
+            return catalogBucket.maxWeight == Long.MAX_VALUE ? -1L : catalogBucket.maxWeight;
+        }
+
+        public long getCatalogUsedWeight() {
+            synchronized (manager.lock) {
+                return catalogBucket.usedWeight;
+            }
+        }
+
+        /** The FE-global limit; -1 if none. */
+        public long getGlobalMaxWeight() {
+            return manager.globalMaxWeight.orElse(-1L);
+        }
+
+        public long getGlobalUsedWeight() {
+            return manager.getGlobalUsedWeight();
+        }
+
         @Override
         public void close() {
             manager.close(this);

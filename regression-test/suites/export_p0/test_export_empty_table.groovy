@@ -145,9 +145,8 @@ suite("test_export_empty_table", "p0") {
                     "column_separator" = ",");
                 """
 
-                // because we export the empty data,
-                // there is no files.
-                exception "get file list from backend failed."
+                // LOCAL is rejected before checking exported files.
+                exception "LOCAL TVF is disabled"
             }
         }
     } finally {
@@ -187,9 +186,8 @@ suite("test_export_empty_table", "p0") {
                     "column_separator" = ",");
                 """
 
-                // because we export the empty data,
-                // there is no files.
-                exception "get file list from backend failed."
+                // LOCAL is rejected before checking exported files.
+                exception "LOCAL TVF is disabled"
             }
          }
     } finally {
@@ -228,9 +226,8 @@ suite("test_export_empty_table", "p0") {
                     "column_separator" = ",");
                 """
 
-                // because we export the empty data,
-                // there is no files.
-                exception "get file list from backend failed."
+                // LOCAL is rejected before checking exported files.
+                exception "LOCAL TVF is disabled"
             }
         }
     } finally {
@@ -270,9 +267,8 @@ suite("test_export_empty_table", "p0") {
                     "column_separator" = ",");
                 """
 
-                // because we export the empty data,
-                // there is no files.
-                exception "get file list from backend failed."
+                // LOCAL is rejected before checking exported files.
+                exception "LOCAL TVF is disabled"
             }
         }
     } finally {
@@ -313,9 +309,8 @@ suite("test_export_empty_table", "p0") {
                     "column_separator" = ",");
                 """
 
-                // because we export the empty data,
-                // there is no files.
-                exception "get file list from backend failed."
+                // LOCAL is rejected before checking exported files.
+                exception "LOCAL TVF is disabled"
             }
         }
     } finally {

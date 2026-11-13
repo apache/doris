@@ -33,13 +33,17 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.connector.spi.mvcc.ConnectorSqlCacheVersion;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.mvcc.MvccReadSelector;
+import org.apache.doris.datasource.scan.FileQueryScanNode;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.SqlCacheContext;
 import org.apache.doris.nereids.SqlCacheContext.FullTableName;
 import org.apache.doris.nereids.SqlCacheContext.ScanTable;
+import org.apache.doris.nereids.SqlCacheContext.TableReference;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.Planner;
@@ -234,6 +238,10 @@ public class CacheAnalyzer {
             return CacheMode.NoNeed;
         }
 
+        if (Optional.ofNullable(context.getStatementContext()).flatMap(statement -> statement.getSqlCacheContext())
+                .map(cacheContext -> !cacheContext.supportSqlCache()).orElse(false)) {
+            return CacheMode.NoNeed;
+        }
         //Check the last version time of the table
         List<CacheTable> tblTimeList = buildCacheTableList();
         if (CollectionUtils.isEmpty(tblTimeList)) {
@@ -514,6 +522,26 @@ public class CacheAnalyzer {
         CacheTable cacheTable = new CacheTable();
         TableIf tableIf = node.getTupleDesc().getTable();
         cacheTable.table = tableIf;
+        DatabaseIf database = tableIf.getDatabase();
+        CatalogIf catalog = database.getCatalog();
+        FullTableName name = new FullTableName(catalog.getName(), database.getFullName(), tableIf.getName());
+        MvccReadSelector selector = node instanceof FileQueryScanNode
+                ? MvccReadSelector.of(Optional.ofNullable(((FileQueryScanNode) node).getQueryTableSnapshot()),
+                        Optional.ofNullable(((FileQueryScanNode) node).getScanParams()))
+                : MvccReadSelector.LATEST;
+        Optional<ConnectorSqlCacheVersion> version = Optional.ofNullable(context.getStatementContext())
+                .flatMap(statement -> statement.getSqlCacheContext())
+                .map(cacheContext -> cacheContext.getUsedTables().get(new TableReference(name, selector)))
+                .map(tableVersion -> tableVersion.sqlCacheVersion);
+        if (version.isPresent()) {
+            // The full identity is already in the SQL MD5 key. PCache needs only a stable timestamp and
+            // one logical whole-table unit; neither physical partition counts nor another latest probe.
+            cacheTable.partitionNum = 1;
+            cacheTable.latestPartitionTime = version.get().getUpdateTimeMillis();
+            cacheTable.latestPartitionUpdateMillis = version.get().getUpdateTimeMillis();
+            scanTables.add(Pair.of(new ScanTable(name), tableIf));
+            return cacheTable;
+        }
         cacheTable.partitionNum = node.getSelectedPartitionNum();
         // Connector-agnostic data-version token (hive: max transient_lastDdlTime; iceberg/paimon: monotonic
         // snapshot version). Gated to MTMVRelatedTableIf tables by isExternalCacheableScanNode above. This is
@@ -524,10 +552,7 @@ public class CacheAnalyzer {
         // millis here; hive/paimon already return millis). Kept separate from the token above so the gate never
         // subtracts a non-wall-clock value.
         cacheTable.latestPartitionUpdateMillis = ((MTMVRelatedTableIf) tableIf).getNewestUpdateTimeMillisForCache();
-        DatabaseIf database = tableIf.getDatabase();
-        CatalogIf catalog = database.getCatalog();
-        ScanTable scanTable = new ScanTable(new FullTableName(
-                catalog.getName(), database.getFullName(), tableIf.getName()));
+        ScanTable scanTable = new ScanTable(name);
         scanTables.add(Pair.of(scanTable, tableIf));
         return cacheTable;
     }

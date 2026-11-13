@@ -49,10 +49,8 @@
 namespace doris {
 
 VIcebergTableWriter::VIcebergTableWriter(const TDataSink& t_sink,
-                                         const VExprContextSPtrs& output_expr_ctxs,
-                                         std::shared_ptr<Dependency> dep,
-                                         std::shared_ptr<Dependency> fin_dep)
-        : AsyncResultWriter(output_expr_ctxs, dep, fin_dep), _t_sink(t_sink) {
+                                         const VExprContextSPtrs& output_expr_ctxs)
+        : _vec_output_expr_ctxs(output_expr_ctxs), _t_sink(t_sink) {
     DCHECK(_t_sink.__isset.iceberg_table_sink);
     _active_writers.store(std::make_shared<ActiveWriterSnapshot>());
 }
@@ -62,6 +60,18 @@ Status VIcebergTableWriter::open(RuntimeState* state, RuntimeProfile* profile) {
     _operator_profile = profile;
 
     RETURN_IF_ERROR(validate_external_file_report_ack(state->query_options()));
+
+    // Every FE version sends both forms of the data location (see IcebergOutputLocation). A plan
+    // without the table's own form leaves no path to commit the files under: the commit used to
+    // record a relative path such as /p=1/xxx.parquet that no engine can open.
+    const auto& iceberg_sink = _t_sink.iceberg_table_sink;
+    if (iceberg_sink.output_path.empty() || iceberg_sink.original_output_path.empty()) {
+        return Status::InternalError(
+                "Iceberg table sink must carry output_path and original_output_path, got '{}' "
+                "and '{}'",
+                iceberg_sink.output_path, iceberg_sink.original_output_path);
+    }
+    _output_location.emplace(iceberg_sink.output_path, iceberg_sink.original_output_path);
 
     // Get target file size from query options
     // If value is 0 or not set, use config::iceberg_sink_max_file_size
@@ -824,47 +834,29 @@ std::vector<std::string> VIcebergTableWriter::_partition_values(
 
 std::shared_ptr<IPartitionWriterBase> VIcebergTableWriter::_create_partition_writer(
         Block* transformed_block, int position, const std::string* file_name, int file_name_index) {
+    DORIS_CHECK(_output_location.has_value());
     auto& iceberg_table_sink = _t_sink.iceberg_table_sink;
     std::vector<std::string> partition_values;
-    const std::string& output_path = iceberg_table_sink.output_path;
-    std::string write_path;
-    std::string original_write_path;
-    std::string target_path;
+    // Relative to the data location, e.g. "year=2023/month=12"; empty when the file goes to the
+    // data location itself.
+    std::string partition_path;
 
     // Case 1: Full static partition - use pre-computed static partition path and values
     if (_is_full_static_partition) {
         partition_values = _static_partition_value_list;
-        if (!_static_partition_path.empty()) {
-            original_write_path = fmt::format("{}/{}", iceberg_table_sink.original_output_path,
-                                              _static_partition_path);
-            target_path = fmt::format("{}/{}", output_path, _static_partition_path);
-            write_path = fmt::format("{}/{}", output_path, _static_partition_path);
-        } else {
-            original_write_path = iceberg_table_sink.original_output_path;
-            target_path = output_path;
-            write_path = output_path;
-        }
+        partition_path = _static_partition_path;
     } else if (transformed_block != nullptr) {
         // Case 2: Dynamic partition or Hybrid mode (partial static + partial dynamic)
         // _partition_to_path and _partition_values already handle hybrid mode internally
         IcebergPartitionData partition_data = _get_partition_data(transformed_block, position);
-        std::string partition_path = _partition_to_path(partition_data);
+        partition_path = _partition_to_path(partition_data);
         partition_values = _partition_values(partition_data);
-        original_write_path =
-                fmt::format("{}/{}", iceberg_table_sink.original_output_path, partition_path);
-        target_path = fmt::format("{}/{}", output_path, partition_path);
-        write_path = fmt::format("{}/{}", output_path, partition_path);
-    } else {
-        // Case 3: Non-partitioned table
-        original_write_path = iceberg_table_sink.original_output_path;
-        target_path = output_path;
-        write_path = output_path;
     }
+    // Case 3: Non-partitioned table, written to the data location itself
 
     IPartitionWriterBase::WriteInfo write_info = {
-            .write_path = std::move(write_path),
-            .original_write_path = std::move(original_write_path),
-            .target_path = std::move(target_path),
+            .location = partition_path.empty() ? *_output_location
+                                               : _output_location->subdirectory(partition_path),
             .file_type = iceberg_table_sink.file_type,
             .broker_addresses = {}};
     if (iceberg_table_sink.__isset.broker_addresses) {

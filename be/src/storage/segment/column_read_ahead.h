@@ -1,0 +1,182 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+#pragma once
+
+#include <cstddef>
+#include <cstdint>
+#include <map>
+#include <memory>
+#include <roaring/roaring.hh>
+#include <vector>
+
+#include "common/status.h"
+#include "io/fs/file_range_coalescer.h"
+#include "storage/segment/common.h"
+
+namespace doris::io {
+struct ReadAheadStatistics;
+}
+
+namespace doris::segment_v2 {
+
+struct ColumnReadAheadOptions {
+    /// Compressed data-page bytes in each read-ahead window; the final page may overshoot it.
+    size_t window_bytes {1};
+
+    Status validate() const;
+    bool operator==(const ColumnReadAheadOptions&) const = default;
+};
+
+struct ColumnReadAheadPage {
+    /// Stable position in the column's ordered data-page list.
+    int32_t page_index {0};
+    /// Inclusive row-ordinal bounds represented by this data page.
+    ordinal_t first_ordinal {0};
+    ordinal_t last_ordinal {0};
+    /// Compressed page bytes in the segment file.
+    io::FileRange range;
+
+    bool operator==(const ColumnReadAheadPage&) const = default;
+};
+
+class ColumnReadAhead;
+class SegmentReadAhead;
+
+struct ColumnReadAheadPlan {
+    ColumnReadAhead* column {nullptr};
+    /// Pages newly entering the window and eligible for cache probe and range planning.
+    std::vector<ColumnReadAheadPage> new_pages;
+    /// Window entries that the scan has passed; the coordinator drops any remaining registration.
+    std::vector<ColumnReadAheadPage> released_pages;
+    /// Per-call elapsed times, collected even when no pages enter or leave the window.
+    int64_t window_discard_ns {0};
+    /// Exact-rowid planning, including extensions triggered by this call.
+    int64_t current_batch_plan_ns {0};
+    int64_t window_extend_ns {0};
+
+    /// Reuse this plan for another call, retaining the page vectors' allocated capacity.
+    void reset(ColumnReadAhead* owner);
+    /// Accumulate per-call timings even for an empty plan; statistics may be absent.
+    void update_statistics(io::ReadAheadStatistics* statistics) const;
+    bool empty() const { return new_pages.empty() && released_pages.empty(); }
+};
+
+enum class ColumnReadAheadRole : uint8_t {
+    /// The column has no earlier filtering dependency and uses the larger look-ahead window.
+    EAGER,
+    /// The column depends on earlier filtering and uses the smaller look-ahead window.
+    LAZY,
+};
+
+struct ColumnReadAheadContext {
+    ColumnReadAheadOptions eager_options;
+    ColumnReadAheadOptions lazy_options;
+    SegmentReadAhead* segment {nullptr};
+
+    const ColumnReadAheadOptions& options(ColumnReadAheadRole role) const;
+};
+
+struct ColumnReadAheadRequest {
+    /// Sorted row IDs needed by the current batch; all their pages are included in the plan.
+    const rowid_t* current_rowids {nullptr};
+    size_t current_rowid_count {0};
+    /// Eligible rows used to build the candidate-page sequence.
+    const roaring::Roaring* scan_rowids {nullptr};
+    const ColumnReadAheadContext* context {nullptr};
+    ColumnReadAheadRole role {ColumnReadAheadRole::EAGER};
+    bool reverse {false};
+    /// Initialize a scan once; later data-page reads advance its window without batch row IDs.
+    bool page_driven {false};
+
+    const ColumnReadAheadOptions& options() const;
+    void sanity_check() const;
+};
+
+/// Maintains the byte window of one physical column. The class only decides which compressed
+/// data pages belong to the window; it does not inspect caches, coalesce ranges, or perform IO.
+class ColumnReadAhead {
+public:
+    ColumnReadAhead(const ColumnReadAhead&) = delete;
+    ColumnReadAhead& operator=(const ColumnReadAhead&) = delete;
+
+    /// `pages` must be non-empty and ordered by disjoint row-ordinal spans, with page_index equal
+    /// to each page's vector position.
+    static Status create(std::vector<ColumnReadAheadPage> pages, ColumnReadAheadOptions options,
+                         bool reverse, std::unique_ptr<ColumnReadAhead>* output);
+
+    /// Adds every page touched by the current batch and discards predictions passed by the scan.
+    /// Reaching a window's trigger page appends the next byte-sized window. A read beyond the
+    /// planned coverage starts a new window at that page, including on the first call.
+    void plan(const rowid_t* current_rowids, size_t count, const roaring::Roaring& scan_rowids,
+              ColumnReadAheadPlan* output);
+
+    /// Build the scan's candidate pages once and plan its first byte-sized window.
+    void start(const roaring::Roaring& scan_rowids, ColumnReadAheadPlan* output);
+    /// Advance from a physical page index already resolved by the column reader. This also
+    /// retires skipped predictions and restarts the window after a large seek.
+    void advance(int32_t page_index, ColumnReadAheadPlan* output);
+
+    /// Stop counting a planned page toward the byte window. The completed entry remains in the
+    /// window until the scan passes it, so repeated row IDs in the same page do not submit it
+    /// again.
+    void complete(int32_t page_index);
+
+    size_t pending_bytes() const { return _pending_bytes; }
+    bool reverse() const { return _reverse; }
+    const ColumnReadAheadOptions& options() const { return _options; }
+    bool pending(int32_t page_index) const;
+
+private:
+    struct WindowEntry {
+        bool pending {true};
+    };
+
+    ColumnReadAhead(std::vector<ColumnReadAheadPage> pages, ColumnReadAheadOptions options,
+                    bool reverse);
+
+    const ColumnReadAheadPage& _page_for_ordinal(rowid_t ordinal) const;
+    void _select_candidate_pages(const roaring::Roaring& scan_rowids);
+    void _plan_page(int32_t page_index, ColumnReadAheadPlan* output);
+    /// Add one page only if the window has not already seen it.
+    void _add_page(const ColumnReadAheadPage& page, ColumnReadAheadPlan* output);
+    /// Remove window entries strictly behind the given page in the configured scan direction.
+    void _discard_passed_pages(int32_t page_index, ColumnReadAheadPlan* output);
+    /// Add one window from _next_page_index using the candidate-page sequence. Its second
+    /// selected page triggers the next window; a one-page window uses its only page.
+    void _extend_window(ColumnReadAheadPlan* output);
+    void _complete(const ColumnReadAheadPage& page, WindowEntry* entry);
+
+    const std::vector<ColumnReadAheadPage> _pages;
+    const ColumnReadAheadOptions _options;
+    const bool _reverse;
+    /// Physical page indexes in file order. Scan mode builds this once; exact-rowid requests
+    /// replace it with their current selection. No scan bitmap is retained by the window.
+    std::vector<int32_t> _candidate_pages;
+    std::map<int32_t, WindowEntry> _window;
+    /// Pending-page accounting only; completing a page does not advance the scan position.
+    size_t _pending_bytes {0};
+    /// First page beyond the latest planned window, in scan order; may be outside _pages at EOF.
+    int64_t _next_page_index;
+    /// Scan position that triggers the next window; -1 means there is no trigger.
+    int32_t _next_trigger_page_index {-1};
+    /// Reverse scanners visit batches backwards but read each batch forwards. Keep predictions
+    /// above this low page until a new lower page is reached by the next batch.
+    int32_t _reverse_low_page_index;
+};
+
+} // namespace doris::segment_v2

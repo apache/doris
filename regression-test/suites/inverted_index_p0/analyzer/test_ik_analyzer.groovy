@@ -70,17 +70,17 @@ suite("test_ik_analyzer", "p0") {
 
         // Testing ik smart mode
         println "Testing ik smart mode:"
-        qt_sql """ select * from ${tableNameSmart} where content match_phrase '北京'; """
-        qt_sql """ select * from ${tableNameSmart} where content match_phrase '计算机科学'; """
-        qt_sql """ select * from ${tableNameSmart} where content match_phrase '数据库管理系统'; """
-        qt_sql """ select * from ${tableNameSmart} where content match_phrase '中华人民共和国'; """
+        order_qt_sql """ select * from ${tableNameSmart} where content match_phrase '北京'; """
+        order_qt_sql """ select * from ${tableNameSmart} where content match_phrase '计算机科学'; """
+        order_qt_sql """ select * from ${tableNameSmart} where content match_phrase '数据库管理系统'; """
+        order_qt_sql """ select * from ${tableNameSmart} where content match_phrase '中华人民共和国'; """
 
         // Testing ik max_word mode
         println "Testing ik max_word mode:"
-        qt_sql """ select * from ${tableNameMaxWord} where content match_phrase '北京'; """
-        qt_sql """ select * from ${tableNameMaxWord} where content match_phrase '计算机科学'; """
-        qt_sql """ select * from ${tableNameMaxWord} where content match_phrase '数据库管理系统'; """
-        qt_sql """ select * from ${tableNameMaxWord} where content match_phrase '中华人民共和国'; """
+        order_qt_sql """ select * from ${tableNameMaxWord} where content match_phrase '北京'; """
+        order_qt_sql """ select * from ${tableNameMaxWord} where content match_phrase '计算机科学'; """
+        order_qt_sql """ select * from ${tableNameMaxWord} where content match_phrase '数据库管理系统'; """
+        order_qt_sql """ select * from ${tableNameMaxWord} where content match_phrase '中华人民共和国'; """
 
     } finally {
         sql "DROP TABLE IF EXISTS ${tableNameSmart}"

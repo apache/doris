@@ -29,6 +29,12 @@
 namespace doris::format::hudi {
 
 Status HudiReader::prepare_split(const format::SplitReadOptions& options) {
+    const auto& hudi = options.current_range.table_format_params.hudi_params;
+    // A base file alone cannot represent MOR rows; only the JNI reader merges delta logs.
+    if (!hudi.delta_logs.empty()) {
+        return Status::NotSupported(
+                "Native Hudi reads cannot merge delta logs; use the JNI reader");
+    }
     {
         // Derived schema selection is additive to, not nested around, the common base timers.
         SCOPED_TIMER(_profile.total_timer);

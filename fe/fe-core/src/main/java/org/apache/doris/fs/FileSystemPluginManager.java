@@ -86,9 +86,10 @@ public class FileSystemPluginManager {
     //    different Class objects for the type ExecutionAuthenticator used in the signature"
     //   (and cross-loader catch blocks for StoragePropertiesException would silently stop
     //   matching). Foundation is a shared contract layer by definition — always parent-first.
-    private static final List<String> FS_PARENT_FIRST_PREFIXES =
+    // Share Kerberos setup failure state with connectors that use the same parent-loaded Hadoop runtime.
+    static final List<String> FS_PARENT_FIRST_PREFIXES =
             Arrays.asList("org.apache.doris.filesystem.", "org.apache.doris.foundation.",
-                    "software.amazon.awssdk.", "org.apache.hadoop.");
+                    "org.apache.doris.kerberos.", "software.amazon.awssdk.", "org.apache.hadoop.");
 
     /** Family label in the process-wide {@link PluginRegistry}. */
     private static final String PLUGIN_FAMILY = "FILESYSTEM";

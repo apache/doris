@@ -78,6 +78,11 @@ under the License.
             <groupId>org.apache.thrift</groupId>
             <artifactId>libthrift</artifactId>
         </dependency>
+        <dependency>
+            <groupId>com.google.code.gson</groupId>
+            <artifactId>gson</artifactId>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>
@@ -109,6 +114,22 @@ under the License.
                                         </not>
                                     </condition>
                                 </fail>
+                            </target>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>redact-file-encryption-diagnostics</id>
+                        <phase>process-sources</phase>
+                        <goals>
+                            <goal>run</goal>
+                        </goals>
+                        <configuration>
+                            <target>
+                                <exec executable="python3" failonerror="true">
+                                    <arg value="${project.basedir}/../../gensrc/script/redact_file_encryption.py"/>
+                                    <arg value="--java"/>
+                                    <arg value="${project.build.directory}/generated-sources/thrift/org/apache/doris/thrift/TFileEncryptionInfo.java"/>
+                                </exec>
                             </target>
                         </configuration>
                     </execution>

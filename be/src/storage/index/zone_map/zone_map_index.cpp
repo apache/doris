@@ -36,6 +36,7 @@
 #include "storage/index/indexed_column_writer.h"
 #include "storage/olap_common.h"
 #include "storage/segment/encoding_info.h"
+#include "storage/storage_layout.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/types.h"
 #include "storage/utils.h"
@@ -205,12 +206,20 @@ void TypedZoneMapIndexWriter<Type>::_materialize_page_minmax() {
     if (!_page_zone_map.has_not_null) {
         return;
     }
-    _page_zone_map.min_value = doris::Field::create_field_from_olap_value<Type>(_page_min);
-    _page_zone_map.max_value = doris::Field::create_field_from_olap_value<Type>(_page_max);
+    if constexpr (is_string_type(Type)) {
+        _page_zone_map.min_value =
+                Field::create_field<Type>(String(_page_min.data, _page_min.size));
+        _page_zone_map.max_value =
+                Field::create_field<Type>(String(_page_max.data, _page_max.size));
+    } else {
+        using Layout = StorageLayout<primitive_type_to_storage_field_type(Type)>;
+        _page_zone_map.min_value = Field::create_field<Type>(Layout::to_primitive(_page_min));
+        _page_zone_map.max_value = Field::create_field<Type>(Layout::to_primitive(_page_max));
+    }
 }
 
 template <PrimitiveType Type>
-void TypedZoneMapIndexWriter<Type>::add_values(const void* values, size_t count) {
+void TypedZoneMapIndexWriter<Type>::add_values(const uint8_t* values, size_t count) {
     if (count == 0) {
         return;
     }
@@ -347,7 +356,7 @@ Status TypedZoneMapIndexWriter<Type>::finish(io::FileWriter* file_writer,
 
     for (auto& value : _values) {
         Slice value_slice(value);
-        RETURN_IF_ERROR(writer.add(&value_slice));
+        RETURN_IF_ERROR(writer.add(reinterpret_cast<const uint8_t*>(&value_slice)));
     }
     return writer.finish(meta->mutable_page_zone_maps());
 }

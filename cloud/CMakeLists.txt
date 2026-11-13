@@ -139,6 +139,9 @@ set(GPERFTOOLS_HOME "${THIRDPARTY_DIR}/gperftools")
 # Set all libraries
 include(thirdparty)
 
+set(absl_DIR ${THIRDPARTY_DIR}/lib/cmake/absl)
+find_package(absl CONFIG REQUIRED PATHS ${absl_DIR} NO_DEFAULT_PATH)
+
 find_program(THRIFT_COMPILER thrift ${CMAKE_SOURCE_DIR}/bin)
 
 # Check if functions are supported in this platform. All flags will generated
@@ -320,6 +323,19 @@ else()
     )
     add_definitions(-DUSE_LIBHDFS3)
 endif()
+
+# google-cloud-cpp is linked as static archives in thirdparty.cmake, so its
+# public Abseil dependencies must be present in the final link group as well.
+set(COMMON_THIRDPARTY
+    ${COMMON_THIRDPARTY}
+    absl::base
+    absl::memory
+    absl::optional
+    absl::span
+    absl::str_format
+    absl::time
+    absl::variant
+)
 
 set(DORIS_DEPENDENCIES
     ${DORIS_DEPENDENCIES}

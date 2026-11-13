@@ -116,11 +116,11 @@ Hive 运行态（HDFS 数据、Postgres Metastore、模块 SHA 记录）存放�
 在一次完整 bootstrap 成功后，停止容器并运行：
 
 ```bash
-sudo docker compose -p "${CONTAINER_UID}hive3" \
+docker compose -p "${CONTAINER_UID}hive3" \
   -f docker/thirdparties/docker-compose/hive/hive-3x.yaml down
 
 bash docker/thirdparties/docker-compose/hive/scripts/snapshot-hive-baseline.sh \
-  "${CONTAINER_UID}hive3" /tmp/hive3-baseline.tar.gz
+  "doris-shared-hive3" /tmp/hive3-baseline.tar.gz
 ```
 
 然后把得到的 tarball 上传到 `oss://<s3BucketName>/regression/datalake/pipeline_data/hive_baseline/hive3-baseline-<version>.tar.gz`（`hive2` 同理）。

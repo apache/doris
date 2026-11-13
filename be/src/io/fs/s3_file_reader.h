@@ -25,13 +25,13 @@
 #include "io/fs/file_reader.h"
 #include "io/fs/file_system.h"
 #include "io/fs/path.h"
-#include "io/fs/s3_file_system.h"
 #include "util/slice.h"
 
 namespace doris {
 class RuntimeProfile;
 
 namespace io {
+class ObjClientHolder;
 struct IOContext;
 
 class S3FileReader final : public FileReader {
@@ -63,11 +63,12 @@ protected:
 
 private:
     struct S3Statistics {
-        int64_t total_get_request_counter = 0;
-        int64_t too_many_request_err_counter = 0;
-        int64_t too_many_request_sleep_time_ms = 0;
-        int64_t total_bytes_read = 0;
-        int64_t total_get_request_time_ns = 0;
+        // The reader is shared by foreground reads and parallel background hole-fill GETs.
+        std::atomic<int64_t> total_get_request_counter {0};
+        std::atomic<int64_t> too_many_request_err_counter {0};
+        std::atomic<int64_t> too_many_request_sleep_time_ms {0};
+        std::atomic<int64_t> total_bytes_read {0};
+        std::atomic<int64_t> total_get_request_time_ns {0};
     };
     Path _path;
     size_t _file_size;

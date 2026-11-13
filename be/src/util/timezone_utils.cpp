@@ -51,17 +51,27 @@ namespace fs = std::filesystem;
 namespace doris {
 
 using ZoneList = std::unordered_map<std::string, cctz::time_zone>;
+using FixedZoneList = std::unordered_map<int32_t, cctz::time_zone>;
 
 static RE2 tz_offset_format_reg(R"(^[+-]{1}\d{2}\:\d{2}$)"); // visiting is thread-safe
 
 // for ut, make it never nullptr.
 std::unique_ptr<ZoneList> lower_zone_cache_ = std::make_unique<ZoneList>();
+std::unique_ptr<FixedZoneList> fixed_zone_cache_ = std::make_unique<FixedZoneList>();
 
 const std::string TimezoneUtils::default_time_zone = "+08:00";
 static const char* tzdir = "/usr/share/zoneinfo"; // default value, may change by TZDIR env var
 
+cctz::time_zone TimezoneUtils::create_fixed_offset_time_zone(int32_t offset_seconds) {
+    if (auto it = fixed_zone_cache_->find(offset_seconds); it != fixed_zone_cache_->end()) {
+        return it->second;
+    }
+    return cctz::fixed_time_zone(cctz::seconds(offset_seconds));
+}
+
 void TimezoneUtils::clear_timezone_caches() {
     lower_zone_cache_->clear();
+    fixed_zone_cache_->clear();
 }
 size_t TimezoneUtils::cache_size() {
     return lower_zone_cache_->size();
@@ -138,25 +148,33 @@ void TimezoneUtils::load_offsets_to_cache() {
     static constexpr int supported_minutes[] = {0, 30, 45};
     for (int hour = -12; hour <= +14; hour++) {
         for (int minute : supported_minutes) {
+            if ((hour == -12 || hour == 14) && minute != 0) {
+                continue;
+            }
             char min_str[3];
             snprintf(min_str, sizeof(min_str), "%02d", minute);
             std::string offset_str = (hour >= 0 ? "+" : "") + to_hour_string(hour) + ':' + min_str;
             cctz::time_zone result;
-            parse_tz_offset_string(offset_str, result);
+            CHECK(parse_tz_offset_string(offset_str, result));
             lower_zone_cache_->emplace(offset_str, result);
+            const int offset_seconds = hour * 3600 + (hour < 0 ? -minute : minute) * 60;
+            fixed_zone_cache_->emplace(offset_seconds, result);
         }
     }
     // -00 for hour is also valid
     std::string offset_str = "-00:00";
     cctz::time_zone result;
-    parse_tz_offset_string(offset_str, result);
+    CHECK(parse_tz_offset_string(offset_str, result));
     lower_zone_cache_->emplace(offset_str, result);
+    fixed_zone_cache_->emplace(0, result);
     offset_str = "-00:30";
-    parse_tz_offset_string(offset_str, result);
+    CHECK(parse_tz_offset_string(offset_str, result));
     lower_zone_cache_->emplace(offset_str, result);
+    fixed_zone_cache_->emplace(-30 * 60, result);
     offset_str = "-00:45";
-    parse_tz_offset_string(offset_str, result);
+    CHECK(parse_tz_offset_string(offset_str, result));
     lower_zone_cache_->emplace(offset_str, result);
+    fixed_zone_cache_->emplace(-45 * 60, result);
 }
 
 bool TimezoneUtils::find_cctz_time_zone(const std::string& timezone, cctz::time_zone& ctz) {
@@ -237,7 +255,8 @@ static bool normalize_offset_string(const std::string& timezone, bool allow_hour
         minute = 0;
     }
 
-    if ((!positive && hour > 12) || (positive && hour > 14) || minute >= 60) {
+    const int limit = positive ? 14 : 12;
+    if (hour > limit || (hour == limit && minute != 0) || minute >= 60) {
         return false;
     }
 
@@ -285,7 +304,7 @@ bool TimezoneUtils::parse_tz_offset_string(const std::string& timezone, cctz::ti
         const int minute = std::stoi(value.substr(4, 2).as_string());
         int offset = hour * 60 * 60 + minute * 60;
         offset *= positive ? 1 : -1;
-        ctz = cctz::fixed_time_zone(cctz::seconds(offset));
+        ctz = create_fixed_offset_time_zone(offset);
         return true;
     }
     return false;

@@ -22,6 +22,7 @@ import org.apache.doris.connector.hms.HmsPartitionInfo;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
+import org.apache.doris.connector.spi.scan.ConnectorScanContext;
 import org.apache.doris.connector.spi.scan.ConnectorScanRange;
 import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
 import org.apache.doris.filesystem.FileEntry;
@@ -39,6 +40,13 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -76,6 +84,59 @@ public class HiveFileListingCacheTest {
     }
 
     @Test
+    public void cancellingOneColdListingDoesNotFailAnotherQueryOrPoisonTheSharedCache() throws Exception {
+        ConnectorScanContext cancelledScan = new ConnectorScanContext();
+        ConnectorScanContext otherScan = new ConnectorScanContext();
+        CountDownLatch firstListing = new CountDownLatch(1);
+        CountDownLatch releaseFirst = new CountDownLatch(1);
+        AtomicInteger requests = new AtomicInteger();
+        List<HiveFileStatus> files = List.of(new HiveFileStatus("loc/file", 10L, 1L));
+        HiveFileListingCache cache = new HiveFileListingCache(HiveTestProperties.minimal(), (location, fs) -> {
+            if (requests.incrementAndGet() == 1) {
+                firstListing.countDown();
+                try {
+                    Assertions.assertTrue(releaseFirst.await(5, TimeUnit.SECONDS));
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new RuntimeException(e);
+                }
+            }
+            return files;
+        });
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<?> first = executor.submit(() -> cache.listDataFiles(
+                    "db", "t", "loc", List.of(), FS, cancelledScan));
+            Assertions.assertTrue(firstListing.await(5, TimeUnit.SECONDS));
+            Future<List<HiveFileStatus>> second = executor.submit(() -> cache.listDataFiles(
+                    "db", "t", "loc", List.of(), FS, otherScan));
+            Assertions.assertEquals(files, second.get(5, TimeUnit.SECONDS), "queries must not share cancellable loads");
+            cancelledScan.cancel();
+            releaseFirst.countDown();
+            ExecutionException failure = Assertions.assertThrows(ExecutionException.class,
+                    () -> first.get(5, TimeUnit.SECONDS));
+            Assertions.assertInstanceOf(CancellationException.class, failure.getCause());
+            Assertions.assertEquals(files, cache.listDataFiles("db", "t", "loc", FS));
+            Assertions.assertEquals(2, requests.get(), "completed listings remain shared cache hits");
+        } finally {
+            releaseFirst.countDown();
+            executor.shutdownNow();
+            Assertions.assertTrue(executor.awaitTermination(5, TimeUnit.SECONDS));
+        }
+    }
+
+    @Test
+    public void cancelledScanCannotStartAFileRequest() {
+        CountingLister lister = new CountingLister();
+        HiveFileListingCache cache = new HiveFileListingCache(HiveTestProperties.minimal(), lister);
+        ConnectorScanContext context = new ConnectorScanContext();
+        context.cancel();
+        Assertions.assertThrows(CancellationException.class, () -> cache.listDataFiles(
+                "db", "t", "loc", List.of(), FS, context));
+        Assertions.assertEquals(0, lister.totalCalls);
+    }
+
+    @Test
     public void disabledBoundedListingDoesNotPrepareCachePayload() {
         for (String[] disabled : new String[][] {{"enable", "false"}, {"ttl-second", "0"}}) {
             Map<String, String> properties = props("meta.cache.hive.file.max-weight", "1MB",
@@ -88,8 +149,8 @@ public class HiveFileListingCacheTest {
                             loads.incrementAndGet();
                             return files;
                         });
-                Assertions.assertSame(files, cache.listDataFiles("db", "t", "loc", FS));
-                Assertions.assertSame(files, cache.listDataFiles("db", "t", "loc", FS));
+                Assertions.assertEquals(files, cache.listDataFiles("db", "t", "loc", FS));
+                Assertions.assertEquals(files, cache.listDataFiles("db", "t", "loc", FS));
                 Assertions.assertEquals(2, loads.get());
             }
         }
@@ -105,7 +166,7 @@ public class HiveFileListingCacheTest {
         List<HiveFileStatus> a = cache.listDataFiles("db", "t", "loc1", FS);
         List<HiveFileStatus> b = cache.listDataFiles("db", "t", "loc1", FS);
         // WHY: a hit must serve the cached listing without re-listing the filesystem.
-        Assertions.assertSame(a, b);
+        Assertions.assertEquals(a, b);
         Assertions.assertEquals(1, lister.totalCalls);
 
         // WHY: a different directory is a different key — must re-list.
@@ -124,7 +185,7 @@ public class HiveFileListingCacheTest {
             List<HiveFileStatus> first = cache.listDataFiles("db", "t", "loc", FS);
             List<HiveFileStatus> second = cache.listDataFiles("db", "t", "loc", FS);
 
-            Assertions.assertSame(first, second);
+            Assertions.assertEquals(first, second);
             Assertions.assertEquals(1, lister.totalCalls);
         }
     }
@@ -176,13 +237,14 @@ public class HiveFileListingCacheTest {
         List<HiveFileStatus> filesA = cache.listDataFiles("db", "a", location, values, FS);
         List<HiveFileStatus> filesB = cache.listDataFiles("db", "b", location, values, FS);
         Assertions.assertEquals(2, lister.totalCalls);
-        Assertions.assertSame(filesA, cache.listDataFiles("db", "a", location, values, FS));
-        Assertions.assertSame(filesB, cache.listDataFiles("db", "b", location, values, FS));
+        Assertions.assertEquals(filesA, cache.listDataFiles("db", "a", location, values, FS));
+        Assertions.assertEquals(filesB, cache.listDataFiles("db", "b", location, values, FS));
 
         cache.invalidateTable("db", "b");
 
-        Assertions.assertNotSame(filesB, cache.listDataFiles("db", "b", location, values, FS));
-        Assertions.assertSame(filesA, cache.listDataFiles("db", "a", location, values, FS));
+        cache.listDataFiles("db", "b", location, values, FS);
+        Assertions.assertEquals(3, lister.totalCalls, "only the refreshed table must reload");
+        Assertions.assertEquals(filesA, cache.listDataFiles("db", "a", location, values, FS));
         Assertions.assertEquals(3, lister.totalCalls);
     }
 
@@ -515,7 +577,7 @@ public class HiveFileListingCacheTest {
         lister.error = new HiveDirectoryListingException("dir gone", new IOException("boom"));
         lister.errorLocation = "loc/dt=1";
         HiveScanPlanProvider provider = new HiveScanPlanProvider(null, HiveTestProperties.minimal(),
-                new FakeConnectorContext(), new HiveReadTransactionManager(),
+                new FakeConnectorContext(),
                 new HiveFileListingCache(HiveTestProperties.minimal(), lister));
 
         List<ConnectorScanRange> ranges = provider.planScan(new FakeSession(),
@@ -538,7 +600,7 @@ public class HiveFileListingCacheTest {
         CountingLister lister = new CountingLister();
         lister.error = new DorisConnectorException("bad storage config");
         HiveScanPlanProvider provider = new HiveScanPlanProvider(null, HiveTestProperties.minimal(),
-                new FakeConnectorContext(), new HiveReadTransactionManager(),
+                new FakeConnectorContext(),
                 new HiveFileListingCache(HiveTestProperties.minimal(), lister));
 
         Assertions.assertThrows(DorisConnectorException.class, () -> provider.planScan(new FakeSession(),
@@ -575,7 +637,7 @@ public class HiveFileListingCacheTest {
         HiveFileListingCache cache = new HiveFileListingCache(HiveTestProperties.minimal(), lister);
         // hmsClient is null: with pruned partitions on the handle the scan never calls the metastore.
         HiveScanPlanProvider provider = new HiveScanPlanProvider(
-                null, HiveTestProperties.minimal(), new FakeConnectorContext(), new HiveReadTransactionManager(), cache);
+                null, HiveTestProperties.minimal(), new FakeConnectorContext(), cache);
 
         HiveTableHandle handle = new HiveTableHandle.Builder("db", "t", HiveTableType.HIVE)
                 .inputFormat("org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat")
@@ -618,6 +680,9 @@ public class HiveFileListingCacheTest {
                 .location("file:///wh/t")
                 .build();
 
+        Assertions.assertEquals(-1L, md.estimateDataSizeByListingFiles(new FakeSession(), handle));
+        Assertions.assertEquals(0, lister.totalCalls, "query statistics must not start cold directory listing");
+        cache.listDataFiles("db", "t", "file:///wh/t", FS);
         long first = md.estimateDataSizeByListingFiles(new FakeSession(), handle);
         long second = md.estimateDataSizeByListingFiles(new FakeSession(), handle);
 

@@ -212,6 +212,32 @@ public final class ScopedMetaCacheRegistry implements AutoCloseable {
         tryPrune(invalidated.existing);
     }
 
+    /** Keeps a short auxiliary-index mutation ordered with value publication, then cleans values outside the gate. */
+    void invalidateAndRunUnderPublicationGate(ScopePath path, Runnable commitAction) {
+        Objects.requireNonNull(path, "path can not be null");
+        Runnable action = Objects.requireNonNull(commitAction, "commitAction can not be null");
+        checkOpen();
+        AtomicReference<InvalidatedScope> invalidated = new AtomicReference<>();
+        try {
+            publicationGate.write(() -> {
+                List<ScopeNode> existing = resolveExisting(path);
+                bumpPublicationStates(existing);
+                if (existing.size() == path.level().ordinal() + 1) {
+                    ScopeNode target = existing.get(existing.size() - 1);
+                    invalidated.set(new InvalidatedScope(existing, replaceState(target)));
+                }
+                action.run();
+                return null;
+            });
+        } finally {
+            InvalidatedScope scope = invalidated.get();
+            if (scope != null) {
+                cleanDetachedState(scope.oldState);
+                tryPrune(scope.existing);
+            }
+        }
+    }
+
     void invalidate(List<ScopePath> paths, Runnable afterStateReplacement) {
         Objects.requireNonNull(paths, "paths can not be null");
         Objects.requireNonNull(afterStateReplacement, "afterStateReplacement can not be null");
@@ -240,6 +266,26 @@ public final class ScopedMetaCacheRegistry implements AutoCloseable {
         afterStateReplacement.run();
         invalidated.forEach(scope -> cleanDetachedState(scope.oldState));
         invalidated.forEach(scope -> tryPrune(scope.existing));
+    }
+
+    ScopeObservation observe(ScopeSnapshot snapshot) {
+        return new ScopeObservation(snapshot);
+    }
+
+    final class ScopeObservation {
+        private final ScopeSnapshot snapshot;
+        private final PublicationState publicationState;
+
+        private ScopeObservation(ScopeSnapshot snapshot) {
+            this.snapshot = snapshot;
+            this.publicationState = snapshot.leafNode().descendantPublication.get();
+        }
+
+        boolean runIfCurrent(BooleanSupplier action) {
+            return publicationGate.readBoolean(() -> snapshot.isCurrent(ScopedMetaCacheRegistry.this)
+                    && snapshot.leafNode().descendantPublication.get() == publicationState
+                    && action.getAsBoolean());
+        }
     }
 
     public ScopeMetrics metrics() {
@@ -285,9 +331,17 @@ public final class ScopedMetaCacheRegistry implements AutoCloseable {
     }
 
     ScopeLease acquire(ScopePath path) {
+        ScopeLease lease = tryAcquire(path);
+        if (lease != null) {
+            return lease;
+        }
+        throw new IllegalStateException("Scoped meta cache registry is closed");
+    }
+
+    /** An already-started bulk load may finish after retirement without retaining its result. */
+    ScopeLease tryAcquire(ScopePath path) {
         Objects.requireNonNull(path, "path can not be null");
-        while (true) {
-            checkOpen();
+        while (!closed.get()) {
             ScopeSnapshot snapshot = resolveOrCreateSnapshot(path);
             if (snapshot == null || !retain(snapshot)) {
                 continue;
@@ -297,6 +351,7 @@ public final class ScopedMetaCacheRegistry implements AutoCloseable {
             }
             release(snapshot);
         }
+        return null;
     }
 
     void checkOpen() {
@@ -433,12 +488,16 @@ public final class ScopedMetaCacheRegistry implements AutoCloseable {
     }
 
     private void cleanDetachedState(ScopeState state) {
+        MetaCacheCleanup.execute(() -> cleanDetachedStateNow(state));
+    }
+
+    private void cleanDetachedStateNow(ScopeState state) {
         state.entries.forEach((address, ownershipToken) -> {
             if (state.entries.remove(address, ownershipToken)) {
                 address.removeExpected(ownershipToken);
             }
         });
-        state.children.values().forEach(child -> cleanDetachedState(child.current.get()));
+        state.children.values().forEach(child -> cleanDetachedStateNow(child.current.get()));
         state.children.clear();
     }
 

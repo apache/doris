@@ -69,8 +69,16 @@ public final class ConnectorStatementScopes {
         if (session == null) {
             return loader.get();
         }
-        String key = keyNamespace + ":" + session.getCatalogId() + ":" + db + ":" + table
-                + ":" + session.getQueryId();
-        return session.getStatementScope().computeIfAbsent(key, loader);
+        return session.getStatementScope().computeIfAbsent(key(session, keyNamespace, db, table), loader);
+    }
+
+    /** Looks up the same coordinate as resolveInStatement without starting a load. */
+    public static <T> T getIfPresent(ConnectorSession session, String keyNamespace, String db, String table) {
+        return session == null ? null
+                : session.getStatementScope().getIfPresent(key(session, keyNamespace, db, table));
+    }
+
+    private static String key(ConnectorSession session, String keyNamespace, String db, String table) {
+        return keyNamespace + ":" + session.getCatalogId() + ":" + db + ":" + table + ":" + session.getQueryId();
     }
 }

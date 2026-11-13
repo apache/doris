@@ -60,6 +60,21 @@ public class NereidsStreamLoadTaskTest {
     }
 
     @Test
+    public void testMultiTableBaseTaskCopiesCsvProperties() throws Exception {
+        // The per-table request of a multi-table routine load carries no enclose and no escape
+        NereidsStreamLoadTask streamLoadTask = NereidsStreamLoadTask.fromTStreamLoadPutRequest(newRequest());
+        LoadTaskInfo routineLoadTask = Mockito.mock(LoadTaskInfo.class);
+        Mockito.when(routineLoadTask.getFormatType()).thenReturn(TFileFormatType.FORMAT_CSV_PLAIN);
+        Mockito.when(routineLoadTask.getEnclose()).thenReturn((byte) '"');
+        Mockito.when(routineLoadTask.getEscape()).thenReturn((byte) '\\');
+
+        streamLoadTask.setMultiTableBaseTaskInfo(routineLoadTask);
+
+        Assertions.assertEquals('"', streamLoadTask.getEnclose());
+        Assertions.assertEquals('\\', streamLoadTask.getEscape());
+    }
+
+    @Test
     public void testDefaultSendBatchParallelism() throws UserException {
         Assertions.assertEquals(1,
                 NereidsStreamLoadTask.fromTStreamLoadPutRequest(newRequest()).getSendBatchParallelism());

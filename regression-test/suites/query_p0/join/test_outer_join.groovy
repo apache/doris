@@ -69,17 +69,18 @@ suite("test_outer_join", "query_p0") {
     """
 
     sql "set disable_join_reorder=true"
-    explain {
-        sql "SELECT * FROM ${tbl1} RIGHT OUTER JOIN ${tbl3} ON ${tbl1}.c0 = ${tbl3}.c0"
-        contains "RIGHT OUTER JOIN(PARTITIONED)"
-    }
-    explain {
-        sql "SELECT * FROM ${tbl1} RIGHT ANTI JOIN ${tbl3} ON ${tbl1}.c0 = ${tbl3}.c0"
-        contains "RIGHT ANTI JOIN(PARTITIONED)"
-    }
-    explain {
-        sql "SELECT * FROM ${tbl1} FULL OUTER JOIN ${tbl3} ON ${tbl1}.c0 = ${tbl3}.c0"
-        contains "FULL OUTER JOIN(PARTITIONED)"
+    // The removed planner switch no longer forces PARTITIONED joins. Cover both supported
+    // distributions explicitly, without letting backend count or fuzzy parallelism choose one.
+    for (boolean bucketShuffle : [false, true]) {
+        String distribution = bucketShuffle ? "BUCKET_SHUFFLE" : "PARTITIONED"
+        for (String joinType : ["RIGHT OUTER JOIN", "RIGHT ANTI JOIN", "FULL OUTER JOIN"]) {
+            explain {
+                sql """SELECT /*+ SET_VAR(enable_bucket_shuffle_join=${bucketShuffle},
+                        bucket_shuffle_downgrade_ratio=0) */ *
+                        FROM ${tbl1} ${joinType} ${tbl3} ON ${tbl1}.c0 = ${tbl3}.c0"""
+                contains "${joinType}(${distribution})"
+            }
+        }
     }
 
     def tbl4 = "test_outer_join4"

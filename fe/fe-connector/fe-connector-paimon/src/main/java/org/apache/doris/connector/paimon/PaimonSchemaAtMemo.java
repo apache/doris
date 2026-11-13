@@ -24,6 +24,7 @@ import org.apache.doris.connector.cache.MetaCacheDefinition;
 import org.apache.doris.connector.cache.MetaCacheSizeEstimators;
 import org.apache.doris.connector.cache.ScopePath;
 
+import java.util.Collections;
 import java.util.Objects;
 import java.util.function.Supplier;
 
@@ -70,7 +71,9 @@ final class PaimonSchemaAtMemo {
                 .<MemoKey, PaimonCatalogOps.PaimonSchemaSnapshot>builder(
                         "paimon-schema-at", spec,
                         key -> ScopePath.table(key.databaseName, key.tableName))
-                .sizeEstimator(MetaCacheSizeEstimators.reflective())
+                // A wide schema's fields would exhaust the visit budget of a whole-value walk.
+                .sizeEstimator(MetaCacheSizeEstimators.reflectivePerElement(
+                        snapshot -> Collections.singletonList(snapshot.fields())))
                 .build());
     }
 

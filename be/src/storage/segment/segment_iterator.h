@@ -61,12 +61,16 @@ namespace doris {
 
 class VExpr;
 class VExprContext;
+class SharedPredicate;
 
 namespace segment_v2 {
 
 class ColumnIterator;
+struct ColumnReadAheadContext;
+struct ColumnReadAheadPlan;
 class RowRanges;
 class IndexIterator;
+class SegmentReadAhead;
 
 class SegmentIterator : public RowwiseIterator {
 public:
@@ -119,8 +123,17 @@ private:
 
     [[nodiscard]] Status _lazy_init(Block* block);
     [[nodiscard]] Status _init_impl(const StorageReadOptions& opts);
+    // Create the scalar read-ahead context before column iterators capture their FileReader.
+    [[nodiscard]] Status _init_query_read_ahead();
+    // Complex columns retain their original reader and segment prefetcher.
+    bool _use_read_ahead_for_column(ColumnId cid) const;
     [[nodiscard]] Status _init_column_iterators();
     [[nodiscard]] Status _init_index_iterators();
+    // Initialize eager and lazy page sequences after pruning and submit their first windows
+    // together. Subsequent data-page reads advance each physical column's window.
+    void _prepare_scan_read_ahead();
+    // Classify physical iterators by filtering dependency and plan their initial windows.
+    std::vector<ColumnReadAheadPlan> _plan_scan_read_ahead();
 
     // calculate row ranges that fall into requested key ranges using short key index
     [[nodiscard]] Status _get_row_ranges_by_keys();
@@ -149,6 +162,9 @@ private:
             std::vector<std::shared_ptr<ColumnPredicate>>& remaining_predicates,
             bool* continue_apply);
     [[nodiscard]] Status _apply_ann_topn_predicate();
+
+    Status _update_topn_runtime_filter_ranges();
+    void _reset_range_iterator();
     [[nodiscard]] Status _apply_index_expr();
     // Publish _row_bitmap as IndexQueryContext::candidate_rows when it is
     // below the configured engage ratio; refreshed at conjunct boundaries as
@@ -368,8 +384,19 @@ private:
     std::vector<std::unique_ptr<IndexIterator>> _index_iterators;
     // after init(), `_row_bitmap` contains all rowid to scan
     roaring::Roaring _row_bitmap;
+    // Cardinality cached when the range iterator is created or rebuilt after TopN pruning.
+    uint64_t _row_bitmap_cardinality = 0;
     // an iterator for `_row_bitmap` that can be used to extract row range to scan
     std::unique_ptr<BitmapRangeIterator> _range_iter;
+    struct TopNRuntimeFilter {
+        std::shared_ptr<SharedPredicate> predicate;
+        uint64_t applied_version;
+        uint64_t last_update_rows = 0;
+    };
+    std::vector<TopNRuntimeFilter> _topn_runtime_filters;
+    uint64_t _topn_rows_read = 0;
+    // Forward: first unread rowid. Reverse: exclusive upper bound of unread rowids.
+    uint64_t _topn_read_position = 0;
     // the next rowid to read
     rowid_t _cur_rowid;
     // members related to lazy materialization read
@@ -437,6 +464,8 @@ private:
     std::vector<std::unique_ptr<ColumnIterator>> _owned_seek_column_iterators;
 
     io::FileReaderSPtr _file_reader;
+    std::unique_ptr<SegmentReadAhead> _segment_read_ahead;
+    std::unique_ptr<ColumnReadAheadContext> _column_read_ahead_context;
 
     // Number of selected rows in the current batch.
     uint16_t _selected_size;

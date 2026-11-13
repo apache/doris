@@ -198,9 +198,7 @@ TEST(SniiCoreMetadata, RejectsUnsupportedIndexConfig) {
     EXPECT_TRUE(status.is<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>()) << status;
 }
 
-// During development on master, index_config=2 denoted a scoring tier. The norms region now
-// determines scoring capability, so reject this obsolete value. It was never deployed to
-// production and has no compatibility requirements.
+// Index config 2 is obsolete; norms determine scoring support.
 TEST(SniiCoreMetadata, RejectsLegacyScoringIndexConfigAsUnsupported) {
     auto payload = payload_of(encode(sample_core()));
     ByteSink field;
@@ -213,9 +211,8 @@ TEST(SniiCoreMetadata, RejectsLegacyScoringIndexConfigAsUnsupported) {
     EXPECT_TRUE(status.is<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>()) << status;
 }
 
-// The deployed 3.1-series writer omits stats.sum_total_term_freq and section_refs.norms. Such
-// segments must remain readable, with missing statistics set to 0 and an empty norms region.
-TEST(SniiCoreMetadata, AcceptsProductionShapeWithoutNormsAndTotalTermFreq) {
+// Segments without total term frequency and norms remain readable.
+TEST(SniiCoreMetadata, AcceptsMissingNormsAndTotalTermFreq) {
     const auto metadata = sample_core(IndexConfig::kDocsPositions);
     const auto payload = mutate_core_payload(metadata, [](auto* core) {
         core->mutable_stats()->clear_sum_total_term_freq();
@@ -232,7 +229,7 @@ TEST(SniiCoreMetadata, AcceptsProductionShapeWithoutNormsAndTotalTermFreq) {
     EXPECT_EQ(actual.section_refs.bsbf.length, metadata.section_refs.bsbf.length);
 }
 
-// Segments without norms omit section_refs.norms, matching the production writer's bytes.
+// Segments without norms omit section_refs.norms.
 TEST(SniiCoreMetadata, OmitsEmptyNormsRefOnEncode) {
     auto metadata = sample_core(IndexConfig::kDocsPositions);
     metadata.section_refs.norms = {};

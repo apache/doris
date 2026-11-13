@@ -29,6 +29,7 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.ReplicaAllocation;
+import org.apache.doris.catalog.RowTtlConfig;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
@@ -42,7 +43,6 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.cache.NereidsSqlCacheManager;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.MetaLockUtils;
@@ -296,6 +296,10 @@ public class Alter {
                 throw new DdlException("Changelog feature is not enabled");
             }
             ((SchemaChangeHandler) schemaChangeHandler).updateChangelogConfig(db, olapTable, alterOps);
+        } else if (alterOps.size() == 1 && alterOps.get(0).getProperties() != null
+                && alterOps.get(0).getProperties().containsKey(RowTtlConfig.TTL_PROPERTY)) {
+            ((SchemaChangeHandler) schemaChangeHandler).updateRowTtl(db, olapTable,
+                    alterOps.get(0).getProperties().get(RowTtlConfig.TTL_PROPERTY));
         } else if (currentAlterOps.hasSchemaChangeOp()) {
             // schema change, or change properties that need schema change(dynamic partition, storage_medium...)
             schemaChangeHandler.process(sql, alterOps, db, olapTable);
@@ -406,8 +410,7 @@ public class Alter {
         }
         olapTable.writeLock();
         try {
-            NereidsSqlCacheManager sqlCacheManager = Env.getCurrentEnv().getSqlCacheManager();
-            sqlCacheManager.invalidateAboutTable(olapTable);
+            Env.getCurrentEnv().onTableChanged(olapTable);
         } finally {
             olapTable.writeUnlock();
         }
@@ -852,8 +855,11 @@ public class Alter {
             // rename origin table name to new table name and add it to database
             origTable.checkAndSetName(newTblName, false);
             db.registerTable(origTable);
-        } else {
-
+        }
+        // Advance revisions after the name mapping changes, retaining both original dependency identities.
+        Env.getCurrentEnv().onTableChanged(origTable, oldTblName);
+        Env.getCurrentEnv().onTableChanged(newTbl, newTblName);
+        if (!swapTable) {
             // not swap, the origin table is not used anymore, need to drop all its tablets.
             // put original table to recycle bin.
             if (isForce) {

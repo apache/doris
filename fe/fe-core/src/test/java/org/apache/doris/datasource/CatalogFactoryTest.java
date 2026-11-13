@@ -71,7 +71,7 @@ public class CatalogFactoryTest {
         TestablePluginCatalog catalog = new TestablePluginCatalog(connector);
         Deencapsulation.setField(catalog, "connectorContext", connectorContext);
 
-        catalog.closeResourcesForTest();
+        Assertions.assertThrows(IllegalStateException.class, catalog::closeResourcesForTest);
         catalog.closeResourcesForTest();
 
         Mockito.verify(connector).close();

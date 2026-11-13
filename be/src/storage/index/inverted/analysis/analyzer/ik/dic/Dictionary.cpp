@@ -104,25 +104,24 @@ void Dictionary::loadQuantifierDict() {
     }
 }
 
-void Dictionary::reload() {
-    if (!singleton_) {
-        // Singleton doesn't exist, can't reload
-        _CLTHROWA(CL_ERR_IllegalState, "Dictionary not initialized, cannot reload");
+void Dictionary::initial(const Configuration& cfg, bool useExtDict) {
+    if (singleton_.load(std::memory_order_acquire) != nullptr) {
+        return;
     }
-
+    std::lock_guard<std::mutex> lock(init_mutex_);
+    if (singleton_.load(std::memory_order_relaxed) != nullptr) {
+        return;
+    }
+    std::unique_ptr<Dictionary> dictionary(new Dictionary(cfg, useExtDict));
     try {
-        // Try to reload all dictionaries
-        singleton_->loadMainDict();
-        singleton_->loadStopWordDict();
-        singleton_->loadQuantifierDict();
-
-        init_success_ = true;
-        LOG(INFO) << "Dictionary reloaded successfully";
+        dictionary->loadMainDict();
+        dictionary->loadQuantifierDict();
+        dictionary->loadStopWordDict();
     } catch (const CLuceneError& e) {
-        LOG(ERROR) << "Failed to reload dictionary: " << e.what();
-
-        throw;
+        LOG(ERROR) << "Dictionary loading failed: " << e.what();
+        _CLTHROWA(CL_ERR_IllegalState, "Dictionary initialization failed");
     }
+    singleton_.store(dictionary.release(), std::memory_order_release);
 }
 
 Hit Dictionary::matchInMainDict(const CharacterUtil::TypedRuneArray& typed_runes,

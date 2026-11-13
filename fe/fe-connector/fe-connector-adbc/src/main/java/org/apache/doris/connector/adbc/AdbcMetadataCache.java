@@ -26,6 +26,7 @@ import org.apache.doris.connector.cache.ScopePath;
 
 import org.apache.arrow.vector.types.pojo.Schema;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -104,22 +105,25 @@ public final class AdbcMetadataCache {
     AdbcMetadataCache(CatalogMetaCache owner, Map<String, String> properties) {
         this.owner = Objects.requireNonNull(owner, "owner can not be null");
         CacheSpec spec = cacheSpec(properties);
+        // Long name lists and wide schemas would exhaust the visit budget of a whole-value walk, so these values
+        // are estimated one namespace, name or field at a time.
         this.namespaces = owner.create(MetaCacheDefinition
                 .<String, List<AdbcNamespace>>builder("adbc-namespaces", spec, ignored -> ScopePath.catalog())
                 .budgetGroup(ENTRY)
-                .sizeEstimator(MetaCacheSizeEstimators.reflective())
+                .sizeEstimator(MetaCacheSizeEstimators.reflectiveEachElement())
                 .build());
         this.tableNames = owner.create(MetaCacheDefinition
                 .<TableNameKey, List<String>>builder("adbc-table-names", spec,
                         key -> ScopePath.database(key.dorisDbName))
                 .budgetGroup(ENTRY)
-                .sizeEstimator(MetaCacheSizeEstimators.reflective())
+                .sizeEstimator(MetaCacheSizeEstimators.reflectiveEachElement())
                 .build());
         this.tableSchemas = owner.create(MetaCacheDefinition
                 .<TableKey, Schema>builder("adbc-table-schema", spec,
                         key -> ScopePath.table(key.dorisDbName, key.table))
                 .budgetGroup(ENTRY)
-                .sizeEstimator(MetaCacheSizeEstimators.reflective())
+                .sizeEstimator(MetaCacheSizeEstimators.reflectivePerElement(
+                        schema -> Collections.singletonList(schema.getFields())))
                 .build());
     }
 

@@ -95,7 +95,7 @@ TEST_P(ExternalTableWriterPartitionLimitTest, IcebergRejectsNextPartitionBeforeO
     sink.__set_iceberg_table_sink(TIcebergTableSink());
     VExprContextSPtrs exprs;
     iceberg::PartitionField field(1, 1000, "p", "identity");
-    VIcebergTableWriter writer(sink, exprs, nullptr, nullptr);
+    VIcebergTableWriter writer(sink, exprs);
     // open() pins the table schema, and every written block is validated against it.
     std::vector<iceberg::NestedField> columns;
     columns.emplace_back(true, 1, "p", std::make_unique<iceberg::IntegerType>(), std::nullopt);

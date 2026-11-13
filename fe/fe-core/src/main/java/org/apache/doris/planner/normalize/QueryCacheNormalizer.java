@@ -127,8 +127,8 @@ public class QueryCacheNormalizer implements Normalizer {
     private boolean containsTtlScan(PlanNode planRoot) {
         if (planRoot instanceof OlapScanNode) {
             OlapTable table = ((OlapScanNode) planRoot).getOlapTable();
-            if (table instanceof OlapChangelogTableWrapper
-                    && ((OlapChangelogTableWrapper) table).getOriginTable().hasChangelogTtl()) {
+            if (table.hasRowTtl() || (table instanceof OlapChangelogTableWrapper
+                    && ((OlapChangelogTableWrapper) table).getOriginTable().hasChangelogTtl())) {
                 return true;
             }
         }

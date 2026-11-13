@@ -20,6 +20,7 @@ package org.apache.doris.qe;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.plans.commands.PrepareCommand;
+import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Assertions;
@@ -46,6 +47,9 @@ public class MysqlConnectProcessorCursorFetchTest {
             StatementContext statementContext = new StatementContext();
             PreparedStatementContext prepared = new PreparedStatementContext(
                     command, context, statementContext, "select 1");
+            // The query id the COM_STMT_PREPARE of the statement left on the connection; the mocked executor
+            // never executes, so it does not set one.
+            context.setQueryId(new TUniqueId(7L, 7L));
             ByteBuffer packet = ByteBuffer.allocate(9);
             packet.position(packet.limit()); // COM_STMT_EXECUTE header consumed, no parameter payload.
             try (MockedConstruction<StmtExecutor> executors = Mockito.mockConstruction(StmtExecutor.class);

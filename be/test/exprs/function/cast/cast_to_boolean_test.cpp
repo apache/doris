@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "core/column/column_const.h"
+#include "core/column/column_string.h"
 #include "core/data_type/data_type_number.h"
 #include "exprs/function/cast/cast_test.h"
 
@@ -431,6 +433,110 @@ TEST_F(FunctionCastTest, test_from_decimal_to_bool_strict_mode) {
         };
         check_function_for_cast_strict_mode<DataTypeBool>(input_types, data_set);
     }
+}
+
+TEST_F(FunctionCastTest, BoundColumnCastReusesKernelAndKeepsBlockCompatibility) {
+    const auto source_type = std::make_shared<DataTypeInt64>();
+    const auto target_type = make_nullable(std::make_shared<DataTypeBool>());
+    auto context = FunctionContext::create_context(nullptr, target_type, {source_type});
+    const auto wrapper = CastWrapper::bind_cast_executor(context.get(), source_type, target_type);
+
+    for (const std::vector<Int64>& values :
+         {std::vector<Int64> {0, -1, 42}, std::vector<Int64> {7, 0}}) {
+        auto input = ColumnInt64::create();
+        for (auto value : values) {
+            input->insert_value(value);
+        }
+        ColumnWithTypeAndName source {std::move(input), source_type, "source"};
+        ColumnWithTypeAndName target {nullptr, target_type, "target"};
+        ASSERT_TRUE(wrapper(context.get(), source, target, values.size(), nullptr).ok());
+        const auto& nullable = assert_cast<const ColumnNullable&>(*target.column);
+        for (size_t row = 0; row < values.size(); ++row) {
+            EXPECT_FALSE(nullable.is_null_at(row));
+            EXPECT_EQ(nullable.get_nested_column().get_int(row), values[row] != 0);
+        }
+
+        Block block {source, {nullptr, target_type, "target"}};
+        ASSERT_TRUE(wrapper(context.get(), block.get_by_position(0), block.get_by_position(1),
+                            values.size(), nullptr)
+                            .ok());
+        for (size_t row = 0; row < values.size(); ++row) {
+            EXPECT_EQ(target.column->compare_at(row, row, *block.get_by_position(1).column, 1), 0);
+        }
+    }
+}
+
+TEST_F(FunctionCastTest, BoundColumnCastPreservesConstNullAndLogicalRows) {
+    const auto source_type = make_nullable(std::make_shared<DataTypeInt64>());
+    const auto target_type = make_nullable(std::make_shared<DataTypeBool>());
+    auto context = FunctionContext::create_context(nullptr, target_type, {source_type});
+    const auto wrapper = CastWrapper::bind_cast_executor(context.get(), source_type, target_type);
+    for (bool is_null : {false, true}) {
+        auto input = ColumnInt64::create();
+        input->insert_value(42);
+        ColumnPtr nullable =
+                ColumnNullable::create(std::move(input), ColumnUInt8::create(1, is_null));
+        ColumnWithTypeAndName source {ColumnConst::create(nullable, 5), source_type, "source"};
+        ColumnWithTypeAndName target {nullptr, target_type, "target"};
+        ASSERT_TRUE(wrapper(context.get(), source, target, 5, nullptr).ok());
+        ASSERT_TRUE(is_column_const(*target.column));
+        ASSERT_EQ(target.column->size(), 5);
+        auto materialized = target.column->convert_to_full_column_if_const();
+        const auto& result = assert_cast<const ColumnNullable&>(*materialized);
+        for (size_t row = 0; row < 5; ++row) {
+            EXPECT_EQ(result.is_null_at(row), is_null);
+            if (!is_null) {
+                EXPECT_EQ(result.get_nested_column().get_int(row), 1);
+            }
+        }
+    }
+}
+
+TEST_F(FunctionCastTest, BoundColumnCastMergesSourceAndConversionNulls) {
+    const auto source_type = make_nullable(std::make_shared<DataTypeString>());
+    const auto target_type = make_nullable(std::make_shared<DataTypeBool>());
+    auto context = FunctionContext::create_context(nullptr, target_type, {source_type});
+    for (bool strict : {false, true}) {
+        context->set_enable_strict_mode(strict);
+        const auto wrapper =
+                CastWrapper::bind_cast_executor(context.get(), source_type, target_type);
+        auto strings = ColumnString::create();
+        strings->insert_data("true", 4);
+        strings->insert_data("bad", 3);
+        strings->insert_data(strict ? "false" : "bad", strict ? 5 : 3);
+        auto nulls = ColumnUInt8::create(3, 0);
+        nulls->get_data()[1] = 1;
+        ColumnWithTypeAndName source {ColumnNullable::create(std::move(strings), std::move(nulls)),
+                                      source_type, "source"};
+        ColumnWithTypeAndName target {nullptr, target_type, "target"};
+        ASSERT_TRUE(wrapper(context.get(), source, target, 3, nullptr).ok());
+        const auto& result = assert_cast<const ColumnNullable&>(*target.column);
+        EXPECT_FALSE(result.is_null_at(0));
+        EXPECT_EQ(result.get_nested_column().get_int(0), 1);
+        EXPECT_TRUE(result.is_null_at(1));
+        EXPECT_EQ(result.is_null_at(2), !strict);
+        if (strict) {
+            EXPECT_EQ(result.get_nested_column().get_int(2), 0);
+        }
+        // Producing the result must not rewrite the source's NULL map.
+        EXPECT_FALSE(source.column->is_null_at(2));
+    }
+}
+
+TEST_F(FunctionCastTest, EmptyColumnCastDefersUnsupportedConversion) {
+    const auto source_type = std::make_shared<DataTypeBool>();
+    const auto target_type = std::make_shared<DataTypeArray>(source_type);
+    auto context = FunctionContext::create_context(nullptr, target_type, {source_type});
+    CastWrapper::FunctionContextWrapperType executor =
+            CastWrapper::bind_cast_executor(context.get(), source_type, target_type);
+    ColumnWithTypeAndName source {source_type->create_column(), source_type, "source"};
+    ColumnWithTypeAndName target {nullptr, target_type, "target"};
+    ASSERT_TRUE(CastWrapper::execute_wrapper(context.get(), executor, source, target, 0).ok());
+    ASSERT_NE(target.column.get(), nullptr);
+    EXPECT_EQ(target.column->size(), 0);
+    source.column = source_type->create_column_const_with_default_value(1);
+    EXPECT_TRUE(CastWrapper::execute_wrapper(context.get(), executor, source, target, 1)
+                        .is<ErrorCode::INVALID_ARGUMENT>());
 }
 
 } // namespace doris

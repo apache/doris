@@ -452,7 +452,7 @@ TEST_F(DataTypeStructTest, writeColumnToOrc) {
     TimezoneUtils::load_timezones_to_cache();
     DataTypeSerDe::FormatOptions format_options;
     cctz::time_zone tz;
-    TimezoneUtils::find_cctz_time_zone("UTC", tz);
+    ASSERT_TRUE(TimezoneUtils::find_cctz_time_zone("UTC", tz));
     format_options.timezone = &tz;
 
     Status status = serde->write_column_to_orc("UTC", *struct_column, nullptr, &structBatch, 0, 1,

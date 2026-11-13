@@ -26,6 +26,8 @@ import org.apache.arrow.adbc.core.AdbcException;
 import org.apache.arrow.adbc.driver.jni.JniDriver;
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.memory.RootAllocator;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.Closeable;
 import java.nio.file.Path;
@@ -48,8 +50,19 @@ import java.util.Map;
  * constructor: an FE follower replaying the edit log builds every catalog, and its filesystem layout need
  * not match the leader's, so a missing driver file would otherwise stop FE from starting instead of
  * failing the one catalog that cannot work.
+ *
+ * <p><b>Closing never frees what a call is still using.</b> A catalog is dropped or altered on one thread
+ * while others may still be inside {@link #withConnection} for it -- a statistics loader, a statement being
+ * planned. Closing the {@code AdbcDatabase} closes every connection still open on it as well (the JNI driver
+ * closes its children first), and native driver state freed under a thread that is inside the driver
+ * crashes the whole FE process rather than failing that one call. So {@link #close} only refuses new calls,
+ * and the native objects are released by whoever leaves last: {@code close} itself when no call is in
+ * flight, otherwise the last call to finish. Waiting for those calls inside {@code close} instead would hold
+ * DROP and ALTER CATALOG for as long as a remote source takes to answer.
  */
 public class AdbcClient implements Closeable {
+
+    private static final Logger LOG = LogManager.getLogger(AdbcClient.class);
 
     private final Path driverPath;
     private final String driverUrl;
@@ -59,9 +72,12 @@ public class AdbcClient implements Closeable {
     private final String password;
     private final Map<String, String> driverOptions;
 
-    private volatile BufferAllocator allocator;
-    private volatile AdbcDatabase database;
-    private volatile boolean closed;
+    // All guarded by this.
+    private BufferAllocator allocator;
+    private AdbcDatabase database;
+    private boolean closed;
+    /** Calls inside {@link #withConnection}; the last one to leave a closed client releases the driver. */
+    private int callsInFlight;
 
     public AdbcClient(Path driverPath, String driverUrl, String entrypoint, String uri,
             String user, String password, Map<String, String> driverOptions) {
@@ -83,7 +99,7 @@ public class AdbcClient implements Closeable {
      * cost does not show.
      */
     public <T> T withConnection(AdbcConnectionCall<T> body) {
-        AdbcDatabase db = getOrOpenDatabase();
+        AdbcDatabase db = enter();
         ClassLoader previous = Thread.currentThread().getContextClassLoader();
         try {
             // The plugin loads child-first and the ADBC/Arrow classes live in it; pin the context
@@ -101,43 +117,60 @@ public class AdbcClient implements Closeable {
             throw new DorisConnectorException("ADBC operation failed: " + e.getMessage(), e);
         } finally {
             Thread.currentThread().setContextClassLoader(previous);
+            leave();
         }
     }
 
-    private AdbcDatabase getOrOpenDatabase() {
+    /** Counts the calling thread in, opening the database on first use. */
+    private synchronized AdbcDatabase enter() {
         if (closed) {
             throw new DorisConnectorException("AdbcClient has been closed");
         }
-        AdbcDatabase db = database;
-        if (db != null) {
-            return db;
-        }
-        synchronized (this) {
-            if (closed) {
-                throw new DorisConnectorException("AdbcClient has been closed");
-            }
-            if (database == null) {
-                AdbcDriverPathResolver.checkExists(driverPath, driverUrl);
-                ClassLoader previous = Thread.currentThread().getContextClassLoader();
-                try {
-                    Thread.currentThread().setContextClassLoader(getClass().getClassLoader());
-                    if (allocator == null) {
-                        allocator = new RootAllocator();
-                    }
-                    database = new JniDriver(allocator).open(buildParameters());
-                } catch (AdbcException e) {
-                    throw translate(e, "Failed to open the ADBC driver " + driverPath);
-                } catch (UnsatisfiedLinkError e) {
-                    throw new DorisConnectorException("Failed to load the ADBC JNI bridge."
-                            + " FE loads it from the directory named by the JVM property"
-                            + " arrow.adbc.driver.jni.library.path (set in fe.conf, normally"
-                            + " ${DORIS_HOME}/lib): " + e.getMessage(), e);
-                } finally {
-                    Thread.currentThread().setContextClassLoader(previous);
+        if (database == null) {
+            AdbcDriverPathResolver.checkExists(driverPath, driverUrl);
+            ClassLoader previous = Thread.currentThread().getContextClassLoader();
+            try {
+                Thread.currentThread().setContextClassLoader(getClass().getClassLoader());
+                if (allocator == null) {
+                    allocator = new RootAllocator();
                 }
+                database = openDatabase(allocator, buildParameters());
+            } catch (AdbcException e) {
+                throw translate(e, "Failed to open the ADBC driver " + driverPath);
+            } catch (UnsatisfiedLinkError e) {
+                throw new DorisConnectorException("Failed to load the ADBC JNI bridge."
+                        + " FE loads it from the directory named by the JVM property"
+                        + " arrow.adbc.driver.jni.library.path (set in fe.conf, normally"
+                        + " ${DORIS_HOME}/lib): " + e.getMessage(), e);
+            } finally {
+                Thread.currentThread().setContextClassLoader(previous);
             }
-            return database;
         }
+        callsInFlight++;
+        return database;
+    }
+
+    /** Counts the calling thread out; the last call to leave a closed client releases the driver. */
+    private void leave() {
+        synchronized (this) {
+            callsInFlight--;
+            if (!closed || callsInFlight > 0) {
+                return;
+            }
+        }
+        // close() found this call still inside the driver and left the release to it. A failure is logged, as
+        // the catalog logs a failed close (PluginDrivenExternalCatalog#closeResources), not thrown: the call
+        // itself is done, and its caller is not the one that closed the catalog.
+        try {
+            release();
+        } catch (RuntimeException e) {
+            LOG.warn("Failed to release the ADBC driver {} of a closed catalog", driverPath, e);
+        }
+    }
+
+    /** The one place the database is created, so a test can stand a recording one in for the driver. */
+    AdbcDatabase openDatabase(BufferAllocator allocator, Map<String, Object> parameters) throws AdbcException {
+        return new JniDriver(allocator).open(parameters);
     }
 
     private Map<String, Object> buildParameters() {
@@ -184,20 +217,40 @@ public class AdbcClient implements Closeable {
         return new DorisConnectorException(sb.toString(), e);
     }
 
+    /**
+     * Refuses new calls, and releases the driver now unless a call is still inside it -- then the last such
+     * call releases it as it leaves. Does not wait for those calls; see the class comment.
+     */
     @Override
-    public synchronized void close() {
-        closed = true;
+    public void close() {
+        synchronized (this) {
+            closed = true;
+            if (callsInFlight > 0) {
+                return;
+            }
+        }
+        release();
+    }
+
+    /** Frees the database and then its allocator; a client never used, or already released, holds neither. */
+    private void release() {
+        AdbcDatabase db;
+        BufferAllocator alloc;
+        synchronized (this) {
+            db = database;
+            alloc = allocator;
+            database = null;
+            allocator = null;
+        }
         try {
-            if (database != null) {
-                database.close();
+            if (db != null) {
+                db.close();
             }
         } catch (Exception e) {
             throw new DorisConnectorException("Failed to close the ADBC database: " + e.getMessage(), e);
         } finally {
-            database = null;
-            if (allocator != null) {
-                allocator.close();
-                allocator = null;
+            if (alloc != null) {
+                alloc.close();
             }
         }
     }

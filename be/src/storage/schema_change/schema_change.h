@@ -62,7 +62,6 @@ enum RowsetTypePB : int;
 enum SegmentsOverlapPB : int;
 
 class Block;
-class OlapBlockDataConvertor;
 
 class BlockChanger {
 public:

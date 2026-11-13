@@ -67,6 +67,33 @@ class HiveCatalogPropertiesTest {
         Assertions.assertEquals("/tmp/.doris_staging", p.getStagingDir());
     }
 
+    @Test
+    void fileListingStagingBudgetsAreBoundedAndValidatedAtStatementTime() {
+        HiveCatalogProperties defaults = HiveTestProperties.minimal();
+        Assertions.assertEquals(8L * 1024 * 1024, defaults.getFileListingCacheEntryMaxBytes());
+        Assertions.assertEquals(64L * 1024 * 1024, defaults.getFileListingCachePendingMaxBytes());
+        HiveCatalogProperties disabled = HiveCatalogProperties.of(HiveTestProperties.mapWith(
+                HiveCatalogProperties.FILE_LISTING_CACHE_ENTRY_MAX_BYTES, "0",
+                HiveCatalogProperties.FILE_LISTING_CACHE_PENDING_MAX_BYTES, "0")).checkCreateTimeOnlyRules();
+        Assertions.assertEquals(0, disabled.getFileListingCacheEntryMaxBytes());
+        Assertions.assertEquals(0, disabled.getFileListingCachePendingMaxBytes());
+        for (String key : new String[] {HiveCatalogProperties.FILE_LISTING_CACHE_ENTRY_MAX_BYTES,
+                HiveCatalogProperties.FILE_LISTING_CACHE_PENDING_MAX_BYTES}) {
+            HiveCatalogProperties invalid = HiveCatalogProperties.of(HiveTestProperties.mapWith(key, "-1"));
+            Assertions.assertThrows(IllegalArgumentException.class, invalid::checkCreateTimeOnlyRules);
+        }
+    }
+
+    @Test
+    void completedFileSummaryUsesValidatedMetadataCacheControls() {
+        HiveCatalogProperties.of(HiveTestProperties.mapWith(
+                "meta.cache.hive.file_summary.max-weight", "64KB",
+                "meta.cache.hive.file_summary.capacity", "100")).checkCreateTimeOnlyRules();
+        Assertions.assertThrows(IllegalArgumentException.class, () -> HiveCatalogProperties.of(
+                HiveTestProperties.mapWith("meta.cache.hive.file_summary.max-weight", "invalid"))
+                .checkCreateTimeOnlyRules());
+    }
+
     // ===== the metastore URI, its short form, and what reaches the HMS client =====
 
     @Test
@@ -243,6 +270,24 @@ class HiveCatalogPropertiesTest {
                 java.util.Collections.singletonMap("comment", "updated")));
         Assertions.assertThrows(IllegalArgumentException.class, () -> provider.validatePropertiesForUpdate(
                 HiveTestProperties.mapWith(), unknownEntry));
+    }
+
+    @Test
+    void submittedMetaCacheKeysOfBothEnginesMustNameAKnownOption() {
+        HiveConnectorProvider provider = new HiveConnectorProvider();
+        IllegalArgumentException misspelled = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> provider.validateProperties(
+                        HiveTestProperties.mapWith("meta.cache.hive.file.max-weigth", "64MB")));
+        Assertions.assertEquals("Unknown external meta cache property: meta.cache.hive.file.max-weigth",
+                misspelled.getMessage());
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> provider.validateProperties(HiveTestProperties.mapWith("meta.cache.hive.file.enable", "1")));
+        Assertions.assertThrows(IllegalArgumentException.class, () -> provider.validateProperties(
+                HiveTestProperties.mapWith("meta.cache.iceberg.table.ttl-second", "-2")));
+        // A key stored by an earlier statement is not validated again by an unrelated ALTER.
+        Assertions.assertDoesNotThrow(() -> provider.validatePropertiesForUpdate(
+                HiveTestProperties.mapWith("meta.cache.hive.file.max-weigth", "64MB"),
+                java.util.Collections.singletonMap("comment", "updated")));
     }
 
     @Test
