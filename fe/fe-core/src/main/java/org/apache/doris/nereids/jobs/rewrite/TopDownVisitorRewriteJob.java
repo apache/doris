@@ -34,8 +34,11 @@ import java.util.function.Predicate;
 
 /** TopDownVisitorRewriteJob */
 public class TopDownVisitorRewriteJob implements RewriteJob {
-    // The most times the rules of one batch may change one plan node. A rule that changes its node on every
-    // pass has no other way out of doRewrite. No plan needs a number near this one.
+    // The most times the rules of one batch may change the plan at one position (one doRewrite call). With the
+    // planning timeout switched off, a rule that changes its node on every pass has no other way out of
+    // doRewrite. The bound counts rewrites, not memory: with the plan process recorded (EXPLAIN ... PLAN
+    // PROCESS) every rewrite also keeps two plan strings, and a rule that grows the plan can fill the heap
+    // before it reaches the bound.
     public static final int MAX_REWRITES_OF_ONE_NODE = 10000;
 
     private final Rules rules;
@@ -77,8 +80,6 @@ public class TopDownVisitorRewriteJob implements RewriteJob {
         if (!isTraverseChildren.test(plan)) {
             return plan;
         }
-
-        checkTimeout(jobContext);
 
         plan = doRewrite(parent, childIndex, plan, jobContext, rules, processState);
 
@@ -123,8 +124,8 @@ public class TopDownVisitorRewriteJob implements RewriteJob {
                     if (++rewrites > MAX_REWRITES_OF_ONE_NODE) {
                         throw new AnalysisException("The rewrite does not converge: rule "
                                 + currentRule.getRuleType().name() + " still changes " + originPlan.getType()
-                                + " after " + MAX_REWRITES_OF_ONE_NODE + " rewrites of that node. The rule can be"
-                                + " switched off with the session variable disable_nereids_rules.");
+                                + " after " + MAX_REWRITES_OF_ONE_NODE + " rewrites at one position. A rule can be"
+                                + " switched off by name with the session variable disable_nereids_rules.");
                     }
                     Plan newPlan = transform.get(0);
                     currentRule.acceptPlan(originPlan);

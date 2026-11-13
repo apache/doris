@@ -23,9 +23,12 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
@@ -44,8 +47,10 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.NullIgnoringAggr
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum0;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.LogicalPlanBuilder;
@@ -124,9 +129,9 @@ class InferAggNotNullTest implements MemoPatternMatchSupported {
     }
 
     @Test
-    void testInferJoinsTheFilterThatAlreadyHoldsOneOfThem() {
-        // The filter under the aggregate already holds the not-null of c0. The not-null of c1 has to join that
-        // filter: in a second filter on top it would hide c0's from the next pass of this rule.
+    void testInferPutsItsNotNullAboveTheFilterThatHoldsTheOther() {
+        // The filter under the aggregate already holds the not-null of c0. The not-null of c1 goes into a
+        // filter of its own on top, and the filter below stays as it was written.
         LogicalOlapScan scan = newWideNullableScan(2);
         Expression c0 = scan.getOutput().get(0);
         Expression c1 = scan.getOutput().get(1);
@@ -137,13 +142,51 @@ class InferAggNotNullTest implements MemoPatternMatchSupported {
                 .aggGroupUsingIndex(ImmutableList.of(),
                         ImmutableList.of(new Alias(new Sum(new Add(c0, c1)), "s")))
                 .build();
+        CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(
+                MemoTestUtils.createConnectContext(), plan);
+        Rule rule = new InferAggNotNull().build();
+        Assertions.assertTrue(rule.getPattern().matchPlanTree(plan));
+
+        // One application at a time: run to a fixpoint, a rule that does not converge would not fail this
+        // test, it would hang it.
+        Plan once = rule.transform(plan, cascadesContext).get(0);
+        Assertions.assertTrue(once.child(0) instanceof LogicalFilter, once.treeString());
+        LogicalFilter<?> onTop = (LogicalFilter<?>) once.child(0);
+        Assertions.assertEquals(ImmutableSet.of(generated), onTop.getConjuncts());
+        Assertions.assertTrue(onTop.child() instanceof LogicalFilter, once.treeString());
+        Assertions.assertEquals(ImmutableSet.of(written), ((LogicalFilter<?>) onTop.child()).getConjuncts());
+
+        // The second application reads both filters and has nothing to add. Reading only the filter on top,
+        // it generated the not-null of c0 again, then that of c1, and so on without end.
+        Assertions.assertSame(once, rule.transform(once, cascadesContext).get(0));
+    }
+
+    @Test
+    void testFilterUnderTheAggregateStillInfersItsOwnNotNulls() {
+        // sum(c2) over filter(c0 + c1 > 0). The not-null of c2 that this rule generates must stay out of the
+        // filter below: InferFilterNotNull skips a filter that holds a generated not-null, and the not-nulls
+        // of c0 and c1 that it infers from the condition are what lets an outer join below become an inner one.
+        LogicalOlapScan scan = newWideNullableScan(3);
+        Expression c0 = scan.getOutput().get(0);
+        Expression c1 = scan.getOutput().get(1);
+        Expression c2 = scan.getOutput().get(2);
+        Expression condition = new GreaterThan(new Add(c0, c1), new IntegerLiteral(0));
+        LogicalPlan plan = new LogicalPlanBuilder(scan)
+                .filter(condition)
+                .aggGroupUsingIndex(ImmutableList.of(), ImmutableList.of(new Alias(new Sum(c2), "s")))
+                .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
-                .applyTopDown(new InferAggNotNull())
+                .applyTopDown(new InferAggNotNull(), new InferFilterNotNull())
                 .matches(
                         logicalAggregate(
-                                logicalFilter(logicalOlapScan()).when(filter ->
-                                        filter.getConjuncts().equals(ImmutableSet.of(written, generated)))
+                                logicalFilter(
+                                        logicalFilter(logicalOlapScan()).when(below ->
+                                                below.getConjuncts().equals(ImmutableSet.of(condition,
+                                                        new Not(new IsNull(c0), true),
+                                                        new Not(new IsNull(c1), true))))
+                                ).when(onTop ->
+                                        onTop.getConjuncts().equals(ImmutableSet.of(new Not(new IsNull(c2), true))))
                         )
                 );
     }

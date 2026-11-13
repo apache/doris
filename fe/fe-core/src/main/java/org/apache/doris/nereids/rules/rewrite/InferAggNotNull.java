@@ -27,7 +27,6 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.NullIgnoringAggr
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Filter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
-import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.PlanUtils;
 
@@ -47,10 +46,17 @@ public class InferAggNotNull extends OneRewriteRuleFactory {
                     LogicalAggregate<Plan> agg = ctx.root;
                     Set<AggregateFunction> aggregateFunctions = agg.getAggregateFunctions();
                     Set<Expression> isNotNulls = inferCommonNotNulls(aggregateFunctions, ctx.cascadesContext);
-                    Set<Expression> predicates = Collections.emptySet();
-                    if ((agg.child() instanceof Filter)) {
-                        predicates = ((Filter) agg.child()).getConjuncts();
+                    // Read every filter in the chain right under the aggregate, not only the first one. This
+                    // rule puts what it generates into a filter of its own on top, and that filter hides the
+                    // ones below it: reading only the first, the rule would generate again, on every pass, a
+                    // not-null that a lower filter holds. The filters below stay as they were written, so
+                    // InferFilterNotNull, which skips a filter that holds a generated not-null, still infers
+                    // from their conjuncts.
+                    ImmutableSet.Builder<Expression> predicatesBuilder = ImmutableSet.builder();
+                    for (Plan child = agg.child(); child instanceof Filter; child = child.child(0)) {
+                        predicatesBuilder.addAll(((Filter) child).getConjuncts());
                     }
+                    Set<Expression> predicates = predicatesBuilder.build();
                     ImmutableSet.Builder<Expression> needGenerateNotNullsBuilder = ImmutableSet.builder();
                     for (Expression isNotNull : isNotNulls) {
                         if (!predicates.contains(isNotNull)) {
@@ -63,17 +69,6 @@ public class InferAggNotNull extends OneRewriteRuleFactory {
                     Set<Expression> needGenerateNotNulls = needGenerateNotNullsBuilder.build();
                     if (needGenerateNotNulls.isEmpty()) {
                         return null;
-                    }
-                    if (agg.child() instanceof LogicalFilter) {
-                        // Add to the filter that is already there. This rule reads only the filter right under
-                        // the aggregate, so a second filter on top would hide the first one from its next pass,
-                        // and a not-null the lower filter holds would be generated again.
-                        LogicalFilter<?> filter = (LogicalFilter<?>) agg.child();
-                        ImmutableSet.Builder<Expression> conjuncts = ImmutableSet.builderWithExpectedSize(
-                                predicates.size() + needGenerateNotNulls.size());
-                        conjuncts.addAll(predicates);
-                        conjuncts.addAll(needGenerateNotNulls);
-                        return agg.withChildren(filter.withConjuncts(conjuncts.build()));
                     }
                     return agg.withChildren(PlanUtils.filter(needGenerateNotNulls, agg.child()).get());
                 }).toRule(RuleType.INFER_AGG_NOT_NULL);
