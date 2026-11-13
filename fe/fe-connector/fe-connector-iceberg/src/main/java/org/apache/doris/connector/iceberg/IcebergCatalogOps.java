@@ -350,12 +350,13 @@ public interface IcebergCatalogOps {
          */
         private List<String> listNestedNamespaces(Namespace parentNs) {
             SupportsNamespaces nsCatalog = (SupportsNamespaces) catalog;
-            if (restFlavor && nestedNamespaceEnabled) {
+            if (usesNestedNamespaces()) {
                 return nsCatalog.listNamespaces(parentNs).stream()
                         .flatMap(childNs -> {
                             try {
+                                String dbName = toDatabaseName(childNs);
                                 List<String> descendants = listNestedNamespaces(childNs);
-                                return Stream.concat(Stream.of(childNs.toString()), descendants.stream());
+                                return Stream.concat(Stream.of(dbName), descendants.stream());
                             } catch (NoSuchNamespaceException e) {
                                 // A child can be dropped after its parent was listed. Skip that branch,
                                 // including the stale child name, without hiding failures to list the root.
@@ -366,8 +367,29 @@ public interface IcebergCatalogOps {
                         .collect(Collectors.toList());
             }
             return nsCatalog.listNamespaces(parentNs).stream()
-                    .map(ns -> ns.level(ns.length() - 1))
+                    .map(this::toDatabaseName)
                     .collect(Collectors.toList());
+        }
+
+        private boolean usesNestedNamespaces() {
+            return restFlavor && nestedNamespaceEnabled;
+        }
+
+        private String toDatabaseName(Namespace namespace) {
+            if (!usesNestedNamespaces()) {
+                return namespace.level(namespace.length() - 1);
+            }
+            if (externalCatalogName.isPresent()) {
+                // A dotted child level aliases a different hierarchy in the full database name.
+                // The configured root is one known level, so dots within that root remain unambiguous.
+                for (int i = 1; i < namespace.length(); i++) {
+                    if (namespace.level(i).contains(".")) {
+                        throw new DorisConnectorException("Cannot represent Iceberg namespace " + namespace
+                                + " as a database name: namespace level '" + namespace.level(i) + "' contains '.'");
+                    }
+                }
+            }
+            return namespace.toString();
         }
 
         @Override
@@ -935,16 +957,29 @@ public interface IcebergCatalogOps {
         }
 
         /**
-         * Builds the multi-level namespace for {@code dbName}, mirroring legacy {@code getNamespace}: split
-         * on {@code '.'} (omit empties / trim), then append the external-catalog level last when present.
+         * Inverts database discovery: rooted direct children have relative names, while rooted nested
+         * names already include the root. Unrooted names retain their existing dotted parsing.
          */
         private Namespace toNamespace(String dbName) {
-            // Use the SAME Guava splitter as legacy IcebergMetadataOps.getNamespace so splitting is
-            // byte-faithful — including trimResults()==CharMatcher.whitespace(), which trims Unicode
-            // whitespace above U+0020 (e.g. U+3000) that String.trim() would leave behind.
-            List<String> levels = new ArrayList<>(
-                    Splitter.on('.').omitEmptyStrings().trimResults().splitToList(dbName));
-            externalCatalogName.ifPresent(levels::add);
+            if (!externalCatalogName.isPresent()) {
+                return Namespace.of(Splitter.on('.').omitEmptyStrings().trimResults().splitToList(dbName)
+                        .toArray(new String[0]));
+            }
+            String root = externalCatalogName.get();
+            if (!usesNestedNamespaces()) {
+                return Namespace.of(root, dbName);
+            }
+            String prefix = root + ".";
+            if (!dbName.startsWith(prefix)) {
+                throw new DorisConnectorException("Iceberg database '" + dbName
+                        + "' must be under the configured namespace root '" + root
+                        + "' when nested namespaces are enabled");
+            }
+            // Remove the known root before splitting so a dot inside the root stays in one level.
+            // Preserve child levels exactly as returned by discovery, including whitespace.
+            List<String> levels = new ArrayList<>();
+            levels.add(root);
+            levels.addAll(Splitter.on('.').splitToList(dbName.substring(prefix.length())));
             return Namespace.of(levels.toArray(new String[0]));
         }
 

@@ -40,7 +40,7 @@ import java.util.stream.Collectors;
  * silently passing.
  *
  * <p>Records the namespaces / identifiers it receives so tests can assert the EXACT namespace the seam
- * constructed (dotted-name split + external-catalog-name append), not just the returned names.
+ * constructed, not just the returned names.
  *
  * <p>See also {@link FakeIcebergViewCatalog} (adds {@code ViewCatalog}) and {@link PlainIcebergCatalog}
  * (a bare {@code Catalog} with no namespace support).
