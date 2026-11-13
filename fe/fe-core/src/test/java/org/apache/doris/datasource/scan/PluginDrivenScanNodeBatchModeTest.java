@@ -30,7 +30,6 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.connector.hive.HiveCatalogProperties;
 import org.apache.doris.connector.hive.HiveConnectorMetadata;
 import org.apache.doris.connector.hive.HiveFileListingCache;
-import org.apache.doris.connector.hive.HiveFileStatus;
 import org.apache.doris.connector.hive.HiveScanPlanProvider;
 import org.apache.doris.connector.hive.HiveTableHandle;
 import org.apache.doris.connector.hive.HiveTableType;
@@ -60,7 +59,10 @@ import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.datasource.plugin.PluginDrivenSchemaCacheValue;
 import org.apache.doris.datasource.split.SplitAssignment;
+import org.apache.doris.filesystem.FileEntry;
+import org.apache.doris.filesystem.FileIterator;
 import org.apache.doris.filesystem.FileSystem;
+import org.apache.doris.filesystem.Location;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
@@ -408,11 +410,18 @@ public class PluginDrivenScanNodeBatchModeTest {
             LogicalFileScan scan = new LogicalFileScan(relationId, table, List.of("hive", "db"),
                     Collections.emptyList(), Optional.empty(), Optional.empty(), Optional.empty(),
                     Optional.of(List.of(firstPartitionSlot, secondPartitionSlot)));
-            HiveFileListingCache files = Mockito.mock(HiveFileListingCache.class);
-            Mockito.when(files.listDataFiles(Mockito.eq("db"), Mockito.eq("hive_table"), Mockito.anyString(),
-                    Mockito.anyList(), Mockito.nullable(FileSystem.class), Mockito.any()))
-                    .thenAnswer(invocation -> List.of(
-                            new HiveFileStatus(invocation.getArgument(2) + "/data.parquet", 10L, 1L)));
+            FileSystem fs = Mockito.mock(FileSystem.class);
+            Mockito.when(storage.getFileSystem(Mockito.any())).thenReturn(fs);
+            Mockito.when(fs.forLocation(Mockito.any())).thenReturn(fs);
+            Mockito.when(fs.list(Mockito.any())).thenAnswer(invocation -> {
+                Location location = invocation.getArgument(0);
+                FileIterator iterator = Mockito.mock(FileIterator.class, Mockito.CALLS_REAL_METHODS);
+                Mockito.when(iterator.hasNext()).thenReturn(true, false);
+                Mockito.when(iterator.next()).thenReturn(new FileEntry(
+                        Location.of(location.uri() + "/data.parquet"), 10L, false, 1L, Collections.emptyList()));
+                return iterator;
+            });
+            HiveFileListingCache files = new HiveFileListingCache(properties);
             HiveScanPlanProvider provider = new HiveScanPlanProvider(client, properties, connectorContext, files);
             PluginDrivenScanNode node = streamingNode(provider);
             TupleDescriptor descriptor = Deencapsulation.getField(node, "desc");
@@ -470,9 +479,7 @@ public class PluginDrivenScanNodeBatchModeTest {
                 }
                 Mockito.verify(client, Mockito.never()).getExistingPartitionsWithStats(
                         Mockito.eq("db"), Mockito.eq("hive_table"), Mockito.anyList(), Mockito.any());
-                Mockito.verify(files, Mockito.never()).listDataFiles(
-                        Mockito.eq("db"), Mockito.eq("hive_table"), Mockito.anyString(),
-                        Mockito.anyList(), Mockito.nullable(FileSystem.class), Mockito.any());
+                Mockito.verify(fs, Mockito.never()).list(Mockito.any());
             } else {
                 ConnectorScanRequest request = ConnectorScanRequest.builder(handle, Collections.emptyList())
                         .requiredPartitions(requiredPartitions).build();
