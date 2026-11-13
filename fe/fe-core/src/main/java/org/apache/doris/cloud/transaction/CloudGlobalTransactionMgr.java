@@ -630,9 +630,6 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                     continue;
                 }
                 index.addChangelogRows(stats.getVersion(), stats.getUpdatedRowCount());
-                LOG.debug("Changelog rows txn {} table {} partition {} index {} version {} delta {} count {}",
-                        response.getTxnInfo().getTxnId(), table.getId(), partition.getId(), index.getId(),
-                        stats.getVersion(), stats.getUpdatedRowCount(), index.getRowCount());
             } finally {
                 olapTable.writeUnlock();
             }

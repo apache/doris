@@ -452,8 +452,6 @@ static void fill_changelog_stats(const std::unordered_map<int64_t, TabletIndexPB
         stats.add_tablet_ids(tablet_id);
     }
     for (auto& [_, stats] : changelog_stats) {
-        VLOG_DEBUG << "Add ChangelogStats to CommitTxnResponse. txn_id="
-                   << response->txn_info().txn_id() << " stats=" << stats.ShortDebugString();
         response->add_changelog_stats()->Swap(&stats);
     }
 }

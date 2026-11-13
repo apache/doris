@@ -34,7 +34,7 @@ suite("test_changelog_immediate_row_count", "nonConcurrent") {
 
     GetDebugPoint().enableDebugPointForAllFEs(pauseReports)
     try {
-        sql "DROP STREAM IF EXISTS changelog_immediate_stream"
+        sql "DROP STREAM IF EXISTS changelog_immediate_stream FORCE"
         sql "DROP TABLE IF EXISTS changelog_immediate_rows FORCE"
         sql """
             CREATE TABLE changelog_immediate_rows (k INT, v INT)
