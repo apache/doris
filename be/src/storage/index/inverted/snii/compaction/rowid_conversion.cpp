@@ -28,6 +28,9 @@
 #include <vector>
 
 #include "common/check.h"
+#include "common/exception.h"
+#include "runtime/thread_context.h"
+#include "storage/rowid_conversion.h"
 
 namespace doris::snii::compaction {
 namespace {
@@ -56,9 +59,10 @@ uint64_t destination_ordinal(const std::pair<uint32_t, uint32_t>& destination,
 
 } // namespace
 
-Status validate_rowid_conversion(const RowIdConversionMap& conversion,
-                                 const std::vector<uint32_t>& source_segment_doc_counts,
-                                 const std::vector<uint32_t>& destination_segment_doc_counts) {
+static Status validate_sources(const std::vector<RowIdConversionSource>& conversion,
+                               const std::vector<uint32_t>& source_segment_doc_counts,
+                               const std::vector<uint32_t>& destination_segment_doc_counts,
+                               std::vector<uint8_t>* deletions) {
     if (conversion.size() != source_segment_doc_counts.size()) {
         return Status::InvalidArgument(
                 fmt::format("SNII rowid conversion source segment count mismatch: conversion={}, "
@@ -88,6 +92,19 @@ Status validate_rowid_conversion(const RowIdConversionMap& conversion,
         destination_segment_prefixes.push_back(destination_doc_count);
     }
 
+    CompressedRowIdMap::DecodeWorkspace workspace;
+    std::vector<CompressedRowIdMap::Cursor> cursors(conversion.size());
+    size_t compressed_sources =
+            std::count_if(conversion.begin(), conversion.end(),
+                          [](const auto& source) { return !source.is_dense(); });
+    RETURN_IF_ERROR(thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker()->check_limit(
+            compressed_sources * CompressedRowIdMap::BLOCK_ROWS * sizeof(uint64_t)));
+    for (size_t source = 0; source < conversion.size(); ++source) {
+        if (!conversion[source].is_dense()) {
+            RETURN_IF_ERROR(cursors[source].reserve());
+        }
+    }
+    deletions->assign(conversion.size(), 0);
     for (size_t source = 0; source < conversion.size(); ++source) {
         const auto& source_conversion = conversion[source];
         if (source_conversion.size() != source_segment_doc_counts[source]) {
@@ -100,7 +117,9 @@ Status validate_rowid_conversion(const RowIdConversionMap& conversion,
         bool has_previous = false;
         uint64_t previous_ordinal = 0;
         for (size_t source_docid = 0; source_docid < source_conversion.size(); ++source_docid) {
-            const auto& destination = source_conversion[source_docid];
+            RowIdConversionSource::Pair destination;
+            RETURN_IF_ERROR(source_conversion.get(cast_set<uint32_t>(source_docid), cursors[source],
+                                                  workspace, &destination));
             const bool segment_deleted = destination.first == kDeleted;
             const bool row_deleted = destination.second == kDeleted;
             if (segment_deleted != row_deleted) {
@@ -110,6 +129,7 @@ Status validate_rowid_conversion(const RowIdConversionMap& conversion,
                         source, source_docid, destination.first, destination.second));
             }
             if (segment_deleted) {
+                (*deletions)[source] = 1;
                 continue;
             }
             if (destination.first >= destination_segment_doc_counts.size()) {
@@ -140,21 +160,23 @@ Status validate_rowid_conversion(const RowIdConversionMap& conversion,
     }
 
     std::priority_queue<HeapEntry, std::vector<HeapEntry>, HeapEntryGreater> heap;
-    auto push_next_live = [&](size_t source, size_t source_docid) {
+    auto push_next_live = [&](size_t source, size_t source_docid) -> Status {
         const auto& source_conversion = conversion[source];
-        while (source_docid < source_conversion.size() &&
-               source_conversion[source_docid].first == kDeleted) {
-            ++source_docid;
+        for (; source_docid < source_conversion.size(); ++source_docid) {
+            RowIdConversionSource::Pair destination;
+            RETURN_IF_ERROR(source_conversion.get(cast_set<uint32_t>(source_docid), cursors[source],
+                                                  workspace, &destination));
+            if (destination.first != kDeleted) {
+                heap.push({destination_ordinal(destination, destination_segment_prefixes), source,
+                           source_docid});
+                break;
+            }
         }
-        if (source_docid < source_conversion.size()) {
-            heap.push({destination_ordinal(source_conversion[source_docid],
-                                           destination_segment_prefixes),
-                       source, source_docid});
-        }
+        return Status::OK();
     };
 
     for (size_t source = 0; source < conversion.size(); ++source) {
-        push_next_live(source, 0);
+        RETURN_IF_ERROR(push_next_live(source, 0));
     }
 
     uint64_t expected_ordinal = 0;
@@ -175,7 +197,7 @@ Status validate_rowid_conversion(const RowIdConversionMap& conversion,
                     entry.source_docid));
         }
         ++expected_ordinal;
-        push_next_live(entry.source_ordinal, entry.source_docid + 1);
+        RETURN_IF_ERROR(push_next_live(entry.source_ordinal, entry.source_docid + 1));
     }
 
     if (expected_ordinal != destination_doc_count) {
@@ -188,48 +210,78 @@ Status validate_rowid_conversion(const RowIdConversionMap& conversion,
 }
 
 ValidatedRowIdConversion::ValidatedRowIdConversion(
-        const RowIdConversionMap* conversion, std::vector<uint32_t> source_segment_doc_counts,
+        std::vector<RowIdConversionSource> conversion, std::vector<uint8_t> deletions,
+        std::vector<uint32_t> source_segment_doc_counts,
         std::vector<uint32_t> destination_segment_doc_counts)
-        : conversion_(conversion),
+        : conversion_(std::move(conversion)),
           source_segment_doc_counts_(std::move(source_segment_doc_counts)),
-          destination_segment_doc_counts_(std::move(destination_segment_doc_counts)) {
-    DORIS_CHECK(conversion_ != nullptr);
-    source_has_deletions_.reserve(conversion_->size());
-    for (const auto& source : *conversion_) {
-        const bool has_deletions =
-                std::ranges::any_of(source, [](const std::pair<uint32_t, uint32_t>& mapping) {
-                    return mapping.first == kDeleted;
-                });
-        source_has_deletions_.push_back(static_cast<uint8_t>(has_deletions));
+          destination_segment_doc_counts_(std::move(destination_segment_doc_counts)),
+          source_has_deletions_(std::move(deletions)) {}
+
+Status ValidatedRowIdConversion::create_sources(std::vector<RowIdConversionSource> conversion,
+                                                std::span<const uint32_t> source_counts,
+                                                std::span<const uint32_t> destination_counts,
+                                                std::unique_ptr<ValidatedRowIdConversion>* out) {
+    if (out == nullptr) {
+        return Status::InvalidArgument("SNII validated rowid conversion has null out parameter");
     }
+    out->reset();
+    RETURN_IF_CATCH_EXCEPTION({
+        std::vector<uint32_t> sources(source_counts.begin(), source_counts.end());
+        std::vector<uint32_t> destinations(destination_counts.begin(), destination_counts.end());
+        std::vector<uint8_t> deletions;
+        RETURN_IF_ERROR(validate_sources(conversion, sources, destinations, &deletions));
+        out->reset(new ValidatedRowIdConversion(std::move(conversion), std::move(deletions),
+                                                std::move(sources), std::move(destinations)));
+    });
+    return Status::OK();
 }
 
 Status ValidatedRowIdConversion::create(const RowIdConversionMap* conversion,
                                         std::span<const uint32_t> source_segment_doc_counts,
                                         std::span<const uint32_t> destination_segment_doc_counts,
                                         std::unique_ptr<ValidatedRowIdConversion>* out) {
-    if (out == nullptr) {
-        return Status::InvalidArgument("SNII validated rowid conversion has null out parameter");
-    }
-    out->reset();
     if (conversion == nullptr) {
+        if (out != nullptr) out->reset();
         return Status::InvalidArgument("SNII validated rowid conversion has null conversion");
     }
-
-    std::vector<uint32_t> source_counts(source_segment_doc_counts.begin(),
-                                        source_segment_doc_counts.end());
-    std::vector<uint32_t> destination_counts(destination_segment_doc_counts.begin(),
-                                             destination_segment_doc_counts.end());
-    RETURN_IF_ERROR(validate_rowid_conversion(*conversion, source_counts, destination_counts));
-    out->reset(new ValidatedRowIdConversion(conversion, std::move(source_counts),
-                                            std::move(destination_counts)));
-    return Status::OK();
+    std::vector<RowIdConversionSource> sources;
+    sources.reserve(conversion->size());
+    for (const auto& source : *conversion) {
+        sources.emplace_back(source);
+    }
+    return create_sources(std::move(sources), source_segment_doc_counts,
+                          destination_segment_doc_counts, out);
 }
 
-std::span<const std::pair<uint32_t, uint32_t>> ValidatedRowIdConversion::source_mapping(
-        size_t source_ordinal) const {
-    DCHECK_LT(source_ordinal, conversion_->size());
-    return std::span<const std::pair<uint32_t, uint32_t>>((*conversion_)[source_ordinal]);
+Status ValidatedRowIdConversion::create(const doris::RowIdConversion* conversion,
+                                        std::span<const uint32_t> source_segment_doc_counts,
+                                        std::span<const uint32_t> destination_segment_doc_counts,
+                                        std::unique_ptr<ValidatedRowIdConversion>* out) {
+    if (conversion == nullptr) {
+        if (out != nullptr) out->reset();
+        return Status::InvalidArgument("SNII validated rowid conversion has null conversion");
+    }
+    std::vector<RowIdConversionSource> sources;
+    sources.reserve(conversion->source_count());
+    for (size_t source = 0; source < conversion->source_count(); ++source) {
+        sources.push_back(conversion->source(cast_set<uint32_t>(source)));
+    }
+    return create_sources(std::move(sources), source_segment_doc_counts,
+                          destination_segment_doc_counts, out);
+}
+
+Status validate_rowid_conversion(const RowIdConversionMap& conversion,
+                                 const std::vector<uint32_t>& source_segment_doc_counts,
+                                 const std::vector<uint32_t>& destination_segment_doc_counts) {
+    std::unique_ptr<ValidatedRowIdConversion> validated;
+    return ValidatedRowIdConversion::create(&conversion, source_segment_doc_counts,
+                                            destination_segment_doc_counts, &validated);
+}
+
+RowIdConversionSource ValidatedRowIdConversion::source_mapping(size_t source_ordinal) const {
+    DCHECK_LT(source_ordinal, conversion_.size());
+    return conversion_[source_ordinal];
 }
 
 bool ValidatedRowIdConversion::source_has_deletions(size_t source_ordinal) const {

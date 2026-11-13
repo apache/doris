@@ -56,6 +56,8 @@ pch_reuse(Storage)
 # - the three heaviest template-instantiation TUs (predicate creators) which
 #   would dominate any batch they join
 set(STORAGE_UNITY_SKIP
+    # Uses the Zstd static workspace API; keep its feature macro local.
+    ${CMAKE_CURRENT_SOURCE_DIR}/compressed_rowid_map.cpp
     # Keep storage batches stable: null_predicate's using directive makes
     # later CLucene sse_util references ambiguous.
     ${CMAKE_CURRENT_SOURCE_DIR}/index/index_disk_usage.cpp
