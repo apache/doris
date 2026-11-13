@@ -60,6 +60,15 @@ suite("mv_with_sql_cache") {
             }
         }
 
+        // Publishing a rollup changes the table metadata and invalidates the old cached plans.
+        def assertCacheInvalidatedAndRebuilt = { List<String> queries ->
+            queries.each { assertNoCache(it) }
+            queries.each { query ->
+                sql(query)
+                assertHasCache(query)
+            }
+        }
+
         def retryTestSqlCache = { int executeTimes, long intervalMillis, Closure<Integer> closure ->
             Throwable throwable = null
             for (int i = 1; i <= executeTimes; ++i) {
@@ -118,9 +127,7 @@ suite("mv_with_sql_cache") {
                             create_sync_mv(dbName, tb_name1, mv_name2, mv_sql2)
                             sleep(10 * 1000)
 
-                            assertHasCache "select * from ${tb_name1}"
-                            assertHasCache mv_sql1
-                            assertHasCache mv_sql2
+                            assertCacheInvalidatedAndRebuilt(["select * from ${tb_name1}", mv_sql1, mv_sql2])
 
                             assertNoCache mv_str
                             sql mv_str
@@ -181,9 +188,7 @@ suite("mv_with_sql_cache") {
                             create_sync_mv(dbName, tb_name1, mv_name2, mv_sql2)
                             sleep(10 * 1000)
 
-                            assertHasCache "select * from ${tb_name1}"
-                            assertHasCache mv_sql1
-                            assertHasCache mv_sql2
+                            assertCacheInvalidatedAndRebuilt(["select * from ${tb_name1}", mv_sql1, mv_sql2])
 
                             assertNoCache mv_str
                             sql mv_str
@@ -244,9 +249,7 @@ suite("mv_with_sql_cache") {
                             create_sync_mv(dbName, tb_name1, mv_name2, mv_sql2)
                             sleep(10 * 1000)
 
-                            assertHasCache "select * from ${tb_name1}"
-                            assertHasCache mv_sql1
-                            assertHasCache mv_sql2
+                            assertCacheInvalidatedAndRebuilt(["select * from ${tb_name1}", mv_sql1, mv_sql2])
 
                             assertNoCache mv_str
                             sql mv_str
