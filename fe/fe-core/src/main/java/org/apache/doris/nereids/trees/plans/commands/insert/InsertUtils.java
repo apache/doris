@@ -29,6 +29,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.DebugPointUtil;
+import org.apache.doris.connector.spi.handle.WriteOperation;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.connector.converter.ConnectorWriteValueConverter;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
@@ -579,7 +580,21 @@ public class InsertUtils {
             return;
         }
         PluginDrivenExternalTable targetTable = (PluginDrivenExternalTable) targetTableIf;
-        targetTable.resolveWriteColumns(branchName)
+        WriteOperation operation;
+        switch (((UnboundConnectorTableSink<?>) logicalQuery).getDMLCommandType()) {
+            case UPDATE:
+                operation = WriteOperation.UPDATE;
+                break;
+            case DELETE:
+                operation = WriteOperation.DELETE;
+                break;
+            case MERGE:
+                operation = WriteOperation.MERGE;
+                break;
+            default:
+                operation = WriteOperation.INSERT;
+        }
+        targetTable.resolveWriteColumns(branchName, operation)
                 .ifPresent(columns -> statementContext.setConnectorWriteSchema(
                         targetTableIf.getId(), columns));
     }

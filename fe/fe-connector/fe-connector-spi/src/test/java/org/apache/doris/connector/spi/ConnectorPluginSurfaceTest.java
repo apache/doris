@@ -88,8 +88,8 @@ public class ConnectorPluginSurfaceTest {
             Assertions.assertNotNull(in, "missing connector plugin API version resource");
             version.load(in);
         }
-        // Major 35 adds coarse-split targets and BE refinement after API 34 path partition keys.
-        Assertions.assertEquals("35.0", version.getProperty("api.version"));
+        // Major 36 adds explicit write targets after API 35 coarse-split targets and BE refinement.
+        Assertions.assertEquals("36.0", version.getProperty("api.version"));
     }
 
     /** Root entry points plus provider/handle types returned to connector plugins. */
@@ -120,6 +120,7 @@ public class ConnectorPluginSurfaceTest {
             ConnectorRowLevelDmlRequest.class,
             org.apache.doris.connector.spi.write.ConnectorWriteDistribution.class,
             ConnectorWritePlanProvider.class,
+            org.apache.doris.connector.spi.write.ConnectorWriteTarget.class,
             org.apache.doris.extension.spi.Plugin.class,
             org.apache.doris.extension.spi.PluginFactory.class,
             org.apache.doris.extension.spi.PluginContext.class,

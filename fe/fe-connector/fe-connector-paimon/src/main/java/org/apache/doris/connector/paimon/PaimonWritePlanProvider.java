@@ -31,6 +31,7 @@ import org.apache.doris.connector.spi.write.ConnectorRowLevelDmlRequest;
 import org.apache.doris.connector.spi.write.ConnectorSinkPlan;
 import org.apache.doris.connector.spi.write.ConnectorWriteDistribution;
 import org.apache.doris.connector.spi.write.ConnectorWritePlanProvider;
+import org.apache.doris.connector.spi.write.ConnectorWriteTarget;
 import org.apache.doris.filesystem.properties.StorageProperties;
 import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TDataSinkType;
@@ -38,14 +39,17 @@ import org.apache.doris.thrift.TPaimonTableSink;
 import org.apache.doris.thrift.TPaimonWriteBackendType;
 import org.apache.doris.thrift.TPaimonWriteMode;
 
+import com.google.common.base.Preconditions;
 import org.apache.paimon.CoreOptions;
 import org.apache.paimon.catalog.Catalog;
-import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.options.CatalogOptions;
 import org.apache.paimon.options.Options;
+import org.apache.paimon.schema.FileSystemSchemaManager;
+import org.apache.paimon.schema.SchemaManager;
 import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.BucketMode;
 import org.apache.paimon.table.FileStoreTable;
+import org.apache.paimon.table.FileStoreTableFactory;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.DataTypeRoot;
@@ -57,6 +61,7 @@ import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
@@ -88,8 +93,88 @@ public class PaimonWritePlanProvider implements ConnectorWritePlanProvider {
     }
 
     @Override
+    public boolean supportsWriteBranch() {
+        return true;
+    }
+
+    @Override
+    public Optional<ConnectorWriteTarget> resolveWriteTarget(ConnectorSession session,
+            ConnectorTableHandle tableHandle, WriteOperation operation, Optional<String> branchName) {
+        if (operation != WriteOperation.INSERT && operation != WriteOperation.OVERWRITE) {
+            return Optional.empty();
+        }
+        PaimonTableHandle source = (PaimonTableHandle) tableHandle;
+        if (source.isSystemTable()) {
+            throw new DorisConnectorException("Cannot write to a Paimon system table");
+        }
+        // Resolve a fresh writer handle: a source handle may carry an older read schema, snapshot
+        // options or another branch. None of those describe the destination of this INSERT.
+        PaimonTableHandle clean = new PaimonTableHandle(source.getDatabaseName(), source.getTableName(),
+                Collections.emptyList(), Collections.emptyList());
+        try {
+            return context.executeAuthenticated(() -> {
+                if (branchName.isPresent() && !"main".equals(branchName.get())
+                        && !catalogOps.branchExists(PaimonTableResolver.resolve(catalogOps, clean), branchName.get())) {
+                    throw new DorisConnectorException(
+                            "Paimon branch does not exist: " + source + "@" + branchName.get());
+                }
+                PaimonTableHandle destination = branchName.isPresent() ? clean.withBranch(branchName.get()) : clean;
+                FileStoreTable table = requireFileStoreTable(
+                        PaimonTableResolver.resolve(catalogOps, destination), destination);
+                // Schema-only ALTER does not produce a snapshot. The branch's latest schema file,
+                // rather than its head snapshot's schema, is the write contract.
+                SchemaManager manager = new FileSystemSchemaManager(
+                        table.fileIO(), table.location(), branchName.orElse("main"));
+                TableSchema latest = manager.latest().orElseThrow(() ->
+                        new DorisConnectorException("Paimon write target has no schema: " + destination));
+                Map<String, String> writerOptions = new LinkedHashMap<>(latest.options());
+                // Preserve catalog/runtime overrides, without replaying an older generation's
+                // field-dependent options (bucket-key, sequence.field, etc.) after an ALTER.
+                Map<String, String> persistedOptions =
+                        table.schemaManager().schema(table.schema().id()).options();
+                table.options().forEach((key, value) -> {
+                    if (!Objects.equals(persistedOptions.get(key), value)) {
+                        writerOptions.put(key, value);
+                    }
+                });
+                PaimonScanParams.inheritedReadStateKeys().forEach(writerOptions::remove);
+                writerOptions.remove(CoreOptions.SCAN_PRIMARY_BRANCH.key());
+                writerOptions.remove(CoreOptions.SCAN_FALLBACK_BRANCH.key());
+                // BRANCH is a dynamic option, absent from the persisted schema. A schema copy must
+                // carry it explicitly or the SDK's schema/snapshot managers fall back to main.
+                writerOptions.put(CoreOptions.BRANCH.key(), branchName.orElse("main"));
+                // Read decorators may select a primary/fallback branch. Build one writer table
+                // for the requested branch while retaining the catalog's FileIO and callbacks.
+                FileStoreTable pinned = FileStoreTableFactory.createWithoutFallbackBranch(
+                        table.fileIO(), table.location(), latest.copy(writerOptions), new Options(),
+                        table.catalogEnvironment());
+                PaimonTableHandle handle = new PaimonTableHandle(source.getDatabaseName(), source.getTableName(),
+                        latest.partitionKeys(), latest.primaryKeys());
+                if (branchName.isPresent()) {
+                    handle = handle.withBranch(branchName.get());
+                }
+                handle.setPaimonTable(pinned);
+                PaimonTypeMapping.Options options = new PaimonTypeMapping.Options(
+                        catalogProperties.isEnableMappingVarbinary(),
+                        catalogProperties.isEnableMappingTimestampTz());
+                return Optional.of(new PaimonWriteTarget(handle, pinned, latest, branchName,
+                        mapWriteColumns(latest.fields(), latest.primaryKeys(), options)));
+            });
+        } catch (DorisConnectorException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new DorisConnectorException("Failed to resolve Paimon write target: "
+                    + source.getDatabaseName() + "." + source.getTableName(), e);
+        }
+    }
+
+    @Override
     public Optional<List<ConnectorColumn>> getWriteColumns(ConnectorSession session,
             ConnectorTableHandle tableHandle, Optional<String> branchName) {
+        if (branchName.isPresent()) {
+            return resolveWriteTarget(session, tableHandle, WriteOperation.INSERT, branchName)
+                    .map(ConnectorWriteTarget::getColumns);
+        }
         FileStoreTable table = resolveTable((PaimonTableHandle) tableHandle);
         PaimonTypeMapping.Options options = new PaimonTypeMapping.Options(
                 catalogProperties.isEnableMappingVarbinary(),
@@ -145,7 +230,25 @@ public class PaimonWritePlanProvider implements ConnectorWritePlanProvider {
     public ConnectorSinkPlan planWrite(ConnectorSession session, ConnectorWriteHandle handle) {
         requireBeExecVersion(handle.getBeExecVersion());
         PaimonTableHandle tableHandle = (PaimonTableHandle) handle.getTableHandle();
-        FileStoreTable table = resolveTable(tableHandle);
+        FileStoreTable table;
+        if (handle.getWriteTarget().isPresent()) {
+            PaimonWriteTarget target = (PaimonWriteTarget) handle.getWriteTarget().get();
+            table = target.getTable();
+            try {
+                context.executeAuthenticated(() -> {
+                    target.validateCurrentSchema();
+                    return null;
+                });
+            } catch (DorisConnectorException e) {
+                throw e;
+            } catch (Exception e) {
+                throw new DorisConnectorException("Failed to validate Paimon write target", e);
+            }
+        } else {
+            Preconditions.checkState(!handle.getBranchName().isPresent(),
+                    "Paimon branch writes require an explicitly bound write target");
+            table = resolveTable(tableHandle);
+        }
         WriteOperation operation = handle.getWriteOperation();
         if (operation == WriteOperation.INSERT || operation == WriteOperation.OVERWRITE) {
             validateWriteColumnsForMergeEngine(
@@ -347,8 +450,16 @@ public class PaimonWritePlanProvider implements ConnectorWritePlanProvider {
     @Override
     public ConnectorWriteDistribution getWriteDistribution(ConnectorSession session,
             ConnectorTableHandle connectorHandle) {
-        FileStoreTable table = resolveTable((PaimonTableHandle) connectorHandle);
-        ConnectorWriteDistribution fixedBucket = fixedBucketDistribution(table, charPaddingEnabled(session));
+        return writeDistribution(resolveTable((PaimonTableHandle) connectorHandle), charPaddingEnabled(session));
+    }
+
+    @Override
+    public ConnectorWriteDistribution getWriteDistribution(ConnectorSession session, ConnectorWriteTarget target) {
+        return writeDistribution(((PaimonWriteTarget) target).getTable(), charPaddingEnabled(session));
+    }
+
+    private ConnectorWriteDistribution writeDistribution(FileStoreTable table, boolean charPadding) {
+        ConnectorWriteDistribution fixedBucket = fixedBucketDistribution(table, charPadding);
         if (fixedBucket != null) {
             return fixedBucket;
         }
@@ -471,8 +582,7 @@ public class PaimonWritePlanProvider implements ConnectorWritePlanProvider {
         Table table = handle.getPaimonTable();
         if (table == null) {
             try {
-                table = context.executeAuthenticated(() -> catalogOps.getTable(
-                        Identifier.create(handle.getDatabaseName(), handle.getTableName())));
+                table = context.executeAuthenticated(() -> PaimonTableResolver.resolve(catalogOps, handle));
             } catch (Catalog.TableNotExistException e) {
                 throw new DorisConnectorException("Paimon table does not exist: "
                         + handle.getDatabaseName() + "." + handle.getTableName(), e);
@@ -481,6 +591,10 @@ public class PaimonWritePlanProvider implements ConnectorWritePlanProvider {
                         + handle.getDatabaseName() + "." + handle.getTableName(), e);
             }
         }
+        return requireFileStoreTable(table, handle);
+    }
+
+    private static FileStoreTable requireFileStoreTable(Table table, PaimonTableHandle handle) {
         if (!(table instanceof FileStoreTable)) {
             throw new DorisConnectorException("Paimon table does not support file-store writes: "
                     + handle.getDatabaseName() + "." + handle.getTableName());
