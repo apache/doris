@@ -78,6 +78,7 @@
 #include "format/format_common.h"
 #include "format/orc/orc_memory_stream_test.h"
 #include "format/table/deletion_vector_reader.h"
+#include "format_v2/parquet/parquet_column_schema.h"
 #include "format_v2/parquet/parquet_reader.h"
 #include "format_v2/table_reader.h"
 #include "gen_cpp/Exprs_types.h"
@@ -6976,6 +6977,57 @@ std::string opaque_triangle_wkb() {
             "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xf0\x3f"
             "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00",
             77};
+}
+
+TEST(IcebergV2ReaderTest, SpatialBinarySchemaSyncPreservesTimestampSibling) {
+    format::ColumnDefinition root;
+    root.local_id = 0;
+    root.name = "payload";
+    auto binary = std::make_shared<DataTypeVarbinary>();
+    auto timestamp = std::make_shared<DataTypeTimeStampTz>(6);
+    root.type = make_nullable(std::make_shared<DataTypeStruct>(
+            DataTypes {make_nullable(binary), make_nullable(timestamp)}, Strings {"k", "ts"}));
+
+    format::ColumnDefinition key;
+    key.local_id = 0;
+    key.name = "k";
+    key.type = make_nullable(binary);
+    format::ColumnDefinition ts;
+    ts.local_id = 1;
+    ts.name = "ts";
+    ts.type = make_nullable(timestamp);
+    root.children = {key, ts};
+
+    format::parquet::ParquetColumnSchema schema;
+    schema.local_id = 0;
+    schema.name = "payload";
+    schema.kind = format::parquet::ParquetColumnSchemaKind::STRUCT;
+    schema.type = make_nullable(std::make_shared<DataTypeStruct>(
+            DataTypes {make_nullable(std::make_shared<DataTypeSpatial>(TYPE_GEOMETRY)),
+                       make_nullable(DataTypeFactory::instance().create_data_type(TYPE_DATETIMEV2,
+                                                                                  true, 0, 6))},
+            Strings {"k", "ts"}));
+    auto spatial = std::make_unique<format::parquet::ParquetColumnSchema>();
+    spatial->local_id = 0;
+    spatial->name = "k";
+    spatial->kind = format::parquet::ParquetColumnSchemaKind::PRIMITIVE;
+    spatial->type = make_nullable(std::make_shared<DataTypeSpatial>(TYPE_GEOMETRY));
+    auto old_timestamp = std::make_unique<format::parquet::ParquetColumnSchema>();
+    old_timestamp->local_id = 1;
+    old_timestamp->name = "ts";
+    old_timestamp->kind = format::parquet::ParquetColumnSchemaKind::PRIMITIVE;
+    old_timestamp->type = make_nullable(
+            DataTypeFactory::instance().create_data_type(TYPE_DATETIMEV2, true, 0, 6));
+    schema.children.push_back(std::move(spatial));
+    schema.children.push_back(std::move(old_timestamp));
+
+    ASSERT_TRUE(format::parquet::apply_spatial_binary_types(&root, &schema));
+    const auto& synced = assert_cast<const DataTypeStruct&>(*remove_nullable(schema.type));
+    EXPECT_EQ(synced.get_element(0)->get_primitive_type(), TYPE_VARBINARY);
+    EXPECT_EQ(synced.get_element(1)->get_primitive_type(), TYPE_TIMESTAMPTZ);
+    const auto& local = assert_cast<const DataTypeStruct&>(*remove_nullable(root.type));
+    EXPECT_EQ(local.get_element(0)->get_primitive_type(), TYPE_VARBINARY);
+    EXPECT_EQ(local.get_element(1)->get_primitive_type(), TYPE_TIMESTAMPTZ);
 }
 
 TEST(IcebergV2ReaderTest, BinaryColumnReadsOpaqueAnnotatedParquetWkb) {

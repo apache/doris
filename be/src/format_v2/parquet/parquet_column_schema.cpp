@@ -329,6 +329,18 @@ Status build_parquet_column_schema(const NativeFieldDescriptor& schema,
     return Status::OK();
 }
 
+void sync_schema_types_from_column(const format::ColumnDefinition& column,
+                                   ParquetColumnSchema* schema) {
+    DORIS_CHECK(schema != nullptr);
+    DORIS_CHECK(column.type != nullptr);
+    schema->type = column.type;
+    schema->type_descriptor.doris_type = schema->type;
+    DORIS_CHECK(column.children.size() == schema->children.size());
+    for (size_t i = 0; i < column.children.size(); ++i) {
+        sync_schema_types_from_column(column.children[i], schema->children[i].get());
+    }
+}
+
 bool apply_spatial_binary_types(format::ColumnDefinition* column, ParquetColumnSchema* schema) {
     DORIS_CHECK(column->local_id == schema->local_id);
     // A table-mapped BINARY leaf may have a spatial native annotation. Update the split-local
@@ -344,8 +356,14 @@ bool apply_spatial_binary_types(format::ColumnDefinition* column, ParquetColumnS
     for (size_t i = 0; i < column->children.size(); ++i) {
         changed |= apply_spatial_binary_types(&column->children[i], schema->children[i].get());
     }
-    // A STRUCT containing an overridden leaf needs the same field type in both schemas.
+    // Keep sibling semantics already applied to this split, such as a TIMESTAMPTZ marker on
+    // another child of the same STRUCT. Rebuilding from the native footer would restore the
+    // old DATETIMEV2 child and make the file block disagree with the reader output.
     if (changed) {
+        DORIS_CHECK(column->children.size() == schema->children.size());
+        for (size_t i = 0; i < column->children.size(); ++i) {
+            sync_schema_types_from_column(column->children[i], schema->children[i].get());
+        }
         rebuild_logical_complex_type(schema, true);
         column->type = make_nullable(schema->type);
     }
