@@ -104,10 +104,13 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
             // This step will be blocked when queue is empty
             RoutineLoadTaskInfo routineLoadTaskInfo = needScheduleTasksQueue.take();
             // try to delay scheduling tasks that are perceived as Eof to MaxBatchInterval
-            // to avoid to much small transaction
-            if (routineLoadTaskInfo.needDedalySchedule()) {
+            // to avoid to much small transaction. A task that is waiting for data (see scheduleOneTask)
+            // is looked at again after the same interval.
+            if (routineLoadTaskInfo.needDedalySchedule() || routineLoadTaskInfo.isWaitingForData()) {
                 RoutineLoadJob routineLoadJob = routineLoadManager.getJob(routineLoadTaskInfo.getJobId());
-                if (System.currentTimeMillis() - routineLoadTaskInfo.getLastScheduledTime()
+                // the task of a job that has been removed is left to scheduleOneTask, which abandons it
+                if (routineLoadJob != null
+                        && System.currentTimeMillis() - routineLoadTaskInfo.getLastScheduledTime()
                         < routineLoadJob.getMaxBatchIntervalS() * 1000) {
                     needScheduleTasksQueue.addLast(routineLoadTaskInfo);
                     return;
@@ -120,6 +123,9 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
     }
 
     private void scheduleOneTask(RoutineLoadTaskInfo routineLoadTaskInfo) throws Exception {
+        // A task made when a job is divided has never been scheduled (-1). A task that renews another
+        // one carries that task's time.
+        boolean neverScheduled = routineLoadTaskInfo.getLastScheduledTime() == -1;
         routineLoadTaskInfo.setLastScheduledTime(System.currentTimeMillis());
         if (LOG.isDebugEnabled()) {
             LOG.debug("schedule routine load task info {} for job {}",
@@ -155,15 +161,23 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
 
             // check if topic has more data to consume
             if (!routineLoadTaskInfo.hasMoreDataToConsume()) {
-                // Nothing to consume: look again after max_batch_interval, as a task that ended at EOF does.
-                // A task that has not committed yet (a new job, a resumed job, a new master) is neither at
-                // EOF nor delayed, so without this it comes back on the next pass and asks the data source
-                // for its offsets again, hundreds of times a second for as long as nothing arrives. The
-                // flag is computed again when the task commits.
-                routineLoadTaskInfo.setDelaySchedule(true);
+                // A task that has not run since it was made (a new job, a resumed job, a new master) and
+                // finds nothing is neither at EOF nor delayed. Without a mark it comes back on the next
+                // pass and asks the data source for its offsets again, hundreds of times a second for as
+                // long as nothing arrives. Mark it, so that process() looks at it again after
+                // max_batch_interval, as it does for a task that ended at EOF. The mark comes off as soon
+                // as a check finds data.
+                //
+                // A task that renews one that committed is not marked. Its commit has decided whether it
+                // waits (isEof, delaySchedule), and one whose commit was not at EOF is scheduled again as
+                // soon as data arrives.
+                if (neverScheduled) {
+                    routineLoadTaskInfo.setWaitingForData(true);
+                }
                 needScheduleTasksQueue.addLast(routineLoadTaskInfo);
                 return;
             }
+            routineLoadTaskInfo.setWaitingForData(false);
 
             // allocate BE slot for this task.
             // this should be done before txn begin, or the txn may be begun successfully but failed to be allocated.

@@ -212,53 +212,166 @@ public class RoutineLoadTaskSchedulerTest {
         }
     }
 
-    @Test
-    public void testTaskWithNothingToConsumeWaitsForMaxBatchInterval() throws Exception {
-        long jobId = 1L;
-        long maxBatchIntervalS = 60L;
+    private static final long JOB_ID = 1L;
+    private static final long MAX_BATCH_INTERVAL_S = 60L;
+
+    /** A scheduler whose queue holds this one task, of a job with max_batch_interval = 60 s. No BE is free. */
+    private RoutineLoadTaskScheduler schedulerOver(ScriptedKafkaTaskInfo task) throws Exception {
         KafkaRoutineLoadJob routineLoadJob = Mockito.mock(KafkaRoutineLoadJob.class);
-        Mockito.when(routineLoadJob.getMaxBatchIntervalS()).thenReturn(maxBatchIntervalS);
-        Mockito.when(routineLoadManager.getJob(jobId)).thenReturn(routineLoadJob);
+        Mockito.when(routineLoadJob.getMaxBatchIntervalS()).thenReturn(MAX_BATCH_INTERVAL_S);
+        Mockito.when(routineLoadManager.getJob(JOB_ID)).thenReturn(routineLoadJob);
         Mockito.when(routineLoadManager.checkTaskInJob(Mockito.any(RoutineLoadTaskInfo.class))).thenReturn(true);
         Mockito.when(routineLoadManager.getClusterIdleSlotNum()).thenReturn(1);
-        // the task of a job that was just created or resumed: never scheduled, not at EOF, not delayed
-        IdleKafkaTaskInfo task = new IdleKafkaTaskInfo(UUID.randomUUID(), jobId);
-        Assertions.assertFalse(task.needDedalySchedule());
+        Mockito.when(routineLoadManager.getAvailableBeForTask(Mockito.anyLong(), Mockito.anyLong())).thenReturn(-1L);
         RoutineLoadTaskScheduler routineLoadTaskScheduler = new RoutineLoadTaskScheduler(routineLoadManager);
-        LinkedBlockingDeque<RoutineLoadTaskInfo> needScheduleTasksQueue =
-                Deencapsulation.getField(routineLoadTaskScheduler, "needScheduleTasksQueue");
-        needScheduleTasksQueue.add(task);
-
-        for (int pass = 0; pass < 5; pass++) {
-            routineLoadTaskScheduler.runAfterCatalogReady();
-        }
-        // It asked the data source once and now waits. Without the delay it asks on every pass.
-        Assertions.assertEquals(1, task.lookups);
-        Assertions.assertTrue(task.needDedalySchedule());
-        Assertions.assertEquals(1, needScheduleTasksQueue.size());
-        Assertions.assertSame(task, needScheduleTasksQueue.peek());
-
-        // max_batch_interval later it asks again, once
-        task.setLastScheduledTime(System.currentTimeMillis() - (maxBatchIntervalS + 1) * 1000);
-        for (int pass = 0; pass < 5; pass++) {
-            routineLoadTaskScheduler.runAfterCatalogReady();
-        }
-        Assertions.assertEquals(2, task.lookups);
-        Assertions.assertSame(task, needScheduleTasksQueue.peek());
+        queueOf(routineLoadTaskScheduler).add(task);
+        return routineLoadTaskScheduler;
     }
 
-    /** A Kafka task whose topic never has anything new. It counts how often the scheduler asks. */
-    private static class IdleKafkaTaskInfo extends KafkaTaskInfo {
+    private LinkedBlockingDeque<RoutineLoadTaskInfo> queueOf(RoutineLoadTaskScheduler routineLoadTaskScheduler) {
+        return Deencapsulation.getField(routineLoadTaskScheduler, "needScheduleTasksQueue");
+    }
+
+    /** Scheduler passes over a queue that must hold a task: an empty queue would block the pass for good. */
+    private void runPasses(RoutineLoadTaskScheduler routineLoadTaskScheduler, int passes) {
+        for (int pass = 0; pass < passes; pass++) {
+            Assertions.assertFalse(queueOf(routineLoadTaskScheduler).isEmpty(), "the task was not put back");
+            routineLoadTaskScheduler.runAfterCatalogReady();
+        }
+    }
+
+    private void moveBeyondMaxBatchInterval(RoutineLoadTaskInfo task) {
+        task.setLastScheduledTime(System.currentTimeMillis() - (MAX_BATCH_INTERVAL_S + 1) * 1000);
+    }
+
+    @Test
+    public void testNewTaskWithNothingToConsumeWaitsForMaxBatchInterval() throws Exception {
+        // the task of a job that was just created or resumed: never scheduled, not at EOF, not delayed
+        ScriptedKafkaTaskInfo task = new ScriptedKafkaTaskInfo(JOB_ID);
+        RoutineLoadTaskScheduler routineLoadTaskScheduler = schedulerOver(task);
+
+        runPasses(routineLoadTaskScheduler, 5);
+        // It asked the data source once and now waits. Without the mark it asks on every pass.
+        Assertions.assertEquals(1, task.lookups);
+        Assertions.assertTrue(task.isWaitingForData());
+        // the two flags that a commit decides are not touched
+        Assertions.assertFalse(task.isDelaySchedule());
+        Assertions.assertFalse(task.getIsEof());
+        Assertions.assertSame(task, queueOf(routineLoadTaskScheduler).peek());
+        // a pass that holds the task does not move its time, or the wait would never end
+        long stamp = task.getLastScheduledTime();
+        runPasses(routineLoadTaskScheduler, 5);
+        Assertions.assertEquals(stamp, task.getLastScheduledTime());
+        Assertions.assertEquals(1, task.lookups);
+
+        // max_batch_interval later it asks again, once, and waits again
+        moveBeyondMaxBatchInterval(task);
+        runPasses(routineLoadTaskScheduler, 5);
+        Assertions.assertEquals(2, task.lookups);
+        Assertions.assertTrue(task.isWaitingForData());
+        // nothing was asked of a BE for a task with nothing to consume
+        Mockito.verify(routineLoadManager, Mockito.never()).getAvailableBeForTask(Mockito.anyLong(), Mockito.anyLong());
+    }
+
+    @Test
+    public void testWaitingTaskGoesOnWhenDataArrives() throws Exception {
+        ScriptedKafkaTaskInfo task = new ScriptedKafkaTaskInfo(JOB_ID);
+        RoutineLoadTaskScheduler routineLoadTaskScheduler = schedulerOver(task);
+        runPasses(routineLoadTaskScheduler, 1);
+        Assertions.assertTrue(task.isWaitingForData());
+
+        // Data arrives while the task waits: it is seen at the next look, not before.
+        task.hasData = true;
+        runPasses(routineLoadTaskScheduler, 5);
+        Assertions.assertEquals(1, task.lookups);
+
+        moveBeyondMaxBatchInterval(task);
+        runPasses(routineLoadTaskScheduler, 1);
+        Assertions.assertEquals(2, task.lookups);
+        Assertions.assertFalse(task.isWaitingForData());
+        Mockito.verify(routineLoadManager, Mockito.times(1)).getAvailableBeForTask(JOB_ID, -1L);
+
+        // No BE was free, so the task went back to the queue. It has data and no mark: every pass tries again.
+        runPasses(routineLoadTaskScheduler, 3);
+        Assertions.assertEquals(5, task.lookups);
+        Mockito.verify(routineLoadManager, Mockito.times(4)).getAvailableBeForTask(JOB_ID, -1L);
+    }
+
+    @Test
+    public void testNewTaskWithDataIsNotMarked() throws Exception {
+        ScriptedKafkaTaskInfo task = new ScriptedKafkaTaskInfo(JOB_ID);
+        task.hasData = true;
+        RoutineLoadTaskScheduler routineLoadTaskScheduler = schedulerOver(task);
+
+        runPasses(routineLoadTaskScheduler, 3);
+        Assertions.assertEquals(3, task.lookups);
+        Assertions.assertFalse(task.isWaitingForData());
+        Mockito.verify(routineLoadManager, Mockito.times(3)).getAvailableBeForTask(JOB_ID, -1L);
+    }
+
+    @Test
+    public void testTaskRenewedAfterCommitNotAtEofIsNotHeld() throws Exception {
+        // As a renewal makes a task after a commit that was not at EOF: it carries the old task's time, and
+        // neither flag is set. Such a task is scheduled again as soon as data arrives (regression suite
+        // test_routine_load_eof), so an empty look must not hold it.
+        ScriptedKafkaTaskInfo task = new ScriptedKafkaTaskInfo(JOB_ID, System.currentTimeMillis(), false);
+        RoutineLoadTaskScheduler routineLoadTaskScheduler = schedulerOver(task);
+
+        runPasses(routineLoadTaskScheduler, 5);
+        Assertions.assertEquals(5, task.lookups);
+        Assertions.assertFalse(task.isWaitingForData());
+        Assertions.assertFalse(task.needDedalySchedule());
+    }
+
+    @Test
+    public void testTaskRenewingWaitingTaskStartsWithoutMark() throws Exception {
+        ScriptedKafkaTaskInfo task = new ScriptedKafkaTaskInfo(JOB_ID);
+        RoutineLoadTaskScheduler routineLoadTaskScheduler = schedulerOver(task);
+        runPasses(routineLoadTaskScheduler, 1);
+        Assertions.assertTrue(task.isWaitingForData());
+
+        KafkaTaskInfo renewed = new KafkaTaskInfo(task, Maps.newHashMap(), false);
+        Assertions.assertFalse(renewed.isWaitingForData());
+        Assertions.assertEquals(task.getLastScheduledTime(), renewed.getLastScheduledTime());
+    }
+
+    @Test
+    public void testWaitingTaskOfRemovedJobIsAbandoned() throws Exception {
+        ScriptedKafkaTaskInfo task = new ScriptedKafkaTaskInfo(JOB_ID);
+        RoutineLoadTaskScheduler routineLoadTaskScheduler = schedulerOver(task);
+        runPasses(routineLoadTaskScheduler, 1);
+        Assertions.assertTrue(task.isWaitingForData());
+        Mockito.verify(routineLoadManager, Mockito.times(1)).checkTaskInJob(task);
+
+        // The job is removed while its task waits. The next pass hands the task to the check that abandons
+        // it, instead of failing on the missing job where the wait is measured.
+        Mockito.when(routineLoadManager.getJob(JOB_ID)).thenReturn(null);
+        Mockito.when(routineLoadManager.checkTaskInJob(Mockito.any(RoutineLoadTaskInfo.class))).thenReturn(false);
+        runPasses(routineLoadTaskScheduler, 1);
+        Mockito.verify(routineLoadManager, Mockito.times(2)).checkTaskInJob(task);
+        Assertions.assertTrue(queueOf(routineLoadTaskScheduler).isEmpty());
+        Assertions.assertEquals(1, task.lookups);
+    }
+
+    /** A Kafka task whose data source says what the test tells it to. It counts how often the scheduler asks. */
+    private static class ScriptedKafkaTaskInfo extends KafkaTaskInfo {
+        private boolean hasData = false;
         private int lookups = 0;
 
-        private IdleKafkaTaskInfo(UUID id, long jobId) {
-            super(id, jobId, 20000, Maps.newHashMap(), false, -1, false);
+        // as divideRoutineLoadJob makes a task: never scheduled, not at EOF
+        private ScriptedKafkaTaskInfo(long jobId) {
+            this(jobId, -1, false);
+        }
+
+        // as a renewal makes a task: it carries the time and the EOF verdict of the task it renews
+        private ScriptedKafkaTaskInfo(long jobId, long lastScheduledTime, boolean isEof) {
+            super(UUID.randomUUID(), jobId, 20000, Maps.newHashMap(), false, lastScheduledTime, isEof);
         }
 
         @Override
         protected boolean hasMoreDataToConsume() {
             lookups++;
-            return false;
+            return hasData;
         }
     }
 }

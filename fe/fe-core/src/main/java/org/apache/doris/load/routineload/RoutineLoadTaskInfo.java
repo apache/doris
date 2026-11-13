@@ -81,6 +81,13 @@ public abstract class RoutineLoadTaskInfo {
     @Setter
     protected boolean delaySchedule = false;
 
+    // Set by RoutineLoadTaskScheduler while a task that has not run since it was made finds nothing to
+    // consume. Unlike isEof and delaySchedule it is not decided by a commit, and the task that renews
+    // this one starts without it.
+    @Getter
+    @Setter
+    protected boolean waitingForData = false;
+
     // this status will be set when corresponding transaction's status is changed.
     // so that user or other logic can know the status of the corresponding txn.
     protected TransactionStatus txnStatus = TransactionStatus.UNKNOWN;
