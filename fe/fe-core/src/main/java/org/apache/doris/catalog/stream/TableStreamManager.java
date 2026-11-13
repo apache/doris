@@ -337,14 +337,13 @@ public class TableStreamManager extends MasterDaemon implements Writable, GsonPo
     public void recordCommittedStreamUpdate(TableStreamUpdateInfo info, long timestamp) {
         OlapTableStream stream = findOlapTableStream(info.getDbId(), info.getStreamId());
         OlapTableStreamUpdate committed = ((OlapTableStreamUpdate) info.getUpdate()).committedAt(timestamp);
-        if (stream == null || committed.getNext().isEmpty()
+        if (stream == null || committed.getPartitionUpdates().isEmpty()
                 || !stream.tryWriteLockIfExist(0, TimeUnit.MILLISECONDS)) {
             return;
         }
         try {
-            for (Map.Entry<Long, OlapTableStream.PartitionStreamState> entry : committed.getNext().entrySet()) {
-                stream.unprotectedPublishPartitionState(entry.getKey(), entry.getValue());
-            }
+            committed.getPartitionUpdates().forEach((id, update) ->
+                    stream.unprotectedPublishPartitionState(id, update.second));
         } finally {
             stream.writeUnlock();
         }

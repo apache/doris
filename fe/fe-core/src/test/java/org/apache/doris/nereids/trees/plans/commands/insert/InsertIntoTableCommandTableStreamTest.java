@@ -39,6 +39,7 @@ import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.connector.hms.HmsClient;
@@ -185,7 +186,8 @@ public class InsertIntoTableCommandTableStreamTest extends TestWithFeService {
 
         Assertions.assertTrue(info.getUpdate() instanceof OlapTableStreamUpdate);
         OlapTableStreamUpdate update = (OlapTableStreamUpdate) info.getUpdate();
-        Assertions.assertTrue(update.getPrev().isEmpty());
+        Assertions.assertTrue(update.getPartitionUpdates().values().stream()
+                .allMatch(partition -> partition.first == null));
 
         List<AbstractInsertExecutor.InsertExecutorListener> listeners = Deencapsulation.getField(insertExecutor,
                 "listeners");
@@ -205,7 +207,7 @@ public class InsertIntoTableCommandTableStreamTest extends TestWithFeService {
         Assertions.assertTrue(txnInfo.getUpdate() instanceof OlapTableStreamUpdate);
 
         AbstractTableStreamUpdate txnUpdate = txnInfo.getUpdate();
-        Assertions.assertEquals(update.getNext(), ((OlapTableStreamUpdate) txnUpdate).getNext());
+        Assertions.assertEquals(update.getPartitionUpdates(), ((OlapTableStreamUpdate) txnUpdate).getPartitionUpdates());
     }
 
     @Test
@@ -451,10 +453,10 @@ public class InsertIntoTableCommandTableStreamTest extends TestWithFeService {
                     .collect(Collectors.toMap(TableStreamUpdateInfo::getStreamId, info -> info));
             Assertions.assertEquals(Set.of(baseTable.getPartition("p1").getId()),
                     ((OlapTableStreamUpdate) updatesByStream.get(firstStream.getId()).getUpdate())
-                            .getNext().keySet());
+                            .getPartitionUpdates().keySet());
             Assertions.assertEquals(Set.of(baseTable.getPartition("p2").getId()),
                     ((OlapTableStreamUpdate) updatesByStream.get(secondStream.getId()).getUpdate())
-                            .getNext().keySet());
+                            .getPartitionUpdates().keySet());
         } finally {
             insertExecutor.onFail(new RuntimeException("test cleanup"));
             resetQueryContext();
@@ -659,19 +661,18 @@ public class InsertIntoTableCommandTableStreamTest extends TestWithFeService {
         List<TableStreamUpdateInfo> streamUpdateInfos = insertExecutor.getStreamUpdateInfos();
         Assertions.assertEquals(1, streamUpdateInfos.size());
         OlapTableStreamUpdate update = (OlapTableStreamUpdate) streamUpdateInfos.get(0).getUpdate();
-        Map<Long, PartitionStreamState> producedNext = update.getNext();
-        Map<Long, Long> producedPrev = update.getPrev();
+        Map<Long, Pair<Long, PartitionStreamState>> producedNext = update.getPartitionUpdates();
         Assertions.assertFalse(producedNext.isEmpty());
 
-        for (Map.Entry<Long, PartitionStreamState> entry : producedNext.entrySet()) {
+        for (Map.Entry<Long, Pair<Long, PartitionStreamState>> entry : producedNext.entrySet()) {
             long pid = entry.getKey();
             // next always equals partition commit tso, regardless of history.
-            Assertions.assertEquals(baseTable.getPartition(pid).getTso(), entry.getValue().getOffset(),
+            Assertions.assertEquals(baseTable.getPartition(pid).getTso(), entry.getValue().second.getOffset(),
                     "next must equal partition.tso (commit tso)");
         }
         // history partition's prev is the historical TSO snapshot encoded as negative
         // (see StreamConsumptionInfoExtractor).
-        Assertions.assertEquals(Long.valueOf(-historyTso), producedPrev.get(historyPid),
+        Assertions.assertEquals(Long.valueOf(-historyTso), producedNext.get(historyPid).first,
                 "prev of history partition must equal negated historicalPartitionTSO");
     }
 

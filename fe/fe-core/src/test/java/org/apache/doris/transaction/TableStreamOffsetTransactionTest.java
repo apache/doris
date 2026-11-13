@@ -108,7 +108,7 @@ public class TableStreamOffsetTransactionTest extends TestWithFeService {
         historicalPartitionTSO.forEach((pid, tso) -> negatedPrev.put(pid, -tso));
         OlapTableStreamUpdate update = new OlapTableStreamUpdate(negatedPrev,
                 new HashMap<>(historicalPartitionTSO));
-        Assertions.assertTrue(update.getNext().keySet().containsAll(partitionIds));
+        Assertions.assertTrue(update.getPartitionUpdates().keySet().containsAll(partitionIds));
 
         GlobalTransactionMgr transactionMgr = (GlobalTransactionMgr) Env.getCurrentGlobalTransactionMgr();
         TransactionState.TxnCoordinator coordinator = new TransactionState.TxnCoordinator(
@@ -207,7 +207,7 @@ public class TableStreamOffsetTransactionTest extends TestWithFeService {
             TransactionState journaled = TransactionState.read(new DataInputStream(
                     new ByteArrayInputStream(bytes.toByteArray())));
             PartitionStreamState pending = ((OlapTableStreamUpdate) journaled.getStreamUpdateInfos()
-                    .get(0).getUpdate()).getNext().get(pid);
+                    .get(0).getUpdate()).getPartitionUpdates().get(pid).second;
             Assertions.assertEquals(200L, pending.getOffset());
             Assertions.assertEquals(50L, pending.getBaseRowCount());
             Assertions.assertEquals(100L, pending.getChangelogRowCount());

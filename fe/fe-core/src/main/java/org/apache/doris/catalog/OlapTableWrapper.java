@@ -22,10 +22,11 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
 
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Maps;
 
 import java.util.Collection;
 import java.util.Collections;
-import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -42,13 +43,23 @@ import java.util.concurrent.TimeUnit;
 public class OlapTableWrapper extends OlapTable {
 
     protected final OlapTable originTable;
-    private final Map<Long, Pair<Long, Long>> partitionOffsetMap; // partitionId -> (startOffset, endOffset)
-    private final Map<Long, Long> partitionVisibleVersionMap;
-    // Per-partition row counts the scan is estimated with, when the caller knows better than the
-    // table it wraps can answer: a stream read returns the rows of a range, or the image at an
-    // offset, which neither the changelog index nor the base table reports. Empty means that the
-    // table it wraps answers, which is the case for every wrapper outside a stream read.
-    private final Map<Long, Long> partitionRowCounts;
+    // Fields are optional independently: SN has no fixed version, and ordinary wrappers have
+    // no explicit estimate. Keep the union of their partition IDs in one immutable snapshot.
+    private final Map<Long, PartitionScanState> partitionScanStates;
+    private final int estimatedPartitionCount;
+    private final boolean fixedVisibleVersions;
+
+    private static class PartitionScanState {
+        private final Pair<Long, Long> offsets;
+        private final Long visibleVersion;
+        private final Long rowCount;
+
+        private PartitionScanState(Pair<Long, Long> offsets, Long visibleVersion, Long rowCount) {
+            this.offsets = offsets;
+            this.visibleVersion = visibleVersion;
+            this.rowCount = rowCount;
+        }
+    }
 
     protected OlapTableWrapper(OlapTable originTable, String wrapperName, List<Column> baseSchema, KeysType keysType,
                                Map<Long, Pair<Long, Long>> partitionOffsetMap) {
@@ -72,9 +83,17 @@ public class OlapTableWrapper extends OlapTable {
         this.originTable = originTable;
         this.setBaseIndexId(originTable.getBaseIndexId());
         this.setQualifiedDbName(originTable.getQualifiedDbName());
-        this.partitionOffsetMap = partitionOffsetMap;
-        this.partitionVisibleVersionMap = ImmutableMap.copyOf(partitionVisibleVersionMap);
-        this.partitionRowCounts = ImmutableMap.copyOf(partitionRowCounts);
+        Set<Long> partitionIds = new HashSet<>(partitionOffsetMap.keySet());
+        partitionIds.addAll(partitionVisibleVersionMap.keySet());
+        partitionIds.addAll(partitionRowCounts.keySet());
+        ImmutableMap.Builder<Long, PartitionScanState> states = ImmutableMap.builder();
+        for (Long id : partitionIds) {
+            states.put(id, new PartitionScanState(partitionOffsetMap.get(id),
+                    partitionVisibleVersionMap.get(id), partitionRowCounts.get(id)));
+        }
+        this.partitionScanStates = states.build();
+        this.estimatedPartitionCount = partitionRowCounts.size();
+        this.fixedVisibleVersions = !partitionVisibleVersionMap.isEmpty();
     }
 
     public OlapTableWrapper(OlapTable originTable, Map<Long, Pair<Long, Long>> partitionOffsetMap) {
@@ -88,18 +107,12 @@ public class OlapTableWrapper extends OlapTable {
 
     public OlapTableWrapper(OlapTable originTable, Map<Long, Pair<Long, Long>> partitionOffsetMap,
                             Map<Long, Long> partitionVisibleVersionMap, Map<Long, Long> partitionRowCounts) {
-        super(originTable.getId(), originTable.getName(), originTable.getBaseSchema(),
-                originTable.getKeysType(), originTable.getPartitionInfo(), originTable.getDefaultDistributionInfo());
-        this.originTable = originTable;
-        this.setBaseIndexId(originTable.getBaseIndexId());
-        this.setQualifiedDbName(originTable.getQualifiedDbName());
-        this.partitionOffsetMap = partitionOffsetMap;
-        this.partitionVisibleVersionMap = ImmutableMap.copyOf(partitionVisibleVersionMap);
-        this.partitionRowCounts = ImmutableMap.copyOf(partitionRowCounts);
+        this(originTable, originTable.getName(), originTable.getBaseSchema(), originTable.getKeysType(),
+                partitionOffsetMap, partitionVisibleVersionMap, partitionRowCounts);
     }
 
     protected OlapTableWrapper(OlapTable originTable) {
-        this(originTable, new HashMap<>());
+        this(originTable, Collections.emptyMap());
     }
 
     public OlapTable getOriginTable() {
@@ -240,7 +253,7 @@ public class OlapTableWrapper extends OlapTable {
         }
         long total = 0;
         long unknown = 0;
-        for (Map.Entry<Long, Long> entry : partitionRowCounts.entrySet()) {
+        for (Map.Entry<Long, Long> entry : getPartitionRowCounts().entrySet()) {
             long rows = entry.getValue();
             if (rows < 0) {
                 rows = originTable.getRowCountForPartitionIndex(entry.getKey(), indexId, strict);
@@ -253,7 +266,7 @@ public class OlapTableWrapper extends OlapTable {
         }
         if (unknown > 0) {
             long tableRows = originTable.getRowCountForIndex(indexId, strict);
-            if (tableRows < 0 && unknown == partitionRowCounts.size()) {
+            if (tableRows < 0 && unknown == estimatedPartitionCount) {
                 return TableIf.UNKNOWN_ROW_COUNT;
             }
             total += Math.max(unknown, tableRows * unknown / originTable.getPartitionNum());
@@ -263,7 +276,8 @@ public class OlapTableWrapper extends OlapTable {
 
     @Override
     public long getRowCountForPartitionIndex(long partitionId, long indexId, boolean strict) {
-        Long rowCount = indexId == getBaseIndexId() ? partitionRowCounts.get(partitionId) : null;
+        PartitionScanState state = partitionScanStates.get(partitionId);
+        Long rowCount = indexId == getBaseIndexId() && state != null ? state.rowCount : null;
         if (rowCount != null) {
             return rowCount;
         }
@@ -275,11 +289,11 @@ public class OlapTableWrapper extends OlapTable {
      * answers instead.
      */
     public long getRowCountEstimate() {
-        return partitionRowCounts.isEmpty() ? TableIf.UNKNOWN_ROW_COUNT : getRowCountForIndex(getBaseIndexId(), true);
+        return estimatedPartitionCount == 0 ? TableIf.UNKNOWN_ROW_COUNT : getRowCountForIndex(getBaseIndexId(), true);
     }
 
     public boolean hasRowCountEstimates(long indexId) {
-        return indexId == getBaseIndexId() && !partitionRowCounts.isEmpty();
+        return indexId == getBaseIndexId() && estimatedPartitionCount > 0;
     }
 
     @Override
@@ -288,15 +302,27 @@ public class OlapTableWrapper extends OlapTable {
     }
 
     public Pair<Long, Long> getPartitionOffset(long partitionId) {
-        return partitionOffsetMap.get(partitionId);
+        PartitionScanState state = partitionScanStates.get(partitionId);
+        return state == null ? null : state.offsets;
     }
 
     public boolean hasFixedVisibleVersions() {
-        return !partitionVisibleVersionMap.isEmpty();
+        return fixedVisibleVersions;
     }
 
     public Map<Long, Long> getPartitionVisibleVersionMap() {
-        return partitionVisibleVersionMap;
+        return Maps.transformValues(Maps.filterValues(partitionScanStates, state -> state.visibleVersion != null),
+                state -> state.visibleVersion);
+    }
+
+    private Map<Long, Pair<Long, Long>> getPartitionOffsetMap() {
+        return Maps.transformValues(Maps.filterValues(partitionScanStates, state -> state.offsets != null),
+                state -> state.offsets);
+    }
+
+    private Map<Long, Long> getPartitionRowCounts() {
+        return Maps.transformValues(Maps.filterValues(partitionScanStates, state -> state.rowCount != null),
+                state -> state.rowCount);
     }
 
     @Override
@@ -306,13 +332,13 @@ public class OlapTableWrapper extends OlapTable {
         }
         OlapTableWrapper other = (OlapTableWrapper) obj;
         return originTable.equals(other.originTable)
-                && partitionOffsetMap.equals(other.partitionOffsetMap)
-                && partitionVisibleVersionMap.equals(other.partitionVisibleVersionMap);
+                && getPartitionOffsetMap().equals(other.getPartitionOffsetMap())
+                && getPartitionVisibleVersionMap().equals(other.getPartitionVisibleVersionMap());
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(super.hashCode(), originTable.getId(), partitionOffsetMap,
-                partitionVisibleVersionMap);
+        return Objects.hash(super.hashCode(), originTable.getId(), getPartitionOffsetMap(),
+                getPartitionVisibleVersionMap());
     }
 }

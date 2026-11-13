@@ -479,8 +479,8 @@ public class OlapTableStream extends BaseTableStream {
     }
 
     public void unprotectedUpdateStreamUpdate(AbstractTableStreamUpdate update, Long ts, boolean isReplay) {
-        ((OlapTableStreamUpdate) update).getNext().forEach((id, state) ->
-                partitionStates.put(id, state.committedAt(ts, isReplay)));
+        ((OlapTableStreamUpdate) update).getPartitionUpdates().forEach((id, state) ->
+                partitionStates.put(id, state.second.committedAt(ts, isReplay)));
     }
 
     Set<Long> unprotectedCollectStalePartitionOffsetIds(Set<Long> validPartitionIds) {

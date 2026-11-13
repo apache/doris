@@ -20,6 +20,7 @@ package org.apache.doris.catalog;
 import org.apache.doris.binlog.BinlogTestUtils;
 import org.apache.doris.cloud.catalog.CloudPartition;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.Pair;
 import org.apache.doris.thrift.TStorageType;
 
 import com.google.common.collect.ImmutableList;
@@ -32,6 +33,7 @@ import org.mockito.Mockito;
 
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 
@@ -283,4 +285,39 @@ public class OlapTableWrapperTest {
         // A wrapper without an estimate keeps the delegation #69850 introduced.
         Assertions.assertEquals(TableIf.UNKNOWN_ROW_COUNT, new OlapTableWrapper(table).getRowCountEstimate());
     }
+
+    @Test
+    public void testIndependentPartitionFieldsAndEstimateFreeIdentity() {
+        OlapTable table = newTestTable(BinlogTestUtils.newTestChangelogConfig(false, false));
+        for (long id = 1; id <= 3; id++) {
+            MaterializedIndex index = new MaterializedIndex(table.getBaseIndexId(), null);
+            index.setRowCount(42L);
+            index.setRowCountReported(true);
+            table.addPartition(new Partition(id, "p" + id, index, new RandomDistributionInfo(1)));
+        }
+        Map<Long, Pair<Long, Long>> offsets = Map.of(1L, Pair.of(100L, 200L));
+        Map<Long, Long> versions = Map.of(2L, 3L);
+        OlapTableWrapper wrapper = new OlapTableWrapper(table, offsets, versions, Map.of(3L, 7L));
+        Assertions.assertEquals(offsets.get(1L), wrapper.getPartitionOffset(1L));
+        Assertions.assertNull(wrapper.getPartitionOffset(2L));
+        Assertions.assertNull(wrapper.getPartitionOffset(3L));
+        Assertions.assertTrue(wrapper.hasFixedVisibleVersions());
+        Assertions.assertEquals(versions, wrapper.getPartitionVisibleVersionMap());
+        // Offset-only and version-only partitions are not added to the estimated partition total.
+        Assertions.assertEquals(7L, wrapper.getRowCountForIndex(table.getBaseIndexId(), true));
+        Assertions.assertEquals(42L, wrapper.getRowCountForPartitionIndex(1L, table.getBaseIndexId(), true));
+        Assertions.assertEquals(7L, wrapper.getRowCountForPartitionIndex(3L, table.getBaseIndexId(), true));
+        OlapTableWrapper otherEstimates = new OlapTableWrapper(table, offsets, versions, Map.of(2L, 9L, 3L, 10L));
+        Assertions.assertEquals(wrapper, otherEstimates);
+        Assertions.assertEquals(wrapper.hashCode(), otherEstimates.hashCode());
+        OlapTableWrapper estimateOnly = new OlapTableWrapper(table, Map.of(), Map.of(), Map.of(3L, -1L));
+        Assertions.assertEquals(new OlapTableWrapper(table), estimateOnly);
+        Assertions.assertEquals(new OlapTableWrapper(table).hashCode(), estimateOnly.hashCode());
+        Assertions.assertFalse(estimateOnly.hasFixedVisibleVersions());
+        Assertions.assertTrue(estimateOnly.hasRowCountEstimates(table.getBaseIndexId()));
+        Assertions.assertNotEquals(wrapper, new OlapTableWrapper(table, offsets, Map.of(2L, 4L), Map.of(3L, 7L)));
+        Assertions.assertNotEquals(wrapper, new OlapTableWrapper(table,
+                Map.of(1L, Pair.of(100L, 201L)), versions, Map.of(3L, 7L)));
+    }
+
 }

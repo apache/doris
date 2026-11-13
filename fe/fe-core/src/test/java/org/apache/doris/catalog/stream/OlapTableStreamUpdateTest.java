@@ -52,7 +52,7 @@ public class OlapTableStreamUpdateTest {
 
         // history partition prev offset is encoded as negative (see StreamConsumptionInfoExtractor)
         Map<Long, Long> prev = Collections.singletonMap(1L, -100L);
-        Map<Long, Long> next = Collections.emptyMap();
+        Map<Long, Long> next = Map.of(1L, 200L);
         OlapTableStreamUpdate update = new OlapTableStreamUpdate(prev, next);
 
         update.checkPartitionOffset("test_db", "s1", partitionStates);
@@ -65,7 +65,7 @@ public class OlapTableStreamUpdateTest {
 
         // history partition prev offset is encoded as negative; -(-100)=100 != 99 -> conflict
         Map<Long, Long> prev = Collections.singletonMap(1L, -100L);
-        Map<Long, Long> next = new HashMap<>();
+        Map<Long, Long> next = Map.of(1L, 200L);
         OlapTableStreamUpdate update = new OlapTableStreamUpdate(prev, next);
 
         TransactionCommitFailedException exception = Assertions.assertThrows(TransactionCommitFailedException.class,
@@ -147,9 +147,9 @@ public class OlapTableStreamUpdateTest {
             OlapTableStreamUpdate update = new OlapTableStreamUpdate(Map.of(10L, 100L), Map.of(10L, 200L));
             fixture.stream.unprotectedPrepareStreamUpdate(update);
             Assertions.assertSame(previous, fixture.stream.getPartitionState(10L));
-            Assertions.assertEquals(200L, update.getNext().get(10L).getOffset());
-            Assertions.assertEquals(50L, update.getNext().get(10L).getBaseRowCount());
-            Assertions.assertEquals(100L, update.getNext().get(10L).getChangelogRowCount());
+            Assertions.assertEquals(200L, update.getPartitionUpdates().get(10L).second.getOffset());
+            Assertions.assertEquals(50L, update.getPartitionUpdates().get(10L).second.getBaseRowCount());
+            Assertions.assertEquals(100L, update.getPartitionUpdates().get(10L).second.getChangelogRowCount());
             // A later BE report cannot change the tuple already captured by this update.
             fixture.base.setRowCount(70L);
             fixture.changelog.setRowCount(130L);
@@ -179,7 +179,7 @@ public class OlapTableStreamUpdateTest {
             TableStreamUpdateInfo restored = TableStreamUpdateInfo.read(new DataInputStream(
                     new ByteArrayInputStream(bytes.toByteArray())));
             OlapTableStreamUpdate restoredUpdate = (OlapTableStreamUpdate) restored.getUpdate();
-            Assertions.assertEquals(update.getNext(), restoredUpdate.getNext());
+            Assertions.assertEquals(update.getPartitionUpdates(), restoredUpdate.getPartitionUpdates());
             fixture.base.setRowCount(70L);
             fixture.changelog.setRowCount(130L);
             fixture.stream.unprotectedUpdateStreamUpdate(restoredUpdate, 2L, true);
@@ -192,6 +192,31 @@ public class OlapTableStreamUpdateTest {
             Assertions.assertEquals(replayed, image.getPartitionState(10L));
             Assertions.assertFalse(image.getPartitionState(10L).matches(fixture.source, 10L, 200L));
         }
+    }
+
+    @Test
+    public void testMixedPreviousOffsetsSurviveMergeAndPersistence() throws Exception {
+        OlapTableStreamUpdate update = new OlapTableStreamUpdate(Map.of(1L, -100L),
+                Map.of(1L, 200L, 2L, 200L));
+        update.merge(new OlapTableStreamUpdate(Map.of(3L, 300L), Map.of(3L, 400L)));
+        // Match the old merge contract: an incoming partition without prev does not erase
+        // an already recorded previous offset, while its next state replaces the older next.
+        update.merge(new OlapTableStreamUpdate(Map.of(), Map.of(1L, 250L)));
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        new TableStreamUpdateInfo(1L, 2L, update).write(new DataOutputStream(bytes));
+        OlapTableStreamUpdate restored = (OlapTableStreamUpdate) TableStreamUpdateInfo.read(new DataInputStream(
+                new ByteArrayInputStream(bytes.toByteArray()))).getUpdate();
+        Assertions.assertEquals(update.getPartitionUpdates(), restored.getPartitionUpdates());
+        Assertions.assertEquals(-100L, restored.getPartitionUpdates().get(1L).first);
+        Assertions.assertEquals(250L, restored.getPartitionUpdates().get(1L).second.getOffset());
+        Assertions.assertNull(restored.getPartitionUpdates().get(2L).first);
+        Assertions.assertEquals(300L, restored.getPartitionUpdates().get(3L).first);
+        Map<Long, PartitionStreamState> current = Map.of(1L, new PartitionStreamState(null, -1, 100L),
+                3L, new PartitionStreamState(300L, 1, null));
+        restored.checkPartitionOffset("db", "s", current);
+        Assertions.assertThrows(TransactionCommitFailedException.class,
+                () -> restored.checkPartitionOffset("db", "s", Map.of(
+                        1L, current.get(1L), 2L, new PartitionStreamState(150L, 1, null), 3L, current.get(3L))));
     }
 
     private static class CountsFixture implements AutoCloseable {

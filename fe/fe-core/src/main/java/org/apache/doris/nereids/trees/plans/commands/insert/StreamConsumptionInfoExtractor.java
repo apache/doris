@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.commands.insert;
 
 import org.apache.doris.catalog.stream.AbstractTableStreamUpdate;
 import org.apache.doris.catalog.stream.CloudOlapTableStreamUpdate;
+import org.apache.doris.catalog.stream.OlapTableStream.PartitionStreamState;
 import org.apache.doris.catalog.stream.OlapTableStreamUpdate;
 import org.apache.doris.catalog.stream.OlapTableStreamWrapper;
 import org.apache.doris.catalog.stream.TableStreamUpdateInfo;
@@ -81,17 +82,17 @@ public class StreamConsumptionInfoExtractor {
         if (update instanceof CloudOlapTableStreamUpdate) {
             return !((CloudOlapTableStreamUpdate) update).getPartitionUpdates().isEmpty();
         }
-        return !((OlapTableStreamUpdate) update).getNext().isEmpty();
+        return !((OlapTableStreamUpdate) update).getPartitionUpdates().isEmpty();
     }
 
     private static CloudOlapTableStreamUpdate toCloudOlapTableStreamUpdate(
             OlapTableStreamWrapper wrapper, List<Long> selectedPartitionIds) {
         Map<Long, Cloud.TableStreamPartitionUpdatePB> updates = Maps.newLinkedHashMap();
         for (Long partitionId : selectedPartitionIds) {
-            if (!wrapper.getOutputUpdateMap().containsKey(partitionId)) {
+            if (wrapper.getOutputUpdate(partitionId) == null) {
                 continue;
             }
-            Cloud.TableStreamPartitionReadStatePB readState = wrapper.getCloudReadStates().get(partitionId);
+            Cloud.TableStreamPartitionReadStatePB readState = wrapper.getCloudReadState(partitionId);
             Cloud.TableStreamPartitionUpdatePB.Builder update = Cloud.TableStreamPartitionUpdatePB.newBuilder()
                     .setPartitionId(partitionId)
                     .setExpectedState(readState.getOffsetState())
@@ -105,24 +106,17 @@ public class StreamConsumptionInfoExtractor {
     }
 
     private static OlapTableStreamUpdate toOlapTableStreamUpdate(OlapTableStreamWrapper wrapper) {
-        Map<Long, Long> prev = Maps.newHashMapWithExpectedSize(wrapper.getOutputUpdateMap().size());
-        Map<Long, Long> next = Maps.newHashMapWithExpectedSize(wrapper.getOutputUpdateMap().size());
+        Map<Long, Pair<Long, PartitionStreamState>> updates = Maps.newHashMap();
         for (Map.Entry<Long, Pair<Long, Long>> entry : wrapper.getOutputUpdateMap().entrySet()) {
             Pair<Long, Long> update = entry.getValue();
-            if (update.first != null) {
-                if (wrapper.isHistoryPartition(entry.getKey())) {
-                    // use negative value to mark history offset
-                    prev.put(entry.getKey(), -update.first);
-                } else {
-                    prev.put(entry.getKey(), update.first);
-                }
+            Long previousOffset = update.first;
+            if (previousOffset != null && wrapper.isHistoryPartition(entry.getKey())) {
+                // use negative value to mark history offset
+                previousOffset = -previousOffset;
             }
-            if (update.second != null) {
-                next.put(entry.getKey(), update.second);
-            } else {
-                next.put(entry.getKey(), wrapper.getPartition(entry.getKey()).getTso());
-            }
+            Long nextOffset = update.second != null ? update.second : wrapper.getPartition(entry.getKey()).getTso();
+            updates.put(entry.getKey(), Pair.of(previousOffset, new PartitionStreamState(nextOffset, -1, null)));
         }
-        return new OlapTableStreamUpdate(prev, next);
+        return new OlapTableStreamUpdate(updates);
     }
 }
