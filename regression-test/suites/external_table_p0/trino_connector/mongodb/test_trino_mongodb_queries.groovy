@@ -20,6 +20,8 @@ suite("test_trino_mongodb_queries", "p0,external") {
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         return
     }
+    dispatchTrinoConnectors()
+
     String host = context.config.otherConfigs.get("externalEnvIp")
     String port = context.config.otherConfigs.get("mongodb_port")
     String user = context.config.otherConfigs.get("mongodb_user")
