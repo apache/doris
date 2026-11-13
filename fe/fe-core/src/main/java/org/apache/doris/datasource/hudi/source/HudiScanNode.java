@@ -135,6 +135,8 @@ public class HudiScanNode extends HiveScanNode {
     private boolean partitionInit = false;
     private HoodieTimeline timeline;
     private String queryInstant;
+    // Without schema evolution, all native ranges in this scan share the same table schema.
+    private InternalSchema tableInternalSchema;
 
     private final AtomicReference<UserException> batchException = new AtomicReference<>(null);
     private List<HivePartition> prunedPartitions;
@@ -346,6 +348,18 @@ public class HudiScanNode extends HiveScanNode {
         }
     }
 
+    private synchronized InternalSchema getTableInternalSchema() {
+        if (tableInternalSchema == null) {
+            try {
+                TableSchemaResolver schemaUtil = new TableSchemaResolver(hudiClient);
+                tableInternalSchema = AvroInternalSchemaConverter.convert(schemaUtil.getTableAvroSchema(true));
+            } catch (Exception e) {
+                throw new RuntimeException("Cannot get hudi table schema.", e);
+            }
+        }
+        return tableInternalSchema;
+    }
+
     private void setHudiParams(TFileRangeDesc rangeDesc, HudiSplit hudiSplit) {
         TTableFormatFileDesc tableFormatFileDesc = new TTableFormatFileDesc();
         tableFormatFileDesc.setTableFormatType(hudiSplit.getTableFormatType().value());
@@ -371,12 +385,7 @@ public class HudiScanNode extends HiveScanNode {
                 internalSchema = hudiSchemaCacheValue
                         .getCommitInstantInternalSchema(hudiClient, commitInstantTime);
             } else {
-                try {
-                    TableSchemaResolver schemaUtil = new TableSchemaResolver(hudiClient);
-                    internalSchema = AvroInternalSchemaConverter.convert(schemaUtil.getTableAvroSchema(true));
-                } catch (Exception e) {
-                    throw new RuntimeException("Cannot get hudi table schema.", e);
-                }
+                internalSchema = getTableInternalSchema();
             }
         }
         Map<String, String> partitionValues = hudiSplit.getHudiPartitionValues();
