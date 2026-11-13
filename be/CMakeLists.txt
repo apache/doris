@@ -290,9 +290,7 @@ install(DIRECTORY
     ${BASE_DIR}/dict/pinyin
     DESTINATION ${OUTPUT_DIR}/dict)
 
-# Japanese kuromoji dictionary. A real build always requires it the
-# binary files. However, Unit-test builds (MAKE_TEST=ON) skip it entirely as they don't
-# package for real use.
+# Package the generated Japanese dictionary for normal BE builds.
 if (NOT MAKE_TEST)
     install(CODE "
         foreach(_kmj_f
@@ -953,7 +951,14 @@ endif()
 
 if (NOT MAKE_TEST)
     # Offline generator: compiles the UTF-8 mecab-ipadic source into binary files.
-    add_executable(kuromoji_build_dict EXCLUDE_FROM_ALL ${SRC_DIR}/tools/kuromoji_build_dict.cpp)
+    set(KUROMOJI_BUILD_DICT_SRCS ${SRC_DIR}/tools/kuromoji_build_dict.cpp)
+    set(KUROMOJI_BUILD_DICT_LINK_LIBS ${DORIS_LINK_LIBS})
+    if (OS_MACOSX AND ARCH_ARM AND MALLOCLIB STREQUAL "tcmalloc")
+        # Use system malloc to avoid tcmalloc branch-range errors on macOS arm64.
+        list(REMOVE_ITEM KUROMOJI_BUILD_DICT_LINK_LIBS ${MALLOCLIB})
+        list(APPEND KUROMOJI_BUILD_DICT_SRCS ${BASE_DIR}/test/testutil/gperftools_stubs.cpp)
+    endif()
+    add_executable(kuromoji_build_dict EXCLUDE_FROM_ALL ${KUROMOJI_BUILD_DICT_SRCS})
     target_include_directories(kuromoji_build_dict PRIVATE ${PROJECT_SOURCE_DIR}/..)
     pch_reuse(kuromoji_build_dict)
     set_target_properties(kuromoji_build_dict PROPERTIES ENABLE_EXPORTS 1)
@@ -962,7 +967,7 @@ if (NOT MAKE_TEST)
             -Wno-implicit-int-conversion
             -Wno-shorten-64-to-32)
     endif()
-    target_link_libraries(kuromoji_build_dict ${DORIS_LINK_LIBS})
+    target_link_libraries(kuromoji_build_dict ${KUROMOJI_BUILD_DICT_LINK_LIBS})
 
     set(KUROMOJI_IPADIC_SRC "${THIRDPARTY_DIR}/share/mecab-ipadic-2.7.0-20250920"
         CACHE PATH "UTF-8 mecab-ipadic source directory used to generate the kuromoji dictionary")

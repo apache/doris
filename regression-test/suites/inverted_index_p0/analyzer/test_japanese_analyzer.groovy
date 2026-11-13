@@ -69,37 +69,27 @@ suite("test_japanese_analyzer", "p0") {
         sql """ INSERT INTO ${tableName} VALUES (3, "Apache Doris は高速です"); """
         sql "sync"
 
-        // The kuromoji IPADIC dictionary ships with the package (built by the
-        // kuromoji_dict target), so these queries exercise real morphological
-        // analysis. Inline assertions (rather than qt_/.out) keep the expected
-        // results in this file: a separate .out baseline can't be generated
-        // without a running BE and is easy to drop from a commit.
-
-        // Search mode decomposes the compound 東京都 into 東京 + 都, so a 東京 query
-        // matches row 1.
+        // Search mode decomposes the compound so its Tokyo component matches row 1.
         def tokyo = sql """ SELECT id FROM ${tableName} WHERE content MATCH '東京' ORDER BY id """
         assertEquals(1, tokyo.size())
         assertEquals(1, tokyo[0][0])
 
-        // The full compound 東京都 still matches row 1: query-time analysis applies
-        // the same search-mode decomposition, so 東京都 -> 東京 + 都 matches the
-        // indexed parts. (Decomposition does not drop compound recall.)
+        // The same decomposition preserves matches for the complete compound.
         def compound = sql """ SELECT id FROM ${tableName} WHERE content MATCH '東京都' ORDER BY id """
         assertEquals(1, compound.size())
         assertEquals(1, compound[0][0])
 
-        // 寿司 is segmented as its own morpheme in 私は寿司が好きです.
+        // The sushi noun is a separate morpheme in row 2.
         def sushi = sql """ SELECT id FROM ${tableName} WHERE content MATCH '寿司' ORDER BY id """
         assertEquals(1, sushi.size())
         assertEquals(2, sushi[0][0])
 
-        // Base-form normalization: the conjugated 住ん(でいます) is indexed under its
-        // dictionary base form 住む, so a 住む query matches row 1.
+        // Base-form normalization lets the verb lemma match row 1.
         def live = sql """ SELECT id FROM ${tableName} WHERE content MATCH '住む' ORDER BY id """
         assertEquals(1, live.size())
         assertEquals(1, live[0][0])
 
-        // Directly show search mode emits the 東京 part of the 東京都 compound.
+        // Directly show search mode emits the Tokyo part of the Tokyo Metropolis compound.
         def tokens = sql """SELECT TOKENIZE('東京都', '"parser"="kuromoji","parser_mode"="search"');"""
         def tokenStr = tokens[0][0].toString()
         assertTrue(tokenStr.contains('"token": "東京"'))

@@ -20,6 +20,7 @@
 
 #include <algorithm>
 #include <cstdlib>
+#include <filesystem>
 #include <iostream>
 #include <memory>
 #include <string>
@@ -71,7 +72,7 @@ TEST(KuromojiRealDictTest, SegmentsRealJapanese) {
     std::unique_ptr<KuromojiDictionary> dict;
     ASSERT_TRUE(KuromojiDictionary::load(real_dict_dir(), &dict).ok());
 
-    // 東京都に住んでいます ("I live in Tokyo"), 10 code points.
+    // The Japanese sentence meaning "I live in Tokyo" contains 10 code points.
     const std::string text =
             "\xE6\x9D\xB1\xE4\xBA\xAC\xE9\x83\xBD\xE3\x81\xAB\xE4\xBD\x8F"
             "\xE3\x82\x93\xE3\x81\xA7\xE3\x81\x84\xE3\x81\xBE\xE3\x81\x99";
@@ -89,10 +90,10 @@ TEST(KuromojiRealDictTest, SegmentsRealJapanese) {
     EXPECT_GT(toks.size(), 1U);
     EXPECT_LT(toks.size(), 10U);
 
-    // The particle "に" must be isolated as its own token.
+    // The particle U+306B must be a separate token.
     EXPECT_NE(std::find(toks.begin(), toks.end(), std::string("\xE3\x81\xAB")), toks.end());
 
-    std::cout << "segmentation of 東京都に住んでいます:";
+    std::cout << "segmentation of the Tokyo sentence:";
     for (const auto& t : toks) {
         std::cout << " [" << t << "]";
     }
@@ -106,10 +107,10 @@ TEST(KuromojiRealDictTest, KnownCompoundWord) {
     std::unique_ptr<KuromojiDictionary> dict;
     ASSERT_TRUE(KuromojiDictionary::load(real_dict_dir(), &dict).ok());
 
-    // 日本語 ("Japanese language") is a single IPADIC entry -> one token.
+    // The Japanese-language compound is one IPADIC entry and produces one token.
     const std::string nihongo = "\xE6\x97\xA5\xE6\x9C\xAC\xE8\xAA\x9E";
     const std::vector<std::string> toks = segment_surfaces(*dict, nihongo);
-    std::cout << "segmentation of 日本語:";
+    std::cout << "segmentation of the Japanese-language compound:";
     for (const auto& t : toks) {
         std::cout << " [" << t << "]";
     }
@@ -125,10 +126,9 @@ TEST(KuromojiRealDictTest, AnalyzerSegmentsViaBuiltinParser) {
     if (!real_dict_present()) {
         GTEST_SKIP() << "real IPADIC dictionary not generated at " << real_dict_dir();
     }
-    const char* home = std::getenv("DORIS_HOME");
     const std::string saved = doris::config::inverted_index_dict_path;
     doris::config::inverted_index_dict_path =
-            std::string(home != nullptr ? home : ".") + "/be/dict";
+            std::filesystem::path(real_dict_dir()).parent_path().string();
     const bool saved_enable = doris::config::enable_kuromoji_analyzer;
     doris::config::enable_kuromoji_analyzer = true;
 
@@ -155,23 +155,24 @@ TEST(KuromojiRealDictTest, AnalyzerSegmentsViaBuiltinParser) {
     doris::config::inverted_index_dict_path = saved;
     doris::config::enable_kuromoji_analyzer = saved_enable;
 
-    std::cout << "analyzer tokens for 東京都に住んでいます:";
+    std::cout << "analyzer tokens for the Tokyo sentence:";
     for (const auto& t : toks) {
         std::cout << " [" << t << "]";
     }
     std::cout << std::endl;
 
     EXPECT_GT(toks.size(), 1U);
-    // Part-of-speech stop filtering removes the particle に.
-    EXPECT_EQ(std::find(toks.begin(), toks.end(), std::string("\xE3\x81\xAB")), toks.end()); // に
-    // Content words survive; 東京 is kept as-is.
+    // Part-of-speech stop filtering removes the particle U+306B.
+    EXPECT_EQ(std::find(toks.begin(), toks.end(), std::string("\xE3\x81\xAB")),
+              toks.end()); // Particle U+306B
+    // Content words survive; Tokyo is kept as-is.
     EXPECT_NE(std::find(toks.begin(), toks.end(), std::string("\xE6\x9D\xB1\xE4\xBA\xAC")),
-              toks.end()); // 東京
-    // Base-form normalization rewrites the conjugated 住ん to its lemma 住む.
+              toks.end()); // Tokyo
+    // Base-form normalization replaces the inflected verb with its lemma.
     EXPECT_EQ(std::find(toks.begin(), toks.end(), std::string("\xE4\xBD\x8F\xE3\x82\x93")),
-              toks.end()); // 住ん (surface) absent
+              toks.end()); // Inflected form absent
     EXPECT_NE(std::find(toks.begin(), toks.end(), std::string("\xE4\xBD\x8F\xE3\x82\x80")),
-              toks.end()); // 住む (base form) present
+              toks.end()); // Base form present
 }
 
 } // namespace doris::segment_v2::inverted_index::kuromoji

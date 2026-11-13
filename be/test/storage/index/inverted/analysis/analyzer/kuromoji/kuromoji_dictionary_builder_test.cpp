@@ -36,8 +36,8 @@ TEST(KuromojiDictionaryBuilderTest, WritesFourFiles) {
     ::mkdir(dir.c_str(), 0755);
 
     SystemDictInput sys;
-    sys.surfaces.push_back({"\xE6\x9D\xB1", {{1, 1, 100, "POS,East"}}});             // 東
-    sys.surfaces.push_back({"\xE6\x9D\xB1\xE4\xBA\xAC", {{2, 2, 50, "POS,Tokyo"}}}); // 東京
+    sys.surfaces.push_back({"\xE6\x9D\xB1", {{1, 1, 100, "POS,East"}}});             // U+6771
+    sys.surfaces.push_back({"\xE6\x9D\xB1\xE4\xBA\xAC", {{2, 2, 50, "POS,Tokyo"}}}); // Tokyo
     ASSERT_TRUE(KuromojiDictionaryBuilder::write_system(dir + "/system.bin", sys).ok());
 
     MatrixInput m;
@@ -48,7 +48,7 @@ TEST(KuromojiDictionaryBuilderTest, WritesFourFiles) {
 
     CharDefInput cd;
     cd.catmap.fill(CAT_DEFAULT);
-    cd.catmap[0x6771] = CAT_KANJI; // 東
+    cd.catmap[0x6771] = CAT_KANJI; // U+6771
     cd.defs.assign(CAT_CLASS_COUNT, CategoryDef {0, 0, 0});
     cd.defs[CAT_DEFAULT] = CategoryDef {1, 1, 0};
     ASSERT_TRUE(KuromojiDictionaryBuilder::write_chardef(dir + "/chardef.bin", cd).ok());

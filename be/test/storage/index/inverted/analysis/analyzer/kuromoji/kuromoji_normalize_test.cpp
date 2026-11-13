@@ -39,9 +39,9 @@ TEST(KuromojiNormalizeTest, IdeographicSpaceToSpace) {
 TEST(KuromojiNormalizeTest, PreservesOtherText) {
     EXPECT_EQ(cjk_width_normalize("ABC123"), "ABC123"); // already ASCII
     EXPECT_EQ(cjk_width_normalize("\xE6\x9D\xB1\xE4\xBA\xAC"),
-              "\xE6\x9D\xB1\xE4\xBA\xAC"); // 東京 unchanged
+              "\xE6\x9D\xB1\xE4\xBA\xAC"); // Tokyo unchanged
     EXPECT_EQ(cjk_width_normalize(""), "");
-    // mixed: Ａ東Ｂ -> A東B
+    // mixed: full-width Latin letters around a kanji -> ASCII letters around a kanji
     EXPECT_EQ(cjk_width_normalize("\xEF\xBC\xA1\xE6\x9D\xB1\xEF\xBC\xA2"),
               "A\xE6\x9D\xB1"
               "B");

@@ -28,7 +28,7 @@ namespace doris::segment_v2::inverted_index::kuromoji {
 
 // Proves the vendored Darts-clone header builds + queries: surface forms ->
 // non-negative values, then common-prefix search (the API the kuromoji lattice
-// will use). "東"(E6 9D B1), "京"(E4 BA AC), "東京"(E6 9D B1 E4 BA AC).
+// will use). "U+6771"(E6 9D B1), "U+4EAC"(E4 BA AC), "Tokyo"(E6 9D B1 E4 BA AC).
 TEST(DartsSmokeTest, BuildAndCommonPrefixSearch) {
     std::vector<std::string> keys = {"\xE4\xBA\xAC", "\xE6\x9D\xB1", "\xE6\x9D\xB1\xE4\xBA\xAC"};
     std::sort(keys.begin(), keys.end()); // Darts requires byte-sorted keys
@@ -45,11 +45,11 @@ TEST(DartsSmokeTest, BuildAndCommonPrefixSearch) {
     Darts::DoubleArray da;
     ASSERT_EQ(0, da.build(keys.size(), kptrs.data(), klens.data(), values.data()));
 
-    // exact match for "東京"
+    // exact match for "Tokyo"
     const std::string tokyo = "\xE6\x9D\xB1\xE4\xBA\xAC";
     EXPECT_GE(da.exactMatchSearch<int>(tokyo.data(), tokyo.size()), 0);
 
-    // common-prefix search over "東京" must yield "東" (len 3) and "東京" (len 6)
+    // common-prefix search over "Tokyo" must yield "U+6771" (len 3) and "Tokyo" (len 6)
     Darts::DoubleArray::result_pair_type results[8];
     std::size_t n = da.commonPrefixSearch(tokyo.data(), results, 8, tokyo.size());
     ASSERT_GE(n, 2U);
