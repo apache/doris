@@ -37,8 +37,11 @@ import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.schema.external.TSchema;
 
 import com.google.common.collect.ImmutableMap;
+import org.apache.avro.Schema;
+import org.apache.avro.SchemaBuilder;
 import org.apache.hudi.common.model.HoodieBaseFile;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
+import org.apache.hudi.common.table.TableSchemaResolver;
 import org.apache.hudi.common.table.view.HoodieTableFileSystemView;
 import org.apache.hudi.common.util.Option;
 import org.apache.hudi.internal.schema.InternalSchema;
@@ -46,6 +49,7 @@ import org.apache.hudi.storage.StoragePath;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Answers;
+import org.mockito.MockedConstruction;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -331,6 +335,73 @@ public class HudiScanNodeTest {
     }
 
     @Test
+    public void testNativeRangesReuseTableSchemaOnlyWithinOneScan() throws Exception {
+        Schema avroSchema = SchemaBuilder.record("orders").fields().requiredLong("id").endRecord();
+        try (MockedStatic<HudiUtils> utils = Mockito.mockStatic(HudiUtils.class);
+                MockedConstruction<TableSchemaResolver> resolvers = Mockito.mockConstruction(
+                        TableSchemaResolver.class, (resolver, context) ->
+                                Mockito.when(resolver.getTableAvroSchema(true)).thenReturn(avroSchema))) {
+            for (int scan = 0; scan < 2; scan++) {
+                HudiScanNode node = schemaScanNode();
+                HMSExternalTable table = (HMSExternalTable) getField(node, HiveScanNode.class, "hmsTable");
+                utils.when(() -> HudiUtils.getSchemaCacheValue(table, "20260831120000"))
+                        .thenReturn(new HudiSchemaCacheValue(Collections.emptyList(), Collections.emptyList(), false));
+                utils.when(() -> HudiUtils.getSchemaInfo(Mockito.any(InternalSchema.class))).thenCallRealMethod();
+
+                // A genuine JNI range must not resolve the native schema, even before the first native range.
+                HudiSplit jniSplit = schemaSplit("20260831120000");
+                jniSplit.setHudiDeltaLogs(Collections.singletonList("delta.log"));
+                TFileRangeDesc jniRange = new TFileRangeDesc();
+                jniRange.setFormatType(TFileFormatType.FORMAT_JNI);
+                node.setScanParams(jniRange, jniSplit);
+                Assertions.assertEquals(scan, resolvers.constructed().size());
+                Assertions.assertFalse(jniRange.getTableFormatParams().getHudiParams().isSetSchemaId());
+
+                for (String instant : Arrays.asList("20260830120000", "20260831120000", "20260831120000")) {
+                    TFileRangeDesc range = new TFileRangeDesc();
+                    range.setFormatType(TFileFormatType.FORMAT_PARQUET);
+                    node.setScanParams(range, schemaSplit(instant));
+                    Assertions.assertTrue(range.getTableFormatParams().getHudiParams().isSetSchemaId());
+                    TFileScanRangeParams params = (TFileScanRangeParams) getField(
+                            node, FileQueryScanNode.class, "params");
+                    Assertions.assertEquals(1, params.getHistorySchemaInfoSize());
+                    Assertions.assertEquals(params.getHistorySchemaInfo().get(0).getSchemaId(),
+                            range.getTableFormatParams().getHudiParams().getSchemaId());
+                }
+                Assertions.assertEquals(scan + 1, resolvers.constructed().size());
+                Mockito.verify(resolvers.constructed().get(scan), Mockito.times(1)).getTableAvroSchema(true);
+            }
+        }
+    }
+
+    @Test
+    public void testSchemaEvolutionStillResolvesEachFileCommit() throws Exception {
+        HudiScanNode node = schemaScanNode();
+        HMSExternalTable table = (HMSExternalTable) getField(node, HiveScanNode.class, "hmsTable");
+        HoodieTableMetaClient metaClient = (HoodieTableMetaClient) getField(node, HudiScanNode.class, "hudiClient");
+        HudiSchemaCacheValue schemaValue = Mockito.mock(HudiSchemaCacheValue.class);
+        Mockito.when(schemaValue.isEnableSchemaEvolution()).thenReturn(true);
+        try (MockedStatic<HudiUtils> utils = Mockito.mockStatic(HudiUtils.class);
+                MockedConstruction<TableSchemaResolver> resolvers = Mockito.mockConstruction(TableSchemaResolver.class)) {
+            utils.when(() -> HudiUtils.getSchemaCacheValue(table, "20260831120000")).thenReturn(schemaValue);
+            for (long instant : new long[] {20260830120000L, 20260831120000L}) {
+                InternalSchema schema = Mockito.mock(InternalSchema.class);
+                Mockito.when(schema.schemaId()).thenReturn(instant);
+                Mockito.when(schemaValue.getCommitInstantInternalSchema(metaClient, instant)).thenReturn(schema);
+                utils.when(() -> HudiUtils.getSchemaInfo(schema)).thenReturn(new TSchema().setSchemaId(instant));
+                TFileRangeDesc range = new TFileRangeDesc();
+                range.setFormatType(TFileFormatType.FORMAT_PARQUET);
+                node.setScanParams(range, schemaSplit(Long.toString(instant)));
+                Assertions.assertEquals(instant, range.getTableFormatParams().getHudiParams().getSchemaId());
+                Mockito.verify(schemaValue).getCommitInstantInternalSchema(metaClient, instant);
+            }
+            Assertions.assertTrue(resolvers.constructed().isEmpty());
+            TFileScanRangeParams params = (TFileScanRangeParams) getField(node, FileQueryScanNode.class, "params");
+            Assertions.assertEquals(2, params.getHistorySchemaInfoSize());
+        }
+    }
+
+    @Test
     public void testSchemaResolutionRejectsRetiredHmsGenerationBeforeDescriptorPublication() throws Exception {
         HudiScanNode node = Mockito.mock(HudiScanNode.class, Answers.CALLS_REAL_METHODS);
         HMSExternalTable table = Mockito.mock(HMSExternalTable.class);
@@ -431,6 +502,24 @@ public class HudiScanNodeTest {
                 Assertions.assertEquals(alreadyMarked || suffix.equals("parquet"), params.isContainsNativeParquet());
             }
         }
+    }
+
+    private static HudiScanNode schemaScanNode() throws Exception {
+        HudiScanNode node = partitionScanNode(new StatementContext.ExternalScanTaskCache(),
+                Mockito.mock(HoodieTableFileSystemView.class), "20260831120000", true, false);
+        setField(node, FileQueryScanNode.class, "params", new TFileScanRangeParams());
+        setField(node, HudiScanNode.class, "currentQuerySchema", new java.util.concurrent.ConcurrentHashMap<>());
+        return node;
+    }
+
+    private static HudiSplit schemaSplit(String instant) {
+        HudiSplit split = new HudiSplit(
+                LocationPath.of("file:///table/fileid_1-0-1_" + instant + ".parquet"),
+                0, 10, 10, new String[0], Collections.emptyList());
+        split.setTableFormatType(TableFormatType.HUDI);
+        split.setDataFilePath(split.getPathString());
+        split.setHudiDeltaLogs(Collections.emptyList());
+        return split;
     }
 
     private static HudiScanNode partitionScanNode(
