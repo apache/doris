@@ -175,6 +175,14 @@ org.apache.doris.connector.spi.handle.ConnectorWriteHandle#getWriteOperation():o
 org.apache.doris.connector.spi.handle.ConnectorWriteHandle#isOverwrite():boolean
 org.apache.doris.connector.spi.handle.ConnectorWriteHandle#isRequireMergeCardinalityCheck():boolean
 org.apache.doris.connector.spi.handle.ConnectorWriteHandle#isWritesDataFiles():boolean
+org.apache.doris.connector.spi.mvcc.ConnectorMvccPartition#equals(java.lang.Object):boolean
+org.apache.doris.connector.spi.mvcc.ConnectorMvccPartition#getFreshnessValue():long
+org.apache.doris.connector.spi.mvcc.ConnectorMvccPartition#getLowerBound():java.util.List
+org.apache.doris.connector.spi.mvcc.ConnectorMvccPartition#getName():java.lang.String
+org.apache.doris.connector.spi.mvcc.ConnectorMvccPartition#getRowCount():long
+org.apache.doris.connector.spi.mvcc.ConnectorMvccPartition#getUpperBound():java.util.List
+org.apache.doris.connector.spi.mvcc.ConnectorMvccPartition#hashCode():int
+org.apache.doris.connector.spi.mvcc.ConnectorMvccPartition#toString():java.lang.String
 org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot#builder():org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot$Builder
 org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot#equals(java.lang.Object):boolean
 org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot#getProperties():java.util.Map

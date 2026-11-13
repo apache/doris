@@ -37,6 +37,7 @@ import org.apache.doris.thrift.TTypeDesc;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -46,6 +47,7 @@ import java.util.Optional;
 public final class PluginDrivenPartitionView {
     private final ImmutableMap<String, PartitionItem> items;
     private final ImmutableMap<String, Long> freshness;
+    private final ImmutableMap<String, Long> rowCounts;
     private final SortedPartitionRanges<String> sortedRanges;
 
     PluginDrivenPartitionView(Map<String, PartitionItem> items, Map<String, Long> freshness) {
@@ -54,8 +56,14 @@ public final class PluginDrivenPartitionView {
 
     PluginDrivenPartitionView(Map<String, PartitionItem> items, Map<String, Long> freshness,
             boolean buildSortedRanges) {
+        this(items, freshness, Collections.emptyMap(), buildSortedRanges);
+    }
+
+    PluginDrivenPartitionView(Map<String, PartitionItem> items, Map<String, Long> freshness,
+            Map<String, Long> rowCounts, boolean buildSortedRanges) {
         this.items = ImmutableMap.copyOf(items);
         this.freshness = ImmutableMap.copyOf(freshness);
+        this.rowCounts = ImmutableMap.copyOf(rowCounts);
         // Build before cache admission, like HivePartitionValues: the cache accounts for the index
         // together with its maps, and readers never observe a partially initialized generation.
         this.sortedRanges = buildSortedRanges && hasComparableKeys(this.items)
@@ -90,9 +98,9 @@ public final class PluginDrivenPartitionView {
             bytes = JvmSizeUtils.saturatedAdd(bytes, ReflectiveObjectSizeEstimator.estimateComplete(partition));
         }
         bytes = JvmSizeUtils.saturatedAdd(bytes, JvmSizeUtils.instanceSize(PluginDrivenPartitionView.class));
-        // ImmutableMap tables, entries, and freshness values; shared names/items are counted once below.
+        // ImmutableMap tables, entries, freshness and row-count values; shared names/items are counted below.
         bytes = JvmSizeUtils.saturatedAdd(bytes, JvmSizeUtils.saturatedMultiply(
-                view.items.size() + (long) view.freshness.size(), 64L));
+                view.items.size() + (long) view.freshness.size() + view.rowCounts.size(), 64L));
         for (Map.Entry<String, PartitionItem> entry : view.items.entrySet()) {
             bytes = JvmSizeUtils.saturatedAdd(bytes, JvmSizeUtils.stringSize(entry.getKey()));
             bytes = JvmSizeUtils.saturatedAdd(bytes, estimatePartitionItem(entry.getValue()));
@@ -165,6 +173,10 @@ public final class PluginDrivenPartitionView {
         return freshness;
     }
 
+    ImmutableMap<String, Long> getRowCounts() {
+        return rowCounts;
+    }
+
     Optional<SortedPartitionRanges<String>> getSortedRanges() {
         return Optional.ofNullable(sortedRanges);
     }
@@ -175,7 +187,8 @@ public final class PluginDrivenPartitionView {
      * refreshed snapshot token.
      * LIST records' conversion fields are immutable; compare only those fields, not unrelated
      * property maps or statistics. This also reuses equal records from uncached connectors.
-     * RANGE bounds are defensively copied because their SPI wrappers can
+     * RANGE records include row estimates because the converted view retains them. Bounds are copied because
+     * their SPI wrappers can
      * retain mutable caller lists. Schema types and session timezone also affect literal conversion.
      */
     public static final class Key {
@@ -233,7 +246,8 @@ public final class PluginDrivenPartitionView {
                 List<ConnectorMvccPartition> partitions, List<Type> types) {
             List<ConnectorMvccPartition> frozen = partitions.stream().map(partition -> new ConnectorMvccPartition(
                     partition.getName(), ImmutableList.copyOf(partition.getLowerBound()),
-                    ImmutableList.copyOf(partition.getUpperBound()), partition.getFreshnessValue()))
+                    ImmutableList.copyOf(partition.getUpperBound()), partition.getFreshnessValue(),
+                    partition.getRowCount()))
                     .collect(ImmutableList.toImmutableList());
             return new Key(tableId, database, table, frozen, types, true);
         }

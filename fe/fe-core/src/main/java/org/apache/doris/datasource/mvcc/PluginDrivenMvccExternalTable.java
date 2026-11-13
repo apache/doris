@@ -324,6 +324,7 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
             List<Column> partitionColumns, boolean buildSortedRanges) {
         Map<String, PartitionItem> nameToPartitionItem = Maps.newHashMap();
         Map<String, Long> nameToFreshnessValue = Maps.newHashMap();
+        Map<String, Long> rowCounts = Maps.newHashMap();
         for (ConnectorMvccPartition partition : partitions) {
             try {
                 nameToPartitionItem.put(partition.getName(),
@@ -335,8 +336,11 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
                         + partition.getName() + ", partitionColumns: " + partitionColumns, e);
             }
             nameToFreshnessValue.put(partition.getName(), partition.getFreshnessValue());
+            if (partition.getRowCount() != ConnectorPartitionInfo.UNKNOWN) {
+                rowCounts.put(partition.getName(), partition.getRowCount());
+            }
         }
-        return new PluginDrivenPartitionView(nameToPartitionItem, nameToFreshnessValue, buildSortedRanges);
+        return new PluginDrivenPartitionView(nameToPartitionItem, nameToFreshnessValue, rowCounts, buildSortedRanges);
     }
 
     /**

@@ -21,19 +21,28 @@ import org.apache.doris.connector.spi.ConnectorPartitionInfo;
 import org.apache.doris.connector.spi.mvcc.ConnectorMvccPartition;
 import org.apache.doris.connector.spi.mvcc.ConnectorMvccPartitionView;
 
+import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DataFiles;
+import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.FileFormat;
+import org.apache.iceberg.FileMetadata;
+import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.PartitionData;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.inmemory.InMemoryCatalog;
+import org.apache.iceberg.io.CloseableIterable;
+import org.apache.iceberg.io.CloseableIterator;
 import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.math.BigDecimal;
 import java.nio.ByteBuffer;
 import java.time.LocalDateTime;
@@ -62,6 +71,116 @@ import java.util.stream.Collectors;
  * array — value-identical to legacy Gson).
  */
 public class IcebergPartitionUtilsTest {
+
+    @Test
+    public void sameRenderedNameRetainsAllPhysicalPartitionRows() {
+        PartitionSpec spec = PartitionSpec.builderFor(RELATED_SCHEMA).day("ts").build();
+        Table table = dayPartitionedTable(spec, "ts_day=1970-04-11");
+        TableIdentifier id = TableIdentifier.of("db1", "t");
+        IcebergPartitionCache cache = new IcebergPartitionCache(3600, 10);
+        IcebergPartitionCache.Key key = new IcebergPartitionCache.Key(id, table.currentSnapshot().snapshotId(),
+                table.schema().schemaId(), table.spec().specId());
+        cache.getOrLoad(key, () -> Arrays.asList(
+                new IcebergPartitionUtils.IcebergRawPartition("ts_day=100", Collections.singletonList("ts"),
+                        Collections.singletonList("100"), Collections.singletonList("day"),
+                        Collections.singletonList(org.apache.doris.connector.spi.ConnectorType.of("INT")), 1, 101, 10),
+                new IcebergPartitionUtils.IcebergRawPartition("ts_day=100", Collections.singletonList("ts"),
+                        Collections.singletonList("100"), Collections.singletonList("day"),
+                        Collections.singletonList(org.apache.doris.connector.spi.ConnectorType.of("INT")), 2, 102, 100)));
+        List<ConnectorMvccPartition> parts = IcebergPartitionUtils
+                .buildMvccPartitionView(table, table.currentSnapshot().snapshotId(), id, cache).getPartitions();
+        Assertions.assertEquals(1, parts.size());
+        Assertions.assertEquals(110, parts.get(0).getRowCount());
+    }
+
+    @Test
+    public void rangeRowsUsePartitionCountsAndThePinnedSnapshot() {
+        PartitionSpec spec = PartitionSpec.builderFor(RELATED_SCHEMA).day("ts").build();
+        Table table = tableWith(RELATED_SCHEMA, spec);
+        appendRangeFile(table, spec, "ts_day=1970-04-11", 100);
+        appendRangeFile(table, spec, "ts_day=1970-07-20", 10);
+        long beforeAppend = table.currentSnapshot().snapshotId();
+        appendRangeFile(table, spec, "ts_day=1970-10-28", 1);
+        List<ConnectorMvccPartition> current = IcebergPartitionUtils.buildMvccPartitionView(table, -1).getPartitions();
+        Assertions.assertEquals(Arrays.asList(100L, 10L, 1L),
+                current.stream().map(ConnectorMvccPartition::getRowCount).collect(Collectors.toList()));
+        List<ConnectorMvccPartition> pinned =
+                IcebergPartitionUtils.buildMvccPartitionView(table, beforeAppend).getPartitions();
+        Assertions.assertEquals(Arrays.asList(100L, 10L),
+                pinned.stream().map(ConnectorMvccPartition::getRowCount).collect(Collectors.toList()));
+    }
+
+    @Test
+    public void evolvedPartitionsAggregateEachPhysicalRowCountOnce() {
+        PartitionSpec month = PartitionSpec.builderFor(RELATED_SCHEMA).month("ts").build();
+        Table table = tableWith(RELATED_SCHEMA, month);
+        appendRangeFile(table, month, "ts_month=648", 10);
+        long monthSnapshot = table.currentSnapshot().snapshotId();
+        table.updateSpec().removeField("ts_month").addField(Expressions.day("ts")).commit();
+        appendRangeFile(table, table.spec(), "ts_day=2024-01-02", 100);
+        List<ConnectorMvccPartition> merged = IcebergPartitionUtils.buildMvccPartitionView(table, -1).getPartitions();
+        Assertions.assertEquals(1, merged.size());
+        Assertions.assertEquals(110, merged.get(0).getRowCount());
+        Assertions.assertEquals(10, IcebergPartitionUtils.buildMvccPartitionView(table, monthSnapshot)
+                .getPartitions().get(0).getRowCount());
+    }
+
+    @Test
+    public void positionDeletesMakePartitionRowsUnknown() {
+        assertDeleteMakesRowsUnknown(false);
+    }
+
+    @Test
+    public void equalityDeletesMakePartitionRowsUnknown() {
+        assertDeleteMakesRowsUnknown(true);
+    }
+
+    @Test
+    public void metadataReadFailureDoesNotBecomeEmptyPartitionRows() {
+        Table table = tableWith(RELATED_SCHEMA, PartitionSpec.builderFor(RELATED_SCHEMA).day("ts").build());
+        CloseableIterable<FileScanTask> tasks = new CloseableIterable<FileScanTask>() {
+            @Override
+            public CloseableIterator<FileScanTask> iterator() {
+                return CloseableIterable.withNoopClose(Collections.<FileScanTask>emptyList()).iterator();
+            }
+
+            @Override
+            public void close() throws IOException {
+                throw new IOException("partition metadata failure");
+            }
+        };
+        UncheckedIOException exception = Assertions.assertThrows(UncheckedIOException.class,
+                () -> IcebergPartitionUtils.readRawPartitions(table, tasks, Collections.emptyMap()));
+        Assertions.assertEquals("partition metadata failure", exception.getCause().getMessage());
+    }
+
+    private static DataFile appendRangeFile(Table table, PartitionSpec spec, String partitionPath, long rows) {
+        DataFile file = DataFiles.builder(spec).withPath("s3://b/" + partitionPath + "/" + rows + ".parquet")
+                .withFileSizeInBytes(100).withRecordCount(rows).withPartitionPath(partitionPath)
+                .withFormat(FileFormat.PARQUET).build();
+        table.newAppend().appendFile(file).commit();
+        return file;
+    }
+
+    private void assertDeleteMakesRowsUnknown(boolean equality) {
+        PartitionSpec spec = PartitionSpec.builderFor(RELATED_SCHEMA).day("ts").build();
+        InMemoryCatalog catalog = new InMemoryCatalog();
+        catalog.initialize("test-deletes", Collections.emptyMap());
+        catalog.createNamespace(Namespace.of("db1"));
+        Table table = catalog.createTable(TableIdentifier.of("db1", "t"), RELATED_SCHEMA, spec,
+                Collections.singletonMap("format-version", "2"));
+        DataFile data = appendRangeFile(table, spec, "ts_day=1970-04-11", 10);
+        appendRangeFile(table, spec, "ts_day=1970-07-20", 1);
+        FileMetadata.Builder builder = equality ? FileMetadata.deleteFileBuilder(spec).ofEqualityDeletes(1)
+                : FileMetadata.deleteFileBuilder(spec).ofPositionDeletes();
+        DeleteFile delete = builder.withPath("s3://b/delete.parquet").withFileSizeInBytes(100)
+                .withRecordCount(1).withPartition(data.partition()).withFormat(FileFormat.PARQUET).build();
+        table.newRowDelta().addDeletes(delete).commit();
+        List<ConnectorMvccPartition> parts = IcebergPartitionUtils.buildMvccPartitionView(table, -1).getPartitions();
+        Assertions.assertEquals(2, parts.size());
+        Assertions.assertEquals(ConnectorPartitionInfo.UNKNOWN, parts.get(0).getRowCount());
+        Assertions.assertEquals(1, parts.get(1).getRowCount());
+    }
 
     private static final ZoneId SHANGHAI = ZoneId.of("Asia/Shanghai");
 
@@ -885,7 +1004,7 @@ public class IcebergPartitionUtilsTest {
             long lastUpdateTime, long lastSnapshotId) {
         return new IcebergPartitionUtils.RangeBuild(name, lower, upper,
                 Collections.singletonList(lower.toString()), Collections.singletonList(upper.toString()),
-                lastUpdateTime, lastSnapshotId);
+                lastUpdateTime, lastSnapshotId, ConnectorPartitionInfo.UNKNOWN);
     }
 
     @Test

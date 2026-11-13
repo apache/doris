@@ -81,6 +81,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.Set;
 
 class CostModel extends PlanVisitor<Cost, PlanContext> {
@@ -220,7 +221,14 @@ class CostModel extends PlanVisitor<Cost, PlanContext> {
     @Override
     public Cost visitPhysicalFileScan(PhysicalFileScan physicalFileScan, PlanContext context) {
         Statistics statistics = context.getStatisticsWithCheck();
-        return Cost.ofCpu(context.getCostWeight(), statistics.getRowCount() * EXTERNAL_TABLE_SCAN_FACTOR);
+        double scanRowCount = statistics.getRowCount();
+        OptionalLong selectedRows = ScanRowCountUpperBound.forScan(physicalFileScan);
+        if (selectedRows.isPresent()) {
+            // Partition metadata measures scan work. Keep the table-level cardinality and column
+            // statistics together so retained filters do not apply pruning selectivity twice.
+            scanRowCount = selectedRows.getAsLong();
+        }
+        return Cost.ofCpu(context.getCostWeight(), scanRowCount * EXTERNAL_TABLE_SCAN_FACTOR);
     }
 
     @Override
@@ -289,7 +297,12 @@ class CostModel extends PlanVisitor<Cost, PlanContext> {
     public Cost visitPhysicalDistribute(
             PhysicalDistribute<? extends Plan> distribute, PlanContext context) {
         Statistics childStatistics = context.getChildStatistics(0);
-        double intputRowCount = childStatistics.getRowCount();
+        double inputRowCount = childStatistics.getRowCount();
+        OptionalLong scanRows = ScanRowCountUpperBound.forGroup(context.getGroupExpression().child(0));
+        if (scanRows.isPresent()) {
+            // Filters and projections may already estimate fewer rows; only cap an overestimate.
+            inputRowCount = Math.min(inputRowCount, scanRows.getAsLong());
+        }
         DistributionSpec spec = distribute.getDistributionSpec();
         // cost model is trained by clusters with more than 3 BE.
         int beNumForDist = Math.max(3, beNumber);
@@ -297,9 +310,9 @@ class CostModel extends PlanVisitor<Cost, PlanContext> {
         // shuffle
         if (spec instanceof DistributionSpecHash) {
             return Cost.of(context.getCostWeight(),
-                    intputRowCount / beNumForDist,
+                    inputRowCount / beNumForDist,
                     0,
-                    intputRowCount * dataSizeFactor / beNumForDist
+                    inputRowCount * dataSizeFactor / beNumForDist
                     );
         }
 
@@ -311,7 +324,7 @@ class CostModel extends PlanVisitor<Cost, PlanContext> {
             return Cost.of(context.getCostWeight(),
                     0,
                     0,
-                    intputRowCount * dataSizeFactor);
+                    inputRowCount * dataSizeFactor);
 
         }
 
@@ -320,7 +333,7 @@ class CostModel extends PlanVisitor<Cost, PlanContext> {
             return Cost.of(context.getCostWeight(),
                     0,
                     0,
-                    intputRowCount * dataSizeFactor / beNumForDist);
+                    inputRowCount * dataSizeFactor / beNumForDist);
         }
 
         // any
@@ -328,7 +341,7 @@ class CostModel extends PlanVisitor<Cost, PlanContext> {
         return Cost.of(context.getCostWeight(),
                 0,
                 0,
-                intputRowCount * dataSizeFactor
+                inputRowCount * dataSizeFactor
                         * RANDOM_SHUFFLE_TO_HASH_SHUFFLE_FACTOR / beNumForDist);
     }
 
