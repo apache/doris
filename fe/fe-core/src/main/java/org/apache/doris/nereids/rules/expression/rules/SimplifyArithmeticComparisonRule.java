@@ -41,7 +41,6 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.WeeksSub;
 import org.apache.doris.nereids.trees.expressions.literal.ComparableLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
-import org.apache.doris.nereids.trees.expressions.literal.TimestampTzLiteral;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.collect.ImmutableList;
@@ -101,9 +100,6 @@ public class SimplifyArithmeticComparisonRule implements ExpressionPatternRuleFa
         }
         try {
             List<Expression> children = tryRearrangeChildren(newComparison.left(), newComparison.right(), context);
-            if (children == null) {
-                return comparison;
-            }
             newComparison = (ComparisonPredicate) simplify(
                     (ComparisonPredicate) newComparison.withChildren(children), context);
             return TypeCoercionUtils.processComparisonPredicate(newComparison);
@@ -142,7 +138,7 @@ public class SimplifyArithmeticComparisonRule implements ExpressionPatternRuleFa
         return false;
     }
 
-    private static @Nullable List<Expression> tryRearrangeChildren(Expression left, Expression right,
+    private static List<Expression> tryRearrangeChildren(Expression left, Expression right,
             ExpressionRewriteContext context) throws Exception {
         if (!left.child(1).isConstant()) {
             throw new RuntimeException(String.format("Expected literal when arranging children for Expr %s", left));
@@ -153,17 +149,6 @@ public class SimplifyArithmeticComparisonRule implements ExpressionPatternRuleFa
         Class<? extends Expression> oppositeOperator = REARRANGEMENT_MAP.get(left.getClass());
         Expression newChild = oppositeOperator.getConstructor(Expression.class, Expression.class)
                 .newInstance(right, leftLiteral);
-
-        if ((left instanceof DaysAdd || left instanceof DaysSub)
-                && left.child(0).getDataType().isTimeStampTzType()) {
-            // Even a fixed offset can make the inverse fail: at +08:00, the valid UTC cutoff
-            // 9999-12-31 23:00 has local year 10000. Failed folding leaves the inverse call
-            // unchanged, so require a valid literal before introducing it into the predicate.
-            newChild = FoldConstantRule.evaluate(newChild, context);
-            if (!(newChild instanceof TimestampTzLiteral)) {
-                return null;
-            }
-        }
 
         if (left instanceof Divide && leftLiteral.compareTo(new IntegerLiteral(0)) < 0) {
             // Multiplying by a negative number will change the operator.
