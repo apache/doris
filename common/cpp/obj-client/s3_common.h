@@ -47,7 +47,7 @@ public:
 // implement `overflow()`, so the stream turns bad, curl aborts the transfer with
 // `CURLE_WRITE_ERROR`, and the SDK reports an `INTERNAL_FAILURE` named "Failed to flush
 // response stream" while never recording the status code of the response. Both the retry
-// strategy of the SDK and the retry of `S3FileReader` key on that status code, so an error
+// strategy of the SDK and the retry of `ObjStorageFileReader` key on that status code, so an error
 // the server asked us to retry ends up cancelling the query instead.
 //
 // This stream buffer writes into the buffer of the caller as long as the body fits, which

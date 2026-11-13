@@ -65,16 +65,18 @@
 #include "io/fs/file_reader.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
+#include "io/fs/obj_storage_file_system.h"
 #include "io/fs/packed_file_manager.h"
 #include "io/fs/packed_file_reader.h"
 #include "io/fs/packed_file_system.h"
 #include "io/fs/packed_file_writer.h"
 #include "io/fs/path.h"
-#include "io/fs/s3_file_system.h"
 #include "io/io_common.h"
+#include "io/obj_storage/obj_client_factory.h"
 #include "runtime/exec_env.h"
 #include "runtime/thread_context.h"
 #include "testutil/mock/obj_storage_client_test_stub.h"
+#include "testutil/obj_storage_test_util.h"
 #include "util/s3_util.h"
 #include "util/slice.h"
 #include "util/threadpool.h"
@@ -356,8 +358,8 @@ std::shared_ptr<MockObjStorageClient> g_mock_obj_provider_client;
 void install_mock_environment() {
     g_mock_obj_provider_client = std::make_shared<MockObjStorageClient>(&mock_s3_store());
     std::shared_ptr<ObjStorageClient> client = g_mock_obj_provider_client;
-    S3ClientFactory::instance().set_client_creator_for_test(
-            [client](const S3ClientConf&) { return client; });
+    io::ObjClientFactory::instance().set_client_creator_for_test(
+            [client](const io::ObjClientConfig&) { return client; });
 
     auto* sp = SyncPoint::get_instance();
     sp->enable_processing();
@@ -369,7 +371,7 @@ void install_mock_environment() {
 }
 
 void remove_mock_environment() {
-    S3ClientFactory::instance().clear_client_creator_for_test();
+    io::ObjClientFactory::instance().set_client_creator_for_test(nullptr);
     g_mock_obj_provider_client.reset();
 
     auto* sp = SyncPoint::get_instance();
@@ -429,7 +431,7 @@ private:
 class MockRemoteFileSystem : public FileSystem {
 public:
     MockRemoteFileSystem(MockS3Store* store, std::string bucket, std::string prefix = {})
-            : FileSystem("mock_remote_fs", FileSystemType::S3),
+            : FileSystem("mock_remote_fs", FileSystemType::OBJECT_STORAGE),
               _store(store),
               _bucket(std::move(bucket)),
               _prefix(std::move(prefix)) {}
@@ -574,14 +576,9 @@ protected:
         reset_mock_s3_store();
         ensure_non_block_close_pool();
         ensure_s3_upload_pool();
-        S3Conf s3_conf;
-        s3_conf.bucket = "mock-bucket";
-        s3_conf.prefix = "merge-file-concurrency";
-        s3_conf.client_conf.ak = "ak";
-        s3_conf.client_conf.sk = "sk";
-        s3_conf.client_conf.endpoint = "http://endpoint";
-        s3_conf.client_conf.region = "region";
-        auto fs_or = S3FileSystem::create(s3_conf, FileSystem::TMP_FS_ID);
+        ObjStorageConfig s3_conf = make_test_s3_storage_config(
+                "mock-bucket", "merge-file-concurrency", "http://endpoint", "region", "ak", "sk");
+        auto fs_or = ObjStorageFileSystem::create(s3_conf, FileSystem::TMP_FS_ID);
         ASSERT_TRUE(fs_or.has_value()) << fs_or.error();
         _s3_fs = fs_or.value();
         g_remote_file_system = std::make_shared<MockRemoteFileSystem>(
@@ -627,7 +624,7 @@ protected:
         reset_manager_state(PackedFileManager::instance());
     }
 
-    static std::shared_ptr<S3FileSystem> _s3_fs;
+    static std::shared_ptr<ObjStorageFileSystem> _s3_fs;
 
 private:
     int64_t _old_small_threshold = 0;
@@ -637,7 +634,7 @@ private:
     bool _old_enable_file_cache = false;
 };
 
-std::shared_ptr<S3FileSystem> MergeFileConcurrencyTest::_s3_fs;
+std::shared_ptr<ObjStorageFileSystem> MergeFileConcurrencyTest::_s3_fs;
 
 TEST_F(MergeFileConcurrencyTest, ConcurrentWriteReadCorrectness) {
     auto* manager = PackedFileManager::instance();

@@ -145,9 +145,22 @@ struct ObjStorageListPageResult {
     bool has_more = false;
 };
 
+// What a coordinator must support to complete an upload that this client stages but does not
+// complete itself. A Hive write defers completion: BE stages every file and the FE coordinator
+// completes them all at commit, so the files appear together.
+enum class ObjStorageDeferredCompletion : uint8_t {
+    // Any coordinator: an S3 multipart upload is completed from its upload id and part ETags.
+    ANY_COORDINATOR,
+    // A coordinator that completes namespaced block ids (Azure block blobs). Completing them
+    // with an older coordinator could corrupt the blob, so the writer must check first.
+    NAMESPACED_BLOCK_IDS,
+};
+
 struct ObjStorageCapabilities {
     size_t max_delete_batch = 1;
     size_t max_list_page = 1000;
+    ObjStorageDeferredCompletion deferred_completion =
+            ObjStorageDeferredCompletion::ANY_COORDINATOR;
 };
 
 using ObjStorageDeleteTask = std::function<ObjStorageResponse()>;

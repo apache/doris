@@ -28,8 +28,8 @@
 #include "io/cache/file_block.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_system.h"
+#include "io/fs/obj_storage_file_system.h"
 #include "io/fs/path.h"
-#include "io/fs/s3_file_system.h"
 
 namespace doris {
 class RuntimeProfile;

@@ -96,7 +96,7 @@ Status VIcebergPartitionWriter::open(RuntimeState* state, RuntimeProfile* profil
     _path = _write_info.location.write_path(_get_target_file_name());
     io::FileDescription file_description = {.path = _path, .fs_name {}};
     _fs = DORIS_TRY(FileFactory::create_fs(fs_properties, file_description));
-    io::FileWriterOptions file_writer_options = {.used_by_s3_committer = false};
+    io::FileWriterOptions file_writer_options = {.deferred_completion = false};
 
     Status open_status;
     switch (_file_format_type) {

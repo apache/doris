@@ -79,7 +79,7 @@ Status VIcebergDeleteFileWriter::open(RuntimeState* state, RuntimeProfile* profi
     io::FileDescription file_description = {.path = _write_path, .fs_name {}};
     _fs = DORIS_TRY(FileFactory::create_fs(fs_properties, file_description));
 
-    io::FileWriterOptions file_writer_options = {.used_by_s3_committer = false};
+    io::FileWriterOptions file_writer_options = {.deferred_completion = false};
 
     // Create file format transformer based on format type
     switch (_file_format) {
