@@ -42,8 +42,12 @@ protected:
         ::mkdir(_dir.c_str(), 0755);
 
         SystemDictInput sys;
-        sys.surfaces.push_back({"\xE6\x9D\xB1", {{1, 1, 100, "f-east"}}});             // U+6771
-        sys.surfaces.push_back({"\xE6\x9D\xB1\xE4\xBA\xAC", {{2, 2, 50, "f-tokyo"}}}); // Tokyo
+        sys.surfaces.push_back(
+                {"\xE6\x9D\xB1",
+                 {{.left_id = 1, .right_id = 1, .word_cost = 100, .feature = "f-east"}}}); // U+6771
+        sys.surfaces.push_back(
+                {"\xE6\x9D\xB1\xE4\xBA\xAC",
+                 {{.left_id = 2, .right_id = 2, .word_cost = 50, .feature = "f-tokyo"}}}); // Tokyo
         ASSERT_TRUE(KuromojiDictionaryBuilder::write_system(_dir + "/system.bin", sys).ok());
 
         MatrixInput m;
@@ -55,9 +59,11 @@ protected:
         CharDefInput cd;
         cd.catmap.fill(CAT_DEFAULT);
         cd.catmap[0x6771] = CAT_KANJI; // U+6771
-        cd.defs.assign(CAT_CLASS_COUNT, CategoryDef {0, 0, 0});
-        cd.defs[CAT_DEFAULT] = CategoryDef {1, 1, 0}; // invoke=1, group=1
-        cd.defs[CAT_KANJI] = CategoryDef {0, 0, 2};   // invoke=0, group=0
+        cd.defs.assign(CAT_CLASS_COUNT, CategoryDef {.invoke = 0, .group = 0, .length = 0});
+        cd.defs[CAT_DEFAULT] =
+                CategoryDef {.invoke = 1, .group = 1, .length = 0}; // invoke=1, group=1
+        cd.defs[CAT_KANJI] =
+                CategoryDef {.invoke = 0, .group = 0, .length = 2}; // invoke=0, group=0
         ASSERT_TRUE(KuromojiDictionaryBuilder::write_chardef(_dir + "/chardef.bin", cd).ok());
 
         UnkDictInput unk;
@@ -67,6 +73,8 @@ protected:
     }
 };
 
+// Check dictionary metadata and prefix lookups against the same loaded fixture.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
 TEST_F(KuromojiDictionaryTest, LoadAndQuery) {
     std::unique_ptr<KuromojiDictionary> dict;
     ASSERT_TRUE(KuromojiDictionary::load(_dir, &dict).ok());
@@ -137,8 +145,8 @@ TEST_F(KuromojiDictionaryTest, RejectsOutOfRangeCatmap) {
     CharDefInput cd;
     cd.catmap.fill(CAT_DEFAULT);
     cd.catmap[U'A'] = CAT_CLASS_COUNT;
-    cd.defs.assign(CAT_CLASS_COUNT, CategoryDef {0, 0, 0});
-    cd.defs[CAT_DEFAULT] = CategoryDef {1, 1, 0};
+    cd.defs.assign(CAT_CLASS_COUNT, CategoryDef {.invoke = 0, .group = 0, .length = 0});
+    cd.defs[CAT_DEFAULT] = CategoryDef {.invoke = 1, .group = 1, .length = 0};
     ASSERT_TRUE(KuromojiDictionaryBuilder::write_chardef(_dir + "/chardef.bin", cd).ok());
     std::unique_ptr<KuromojiDictionary> dict;
     EXPECT_FALSE(KuromojiDictionary::load(_dir, &dict).ok());

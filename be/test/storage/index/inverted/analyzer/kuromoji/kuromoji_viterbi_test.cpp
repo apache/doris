@@ -50,9 +50,14 @@ protected:
         // Lexicon: single chars cost 1000 each; the compound "Tokyo" costs 100.
         // With an all-zero connection matrix, the min-cost path must pick "Tokyo".
         SystemDictInput sys;
-        sys.surfaces.push_back({TOU, {{1, 1, 1000, "noun,East"}}});
-        sys.surfaces.push_back({KYO, {{1, 1, 1000, "noun,Capital"}}});
-        sys.surfaces.push_back({TOU + KYO, {{1, 1, 100, "noun,Tokyo"}}});
+        sys.surfaces.push_back(
+                {TOU, {{.left_id = 1, .right_id = 1, .word_cost = 1000, .feature = "noun,East"}}});
+        sys.surfaces.push_back(
+                {KYO,
+                 {{.left_id = 1, .right_id = 1, .word_cost = 1000, .feature = "noun,Capital"}}});
+        sys.surfaces.push_back(
+                {TOU + KYO,
+                 {{.left_id = 1, .right_id = 1, .word_cost = 100, .feature = "noun,Tokyo"}}});
         ASSERT_TRUE(KuromojiDictionaryBuilder::write_system(_dir + "/system.bin", sys).ok());
 
         MatrixInput m;
@@ -66,9 +71,11 @@ protected:
         cd.catmap[0x6771] = CAT_KANJI; // U+6771
         cd.catmap[0x4EAC] = CAT_KANJI; // U+4EAC
         cd.catmap[0x5E9C] = CAT_KANJI; // U+5E9C (not in lexicon -> unknown)
-        cd.defs.assign(CAT_CLASS_COUNT, CategoryDef {0, 0, 0});
-        cd.defs[CAT_KANJI] = CategoryDef {0, 0, 0};   // invoke=0, group=0 -> single-char unknown
-        cd.defs[CAT_DEFAULT] = CategoryDef {1, 1, 0}; // invoke=1, group=1
+        cd.defs.assign(CAT_CLASS_COUNT, CategoryDef {.invoke = 0, .group = 0, .length = 0});
+        cd.defs[CAT_KANJI] = CategoryDef {
+                .invoke = 0, .group = 0, .length = 0}; // invoke=0, group=0 -> single-char unknown
+        cd.defs[CAT_DEFAULT] =
+                CategoryDef {.invoke = 1, .group = 1, .length = 0}; // invoke=1, group=1
         ASSERT_TRUE(KuromojiDictionaryBuilder::write_chardef(_dir + "/chardef.bin", cd).ok());
 
         UnkDictInput unk;
@@ -135,7 +142,7 @@ TEST_F(KuromojiViterbiTest, AllUnknown) {
 TEST_F(KuromojiViterbiTest, TokenizerUsesDictionary) {
     const std::string s = TOU + KYO + FU;
     lucene::util::SStringReader<char> reader;
-    reader.init(s.data(), s.size(), false);
+    reader.init(s.data(), static_cast<int32_t>(s.size()), false);
 
     KuromojiTokenizer tk(KuromojiMode::Search, true, false, _dict.get());
     tk.reset(&reader);
@@ -168,13 +175,22 @@ protected:
 
         // Single kanji cost 1000 each; compounds "Tokyo Metropolis" and "U+5C71U+5DDD" cost 100.
         SystemDictInput sys;
-        sys.surfaces.push_back({TOU, {{1, 1, 1000, "noun"}}});
-        sys.surfaces.push_back({KYO, {{1, 1, 1000, "noun"}}});
-        sys.surfaces.push_back({TO, {{1, 1, 1000, "noun"}}});
-        sys.surfaces.push_back({YAMA, {{1, 1, 1000, "noun"}}});
-        sys.surfaces.push_back({KAWA, {{1, 1, 1000, "noun"}}});
-        sys.surfaces.push_back({TOU + KYO + TO, {{1, 1, 100, "noun"}}});
-        sys.surfaces.push_back({YAMA + KAWA, {{1, 1, 100, "noun"}}});
+        sys.surfaces.push_back(
+                {TOU, {{.left_id = 1, .right_id = 1, .word_cost = 1000, .feature = "noun"}}});
+        sys.surfaces.push_back(
+                {KYO, {{.left_id = 1, .right_id = 1, .word_cost = 1000, .feature = "noun"}}});
+        sys.surfaces.push_back(
+                {TO, {{.left_id = 1, .right_id = 1, .word_cost = 1000, .feature = "noun"}}});
+        sys.surfaces.push_back(
+                {YAMA, {{.left_id = 1, .right_id = 1, .word_cost = 1000, .feature = "noun"}}});
+        sys.surfaces.push_back(
+                {KAWA, {{.left_id = 1, .right_id = 1, .word_cost = 1000, .feature = "noun"}}});
+        sys.surfaces.push_back(
+                {TOU + KYO + TO,
+                 {{.left_id = 1, .right_id = 1, .word_cost = 100, .feature = "noun"}}});
+        sys.surfaces.push_back(
+                {YAMA + KAWA,
+                 {{.left_id = 1, .right_id = 1, .word_cost = 100, .feature = "noun"}}});
         ASSERT_TRUE(KuromojiDictionaryBuilder::write_system(_dir + "/system.bin", sys).ok());
 
         MatrixInput m;
@@ -190,9 +206,9 @@ protected:
         cd.catmap[0x90FD] = CAT_KANJI; // U+90FD
         cd.catmap[0x5C71] = CAT_KANJI; // U+5C71
         cd.catmap[0x5DDD] = CAT_KANJI; // U+5DDD
-        cd.defs.assign(CAT_CLASS_COUNT, CategoryDef {0, 0, 0});
-        cd.defs[CAT_KANJI] = CategoryDef {0, 0, 0};
-        cd.defs[CAT_DEFAULT] = CategoryDef {1, 1, 0};
+        cd.defs.assign(CAT_CLASS_COUNT, CategoryDef {.invoke = 0, .group = 0, .length = 0});
+        cd.defs[CAT_KANJI] = CategoryDef {.invoke = 0, .group = 0, .length = 0};
+        cd.defs[CAT_DEFAULT] = CategoryDef {.invoke = 1, .group = 1, .length = 0};
         ASSERT_TRUE(KuromojiDictionaryBuilder::write_chardef(_dir + "/chardef.bin", cd).ok());
 
         UnkDictInput unk;

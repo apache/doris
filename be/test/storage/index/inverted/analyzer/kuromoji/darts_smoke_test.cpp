@@ -31,7 +31,7 @@ namespace doris::segment_v2::inverted_index::kuromoji {
 // will use). "U+6771"(E6 9D B1), "U+4EAC"(E4 BA AC), "Tokyo"(E6 9D B1 E4 BA AC).
 TEST(DartsSmokeTest, BuildAndCommonPrefixSearch) {
     std::vector<std::string> keys = {"\xE4\xBA\xAC", "\xE6\x9D\xB1", "\xE6\x9D\xB1\xE4\xBA\xAC"};
-    std::sort(keys.begin(), keys.end()); // Darts requires byte-sorted keys
+    std::ranges::sort(keys); // Darts requires byte-sorted keys
 
     std::vector<const char*> kptrs;
     std::vector<std::size_t> klens;

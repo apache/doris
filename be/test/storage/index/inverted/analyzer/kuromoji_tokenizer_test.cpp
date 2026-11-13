@@ -32,7 +32,7 @@ TEST(KuromojiTokenizerTest, RequiresDictionary) {
     KuromojiTokenizer tk(KuromojiMode::Search, true, false); // no dictionary
     std::string s = "東京都";
     lucene::util::SStringReader<char> reader;
-    reader.init(s.data(), s.size(), false);
+    reader.init(s.data(), static_cast<int32_t>(s.size()), false);
     EXPECT_ANY_THROW(tk.reset(&reader));
 }
 

@@ -21,6 +21,7 @@
 #include <sys/stat.h>
 
 #include <string>
+#include <utility>
 
 #include "storage/index/inverted/analyzer/kuromoji/dict/kuromoji_dict_format.h"
 
@@ -28,7 +29,7 @@ namespace doris::segment_v2::inverted_index::kuromoji {
 
 static bool file_nonempty(const std::string& p) {
     struct stat st {};
-    return ::stat(p.c_str(), &st) == 0 && st.st_size > static_cast<off_t>(sizeof(KmjFileHeader));
+    return ::stat(p.c_str(), &st) == 0 && std::cmp_greater(st.st_size, sizeof(KmjFileHeader));
 }
 
 TEST(KuromojiDictionaryBuilderTest, WritesFourFiles) {
@@ -36,8 +37,12 @@ TEST(KuromojiDictionaryBuilderTest, WritesFourFiles) {
     ::mkdir(dir.c_str(), 0755);
 
     SystemDictInput sys;
-    sys.surfaces.push_back({"\xE6\x9D\xB1", {{1, 1, 100, "POS,East"}}});             // U+6771
-    sys.surfaces.push_back({"\xE6\x9D\xB1\xE4\xBA\xAC", {{2, 2, 50, "POS,Tokyo"}}}); // Tokyo
+    sys.surfaces.push_back(
+            {"\xE6\x9D\xB1",
+             {{.left_id = 1, .right_id = 1, .word_cost = 100, .feature = "POS,East"}}}); // U+6771
+    sys.surfaces.push_back(
+            {"\xE6\x9D\xB1\xE4\xBA\xAC",
+             {{.left_id = 2, .right_id = 2, .word_cost = 50, .feature = "POS,Tokyo"}}}); // Tokyo
     ASSERT_TRUE(KuromojiDictionaryBuilder::write_system(dir + "/system.bin", sys).ok());
 
     MatrixInput m;
@@ -49,8 +54,8 @@ TEST(KuromojiDictionaryBuilderTest, WritesFourFiles) {
     CharDefInput cd;
     cd.catmap.fill(CAT_DEFAULT);
     cd.catmap[0x6771] = CAT_KANJI; // U+6771
-    cd.defs.assign(CAT_CLASS_COUNT, CategoryDef {0, 0, 0});
-    cd.defs[CAT_DEFAULT] = CategoryDef {1, 1, 0};
+    cd.defs.assign(CAT_CLASS_COUNT, CategoryDef {.invoke = 0, .group = 0, .length = 0});
+    cd.defs[CAT_DEFAULT] = CategoryDef {.invoke = 1, .group = 1, .length = 0};
     ASSERT_TRUE(KuromojiDictionaryBuilder::write_chardef(dir + "/chardef.bin", cd).ok());
 
     UnkDictInput unk;
