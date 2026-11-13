@@ -121,27 +121,11 @@ struct ValidationRows {
     }
 };
 
-Status validate_column(MutableColumnPtr& column, const DataTypePtr& type,
-                       TabletValidateContext& context, const ValidationRows& rows);
+Result<ColumnPtr> validate_column(const ColumnPtr& column, const DataTypePtr& type,
+                                  TabletValidateContext& context, const ValidationRows& rows);
 
-// The public entry has already detached the tree. Transfer an existing unique
-// owner across a ColumnPtr storage boundary without running COW again.
-MutableColumnPtr take_writable_column(ColumnPtr& column) {
-    auto writable = column->assert_mutable();
-    column.reset();
-    return writable;
-}
-
-Status validate_child(ColumnPtr& slot, const DataTypePtr& type, TabletValidateContext& context,
-                      const ValidationRows& rows) {
-    auto child = take_writable_column(slot);
-    // Keep the parent's structure intact on non-OK Status and exception paths too.
-    Defer restore_child {[&] { slot = std::move(child); }};
-    return validate_column(child, type, context, rows);
-}
-
-Status validate_string(MutableColumnPtr& column, const DataTypePtr& type,
-                       TabletValidateContext& context, const ValidationRows& rows) {
+Result<ColumnPtr> validate_string(ColumnPtr column, const DataTypePtr& type,
+                                  TabletValidateContext& context, const ValidationRows& rows) {
     int limit = config::string_type_length_soft_limit_bytes;
     int len = -1;
     const auto* type_str = check_and_get_data_type<DataTypeString>(type.get());
@@ -157,7 +141,7 @@ Status validate_string(MutableColumnPtr& column, const DataTypePtr& type,
         invalid_count += rows.should_validate(i, context) && offsets[i] - offsets[i - 1] > limit;
     }
     if (!invalid_count) {
-        return Status::OK();
+        return column;
     }
 
     // Non-strict loads truncate in characters, but the tablet limit is in bytes.
@@ -171,7 +155,7 @@ Status validate_string(MutableColumnPtr& column, const DataTypePtr& type,
         auto function = SimpleFunctionFactory::instance().get_function(
                 "substring", arguments, type, {}, context.state->be_exec_version());
         if (!function) {
-            return Status::InternalError("get function substring failed");
+            return ResultError(Status::InternalError("get function substring failed"));
         }
         ColumnPtr result;
         {
@@ -182,11 +166,10 @@ Status validate_string(MutableColumnPtr& column, const DataTypePtr& type,
                          {pos, int_type, "pos"},
                          {length, int_type, "len"},
                          {nullptr, type, "result"}});
-            RETURN_IF_ERROR(function->execute(nullptr, block, {0, 1, 2}, 3, size));
+            RETURN_IF_ERROR_RESULT(function->execute(nullptr, block, {0, 1, 2}, 3, size));
             result = std::move(block.get_by_position(3).column);
         }
-        // Drop the function's borrowed input owners before using the replacement.
-        column = take_writable_column(result);
+        column = std::move(result);
     }
 
     const auto& checked = assert_cast<const ColumnString&>(*column);
@@ -207,10 +190,10 @@ Status validate_string(MutableColumnPtr& column, const DataTypePtr& type,
                 fmt::format_to(message, "schema length: {}; limit length: {}; actual length: {}; ",
                                len, limit, value.size);
             }
-            RETURN_IF_ERROR(context.reject(rows.original_row(i), message));
+            RETURN_IF_ERROR_RESULT(context.reject(rows.original_row(i), message));
         }
     }
-    return Status::OK();
+    return column;
 }
 
 Status validate_jsonb(const ColumnString& column, TabletValidateContext& context,
@@ -225,12 +208,14 @@ Status validate_jsonb(const ColumnString& column, TabletValidateContext& context
     return Status::OK();
 }
 
-Status validate_decimal_v2(ColumnDecimal128V2& column, const DataTypePtr& type,
-                           TabletValidateContext& context, const ValidationRows& rows) {
+Result<ColumnPtr> validate_decimal_v2(const ColumnPtr& input, const DataTypePtr& type,
+                                      TabletValidateContext& context, const ValidationRows& rows) {
     // DecimalV2 is deprecated. Preserve its historical validation using execution
     // precision/scale (27, 9), rather than the original schema parameters. For
     // example, DECIMAL(9, 2) still validates 1.235 at scale 9 here; enforcing the
     // declared scale and range is outside this COW refactoring.
+    const auto& column = assert_cast<const ColumnDecimal128V2&>(*input);
+    MutableColumnPtr rewritten;
     const auto precision = type->get_precision();
     const auto scale = type->get_scale();
     const auto max = get_decimalv2_min_or_max<false>(context, type);
@@ -243,7 +228,10 @@ Status validate_decimal_v2(ColumnDecimal128V2& column, const DataTypePtr& type,
         fmt::memory_buffer message;
         if (value.greater_than_scale(scale)) {
             auto code = value.round(&value, scale, HALF_UP);
-            column.get_data()[i] = value;
+            if (!rewritten) {
+                rewritten = column.clone();
+            }
+            assert_cast<ColumnDecimal128V2&>(*rewritten).get_data()[i] = value;
             if (code != E_DEC_OK) {
                 fmt::format_to(message, "round one decimal failed.value={}; ", value.to_string());
             }
@@ -255,10 +243,10 @@ Status validate_decimal_v2(ColumnDecimal128V2& column, const DataTypePtr& type,
                            value.to_string(), precision, scale, min.to_string(), max.to_string());
         }
         if (message.size()) {
-            RETURN_IF_ERROR(context.reject(rows.original_row(i), message));
+            RETURN_IF_ERROR_RESULT(context.reject(rows.original_row(i), message));
         }
     }
-    return Status::OK();
+    return rewritten ? ColumnPtr(std::move(rewritten)) : input;
 }
 
 // DecimalV3 needs only a range check; use one template instead of four macro bodies.
@@ -318,44 +306,66 @@ struct NestedRows {
     }
 };
 
-Status validate_array(ColumnArray& column, const DataTypeArray& type,
-                      TabletValidateContext& context, const ValidationRows& rows) {
+Result<ColumnPtr> validate_array(const ColumnArray& column, const DataTypeArray& type,
+                                 TabletValidateContext& context, const ValidationRows& rows) {
     NestedRows nested(column.get_offsets(), rows);
     const auto prefix_size = context.error_prefix.size();
     Defer restore_prefix {[&] { context.error_prefix.resize(prefix_size); }};
     fmt::format_to(context.error_prefix, "ARRAY type failed: ");
-    return validate_child(column.get_data_ptr(), type.get_nested_type(), context, nested.view());
+    auto data =
+            validate_column(column.get_data_ptr(), type.get_nested_type(), context, nested.view());
+    if (!data) {
+        return unexpected(std::move(data.error()));
+    }
+    return ColumnPtr(ColumnArray::create(data.value(), column.get_offsets_ptr()));
 }
 
-Status validate_map(ColumnMap& column, const DataTypeMap& type, TabletValidateContext& context,
-                    const ValidationRows& rows) {
-    // The dispatcher visits every nested map itself. Recursive deduplication here
-    // would revisit those maps and acquire mutable owners a second time.
-    RETURN_IF_ERROR(column.deduplicate_keys(false));
+Result<ColumnPtr> validate_map(const ColumnMap& input, const DataTypeMap& type,
+                               TabletValidateContext& context, const ValidationRows& rows) {
+    // Deduplication changes only this new shell. The existing implementation
+    // detaches child data only when duplicate keys require filtering.
+    auto result = ColumnMap::create(input.get_keys_ptr(), input.get_values_ptr(),
+                                    input.get_offsets_ptr());
+    RETURN_IF_ERROR_RESULT(result->deduplicate_keys(false));
+    const auto& column = *result;
     NestedRows nested(column.get_offsets(), rows);
     const auto prefix_size = context.error_prefix.size();
     Defer restore_prefix {[&] { context.error_prefix.resize(prefix_size); }};
     fmt::format_to(context.error_prefix, "MAP type failed: ");
-    RETURN_IF_ERROR(
-            validate_child(column.get_keys_ptr(), type.get_key_type(), context, nested.view()));
-    return validate_child(column.get_values_ptr(), type.get_value_type(), context, nested.view());
+    auto keys = validate_column(column.get_keys_ptr(), type.get_key_type(), context, nested.view());
+    if (!keys) {
+        return unexpected(std::move(keys.error()));
+    }
+    auto values =
+            validate_column(column.get_values_ptr(), type.get_value_type(), context, nested.view());
+    if (!values) {
+        return unexpected(std::move(values.error()));
+    }
+    result->get_keys_ptr() = std::move(keys.value());
+    result->get_values_ptr() = std::move(values.value());
+    return ColumnPtr(std::move(result));
 }
 
-Status validate_struct(ColumnStruct& column, const DataTypeStruct& type,
-                       TabletValidateContext& context, const ValidationRows& rows) {
+Result<ColumnPtr> validate_struct(const ColumnStruct& column, const DataTypeStruct& type,
+                                  TabletValidateContext& context, const ValidationRows& rows) {
     DCHECK_EQ(type.get_elements().size(), column.tuple_size());
     const auto prefix_size = context.error_prefix.size();
     Defer restore_prefix {[&] { context.error_prefix.resize(prefix_size); }};
     fmt::format_to(context.error_prefix, "STRUCT type failed: ");
+    Columns children;
+    children.reserve(column.tuple_size());
     for (size_t i = 0; i < column.tuple_size(); ++i) {
-        RETURN_IF_ERROR(
-                validate_child(column.get_column_ptr(i), type.get_element(i), context, rows));
+        auto child = validate_column(column.get_column_ptr(i), type.get_element(i), context, rows);
+        if (!child) {
+            return unexpected(std::move(child.error()));
+        }
+        children.push_back(std::move(child.value()));
     }
-    return Status::OK();
+    return ColumnPtr(ColumnStruct::create(std::move(children)));
 }
 
-Status validate_nullable(ColumnNullable& column, const DataTypePtr& type,
-                         TabletValidateContext& context, const ValidationRows& rows) {
+Result<ColumnPtr> validate_nullable(const ColumnNullable& column, const DataTypePtr& type,
+                                    TabletValidateContext& context, const ValidationRows& rows) {
     const auto& null_map = column.get_null_map_data();
     // A physically nullable column can target NOT NULL (including BITMAP). NULLs
     // beneath a NULL ancestor do not represent values being written to that target.
@@ -365,7 +375,7 @@ Status validate_nullable(ColumnNullable& column, const DataTypePtr& type,
                 fmt::memory_buffer message;
                 fmt::format_to(message, "null value for not null column, type={}",
                                type->get_name());
-                RETURN_IF_ERROR(context.reject(rows.original_row(i), message));
+                RETURN_IF_ERROR_RESULT(context.reject(rows.original_row(i), message));
             }
         }
     }
@@ -378,15 +388,19 @@ Status validate_nullable(ColumnNullable& column, const DataTypePtr& type,
         }
         effective_null_map = combined.data();
     }
-    return validate_child(column.get_nested_column_ptr_ref(), remove_nullable(type), context,
-                          {.rows = rows.rows, .null_map = effective_null_map});
+    auto nested = validate_column(column.get_nested_column_ptr(), remove_nullable(type), context,
+                                  {.rows = rows.rows, .null_map = effective_null_map});
+    if (!nested) {
+        return unexpected(std::move(nested.error()));
+    }
+    return ColumnPtr(ColumnNullable::create(nested.value(), column.get_null_map_column_ptr()));
 }
 
-Status validate_column(MutableColumnPtr& column, const DataTypePtr& type,
-                       TabletValidateContext& context, const ValidationRows& rows) {
+Result<ColumnPtr> validate_column(const ColumnPtr& column, const DataTypePtr& type,
+                                  TabletValidateContext& context, const ValidationRows& rows) {
     DCHECK(!rows.rows || rows.rows->size() == column->size());
-    auto& writable = *column;
-    if (auto* nullable = check_and_get_column<ColumnNullable>(writable)) {
+    const auto& source = *column;
+    if (const auto* nullable = check_and_get_column<ColumnNullable>(source)) {
         return validate_nullable(*nullable, type, context, rows);
     }
     // A non-nullable input can target Nullable(T); physical nullability is
@@ -398,57 +412,64 @@ Status validate_column(MutableColumnPtr& column, const DataTypePtr& type,
     case TYPE_STRING:
         return validate_string(column, nested_type, context, rows);
     case TYPE_JSONB:
-        return validate_jsonb(assert_cast<const ColumnString&>(writable), context, rows);
+        RETURN_IF_ERROR_RESULT(
+                validate_jsonb(assert_cast<const ColumnString&>(source), context, rows));
+        return column;
     case TYPE_DECIMALV2:
-        return validate_decimal_v2(assert_cast<ColumnDecimal128V2&>(writable), nested_type, context,
-                                   rows);
+        return validate_decimal_v2(column, nested_type, context, rows);
     case TYPE_DECIMAL32:
-        return validate_decimal_v3<Decimal32>(assert_cast<const ColumnDecimal32&>(writable),
-                                              nested_type, context, rows);
+        RETURN_IF_ERROR_RESULT(validate_decimal_v3<Decimal32>(
+                assert_cast<const ColumnDecimal32&>(source), nested_type, context, rows));
+        return column;
     case TYPE_DECIMAL64:
-        return validate_decimal_v3<Decimal64>(assert_cast<const ColumnDecimal64&>(writable),
-                                              nested_type, context, rows);
+        RETURN_IF_ERROR_RESULT(validate_decimal_v3<Decimal64>(
+                assert_cast<const ColumnDecimal64&>(source), nested_type, context, rows));
+        return column;
     case TYPE_DECIMAL128I:
-        return validate_decimal_v3<Decimal128V3>(assert_cast<const ColumnDecimal128V3&>(writable),
-                                                 nested_type, context, rows);
+        RETURN_IF_ERROR_RESULT(validate_decimal_v3<Decimal128V3>(
+                assert_cast<const ColumnDecimal128V3&>(source), nested_type, context, rows));
+        return column;
     case TYPE_DECIMAL256:
-        return validate_decimal_v3<Decimal256>(assert_cast<const ColumnDecimal256&>(writable),
-                                               nested_type, context, rows);
+        RETURN_IF_ERROR_RESULT(validate_decimal_v3<Decimal256>(
+                assert_cast<const ColumnDecimal256&>(source), nested_type, context, rows));
+        return column;
     case TYPE_ARRAY:
-        return validate_array(assert_cast<ColumnArray&>(writable),
+        return validate_array(assert_cast<const ColumnArray&>(source),
                               assert_cast<const DataTypeArray&>(*nested_type), context, rows);
     case TYPE_MAP:
-        return validate_map(assert_cast<ColumnMap&>(writable),
+        return validate_map(assert_cast<const ColumnMap&>(source),
                             assert_cast<const DataTypeMap&>(*nested_type), context, rows);
     case TYPE_STRUCT:
-        return validate_struct(assert_cast<ColumnStruct&>(writable),
+        return validate_struct(assert_cast<const ColumnStruct&>(source),
                                assert_cast<const DataTypeStruct&>(*nested_type), context, rows);
     case TYPE_AGG_STATE:
         // Some aggregate states are serialized into a ColumnString.
-        if (check_and_get_column<ColumnString>(writable)) {
+        if (check_and_get_column<ColumnString>(source)) {
             return validate_string(column, nested_type, context, rows);
         }
-        return Status::OK();
+        return column;
     default:
-        return Status::OK();
+        return column;
     }
 }
 
 } // namespace
 
-Result<ColumnPtr> tablet_validate_column(ColumnPtr column, const DataTypePtr& type,
+Result<ColumnPtr> tablet_validate_column(const ColumnPtr& column, const DataTypePtr& type,
                                          TabletValidateContext& context) {
-    MutableColumnPtr result;
+    ColumnPtr result;
     auto validate = [&]() -> Status {
         RETURN_IF_CATCH_EXCEPTION({
-            // Only this boundary performs COW. Recursion borrows the resulting
-            // writable slots, so a unique Struct and its unique fields stay unique.
-            result = IColumn::mutate(std::move(column));
-            return validate_column(result, type, context, {});
+            auto checked = validate_column(column, type, context, {});
+            if (!checked) {
+                return std::move(checked.error());
+            }
+            result = std::move(checked.value());
+            return Status::OK();
         });
     };
     RETURN_IF_ERROR_RESULT(validate());
-    return ColumnPtr(std::move(result));
+    return result;
 }
 
 } // namespace doris

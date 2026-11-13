@@ -53,9 +53,9 @@ struct TabletValidateContext {
     std::map<int, wide::Int256> max_decimal256_val;
 };
 
-// Consumes a full (non-const) column. Detach shared nodes once at the boundary;
-// recursive validation then borrows writable child slots without adding owners.
-Result<ColumnPtr> tablet_validate_column(ColumnPtr column, const DataTypePtr& type,
+// Validate a full (non-const) column without modifying its input tree. Scalar
+// checks reuse input storage; complex types build shells around validated children.
+Result<ColumnPtr> tablet_validate_column(const ColumnPtr& column, const DataTypePtr& type,
                                          TabletValidateContext& context);
 
 } // namespace doris

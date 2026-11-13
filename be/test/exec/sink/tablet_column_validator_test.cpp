@@ -48,12 +48,10 @@
 namespace doris {
 namespace {
 
-// Store only addresses and counts: the test must not introduce an extra owner
-// that would itself force COW while measuring the validator's ownership behavior.
+// Capture leaf storage without keeping owning pointers. Complex shells may change.
 struct StorageSnapshot {
     const IColumn* column;
     const void* data;
-    size_t references;
 };
 
 std::vector<StorageSnapshot> snapshot(const IColumn& column) {
@@ -72,9 +70,9 @@ std::vector<StorageSnapshot> snapshot(const IColumn& column) {
         } else if (const auto* decimals = check_and_get_column<ColumnDecimal128V2>(current)) {
             data = decimals->get_data().data();
         }
-        result.push_back({&current, data, current.use_count()});
+        result.push_back({&current, data});
         if (const auto* strings = check_and_get_column<ColumnString>(current)) {
-            result.push_back({&current, strings->get_offsets().data(), current.use_count()});
+            result.push_back({&current, strings->get_offsets().data()});
         } else if (const auto* nullable = check_and_get_column<ColumnNullable>(current)) {
             self(self, nullable->get_nested_column());
             self(self, nullable->get_null_map_column());
@@ -99,10 +97,10 @@ void expect_same_storage(const std::vector<StorageSnapshot>& before, const IColu
     const auto after = snapshot(column);
     ASSERT_EQ(before.size(), after.size());
     for (size_t i = 0; i < before.size(); ++i) {
-        EXPECT_EQ(before[i].column, after[i].column) << "node " << i;
-        EXPECT_EQ(before[i].data, after[i].data) << "node " << i;
-        EXPECT_EQ(before[i].references, 1) << "input node " << i;
-        EXPECT_EQ(after[i].references, 1) << "output node " << i;
+        if (before[i].data) {
+            EXPECT_EQ(before[i].column, after[i].column) << "leaf " << i;
+            EXPECT_EQ(before[i].data, after[i].data) << "leaf " << i;
+        }
     }
 }
 
@@ -149,9 +147,9 @@ protected:
         context.state = &state;
     }
 
-    Result<ColumnPtr> validate(ColumnPtr column, const DataTypePtr& type) {
+    Result<ColumnPtr> validate(const ColumnPtr& column, const DataTypePtr& type) {
         filter_map.assign(column->size(), 0);
-        return tablet_validate_column(std::move(column), type, context);
+        return tablet_validate_column(column, type, context);
     }
 
     RuntimeState state;
@@ -162,11 +160,12 @@ protected:
 TEST_F(TabletColumnValidatorTest, UniqueScalarKeepsObjectBufferAndReferenceCount) {
     ColumnPtr column = ints({7, 8});
     auto before = snapshot(*column);
-    column = TEST_TRY(validate(std::move(column), std::make_shared<DataTypeInt32>()));
+    column = TEST_TRY(validate(column, std::make_shared<DataTypeInt32>()));
     expect_same_storage(before, *column);
+    EXPECT_EQ(column->use_count(), 1);
 }
 
-TEST_F(TabletColumnValidatorTest, UniqueNullableArrayStructKeepsAllStorage) {
+TEST_F(TabletColumnValidatorTest, NullableArrayStructReusesLeafStorage) {
     ColumnPtr field = ColumnNullable::create(ints({7, 8}), ColumnUInt8::create(2, 0));
     auto tuple = ColumnStruct::create(Columns {std::move(field), strings({"a", "b"})});
     auto array = ColumnArray::create(std::move(tuple), offsets({0, 2}));
@@ -175,21 +174,21 @@ TEST_F(TabletColumnValidatorTest, UniqueNullableArrayStructKeepsAllStorage) {
             make_nullable(std::make_shared<DataTypeInt32>()), std::make_shared<DataTypeString>()});
     auto type = make_nullable(std::make_shared<DataTypeArray>(tuple_type));
     auto before = snapshot(*column);
-    column = TEST_TRY(validate(std::move(column), type));
+    column = TEST_TRY(validate(column, type));
     expect_same_storage(before, *column);
     EXPECT_EQ(filter_map, (std::vector<char> {0, 0}));
 }
 
-TEST_F(TabletColumnValidatorTest, UniqueMapWithoutDuplicatesKeepsAllStorage) {
+TEST_F(TabletColumnValidatorTest, MapWithoutDuplicatesReusesLeafStorage) {
     ColumnPtr column = ColumnMap::create(ints({1, 2}), ints({10, 20}), offsets({2}));
     auto type = std::make_shared<DataTypeMap>(std::make_shared<DataTypeInt32>(),
                                               std::make_shared<DataTypeInt32>());
     auto before = snapshot(*column);
-    column = TEST_TRY(validate(std::move(column), type));
+    column = TEST_TRY(validate(column, type));
     expect_same_storage(before, *column);
 }
 
-TEST_F(TabletColumnValidatorTest, StructOnlyDetachesSharedField) {
+TEST_F(TabletColumnValidatorTest, StructReusesSharedReadOnlyFields) {
     ColumnPtr shared = ints({7});
     ColumnPtr column = ColumnStruct::create(Columns {shared, ints({8}), strings({"a"})});
     const auto& tuple_before = assert_cast<const ColumnStruct&>(*column);
@@ -201,13 +200,13 @@ TEST_F(TabletColumnValidatorTest, StructOnlyDetachesSharedField) {
                                                             std::make_shared<DataTypeInt32>(),
                                                             std::make_shared<DataTypeString>()});
 
-    column = TEST_TRY(validate(std::move(column), type));
+    column = TEST_TRY(validate(column, type));
     const auto& tuple = assert_cast<const ColumnStruct&>(*column);
-    EXPECT_EQ(column.get(), parent_before);
-    EXPECT_NE(&tuple.get_column(0), shared.get());
-    EXPECT_NE(assert_cast<const ColumnInt32&>(tuple.get_column(0)).get_data().data(), shared_data);
+    EXPECT_NE(column.get(), parent_before);
+    EXPECT_EQ(&tuple.get_column(0), shared.get());
+    EXPECT_EQ(assert_cast<const ColumnInt32&>(tuple.get_column(0)).get_data().data(), shared_data);
     EXPECT_EQ(assert_cast<const ColumnInt32&>(tuple.get_column(0)).get_data()[0], 7);
-    EXPECT_EQ(shared->use_count(), 1);
+    EXPECT_EQ(shared->use_count(), 2);
     expect_same_storage(second_before, tuple.get_column(1));
     expect_same_storage(third_before, tuple.get_column(2));
 }
@@ -217,7 +216,7 @@ TEST_F(TabletColumnValidatorTest, DecimalV2PreservesLegacyScaleAndUniqueStorage)
     decimals->get_data().push_back(DecimalV2Value(std::string("1.235")).value());
     ColumnPtr column = std::move(decimals);
     auto before = snapshot(*column);
-    column = TEST_TRY(validate(std::move(column), decimal_v2_type()));
+    column = TEST_TRY(validate(column, decimal_v2_type()));
     expect_same_storage(before, *column);
     EXPECT_EQ(assert_cast<const ColumnDecimal128V2&>(*column).get_data()[0].value(),
               DecimalV2Value(std::string("1.235")).value());
@@ -231,7 +230,7 @@ TEST_F(TabletColumnValidatorTest, DecimalV2PrecisionEqualsScalePreservesLegacyVa
     // DECIMAL(2,2) still uses DecimalV2 execution precision 27 and scale 9.
     auto type =
             DataTypeFactory::instance().create_data_type(FieldType::OLAP_FIELD_TYPE_DECIMAL, 2, 2);
-    column = TEST_TRY(validate(std::move(column), type));
+    column = TEST_TRY(validate(column, type));
     expect_same_storage(before, *column);
     EXPECT_EQ(assert_cast<const ColumnDecimal128V2&>(*column).get_data()[0].value(),
               DecimalV2Value(std::string("1.235")).value());
@@ -243,7 +242,7 @@ TEST_F(TabletColumnValidatorTest, SharedNullableDecimalV2PreservesLegacyValue) {
     ColumnPtr column = ColumnNullable::create(std::move(decimals), ColumnUInt8::create(1, 0));
     ColumnPtr original = column;
     auto before = snapshot(*original);
-    column = TEST_TRY(validate(std::move(column), make_nullable(decimal_v2_type())));
+    column = TEST_TRY(validate(column, make_nullable(decimal_v2_type())));
     const auto& result = assert_cast<const ColumnNullable&>(*column);
     EXPECT_EQ(assert_cast<const ColumnDecimal128V2&>(result.get_nested_column())
                       .get_data()[0]
@@ -252,8 +251,6 @@ TEST_F(TabletColumnValidatorTest, SharedNullableDecimalV2PreservesLegacyValue) {
     const auto& old = assert_cast<const ColumnNullable&>(*original);
     EXPECT_EQ(assert_cast<const ColumnDecimal128V2&>(old.get_nested_column()).get_data()[0].value(),
               DecimalV2Value(std::string("1.235")).value());
-    // The root was shared before validation; its surviving owner is now unique.
-    before[0].references = 1;
     expect_same_storage(before, *original);
 }
 
@@ -262,7 +259,7 @@ TEST_F(TabletColumnValidatorTest, SharedMapColumnIsIsolated) {
     ColumnPtr original = column;
     auto type = std::make_shared<DataTypeMap>(std::make_shared<DataTypeInt32>(),
                                               std::make_shared<DataTypeInt32>());
-    column = TEST_TRY(validate(std::move(column), type));
+    column = TEST_TRY(validate(column, type));
     const auto& result = assert_cast<const ColumnMap&>(*column);
     const auto& old = assert_cast<const ColumnMap&>(*original);
     EXPECT_EQ(result.get_keys().size(), 1);
@@ -277,7 +274,7 @@ TEST_F(TabletColumnValidatorTest, StructInsideArrayReportsOriginalRow) {
     ColumnPtr column = ColumnArray::create(std::move(tuple), offsets({0, 1}));
     auto tuple_type =
             std::make_shared<DataTypeStruct>(DataTypes {std::make_shared<DataTypeJsonb>()});
-    column = TEST_TRY(validate(std::move(column), std::make_shared<DataTypeArray>(tuple_type)));
+    column = TEST_TRY(validate(column, std::make_shared<DataTypeArray>(tuple_type)));
     EXPECT_EQ(filter_map, (std::vector<char> {0, 1}));
     EXPECT_EQ(context.error_prefix.size(), 0);
 }
@@ -289,7 +286,7 @@ TEST_F(TabletColumnValidatorTest, NullArraySkipsInvalidElementPayload) {
     nulls->insert_value(0);
     ColumnPtr column = ColumnNullable::create(std::move(array), std::move(nulls));
     auto type = make_nullable(std::make_shared<DataTypeArray>(std::make_shared<DataTypeJsonb>()));
-    column = TEST_TRY(validate(std::move(column), type));
+    column = TEST_TRY(validate(column, type));
     EXPECT_EQ(filter_map, (std::vector<char> {0, 1}));
 }
 
@@ -306,7 +303,7 @@ TEST_F(TabletColumnValidatorTest, ParentAndChildNullMapsAreCombined) {
     ColumnPtr column = ColumnNullable::create(std::move(tuple), std::move(parent_nulls));
     auto type = make_nullable(std::make_shared<DataTypeStruct>(
             DataTypes {make_nullable(std::make_shared<DataTypeJsonb>())}));
-    column = TEST_TRY(validate(std::move(column), type));
+    column = TEST_TRY(validate(column, type));
     EXPECT_EQ(filter_map, (std::vector<char> {0, 0, 1}));
 }
 
@@ -316,7 +313,7 @@ TEST_F(TabletColumnValidatorTest, NullParentSkipsNotNullChildViolation) {
     ColumnPtr column = ColumnNullable::create(std::move(tuple), ColumnUInt8::create(1, 1));
     auto type = make_nullable(
             std::make_shared<DataTypeStruct>(DataTypes {std::make_shared<DataTypeInt32>()}));
-    column = TEST_TRY(validate(std::move(column), type));
+    column = TEST_TRY(validate(column, type));
     EXPECT_EQ(filter_map, (std::vector<char> {0}));
 }
 
@@ -328,9 +325,9 @@ TEST_F(TabletColumnValidatorTest, NonStrictTruncationReplacesOnlyNestedString) {
     const auto& old = assert_cast<const ColumnNullable&>(*column);
     const auto* original_nulls = old.get_null_map_data().data();
     auto type = make_nullable(std::make_shared<DataTypeString>(2, TYPE_VARCHAR));
-    column = TEST_TRY(validate(std::move(column), type));
+    column = TEST_TRY(validate(column, type));
     const auto& result = assert_cast<const ColumnNullable&>(*column);
-    EXPECT_EQ(column.get(), original_column);
+    EXPECT_NE(column.get(), original_column);
     EXPECT_EQ(result.get_null_map_data().data(), original_nulls);
     EXPECT_EQ(result.get_nested_column().get_data_at(0).to_string(), "ab");
     EXPECT_EQ(filter_map, (std::vector<char> {0}));
@@ -339,8 +336,7 @@ TEST_F(TabletColumnValidatorTest, NonStrictTruncationReplacesOnlyNestedString) {
 TEST_F(TabletColumnValidatorTest, StrictStringLengthFailurePreservesStorage) {
     ColumnPtr column = strings({"abcd"});
     auto before = snapshot(*column);
-    column = TEST_TRY(
-            validate(std::move(column), std::make_shared<DataTypeString>(2, TYPE_VARCHAR)));
+    column = TEST_TRY(validate(column, std::make_shared<DataTypeString>(2, TYPE_VARCHAR)));
     expect_same_storage(before, *column);
     EXPECT_EQ(filter_map, (std::vector<char> {1}));
 }
@@ -349,12 +345,12 @@ TEST_F(TabletColumnValidatorTest, EmptyNestedColumnsAreValid) {
     ColumnPtr column = ColumnArray::create(strings({}), offsets({0, 0}));
     auto before = snapshot(*column);
     auto type = std::make_shared<DataTypeArray>(std::make_shared<DataTypeJsonb>());
-    column = TEST_TRY(validate(std::move(column), type));
+    column = TEST_TRY(validate(column, type));
     expect_same_storage(before, *column);
     EXPECT_EQ(filter_map, (std::vector<char> {0, 0}));
 }
 
-TEST_F(TabletColumnValidatorTest, UniqueNestedNullableMapKeepsAllStorage) {
+TEST_F(TabletColumnValidatorTest, NestedNullableMapReusesLeafStorage) {
     auto inner = ColumnMap::create(ints({3, 4}), ints({30, 40}), offsets({2}));
     auto nullable = ColumnNullable::create(std::move(inner), ColumnUInt8::create(1, 0));
     ColumnPtr column = ColumnMap::create(ints({1}), std::move(nullable), offsets({1}));
@@ -363,7 +359,7 @@ TEST_F(TabletColumnValidatorTest, UniqueNestedNullableMapKeepsAllStorage) {
     auto type = std::make_shared<DataTypeMap>(std::make_shared<DataTypeInt32>(),
                                               make_nullable(inner_type));
     auto before = snapshot(*column);
-    column = TEST_TRY(validate(std::move(column), type));
+    column = TEST_TRY(validate(column, type));
     expect_same_storage(before, *column);
 }
 
@@ -376,7 +372,7 @@ TEST_F(TabletColumnValidatorTest, SharedNestedNullableMapDeduplicatesWithoutChan
                                                     std::make_shared<DataTypeInt32>());
     auto type = std::make_shared<DataTypeMap>(std::make_shared<DataTypeInt32>(),
                                               make_nullable(inner_type));
-    column = TEST_TRY(validate(std::move(column), type));
+    column = TEST_TRY(validate(column, type));
     const auto& result = assert_cast<const ColumnMap&>(*column);
     const auto& result_nullable = assert_cast<const ColumnNullable&>(result.get_values());
     const auto& result_inner = assert_cast<const ColumnMap&>(result_nullable.get_nested_column());
@@ -392,7 +388,7 @@ TEST_F(TabletColumnValidatorTest, MapDeduplicationRebuildsElementRowMapping) {
             ColumnMap::create(ints({1, 1, 2}), strings({"", "valid", ""}), offsets({2, 3}));
     auto type = std::make_shared<DataTypeMap>(std::make_shared<DataTypeInt32>(),
                                               std::make_shared<DataTypeJsonb>());
-    column = TEST_TRY(validate(std::move(column), type));
+    column = TEST_TRY(validate(column, type));
     EXPECT_EQ(filter_map, (std::vector<char> {0, 1}));
     const auto& result = assert_cast<const ColumnMap&>(*column);
     EXPECT_EQ(result.get_offsets()[0], 1);
@@ -401,7 +397,7 @@ TEST_F(TabletColumnValidatorTest, MapDeduplicationRebuildsElementRowMapping) {
 
 TEST_F(TabletColumnValidatorTest, NotNullRejectsNullRow) {
     ColumnPtr column = ColumnNullable::create(ints({0}), ColumnUInt8::create(1, 1));
-    column = TEST_TRY(validate(std::move(column), std::make_shared<DataTypeInt32>()));
+    column = TEST_TRY(validate(column, std::make_shared<DataTypeInt32>()));
     EXPECT_EQ(filter_map, (std::vector<char> {1}));
 }
 
@@ -416,7 +412,7 @@ TEST_F(TabletColumnValidatorTest, DecimalV3RangeChecksAllWidths) {
         ColumnPtr column = std::move(values);
         const auto* object = column.get();
         const auto* data = assert_cast<const ColumnType&>(*column).get_data().data();
-        auto result = validate(std::move(column), std::make_shared<DataTypeDecimal<T>>(1, 0));
+        auto result = validate(column, std::make_shared<DataTypeDecimal<T>>(1, 0));
         ASSERT_TRUE(result.has_value()) << result.error();
         EXPECT_EQ(result.value().get(), object);
         EXPECT_EQ(assert_cast<const ColumnType&>(*result.value()).get_data().data(), data);
@@ -435,12 +431,12 @@ TEST_F(TabletColumnValidatorTest, NonNullableInputAcceptsNullableTargetType) {
             DataTypes {make_nullable(std::make_shared<DataTypeString>(2, TYPE_VARCHAR))}));
     auto type = make_nullable(std::make_shared<DataTypeArray>(tuple_type));
     auto before = snapshot(*column);
-    column = TEST_TRY(validate(std::move(column), type));
+    column = TEST_TRY(validate(column, type));
     expect_same_storage(before, *column);
     EXPECT_EQ(filter_map, (std::vector<char> {1}));
 }
 
-TEST_F(TabletColumnValidatorTest, NestedReplacementRestoresMutableChildOwners) {
+TEST_F(TabletColumnValidatorTest, NestedReplacementBuildsShellsAndPreservesSource) {
     RuntimeState non_strict(options(false), TQueryGlobals {});
     context.state = &non_strict;
     auto nullable = ColumnNullable::create(strings({"abcd"}), ColumnUInt8::create(1, 0));
@@ -449,6 +445,7 @@ TEST_F(TabletColumnValidatorTest, NestedReplacementRestoresMutableChildOwners) {
     const auto& array_before = assert_cast<const ColumnArray&>(*column);
     const auto& tuple_before = assert_cast<const ColumnStruct&>(array_before.get_data());
     const auto& nullable_before = assert_cast<const ColumnNullable&>(tuple_before.get_column(0));
+    ColumnPtr original = column;
     const auto* array_address = column.get();
     const auto* tuple_address = &tuple_before;
     const auto* nullable_address = &nullable_before;
@@ -459,21 +456,56 @@ TEST_F(TabletColumnValidatorTest, NestedReplacementRestoresMutableChildOwners) {
             DataTypes {make_nullable(std::make_shared<DataTypeString>(2, TYPE_VARCHAR)),
                        std::make_shared<DataTypeInt32>()});
 
-    column = TEST_TRY(validate(std::move(column), std::make_shared<DataTypeArray>(tuple_type)));
+    column = TEST_TRY(validate(column, std::make_shared<DataTypeArray>(tuple_type)));
 
     const auto& array = assert_cast<const ColumnArray&>(*column);
     const auto& checked_tuple = assert_cast<const ColumnStruct&>(array.get_data());
     const auto& checked_nullable = assert_cast<const ColumnNullable&>(checked_tuple.get_column(0));
-    EXPECT_EQ(column.get(), array_address);
-    EXPECT_EQ(&checked_tuple, tuple_address);
-    EXPECT_EQ(&checked_nullable, nullable_address);
+    EXPECT_NE(column.get(), array_address);
+    EXPECT_NE(&checked_tuple, tuple_address);
+    EXPECT_NE(&checked_nullable, nullable_address);
     EXPECT_EQ(array.get_offsets().data(), offsets_address);
     EXPECT_EQ(checked_nullable.get_null_map_data().data(), nulls_address);
     EXPECT_EQ(checked_nullable.get_nested_column().get_data_at(0).to_string(), "ab");
     EXPECT_EQ(checked_nullable.get_nested_column().use_count(), 1);
     expect_same_storage(sibling_before, checked_tuple.get_column(1));
     EXPECT_EQ(filter_map, (std::vector<char> {0}));
+    EXPECT_EQ(nullable_before.get_nested_column().get_data_at(0).to_string(), "abcd");
     column->sanity_check();
+}
+
+TEST_F(TabletColumnValidatorTest, SharedReadOnlyLeavesKeepStorage) {
+    const auto check = [this](ColumnPtr original, const DataTypePtr& type) {
+        auto before = snapshot(*original);
+        auto result = TEST_TRY(validate(original, type));
+        EXPECT_EQ(result.get(), original.get());
+        expect_same_storage(before, *result);
+        EXPECT_EQ(original->use_count(), 2);
+    };
+    check(ints({7, 8}), std::make_shared<DataTypeInt32>());
+    check(strings({"valid"}), std::make_shared<DataTypeJsonb>());
+    auto values = ColumnDecimal32::create(0, 0);
+    values->get_data().push_back(Decimal32(1));
+    ColumnPtr original = std::move(values);
+    const auto* data = assert_cast<const ColumnDecimal32&>(*original).get_data().data();
+    auto result =
+            TEST_TRY(validate(original, std::make_shared<DataTypeDecimal<TYPE_DECIMAL32>>(1, 0)));
+    EXPECT_EQ(result.get(), original.get());
+    EXPECT_EQ(assert_cast<const ColumnDecimal32&>(*result).get_data().data(), data);
+}
+
+TEST_F(TabletColumnValidatorTest, SharedComplexTreeReusesReadOnlyLeaves) {
+    auto tuple = ColumnStruct::create(Columns {ints({7}), strings({"abc"})});
+    ColumnPtr original = ColumnNullable::create(ColumnArray::create(std::move(tuple), offsets({1})),
+                                                ColumnUInt8::create(1, 0));
+    auto tuple_type = std::make_shared<DataTypeStruct>(
+            DataTypes {std::make_shared<DataTypeInt32>(), std::make_shared<DataTypeString>()});
+    auto before = snapshot(*original);
+    auto result = TEST_TRY(
+            validate(original, make_nullable(std::make_shared<DataTypeArray>(tuple_type))));
+    EXPECT_NE(result.get(), original.get());
+    expect_same_storage(before, *result);
+    expect_same_storage(before, *original);
 }
 
 } // namespace doris

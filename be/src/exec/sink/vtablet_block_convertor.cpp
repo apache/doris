@@ -135,8 +135,7 @@ Status OlapTableBlockConvertor::_validate_data(Block* block, const size_t rows,
         _tablet_validate_context.error_prefix.clear();
         fmt::format_to(_tablet_validate_context.error_prefix, "column_name[{}], ",
                        desc->col_name());
-        column = DORIS_TRY(
-                tablet_validate_column(std::move(column), desc->type(), _tablet_validate_context));
+        column = DORIS_TRY(tablet_validate_column(column, desc->type(), _tablet_validate_context));
     }
     return Status::OK();
 }
