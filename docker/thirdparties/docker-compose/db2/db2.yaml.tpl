@@ -24,13 +24,14 @@ services:
       - ${DOCKER_DB2_EXTERNAL_PORT}:50000
     privileged: true
     healthcheck:
-      test: ["CMD-SHELL", "su - db2inst1 -c \"source ~/.bash_profile; db2 connect to doris && db2 'select 1 from sysibm.sysdummy1'\""]
+      test: ["CMD-SHELL", "test -f /tmp/doris_db2_initialized && su - db2inst1 -c \"source ~/.bash_profile; db2 connect to doris && db2 'select count(*) from doris_test.sample_table'\""]
       interval: 20s
       timeout: 60s
       retries: 30
       start_period: 300s
     volumes:
-      - ./init:/docker-entrypoint-initdb.d
+      - ./init:/docker-entrypoint-initdb.d:ro
+      - ./scripts/init-db2.sh:/var/custom/init-db2.sh:ro
     environment:
       - LICENSE=accept
       - DBNAME=doris
