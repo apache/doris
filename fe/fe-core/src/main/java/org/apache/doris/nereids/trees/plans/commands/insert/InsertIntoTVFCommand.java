@@ -121,9 +121,8 @@ public class InsertIntoTVFCommand extends Command implements ForwardWithSync, Ex
                 new QueryInfo(ctx, "INSERT INTO TVF", coordinator));
 
         try {
-            // Audit ownership follows the executor that resolved the external sink, not a logical
-            // plan shape that can also represent internal or blackhole writes.
-            executor.setExternalDmlAuditCoordinator(coordinator);
+            // Audit and cancellation must observe the same coordinator that dispatches the fragments.
+            executor.setCoord(coordinator);
             coordinator.exec();
 
             // Wait for completion

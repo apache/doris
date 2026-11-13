@@ -427,9 +427,9 @@ public class Coordinator implements CoordInterface {
         return Utils.fastToImmutableList(coordinatorContext.backends.get().keySet());
     }
 
-    public Set<Long> getDispatchedBackendIdsForAudit() {
+    public Set<Long> getDispatchedBackendIds() {
         return executionTask == null
-                ? ImmutableSet.of() : executionTask.getDispatchedBackendIdsForAudit();
+                ? ImmutableSet.of() : executionTask.getDispatchedBackendIds();
     }
 
     public List<FragmentInstanceInfo> getFragmentInstanceInfos() {

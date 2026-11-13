@@ -286,7 +286,7 @@ public class WorkloadRuntimeStatusMgrTest {
     }
 
     @Test
-    public void testExternalDmlAuditWaitsForEveryBackendFinalSnapshot() {
+    public void testAuditWaitsForEveryBackendFinalSnapshot() {
         int originalAuditTimeout = Config.query_audit_log_timeout_ms;
         try {
             Config.query_audit_log_timeout_ms = 10;
@@ -299,7 +299,7 @@ public class WorkloadRuntimeStatusMgrTest {
             mgr.updateBeQueryStats(buildParams(10002L, "q1", buildStats(20, 4), false));
 
             List<AuditEvent> events = Deencapsulation.invoke(mgr, "getQueryNeedAudit");
-            Assertions.assertTrue(events.isEmpty(), "external DML audit must wait for every participating BE");
+            Assertions.assertTrue(events.isEmpty(), "audit must wait for every participating BE");
 
             mgr.updateBeQueryStats(buildParams(10002L, "q1", buildStats(20, 4), true));
             events = Deencapsulation.invoke(mgr, "getQueryNeedAudit");
@@ -353,7 +353,7 @@ public class WorkloadRuntimeStatusMgrTest {
     }
 
     @Test
-    public void testExternalDmlAuditUsesBoundedFallback() {
+    public void testAuditUsesBoundedFallback() {
         int originalAuditTimeout = Config.query_audit_log_timeout_ms;
         int originalReportTimeout = Config.be_report_query_statistics_timeout_ms;
         try {
@@ -373,7 +373,7 @@ public class WorkloadRuntimeStatusMgrTest {
     }
 
     @Test
-    public void testExternalDmlAuditUsesFinalCumulativeStatistics() {
+    public void testAuditUsesFinalCumulativeStatistics() {
         int originalAuditTimeout = Config.query_audit_log_timeout_ms;
         try {
             Config.query_audit_log_timeout_ms = 10;
