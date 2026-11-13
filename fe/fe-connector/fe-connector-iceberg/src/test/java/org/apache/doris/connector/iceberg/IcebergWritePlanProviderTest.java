@@ -35,6 +35,7 @@ import org.apache.doris.connector.spi.write.ConnectorWriteDistribution;
 import org.apache.doris.connector.spi.write.ConnectorWritePartitionField;
 import org.apache.doris.connector.spi.write.ConnectorWritePartitionSpec;
 import org.apache.doris.connector.spi.write.ConnectorWriteSortColumn;
+import org.apache.doris.connector.spi.write.ConnectorWriteTarget;
 import org.apache.doris.filesystem.FileSystemType;
 import org.apache.doris.filesystem.properties.BackendStorageKind;
 import org.apache.doris.filesystem.properties.BackendStorageProperties;
@@ -686,6 +687,30 @@ public class IcebergWritePlanProviderTest {
         ConnectorSinkPlan plan = Assertions.assertDoesNotThrow(() -> provider.planWrite(session,
                 new WriteHandle(tableHandle).branch("old_schema").boundTargetColumns(branchColumns)));
 
+        Assertions.assertEquals(SchemaParser.toJson(table.schema()),
+                plan.getDataSink().getIcebergTableSink().getSchemaJson());
+    }
+
+    @Test
+    public void explicitBranchTargetDoesNotDependOnActiveWriteSchema() {
+        Table table = unpartitionedUnsortedTable(freshCatalog());
+        table.newAppend().commit();
+        table.manageSnapshots().createBranch("audit", table.currentSnapshot().snapshotId()).commit();
+        table.updateSchema().renameColumn("name", "renamed_name").commit();
+        RecordingConnectorContext context = contextWithStorage();
+        IcebergWritePlanProvider provider = providerFor(table, context);
+        WriteSession session = sessionFor(table, context);
+        IcebergTableHandle handle = new IcebergTableHandle("db1", "t2");
+        ConnectorWriteTarget target = provider.resolveWriteTarget(session, handle,
+                WriteOperation.INSERT, Optional.of("audit")).orElseThrow(AssertionError::new);
+        // A later legacy lookup must not replace the explicit target used by this plan.
+        provider.getWriteColumns(session, handle, Optional.empty());
+        Assertions.assertEquals(Optional.of("audit"), target.getBranchName());
+        Assertions.assertEquals(Arrays.asList("id", "renamed_name"), target.getColumns().stream()
+                .map(ConnectorColumn::getName).collect(Collectors.toList()));
+        ConnectorSinkPlan plan = provider.planWrite(session, new WriteHandle(handle)
+                .branch("audit").boundTargetColumns(target.getColumns())
+                .boundWriteMetadataIdentity(target.getMetadataIdentity()).target(target));
         Assertions.assertEquals(SchemaParser.toJson(table.schema()),
                 plan.getDataSink().getIcebergTableSink().getSchemaJson());
     }
@@ -2828,10 +2853,21 @@ public class IcebergWritePlanProviderTest {
         private List<ConnectorColumn> columns = Collections.emptyList();
         private List<ConnectorColumn> boundTargetColumns;
         private String boundWriteMetadataIdentity;
+        private ConnectorWriteTarget writeTarget;
         private int beExecVersion = Integer.MAX_VALUE;
 
         WriteHandle(ConnectorTableHandle tableHandle) {
             this.tableHandle = tableHandle;
+        }
+
+        WriteHandle target(ConnectorWriteTarget target) {
+            this.writeTarget = target;
+            return this;
+        }
+
+        @Override
+        public Optional<ConnectorWriteTarget> getWriteTarget() {
+            return Optional.ofNullable(writeTarget);
         }
 
         WriteHandle branch(String v) {

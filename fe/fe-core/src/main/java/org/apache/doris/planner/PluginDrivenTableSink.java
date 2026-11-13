@@ -28,6 +28,7 @@ import org.apache.doris.connector.spi.handle.ConnectorWriteHandle;
 import org.apache.doris.connector.spi.handle.WriteOperation;
 import org.apache.doris.connector.spi.write.ConnectorSinkPlan;
 import org.apache.doris.connector.spi.write.ConnectorWritePlanProvider;
+import org.apache.doris.connector.spi.write.ConnectorWriteTarget;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.datasource.scan.PluginDrivenScanNode;
@@ -89,6 +90,7 @@ public class PluginDrivenTableSink extends BaseExternalTableDataSink {
     // enforcement flag onto its BE sink; false for UPDATE and for every non-row-level write.
     private final boolean requireMergeCardinalityCheck;
     private final int beExecVersion;
+    private final ConnectorWriteTarget writeTarget;
 
     /**
      * Complete plan-provider mode with the statement-scoped backend execution version.
@@ -100,7 +102,20 @@ public class PluginDrivenTableSink extends BaseExternalTableDataSink {
             WriteOperation writeOperation, boolean writesDataFiles,
             boolean requireMergeCardinalityCheck, String boundWriteMetadataIdentity,
             ConnectorMetadata connectorMetadata, int beExecVersion) {
+        this(targetTable, writePlanProvider, connectorSession, tableHandle, connectorColumns,
+                boundTargetColumns, writeSortInfo, writeOperation, writesDataFiles,
+                requireMergeCardinalityCheck, boundWriteMetadataIdentity, connectorMetadata, beExecVersion, null);
+    }
+
+    public PluginDrivenTableSink(PluginDrivenExternalTable targetTable,
+            ConnectorWritePlanProvider writePlanProvider, ConnectorSession connectorSession,
+            ConnectorTableHandle tableHandle, List<ConnectorColumn> connectorColumns,
+            List<ConnectorColumn> boundTargetColumns, TSortInfo writeSortInfo,
+            WriteOperation writeOperation, boolean writesDataFiles,
+            boolean requireMergeCardinalityCheck, String boundWriteMetadataIdentity,
+            ConnectorMetadata connectorMetadata, int beExecVersion, ConnectorWriteTarget writeTarget) {
         super();
+        this.writeTarget = writeTarget;
         this.targetTable = targetTable;
         this.writePlanProvider = writePlanProvider;
         this.connectorSession = connectorSession;
@@ -143,13 +158,18 @@ public class PluginDrivenTableSink extends BaseExternalTableDataSink {
         }
         sb.append(prefix).append("  WRITE: plan-provider\n");
         sb.append(prefix).append("  TABLE: ").append(targetTable.getName()).append("\n");
+        if (writeTarget != null) {
+            writeTarget.getBranchName().ifPresent(branch ->
+                    sb.append(prefix).append("  BRANCH: ").append(branch).append("\n"));
+        }
         // Let the connector surface its own write detail (e.g. jdbc INSERT SQL); the sink itself is
         // source-agnostic. This runs before the write plan is bound (planWrite has not run yet for an
         // EXPLAIN), so the connector derives the detail from the write handle.
         ConnectorWriteHandle handle = new PluginDrivenWriteHandle(
                 tableHandle, connectorColumns, boundTargetColumns, false, Collections.emptyMap(),
-                Collections.emptySet(), Collections::emptyMap, null, null, Optional.empty(), writeOperation,
-                writesDataFiles, requireMergeCardinalityCheck, beExecVersion);
+                Collections.emptySet(), Collections::emptyMap, null, boundWriteMetadataIdentity,
+                writeTarget == null ? Optional.empty() : writeTarget.getBranchName(), writeOperation,
+                writesDataFiles, requireMergeCardinalityCheck, beExecVersion, writeTarget);
         writePlanProvider.appendExplainInfo(sb, prefix, connectorSession, handle);
         return sb.toString();
     }
@@ -177,7 +197,7 @@ public class PluginDrivenTableSink extends BaseExternalTableDataSink {
         Map<String, String> writeContext = Collections.emptyMap();
         Set<String> staticPartitionNullKeys = Collections.emptySet();
         Supplier<Map<String, String>> castStaticPartitionSpec = Collections::emptyMap;
-        Optional<String> branchName = Optional.empty();
+        Optional<String> branchName = writeTarget == null ? Optional.empty() : writeTarget.getBranchName();
         if (insertCtx.isPresent() && insertCtx.get() instanceof PluginDrivenInsertCommandContext) {
             PluginDrivenInsertCommandContext ctx = (PluginDrivenInsertCommandContext) insertCtx.get();
             overwrite = ctx.isOverwrite();
@@ -186,6 +206,8 @@ public class PluginDrivenTableSink extends BaseExternalTableDataSink {
             castStaticPartitionSpec = ctx::castStaticPartitionSpec;
             branchName = ctx.getBranchName();
         }
+        Preconditions.checkState(writeTarget == null || writeTarget.getBranchName().equals(branchName),
+                "Write branch changed after target binding");
         ConnectorTableHandle boundTableHandle = tableHandle;
         if (connectorMetadata != null && targetTable != null) {
             Optional<TableScanParams> scanParams = branchName.map(branch ->
@@ -200,7 +222,7 @@ public class PluginDrivenTableSink extends BaseExternalTableDataSink {
                 boundTableHandle, connectorColumns, boundTargetColumns, overwrite, writeContext,
                 staticPartitionNullKeys, castStaticPartitionSpec, writeSortInfo,
                 boundWriteMetadataIdentity, branchName, writeOperation, writesDataFiles,
-                requireMergeCardinalityCheck, beExecVersion);
+                requireMergeCardinalityCheck, beExecVersion, writeTarget);
         ConnectorSinkPlan sinkPlan = writePlanProvider.planWrite(connectorSession, handle);
         this.tDataSink = sinkPlan.getDataSink();
     }
@@ -243,6 +265,7 @@ public class PluginDrivenTableSink extends BaseExternalTableDataSink {
         private final boolean writesDataFiles;
         private final boolean requireMergeCardinalityCheck;
         private final int beExecVersion;
+        private final ConnectorWriteTarget writeTarget;
 
         private PluginDrivenWriteHandle(ConnectorTableHandle tableHandle, List<ConnectorColumn> columns,
                 List<ConnectorColumn> boundTargetColumns, boolean overwrite,
@@ -251,7 +274,8 @@ public class PluginDrivenTableSink extends BaseExternalTableDataSink {
                 TSortInfo sortInfo, String boundWriteMetadataIdentity,
                 Optional<String> branchName, WriteOperation writeOperation,
                 boolean writesDataFiles, boolean requireMergeCardinalityCheck,
-                int beExecVersion) {
+                int beExecVersion, ConnectorWriteTarget writeTarget) {
+            this.writeTarget = writeTarget;
             this.tableHandle = tableHandle;
             this.columns = columns;
             this.boundTargetColumns = boundTargetColumns;
@@ -296,6 +320,11 @@ public class PluginDrivenTableSink extends BaseExternalTableDataSink {
         @Override
         public Optional<String> getBranchName() {
             return branchName;
+        }
+
+        @Override
+        public Optional<ConnectorWriteTarget> getWriteTarget() {
+            return Optional.ofNullable(writeTarget);
         }
 
         @Override
