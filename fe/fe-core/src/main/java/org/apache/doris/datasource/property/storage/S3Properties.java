@@ -48,7 +48,6 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
@@ -260,13 +259,12 @@ public class S3Properties extends AbstractS3CompatibleProperties {
             return endpoint.contains("amazonaws.com");
         }
 
-        // guess from URI
-        Optional<String> uriValue = origProps.entrySet().stream()
-                .filter(e -> e.getKey().equalsIgnoreCase("uri"))
-                .map(Map.Entry::getValue)
-                .findFirst();
-        if (uriValue.isPresent()) {
-            return uriValue.get().contains("amazonaws.com");
+        // guess from location: decide the single 'uri' vs multi 'uris' form (enforcing their mutual
+        // exclusion), then inspect the primary location's host for an S3 signature.
+        boolean singleUri = isSingleLocationForm(origProps, URI_KEY);
+        String location = getPrimaryLocation(singleUri, origProps);
+        if (location != null) {
+            return location.contains("amazonaws.com");
         }
 
         // guess from region
