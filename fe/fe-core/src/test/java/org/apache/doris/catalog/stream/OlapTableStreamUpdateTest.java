@@ -17,12 +17,20 @@
 
 package org.apache.doris.catalog.stream;
 
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.MaterializedIndexMeta;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.RandomDistributionInfo;
 import org.apache.doris.catalog.stream.OlapTableStream.PartitionStreamState;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.transaction.TransactionCommitFailedException;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.io.ByteArrayInputStream;
@@ -33,6 +41,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 
 public class OlapTableStreamUpdateTest {
 
@@ -124,4 +133,95 @@ public class OlapTableStreamUpdateTest {
             restored.writeUnlock();
         }
     }
+
+    @Test
+    public void testPendingTupleIsPublishedTogetherAndDoesNotFollowReports() throws Exception {
+        try (CountsFixture fixture = new CountsFixture()) {
+            fixture.base.setRowCount(5L);
+            fixture.changelog.setRowCount(10L);
+            fixture.stream.unprotectedPublishPartitionState(10L,
+                    new PartitionStreamState(100L, 1L, null).withRowCounts(fixture.source, 10L));
+            PartitionStreamState previous = fixture.stream.getPartitionState(10L);
+            fixture.base.setRowCount(50L);
+            fixture.changelog.setRowCount(100L);
+            OlapTableStreamUpdate update = new OlapTableStreamUpdate(Map.of(10L, 100L), Map.of(10L, 200L));
+            fixture.stream.unprotectedPrepareStreamUpdate(update);
+            Assertions.assertSame(previous, fixture.stream.getPartitionState(10L));
+            Assertions.assertEquals(200L, update.getNext().get(10L).getOffset());
+            Assertions.assertEquals(50L, update.getNext().get(10L).getBaseRowCount());
+            Assertions.assertEquals(100L, update.getNext().get(10L).getChangelogRowCount());
+            // A later BE report cannot change the tuple already captured by this update.
+            fixture.base.setRowCount(70L);
+            fixture.changelog.setRowCount(130L);
+            fixture.stream.unprotectedUpdateStreamUpdate(update, 2L);
+            PartitionStreamState committed = fixture.stream.getPartitionState(10L);
+            Assertions.assertEquals(200L, committed.getOffset());
+            Assertions.assertEquals(50L, committed.getBaseRowCount());
+            Assertions.assertEquals(100L, committed.getChangelogRowCount());
+            Assertions.assertTrue(committed.matches(fixture.source, 10L, 200L));
+            OlapTableStreamUpdate unchanged = new OlapTableStreamUpdate(Map.of(10L, 200L), Map.of(10L, 200L));
+            fixture.stream.unprotectedPrepareStreamUpdate(unchanged);
+            fixture.stream.unprotectedUpdateStreamUpdate(unchanged, 3L);
+            Assertions.assertEquals(50L, fixture.stream.getPartitionState(10L).getBaseRowCount());
+            Assertions.assertEquals(100L, fixture.stream.getPartitionState(10L).getChangelogRowCount());
+        }
+    }
+
+    @Test
+    public void testUpdateAndImagePersistTheSameTupleAndReplayClearsOnlyBinding() throws Exception {
+        try (CountsFixture fixture = new CountsFixture()) {
+            fixture.base.setRowCount(50L);
+            fixture.changelog.setRowCount(100L);
+            OlapTableStreamUpdate update = new OlapTableStreamUpdate(Map.of(), Map.of(10L, 200L));
+            fixture.stream.unprotectedPrepareStreamUpdate(update);
+            ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+            new TableStreamUpdateInfo(1L, 2L, update).write(new DataOutputStream(bytes));
+            TableStreamUpdateInfo restored = TableStreamUpdateInfo.read(new DataInputStream(
+                    new ByteArrayInputStream(bytes.toByteArray())));
+            OlapTableStreamUpdate restoredUpdate = (OlapTableStreamUpdate) restored.getUpdate();
+            Assertions.assertEquals(update.getNext(), restoredUpdate.getNext());
+            fixture.base.setRowCount(70L);
+            fixture.changelog.setRowCount(130L);
+            fixture.stream.unprotectedUpdateStreamUpdate(restoredUpdate, 2L, true);
+            PartitionStreamState replayed = fixture.stream.getPartitionState(10L);
+            Assertions.assertEquals(200L, replayed.getOffset());
+            Assertions.assertEquals(50L, replayed.getBaseRowCount());
+            Assertions.assertEquals(100L, replayed.getChangelogRowCount());
+            Assertions.assertFalse(replayed.matches(fixture.source, 10L, 200L));
+            OlapTableStream image = GsonUtils.GSON.fromJson(GsonUtils.GSON.toJson(fixture.stream), OlapTableStream.class);
+            Assertions.assertEquals(replayed, image.getPartitionState(10L));
+            Assertions.assertFalse(image.getPartitionState(10L).matches(fixture.source, 10L, 200L));
+        }
+    }
+
+    private static class CountsFixture implements AutoCloseable {
+        private final MaterializedIndex base = new MaterializedIndex(1L, MaterializedIndex.IndexState.NORMAL);
+        private final MaterializedIndex changelog = new MaterializedIndex(2L, MaterializedIndex.IndexState.NORMAL);
+        private final OlapTable source = Mockito.mock(OlapTable.class);
+        private final OlapTableStream stream = Mockito.spy(new OlapTableStream());
+        private final MockedStatic<Env> env = Mockito.mockStatic(Env.class);
+
+        private CountsFixture() {
+            Env current = Mockito.mock(Env.class);
+            env.when(Env::getCurrentEnv).thenReturn(current);
+            Partition partition = new Partition(10L, "p", base, new RandomDistributionInfo(1));
+            partition.createRollupIndex(changelog);
+            MaterializedIndexMeta meta = Mockito.mock(MaterializedIndexMeta.class);
+            Mockito.when(meta.getIndexId()).thenReturn(2L);
+            Mockito.when(source.getBaseIndexId()).thenReturn(1L);
+            Mockito.when(source.hasChangelog()).thenReturn(true);
+            Mockito.when(source.getChangelogIndexMeta()).thenReturn(meta);
+            Mockito.when(source.getPartition(10L)).thenReturn(partition);
+            Mockito.when(source.tryReadLock(0, TimeUnit.MILLISECONDS)).thenReturn(true);
+            Mockito.doReturn(source).when(stream).getBaseTableNullable();
+            stream.writeLock();
+        }
+
+        @Override
+        public void close() {
+            stream.writeUnlock();
+            env.close();
+        }
+    }
+
 }

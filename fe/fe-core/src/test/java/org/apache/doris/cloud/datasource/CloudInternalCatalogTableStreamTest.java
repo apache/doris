@@ -29,7 +29,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.catalog.stream.BaseTableStream;
 import org.apache.doris.catalog.stream.OlapTableStream;
-import org.apache.doris.catalog.stream.StreamRowCountBaseline;
+import org.apache.doris.catalog.stream.OlapTableStream.PartitionStreamState;
 import org.apache.doris.catalog.stream.TableStreamBaseTableInfo;
 import org.apache.doris.catalog.stream.TableStreamManager;
 import org.apache.doris.cloud.proto.Cloud;
@@ -163,7 +163,7 @@ public class CloudInternalCatalogTableStreamTest {
                         Mockito.eq(false));
                 OlapTableStream created = (OlapTableStream) streamCaptor.getValue();
                 Assertions.assertEquals(BaseTableStream.StreamScanType.APPEND_ONLY, created.getStreamScanType());
-                StreamRowCountBaseline baseline = created.getStreamRowCountBaseline(2L);
+                PartitionStreamState baseline = created.getPartitionState(2L);
                 Assertions.assertNotNull(baseline);
                 Assertions.assertEquals(50L, baseline.getBaseRowCount(), "use the sample from before the MS RPC");
                 Assertions.assertEquals(900L, baseline.getBaselineOffset(), "bind to the authoritative MS offset");
@@ -171,6 +171,8 @@ public class CloudInternalCatalogTableStreamTest {
                 ArgumentCaptor<Cloud.PartitionRequest> offsets = ArgumentCaptor.forClass(Cloud.PartitionRequest.class);
                 Mockito.verify(proxy).commitPartition(offsets.capture());
                 Assertions.assertEquals(900L, offsets.getValue().getTableStreamOffsets(0).getOffsetTso());
+                Assertions.assertEquals(50L, offsets.getValue().getTableStreamOffsets(0).getBaseRowCount());
+                Assertions.assertEquals(-1L, offsets.getValue().getTableStreamOffsets(0).getChangelogRowCount());
             }
         } finally {
             Config.enable_table_stream = previousEnableTableStream;

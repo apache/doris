@@ -659,14 +659,14 @@ public class InsertIntoTableCommandTableStreamTest extends TestWithFeService {
         List<TableStreamUpdateInfo> streamUpdateInfos = insertExecutor.getStreamUpdateInfos();
         Assertions.assertEquals(1, streamUpdateInfos.size());
         OlapTableStreamUpdate update = (OlapTableStreamUpdate) streamUpdateInfos.get(0).getUpdate();
-        Map<Long, Long> producedNext = update.getNext();
+        Map<Long, PartitionStreamState> producedNext = update.getNext();
         Map<Long, Long> producedPrev = update.getPrev();
         Assertions.assertFalse(producedNext.isEmpty());
 
-        for (Map.Entry<Long, Long> entry : producedNext.entrySet()) {
+        for (Map.Entry<Long, PartitionStreamState> entry : producedNext.entrySet()) {
             long pid = entry.getKey();
             // next always equals partition commit tso, regardless of history.
-            Assertions.assertEquals(baseTable.getPartition(pid).getTso(), entry.getValue(),
+            Assertions.assertEquals(baseTable.getPartition(pid).getTso(), entry.getValue().getOffset(),
                     "next must equal partition.tso (commit tso)");
         }
         // history partition's prev is the historical TSO snapshot encoded as negative

@@ -24,6 +24,7 @@ import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.stream.OlapTableStream.PartitionStreamState;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.Util;
@@ -44,6 +45,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -58,7 +60,7 @@ public class OlapTableStreamWrapper extends OlapTable {
     // The row counts the stream had recorded when the offsets above were read. The two have to
     // describe the same moment: an offset advance between them would pair the range of the old
     // offset with the counters of the new one, and the estimate of the range would read as empty.
-    private Map<Long, StreamRowCountBaseline> partitionStreamStates;
+    private Map<Long, PartitionStreamState> partitionStreamStates;
     private final KeysType keysType;
     private Map<Long, Cloud.TableStreamPartitionReadStatePB> cloudReadStates = ImmutableMap.of();
     private boolean cloudReadStatesInstalled;
@@ -78,7 +80,7 @@ public class OlapTableStreamWrapper extends OlapTable {
         stream.readLock();
         try {
             this.outputUpdateMap = buildOutputUpdateMap(selectedPartitionIds);
-            this.partitionStreamStates = snapshotStreamRowCountBaselines(selectedPartitionIds);
+            this.partitionStreamStates = snapshotPartitionStreamStates(selectedPartitionIds);
         } finally {
             stream.readUnlock();
         }
@@ -89,10 +91,10 @@ public class OlapTableStreamWrapper extends OlapTable {
      * The row counts the stream recorded for the given partitions, read under the stream lock so
      * that they describe the same moment as the offsets of the same call.
      */
-    private Map<Long, StreamRowCountBaseline> snapshotStreamRowCountBaselines(Collection<Long> partitionIds) {
-        ImmutableMap.Builder<Long, StreamRowCountBaseline> states = ImmutableMap.builder();
+    private Map<Long, PartitionStreamState> snapshotPartitionStreamStates(Collection<Long> partitionIds) {
+        ImmutableMap.Builder<Long, PartitionStreamState> states = ImmutableMap.builder();
         for (Long partitionId : partitionIds) {
-            StreamRowCountBaseline state = stream.getStreamRowCountBaseline(partitionId);
+            PartitionStreamState state = stream.getPartitionState(partitionId);
             if (state != null) {
                 states.put(partitionId, state);
             }
@@ -146,7 +148,27 @@ public class OlapTableStreamWrapper extends OlapTable {
                     outputUpdateMap.put(partitionId, Pair.of(startTso, state.getEndTso()));
                 }
             });
-            partitionStreamStates = snapshotStreamRowCountBaselines(outputUpdateMap.keySet());
+            ImmutableMap.Builder<Long, PartitionStreamState> snapshots = ImmutableMap.builder();
+            cloudReadStates.forEach((id, state) -> {
+                if (!state.hasOffsetTso()) {
+                    return;
+                }
+                long baseRows = state.hasBaseRowCount() ? state.getBaseRowCount() : -1;
+                long changelogRows = state.hasChangelogRowCount() ? state.getChangelogRowCount() : -1;
+                PartitionStreamState local = stream.getPartitionState(id);
+                if (local != null && Objects.equals(local.getBaselineOffset(), state.getOffsetTso())
+                        && local.getBaseRowCount() == baseRows && local.getChangelogRowCount() == changelogRows) {
+                    snapshots.put(id, local);
+                } else {
+                    // MS restores the durable tuple. A different FE metadata instance has no valid source binding.
+                    boolean history = state.getOffsetState()
+                            == Cloud.TableStreamOffsetStatePB.TABLE_STREAM_OFFSET_INITIAL_SNAPSHOT_PENDING;
+                    snapshots.put(id, new PartitionStreamState(history ? null : state.getOffsetTso(),
+                            state.hasLastConsumptionTimeMs() ? state.getLastConsumptionTimeMs() : -1,
+                            history ? state.getOffsetTso() : null, baseRows, changelogRows));
+                }
+            });
+            partitionStreamStates = snapshots.build();
         } finally {
             stream.readUnlock();
         }
@@ -413,11 +435,11 @@ public class OlapTableStreamWrapper extends OlapTable {
         Map<Long, Long> estimates = Maps.newHashMapWithExpectedSize(partitionIds.size());
         for (Long partitionId : partitionIds) {
             long records = estimatePartitionChangeRecords(partitionId, offsetMap.get(partitionId), fallback);
-            long rows = StreamRowCountBaseline.outputRows(records, keysType == KeysType.UNIQUE_KEYS, scanType);
+            long rows = StreamRowCountEstimator.outputRows(records, keysType == KeysType.UNIQUE_KEYS, scanType);
             estimates.put(partitionId, rows);
             LOG.debug("Stream {} partition {} actualType={} records={} factor={} outputRows={}",
                     stream.getId(), partitionId, scanType, records,
-                    StreamRowCountBaseline.outputRows(1, keysType == KeysType.UNIQUE_KEYS, scanType), rows);
+                    StreamRowCountEstimator.outputRows(1, keysType == KeysType.UNIQUE_KEYS, scanType), rows);
         }
         return estimates;
     }
@@ -427,14 +449,14 @@ public class OlapTableStreamWrapper extends OlapTable {
         Pair<Long, String> fallback = getTableRowCount(baseTable.getBaseIndexId());
         Map<Long, Long> estimates = Maps.newHashMapWithExpectedSize(partitionIds.size());
         for (Long partitionId : partitionIds) {
-            StreamRowCountBaseline state = matchingBaseline(partitionId);
-            long storedBase = state == null ? StreamRowCountBaseline.UNKNOWN_ROW_COUNT : state.getBaseRowCount();
+            PartitionStreamState state = matchingBaseline(partitionId);
+            long storedBase = state == null ? StreamRowCountEstimator.UNKNOWN_ROW_COUNT : state.getBaseRowCount();
             long currentBase = getPartitionRowCount(partitionId, baseTable.getBaseIndexId());
-            long rows = StreamRowCountBaseline.estimateSnapshotRead(keysType == KeysType.DUP_KEYS,
-                    storedBase, currentBase, StreamRowCountBaseline.UNKNOWN_ROW_COUNT, fallback.first);
+            long rows = StreamRowCountEstimator.estimateSnapshotRead(keysType == KeysType.DUP_KEYS,
+                    storedBase, currentBase, StreamRowCountEstimator.UNKNOWN_ROW_COUNT, fallback.first);
             estimates.put(partitionId, rows);
             if (LOG.isDebugEnabled()) {
-                StreamRowCountBaseline recorded = partitionStreamStates.get(partitionId);
+                PartitionStreamState recorded = partitionStreamStates.get(partitionId);
                 Long baselineOffset = recorded == null ? null : recorded.getBaselineOffset();
                 String source;
                 if (storedBase >= 0) {
@@ -454,8 +476,8 @@ public class OlapTableStreamWrapper extends OlapTable {
         return estimates;
     }
 
-    private StreamRowCountBaseline matchingBaseline(long partitionId) {
-        StreamRowCountBaseline state = partitionStreamStates.get(partitionId);
+    private PartitionStreamState matchingBaseline(long partitionId) {
+        PartitionStreamState state = partitionStreamStates.get(partitionId);
         Pair<Long, Long> originalRange = outputUpdateMap.get(partitionId);
         // This is the authoritative consumption offset BEFORE scan-bound conversion or TTL pruning.
         Long offset = originalRange == null ? null : originalRange.first;
@@ -463,15 +485,15 @@ public class OlapTableStreamWrapper extends OlapTable {
     }
 
     private long estimatePartitionChangeRecords(long partitionId, Pair<Long, Long> range, Pair<Long, String> fallback) {
-        StreamRowCountBaseline recorded = partitionStreamStates.get(partitionId);
-        StreamRowCountBaseline state = matchingBaseline(partitionId);
-        long storedC = state == null ? StreamRowCountBaseline.UNKNOWN_ROW_COUNT : state.getChangelogRowCount();
-        long storedB = state == null ? StreamRowCountBaseline.UNKNOWN_ROW_COUNT : state.getBaseRowCount();
+        PartitionStreamState recorded = partitionStreamStates.get(partitionId);
+        PartitionStreamState state = matchingBaseline(partitionId);
+        long storedC = state == null ? StreamRowCountEstimator.UNKNOWN_ROW_COUNT : state.getChangelogRowCount();
+        long storedB = state == null ? StreamRowCountEstimator.UNKNOWN_ROW_COUNT : state.getBaseRowCount();
         long currentC = getPartitionRowCount(partitionId, baseTable.getChangelogIndexMeta().getIndexId());
         long currentB = getPartitionRowCount(partitionId, baseTable.getBaseIndexId());
         Long start = range == null ? null : range.first;
         Long end = range == null ? null : range.second;
-        long records = StreamRowCountBaseline.estimateChangeRecords(start, end, storedC, storedB,
+        long records = StreamRowCountEstimator.estimateChangeRecords(start, end, storedC, storedB,
                 currentC, currentB, fallback.first);
         if (LOG.isDebugEnabled()) {
             Long baselineOffset = recorded == null ? null : recorded.getBaselineOffset();
@@ -509,7 +531,7 @@ public class OlapTableStreamWrapper extends OlapTable {
 
     private long getPartitionRowCount(long partitionId, long indexId) {
         Partition partition = baseTable.getPartition(partitionId);
-        return StreamRowCountBaseline.rowCount(partition == null ? null : partition.getIndex(indexId));
+        return StreamRowCountEstimator.rowCount(partition == null ? null : partition.getIndex(indexId));
     }
 
     private Pair<Long, String> getTableRowCount(long indexId) {
@@ -518,7 +540,7 @@ public class OlapTableStreamWrapper extends OlapTable {
         boolean complete = true;
         for (Partition partition : baseTable.getPartitions()) {
             MaterializedIndex index = partition.getIndex(indexId);
-            long count = StreamRowCountBaseline.rowCount(index);
+            long count = StreamRowCountEstimator.rowCount(index);
             complete &= count >= 0 && index.getRowCountReported();
             if (count >= 0) {
                 rows += count;
@@ -536,7 +558,7 @@ public class OlapTableStreamWrapper extends OlapTable {
             }
         }
         return available && complete ? Pair.of(rows, "whole-index-complete")
-                : Pair.of(StreamRowCountBaseline.UNKNOWN_ROW_COUNT, "unknown");
+                : Pair.of(StreamRowCountEstimator.UNKNOWN_ROW_COUNT, "unknown");
     }
 
     /**

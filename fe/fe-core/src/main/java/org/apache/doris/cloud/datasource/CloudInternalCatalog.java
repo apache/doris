@@ -47,7 +47,7 @@ import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.catalog.stream.BaseTableStream;
 import org.apache.doris.catalog.stream.OlapTableStream;
-import org.apache.doris.catalog.stream.StreamRowCountBaseline;
+import org.apache.doris.catalog.stream.OlapTableStream.PartitionStreamState;
 import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.catalog.CloudPartition;
 import org.apache.doris.cloud.catalog.CloudReplica;
@@ -128,12 +128,12 @@ public class CloudInternalCatalog extends InternalCatalog {
         }
         OlapTableStream olapStream = (OlapTableStream) stream;
         OlapTable olapBaseTable = (OlapTable) baseTable;
-        Map<Long, StreamRowCountBaseline> initialRowCounts = Maps.newHashMap();
+        Map<Long, PartitionStreamState> initialRowCounts = Maps.newHashMap();
         olapBaseTable.readLock();
         try {
             for (Long id : basePartitionIds) {
                 if (olapBaseTable.getPartition(id) != null) {
-                    initialRowCounts.put(id, StreamRowCountBaseline.capture(olapBaseTable, id, null));
+                    initialRowCounts.put(id, new PartitionStreamState(null, -1, null).withRowCounts(olapBaseTable, id));
                 }
             }
         } finally {
@@ -141,6 +141,12 @@ public class CloudInternalCatalog extends InternalCatalog {
         }
         List<Cloud.TableStreamOffsetPB> initialOffsets = captureTableStreamInitialOffsets(
                 olapStream, olapBaseTable, basePartitionIds);
+        initialOffsets = initialOffsets.stream().map(offset -> {
+            PartitionStreamState sample = initialRowCounts.get(offset.getPartitionId());
+            return offset.toBuilder()
+                    .setBaseRowCount(sample == null ? -1 : sample.getBaseRowCount())
+                    .setChangelogRowCount(sample == null ? -1 : sample.getChangelogRowCount()).build();
+        }).collect(Collectors.toList());
         Set<Long> basePartitionIdSet = new HashSet<>(basePartitionIds);
         Set<Long> offsetPartitionIds = initialOffsets.stream()
                 .map(Cloud.TableStreamOffsetPB::getPartitionId)
@@ -164,10 +170,12 @@ public class CloudInternalCatalog extends InternalCatalog {
         olapBaseTable.readLock();
         try {
             for (Cloud.TableStreamOffsetPB offset : initialOffsets) {
-                StreamRowCountBaseline sample = initialRowCounts.get(offset.getPartitionId());
+                PartitionStreamState sample = initialRowCounts.get(offset.getPartitionId());
                 if (sample != null) {
-                    olapStream.unprotectedPublishStreamRowCountBaseline(
-                            offset.getPartitionId(), sample.atOffset(offset.getOffsetTso()));
+                    PartitionStreamState state = offset.getState()
+                            == Cloud.TableStreamOffsetStatePB.TABLE_STREAM_OFFSET_INITIAL_SNAPSHOT_PENDING
+                            ? sample.atHistoricalTso(offset.getOffsetTso()) : sample.atOffset(offset.getOffsetTso());
+                    olapStream.unprotectedPublishPartitionState(offset.getPartitionId(), state);
                 }
             }
         } finally {

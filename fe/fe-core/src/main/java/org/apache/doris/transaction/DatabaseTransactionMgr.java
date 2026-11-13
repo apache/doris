@@ -38,6 +38,7 @@ import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.catalog.stream.BaseTableStream;
 import org.apache.doris.catalog.stream.OlapTableStream;
+import org.apache.doris.catalog.stream.OlapTableStreamUpdate;
 import org.apache.doris.catalog.stream.TableStreamUpdateInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -3277,6 +3278,9 @@ public class DatabaseTransactionMgr {
             Database db = env.getInternalCatalog().getDbOrMetaException(info.getDbId());
             TableIf tableIf = db.getTableOrMetaException(info.getStreamId());
             ((BaseTableStream) tableIf).unprotectedCheckStreamUpdate(info.getUpdate());
+            if (tableIf instanceof OlapTableStream) {
+                ((OlapTableStream) tableIf).unprotectedPrepareStreamUpdate((OlapTableStreamUpdate) info.getUpdate());
+            }
         }
     }
 

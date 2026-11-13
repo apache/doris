@@ -178,7 +178,7 @@ public class NormalizeOlapTableStreamScan extends OneRewriteRuleFactory {
                 ? streamWrapper.getCloudVisibleVersions(selectedPartitionIds)
                 : Collections.emptyMap();
         // The change rows of the range, which neither the changelog index nor the base table
-        // reports. See StreamRowCountBaseline.
+        // reports. See StreamRowCountEstimator.
         Map<Long, Long> rowCountEstimates = streamWrapper.estimateChangelogRead(
                 selectedPartitionIds, offsetMap, streamScanType);
         OlapChangelogTableWrapper table =

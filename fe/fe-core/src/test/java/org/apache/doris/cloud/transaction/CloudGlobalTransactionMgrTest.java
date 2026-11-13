@@ -37,7 +37,7 @@ import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.stream.CloudOlapTableStreamUpdate;
 import org.apache.doris.catalog.stream.OlapTableStream;
-import org.apache.doris.catalog.stream.StreamRowCountBaseline;
+import org.apache.doris.catalog.stream.OlapTableStream.PartitionStreamState;
 import org.apache.doris.catalog.stream.TableStreamManager;
 import org.apache.doris.catalog.stream.TableStreamUpdateInfo;
 import org.apache.doris.cloud.catalog.CloudEnv;
@@ -542,17 +542,18 @@ public class CloudGlobalTransactionMgrTest {
             Mockito.verify(mockProxy).commitTxn(requestCaptor.capture());
             Assertions.assertEquals(2, requestCaptor.getValue().getTableStreamUpdatesCount());
             Assertions.assertEquals(identity, requestCaptor.getValue().getTableStreamUpdates(0).getIdentity());
-            Assertions.assertEquals(partitionUpdate,
+            Assertions.assertEquals(partitionUpdate.toBuilder().setBaseRowCount(-1).setChangelogRowCount(-1).build(),
                     requestCaptor.getValue().getTableStreamUpdates(0).getPartitionUpdates(0));
             Assertions.assertEquals(secondIdentity,
                     requestCaptor.getValue().getTableStreamUpdates(1).getIdentity());
-            Assertions.assertEquals(secondPartitionUpdate,
+            Assertions.assertEquals(secondPartitionUpdate.toBuilder()
+                            .setBaseRowCount(-1).setChangelogRowCount(-1).build(),
                     requestCaptor.getValue().getTableStreamUpdates(1).getPartitionUpdates(0));
         }
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"success", "failure", "replace", "duplicate", "late"})
+    @ValueSource(strings = {"success", "failure", "replace", "duplicate", "late", "initial"})
     public void testStreamBaselinesFollowCloudCommitOutcome(String outcome) throws Exception {
         Database db = masterEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1);
         Column key = new Column("k", PrimitiveType.INT);
@@ -582,13 +583,17 @@ public class CloudGlobalTransactionMgrTest {
         TableStreamManager manager = masterEnv.getTableStreamManager();
         boolean previouslyPublished = outcome.equals("duplicate") || outcome.equals("late");
         if (previouslyPublished) {
-            manager.recordStreamRowCountBaselines(db.getId(), stream.getId(),
-                    manager.captureStreamRowCountBaselines(db.getId(), stream.getId(), Map.of(1003L, 300L)));
+            manager.recordCommittedStreamUpdate(new TableStreamUpdateInfo(db.getId(), stream.getId(),
+                    manager.prepareStreamUpdate(db.getId(), stream.getId(), Map.of(1003L, 300L))), 10L);
             base.setRowCount(60L);
             changelog.setRowCount(110L);
         }
-        StreamRowCountBaseline previous = stream.getStreamRowCountBaseline(1003L);
-        long nextOffset = outcome.equals("duplicate") ? 300L : 200L;
+        if (outcome.equals("initial")) {
+            stream.unprotectedPublishPartitionState(1003L,
+                    new PartitionStreamState(null, -1, 100L).withRowCounts(source, 1003L));
+        }
+        PartitionStreamState previous = stream.getPartitionState(1003L);
+        long nextOffset = outcome.equals("initial") ? 100L : outcome.equals("duplicate") ? 300L : 200L;
         Cloud.TableStreamIdentityPB identity = Cloud.TableStreamIdentityPB.newBuilder()
                 .setBaseDbId(db.getId()).setBaseTableId(source.getId())
                 .setStreamDbId(db.getId()).setStreamId(stream.getId()).build();
@@ -600,8 +605,13 @@ public class CloudGlobalTransactionMgrTest {
         Table sink = db.getTableOrMetaException(CatalogTestUtil.testTableId1);
         MetaServiceProxy proxy = Mockito.mock(MetaServiceProxy.class);
         Mockito.when(proxy.commitTxn(Mockito.any())).thenAnswer(invocation -> {
-            Assertions.assertSame(previous, stream.getStreamRowCountBaseline(1003L),
+            Assertions.assertSame(previous, stream.getPartitionState(1003L),
                     "sampling must not publish before the commit RPC succeeds");
+            CommitTxnRequest request = invocation.getArgument(0);
+            Assertions.assertEquals(outcome.equals("late") ? 60L : 50L,
+                    request.getTableStreamUpdates(0).getPartitionUpdates(0).getBaseRowCount());
+            Assertions.assertEquals(outcome.equals("late") ? 110L : 100L,
+                    request.getTableStreamUpdates(0).getPartitionUpdates(0).getChangelogRowCount());
             // A report arriving during the RPC must not replace the pre-RPC consumption sample.
             base.setRowCount(70L);
             changelog.setRowCount(130L);
@@ -633,15 +643,21 @@ public class CloudGlobalTransactionMgrTest {
             }
         }
         Mockito.verify(proxy).commitTxn(Mockito.any());
-        StreamRowCountBaseline published = stream.getStreamRowCountBaseline(1003L);
-        if (outcome.equals("success")) {
+        PartitionStreamState published = stream.getPartitionState(1003L);
+        if (outcome.equals("success") || outcome.equals("initial")) {
             Assertions.assertNotNull(published);
-            Assertions.assertEquals(200L, published.getBaselineOffset());
+            Assertions.assertEquals(nextOffset, published.getOffset());
+            Assertions.assertNull(published.getHistoricalTso());
             Assertions.assertEquals(50L, published.getBaseRowCount());
             Assertions.assertEquals(100L, published.getChangelogRowCount());
+        } else if (outcome.equals("replace")) {
+            Assertions.assertNotNull(published);
+            Assertions.assertEquals(200L, published.getOffset());
+            Assertions.assertEquals(50L, published.getBaseRowCount());
+            Assertions.assertFalse(published.matches(source, 1003L, 200L));
         } else {
             Assertions.assertSame(previous, published,
-                    "failure, replacement and duplicate/late callbacks must not publish the incoming sample");
+                    "failure and duplicate/late callbacks must not replace the committed tuple");
         }
     }
 

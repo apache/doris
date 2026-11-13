@@ -39,7 +39,6 @@ import org.apache.doris.utframe.TestWithFeService;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
-import org.mockito.stubbing.Answer;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -385,18 +384,13 @@ public class TableStreamManagerCleanupTest extends TestWithFeService {
         }).when(source).getPartition(Mockito.anyLong());
         long partitionId = context.baseTable.getPartition("p1").getId();
         updatePartitionOffset(stream, partitionId, 100L, 10L);
-        Assertions.assertEquals(100L, stream.getStreamRowCountBaseline(partitionId).getBaselineOffset());
+        Assertions.assertEquals(100L, stream.getPartitionState(partitionId).getBaselineOffset());
     }
 
     @Test
-    public void testLocalConsumptionDoesNotWaitForSourceDdl() throws Exception {
+    public void testPendingCountsSkipSourceDdlAndCommitStillPublishesOffset() throws Exception {
         StreamContext context = createStreamContext("baseline_source_ddl");
         long partitionId = context.baseTable.getPartition("p2").getId();
-        TableStreamManager manager = Env.getCurrentEnv().getTableStreamManager();
-        long dbId = context.stream.getDatabase().getId();
-        Map<Long, StreamRowCountBaseline> samples = manager.captureStreamRowCountBaselines(
-                dbId, context.stream.getId(), Map.of(partitionId, 100L));
-        Assertions.assertEquals(1, samples.size());
         CountDownLatch ddlLocked = new CountDownLatch(1);
         CountDownLatch finishDdl = new CountDownLatch(1);
         ExecutorService executor = Executors.newFixedThreadPool(2);
@@ -413,96 +407,45 @@ public class TableStreamManagerCleanupTest extends TestWithFeService {
         });
         try {
             Assertions.assertTrue(ddlLocked.await(5, TimeUnit.SECONDS));
-            Future<?> consumption = executor.submit(() -> {
-                updatePartitionOffset(context.stream, partitionId, 100L, 10L);
-                Assertions.assertTrue(manager.captureStreamRowCountBaselines(
-                        dbId, context.stream.getId(), Map.of(partitionId, 100L)).isEmpty());
-                manager.recordStreamRowCountBaselines(dbId, context.stream.getId(), samples);
-            });
+            Future<?> consumption = executor.submit(() -> updatePartitionOffset(
+                    context.stream, partitionId, 100L, 10L));
             consumption.get(2, TimeUnit.SECONDS);
-            Map<Long, PartitionStreamState> states = Deencapsulation.getField(context.stream, "partitionStates");
-            Assertions.assertEquals(100L, states.get(partitionId).getOffset());
-            Assertions.assertNull(context.stream.getStreamRowCountBaseline(partitionId),
-                    "optional sampling must skip a source held by concurrent DDL");
+            PartitionStreamState state = context.stream.getPartitionState(partitionId);
+            Assertions.assertEquals(100L, state.getOffset());
+            Assertions.assertEquals(-1L, state.getBaseRowCount());
+            Assertions.assertEquals(-1L, state.getChangelogRowCount());
         } finally {
             finishDdl.countDown();
-            ddl.get(5, TimeUnit.SECONDS);
             executor.shutdown();
             Assertions.assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS));
         }
+        ddl.get();
         Assertions.assertNull(context.baseTable.getPartition(partitionId));
     }
 
     @Test
-    public void testCloudBaselinePublicationBreaksFairLockCycle() throws Exception {
-        StreamContext context = createStreamContext("baseline_fair_locks");
-        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test_stream_cleanup");
-        OlapTableStream stream = Mockito.spy(context.stream);
-        db.unregisterTable(stream.getName());
-        db.registerTable(stream);
-        long partitionId = context.baseTable.getPartition("p1").getId();
+    public void testCloudPublicationDoesNotAcquireSourceMetadataLocks() throws Exception {
+        StreamContext context = createStreamContext("baseline_cloud_locks");
+        long id = context.baseTable.getPartition("p1").getId();
+        long dbId = context.stream.getDatabase().getId();
         TableStreamManager manager = Env.getCurrentEnv().getTableStreamManager();
-        Map<Long, StreamRowCountBaseline> samples = manager.captureStreamRowCountBaselines(
-                db.getId(), stream.getId(), Map.of(partitionId, 100L));
-        Assertions.assertEquals(1, samples.size());
-        CountDownLatch readerHasStream = new CountDownLatch(1);
-        CountDownLatch readSource = new CountDownLatch(1);
-        CountDownLatch publisherHasSource = new CountDownLatch(1);
-        CountDownLatch publish = new CountDownLatch(1);
-        Answer<Boolean> pausePublication = invocation -> {
-            publisherHasSource.countDown();
-            Assertions.assertTrue(publish.await(10, TimeUnit.SECONDS));
-            return (Boolean) invocation.callRealMethod();
-        };
-        // Cover the old blocking acquisition and its nonblocking replacement with the same schedule.
-        Mockito.doAnswer(pausePublication).when(stream).writeLockIfExist();
-        Mockito.doAnswer(pausePublication).when(stream)
-                .tryWriteLockIfExist(Mockito.anyLong(), Mockito.any(TimeUnit.class));
-        MonitoredReentrantReadWriteLock sourceLock = Deencapsulation.getField(context.baseTable, "rwLock");
-        AtomicReference<Thread> readerThread = new AtomicReference<>();
-        AtomicReference<Thread> ddlThread = new AtomicReference<>();
-        ExecutorService executor = Executors.newFixedThreadPool(3);
-        Future<Boolean> reader = executor.submit(() -> {
-            readerThread.set(Thread.currentThread());
-            stream.readLock();
-            try {
-                readerHasStream.countDown();
-                Assertions.assertTrue(readSource.await(10, TimeUnit.SECONDS));
-                // A bounded wait also lets the unfixed deadlock test clean up all its threads.
-                if (!context.baseTable.tryReadLock(5, TimeUnit.SECONDS)) {
-                    return false;
-                }
-                context.baseTable.readUnlock();
-                return true;
-            } finally {
-                stream.readUnlock();
-            }
-        });
+        TableStreamUpdateInfo info = new TableStreamUpdateInfo(dbId, context.stream.getId(),
+                manager.prepareStreamUpdate(dbId, context.stream.getId(), Map.of(id, 100L)));
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        context.baseTable.writeLock();
+        context.stream.readLock();
         try {
-            Assertions.assertTrue(readerHasStream.await(5, TimeUnit.SECONDS));
-            Future<?> publication = executor.submit(() -> manager.recordStreamRowCountBaselines(
-                    db.getId(), stream.getId(), samples));
-            Assertions.assertTrue(publisherHasSource.await(5, TimeUnit.SECONDS));
-            Future<?> ddl = executor.submit(() -> {
-                ddlThread.set(Thread.currentThread());
-                context.baseTable.writeLock();
-                context.baseTable.writeUnlock();
-            });
-            await(() -> ddlThread.get() != null && sourceLock.hasQueuedThread(ddlThread.get()));
-            readSource.countDown();
-            await(() -> sourceLock.hasQueuedThread(readerThread.get()));
-            publish.countDown();
-            publication.get(2, TimeUnit.SECONDS);
-            ddl.get(2, TimeUnit.SECONDS);
-            Assertions.assertTrue(reader.get(2, TimeUnit.SECONDS));
-            Assertions.assertNull(stream.getStreamRowCountBaseline(partitionId),
-                    "a busy stream skips the optional publication");
+            // A source writer and stream reader cannot make the post-commit callback wait.
+            executor.submit(() -> manager.recordCommittedStreamUpdate(info, 10L)).get(2, TimeUnit.SECONDS);
+            Assertions.assertNull(context.stream.getPartitionState(id));
         } finally {
-            readSource.countDown();
-            publish.countDown();
+            context.stream.readUnlock();
+            context.baseTable.writeUnlock();
             executor.shutdown();
-            Assertions.assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS));
+            Assertions.assertTrue(executor.awaitTermination(5, TimeUnit.SECONDS));
         }
+        manager.recordCommittedStreamUpdate(info, 10L);
+        Assertions.assertEquals(100L, context.stream.getPartitionState(id).getOffset());
     }
 
     private StreamContext createStreamContext(String suffix) throws Exception {
@@ -556,8 +499,10 @@ public class TableStreamManagerCleanupTest extends TestWithFeService {
             OlapTableStream stream, long partitionId, long offset, long commitTimeMs) {
         stream.writeLock();
         try {
-            stream.unprotectedUpdateStreamUpdate(new OlapTableStreamUpdate(
-                    Collections.emptyMap(), Collections.singletonMap(partitionId, offset)), commitTimeMs);
+            OlapTableStreamUpdate update = new OlapTableStreamUpdate(
+                    Collections.emptyMap(), Collections.singletonMap(partitionId, offset));
+            stream.unprotectedPrepareStreamUpdate(update);
+            stream.unprotectedUpdateStreamUpdate(update, commitTimeMs);
         } finally {
             stream.writeUnlock();
         }

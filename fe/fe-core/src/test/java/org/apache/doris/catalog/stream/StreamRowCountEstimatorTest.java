@@ -22,6 +22,7 @@ import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.RandomDistributionInfo;
+import org.apache.doris.catalog.stream.OlapTableStream.PartitionStreamState;
 import org.apache.doris.cloud.catalog.CloudPartition;
 
 import org.junit.jupiter.api.Assertions;
@@ -29,11 +30,11 @@ import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
-public class StreamRowCountBaselineTest {
-    private static final long UNKNOWN = StreamRowCountBaseline.UNKNOWN_ROW_COUNT;
+public class StreamRowCountEstimatorTest {
+    private static final long UNKNOWN = StreamRowCountEstimator.UNKNOWN_ROW_COUNT;
 
     private long records(long c0, long b0, long c1, long b1, long fallback) {
-        return StreamRowCountBaseline.estimateChangeRecords(100L, 200L, c0, b0, c1, b1, fallback);
+        return StreamRowCountEstimator.estimateChangeRecords(100L, 200L, c0, b0, c1, b1, fallback);
     }
 
     @Test
@@ -59,55 +60,55 @@ public class StreamRowCountBaselineTest {
     @Test
     public void testOnlyResolvedOffsetsProveEmpty() {
         Assertions.assertEquals(0,
-                StreamRowCountBaseline.estimateChangeRecords(100L, 100L, 0, 0, 800, 800, 9999));
+                StreamRowCountEstimator.estimateChangeRecords(100L, 100L, 0, 0, 800, 800, 9999));
         Assertions.assertEquals(0,
-                StreamRowCountBaseline.estimateChangeRecords(110L, 100L, 0, 0, 800, 800, 9999));
+                StreamRowCountEstimator.estimateChangeRecords(110L, 100L, 0, 0, 800, 800, 9999));
         Assertions.assertEquals(800,
-                StreamRowCountBaseline.estimateChangeRecords(null, 200L, 100, 100, 800, 900, 9999));
+                StreamRowCountEstimator.estimateChangeRecords(null, 200L, 100, 100, 800, 900, 9999));
         Assertions.assertEquals(800,
-                StreamRowCountBaseline.estimateChangeRecords(100L, null, 100, 100, 800, 900, 9999));
+                StreamRowCountEstimator.estimateChangeRecords(100L, null, 100, 100, 800, 900, 9999));
     }
 
     @Test
     public void testOutputExpansionUsesActualScanTypeOnce() {
         for (BaseTableStream.StreamScanType type : BaseTableStream.StreamScanType.values()) {
-            Assertions.assertEquals(300, StreamRowCountBaseline.outputRows(300, false, type));
+            Assertions.assertEquals(300, StreamRowCountEstimator.outputRows(300, false, type));
             Assertions.assertEquals(type == BaseTableStream.StreamScanType.APPEND_ONLY ? 300 : 600,
-                    StreamRowCountBaseline.outputRows(300, true, type));
-            Assertions.assertEquals(0, StreamRowCountBaseline.outputRows(0, true, type));
-            Assertions.assertEquals(UNKNOWN, StreamRowCountBaseline.outputRows(UNKNOWN, true, type));
+                    StreamRowCountEstimator.outputRows(300, true, type));
+            Assertions.assertEquals(0, StreamRowCountEstimator.outputRows(0, true, type));
+            Assertions.assertEquals(UNKNOWN, StreamRowCountEstimator.outputRows(UNKNOWN, true, type));
         }
     }
 
     @Test
     public void testSnapshotPrefersConsumptionBaselineIncludingZero() {
-        Assertions.assertEquals(500, StreamRowCountBaseline.estimateSnapshotRead(true, 500, 700, 300, 9999));
-        Assertions.assertEquals(800, StreamRowCountBaseline.estimateSnapshotRead(false, 800, 700, 300, 9999));
-        Assertions.assertEquals(0, StreamRowCountBaseline.estimateSnapshotRead(true, 0, 700, 300, 9999));
-        Assertions.assertEquals(700, StreamRowCountBaseline.estimateSnapshotRead(true, UNKNOWN, 700, 300, 9999));
-        Assertions.assertEquals(1000, StreamRowCountBaseline.estimateSnapshotRead(false, UNKNOWN, 700, 300, 9999));
-        Assertions.assertEquals(700, StreamRowCountBaseline.estimateSnapshotRead(false, UNKNOWN, 700, UNKNOWN, 9999));
+        Assertions.assertEquals(500, StreamRowCountEstimator.estimateSnapshotRead(true, 500, 700, 300, 9999));
+        Assertions.assertEquals(800, StreamRowCountEstimator.estimateSnapshotRead(false, 800, 700, 300, 9999));
+        Assertions.assertEquals(0, StreamRowCountEstimator.estimateSnapshotRead(true, 0, 700, 300, 9999));
+        Assertions.assertEquals(700, StreamRowCountEstimator.estimateSnapshotRead(true, UNKNOWN, 700, 300, 9999));
+        Assertions.assertEquals(1000, StreamRowCountEstimator.estimateSnapshotRead(false, UNKNOWN, 700, 300, 9999));
+        Assertions.assertEquals(700, StreamRowCountEstimator.estimateSnapshotRead(false, UNKNOWN, 700, UNKNOWN, 9999));
         Assertions.assertEquals(9999,
-                StreamRowCountBaseline.estimateSnapshotRead(false, UNKNOWN, UNKNOWN, 300, 9999));
+                StreamRowCountEstimator.estimateSnapshotRead(false, UNKNOWN, UNKNOWN, 300, 9999));
         Assertions.assertEquals(UNKNOWN,
-                StreamRowCountBaseline.estimateSnapshotRead(false, UNKNOWN, UNKNOWN, 300, UNKNOWN));
+                StreamRowCountEstimator.estimateSnapshotRead(false, UNKNOWN, UNKNOWN, 300, UNKNOWN));
     }
 
     @Test
     public void testRawCountAndReportAvailability() {
         MaterializedIndex index = new MaterializedIndex(1L, MaterializedIndex.IndexState.NORMAL);
-        Assertions.assertEquals(UNKNOWN, StreamRowCountBaseline.rowCount(index));
+        Assertions.assertEquals(UNKNOWN, StreamRowCountEstimator.rowCount(index));
         index.setRowCount(0);
-        Assertions.assertEquals(UNKNOWN, StreamRowCountBaseline.rowCount(index));
+        Assertions.assertEquals(UNKNOWN, StreamRowCountEstimator.rowCount(index));
         index.setRowCount(50);
-        Assertions.assertEquals(50, StreamRowCountBaseline.rowCount(index));
+        Assertions.assertEquals(50, StreamRowCountEstimator.rowCount(index));
         Assertions.assertFalse(index.getRowCountReported());
         index.setRowCountReported(true);
         index.setRowCount(0);
-        Assertions.assertEquals(0, StreamRowCountBaseline.rowCount(index));
+        Assertions.assertEquals(0, StreamRowCountEstimator.rowCount(index));
         index.setRowCount(UNKNOWN);
-        Assertions.assertEquals(UNKNOWN, StreamRowCountBaseline.rowCount(index));
-        Assertions.assertEquals(UNKNOWN, StreamRowCountBaseline.rowCount(null));
+        Assertions.assertEquals(UNKNOWN, StreamRowCountEstimator.rowCount(index));
+        Assertions.assertEquals(UNKNOWN, StreamRowCountEstimator.rowCount(null));
     }
 
     @Test
@@ -122,35 +123,22 @@ public class StreamRowCountBaselineTest {
         try (MockedStatic<Env> mocked = Mockito.mockStatic(Env.class)) {
             mocked.when(Env::getCurrentEnv).thenReturn(env);
             Mockito.when(env.getEpoch()).thenReturn(1L);
-            StreamRowCountBaseline state = StreamRowCountBaseline.capture(table, 10, 100L);
+            PartitionStreamState state = new PartitionStreamState(100L, -1, null).withRowCounts(table, 10);
             Assertions.assertEquals(50, state.getBaseRowCount());
             Assertions.assertTrue(state.matches(table, 10, 100L));
             Assertions.assertFalse(state.matches(table, 10, 200L));
             // Reports and compaction do not change topology identity.
             index.setRowCount(70);
             Assertions.assertTrue(state.matches(table, 10, 100L));
-            StreamRowCountBaseline lateCallback = StreamRowCountBaseline.capture(table, 10, 300L);
             index.clearTabletsForRestore();
             Assertions.assertFalse(state.matches(table, 10, 100L));
-            StreamRowCountBaseline creation = StreamRowCountBaseline.capture(table, 10, null).atOffset(200L);
-            Assertions.assertTrue(creation.matches(table, 10, 200L));
-            OlapTableStream stream = Mockito.spy(new OlapTableStream());
-            Mockito.doReturn(table).when(stream).getBaseTableNullable();
-            stream.writeLock();
-            try {
-                stream.unprotectedPublishStreamRowCountBaseline(10, creation);
-                stream.unprotectedPublishStreamRowCountBaseline(10, lateCallback);
-                Assertions.assertEquals(200L, stream.getStreamRowCountBaseline(10).getBaselineOffset());
-            } finally {
-                stream.writeUnlock();
-            }
-            state = StreamRowCountBaseline.capture(table, 10, 100L);
+            state = new PartitionStreamState(100L, -1, null).withRowCounts(table, 10);
             partition.updateVersionForRestore(3L);
             Assertions.assertFalse(state.matches(table, 10, 100L));
-            state = StreamRowCountBaseline.capture(table, 10, 100L);
+            state = new PartitionStreamState(100L, -1, null).withRowCounts(table, 10);
             Mockito.when(env.getEpoch()).thenReturn(2L);
             Assertions.assertFalse(state.matches(table, 10, 100L));
-            state = StreamRowCountBaseline.capture(table, 10, 100L);
+            state = new PartitionStreamState(100L, -1, null).withRowCounts(table, 10);
             Mockito.when(table.getPartition(10L)).thenReturn(Mockito.mock(Partition.class));
             Assertions.assertFalse(state.matches(table, 10, 100L));
         }
@@ -167,13 +155,13 @@ public class StreamRowCountBaselineTest {
         Env env = Mockito.mock(Env.class);
         try (MockedStatic<Env> mocked = Mockito.mockStatic(Env.class)) {
             mocked.when(Env::getCurrentEnv).thenReturn(env);
-            StreamRowCountBaseline state = StreamRowCountBaseline.capture(table, 10, 100L);
+            PartitionStreamState state = new PartitionStreamState(100L, -1, null).withRowCounts(table, 10);
             Assertions.assertTrue(state.matches(table, 10, 100L));
             Object topology = index.getDataEpoch();
             partition.updateVersionForRestore(3L);
             Assertions.assertSame(topology, index.getDataEpoch());
             Assertions.assertFalse(state.matches(table, 10, 100L));
-            Assertions.assertTrue(StreamRowCountBaseline.capture(table, 10, 200L).matches(table, 10, 200L));
+            Assertions.assertTrue(new PartitionStreamState(200L, -1, null).withRowCounts(table, 10).matches(table, 10, 200L));
         }
     }
 

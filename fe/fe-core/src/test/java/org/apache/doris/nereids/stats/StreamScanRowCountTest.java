@@ -183,6 +183,25 @@ public class StreamScanRowCountTest extends TestWithFeService {
     }
 
     @Test
+    public void testNonemptyRangeWithStaleReportsUsesStockFallback() throws Exception {
+        OlapTable base = (OlapTable) Env.getCurrentInternalCatalog().getDbOrMetaException("test")
+                .getTableOrMetaException("stream_base");
+        Partition partition = base.getPartitions().iterator().next();
+        MaterializedIndex changelog = partition.getIndex(base.getChangelogIndexMeta().getIndexId());
+        long savedBase = partition.getBaseIndex().getRowCount();
+        long savedChangelog = changelog.getRowCount();
+        try {
+            // The visible offset advanced, but reports still equal the creation/consumption baseline.
+            partition.getBaseIndex().setRowCount(BASE_TABLE_ROW_COUNT);
+            changelog.setRowCount(1000L);
+            Assertions.assertEquals(1000L, streamScanRowCount("select * from stream_on_base"));
+        } finally {
+            partition.getBaseIndex().setRowCount(savedBase);
+            changelog.setRowCount(savedChangelog);
+        }
+    }
+
+    @Test
     public void testCloudReadStateMatchesOriginalOffsetBeforeTtl() throws Exception {
         Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
         OlapTable base = (OlapTable) db.getTableOrMetaException("stream_base");
@@ -193,7 +212,8 @@ public class StreamScanRowCountTest extends TestWithFeService {
             wrapper.installCloudReadStates(ImmutableMap.of(id, Cloud.TableStreamPartitionReadStatePB.newBuilder()
                     .setPartitionId(id)
                     .setOffsetState(Cloud.TableStreamOffsetStatePB.TABLE_STREAM_OFFSET_CONSUMED)
-                    .setOffsetTso(offset).setEndTso(END_TSO).setVisibleVersion(3L).build()));
+                    .setOffsetTso(offset).setEndTso(END_TSO).setVisibleVersion(3L)
+                    .setBaseRowCount(BASE_TABLE_ROW_COUNT).setChangelogRowCount(1000L).build()));
             // TTL has moved the scan start, but validity is checked against the MS consumption offset.
             Assertions.assertEquals(offset == START_TSO ? 700L : 1200L,
                     wrapper.estimateChangelogRead(base.getPartitionIds(), ImmutableMap.of(id, Pair.of(START_TSO + 80, END_TSO + 1)),
@@ -208,22 +228,27 @@ public class StreamScanRowCountTest extends TestWithFeService {
         OlapTableStream stream = (OlapTableStream) db.getTableOrMetaException("stream_on_base");
         OlapTableStream restored = GsonUtils.GSON.fromJson(GsonUtils.GSON.toJson(stream), OlapTableStream.class);
         long id = base.getPartitionIds().get(0);
-        Assertions.assertNull(restored.getStreamRowCountBaseline(id));
+        Assertions.assertNotNull(restored.getPartitionState(id));
+        Assertions.assertEquals(BASE_TABLE_ROW_COUNT, restored.getPartitionState(id).getBaseRowCount());
+        Assertions.assertFalse(restored.getPartitionState(id).matches(base, id, START_TSO));
         restored.writeLock();
         try {
-            restored.unprotectedRecordStreamRowCountBaseline(id, START_TSO + 200);
-            restored.unprotectedRecordStreamRowCountBaseline(id, START_TSO + 150);
-            Assertions.assertEquals(START_TSO + 200, restored.getStreamRowCountBaseline(id).getBaselineOffset());
-            restored.unprotectedUpdateStreamUpdate(new OlapTableStreamUpdate(ImmutableMap.of(id, START_TSO + 200),
-                    ImmutableMap.of(id, START_TSO + 300)), 1000L, true);
-            Assertions.assertNull(restored.getStreamRowCountBaseline(id));
-            restored.unprotectedUpdateStreamUpdate(new OlapTableStreamUpdate(ImmutableMap.of(id, START_TSO + 300),
-                    ImmutableMap.of(id, START_TSO + 400)), 2000L);
-            Assertions.assertEquals(START_TSO + 400, restored.getStreamRowCountBaseline(id).getBaselineOffset());
+            OlapTableStreamUpdate update = new OlapTableStreamUpdate(ImmutableMap.of(id, START_TSO),
+                    ImmutableMap.of(id, START_TSO + 300));
+            restored.unprotectedPrepareStreamUpdate(update);
+            restored.unprotectedUpdateStreamUpdate(update, 1000L, true);
+            Assertions.assertEquals(START_TSO + 300, restored.getPartitionState(id).getOffset());
+            Assertions.assertFalse(restored.getPartitionState(id).matches(base, id, START_TSO + 300));
+            update = new OlapTableStreamUpdate(ImmutableMap.of(id, START_TSO + 300),
+                    ImmutableMap.of(id, START_TSO + 400));
+            restored.unprotectedPrepareStreamUpdate(update);
+            restored.unprotectedUpdateStreamUpdate(update, 2000L);
+            Assertions.assertEquals(START_TSO + 400, restored.getPartitionState(id).getBaselineOffset());
+            Assertions.assertTrue(restored.getPartitionState(id).matches(base, id, START_TSO + 400));
         } finally {
             restored.writeUnlock();
         }
-        Assertions.assertEquals(START_TSO, stream.getStreamRowCountBaseline(id).getBaselineOffset(),
+        Assertions.assertEquals(START_TSO, stream.getPartitionState(id).getBaselineOffset(),
                 "independent streams must retain independent baselines");
     }
 

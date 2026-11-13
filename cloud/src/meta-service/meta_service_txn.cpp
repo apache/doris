@@ -235,7 +235,10 @@ public:
             }
         }
         for (const auto& update : stream_update.partition_updates()) {
-            if (!write_next_offset(identity, update, offset_gc)) {
+            auto previous = stream_offsets.find(update.partition_id());
+            if (!write_next_offset(identity, update,
+                                   previous == stream_offsets.end() ? nullptr : &previous->second,
+                                   offset_gc)) {
                 return false;
             }
         }
@@ -315,12 +318,26 @@ private:
 
     bool write_next_offset(const TableStreamIdentityPB& identity,
                            const TableStreamPartitionUpdatePB& update,
+                           const TableStreamOffsetPB* previous,
                            TableStreamPartitionSetPB* offset_gc) {
         TableStreamOffsetPB next_offset;
         next_offset.set_partition_id(update.partition_id());
         next_offset.set_state(TableStreamOffsetStatePB::TABLE_STREAM_OFFSET_CONSUMED);
         next_offset.set_offset_tso(update.next_offset_tso());
         next_offset.set_last_consumption_time_ms(consumption_time_ms_);
+        if (previous != nullptr && previous->state() == TABLE_STREAM_OFFSET_CONSUMED &&
+            previous->offset_tso() == update.next_offset_tso()) {
+            // Reports arriving later cannot establish a new baseline for an unchanged offset.
+            next_offset.set_base_row_count(
+                    previous->has_base_row_count() ? previous->base_row_count() : -1);
+            next_offset.set_changelog_row_count(
+                    previous->has_changelog_row_count() ? previous->changelog_row_count() : -1);
+        } else {
+            next_offset.set_base_row_count(update.has_base_row_count() ? update.base_row_count()
+                                                                       : -1);
+            next_offset.set_changelog_row_count(
+                    update.has_changelog_row_count() ? update.changelog_row_count() : -1);
+        }
         std::string value;
         if (!next_offset.SerializeToString(&value)) {
             code_ = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;

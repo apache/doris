@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog.stream;
 
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.stream.OlapTableStream.PartitionStreamState;
 import org.apache.doris.common.UserException;
 import org.apache.doris.transaction.TransactionCommitFailedException;
@@ -26,6 +27,7 @@ import com.google.gson.annotations.SerializedName;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
 
 public class OlapTableStreamUpdate extends AbstractTableStreamUpdate {
     // previous partition consumed version
@@ -33,7 +35,7 @@ public class OlapTableStreamUpdate extends AbstractTableStreamUpdate {
     private final Map<Long, Long> prev;
     // new partition consumed version
     @SerializedName(value = "next")
-    private final Map<Long, Long> next;
+    private final Map<Long, PartitionStreamState> next;
 
     public OlapTableStreamUpdate() {
         this.prev = new HashMap<>();
@@ -41,12 +43,35 @@ public class OlapTableStreamUpdate extends AbstractTableStreamUpdate {
     }
 
     public OlapTableStreamUpdate(Map<Long, Long> prev, Map<Long, Long> next) {
-        this.prev = prev;
-        this.next = next;
+        this.prev = new HashMap<>(prev);
+        this.next = new HashMap<>();
+        next.forEach((id, offset) -> this.next.put(id, new PartitionStreamState(offset, -1, null)));
     }
 
-    public Map<Long, Long> getNext() {
+    public Map<Long, PartitionStreamState> getNext() {
         return next;
+    }
+
+    /** Called before transaction persistence; all pending fields are then published together. */
+    public void retainUnchangedCounts(Map<Long, PartitionStreamState> current) {
+        next.replaceAll((id, state) -> isUnchangedOffset(state, current.get(id)) ? current.get(id) : state);
+    }
+
+    public void captureRowCounts(OlapTable table, Map<Long, PartitionStreamState> current) {
+        next.replaceAll((id, state) -> isUnchangedOffset(state, current.get(id))
+                || table.getPartition(id) == null ? state : state.withRowCounts(table, id));
+    }
+
+    private boolean isUnchangedOffset(PartitionStreamState nextState, PartitionStreamState current) {
+        return current != null && current.getOffset() != null
+                && Objects.equals(current.getOffset(), nextState.getOffset());
+    }
+
+    public OlapTableStreamUpdate committedAt(long timestamp) {
+        OlapTableStreamUpdate committed = new OlapTableStreamUpdate();
+        committed.prev.putAll(prev);
+        next.forEach((id, state) -> committed.next.put(id, state.committedAt(timestamp, false)));
+        return committed;
     }
 
     public Map<Long, Long> getPrev() {
@@ -77,7 +102,7 @@ public class OlapTableStreamUpdate extends AbstractTableStreamUpdate {
                         + " vs " + state.getOffset());
             }
         }
-        for (Map.Entry<Long, Long> entry : next.entrySet()) {
+        for (Map.Entry<Long, PartitionStreamState> entry : next.entrySet()) {
             PartitionStreamState state = partitionStates.get(entry.getKey());
             if (state != null && state.getOffset() != null && !prev.containsKey(entry.getKey())) {
                 throw new TransactionCommitFailedException(

@@ -323,57 +323,30 @@ public class TableStreamManager extends MasterDaemon implements Writable, GsonPo
         }
     }
 
-    /** Sample locally before the commit RPC so a data replacement during it invalidates the sample. */
-    public Map<Long, StreamRowCountBaseline> captureStreamRowCountBaselines(long dbId, long streamId,
-            Map<Long, Long> offsets) {
-        if (offsets.isEmpty()) {
-            return Collections.emptyMap();
-        }
+    /** The pending update owns the complete offset/count tuple before the Cloud commit RPC. */
+    public OlapTableStreamUpdate prepareStreamUpdate(long dbId, long streamId, Map<Long, Long> offsets) {
+        OlapTableStreamUpdate update = new OlapTableStreamUpdate(Collections.emptyMap(), offsets);
         OlapTableStream stream = findOlapTableStream(dbId, streamId);
-        OlapTable baseTable = stream == null ? null : stream.getBaseTableNullable();
-        // Cloud commit may already hold sink locks; optional sampling cannot wait for source DDL.
-        if (baseTable == null || !baseTable.tryReadLock(0, TimeUnit.MILLISECONDS)) {
-            return Collections.emptyMap();
+        if (stream != null) {
+            stream.unprotectedPrepareStreamUpdate(update);
         }
-        try {
-            if (baseTable.isDropped) {
-                return Collections.emptyMap();
-            }
-            Map<Long, StreamRowCountBaseline> states = new HashMap<>();
-            offsets.forEach((id, offset) -> {
-                if (baseTable.getPartition(id) != null) {
-                    states.put(id, StreamRowCountBaseline.capture(baseTable, id, offset));
-                }
-            });
-            return states;
-        } finally {
-            baseTable.readUnlock();
-        }
+        return update;
     }
 
-    /** Publish after success without adding metadata lock waits to the committed transaction. */
-    public void recordStreamRowCountBaselines(long dbId, long streamId, Map<Long, StreamRowCountBaseline> states) {
-        if (states.isEmpty()) {
-            return;
-        }
-        OlapTableStream stream = findOlapTableStream(dbId, streamId);
-        OlapTable baseTable = stream == null ? null : stream.getBaseTableNullable();
-        if (baseTable == null || !baseTable.tryReadLock(0, TimeUnit.MILLISECONDS)) {
+    /** Publish only the complete tuple accepted by the authoritative MS transaction. */
+    public void recordCommittedStreamUpdate(TableStreamUpdateInfo info, long timestamp) {
+        OlapTableStream stream = findOlapTableStream(info.getDbId(), info.getStreamId());
+        OlapTableStreamUpdate committed = ((OlapTableStreamUpdate) info.getUpdate()).committedAt(timestamp);
+        if (stream == null || committed.getNext().isEmpty()
+                || !stream.tryWriteLockIfExist(0, TimeUnit.MILLISECONDS)) {
             return;
         }
         try {
-            // SHOW consumption holds stream READ before source READ. With a queued source writer,
-            // waiting for stream WRITE here would form a fair-lock cycle. Skip this optional sample.
-            if (baseTable.isDropped || !stream.tryWriteLockIfExist(0, TimeUnit.MILLISECONDS)) {
-                return;
-            }
-            try {
-                states.forEach(stream::unprotectedPublishStreamRowCountBaseline);
-            } finally {
-                stream.writeUnlock();
+            for (Map.Entry<Long, OlapTableStream.PartitionStreamState> entry : committed.getNext().entrySet()) {
+                stream.unprotectedPublishPartitionState(entry.getKey(), entry.getValue());
             }
         } finally {
-            baseTable.readUnlock();
+            stream.writeUnlock();
         }
     }
 
