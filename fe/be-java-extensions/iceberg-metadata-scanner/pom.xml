@@ -81,8 +81,10 @@ under the License.
         </dependency>
         <!--
           The GCS twin of the FileIO above: org.apache.iceberg.gcp.gcs.GCSFileIO is named by string
-          in the catalog property io-impl and rides inside every serialized $files/$manifests task
-          (BaseFilesTable.ManifestReadTask keeps table.io()). Without this artifact the BE side of a
+          in the catalog property io-impl and, when io-impl names it, rides inside every serialized
+          $files, $entries and $all_manifests task, with their all_/data_/delete_ variants
+          (BaseFilesTable.ManifestReadTask keeps table.io(); $manifests is a StaticDataTask and
+          carries no FileIO). Without this artifact the BE side of a
           GCS-backed system-table scan dies in IcebergSerializationCompat, which reports the
           ClassNotFoundException as an Iceberg version mismatch and hides the cause.
         -->

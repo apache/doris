@@ -74,12 +74,10 @@ public class IcebergRestMetaStorePropertiesTest {
             IcebergRestMetaStoreProperties properties = IcebergRestMetaStoreProperties.of(raw(
                     "iceberg.rest.security.type", security,
                     "iceberg.rest.io-impl", "org.apache.iceberg.gcp.gcs.GCSFileIO",
-                    "iceberg.rest.google.user-project", "billing-project",
-                    "iceberg.gcs.oauth2.token", "gcs-token"));
+                    "iceberg.rest.google.user-project", "billing-project"));
             properties.validate();
             Assertions.assertEquals("org.apache.iceberg.gcp.gcs.GCSFileIO", properties.getIoImpl());
             Assertions.assertEquals("billing-project", properties.getGoogleUserProject());
-            Assertions.assertEquals("gcs-token", properties.getGcsOauth2Token());
         }
     }
 

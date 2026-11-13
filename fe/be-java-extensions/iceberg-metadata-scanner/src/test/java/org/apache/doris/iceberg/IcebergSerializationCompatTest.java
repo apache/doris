@@ -114,7 +114,8 @@ public class IcebergSerializationCompatTest {
     @Test
     public void deserializesTheGcsFileIoATaskCarries() throws Exception {
         // WHY: a REST catalog configured with io-impl=org.apache.iceberg.gcp.gcs.GCSFileIO serializes that FileIO
-        // into every $files/$manifests task (BaseFilesTable.ManifestReadTask keeps table.io()), so the BE plugin
+        // into its $files, $entries and $all_manifests tasks, with their all_/data_/delete_ variants
+        // (BaseFilesTable.ManifestReadTask keeps table.io(); $manifests is a StaticDataTask), so the BE plugin
         // has to carry iceberg-gcp plus the google-cloud-storage client GCSFileIO builds from the task's
         // properties. MUTATION: dropping either dependency from the plugin pom -> ClassNotFoundException (mapped
         // to the "different Iceberg version" message) or NoClassDefFoundError on client() -> red.

@@ -95,10 +95,6 @@ public final class IcebergRestMetaStoreProperties extends AbstractMetaStorePrope
             description = "The Google project to be billed for using the iceberg rest catalog service.")
     private String googleUserProject;
 
-    @ConnectorProperty(names = {"iceberg.gcs.oauth2.token"}, required = false, sensitive = true,
-            description = "The OAuth2 token for GCS storage access when using GCS FileIO.")
-    private String gcsOauth2Token;
-
     @ConnectorProperty(names = {"iceberg.rest.credentials_provider_type"}, required = false,
             description = "The credentials provider type for AWS authentication.")
     private String credentialsProviderType = "DEFAULT";
@@ -225,10 +221,6 @@ public final class IcebergRestMetaStoreProperties extends AbstractMetaStorePrope
 
     public String getGoogleUserProject() {
         return googleUserProject;
-    }
-
-    public String getGcsOauth2Token() {
-        return gcsOauth2Token;
     }
 
     public String getCredentialsProviderType() {

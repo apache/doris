@@ -24,6 +24,7 @@ import org.apache.doris.jni.spi.utils.OffHeap;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
+import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.DataFiles;
 import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.MetadataTableType;
@@ -34,6 +35,8 @@ import org.apache.iceberg.Table;
 import org.apache.iceberg.TableScan;
 import org.apache.iceberg.aws.s3.S3FileIO;
 import org.apache.iceberg.aws.s3.S3FileIOProperties;
+import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.hadoop.HadoopCatalog;
 import org.apache.iceberg.hadoop.HadoopFileIO;
 import org.apache.iceberg.hadoop.HadoopTables;
 import org.apache.iceberg.io.CloseableIterable;
@@ -117,9 +120,9 @@ public class IcebergPluginTest {
 
     /**
      * WHY: this plugin bundles iceberg-gcp, so an upstream ResolvingFileIO deserialized here would route gs:// to
-     * GCSFileIO and ignore the fs.gs.* native credentials the FE bound into the task's Hadoop configuration.
-     * MUTATION: making the FE default io-impl plain ResolvingFileIO, or dropping the implFromLocation override
-     * -> GCSFileIO -> red.
+     * GCSFileIO and ignore the fs.gs.* / fs.s3a.* configuration Doris builds for GCS and the FE bound into the
+     * task's Hadoop configuration. MUTATION: dropping the implFromLocation override -> GCSFileIO -> red. (The FE
+     * default io-impl is guarded by IcebergCatalogFactoryTest, not here.)
      */
     @Test
     public void keepsGcsOnHadoopFileIoAfterSerialization() throws Exception {
@@ -249,19 +252,48 @@ public class IcebergPluginTest {
     /**
      * The {@code $files} family is the shape that carries a FileIO across: BaseFilesTable.ManifestReadTask
      * keeps {@code table.io()} and reads the manifest through it on this side, so unlike a StaticDataTask it
-     * resolves the FileIO class the catalog was configured with. A GCS-backed REST catalog configures
-     * {@code GCSFileIO}, whose closure is asserted by IcebergSerializationCompatTest; the FileIO here is
-     * hadoop's, because a real GCS table needs credentials no unit test has.
+     * resolves the FileIO class the catalog was configured with. A REST catalog that names
+     * {@code io-impl=GCSFileIO} ships that class, whose closure is asserted by IcebergSerializationCompatTest;
+     * the FileIO here is hadoop's, because a real GCS table needs credentials no unit test has.
      */
     @Test
     public void scansAFilesMetadataTableFromASerializedTask(@TempDir Path warehouse) throws IOException {
         assertScansOneTask(warehouse, MetadataTableType.FILES, "record_count");
     }
 
+    /**
+     * WHY: every GCS-bound catalog whose FE default FileIO is pinned ships {@code NativeGcsResolvingFileIO} inside
+     * its {@code $files} tasks, so this plugin must deserialize that class and read the manifest through it.
+     * MUTATION: dropping NativeGcsResolvingFileIO (fe-iceberg-common) from the plugin -> ClassNotFoundException
+     * -> red.
+     */
+    @Test
+    public void scansAFilesMetadataTableThroughNativeGcsResolvingFileIo(@TempDir Path warehouse) throws IOException {
+        Map<String, String> properties = new HashMap<>();
+        properties.put(CatalogProperties.WAREHOUSE_LOCATION, warehouse.toUri().toString());
+        properties.put(CatalogProperties.FILE_IO_IMPL, NativeGcsResolvingFileIO.class.getName());
+        HadoopCatalog catalog = new HadoopCatalog();
+        catalog.setConf(new Configuration());
+        catalog.initialize("native_gcs", properties);
+        Schema schema = new Schema(Types.NestedField.required(1, "id", Types.IntegerType.get()));
+        Table table = catalog.createTable(TableIdentifier.of("db", "t"), schema, PartitionSpec.unpartitioned());
+        Assertions.assertInstanceOf(NativeGcsResolvingFileIO.class, table.io());
+        assertScansOneTask(planOneMetadataTask(table, warehouse, MetadataTableType.FILES, "record_count"),
+                MetadataTableType.FILES, "record_count");
+    }
+
     private static void assertScansOneTask(Path warehouse, MetadataTableType type, String projectedColumn)
             throws IOException {
+        Schema schema = new Schema(Types.NestedField.required(1, "id", Types.IntegerType.get()));
+        Table table = new HadoopTables(new Configuration())
+                .create(schema, PartitionSpec.unpartitioned(), warehouse.resolve("t").toString());
+        assertScansOneTask(planOneMetadataTask(table, warehouse, type, projectedColumn), type, projectedColumn);
+    }
+
+    private static void assertScansOneTask(String serializedSplit, MetadataTableType type, String projectedColumn)
+            throws IOException {
         Map<String, String> params = new HashMap<>();
-        params.put("serialized_split", planOneMetadataTask(warehouse, type, projectedColumn));
+        params.put("serialized_split", serializedSplit);
         params.put("required_fields", projectedColumn);
         params.put("required_types", "bigint");
         params.put("time_zone", "UTC");
@@ -279,15 +311,12 @@ public class IcebergPluginTest {
     }
 
     /**
-     * Builds a table with one append and plans one row of its {@code type} metadata table the way
+     * Appends one file to {@code table} and plans one row of its {@code type} metadata table the way
      * IcebergScanPlanProvider.doPlanSystemTableScan does, down to projecting the scan to exactly the
      * requested column - the projection the scanner's positional row reads depend on.
      */
-    private static String planOneMetadataTask(Path warehouse, MetadataTableType type, String projectedColumn)
-            throws IOException {
-        Schema schema = new Schema(Types.NestedField.required(1, "id", Types.IntegerType.get()));
-        Table table = new HadoopTables(new Configuration())
-                .create(schema, PartitionSpec.unpartitioned(), warehouse.resolve("t").toString());
+    private static String planOneMetadataTask(Table table, Path warehouse, MetadataTableType type,
+            String projectedColumn) throws IOException {
         table.newAppend()
                 .appendFile(DataFiles.builder(PartitionSpec.unpartitioned())
                         .withPath(warehouse.resolve("t/data/f.parquet").toString())

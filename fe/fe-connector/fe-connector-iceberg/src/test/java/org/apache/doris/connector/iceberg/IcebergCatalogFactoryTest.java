@@ -546,14 +546,6 @@ public class IcebergCatalogFactoryTest {
     }
 
     @Test
-    public void appendRestGoogleWithGcsToken() {
-        Map<String, String> opts = new HashMap<>();
-        appendRest(opts, props("iceberg.rest.security.type", "google",
-                "iceberg.gcs.oauth2.token", "my-gcs-token"), Optional.empty());
-        Assertions.assertEquals("my-gcs-token", opts.get("gcs.oauth2.token"));
-    }
-
-    @Test
     public void appendRestGoogleSecurityTypeCaseInsensitive() {
         Map<String, String> opts = new HashMap<>();
         appendRest(opts, props("iceberg.rest.security.type", "GOOGLE"), Optional.empty());
@@ -564,11 +556,9 @@ public class IcebergCatalogFactoryTest {
     public void appendRestOptionalGooglePropertiesWithoutGoogleAuth() {
         Map<String, String> opts = new HashMap<>();
         appendRest(opts, props("iceberg.rest.io-impl", "org.apache.iceberg.gcp.gcs.GCSFileIO",
-                "iceberg.rest.google.user-project", "billing-project", "iceberg.gcs.oauth2.token", "gcs-token"),
-                Optional.empty());
+                "iceberg.rest.google.user-project", "billing-project"), Optional.empty());
         Assertions.assertEquals("org.apache.iceberg.gcp.gcs.GCSFileIO", opts.get("io-impl"));
         Assertions.assertEquals("billing-project", opts.get("header.x-goog-user-project"));
-        Assertions.assertEquals("gcs-token", opts.get("gcs.oauth2.token"));
         Assertions.assertFalse(opts.containsKey("rest.auth.type"));
     }
 
@@ -576,10 +566,9 @@ public class IcebergCatalogFactoryTest {
     public void appendRestBlankGoogleOptionsAreOmitted() {
         Map<String, String> opts = new HashMap<>();
         appendRest(opts, props("iceberg.rest.security.type", "google", "iceberg.rest.io-impl", " ",
-                "iceberg.rest.google.user-project", " ", "iceberg.gcs.oauth2.token", " "), Optional.empty());
+                "iceberg.rest.google.user-project", " "), Optional.empty());
         Assertions.assertFalse(opts.containsKey("io-impl"));
         Assertions.assertFalse(opts.containsKey("header.x-goog-user-project"));
-        Assertions.assertFalse(opts.containsKey("gcs.oauth2.token"));
     }
 
     @Test
@@ -1287,6 +1276,7 @@ public class IcebergCatalogFactoryTest {
         // therefore may not depend on the credential mode: neither of these catalogs has a native
         // credential, so a pin kept inside the native-credential branch leaves io-impl unset and the
         // FE reads gs:// through GCSFileIO with ADC instead of the configured keys.
+        // RESTCatalog is the one flavor whose SDK default is ResolvingFileIO, so the pin is needed here.
         // MUTATION: pinning only when getNativeCredential() is present -> io-impl absent -> red.
         List<Map<String, String>> rawVariants = List.of(
                 // Doris GCS HMAC: the S3-interoperability keys, read by the fs.s3a.* dialect.
@@ -1305,6 +1295,52 @@ public class IcebergCatalogFactoryTest {
                     IcebergCatalogProperties.of(raw), Optional.of(storage), false);
             Assertions.assertEquals(NativeGcsResolvingFileIO.class.getName(), options.get("io-impl"),
                     "credential mode " + storage.getAuth().getMode() + " must still pin gs on HadoopFileIO");
+        }
+    }
+
+    @Test
+    void gcsNonNativeNonRestCatalogsKeepTheirSdkDefaultFileIo() {
+        // WHY: only RESTCatalog defaults to ResolvingFileIO; HiveCatalog / HadoopCatalog / JdbcCatalog default to
+        // HadoopFileIO, which already reads gs/s3/s3a through the fs.* configuration Doris builds. HMS also emits
+        // no S3FileIO options, so pinning NativeGcsResolvingFileIO there sends s3a:// to an unconfigured S3FileIO.
+        // MUTATION: pinning for every GCS binding regardless of flavor -> io-impl present -> red.
+        for (String catalogType : List.of("hms", "hadoop", "jdbc")) {
+            for (Map<String, String> credential : List.of(Map.of("gs.access_key", "ak", "gs.secret_key", "sk"),
+                    Map.of("gs.credential_provider_type", "ANONYMOUS"))) {
+                Map<String, String> raw = new HashMap<>(credential);
+                raw.putAll(Map.of("provider", "GCP", "warehouse", "s3a://bucket/warehouse",
+                        "iceberg.catalog.type", catalogType, "uri", "thrift://localhost:9083",
+                        "iceberg.jdbc.uri", "jdbc:postgresql://localhost/iceberg",
+                        "jdbc.user", "user", "jdbc.password", "password"));
+                Map<String, String> options = IcebergCatalogFactory.buildCatalogProperties(
+                        IcebergCatalogProperties.of(raw), Optional.of(GcsFileSystemProperties.of(raw)), false);
+                Assertions.assertFalse(options.containsKey("io-impl"), catalogType + " " + credential.keySet());
+            }
+        }
+    }
+
+    @Test
+    void gcsHmacHmsCatalogReadsS3aThroughHadoopFileIo() throws Exception {
+        // WHY: an existing HMS catalog on GCS HMAC keys with s3a:// metadata locations reads them through
+        // HiveCatalog's default HadoopFileIO and the fs.s3a.* configuration; routing s3a:// to S3FileIO fails
+        // because the HMS options carry no s3.endpoint / keys / client.region.
+        // MUTATION: pinning NativeGcsResolvingFileIO for HMS HMAC -> s3a:// resolves to S3FileIO -> red.
+        Map<String, String> raw = Map.of("provider", "GCP", "warehouse", "s3a://bucket/warehouse",
+                "iceberg.catalog.type", "hms", "uri", "thrift://localhost:9083",
+                "gs.access_key", "ak", "gs.secret_key", "sk");
+        GcsFileSystemProperties storage = GcsFileSystemProperties.of(raw);
+        Map<String, String> options = IcebergCatalogFactory.buildCatalogProperties(
+                IcebergCatalogProperties.of(raw), Optional.of(storage), false);
+        Configuration conf = IcebergCatalogFactory.buildHadoopConfiguration(raw,
+                storage.toHadoopConfigurationMap());
+        // Replace the Hadoop transport only, so the real FileIO dispatch runs without a GCS service.
+        conf.set("fs.s3a.impl", RawLocalFileSystem.class.getName());
+        conf.setBoolean("fs.s3a.impl.disable.cache", true);
+        // HiveCatalog.initialize: no io-impl -> new HadoopFileIO(conf), else CatalogUtil.loadFileIO.
+        String ioImpl = options.get("io-impl");
+        try (FileIO io = ioImpl == null ? new HadoopFileIO(conf) : CatalogUtil.loadFileIO(ioImpl, options, conf)) {
+            Assertions.assertInstanceOf(HadoopInputFile.class,
+                    io.newInputFile("s3a://bucket/warehouse/db/t/metadata/v1.metadata.json", 10));
         }
     }
 

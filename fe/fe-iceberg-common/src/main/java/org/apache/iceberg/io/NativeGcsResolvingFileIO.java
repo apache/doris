@@ -20,8 +20,9 @@ package org.apache.iceberg.io;
 /**
  * A {@link ResolvingFileIO} that keeps {@code gs://} locations on {@code HadoopFileIO}.
  *
- * <p>Doris configures native GCS credentials (credential provider type, service-account impersonation) as
- * {@code fs.gs.*} Hadoop properties, which only the Hadoop GCS filesystem reads. Upstream ResolvingFileIO
+ * <p>Doris configures GCS access as Hadoop properties: native credentials (credential provider type,
+ * service-account impersonation) as {@code fs.gs.*}, and HMAC interoperability keys or anonymous access as
+ * {@code fs.s3a.*}. Only the Hadoop filesystems read them. Upstream ResolvingFileIO
  * routes {@code gs} to {@code GCSFileIO} whenever iceberg-gcp is on the classpath and falls back to
  * HadoopFileIO only when that class is missing. The plugins bundle iceberg-gcp for the REST catalog's
  * {@code GoogleAuthManager} and an explicitly chosen {@code GCSFileIO}, so this class pins the default
