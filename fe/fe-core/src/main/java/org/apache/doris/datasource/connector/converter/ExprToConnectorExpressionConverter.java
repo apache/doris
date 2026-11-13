@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.connector.converter;
 
 import org.apache.doris.analysis.ArithmeticExpr;
+import org.apache.doris.analysis.ArrayLiteral;
 import org.apache.doris.analysis.BetweenPredicate;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.BoolLiteral;
@@ -285,7 +286,7 @@ public final class ExprToConnectorExpressionConverter {
         return new ConnectorColumnRef(colName, ct);
     }
 
-    private static ConnectorExpression convertLiteral(LiteralExpr literal) {
+    private static ConnectorLiteral convertLiteral(LiteralExpr literal) {
         ConnectorType ct = typeToConnectorType(literal.getType());
         if (literal instanceof NullLiteral) {
             return ConnectorLiteral.ofNull(ct);
@@ -301,12 +302,26 @@ public final class ExprToConnectorExpressionConverter {
             return new ConnectorLiteral(ct, ((StringLiteral) literal).getValue());
         } else if (literal instanceof DateLiteral) {
             return convertDateLiteral((DateLiteral) literal, ct);
+        } else if (literal instanceof ArrayLiteral) {
+            return new ConnectorLiteral(ct, arrayElements((ArrayLiteral) literal));
         } else {
             return new ConnectorLiteral(ct, literal.getStringValue());
         }
     }
 
-    private static ConnectorExpression convertDateLiteral(DateLiteral dl, ConnectorType ct) {
+    /**
+     * The element values of an ARRAY literal, each in the shape it would have as a literal of its own:
+     * {@code null} for a NULL element, a nested list for a nested array.
+     */
+    private static List<Object> arrayElements(ArrayLiteral literal) {
+        List<Object> elements = new ArrayList<>(literal.getChildren().size());
+        for (Expr element : literal.getChildren()) {
+            elements.add(convertLiteral((LiteralExpr) element).getValue());
+        }
+        return Collections.unmodifiableList(elements);
+    }
+
+    private static ConnectorLiteral convertDateLiteral(DateLiteral dl, ConnectorType ct) {
         Type dorisType = dl.getType();
         if (dorisType.equals(Type.DATE) || dorisType.equals(Type.DATEV2)) {
             LocalDate ld = LocalDate.of(

@@ -469,6 +469,12 @@ public final class EsQueryDslBuilder {
             return null;
         }
         ConnectorLiteral literal = (ConnectorLiteral) valueExpr;
+        // An ARRAY literal compares whole arrays, but a term or range query matches any one value of a
+        // multi-valued field, so Doris evaluates the comparison itself.
+        if (literal.getValue() instanceof List) {
+            notPushDownList.add(comparison);
+            return null;
+        }
 
         if (isFlip) {
             op = flipOperator(op);

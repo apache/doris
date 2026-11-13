@@ -370,6 +370,33 @@ class JdbcQueryBuilderTest {
         }
     }
 
+    @Test
+    void testArrayLiteralsRemainLocalWithoutLimit() {
+        ConnectorType stringArray = ConnectorType.arrayOf(STRING_TYPE);
+        ConnectorColumnRef tags = new ConnectorColumnRef("tags", stringArray);
+        // Rendered as text, these elements would reach the remote SQL unquoted.
+        ConnectorLiteral array = new ConnectorLiteral(stringArray, Arrays.asList("a, b", "x') OR ('1'='1"));
+        ConnectorExpression comparison = new ConnectorComparison(ConnectorComparison.Operator.EQ, tags, array);
+        ConnectorExpression overlap = new ConnectorFunctionCall("arrays_overlap", BOOLEAN_TYPE,
+                Arrays.asList(tags, array));
+        // MySQL pushes any function not on its deny list, arrays_overlap included.
+        JdbcFunctionPushdownConfig config = JdbcFunctionPushdownConfig.create(JdbcDbType.MYSQL, null, true);
+        for (JdbcQueryBuilder builder : Arrays.asList(new JdbcQueryBuilder(JdbcDbType.MYSQL, config,
+                        Collections.emptyMap()), new JdbcQueryBuilder(JdbcDbType.POSTGRESQL),
+                new JdbcQueryBuilder(JdbcDbType.CLICKHOUSE), new JdbcQueryBuilder(JdbcDbType.TRINO))) {
+            for (ConnectorExpression filter : Arrays.asList(comparison, overlap, new ConnectorNot(comparison))) {
+                String sql = builder.buildQuery(DB, TABLE, Collections.emptyList(), Optional.of(filter), 1);
+                Assertions.assertFalse(sql.contains(" WHERE "), sql);
+                Assertions.assertFalse(sql.contains("LIMIT"), sql);
+            }
+            String sql = builder.buildQuery(DB, TABLE, Collections.emptyList(), Optional.of(
+                    new ConnectorAnd(Arrays.asList(comparison, simpleComparison("id", 1)))), 1);
+            Assertions.assertTrue(sql.contains(" WHERE "), sql);
+            Assertions.assertFalse(sql.contains("a, b") || sql.contains("'1'='1"), sql);
+            Assertions.assertFalse(sql.contains("LIMIT"), sql);
+        }
+    }
+
     // --- LIMIT pushdown tests ---
 
     @Test

@@ -121,6 +121,28 @@ public class EsQueryDslBuilderTest {
     }
 
     @Test
+    void arrayLiteralComparisonsRemainLocal() {
+        ConnectorType stringArray = ConnectorType.arrayOf(ConnectorType.of("VARCHAR"));
+        ConnectorColumnRef tags = new ConnectorColumnRef("tags", stringArray);
+        ConnectorLiteral array = new ConnectorLiteral(stringArray, Arrays.asList("red", "blue"));
+        for (ConnectorComparison.Operator op : Arrays.asList(ConnectorComparison.Operator.EQ,
+                ConnectorComparison.Operator.NE, ConnectorComparison.Operator.LT)) {
+            for (ConnectorExpression comparison : Arrays.asList(new ConnectorComparison(op, tags, array),
+                    new ConnectorComparison(op, array, tags))) {
+                EsQueryDslResult result = EsQueryDslBuilder.buildQueryDslWithResult(comparison,
+                        Collections.emptyMap(), Collections.emptyMap(), true, Collections.emptyList());
+                Assertions.assertEquals(Collections.singletonList(0), result.getNotPushedIndices(), comparison.toString());
+                Assertions.assertEquals(EsQueryDslBuilder.matchAllQuery(), result.getQueryDsl());
+            }
+        }
+        EsQueryDslResult partial = EsQueryDslBuilder.buildQueryDslWithResult(new ConnectorAnd(Arrays.asList(
+                keywordEquals("one"), new ConnectorComparison(ConnectorComparison.Operator.EQ, tags, array))),
+                Collections.emptyMap(), Collections.singletonMap("name", "keyword"), true, Collections.emptyList());
+        Assertions.assertEquals(Collections.singletonList(1), partial.getNotPushedIndices());
+        Assertions.assertEquals("{\"term\":{\"name\":\"one\"}}", partial.getQueryDsl());
+    }
+
+    @Test
     void notEqualExcludesMissingValuesForEveryNonNullLiteral() {
         for (ConnectorLiteral literal : Arrays.asList(ConnectorLiteral.ofLong(1),
                 ConnectorLiteral.ofString("one"), ConnectorLiteral.ofString(""), ConnectorLiteral.ofBoolean(true))) {
