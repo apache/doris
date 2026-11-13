@@ -1575,8 +1575,6 @@ Status TableReader::_parse_delete_predicates(const SplitReadOptions& options) {
                         return nullptr;
                     }
 
-                    size_t bytes_read = desc.size;
-                    std::vector<char> buffer(bytes_read);
                     DBUG_EXECUTE_IF("TableReader.parse_deletion_vector.io_error", {
                         create_status =
                                 Status::IOError("injected format v2 deletion vector read failure");
@@ -1586,8 +1584,14 @@ Status TableReader::_parse_delete_predicates(const SplitReadOptions& options) {
                         create_status = Status::EndOfFile("stop read.");
                         return nullptr;
                     });
-                    create_status =
-                            dv_reader.read_at(desc.start_offset, {buffer.data(), bytes_read});
+                    std::vector<char> buffer;
+                    if (desc.format == DeleteFileDesc::Format::PAIMON) {
+                        create_status = read_paimon_deletion_vector_buffer(dv_reader, desc, buffer);
+                    } else {
+                        buffer.resize(desc.size);
+                        create_status = dv_reader.read_at(desc.start_offset,
+                                                          {buffer.data(), buffer.size()});
+                    }
                     const auto& file_cache_stats = dv_reader.file_cache_statistics();
                     COUNTER_UPDATE(_profile.dv_file_cache_hit_count,
                                    file_cache_stats.num_local_io_total);
@@ -1599,9 +1603,8 @@ Status TableReader::_parse_delete_predicates(const SplitReadOptions& options) {
                         return nullptr;
                     }
 
-                    const char* buf = buffer.data();
                     SCOPED_TIMER(_profile.parse_delete_file_time);
-                    create_status = parse_deletion_vector(buf, bytes_read, desc.format,
+                    create_status = parse_deletion_vector(buffer.data(), buffer.size(), desc.format,
                                                           deletion_vector.get());
                     if (!create_status.ok()) [[unlikely]] {
                         return nullptr;

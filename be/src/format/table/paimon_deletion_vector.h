@@ -19,6 +19,7 @@
 
 #include <cstddef>
 #include <string>
+#include <vector>
 
 #include "common/status.h"
 #include "format/table/deletion_vector.h"
@@ -26,9 +27,14 @@
 
 namespace doris {
 
+class DeletionVectorReader;
+struct DeleteFileDesc;
+
 std::string build_paimon_deletion_vector_cache_key(const TPaimonDeletionFileDesc& deletion_file);
-Status validate_paimon_deletion_vector_descriptor(const TPaimonDeletionFileDesc& deletion_file,
-                                                  size_t& bytes_read);
+Status validate_paimon_deletion_vector_descriptor(const TPaimonDeletionFileDesc& deletion_file);
+// The reader is open and the Paimon descriptor range has been validated.
+Status read_paimon_deletion_vector_buffer(DeletionVectorReader& reader, const DeleteFileDesc& desc,
+                                          std::vector<char>& buffer);
 Status decode_paimon_deletion_vector_buffer(const char* buf, size_t buffer_size,
                                             DeletionVector* deletion_vector);
 
