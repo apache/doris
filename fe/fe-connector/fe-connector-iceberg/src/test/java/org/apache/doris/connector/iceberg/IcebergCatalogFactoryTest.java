@@ -1301,10 +1301,12 @@ public class IcebergCatalogFactoryTest {
     @Test
     void gcsNonNativeNonRestCatalogsKeepTheirSdkDefaultFileIo() {
         // WHY: only RESTCatalog defaults to ResolvingFileIO; HiveCatalog / HadoopCatalog / JdbcCatalog default to
-        // HadoopFileIO, which already reads gs/s3/s3a through the fs.* configuration Doris builds. HMS also emits
-        // no S3FileIO options, so pinning NativeGcsResolvingFileIO there sends s3a:// to an unconfigured S3FileIO.
-        // MUTATION: pinning for every GCS binding regardless of flavor -> io-impl present -> red.
-        for (String catalogType : List.of("hms", "hadoop", "jdbc")) {
+        // HadoopFileIO, which already reads gs/s3/s3a through the fs.* configuration Doris builds, and GlueCatalog
+        // defaults to S3FileIO with the s3.* options it emits itself. HMS also emits no S3FileIO options, so
+        // pinning NativeGcsResolvingFileIO there sends s3a:// to an unconfigured S3FileIO.
+        // MUTATION: pinning for every GCS binding regardless of flavor, or for any flavor besides rest
+        // -> io-impl present -> red.
+        for (String catalogType : List.of("hms", "hadoop", "jdbc", "glue")) {
             for (Map<String, String> credential : List.of(Map.of("gs.access_key", "ak", "gs.secret_key", "sk"),
                     Map.of("gs.credential_provider_type", "ANONYMOUS"))) {
                 Map<String, String> raw = new HashMap<>(credential);
@@ -1312,6 +1314,8 @@ public class IcebergCatalogFactoryTest {
                         "iceberg.catalog.type", catalogType, "uri", "thrift://localhost:9083",
                         "iceberg.jdbc.uri", "jdbc:postgresql://localhost/iceberg",
                         "jdbc.user", "user", "jdbc.password", "password"));
+                raw.putAll(Map.of("glue.access_key", "glue-ak", "glue.secret_key", "glue-sk",
+                        "glue.region", "us-east-1"));
                 Map<String, String> options = IcebergCatalogFactory.buildCatalogProperties(
                         IcebergCatalogProperties.of(raw), Optional.of(GcsFileSystemProperties.of(raw)), false);
                 Assertions.assertFalse(options.containsKey("io-impl"), catalogType + " " + credential.keySet());
