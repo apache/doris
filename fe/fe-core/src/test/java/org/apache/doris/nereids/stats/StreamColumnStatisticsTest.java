@@ -151,6 +151,20 @@ class StreamColumnStatisticsTest {
     }
 
     @Test
+    void testJoinReorderValidatesAdjustedNdv() {
+        try (ScanFixture fixture = new ScanFixture(OlapChangelogTableWrapper.class, 100)) {
+            // Raw NDV=10000 exceeds 10 * scan rows. The valid source population has
+            // 10000 non-NULL rows; the scan distribution caps its NDV at 10 instead.
+            fixture.tableStatistic(statistic(100_000, 10_000, 90_000));
+            CascadesContext context = Mockito.mock(CascadesContext.class);
+            Mockito.when(context.getConnectContext()).thenReturn(fixture.context);
+            Assertions.assertFalse(StatsCalculator.disableJoinReorderIfStatsInvalid(
+                    ImmutableList.of(fixture.scan), context).isPresent());
+            Assertions.assertFalse(fixture.context.getSessionVariable().isDisableJoinReorder());
+        }
+    }
+
+    @Test
     void testHiddenBeforeColumnMapsToOriginalBusinessColumn() {
         try (ScanFixture fixture = new ScanFixture(OlapChangelogTableWrapper.class, 100)) {
             fixture.tableStatistic(statistic(1000, 100, 900));

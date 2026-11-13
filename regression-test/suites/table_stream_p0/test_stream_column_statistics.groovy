@@ -15,7 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// ALTER STREAM ... SET/MODIFY COMMENT updates the comment of a table stream.
 suite("test_stream_column_statistics") {
     sql "DROP STREAM IF EXISTS stream_col_stats_dup_s"
     sql "DROP STREAM IF EXISTS stream_col_stats_unique_s"
