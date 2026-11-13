@@ -73,6 +73,12 @@ struct MergeDecision {
 // the output Block and puts the child back. A run also ends at the end of the child's Block,
 // which is then refilled, and at the row limit of the output Block.
 //
+// Like StarRocks, a child's Block that no row has been taken from and whose rows all go before
+// the next child goes into an output Block whole. An empty output Block takes its columns instead
+// of copying its rows, and an output Block that it does not fit into ends in front of it, so that
+// the next one takes it. Where the children barely overlap, as a large rowset under a few small
+// loads, most Blocks thus pass without a copy.
+//
 // Like StarRocks, which sizes the chunks of a compaction by its memory limit, the merge counts
 // rows only: the row limit of an output Block is block_row_max, or, with a byte budget
 // (preferred_block_size_bytes, 0 for none), the budget divided by the average row size of the
@@ -88,8 +94,8 @@ public:
     // of an output Block, and the runtime state.
     Status init(const StorageReadOptions& opts) override;
 
-    // Return OK with at least one row added to `block`, or EndOfFile without adding one once
-    // every row has been read.
+    // Fill `block`, which must be empty, with at least one row and return OK, or return EndOfFile
+    // once every row has been read. `block` may get the columns of a child's Block.
     Status next_batch(Block* block) override;
 
     const ReadSchema& schema() const override { return *_read_schema; }
@@ -129,6 +135,9 @@ private:
     size_t _max_rows() const;
     // Append rows [child.pos, child.pos + rows) of `child` to `columns`.
     static void _append(MutableColumns& columns, const Child& child, size_t rows);
+    // Move the rows of `child`'s Block into the empty `columns` without copying them: the two swap
+    // columns, and the child refills the empty ones.
+    static void _swap_columns(MutableColumns& columns, Child& child);
 
     std::vector<Child> _children;
     const ReadSchemaSPtr _read_schema;

@@ -18,7 +18,8 @@
 // VHeapMergeIterator sorts the rows of its children into one stream: by the key columns, each
 // ascending or descending, then by the sequence column, then by child order (the older child
 // first), in output Blocks of at most block_row_max rows or of the byte budget, past which only
-// the rows of the last key go on, reading on past a child's empty batches.
+// the rows of the last key go on, reading on past a child's empty batches. A child's Block whose
+// rows all go first is not split, and an empty output Block takes its columns.
 
 #include "storage/iterator/heap_merge_iterator.h"
 
@@ -103,11 +104,14 @@ MergeDecision key_decision(bool descending = false) {
     return decision;
 }
 
-// Merge `children`, the batches of each child, and return the rows of every output Block.
+// Merge `children`, the batches of each child, and return the rows of every output Block. With
+// `taken`, also whether each output Block took the columns of a child's Block, instead of getting
+// the rows copied into the columns it was passed.
 std::vector<std::vector<Row>> merge(const ReadSchemaSPtr& schema,
                                     const std::vector<std::vector<Batch>>& children,
                                     const MergeDecision& decision, uint32_t block_row_max = 4064,
-                                    size_t preferred_block_size_bytes = 0) {
+                                    size_t preferred_block_size_bytes = 0,
+                                    std::vector<bool>* taken = nullptr) {
     std::vector<RowwiseIteratorUPtr> inputs;
     for (const auto& batches : children) {
         inputs.push_back(std::make_unique<BatchesUtIterator>(*schema, batches));
@@ -123,12 +127,16 @@ std::vector<std::vector<Row>> merge(const ReadSchemaSPtr& schema,
     std::vector<std::vector<Row>> blocks;
     while (st.ok()) {
         Block block = schema->create_read_block();
+        const IColumn* passed = block.get_by_position(0).column.get();
         st = iter->next_batch(&block);
         if (!st.ok()) {
             EXPECT_EQ(block.rows(), 0);
             break;
         }
         EXPECT_GT(block.rows(), 0);
+        if (taken != nullptr) {
+            taken->push_back(block.get_by_position(0).column.get() != passed);
+        }
         std::vector<Row> rows;
         for (size_t r = 0; r < block.rows(); ++r) {
             Row row;
@@ -226,6 +234,50 @@ TEST(HeapMergeIteratorTest, KeepsTheRowsOfOneKeyInOneBlock) {
     EXPECT_EQ(merge(schema, children, key_decision(), /*block_row_max=*/2),
               (std::vector<std::vector<Row>> {
                       {{1, 10}, {2, 20}, {2, 21}, {2, 22}}, {{3, 30}, {3, 31}}, {{4, 42}}}));
+}
+
+// An output Block that starts with a child's Block whose rows all go before the next child takes
+// that Block's columns instead of copying its rows. A Block that the next child cuts into, and a
+// Block that starts after other rows, are copied.
+TEST(HeapMergeIteratorTest, TakesTheColumnsOfABlockThatGoesFirstWhole) {
+    auto schema = make_schema(false);
+    const std::vector<std::vector<Batch>> children = {
+            {{{1, 10}, {2, 20}}, {{3, 30}, {9, 90}}},
+            {{{4, 41}}},
+    };
+    std::vector<bool> taken;
+    EXPECT_EQ(merge(schema, children, key_decision(), /*block_row_max=*/2,
+                    /*preferred_block_size_bytes=*/0, &taken),
+              (std::vector<std::vector<Row>> {{{1, 10}, {2, 20}}, {{3, 30}, {4, 41}}, {{9, 90}}}));
+    EXPECT_EQ(taken, (std::vector<bool> {true, false, false}));
+}
+
+// A child's Block whose rows all go before the next child is not split: an output Block that it
+// does not fit into ends in front of it, and the next output Block takes it.
+TEST(HeapMergeIteratorTest, EndsABlockInFrontOfABlockThatGoesFirstWhole) {
+    auto schema = make_schema(false);
+    const std::vector<std::vector<Batch>> children = {
+            {{{2, 20}, {3, 30}, {4, 40}}},
+            {{{1, 11}, {9, 91}}},
+    };
+    std::vector<bool> taken;
+    EXPECT_EQ(merge(schema, children, key_decision(), /*block_row_max=*/3,
+                    /*preferred_block_size_bytes=*/0, &taken),
+              (std::vector<std::vector<Row>> {{{1, 11}}, {{2, 20}, {3, 30}, {4, 40}}, {{9, 91}}}));
+    EXPECT_EQ(taken, (std::vector<bool> {false, true, false}));
+}
+
+// An output Block does not end in front of such a Block when the Block goes on with the output
+// Block's last key: the rows of key 2 stay in one Block, and the Block of child 1 is split.
+TEST(HeapMergeIteratorTest, SplitsABlockThatGoesOnWithTheLastKey) {
+    auto schema = make_schema(false);
+    const std::vector<std::vector<Batch>> children = {
+            {{{1, 10}, {2, 20}, {9, 90}}},
+            {{{2, 21}, {3, 31}, {4, 41}}},
+    };
+    EXPECT_EQ(merge(schema, children, key_decision(), /*block_row_max=*/3),
+              (std::vector<std::vector<Row>> {{{1, 10}, {2, 20}, {2, 21}},
+                                              {{3, 31}, {4, 41}, {9, 90}}}));
 }
 
 // With a byte budget, an output Block holds the budget divided by the average row size of the
