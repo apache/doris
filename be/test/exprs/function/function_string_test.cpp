@@ -120,7 +120,8 @@ TEST(function_string_test, crc32_binary_boundaries) {
         data_set.push_back({{input}, expected});
     }
     ASSERT_TRUE(
-            check_function<DataTypeInt64>("crc32", {PrimitiveType::TYPE_VARCHAR}, data_set).ok());
+            (check_function<DataTypeInt64, true>("crc32", {PrimitiveType::TYPE_VARCHAR}, data_set)
+                     .ok()));
 }
 
 TEST(function_string_test, ngram_search_gram_num) {
