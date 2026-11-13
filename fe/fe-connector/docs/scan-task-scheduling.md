@@ -70,6 +70,37 @@ another remote read. This does not interrupt an already running shared cache loa
 Hive checks the same captured state between directory requests, including when
 empty partitions are skipped within one iterator call.
 
+Manifest read scheduling is independent of parsed-manifest retention. Native data
+scans with engine-owned metadata scheduling use the same bounded, completion-ordered
+loader when the Manifest Cache is disabled; those loads do not look up or publish
+shared parsed results. The first required manifest is read directly. Further demand
+expands the existing window, and cancellation stops admission and wakes the consumer.
+
+The uncached whole-manifest path is used only for multiple manifests with known
+added, existing and deleted entry counts. The window is bounded to 30,000 entries,
+following the SDK's default file-planning buffer; deleted entries count toward read
+work even though they are absent from retained live files. A single
+manifest, oversized manifests, unknown counts and custom scans retain SDK file streaming
+so the first Split does not wait for a large manifest to be fully parsed. Parsed-cache
+loads keep their existing behavior and may share an in-flight read across queries.
+
+Delete manifests use the same inclusive row-predicate projection and bounded loader.
+Their complete index is built before producing data splits, without waiting for BE
+demand or a first inline read to enable parallel reads. Native uncached scans retain
+the SDK ScanEvent,
+planning timer and close-time table/catalog ScanReport around local enumeration.
+Per-file row and partition predicates select deletes for the query-local index after
+partition type adaptation; shared parsed values remain complete. Read-time statistics
+for predicates are separate from retained metadata. Uncached window copies keep only
+explicitly requested statistics and equality-delete keys. After delete association,
+file tasks keep only the requested statistics; internal matching keys can be dropped.
+Full, partial and empty native statistics requests retain their SDK semantics.
+Uncached readers adapt partition values and evaluate file predicates before copying
+or buffering live entries. Each manifest read owns its predicate and adapter state;
+cached payloads stay complete and are filtered by the scan consumer instead. Delete
+statistics are compacted only after predicates, retaining equality-key statistics or
+the position-delete file-path bounds required by the query-local delete index.
+
 ## Configuration and limits
 
 | Setting | Default | Meaning |

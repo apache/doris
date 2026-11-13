@@ -17,13 +17,20 @@
 
 package org.apache.iceberg;
 
+import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.io.FileIO;
+import org.apache.iceberg.metrics.ScanMetrics;
+import org.apache.iceberg.util.ContentFileUtil;
 
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
+import java.util.function.Function;
 import java.util.function.UnaryOperator;
 
 /** A data-table scan that keeps partition specs bound to the scan's schema. */
@@ -49,8 +56,7 @@ public final class SchemaAwareDataTableScan extends DataTableScan {
      */
     public static Optional<TableScan> withFileIO(TableScan scan, UnaryOperator<FileIO> wrapIO,
             ExecutorService executor) {
-        if ((scan.getClass() != DataTableScan.class && scan.getClass() != SchemaAwareDataTableScan.class)
-                || scan.table().getClass() != BaseTable.class) {
+        if (!supportsLocalManifestPlanning(scan)) {
             return Optional.empty();
         }
         BaseTable table = (BaseTable) scan.table();
@@ -68,6 +74,76 @@ public final class SchemaAwareDataTableScan extends DataTableScan {
                 : new DataTableScan(view, nativeScan.tableSchema(), nativeScan.context());
         // An explicit planWith would override the SDK's plan-in-worker-pool=false setting.
         return Optional.of(nativeScan.shouldPlanWithExecutor() ? scoped.planWith(executor) : scoped);
+    }
+
+    /** Only native data scans can be replaced by local manifest planning without losing custom semantics. */
+    public static boolean supportsLocalManifestPlanning(TableScan scan) {
+        return (scan.getClass() == DataTableScan.class || scan.getClass() == SchemaAwareDataTableScan.class)
+                && scan.table().getClass() == BaseTable.class;
+    }
+
+    /** Preserve the native scan's requested manifest columns, including explicit column statistics. */
+    public static List<String> manifestColumns(TableScan scan) {
+        return ((DataTableScan) scan).scanColumns();
+    }
+
+    /** Separate predicate-read statistics, window retention and the native task's requested statistics. */
+    public static DataFileProjection dataFileProjection(TableScan scan, Set<Integer> equalityFields,
+            boolean hasPredicate) {
+        return new DataFileProjection((DataTableScan) scan, equalityFields, hasPredicate);
+    }
+
+    /** Immutable per-scan projection; equality keys remain available until delete association completes. */
+    public static final class DataFileProjection {
+        private final List<String> manifestColumns;
+        private final boolean keepWindowStats;
+        private final Set<Integer> windowStatColumns;
+        private final boolean keepTaskStats;
+        private final Set<Integer> taskStatColumns;
+        private final boolean needsTaskCopy;
+
+        private DataFileProjection(DataTableScan scan, Set<Integer> equalityFields, boolean hasPredicate) {
+            keepTaskStats = scan.shouldReturnColumnStats();
+            Set<Integer> requested = keepTaskStats ? scan.columnsToKeepStats() : Collections.emptySet();
+            taskStatColumns = requested == null ? null : Set.copyOf(requested);
+            manifestColumns = (hasPredicate || !equalityFields.isEmpty()) && !keepTaskStats
+                    ? ManifestReader.withStatsColumns(scan.scanColumns()) : scan.scanColumns();
+            keepWindowStats = keepTaskStats || !equalityFields.isEmpty();
+            if (taskStatColumns == null) {
+                // A null native selection with returnColumnStats=true explicitly requests every column.
+                windowStatColumns = null;
+                needsTaskCopy = false;
+            } else {
+                Set<Integer> retained = new HashSet<>(taskStatColumns);
+                retained.addAll(equalityFields);
+                windowStatColumns = Set.copyOf(retained);
+                needsTaskCopy = !taskStatColumns.containsAll(equalityFields);
+            }
+        }
+
+        public List<String> manifestColumns() {
+            return manifestColumns;
+        }
+
+        public DataFile copyForManifest(DataFile file) {
+            return ContentFileUtil.copy(file, keepWindowStats, windowStatColumns);
+        }
+
+        public DataFile forTask(DataFile file) {
+            return needsTaskCopy ? ContentFileUtil.copy(file, keepTaskStats, taskStatColumns) : file;
+        }
+    }
+
+    /** Reuse the native ScanEvent, planning timer and close-time table reporter around local planning. */
+    public static CloseableIterable<FileScanTask> planFilesWithLocalPlanner(TableScan scan,
+            Function<ScanMetrics, CloseableIterable<FileScanTask>> planner) {
+        DataTableScan nativeScan = (DataTableScan) scan;
+        return new DataTableScan(scan.table(), nativeScan.tableSchema(), nativeScan.context()) {
+            @Override
+            public CloseableIterable<FileScanTask> doPlanFiles() {
+                return planner.apply(scanMetrics());
+            }
+        }.planFiles();
     }
 
     /** Returns the selected snapshot's specs bound to the scan schema. */

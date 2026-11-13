@@ -276,7 +276,7 @@ class IcebergManifestReadContextTest {
         IcebergScanPlanProvider provider = new IcebergScanPlanProvider(
                 IcebergCatalogProperties.of(Map.of(IcebergConnector.MANIFEST_CACHE_ENABLE, "true")),
                 new RecordingIcebergCatalogOps(), context, new IcebergManifestCache());
-        Method plan = IcebergScanPlanProvider.class.getDeclaredMethod("cacheBackedFileScanTasks",
+        Method plan = IcebergScanPlanProvider.class.getDeclaredMethod("manifestFileScanTasks",
                 TableScan.class, ConnectorSession.class, Table.class, Optional.class,
                 String.class, IcebergTableHandle.class);
         plan.setAccessible(true);

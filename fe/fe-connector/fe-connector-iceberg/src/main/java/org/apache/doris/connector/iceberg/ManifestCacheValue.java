@@ -31,7 +31,7 @@ import java.util.Collections;
 import java.util.List;
 
 /**
- * Cached manifest payload containing the parsed files of one iceberg manifest.
+ * Immutable parsed files of one Iceberg manifest, optionally retained in the manifest cache.
  *
  * <p>Ported verbatim from the legacy fe-core {@code org.apache.doris.datasource.iceberg.cache.ManifestCacheValue}
  * (references only iceberg-SDK types, so no fe-core dependency). Parsed partition types reflect the schema used
