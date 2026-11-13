@@ -38,11 +38,10 @@ class RuntimeState;
 struct MergeDecision {
     // The key columns two rows are compared by, in order, each with its direction (1 ascending, -1
     // descending) and where its NULLs go (-1 first), like the SortDescription of a sort and
-    // StarRocks' SortDescs. They are the whole key: an output Block ends only in front of a new
-    // `keys` value, so a prefix of the key would put every row of one prefix value into one Block.
+    // StarRocks' SortDescs.
     SortDescription keys;
-    // The column that orders the rows of one key, when there is one: the sequence column or the
-    // changelog TSO, ascending, so that the row with the largest value comes last.
+    // The column that orders the rows of one key, when there is one, in its direction: the
+    // sequence column or the changelog TSO.
     std::optional<SortColumnDescription> sequence;
 };
 
@@ -52,17 +51,14 @@ struct MergeDecision {
 // AggKeyBlockIterator.
 //
 // The children come in (rowset version, segment) order, the oldest first: the segments of one
-// rowset, or the inputs of a whole tablet read (see BlockReader::_init_agg_key_iter). Like
-// StarRocks, the rows of one key come in the order they were written: by the sequence column when
-// there is one, then by child order, the older child first. The newest row of a key is its last
-// one. Example with key 1 in child 0 (v = 10) and in child 1 (v = 11): the merge hands out
-// v = 10, then v = 11.
+// rowset, or the inputs of a whole tablet read (see BlockReader::_init_agg_key_iter). Like the
+// other merges of the storage layer (VCollectIterator, vertical compaction), the rows of one key
+// come newest first: by the sequence column when there is one, then by child order, the newer
+// child first. The newest row of a key is its first one. Example with key 1 in child 0 (v = 10)
+// and in child 1 (v = 11): the merge hands out v = 11, then v = 10.
 //
-// An output Block ends only in front of a new key: past the row limit, only the rows of its last
-// key go on. The rows of one key are thus never split between two Blocks, and the reader above
-// takes every key from one Block. For children that hold every key once (AGG_KEYS and
-// UNIQUE_KEYS segments and rowsets), a Block goes past the row limit by fewer rows than there are
-// children.
+// An output Block ends at its row limit, also inside the rows of one key: the reader above
+// carries a key from one Block to the next, like StarRocks' ChunkAggregator.
 //
 // The children are read as they are, without init(): a LazyInitSegmentIterator opens its
 // segment with the read options of its rowset on its first read.
@@ -115,12 +111,17 @@ private:
     // Read the next Block of `child` that has rows; `*eof` once the child has no more rows.
     Status _fill_child(Child& child, bool* eof);
 
+    // Put child `child` back into the heap, after refilling its Block when it is used up, or
+    // release it once it has no more rows.
+    Status _put_back(uint32_t child);
+
     // Whether row `row` of child `child` goes before the current row of child `other`; both are
     // indexes into `_children`. Rows that tie on the keys and the sequence column go in child
-    // order, the older child (the lower index) first.
+    // order, the newer child (the higher index) first.
     bool _goes_before(uint32_t child, size_t row, uint32_t other) const;
-    // Whether the current row of child `child` has the key of the last row of `columns`.
-    bool _has_last_key(const MutableColumns& columns, uint32_t child) const;
+    // The run of child `child`, which is out of the heap: its rows from the current one on that
+    // still go before the current row of the next child, `limit` at most.
+    size_t _run(uint32_t child, size_t limit) const;
 
     // The order of `_heap`. std::priority_queue keeps its largest element on top, so `lhs` is
     // "less" than `rhs` when the current row of `rhs` goes first.

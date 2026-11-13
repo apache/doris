@@ -91,16 +91,17 @@ private:
     Status _init_collect_iter(const ReaderParams& read_params);
 
     // Whether this read folds the rows of an AGG_KEYS key with _agg_key_iter: not a changelog or a
-    // direct read, over rowsets that may hold a key more than once.
-    bool _folds_agg_keys(const ReaderParams& read_params, bool map_changelog_columns);
+    // direct read, over rowsets that may hold a key more than once (_is_rowsets_overlapping).
+    bool _folds_agg_keys(bool map_changelog_columns) const;
     // Set up _agg_key_iter for the reads that _agg_key_next_block() serves.
     Status _init_agg_key_iter(const ReaderParams& read_params);
     // Add the children of the merge that read `rs_reader`: its segments when its reader would
     // merge them, else the rowset reader itself.
     Status _add_merge_children(const RowsetReaderSharedPtr& rs_reader,
                                std::vector<RowwiseIteratorUPtr>* children);
-    // Set `*input` to the merge of `children` by the whole key.
+    // Set `*input` to the merge of `children` by the key columns `key_ordinals`.
     Status _init_agg_key_merge(std::vector<RowwiseIteratorUPtr> children,
+                               const std::vector<uint32_t>& key_ordinals,
                                RuntimeState* runtime_state, RowwiseIteratorUPtr* input);
 
     Status _insert_data_normal(MutableColumns& columns);

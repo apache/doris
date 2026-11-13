@@ -16,10 +16,10 @@
 // under the License.
 
 // VHeapMergeIterator sorts the rows of its children into one stream: by the key columns, each
-// ascending or descending, then by the sequence column, then by child order (the older child
-// first), in output Blocks of at most block_row_max rows or of the byte budget, past which only
-// the rows of the last key go on, reading on past a child's empty batches. A child's Block whose
-// rows all go first is not split, and an empty output Block takes its columns.
+// ascending or descending, then by the sequence column, then by child order (the newer child
+// first), in output Blocks of at most block_row_max rows or of the byte budget, also inside the
+// rows of one key, reading on past a child's empty batches. A child's Block whose rows all go
+// first is not split, and an empty output Block takes its columns.
 
 #include "storage/iterator/heap_merge_iterator.h"
 
@@ -161,29 +161,28 @@ std::vector<Row> flatten(const std::vector<std::vector<Row>>& blocks) {
 
 } // namespace
 
-// Rows of one key go by child order, the older child first, in the order they were written; runs
-// of a child cross its Block boundaries, and the last child left hands out its rows without
-// comparisons.
-TEST(HeapMergeIteratorTest, MergesByKeyWithTheOlderChildFirst) {
+// Rows of one key go by child order, the newer child first; runs of a child cross its Block
+// boundaries, and the last child left hands out its rows without comparisons.
+TEST(HeapMergeIteratorTest, MergesByKeyWithTheNewerChildFirst) {
     auto schema = make_schema(false);
     const std::vector<std::vector<Batch>> children = {
             {{{1, 10}, {3, 30}}, {{5, 50}}},
             {{{1, 11}, {2, 21}}, {{3, 31}, {6, 61}, {7, 71}}},
             {{{4, 40}}},
     };
-    EXPECT_EQ(flatten(merge(schema, children, key_decision())), (std::vector<Row> {{1, 10},
-                                                                                   {1, 11},
+    EXPECT_EQ(flatten(merge(schema, children, key_decision())), (std::vector<Row> {{1, 11},
+                                                                                   {1, 10},
                                                                                    {2, 21},
-                                                                                   {3, 30},
                                                                                    {3, 31},
+                                                                                   {3, 30},
                                                                                    {4, 40},
                                                                                    {5, 50},
                                                                                    {6, 61},
                                                                                    {7, 71}}));
 }
 
-// Rows of one key go by the sequence column before child order, ascending: the row with the
-// largest value comes last.
+// Rows of one key go by the sequence column before child order, in its direction: descending puts
+// the row with the largest value first. Rows with the same value go newer child first.
 TEST(HeapMergeIteratorTest, OrdersRowsOfOneKeyBySequence) {
     auto schema = make_schema(true);
     const std::vector<std::vector<Batch>> children = {
@@ -191,9 +190,9 @@ TEST(HeapMergeIteratorTest, OrdersRowsOfOneKeyBySequence) {
             {{{1, 3, 11}, {2, 1, 21}}},
     };
     MergeDecision decision = key_decision();
-    decision.sequence = SortColumnDescription(1, 1, -1);
+    decision.sequence = SortColumnDescription(1, -1, -1);
     EXPECT_EQ(flatten(merge(schema, children, decision)),
-              (std::vector<Row> {{1, 3, 11}, {1, 5, 10}, {2, 1, 20}, {2, 1, 21}}));
+              (std::vector<Row> {{1, 5, 10}, {1, 3, 11}, {2, 1, 21}, {2, 1, 20}}));
 }
 
 TEST(HeapMergeIteratorTest, ReverseMergesKeysDescending) {
@@ -203,7 +202,7 @@ TEST(HeapMergeIteratorTest, ReverseMergesKeysDescending) {
             {{{4, 41}, {3, 31}, {2, 21}}},
     };
     EXPECT_EQ(flatten(merge(schema, children, key_decision(/*descending=*/true))),
-              (std::vector<Row> {{5, 50}, {4, 41}, {3, 30}, {3, 31}, {2, 21}, {1, 10}}));
+              (std::vector<Row> {{5, 50}, {4, 41}, {3, 31}, {3, 30}, {2, 21}, {1, 10}}));
 }
 
 TEST(HeapMergeIteratorTest, KeepsToTheRowLimit) {
@@ -219,12 +218,12 @@ TEST(HeapMergeIteratorTest, KeepsToTheRowLimit) {
     EXPECT_EQ(blocks[2].size(), 2);
     EXPECT_EQ(flatten(blocks),
               (std::vector<Row> {
-                      {1, 10}, {1, 11}, {2, 20}, {3, 30}, {4, 40}, {5, 51}, {6, 61}, {7, 71}}));
+                      {1, 11}, {1, 10}, {2, 20}, {3, 30}, {4, 40}, {5, 51}, {6, 61}, {7, 71}}));
 }
 
-// An output Block goes past the row limit with the rows of its last key only, so the rows of one
-// key never land in two Blocks.
-TEST(HeapMergeIteratorTest, KeepsTheRowsOfOneKeyInOneBlock) {
+// An output Block ends at its row limit also inside the rows of one key: key 2, newest row first,
+// is split between the first two Blocks.
+TEST(HeapMergeIteratorTest, EndsABlockAtTheRowLimitInsideTheRowsOfAKey) {
     auto schema = make_schema(false);
     const std::vector<std::vector<Batch>> children = {
             {{{1, 10}, {2, 20}}, {{3, 30}}},
@@ -233,7 +232,7 @@ TEST(HeapMergeIteratorTest, KeepsTheRowsOfOneKeyInOneBlock) {
     };
     EXPECT_EQ(merge(schema, children, key_decision(), /*block_row_max=*/2),
               (std::vector<std::vector<Row>> {
-                      {{1, 10}, {2, 20}, {2, 21}, {2, 22}}, {{3, 30}, {3, 31}}, {{4, 42}}}));
+                      {{1, 10}, {2, 22}}, {{2, 21}, {2, 20}}, {{3, 31}, {3, 30}}, {{4, 42}}}));
 }
 
 // An output Block that starts with a child's Block whose rows all go before the next child takes
@@ -265,19 +264,6 @@ TEST(HeapMergeIteratorTest, EndsABlockInFrontOfABlockThatGoesFirstWhole) {
                     /*preferred_block_size_bytes=*/0, &taken),
               (std::vector<std::vector<Row>> {{{1, 11}}, {{2, 20}, {3, 30}, {4, 40}}, {{9, 91}}}));
     EXPECT_EQ(taken, (std::vector<bool> {false, true, false}));
-}
-
-// An output Block does not end in front of such a Block when the Block goes on with the output
-// Block's last key: the rows of key 2 stay in one Block, and the Block of child 1 is split.
-TEST(HeapMergeIteratorTest, SplitsABlockThatGoesOnWithTheLastKey) {
-    auto schema = make_schema(false);
-    const std::vector<std::vector<Batch>> children = {
-            {{{1, 10}, {2, 20}, {9, 90}}},
-            {{{2, 21}, {3, 31}, {4, 41}}},
-    };
-    EXPECT_EQ(merge(schema, children, key_decision(), /*block_row_max=*/3),
-              (std::vector<std::vector<Row>> {{{1, 10}, {2, 20}, {2, 21}},
-                                              {{3, 31}, {4, 41}, {9, 90}}}));
 }
 
 // With a byte budget, an output Block holds the budget divided by the average row size of the

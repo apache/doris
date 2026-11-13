@@ -457,6 +457,7 @@ Status BlockReader::_detail_change_next_block(Block* block, bool* eof) {
 }
 
 bool BlockReader::_rowsets_not_mono_asc_disjoint(const ReaderParams& read_params) {
+    SCOPED_RAW_TIMER(&_stats.block_reader_vcollect_iter_init_timer_ns);
     std::string pre_rs_last_key;
     bool pre_rs_key_bounds_truncated {false};
     const std::vector<RowSetSplits>& rs_splits = read_params.rs_splits;
@@ -496,10 +497,8 @@ Status BlockReader::_init_collect_iter(const ReaderParams& read_params) {
                      << ", version:" << read_params.version;
         return res;
     }
-    // check if rowsets are noneoverlapping
     {
         SCOPED_RAW_TIMER(&_stats.block_reader_vcollect_iter_init_timer_ns);
-        _is_rowsets_overlapping = _rowsets_not_mono_asc_disjoint(read_params);
         const bool is_min_delta_stream =
                 read_params.changelog_scan_type == TChangelogScanType::MIN_DELTA;
         const bool force_merge = read_params.read_orderby_key || is_min_delta_stream;
@@ -547,15 +546,11 @@ Status BlockReader::_init_collect_iter(const ReaderParams& read_params) {
     return Status::OK();
 }
 
-bool BlockReader::_folds_agg_keys(const ReaderParams& read_params, bool map_changelog_columns) {
-    if (map_changelog_columns || _direct_mode ||
-        _tablet_schema->keys_type() != KeysType::AGG_KEYS) {
-        return false;
-    }
+bool BlockReader::_folds_agg_keys(bool map_changelog_columns) const {
     // Rowsets with no segments that overlap on keys and keys that ascend from one rowset to the
     // next hold every key once: they have nothing to fold and are read as they are, like DUP_KEYS.
-    SCOPED_RAW_TIMER(&_stats.block_reader_vcollect_iter_init_timer_ns);
-    return _rowsets_not_mono_asc_disjoint(read_params);
+    return !map_changelog_columns && !_direct_mode &&
+           _tablet_schema->keys_type() == KeysType::AGG_KEYS && _is_rowsets_overlapping;
 }
 
 Status BlockReader::_init_agg_key_iter(const ReaderParams& read_params) {
@@ -586,7 +581,7 @@ Status BlockReader::_init_agg_key_iter(const ReaderParams& read_params) {
             }
             const RowsetReaderSharedPtr& rs_reader = rs_split.rs_reader;
             RETURN_IF_ERROR(rs_reader->init(&_reader_context, rs_split));
-            // The merge puts the rows of one key in the order of its children, the older first,
+            // The merge puts the rows of one key in the order of its children, the newer first,
             // so the rowsets must come in version order.
             DORIS_CHECK_GE(rs_reader->rowset()->start_version(), previous_start_version);
             previous_start_version = rs_reader->rowset()->start_version();
@@ -594,11 +589,19 @@ Status BlockReader::_init_agg_key_iter(const ReaderParams& read_params) {
         }
     }
 
+    // The key columns lead the read Blocks: the merge orders the rows by them, and the fold
+    // groups the rows by them.
+    std::vector<uint32_t> key_ordinals;
+    for (uint32_t ordinal = 0; ordinal < _read_schema->num_key_columns(); ++ordinal) {
+        DORIS_CHECK(_read_schema->column(ordinal)->is_key());
+        key_ordinals.push_back(ordinal);
+    }
     RowwiseIteratorUPtr input;
-    RETURN_IF_ERROR(_init_agg_key_merge(std::move(children), runtime_state, &input));
+    RETURN_IF_ERROR(_init_agg_key_merge(std::move(children), key_ordinals, runtime_state, &input));
     _agg_key_iter = std::make_unique<AggKeyBlockIterator>(
-            std::move(input), batch_max_rows(), preferred_block_size_bytes(), _read_schema,
-            read_params.get_be_exec_version(), &_merged_rows);
+            std::move(input), std::move(key_ordinals), batch_max_rows(),
+            preferred_block_size_bytes(), _read_schema, read_params.get_be_exec_version(),
+            &_merged_rows);
     Status st = _agg_key_iter->init();
     if (!st.ok()) {
         st.prepend(fmt::format(
@@ -629,12 +632,13 @@ Status BlockReader::_add_merge_children(const RowsetReaderSharedPtr& rs_reader,
 }
 
 Status BlockReader::_init_agg_key_merge(std::vector<RowwiseIteratorUPtr> children,
+                                        const std::vector<uint32_t>& key_ordinals,
                                         RuntimeState* runtime_state, RowwiseIteratorUPtr* input) {
     SCOPED_RAW_TIMER(&_stats.block_reader_build_heap_init_timer_ns);
-    // By the whole key, the rows of a key in the order they were written: the fold copies the
-    // REPLACE values of a key's last row, the newest one.
+    // By the key, the rows of a key newest first: the fold copies the REPLACE values of a key's
+    // first row.
     MergeDecision decision;
-    for (uint32_t ordinal = 0; ordinal < _read_schema->num_key_columns(); ++ordinal) {
+    for (uint32_t ordinal : key_ordinals) {
         decision.keys.emplace_back(static_cast<int>(ordinal), /*direction=*/1,
                                    /*nulls_direction=*/-1);
     }
@@ -672,9 +676,9 @@ Status BlockReader::init(const ReaderParams& read_params) {
         _min_delta_value_compare_unsupported = false;
     }
 
-    // The reads of AGG_KEYS tables that fold the rows of a key (_agg_key_next_block below) merge
-    // their rows with a VHeapMergeIterator; the other reads go through VCollectIterator.
-    const bool fold_agg_keys = _folds_agg_keys(read_params, map_changelog_columns);
+    // Reads that fold AGG_KEYS keys use a VHeapMergeIterator, the others VCollectIterator.
+    _is_rowsets_overlapping = _rowsets_not_mono_asc_disjoint(read_params);
+    const bool fold_agg_keys = _folds_agg_keys(map_changelog_columns);
     auto status = fold_agg_keys ? _init_agg_key_iter(read_params) : _init_collect_iter(read_params);
     if (!status.ok()) [[unlikely]] {
         if (!config::is_cloud_mode()) {

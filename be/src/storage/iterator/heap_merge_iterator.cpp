@@ -50,17 +50,27 @@ Status VHeapMergeIterator::init(const StorageReadOptions& opts) {
     _runtime_state = opts.runtime_state;
 
     for (size_t index = 0; index < _children.size(); ++index) {
-        Child& child = _children[index];
-        child.block = _read_schema->create_read_block();
-        bool eof = false;
-        RETURN_IF_ERROR(_fill_child(child, &eof));
-        if (eof) {
-            child.iter.reset();
-            child.block.clear();
-            continue;
-        }
-        _heap.push(cast_set<uint32_t>(index));
+        // An empty Block is used up: the child reads its first Block.
+        _children[index].block = _read_schema->create_read_block();
+        RETURN_IF_ERROR(_put_back(cast_set<uint32_t>(index)));
     }
+    return Status::OK();
+}
+
+Status VHeapMergeIterator::_put_back(uint32_t child) {
+    Child& current = _children[child];
+    if (current.pos == current.block.rows()) {
+        bool eof = false;
+        RETURN_IF_ERROR(_fill_child(current, &eof));
+        if (eof) {
+            // The child is done: release its segment and its Block now, not at the end of the
+            // merge.
+            current.iter.reset();
+            current.block.clear();
+            return Status::OK();
+        }
+    }
+    _heap.push(child);
     return Status::OK();
 }
 
@@ -108,18 +118,21 @@ bool VHeapMergeIterator::_goes_before(uint32_t child, size_t row, uint32_t other
             return r < 0;
         }
     }
-    // The same key and sequence value: the older child first, in the order they were written.
-    return child < other;
+    // The same key and sequence value: the newer child first.
+    return child > other;
 }
 
-bool VHeapMergeIterator::_has_last_key(const MutableColumns& columns, uint32_t child) const {
+size_t VHeapMergeIterator::_run(uint32_t child, size_t limit) const {
     const Child& current = _children[child];
-    return std::ranges::all_of(_decision.keys, [&](const SortColumnDescription& key) {
-        const IColumn& output = *columns[key.column_number];
-        return output.compare_at(output.size() - 1, current.pos,
-                                 *current.block.get_by_position(key.column_number).column,
-                                 key.nulls_direction) == 0;
-    });
+    limit = std::min(limit, current.block.rows() - current.pos);
+    if (_heap.empty()) {
+        return limit;
+    }
+    size_t run = 1;
+    while (run < limit && _goes_before(child, current.pos + run, _heap.top())) {
+        ++run;
+    }
+    return run;
 }
 
 size_t VHeapMergeIterator::_max_rows() const {
@@ -167,13 +180,7 @@ Status VHeapMergeIterator::next_batch(Block* block) {
     size_t rows = 0;
     auto columns_guard = block->mutate_columns_scoped();
     auto& columns = columns_guard.mutable_columns();
-    while (!_heap.empty()) {
-        // Past the row limit, only the rows of the last key go on, one at a time, so that the
-        // Block does not split them.
-        const bool past_limit = rows >= max_rows;
-        if (past_limit && !_has_last_key(columns, _heap.top())) {
-            break;
-        }
+    while (!_heap.empty() && rows < max_rows) {
         // The child whose current row goes first.
         const uint32_t index = _heap.top();
         _heap.pop();
@@ -181,48 +188,25 @@ Status VHeapMergeIterator::next_batch(Block* block) {
         // Whether its Block goes into the output whole: no row of it is taken yet, it fits into an
         // output Block, and its last row, and so every row, goes before the next child.
         const size_t block_rows = child.block.rows();
-        const bool whole = !past_limit && child.pos == 0 && block_rows <= max_rows &&
+        const bool whole = child.pos == 0 && block_rows <= max_rows &&
                            (_heap.empty() || _goes_before(index, block_rows - 1, _heap.top()));
         if (whole && rows == 0) {
             // The output is empty: it takes the Block's columns instead of copying its rows.
             RETURN_IF_CATCH_EXCEPTION(_swap_columns(columns, child));
             rows = block_rows;
-        } else if (whole && rows + block_rows > max_rows && !_has_last_key(columns, index)) {
+        } else if (whole && rows + block_rows > max_rows) {
             // The Block does not fit: the output ends in front of it, so that the next output
-            // takes it whole. Not when the Block goes on with the last key, which would be split.
+            // takes it whole.
             _heap.push(index);
             break;
         } else {
-            // The run of the child: its rows that still go before the current row of the next
-            // child.
-            size_t run = 1;
-            if (!past_limit) {
-                const size_t limit = std::min(block_rows - child.pos, max_rows - rows);
-                if (_heap.empty()) {
-                    run = limit;
-                } else {
-                    while (run < limit && _goes_before(index, child.pos + run, _heap.top())) {
-                        ++run;
-                    }
-                }
-            }
+            const size_t run = _run(index, max_rows - rows);
             RETURN_IF_CATCH_EXCEPTION(_append(columns, child, run));
             child.pos += run;
             rows += run;
         }
-        // Its Block is used up, also when the output took it.
-        if (child.pos == child.block.rows()) {
-            bool eof = false;
-            RETURN_IF_ERROR(_fill_child(child, &eof));
-            if (eof) {
-                // The child is done: release its segment and its Block now, not at the end of the
-                // merge.
-                child.iter.reset();
-                child.block.clear();
-                continue;
-            }
-        }
-        _heap.push(index);
+        // Its Block is used up when the output took it or a run reached its end.
+        RETURN_IF_ERROR(_put_back(index));
     }
     return Status::OK();
 }
