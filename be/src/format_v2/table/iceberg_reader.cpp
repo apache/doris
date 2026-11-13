@@ -158,10 +158,14 @@ const char* file_format_name(FileFormat format) {
         return "JNI";
     case FileFormat::ARROW:
         return "ARROW";
+    case FileFormat::MONGODB:
+        return "MONGODB";
     case FileFormat::ES_HTTP:
         return "ES_HTTP";
     case FileFormat::WAL:
         return "WAL";
+    case FileFormat::LANCE:
+        return "LANCE";
     }
     return "UNKNOWN";
 }

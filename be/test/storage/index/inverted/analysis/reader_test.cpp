@@ -24,6 +24,7 @@
 
 #include "storage/index/index_common.h"
 #include "storage/index/inverted/analysis/analyzer/analyzer.h"
+#include "storage/index/inverted/clucene/lucene_analyzer_bridge.h"
 #include "util/slice.h"
 
 using namespace lucene::analysis;
@@ -45,8 +46,9 @@ TEST(ReaderTest, ArrayFieldTokenStreamWorkflow) {
     config.lower_case = "true";
     config.stop_words = "";
 
-    auto analyzer = InvertedIndexAnalyzer::create_analyzer(&config);
-    ASSERT_NE(analyzer, nullptr);
+    // As the V2 writer sees it: the index's char filter is part of the analyzer.
+    auto analyzer =
+            std::make_shared<LuceneAnalyzerBridge>(InvertedIndexAnalyzer::create_analyzer(&config));
 
     std::string test_data = "hello,world,test";
     Slice slice(test_data);
@@ -69,7 +71,7 @@ TEST(ReaderTest, ArrayFieldTokenStreamWorkflow) {
             new_field.reset(field);
             {
                 ReaderPtr char_string_reader =
-                        InvertedIndexAnalyzer::create_reader(config.char_filter_map);
+                        std::make_shared<lucene::util::SStringReader<char>>();
                 char_string_reader->init(slice.get_data(), cast_set<int32_t>(slice.get_size()),
                                          false);
 

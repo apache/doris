@@ -20,9 +20,9 @@
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/column/variant_column_utils.h"
-#include "storage/segment/variant/v2/variant_assembler.h"
+#include "core/custom_allocator.h"
 #include "storage/segment/variant/v2/variant_column_reader.h"
-#include "util/json/path_in_data.h"
+#include "storage/segment/variant/v2/variant_storage_cell.h"
 
 namespace doris::segment_v2 {
 
@@ -91,13 +91,29 @@ Status BinaryColumnExtractIterator::_fill_variant_v2_path(MutableColumnPtr& dst,
         return Status::Corruption("Variant sparse offsets consume {} of {} cells",
                                   map->get_offsets().back(), paths->size());
     }
-    variant_v2::VariantAssemblerOptions options;
-    options.requested_path = PathInData(_path);
-    options.storage_map_kind = variant_v2::StorageMapKind::SPARSE;
-    auto assembler = DORIS_TRY(variant_v2::VariantAssembler::create(std::move(options)));
+    // Compaction promotes one physical path. For a sparse row containing only a.b,
+    // assembling the a subtree would invent a non-null a and break path statistics.
+    DorisVector<StringRef> cells(num_rows);
+    DorisVector<uint8_t> missing(num_rows, 1);
+    const StringRef requested {_path.data(), _path.size()};
+    const auto& offsets = map->get_offsets();
+    for (size_t row = 0; row < num_rows; ++row) {
+        const size_t start = offsets[row - 1];
+        const size_t end = offsets[row];
+        // Corrupt offsets must not reach the binary search or cell decoder.
+        if (start > end || end > paths->size()) {
+            return Status::Corruption("Invalid Variant sparse offsets [{}, {}) for {} cells", start,
+                                      end, paths->size());
+        }
+        const size_t pos = find_variant_sparse_path_lower_bound(requested, *paths, start, end);
+        // Prefix matches such as a.b belong to another physical path.
+        if (pos < end && paths->get_data_at(pos) == requested) {
+            cells[row] = values->get_data_at(pos);
+            missing[row] = 0;
+        }
+    }
     ColumnNullable::MutablePtr assembled;
-    RETURN_IF_ERROR(assembler->assemble(
-            {.num_rows = num_rows, .materialized_columns = {}, .storage_map = map}, &assembled));
+    RETURN_IF_ERROR(variant_v2::decode_v1_storage_cells(cells, {}, missing, &assembled));
     if (has_null != nullptr) {
         *has_null = assembled->has_null();
     }

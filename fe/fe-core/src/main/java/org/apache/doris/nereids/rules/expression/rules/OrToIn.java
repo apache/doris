@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.expression.rules;
 
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.analyzer.Unbound;
 import org.apache.doris.nereids.rules.expression.ExpressionRewrite;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteRule;
@@ -29,6 +30,7 @@ import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
@@ -36,6 +38,7 @@ import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -58,6 +61,11 @@ public class OrToIn {
      *
      * case 2: from (a=1) or (a=2), "a in (1,2)" is inferred, the inferred expr is equivalent to the original expr
      * - replaceMode/extractMode: output a in (1, 2)
+     *
+     * case 3 (extractMode only): the candidate slot is also referenced by sibling conjuncts of the same disjunct,
+     * e.g. "(a=1 and b=1) or (a in (2, 3) and ((a=2 and c=1) or (a=3 and c=2)))".
+     * - replaceMode: output origin expr
+     * - extractMode: output a in (1, 2, 3) and (origin expr)
      *
      * extractMode only used for filter, the inferred In-predicate could be pushed down.
      */
@@ -241,12 +249,128 @@ public class OrToIn {
         return true;
     }
 
+    /**
+     * Whether conjuncts.get(idx) may contribute an "X = literal" / "X IN (literals)" candidate.
+     *
+     * Replace mode may substitute the inferred In-predicate for the original OR, so it keeps the
+     * historical requirement that the candidate does not share input slots with sibling conjuncts.
+     *
+     * Extract mode never drops the original OR, it only appends "X IN (union of literals)". When X is a
+     * plain slot (deterministic, evaluated once per row), every disjunct implies its own top-level
+     * "X = c" / "X IN (...)", so the whole OR implies "X IN (union)" no matter whether X is also
+     * referenced by sibling conjuncts. Under three-valued logic "X IN (union) AND or" is equivalent to
+     * "or": or=TRUE implies X IN (union)=TRUE, and X IN (union)=FALSE implies every disjunct is FALSE.
+     * A typical shape where the independence check blocks a useful pushdown:
+     *   (spm='a' AND ...) OR (... AND spm IN ('c','d') AND ((spm='c' AND ...) OR (spm='d' AND ...)))
+     * Here "spm IN ('c','d')" was inferred from the inner OR, which is kept and still references spm.
+     */
+    private boolean isCandidateConjunct(int idx, List<Expression> conjuncts) {
+        if (mode == Mode.extractMode && isSlotCompareWithLiterals(conjuncts.get(idx))) {
+            return true;
+        }
+        return independentConjunct(idx, conjuncts);
+    }
+
+    private static boolean isSlotCompareWithLiterals(Expression conjunct) {
+        if (conjunct instanceof EqualTo) {
+            EqualTo eq = (EqualTo) conjunct;
+            return (eq.left() instanceof Slot && eq.right() instanceof Literal
+                            && isInferenceSafeScalarType(eq.left())
+                            && isInferenceSafeScalarType(eq.right()))
+                    || (eq.right() instanceof Slot && eq.left() instanceof Literal
+                            && isInferenceSafeScalarType(eq.right())
+                            && isInferenceSafeScalarType(eq.left()));
+        }
+        if (conjunct instanceof InPredicate) {
+            InPredicate inPredicate = (InPredicate) conjunct;
+            if (!(inPredicate.getCompareExpr() instanceof Slot)
+                    || !isInferenceSafeScalarType(inPredicate.getCompareExpr())) {
+                return false;
+            }
+            for (Expression option : inPredicate.getOptions()) {
+                if (!(option instanceof Literal) || !isInferenceSafeScalarType(option)) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Whether the type of expr admits the relaxation.
+     *
+     * Both sides are inspected when possible: the slot decides how "=" is evaluated and the literal
+     * decides what IN puts into its hash set, so a type is only safe when neither side vetoes it.
+     */
+    private static boolean isInferenceSafeScalarType(Expression expr) {
+        if (expr instanceof Unbound) {
+            // UnboundSlot throws on getDataType(). Planning always binds slots before this rule
+            // runs, so an unknown type only shows up in unit tests; do not let it veto.
+            return true;
+        }
+        return isInferenceSafeScalarType(expr.getDataType());
+    }
+
+    /**
+     * Whether "X = c" and "X IN (c1, c2, ...)" agree for this type, which the three-valued
+     * argument above depends on.
+     *
+     * Only plain scalar types are accepted. Complex types (ARRAY/STRUCT/MAP) are excluded because
+     * their IN is executed by FunctionCollectionIn, which drops the null map of the left column
+     * instead of propagating it. "a IN ([1], [2])" then returns a non-null FALSE for a NULL row
+     * where "a = [1]" returns NULL, so "a IN (...) AND or" is no longer equivalent to "or" and a
+     * NULL-sensitive parent (IS NULL / NOT / CASE / ...) changes the query result. Equality on a
+     * nullable ARRAY is also legal in Doris, so the shape is reachable in practice.
+     *
+     * Floating point is excluded as a precaution: "X = c" and the hash-based IN may disagree on
+     * -0.0 and NaN, which would break the "or=TRUE implies X IN (union)=TRUE" direction.
+     *
+     * Rejecting a type is never a loss: the conjunct simply falls back to independentConjunct()
+     * and gets exactly the pre-change behavior.
+     */
+    private static boolean isInferenceSafeScalarType(DataType type) {
+        return type.isIntegralType() // TINYINT / SMALLINT / INT / BIGINT / LARGEINT
+                || type.isDecimalLikeType() // DECIMALV2 / DECIMALV3
+                || type.isDateLikeType() // DATE / DATETIME / DATEV2 / DATETIMEV2 / TIMESTAMP_NS / TIMESTAMPTZ
+                || type.isTimeType() // TIMEV2
+                || type.isStringLikeType() // CHAR / VARCHAR / STRING
+                || type.isBooleanType();
+    }
+
+    /**
+     * Register "compareExpr -> literals" as a candidate of the current disjunct.
+     *
+     * A second candidate for the same compareExpr (e.g. "A=1 and A in (1, 2)") is a pattern for the
+     * SimplifyRange rule, so OrToIn gives up on that expression. Historically that was done by clearing
+     * every candidate of the disjunct and stopping, which was harmless because the independence check
+     * never let two conjuncts on the same slot get here. The shared-slot relaxation makes it reachable,
+     * and clearing everything would also throw away unrelated slots (e.g. "b = 10" in
+     * "b = 10 and a = 1 and a in (1, 2)"), losing an inference that existed before the relaxation.
+     * So only the conflicting compareExpr is dropped, and it is remembered in {@code conflicted} so that
+     * a third conjunct on it cannot bring it back. Dropping a candidate only weakens the appended
+     * In-predicate, never its correctness.
+     */
+    private static void addCandidate(Map<Expression, Set<Literal>> candidates, Set<Expression> conflicted,
+            Expression compareExpr, Set<Literal> literals) {
+        if (conflicted.contains(compareExpr)) {
+            return;
+        }
+        if (!candidates.containsKey(compareExpr)) {
+            candidates.put(compareExpr, literals);
+            return;
+        }
+        candidates.remove(compareExpr);
+        conflicted.add(compareExpr);
+    }
+
     private Map<Expression, Set<Literal>> getCandidates(Expression disjunct) {
         List<Expression> conjuncts = ExpressionUtils.extractConjunction(disjunct);
         Map<Expression, Set<Literal>> candidates = new LinkedHashMap<>();
+        Set<Expression> conflicted = new HashSet<>();
         // collect candidates from the first disjunction
         for (int idx = 0; idx < conjuncts.size(); idx++) {
-            if (!independentConjunct(idx, conjuncts)) {
+            if (!isCandidateConjunct(idx, conjuncts)) {
                 continue;
             }
             // find pattern: A=1 / A in (1, 2, 3 ...)
@@ -264,18 +388,9 @@ public class OrToIn {
                     literal = (Literal) eq.left();
                 }
                 if (compareExpr != null) {
-                    Set<Literal> literals = candidates.get(compareExpr);
-                    if (literals == null) {
-                        literals = Sets.newHashSet();
-                        literals.add(literal);
-                        candidates.put(compareExpr, literals);
-                    } else {
-                        // pattern like (A=1 and A=2) should be processed by SimplifyRange rule
-                        // OrToIn rule does apply to this expression
-                        candidates.clear();
-                        break;
-
-                    }
+                    Set<Literal> literals = Sets.newHashSet();
+                    literals.add(literal);
+                    addCandidate(candidates, conflicted, compareExpr, literals);
                 }
             } else if (conjunct instanceof InPredicate) {
                 InPredicate inPredicate = (InPredicate) conjunct;
@@ -291,15 +406,7 @@ public class OrToIn {
                 }
 
                 if (allLiteralOpts) {
-                    Set<Literal> alreadyMappedLiterals = candidates.get(inPredicate.getCompareExpr());
-                    if (alreadyMappedLiterals == null) {
-                        candidates.put(inPredicate.getCompareExpr(), literalOptions);
-                    } else {
-                        // pattern like (A=1 and A in (1, 2)) should be processed by SimplifyRange rule
-                        // OrToIn rule does apply to this expression
-                        candidates.clear();
-                        break;
-                    }
+                    addCandidate(candidates, conflicted, inPredicate.getCompareExpr(), literalOptions);
                 }
             }
         }

@@ -50,6 +50,7 @@ suite("test_large_data_by_rpc", "p2") {
         file """${getS3Url()}/regression/load/data/large_data_by_rpc.csv.gz"""
 
         time 30000
+        retryIfHttpError true
 
         check { result, exception, startTime, endTime ->
             if (exception != null) {

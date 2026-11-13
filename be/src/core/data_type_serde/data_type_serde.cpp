@@ -16,6 +16,7 @@
 // under the License.
 #include "core/data_type_serde/data_type_serde.h"
 
+#include <new>
 #include <vector>
 
 #include "common/check.h"
@@ -26,6 +27,7 @@
 #include "core/column/column_nullable.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/storage_field_type.h"
+#include "core/data_type_serde/bson_value_view.h"
 #include "core/data_type_serde/data_type_array_serde.h"
 #include "core/data_type_serde/data_type_decimal_serde.h"
 #include "core/data_type_serde/data_type_jsonb_serde.h"
@@ -397,6 +399,28 @@ const uint8_t* DataTypeSerDe::deserialize_binary_to_field(const uint8_t* data, F
 #undef HANDLE_T_NUM_SERDE
 #undef HANDLE_SIMPLE_SERDE
     return end;
+}
+
+Status DataTypeSerDe::read_one_cell_from_bson(IColumn& column, const BsonValueView& value,
+                                              const BsonDecodeContext& context) const {
+    const size_t before = column.size();
+    Status status;
+    try {
+        status = decode_bson_value(column, value, context);
+    } catch (const Exception& error) {
+        status = error.to_status();
+    } catch (const std::bad_alloc&) {
+        status = Status::MemoryLimitExceeded("BSON decoding allocation failed");
+    }
+    if (!status.ok() && column.size() > before) {
+        column.pop_back(column.size() - before);
+    }
+    return status;
+}
+
+Status DataTypeSerDe::decode_bson_value(IColumn&, const BsonValueView&,
+                                        const BsonDecodeContext&) const {
+    return Status::NotSupported("BSON decoding is not supported for this Doris type");
 }
 
 } // namespace doris

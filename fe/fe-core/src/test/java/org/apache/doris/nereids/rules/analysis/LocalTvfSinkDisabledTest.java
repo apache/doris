@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.cache.NereidsSqlCacheManager;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -59,6 +60,7 @@ class LocalTvfSinkDisabledTest {
     private Plan analyzeInsert(String sql, boolean authorized) {
         ConnectContext context = MemoTestUtils.createConnectContext();
         Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getSqlCacheManager()).thenReturn(new NereidsSqlCacheManager());
         AccessControllerManager accessManager = Mockito.mock(AccessControllerManager.class);
         Mockito.when(env.getAccessManager()).thenReturn(accessManager);
         Mockito.when(accessManager.checkGlobalPriv(context, PrivPredicate.ADMIN)).thenReturn(authorized);

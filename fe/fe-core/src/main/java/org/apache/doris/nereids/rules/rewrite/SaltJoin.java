@@ -164,8 +164,8 @@ public class SaltJoin extends OneRewriteRuleFactory {
             return null;
         }
         int factor = getSaltFactor();
-        Optional<Expression> literalType = TypeCoercionUtils.characterLiteralTypeCoercion(String.valueOf(factor),
-                TinyIntType.INSTANCE);
+        Optional<Expression> literalType = TypeCoercionUtils.characterLiteralTypeCoercion(
+                String.valueOf(factor), TinyIntType.INSTANCE);
         if (!literalType.isPresent()) {
             return null;
         }

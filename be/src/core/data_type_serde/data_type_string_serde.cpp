@@ -30,6 +30,7 @@
 #include "core/column/column_vector.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/data_type_serde/arrow_validation.h"
+#include "core/data_type_serde/bson_value_view.h"
 #include "core/data_type_serde/decoded_column_view.h"
 #include "core/data_type_serde/orc_serde_utils.h"
 #include "core/data_type_serde/parquet_decode_source.h"
@@ -929,6 +930,21 @@ Status DataTypeStringSerDeBase<ColumnType>::read_column_from_orc(
         return Status::OK();
     }
     return decode_string_orc_values(*this, column, view);
+}
+
+template <typename ColumnType>
+Status DataTypeStringSerDeBase<ColumnType>::decode_bson_value(
+        IColumn& column, const BsonValueView& value, const BsonDecodeContext& context) const {
+    RETURN_IF_ERROR(context.validate(value));
+    if (value.missing || value.value.value_type != BSON_TYPE_UTF8) {
+        return Status::InvalidArgument("BSON STRING requires a UTF-8 string source");
+    }
+    const auto& v = value.value.value.v_utf8;
+    if (!bson_utf8_validate(v.str, v.len, true)) {
+        return Status::InvalidArgument("BSON string contains invalid UTF-8");
+    }
+    assert_cast<ColumnType&>(column).insert_data(v.str, v.len);
+    return Status::OK();
 }
 
 template class DataTypeStringSerDeBase<ColumnString>;

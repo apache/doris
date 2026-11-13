@@ -23,6 +23,7 @@ import java.io.Closeable;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.function.Function;
 
 /**
@@ -215,6 +216,16 @@ public interface HmsClient extends Closeable {
                 .logicalElapsedNanos(System.nanoTime() - startNanos)
                 .build();
         return new HmsPartitionBatchResult(partitions, stats);
+    }
+
+    /**
+     * Returns all requested objects, in request order, only if they are already cached. Never performs remote
+     * I/O or waits for an in-flight load. An empty Optional means at least one object is unavailable locally,
+     * including for clients without a cache. Used to keep warm lookups off the metadata executor.
+     */
+    default Optional<HmsPartitionBatchResult> getCachedPartitionsWithStats(
+            String dbName, String tableName, List<String> partNames) {
+        return Optional.empty();
     }
 
     /**

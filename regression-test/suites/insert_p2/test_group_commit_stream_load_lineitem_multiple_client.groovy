@@ -103,6 +103,7 @@ PROPERTIES (
             set 'group_commit', 'async_mode'
             unset 'label'
             file """${getS3Url()}/regression/tpch/sf1/lineitem.tbl.""" + i
+            retryIfHttpError true
 
             check { result, exception, startTime, endTime ->
                 checkStreamLoadResult(exception, result, rowCountArray[i - 1], rowCountArray[i - 1], 0, 0)

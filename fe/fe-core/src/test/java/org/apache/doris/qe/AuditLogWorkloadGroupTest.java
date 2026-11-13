@@ -24,6 +24,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ConnectionException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.cache.NereidsSqlCacheManager;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.proto.Data;
 import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
@@ -284,6 +285,7 @@ public class AuditLogWorkloadGroupTest {
 
     private void mockEnvAuth(MockedStatic<Env> mockedEnv, String userGroup) {
         Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getSqlCacheManager()).thenReturn(new NereidsSqlCacheManager());
         Auth auth = Mockito.mock(Auth.class);
         Mockito.when(env.getAuth()).thenReturn(auth);
         Mockito.when(auth.getWorkloadGroup(Mockito.anyString())).thenReturn(userGroup);

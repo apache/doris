@@ -86,6 +86,8 @@ public class LocalExchangePlannerTest extends TestWithFeService implements PlanS
         sv.enableBroadcastJoinForcePassthrough = false;
         sv.enableShareHashTableForBroadcastJoin = true;
         sv.enableLocalExchangeBeforeStreamingAgg = false;
+        sv.enableLocalExchangeBeforeAgg = true;
+        sv.disableStreamPreaggregations = false;
         if (tweaks != null) {
             tweaks.accept(sv);
         }
@@ -689,6 +691,66 @@ public class LocalExchangePlannerTest extends TestWithFeService implements PlanS
                 anyTree(
                         agg(
                                 localExchange(LOCAL_HASH,
+                                        node(TableFunctionNode.class,
+                                                localExchange(PT, olapScan("t1")))))));
+    }
+
+    @Test
+    public void testLocalPhaseAggHashShufflesAfterChildThatBreaksKeyDistribution() throws Exception {
+        // With enable_local_exchange_before_agg=false a LOCAL-phase AggSink (streaming preagg off)
+        // keeps the inherited distribution only while its child keeps the key distribution, as BE
+        // AggSinkOperatorX decides since #63766. After the ADAPTIVE_PASSTHROUGH probe side of a
+        // nested loop join, the PASSTHROUGH input of a table function, or a serial pooling scan it
+        // still hashes its input by the grouping keys.
+        setupLocalShuffleSession(sv -> {
+            sv.setIgnoreStorageDataDistribution(false);
+            sv.enableLocalExchangeBeforeAgg = false;
+            sv.disableStreamPreaggregations = true;
+        });
+        assertPlanShape(
+                "select t1.k2, count(*) from test.t1 join test.t2 on t1.v1 > t2.v2 group by t1.k2",
+                anyTree(
+                        agg(
+                                localExchange(LOCAL_HASH,
+                                        nestedLoopJoin(
+                                                localExchange(ADAPTIVE_PT, olapScan()),
+                                                exchange())))));
+        assertPlanShape(
+                "select e, count(*) from test.t1 lateral view explode(array(k1, k2)) tmp as e group by e",
+                anyTree(
+                        agg(
+                                localExchange(LOCAL_HASH,
+                                        node(TableFunctionNode.class,
+                                                localExchange(PT, olapScan("t1")))))));
+        setupLocalShuffleSession(sv -> {
+            sv.enableLocalExchangeBeforeAgg = false;
+            sv.disableStreamPreaggregations = true;
+        });
+        assertPlanShape(
+                "select k2, count(*) from test.t1 group by k2",
+                anyTree(
+                        agg(
+                                localExchange(LOCAL_HASH,
+                                        localExchange(PT, olapScan("t1"))))));
+    }
+
+    @Test
+    public void testDistinctStreamingPreAggPassesThroughTableFunctionOutput() throws Exception {
+        // A GROUP BY without aggregate functions runs its LOCAL phase as a streaming distinct
+        // preagg. With enable_local_exchange_before_agg=false BE DistinctStreamingAggOperatorX
+        // still applies enable_distinct_streaming_agg_force_passthrough (default true) after a
+        // child that breaks the key distribution (#63766), so above a table function, whose
+        // output is NOOP, the FE planner adds the PASSTHROUGH local exchange it adds with the
+        // switch on.
+        setupLocalShuffleSession(sv -> {
+            sv.setIgnoreStorageDataDistribution(false);
+            sv.enableLocalExchangeBeforeAgg = false;
+        });
+        assertPlanShape(
+                "select e from test.t1 lateral view explode(array(k1, k2)) tmp as e group by e",
+                anyTree(
+                        agg(
+                                localExchange(PT,
                                         node(TableFunctionNode.class,
                                                 localExchange(PT, olapScan("t1")))))));
     }

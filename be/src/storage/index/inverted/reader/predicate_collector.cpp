@@ -71,9 +71,6 @@ Result<InvertedIndexAnalyzerCtx> analyzer_context_from_properties(
     // Replayed components can collide across policy families, so building the provider throws.
     try {
         return build_analyzer_context(properties);
-    } catch (const CLuceneError& error) {
-        return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
-                "Build scoring analyzer failed: {}", error.what()));
     } catch (const Exception& error) {
         return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
                 "Build scoring analyzer failed: {}", error.what()));
@@ -86,14 +83,8 @@ Result<std::vector<TermInfo>> analyze_plain_query(const std::string& value,
                                                   const InvertedIndexAnalyzerCtx& analyzer_ctx) {
     DORIS_CHECK(analyzer_ctx.analyzer_provider != nullptr);
     try {
-        auto analyzer = analyzer_ctx.analyzer_provider->get_analyzer();
-        auto reader =
-                inverted_index::InvertedIndexAnalyzer::create_reader(analyzer_ctx.char_filter_map);
-        reader->init(value.data(), static_cast<int32_t>(value.size()), true);
-        return inverted_index::InvertedIndexAnalyzer::get_analyse_result(reader, analyzer.get());
-    } catch (const CLuceneError& error) {
-        return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
-                "Analyze scoring query failed: {}", error.what()));
+        return inverted_index::InvertedIndexAnalyzer::get_analyse_result(
+                value, *analyzer_ctx.analyzer_provider->get_analyzer());
     } catch (const Exception& error) {
         return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
                 "Analyze scoring query failed: {}", error.what()));

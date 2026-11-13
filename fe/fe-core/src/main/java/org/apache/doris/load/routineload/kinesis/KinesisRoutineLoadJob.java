@@ -678,6 +678,7 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
 
         writeLock();
         try {
+            checkAlteredWorkloadGroup(jobProperties);
             if (getState() != JobState.PAUSED) {
                 throw new DdlException("Only supports modification of PAUSED jobs");
             }

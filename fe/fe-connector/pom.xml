@@ -55,7 +55,7 @@ under the License.
           of the latter two means bumping this property as well (and fe-extension-spi means bumping
           all five families).
         -->
-        <connector.plugin.api.version>29.0</connector.plugin.api.version>
+        <connector.plugin.api.version>30.0</connector.plugin.api.version>
     </properties>
 
     <modules>
@@ -69,6 +69,7 @@ under the License.
         <module>fe-connector-metastore-iceberg</module>
         <module>fe-connector-metastore-hms</module>
         <module>fe-connector-es</module>
+        <module>fe-connector-mongodb</module>
         <module>fe-connector-trino</module>
         <module>fe-connector-maxcompute</module>
         <module>fe-connector-jdbc</module>
