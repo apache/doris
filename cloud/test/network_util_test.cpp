@@ -50,3 +50,31 @@ TEST(NetWorkUtilTest, GetLocaHostTest) {
     }
     doris::cloud::config::enable_loopback_address_for_ms = enable_loopback_address_for_ms_bak;
 }
+
+TEST(NetWorkUtilTest, GetLocalHostIPv6Test) {
+    bool enable_loopback_address_for_ms_bak = doris::cloud::config::enable_loopback_address_for_ms;
+    doris::cloud::config::enable_loopback_address_for_ms = true;
+
+    { // IPv6 loopback CIDR selects ::1
+        doris::cloud::config::priority_networks = "::1/128";
+        ASSERT_EQ(doris::cloud::get_local_ip(doris::cloud::config::priority_networks), "::1");
+    }
+
+    { // IPv6 CIDR not matching any interface falls back to the IPv4 loopback
+        doris::cloud::config::priority_networks = "fd00:1234:5678::/48";
+        ASSERT_EQ(doris::cloud::get_local_ip(doris::cloud::config::priority_networks), "127.0.0.1");
+    }
+
+    { // bind address follows the family of the selected address
+        ASSERT_EQ(doris::cloud::get_service_bind_address(""), "0.0.0.0");
+        ASSERT_EQ(doris::cloud::get_service_bind_address("127.0.0.1/8"), "0.0.0.0");
+        ASSERT_EQ(doris::cloud::get_service_bind_address("::1/128"), "[::0]");
+    }
+
+    { // endpoint formatting brackets IPv6 literals only
+        ASSERT_EQ(doris::cloud::get_host_port("127.0.0.1", 5000), "127.0.0.1:5000");
+        ASSERT_EQ(doris::cloud::get_host_port("fd00::1", 5000), "[fd00::1]:5000");
+    }
+
+    doris::cloud::config::enable_loopback_address_for_ms = enable_loopback_address_for_ms_bak;
+}
