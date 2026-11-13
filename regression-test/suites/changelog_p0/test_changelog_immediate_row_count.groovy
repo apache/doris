@@ -34,6 +34,8 @@ suite("test_changelog_immediate_row_count", "nonConcurrent") {
 
     GetDebugPoint().enableDebugPointForAllFEs(pauseReports)
     try {
+        sql "DROP STREAM IF EXISTS changelog_report_gap_stream FORCE"
+        sql "DROP TABLE IF EXISTS changelog_report_gap_sink FORCE"
         sql "DROP STREAM IF EXISTS changelog_immediate_stream FORCE"
         sql "DROP TABLE IF EXISTS changelog_immediate_rows FORCE"
         sql """
@@ -96,6 +98,32 @@ suite("test_changelog_immediate_row_count", "nonConcurrent") {
         qt_physical_rows_after_replacement_load """
             SELECT count(*) FROM changelog("table" = "changelog_immediate_rows")
         """
+
+        // Two successful consumptions between periodic reports: each visible load updates the
+        // current count independently of the stream's consumption offset and baseline.
+        sql """
+            CREATE TABLE changelog_report_gap_sink (k INT, v INT)
+            DUPLICATE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1
+            PROPERTIES ("replication_num" = "1")
+        """
+        sql """
+            CREATE STREAM changelog_report_gap_stream ON TABLE changelog_immediate_rows
+            PROPERTIES ("type" = "detail", "show_initial_rows" = "false")
+        """
+        sql "INSERT INTO changelog_immediate_rows VALUES (3, 300)"
+        recordIndexRows("order_index_rows_before_first_consumption")
+        sql "INSERT INTO changelog_report_gap_sink SELECT k, v FROM changelog_report_gap_stream"
+        qt_empty_after_first_consumption "SELECT count(*) FROM changelog_report_gap_stream"
+        recordIndexRows("order_index_rows_after_first_consumption")
+        sql "INSERT INTO changelog_immediate_rows VALUES (0, 400)"
+        recordIndexRows("order_index_rows_between_consumptions")
+        order_qt_rows_after_second_load """
+            SELECT k, v, __DORIS_STREAM_CHANGE_TYPE_COL__ FROM changelog_report_gap_stream
+        """
+        sql "INSERT INTO changelog_report_gap_sink SELECT k, v FROM changelog_report_gap_stream"
+        qt_empty_after_second_consumption "SELECT count(*) FROM changelog_report_gap_stream"
+        order_qt_consumed_rows_between_reports "SELECT k, v FROM changelog_report_gap_sink"
+        recordIndexRows("order_index_rows_after_second_consumption")
     } finally {
         GetDebugPoint().disableDebugPointForAllFEs(pauseReports)
     }

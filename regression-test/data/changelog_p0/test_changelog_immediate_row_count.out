@@ -69,3 +69,36 @@ total	-
 -- !physical_rows_after_replacement_load --
 2
 
+-- !order_index_rows_before_first_consumption --
+base	0
+changelog	3
+total	-
+
+-- !empty_after_first_consumption --
+0
+
+-- !order_index_rows_after_first_consumption --
+base	0
+changelog	3
+total	-
+
+-- !order_index_rows_between_consumptions --
+base	0
+changelog	4
+total	-
+
+-- !rows_after_second_load --
+0	400	APPEND
+
+-- !empty_after_second_consumption --
+0
+
+-- !consumed_rows_between_reports --
+0	400
+3	300
+
+-- !order_index_rows_after_second_consumption --
+base	0
+changelog	4
+total	-
+
