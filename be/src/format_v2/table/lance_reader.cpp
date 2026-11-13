@@ -32,6 +32,8 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "exec/common/endian.h"
+#include "format_v2/lance/lance_file_system.h"
+#include "format_v2/lance/lance_host_runtime.h"
 #include "format_v2/lance/lance_reader_helper.h"
 #include "format_v2/lance/lance_runtime_filter_helper.h"
 #include "format_v2/lance/lance_session_cache_profile.h"
@@ -40,6 +42,40 @@
 #include "runtime/runtime_state.h"
 
 namespace doris::format::lance {
+
+namespace {
+Status create_host_executor(::LanceHostExecutor** executor, RuntimeState* state = nullptr) {
+    *executor = nullptr;
+    if (!config::enable_lance_host_executor) return Status::OK();
+    return LanceHostRuntime::instance()->create_executor(state, executor);
+}
+
+class ScopedHostExecutor {
+public:
+    explicit ScopedHostExecutor(const ::LanceHostExecutor* executor)
+            : _requested(executor != nullptr),
+              _scope(executor != nullptr ? lance_host_executor_enter(executor) : nullptr) {}
+    ~ScopedHostExecutor() {
+        if (_scope != nullptr) {
+            const auto status = lance_host_executor_leave(_scope);
+            DORIS_CHECK(status == 0);
+        }
+    }
+    ScopedHostExecutor(const ScopedHostExecutor&) = delete;
+    ScopedHostExecutor& operator=(const ScopedHostExecutor&) = delete;
+    Status status() const {
+        return !_requested || _scope != nullptr ? Status::OK() : lance_error("enter host executor");
+    }
+
+private:
+    bool _requested;
+    ::LanceHostExecutorScope* _scope;
+};
+} // namespace
+
+void LanceTableReader::HostExecutorDeleter::operator()(::LanceHostExecutor* executor) const {
+    lance_host_executor_free(executor);
+}
 
 LanceTableReader::~LanceTableReader() {
     static_cast<void>(close());
@@ -52,6 +88,11 @@ Status LanceTableReader::fetch_schema(const TFileRangeDesc& range,
     if (column_names == nullptr || column_types == nullptr) {
         return Status::InvalidArgument("Lance schema output must not be null");
     }
+    ::LanceHostExecutor* raw_executor = nullptr;
+    RETURN_IF_ERROR(create_host_executor(&raw_executor));
+    std::unique_ptr<::LanceHostExecutor, HostExecutorDeleter> executor(raw_executor);
+    ScopedHostExecutor scope(executor.get());
+    RETURN_IF_ERROR(scope.status());
     const auto& params = range.table_format_params.lance_params;
     std::vector<std::string> storage_options;
     RETURN_IF_ERROR(build_lance_storage_options(&scan_params, &storage_options));
@@ -62,10 +103,15 @@ Status LanceTableReader::fetch_schema(const TFileRangeDesc& range,
     }
     storage_option_ptrs.emplace_back(nullptr);
 
-    std::unique_ptr<LanceDataset, LanceDatasetDeleter> dataset(
-            lance_dataset_open(params.dataset_uri.c_str(),
-                               storage_options.empty() ? nullptr : storage_option_ptrs.data(),
-                               static_cast<uint64_t>(params.version)));
+    auto storage_result = LanceFileSystem::create(
+            params.dataset_uri, storage_options.empty() ? nullptr : storage_option_ptrs.data());
+    if (!storage_result.has_value()) return std::move(storage_result).error();
+    auto storage = std::move(storage_result).value();
+    auto options = storage->options();
+    std::unique_ptr<LanceDataset, LanceDatasetDeleter> dataset(lance_dataset_open_with_storage_v1(
+            params.dataset_uri.c_str(),
+            storage_options.empty() ? nullptr : storage_option_ptrs.data(),
+            static_cast<uint64_t>(params.version), nullptr, &options));
     if (dataset == nullptr) {
         return lance_error("open Lance dataset for schema");
     }
@@ -130,7 +176,14 @@ Status LanceTableReader::init(TableReadOptions&& options) {
     DORIS_CHECK(_runtime_state != nullptr);
     DORIS_CHECK(_scanner_profile != nullptr);
     DORIS_CHECK(_scan_params != nullptr);
+    ::LanceHostExecutor* raw_executor = nullptr;
+    RETURN_IF_ERROR(create_host_executor(&raw_executor, _runtime_state));
+    _host_executor.reset(raw_executor);
+    ScopedHostExecutor init_scope(_host_executor.get());
+    RETURN_IF_ERROR(init_scope.status());
     RETURN_IF_ERROR(_resolve_search_kind());
+    _scanner_profile->add_info_string("LanceHostExecutorMode",
+                                      _host_executor ? "host" : "disabled");
     if (_search_kind == SearchKind::NORMAL) {
         _scanner_profile->add_info_string(
                 "LanceScalarIndexAutoSelection",
@@ -140,6 +193,8 @@ Status LanceTableReader::init(TableReadOptions&& options) {
     const auto& lance_scan_params = _scan_params->lance_scan_params;
     ADD_CHILD_COUNTER_WITH_LEVEL(_scanner_profile, LANCE_READER_PROFILE, TUnit::NONE,
                                  file_scan_profile::TABLE_READER, 1);
+    _host_executor_tasks = add_lance_counter(_scanner_profile, "LanceHostExecutorTasks",
+                                             TUnit::UNIT, "LanceHostExecutor");
     _dataset_open_time = add_lance_counter(_scanner_profile, "LanceDatasetOpenTime", TUnit::TIME_NS,
                                            LANCE_TIMING_PROFILE);
     auto* session_index_cache_misses = add_lance_counter(
@@ -156,10 +211,10 @@ Status LanceTableReader::init(TableReadOptions&& options) {
     _arrow_to_doris_block_time = add_lance_counter(_scanner_profile, "LanceArrowToDorisBlockTime",
                                                    TUnit::TIME_NS, LANCE_TIMING_PROFILE);
     _data_cache_bytes_read_from_cache =
-            add_lance_counter(_scanner_profile, "LanceDataCacheBytesReadFromCache", TUnit::BYTES,
+            add_lance_counter(_scanner_profile, "LanceFileCacheBytesReadFromCache", TUnit::BYTES,
                               LANCE_DATA_CACHE_PROFILE);
     _data_cache_bytes_read_from_remote =
-            add_lance_counter(_scanner_profile, "LanceDataCacheBytesReadFromRemote", TUnit::BYTES,
+            add_lance_counter(_scanner_profile, "LanceFileCacheBytesReadFromRemote", TUnit::BYTES,
                               LANCE_DATA_CACHE_PROFILE);
     if (_search_kind != SearchKind::NORMAL) {
         RETURN_IF_ERROR(_validate_external_search_request());
@@ -205,6 +260,8 @@ Status LanceTableReader::init(TableReadOptions&& options) {
 }
 
 Status LanceTableReader::prepare_split(const SplitReadOptions& options) {
+    ScopedHostExecutor host_scope(_host_executor.get());
+    RETURN_IF_ERROR(host_scope.status());
     _close_scanner();
     _eof = false;
     _runtime_filter_cache = options.cache;
@@ -233,6 +290,15 @@ Status LanceTableReader::prepare_split(const SplitReadOptions& options) {
 }
 
 Status LanceTableReader::get_block(Block* block, bool* eos) {
+    ScopedHostExecutor host_scope(_host_executor.get());
+    RETURN_IF_ERROR(host_scope.status());
+    DEFER({
+        if (_host_executor) {
+            COUNTER_SET(_host_executor_tasks,
+                        static_cast<int64_t>(
+                                lance_host_executor_completed_tasks(_host_executor.get())));
+        }
+    });
     DORIS_CHECK(block != nullptr);
     DORIS_CHECK(eos != nullptr);
     DORIS_CHECK(block->columns() == _projected_columns.size());
@@ -308,6 +374,8 @@ Status LanceTableReader::get_block(Block* block, bool* eos) {
 
 Status LanceTableReader::read_by_row_ids(const TFileRangeDesc& range,
                                          const std::vector<uint64_t>& row_ids, Block* block) {
+    ScopedHostExecutor host_scope(_host_executor.get());
+    RETURN_IF_ERROR(host_scope.status());
     DORIS_CHECK(block != nullptr);
     DORIS_CHECK(block->columns() == _projected_columns.size());
     if (row_ids.empty()) {
@@ -397,16 +465,24 @@ Status LanceTableReader::read_by_row_ids(const TFileRangeDesc& range,
 }
 
 Status LanceTableReader::abort_split() {
+    ScopedHostExecutor host_scope(_host_executor.get());
+    RETURN_IF_ERROR(host_scope.status());
     _close_scanner();
     _eof = true;
     return TableReader::abort_split();
 }
 
 Status LanceTableReader::close() {
-    _close_scanner();
-    _close_dataset();
-    _opened_dataset_key.reset();
-    _eof = true;
+    {
+        ScopedHostExecutor host_scope(_host_executor.get());
+        RETURN_IF_ERROR(host_scope.status());
+        _close_scanner();
+        _close_dataset();
+        _opened_dataset_key.reset();
+        _eof = true;
+    }
+    // Leave all SDK scopes and close streams before retiring their pending task queues.
+    _host_executor.reset();
     return TableReader::close();
 }
 
@@ -692,7 +768,7 @@ Status LanceTableReader::_open_dataset(const DatasetKey& key) {
         LanceDataset* raw_dataset = nullptr;
         Status status = session.open_dataset(
                 key.uri.c_str(), key.storage_options.empty() ? nullptr : storage_option_ptrs.data(),
-                static_cast<uint64_t>(key.version), &raw_dataset);
+                static_cast<uint64_t>(key.version), &raw_dataset, _runtime_state, &_file_system);
         if (!status.ok()) {
             _session_cache_profile->stop();
             return status.prepend(fmt::format("Lance dataset version {} at {}: ", key.version,
@@ -1323,6 +1399,7 @@ void LanceTableReader::_close_dataset() {
         lance_dataset_close(_dataset);
         _dataset = nullptr;
     }
+    _file_system.reset();
     _dataset_schema.reset();
     _dataset_fragment_ids.reset();
     _opened_version = 0;
@@ -1334,12 +1411,8 @@ void LanceTableReader::_collect_data_cache_statistics() {
         return;
     }
 
-    LanceDataCacheStatistics statistics {};
-    if (lance_dataset_get_data_cache_statistics(_dataset, &statistics) != 0) {
-        const auto status = lance_error("get Lance data cache statistics");
-        LOG(WARNING) << "Failed to collect Lance data cache statistics: " << status.to_string();
-        return;
-    }
+    if (!_file_system) return;
+    const auto statistics = _file_system->statistics();
 
     const auto set_counter = [](RuntimeProfile::Counter* counter, uint64_t value,
                                 std::string_view metric_name) {
@@ -1353,9 +1426,9 @@ void LanceTableReader::_collect_data_cache_statistics() {
         }
         COUNTER_SET(counter, static_cast<int64_t>(value));
     };
-    set_counter(_data_cache_bytes_read_from_cache, statistics.bytes_read_from_cache,
+    set_counter(_data_cache_bytes_read_from_cache, statistics.bytes_from_cache,
                 "bytes_read_from_cache");
-    set_counter(_data_cache_bytes_read_from_remote, statistics.bytes_read_from_remote,
+    set_counter(_data_cache_bytes_read_from_remote, statistics.bytes_from_remote,
                 "bytes_read_from_remote");
 }
 

@@ -2233,9 +2233,12 @@ build_lance_c() {
     env "${cargo_env[@]}" "${cargo_bin}" "${cargo_args[@]}"
 
     mkdir -p "${TP_INSTALL_DIR}/include" "${TP_INSTALL_DIR}/lib64"
+    # Header/archive publication is not one atomic rename; keep a recovery marker until both finish.
+    touch "${TP_INSTALL_DIR}/lib64/.lance-installing"
     rm -rf "${TP_INSTALL_DIR}/include/lance"
     cp -av include/lance "${TP_INSTALL_DIR}/include/"
     install_rust_archive "${BUILD_DIR}/release/liblance_c.a"
+    rm -f "${TP_INSTALL_DIR}/lib64/.lance-installing"
 }
 
 # paimon-rust
