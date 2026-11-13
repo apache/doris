@@ -17,15 +17,21 @@
 
 package org.apache.doris.plugin.audit;
 
+import org.apache.doris.analysis.ColumnDef;
+import org.apache.doris.catalog.InternalSchema;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.plugin.AuditEvent;
 
+import com.google.common.base.Splitter;
 import org.junit.Assert;
 import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
 
+import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Collectors;
 
 public class AuditLoaderTest {
 
@@ -129,8 +135,40 @@ public class AuditLoaderTest {
                         .setUser("bob").setDb("sales")
                         .setStmt("select * from t where a = 1 and b = 'x'").build(),
                 buffer);
-        Assert.assertTrue(buffer.toString().contains("select * from t where a = 1 and b = 'x'"));
-        Assert.assertEquals(1, count(buffer, AuditLoader.AUDIT_TABLE_LINE_DELIMITER));
+        Assertions.assertTrue(buffer.toString().contains("select * from t where a = 1 and b = 'x'"));
+        Assertions.assertEquals(1, count(buffer, AuditLoader.AUDIT_TABLE_LINE_DELIMITER));
+    }
+
+    // The row written for the audit_log table is read by position, under the columns of
+    // InternalSchema.AUDIT_SCHEMA: it must have exactly those columns, in that order.
+    @Test
+    public void testRowHasTheColumnsOfTheAuditSchemaInOrder() {
+        AuditLoader auditLoader = new AuditLoader();
+        StringBuilder buffer = new StringBuilder();
+        Deencapsulation.invoke(auditLoader, "fillLogBuffer",
+                new AuditEvent.AuditEventBuilder()
+                        .setUser("alice").setCloudCluster("cg1")
+                        .setSpillWriteBytesToLocalStorage(11L)
+                        .setSpillReadBytesFromLocalStorage(12L)
+                        .setSpillWriteBytesToRemoteStorage(13L)
+                        .setSpillReadBytesFromRemoteStorage(14L)
+                        .setStmt("select 1").build(),
+                buffer);
+        String row = buffer.toString();
+        Assertions.assertEquals(AuditLoader.AUDIT_TABLE_LINE_DELIMITER, row.charAt(row.length() - 1));
+        List<String> columns = Splitter.on(AuditLoader.AUDIT_TABLE_COL_SEPARATOR)
+                .splitToList(row.substring(0, row.length() - 1));
+        List<String> names = InternalSchema.AUDIT_SCHEMA.stream().map(ColumnDef::getName)
+                .collect(Collectors.toList());
+        Assertions.assertEquals(names.size(), columns.size(), "columns of the row: " + columns);
+        Assertions.assertEquals("alice", columns.get(names.indexOf("user")));
+        Assertions.assertEquals("cg1", columns.get(names.indexOf("compute_group")));
+        Assertions.assertEquals("11", columns.get(names.indexOf("spill_write_bytes_from_local_storage")));
+        Assertions.assertEquals("12", columns.get(names.indexOf("spill_read_bytes_from_local_storage")));
+        Assertions.assertEquals("13", columns.get(names.indexOf("spill_write_bytes_to_remote_storage")));
+        Assertions.assertEquals("14", columns.get(names.indexOf("spill_read_bytes_from_remote_storage")));
+        Assertions.assertEquals("select 1", columns.get(names.indexOf("stmt")));
+        Assertions.assertEquals(names.size() - 1, names.indexOf("stmt"));
     }
 
     private static int count(CharSequence s, char c) {
