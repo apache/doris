@@ -64,28 +64,6 @@ using namespace ErrorCode;
 
 static constexpr int32_t BLOCK_SIZE_CHECK_INTERVAL_ROWS = 64;
 
-namespace {
-
-// The rows of one rowset, read through its rowset reader: the child of the merge for a rowset
-// whose reader reads its segments one after another.
-class RowsetReaderIterator final : public RowwiseIterator {
-public:
-    RowsetReaderIterator(RowsetReaderSharedPtr rs_reader, ReadSchemaSPtr read_schema)
-            : _rs_reader(std::move(rs_reader)), _read_schema(std::move(read_schema)) {}
-
-    Status next_batch(Block* block) override { return _rs_reader->next_batch(block); }
-
-    const ReadSchema& schema() const override { return *_read_schema; }
-
-    void update_profile(RuntimeProfile* profile) override { _rs_reader->update_profile(profile); }
-
-private:
-    const RowsetReaderSharedPtr _rs_reader;
-    const ReadSchemaSPtr _read_schema;
-};
-
-} // namespace
-
 BlockReader::BlockReader() = default;
 
 BlockReader::~BlockReader() = default;
@@ -546,7 +524,7 @@ Status BlockReader::_init_collect_iter(const ReaderParams& read_params) {
     return Status::OK();
 }
 
-bool BlockReader::_folds_agg_keys(bool map_changelog_columns) const {
+bool BlockReader::_merges_agg_key_rows(bool map_changelog_columns) const {
     // Rowsets with no segments that overlap on keys and keys that ascend from one rowset to the
     // next hold every key once: they have nothing to fold and are read as they are, like DUP_KEYS.
     return !map_changelog_columns && !_direct_mode &&
@@ -585,7 +563,8 @@ Status BlockReader::_init_agg_key_iter(const ReaderParams& read_params) {
             // so the rowsets must come in version order.
             DORIS_CHECK_GE(rs_reader->rowset()->start_version(), previous_start_version);
             previous_start_version = rs_reader->rowset()->start_version();
-            RETURN_IF_ERROR(_add_merge_children(rs_reader, &children));
+            RETURN_IF_ERROR(rs_reader->get_merge_children(&_reader_context, &children));
+            _merge_rs_readers.push_back(rs_reader);
         }
     }
 
@@ -611,24 +590,6 @@ Status BlockReader::_init_agg_key_iter(const ReaderParams& read_params) {
                 int(read_params.reader_type), read_params.version.to_string()));
     }
     return st;
-}
-
-Status BlockReader::_add_merge_children(const RowsetReaderSharedPtr& rs_reader,
-                                        std::vector<RowwiseIteratorUPtr>* children) {
-    if (!rs_reader->is_merge_iterator()) {
-        // The rowset reader reads the segments of this rowset one after another.
-        children->push_back(std::make_unique<RowsetReaderIterator>(rs_reader, _read_schema));
-        return Status::OK();
-    }
-    // The segments of this rowset overlap on keys: every one is a child of the merge, so one
-    // merge orders the segments of a rowset and the rowsets together.
-    std::vector<RowwiseIteratorUPtr> segment_iters;
-    RETURN_IF_ERROR(rs_reader->get_segment_iterators(&_reader_context, &segment_iters));
-    for (auto& segment_iter : segment_iters) {
-        children->push_back(std::move(segment_iter));
-    }
-    _segment_merge_rs_readers.push_back(rs_reader);
-    return Status::OK();
 }
 
 Status BlockReader::_init_agg_key_merge(std::vector<RowwiseIteratorUPtr> children,
@@ -678,8 +639,8 @@ Status BlockReader::init(const ReaderParams& read_params) {
 
     // Reads that fold AGG_KEYS keys use a VHeapMergeIterator, the others VCollectIterator.
     _is_rowsets_overlapping = _rowsets_not_mono_asc_disjoint(read_params);
-    const bool fold_agg_keys = _folds_agg_keys(map_changelog_columns);
-    auto status = fold_agg_keys ? _init_agg_key_iter(read_params) : _init_collect_iter(read_params);
+    const bool merge_rows = _merges_agg_key_rows(map_changelog_columns);
+    auto status = merge_rows ? _init_agg_key_iter(read_params) : _init_collect_iter(read_params);
     if (!status.ok()) [[unlikely]] {
         if (!config::is_cloud_mode()) {
             static_cast<Tablet*>(_tablet.get())->report_error(status);
@@ -719,8 +680,8 @@ Status BlockReader::init(const ReaderParams& read_params) {
         }
         break;
     case KeysType::AGG_KEYS:
-        _next_block_func = fold_agg_keys ? &BlockReader::_agg_key_next_block
-                                         : &BlockReader::_direct_next_block;
+        _next_block_func =
+                merge_rows ? &BlockReader::_agg_key_next_block : &BlockReader::_direct_next_block;
         break;
     default:
         DCHECK(false) << "No next row function for type:" << _tablet_schema->keys_type();

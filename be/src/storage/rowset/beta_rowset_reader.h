@@ -51,6 +51,8 @@ public:
     Status get_segment_iterators(RowsetReaderContext* read_context,
                                  std::vector<RowwiseIteratorUPtr>* out_iters,
                                  bool use_cache = false) override;
+    Status get_merge_children(RowsetReaderContext* read_context,
+                              std::vector<RowwiseIteratorUPtr>* children) override;
     void reset_read_options() override;
     Status next_batch(Block* block) override { return _next_batch(block); }
     Status next_batch(BlockView* block_view) override { return _next_batch(block_view); }

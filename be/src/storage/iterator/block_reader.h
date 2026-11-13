@@ -92,13 +92,9 @@ private:
 
     // Whether this read folds the rows of an AGG_KEYS key with _agg_key_iter: not a changelog or a
     // direct read, over rowsets that may hold a key more than once (_is_rowsets_overlapping).
-    bool _folds_agg_keys(bool map_changelog_columns) const;
+    bool _merges_agg_key_rows(bool map_changelog_columns) const;
     // Set up _agg_key_iter for the reads that _agg_key_next_block() serves.
     Status _init_agg_key_iter(const ReaderParams& read_params);
-    // Add the children of the merge that read `rs_reader`: its segments when its reader would
-    // merge them, else the rowset reader itself.
-    Status _add_merge_children(const RowsetReaderSharedPtr& rs_reader,
-                               std::vector<RowwiseIteratorUPtr>* children);
     // Set `*input` to the merge of `children` by the key columns `key_ordinals`.
     Status _init_agg_key_merge(std::vector<RowwiseIteratorUPtr> children,
                                const std::vector<uint32_t>& key_ordinals,
@@ -121,9 +117,9 @@ private:
     VCollectIterator _vcollect_iter;
     IteratorRowRef _next_row {{}, -1, false};
 
-    // The readers of the rowsets whose segments are children of the merge in _agg_key_iter: a
-    // rowset reader keeps its rowset in use until it is destroyed.
-    std::vector<RowsetReaderSharedPtr> _segment_merge_rs_readers;
+    // The readers of the rowsets that the merge in _agg_key_iter reads: the iterators they made
+    // read with their options and statistics.
+    std::vector<RowsetReaderSharedPtr> _merge_rs_readers;
     std::unique_ptr<AggKeyBlockIterator> _agg_key_iter;
 
     // Buffer of consecutive rows that share the same primary key, used by

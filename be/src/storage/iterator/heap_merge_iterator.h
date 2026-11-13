@@ -102,43 +102,47 @@ private:
     // One input of the merge and the Block it is positioned in.
     struct Child {
         RowwiseIteratorUPtr iter;
-        // The current Block, refilled in place by _fill_child(); the rows are copied out of it.
+        // The current Block, refilled in place by _read_next_block(); the rows are copied out of
+        // it.
         Block block;
         // The current row of `block`.
         size_t pos = 0;
     };
 
     // Read the next Block of `child` that has rows; `*eof` once the child has no more rows.
-    Status _fill_child(Child& child, bool* eof);
+    Status _read_next_block(Child& child, bool* eof);
+    // Push child `child` back into the heap. When its Block is used up, read its next Block
+    // first, and release the child instead once it has no more rows.
+    Status _push_back_to_heap(uint32_t child);
 
-    // Put child `child` back into the heap, after refilling its Block when it is used up, or
-    // release it once it has no more rows.
-    Status _put_back(uint32_t child);
-
-    // Whether row `row` of child `child` goes before the current row of child `other`; both are
+    // Whether row `row` of child `child` sorts before the current row of child `other`; both are
     // indexes into `_children`. Rows that tie on the keys and the sequence column go in child
     // order, the newer child (the higher index) first.
-    bool _goes_before(uint32_t child, size_t row, uint32_t other) const;
-    // The run of child `child`, which is out of the heap: its rows from the current one on that
-    // still go before the current row of the next child, `limit` at most.
-    size_t _run(uint32_t child, size_t limit) const;
+    bool _less_than_current_row(uint32_t child, size_t row, uint32_t other) const;
+    // Whether the output can take the Block of child `child`, which is out of the heap, whole:
+    // no row of it is taken yet, it has `max_rows` rows at most, and its last row, and so every
+    // row, sorts before the current row of the next child (StarRocks' less_than_all).
+    bool _can_take_whole_block(uint32_t child, size_t max_rows) const;
+    // How many rows of child `child`, which is out of the heap, from its current row on sort
+    // before the current row of the next child, `limit` at most (StarRocks' last_row_less_than).
+    size_t _rows_before_next_child(uint32_t child, size_t limit) const;
 
     // The order of `_heap`. std::priority_queue keeps its largest element on top, so `lhs` is
-    // "less" than `rhs` when the current row of `rhs` goes first.
+    // "less" than `rhs` when the current row of `rhs` sorts first.
     struct HeapOrder {
         const VHeapMergeIterator* merge;
         bool operator()(uint32_t lhs, uint32_t rhs) const {
-            return merge->_goes_before(rhs, merge->_children[rhs].pos, lhs);
+            return merge->_less_than_current_row(rhs, merge->_children[rhs].pos, lhs);
         }
     };
 
     // The row limit of the next output Block, see the class comment.
-    size_t _max_rows() const;
-    // Append rows [child.pos, child.pos + rows) of `child` to `columns`.
-    static void _append(MutableColumns& columns, const Child& child, size_t rows);
-    // Move the rows of `child`'s Block into the empty `columns` without copying them: the two swap
-    // columns, and the child refills the empty ones.
-    static void _swap_columns(MutableColumns& columns, Child& child);
+    size_t _output_row_limit() const;
+    // Copy `rows` rows of `child`, from its current row on, to the output `columns`.
+    static void _copy_rows(MutableColumns& columns, const Child& child, size_t rows);
+    // Give the empty output `columns` the rows of `child`'s Block without copying them: they swap
+    // columns, and the child reads its next Block into the empty ones.
+    static void _move_block_to_output(MutableColumns& columns, Child& child);
 
     std::vector<Child> _children;
     const ReadSchemaSPtr _read_schema;
@@ -148,6 +152,8 @@ private:
     size_t _block_row_max = 0;
     size_t _preferred_block_size_bytes = 0;
     RuntimeState* _runtime_state = nullptr;
+    // Where the time of reading the children's Blocks goes (block_fetch_ns).
+    OlapReaderStatistics* _stats = nullptr;
 
     // The children that still have rows; the one whose current row goes first is on top.
     std::priority_queue<uint32_t, std::vector<uint32_t>, HeapOrder> _heap {HeapOrder {this}};

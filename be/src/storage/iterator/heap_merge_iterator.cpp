@@ -25,6 +25,7 @@
 #include "common/status.h"
 #include "core/block/block.h"
 #include "core/column/column.h"
+#include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
 #include "storage/iterators.h"
 #include "storage/schema.h"
@@ -48,20 +49,21 @@ Status VHeapMergeIterator::init(const StorageReadOptions& opts) {
     _block_row_max = opts.block_row_max;
     _preferred_block_size_bytes = opts.preferred_block_size_bytes;
     _runtime_state = opts.runtime_state;
+    _stats = opts.stats;
 
     for (size_t index = 0; index < _children.size(); ++index) {
         // An empty Block is used up: the child reads its first Block.
         _children[index].block = _read_schema->create_read_block();
-        RETURN_IF_ERROR(_put_back(cast_set<uint32_t>(index)));
+        RETURN_IF_ERROR(_push_back_to_heap(cast_set<uint32_t>(index)));
     }
     return Status::OK();
 }
 
-Status VHeapMergeIterator::_put_back(uint32_t child) {
+Status VHeapMergeIterator::_push_back_to_heap(uint32_t child) {
     Child& current = _children[child];
     if (current.pos == current.block.rows()) {
         bool eof = false;
-        RETURN_IF_ERROR(_fill_child(current, &eof));
+        RETURN_IF_ERROR(_read_next_block(current, &eof));
         if (eof) {
             // The child is done: release its segment and its Block now, not at the end of the
             // merge.
@@ -74,7 +76,8 @@ Status VHeapMergeIterator::_put_back(uint32_t child) {
     return Status::OK();
 }
 
-Status VHeapMergeIterator::_fill_child(Child& child, bool* eof) {
+Status VHeapMergeIterator::_read_next_block(Child& child, bool* eof) {
+    SCOPED_RAW_TIMER(&_stats->block_fetch_ns);
     // A segment returns an empty batch when its predicates filter out every row it read.
     do {
         child.block.clear_column_data();
@@ -96,7 +99,7 @@ Status VHeapMergeIterator::_fill_child(Child& child, bool* eof) {
     return Status::OK();
 }
 
-bool VHeapMergeIterator::_goes_before(uint32_t child, size_t row, uint32_t other) const {
+bool VHeapMergeIterator::_less_than_current_row(uint32_t child, size_t row, uint32_t other) const {
     const Block& block = _children[child].block;
     const Child& other_child = _children[other];
     // `row` against the current row of `other` on `column`, in the direction of `column`: negative
@@ -122,20 +125,27 @@ bool VHeapMergeIterator::_goes_before(uint32_t child, size_t row, uint32_t other
     return child > other;
 }
 
-size_t VHeapMergeIterator::_run(uint32_t child, size_t limit) const {
+bool VHeapMergeIterator::_can_take_whole_block(uint32_t child, size_t max_rows) const {
+    const Child& current = _children[child];
+    const size_t block_rows = current.block.rows();
+    return current.pos == 0 && block_rows <= max_rows &&
+           (_heap.empty() || _less_than_current_row(child, block_rows - 1, _heap.top()));
+}
+
+size_t VHeapMergeIterator::_rows_before_next_child(uint32_t child, size_t limit) const {
     const Child& current = _children[child];
     limit = std::min(limit, current.block.rows() - current.pos);
     if (_heap.empty()) {
         return limit;
     }
-    size_t run = 1;
-    while (run < limit && _goes_before(child, current.pos + run, _heap.top())) {
-        ++run;
+    size_t rows = 1;
+    while (rows < limit && _less_than_current_row(child, current.pos + rows, _heap.top())) {
+        ++rows;
     }
-    return run;
+    return rows;
 }
 
-size_t VHeapMergeIterator::_max_rows() const {
+size_t VHeapMergeIterator::_output_row_limit() const {
     if (_preferred_block_size_bytes == 0) {
         return _block_row_max;
     }
@@ -150,7 +160,7 @@ size_t VHeapMergeIterator::_max_rows() const {
     return std::clamp<size_t>(_preferred_block_size_bytes / row_bytes, 1, _block_row_max);
 }
 
-void VHeapMergeIterator::_append(MutableColumns& columns, const Child& child, size_t rows) {
+void VHeapMergeIterator::_copy_rows(MutableColumns& columns, const Child& child, size_t rows) {
     for (size_t ordinal = 0; ordinal < columns.size(); ++ordinal) {
         const IColumn& source = *child.block.get_by_position(ordinal).column;
         if (rows == 1) {
@@ -161,7 +171,7 @@ void VHeapMergeIterator::_append(MutableColumns& columns, const Child& child, si
     }
 }
 
-void VHeapMergeIterator::_swap_columns(MutableColumns& columns, Child& child) {
+void VHeapMergeIterator::_move_block_to_output(MutableColumns& columns, Child& child) {
     for (size_t ordinal = 0; ordinal < columns.size(); ++ordinal) {
         ColumnPtr& child_column = child.block.get_by_position(ordinal).column;
         MutableColumnPtr rows = IColumn::mutate(std::move(child_column));
@@ -176,37 +186,33 @@ Status VHeapMergeIterator::next_batch(Block* block) {
     if (_heap.empty()) {
         return Status::EndOfFile("no more rows to merge");
     }
-    const size_t max_rows = _max_rows();
-    size_t rows = 0;
+    const size_t max_rows = _output_row_limit();
+    size_t output_rows = 0;
     auto columns_guard = block->mutate_columns_scoped();
     auto& columns = columns_guard.mutable_columns();
-    while (!_heap.empty() && rows < max_rows) {
-        // The child whose current row goes first.
-        const uint32_t index = _heap.top();
+    while (!_heap.empty() && output_rows < max_rows) {
+        // The child whose current row is the smallest.
+        const uint32_t child_index = _heap.top();
         _heap.pop();
-        Child& child = _children[index];
-        // Whether its Block goes into the output whole: no row of it is taken yet, it fits into an
-        // output Block, and its last row, and so every row, goes before the next child.
+        Child& child = _children[child_index];
         const size_t block_rows = child.block.rows();
-        const bool whole = child.pos == 0 && block_rows <= max_rows &&
-                           (_heap.empty() || _goes_before(index, block_rows - 1, _heap.top()));
-        if (whole && rows == 0) {
+        const bool take_whole_block = _can_take_whole_block(child_index, max_rows);
+        if (take_whole_block && output_rows == 0) {
             // The output is empty: it takes the Block's columns instead of copying its rows.
-            RETURN_IF_CATCH_EXCEPTION(_swap_columns(columns, child));
-            rows = block_rows;
-        } else if (whole && rows + block_rows > max_rows) {
+            RETURN_IF_CATCH_EXCEPTION(_move_block_to_output(columns, child));
+            output_rows = block_rows;
+        } else if (take_whole_block && output_rows + block_rows > max_rows) {
             // The Block does not fit: the output ends in front of it, so that the next output
             // takes it whole.
-            _heap.push(index);
+            _heap.push(child_index);
             break;
         } else {
-            const size_t run = _run(index, max_rows - rows);
-            RETURN_IF_CATCH_EXCEPTION(_append(columns, child, run));
-            child.pos += run;
-            rows += run;
+            const size_t rows = _rows_before_next_child(child_index, max_rows - output_rows);
+            RETURN_IF_CATCH_EXCEPTION(_copy_rows(columns, child, rows));
+            child.pos += rows;
+            output_rows += rows;
         }
-        // Its Block is used up when the output took it or a run reached its end.
-        RETURN_IF_ERROR(_put_back(index));
+        RETURN_IF_ERROR(_push_back_to_heap(child_index));
     }
     return Status::OK();
 }

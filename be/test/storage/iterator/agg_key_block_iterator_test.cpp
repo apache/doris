@@ -15,13 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// AggKeyBlockIterator::ValueAggregator folds key groups given as row counts of input Blocks: one
-// result row per group, NULLs skipped by the nullable functions group by group, the first value
-// that is not NULL for REPLACE_IF_NOT_NULL, and a group that goes on from one input Block to the
-// next. AggKeyBlockIterator turns every key into one row, the keys and the REPLACE values of its
-// first row, the newest, and the other values folded, also a key that goes on from one input
-// Block to the next; it copies keys that have one row as they are, and ends an output Block in
-// front of a new key at its row limit, or at its byte budget counted as rows.
+// AggKeyBlockAggregator::ValueAggregator folds key groups given as row counts of input Blocks: one result
+// row per group, NULLs skipped by the nullable functions group by group, the first value that is
+// not NULL for REPLACE_IF_NOT_NULL, and a group that goes on from one input Block to the next.
+// AggKeyBlockAggregator keeps the last key of a source open for the next one and is full in front of a
+// new key. AggKeyBlockIterator, which feeds it, turns every key into one row, the keys and the
+// REPLACE values of its first row, the newest, and the other values folded, also a key that goes
+// on from one input Block to the next; it copies keys that have one row as they are, and ends an
+// output Block in front of a new key at its row limit, or at its byte budget counted as rows.
 
 #include "storage/iterator/agg_key_block_iterator.h"
 
@@ -40,6 +41,7 @@
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_quantilestate.h"
+#include "storage/iterator/agg_key_block_aggregator.h"
 #include "storage/iterators.h"
 #include "storage/schema.h"
 #include "storage/tablet/tablet_schema.h"
@@ -87,8 +89,8 @@ Block make_block(const ReadSchema& schema, const std::vector<std::optional<int64
     return block;
 }
 
-std::unique_ptr<AggKeyBlockIterator::ValueAggregator> make_aggregator(const ReadSchema& schema) {
-    auto aggregator = std::make_unique<AggKeyBlockIterator::ValueAggregator>();
+std::unique_ptr<AggKeyBlockAggregator::ValueAggregator> make_aggregator(const ReadSchema& schema) {
+    auto aggregator = std::make_unique<AggKeyBlockAggregator::ValueAggregator>();
     EXPECT_TRUE(aggregator->init(schema, {1}, BeExecVersionManager::get_newest_version()).ok());
     return aggregator;
 }
@@ -115,6 +117,30 @@ ReadSchemaSPtr make_agg_schema() {
                         FieldType::OLAP_FIELD_TYPE_BIGINT, false, 1, false),
             make_column("s", FieldAggregationMethod::OLAP_FIELD_AGGREGATION_SUM,
                         FieldType::OLAP_FIELD_TYPE_BIGINT, false, 2, false)});
+}
+
+// A Block of the k, r, s schema holding `rows`.
+Block make_rows(const ReadSchema& schema, const std::vector<Row>& rows) {
+    Block block = schema.create_read_block();
+    auto columns_guard = block.mutate_columns_scoped();
+    auto& columns = columns_guard.mutable_columns();
+    for (const Row& row : rows) {
+        for (size_t c = 0; c < columns.size(); ++c) {
+            assert_cast<ColumnInt64&>(*columns[c]).insert_value(row[c]);
+        }
+    }
+    return block;
+}
+
+// The rows of a Block of the k, r, s schema.
+std::vector<Row> rows_of(const Block& block) {
+    std::vector<Row> rows;
+    for (size_t r = 0; r < block.rows(); ++r) {
+        rows.push_back({value_at(*block.get_by_position(0).column, r).value(),
+                        value_at(*block.get_by_position(1).column, r).value(),
+                        value_at(*block.get_by_position(2).column, r).value()});
+    }
+    return rows;
 }
 
 // Hands out the input Blocks `blocks`, one per next_batch(), then EndOfFile.
@@ -166,19 +192,14 @@ std::vector<std::vector<Row>> fold(std::vector<std::vector<Row>> blocks, size_t 
             EXPECT_EQ(block.rows(), 0);
             break;
         }
-        auto& rows = output.emplace_back();
-        for (size_t r = 0; r < block.rows(); ++r) {
-            rows.push_back({value_at(*block.get_by_position(0).column, r).value(),
-                            value_at(*block.get_by_position(1).column, r).value(),
-                            value_at(*block.get_by_position(2).column, r).value()});
-        }
+        output.push_back(rows_of(block));
     }
     return output;
 }
 
 } // namespace
 
-TEST(AggKeyBlockIteratorValueAggregatorTest, FoldsEachGroupFromItsRowCount) {
+TEST(AggKeyValueAggregatorTest, FoldsEachGroupFromItsRowCount) {
     auto schema = make_read_schema(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_SUM);
     auto aggregator = make_aggregator(*schema);
     Block block = make_block(*schema, {1, 2, 3, 4, 5, 6});
@@ -196,7 +217,7 @@ TEST(AggKeyBlockIteratorValueAggregatorTest, FoldsEachGroupFromItsRowCount) {
 
 // The rows of a key come newest first: REPLACE_IF_NOT_NULL takes the first value that is not NULL,
 // and NULL for a group of NULLs only.
-TEST(AggKeyBlockIteratorValueAggregatorTest, ReplaceIfNotNullTakesTheFirstValueThatIsNotNull) {
+TEST(AggKeyValueAggregatorTest, ReplaceIfNotNullTakesTheFirstValueThatIsNotNull) {
     auto schema = make_read_schema(
             FieldAggregationMethod::OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL, /*nullable=*/true);
     auto aggregator = make_aggregator(*schema);
@@ -217,7 +238,7 @@ TEST(AggKeyBlockIteratorValueAggregatorTest, ReplaceIfNotNullTakesTheFirstValueT
 // with a NULL one by one, and those of a group without NULLs as one batch. MIN shows a NULL added
 // as a value, since a NULL row holds 0 underneath; the NULL is the last row of the first group and
 // the first row of the second.
-TEST(AggKeyBlockIteratorValueAggregatorTest, NullableMinSkipsTheNullsOfEachGroup) {
+TEST(AggKeyValueAggregatorTest, NullableMinSkipsTheNullsOfEachGroup) {
     auto schema = make_read_schema(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_MIN,
                                    /*nullable=*/true);
     auto aggregator = make_aggregator(*schema);
@@ -238,7 +259,7 @@ TEST(AggKeyBlockIteratorValueAggregatorTest, NullableMinSkipsTheNullsOfEachGroup
 
 // An open group takes rows from several input Blocks. REPLACE_IF_NOT_NULL keeps a copy of its
 // value: the Block it came from is refilled with other values before the group is closed.
-TEST(AggKeyBlockIteratorValueAggregatorTest, AnOpenGroupKeepsItsValueAcrossInputBlocks) {
+TEST(AggKeyValueAggregatorTest, AnOpenGroupKeepsItsValueAcrossInputBlocks) {
     auto schema = make_read_schema(
             FieldAggregationMethod::OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL, /*nullable=*/true);
     auto aggregator = make_aggregator(*schema);
@@ -264,7 +285,7 @@ TEST(AggKeyBlockIteratorValueAggregatorTest, AnOpenGroupKeepsItsValueAcrossInput
 
 // The `_reader` storage function of every aggregation a folded column can have resolves.
 // make_aggregator() expects init() to succeed.
-TEST(AggKeyBlockIteratorValueAggregatorTest, ResolvesTheFunctionOfEveryAggregation) {
+TEST(AggKeyValueAggregatorTest, ResolvesTheFunctionOfEveryAggregation) {
     for (auto aggregation : {FieldAggregationMethod::OLAP_FIELD_AGGREGATION_SUM,
                              FieldAggregationMethod::OLAP_FIELD_AGGREGATION_MIN,
                              FieldAggregationMethod::OLAP_FIELD_AGGREGATION_MAX,
@@ -281,6 +302,61 @@ TEST(AggKeyBlockIteratorValueAggregatorTest, ResolvesTheFunctionOfEveryAggregati
                       std::vector<DataTypePtr> {std::make_shared<DataTypeInt64>(),
                                                 std::make_shared<DataTypeQuantileState>()});
     make_aggregator(schema);
+}
+
+// The last key of a source stays open: key 2 goes on in the second source, and the batch holds
+// it once, with the REPLACE value of its first row and the SUM of both rows.
+TEST(AggKeyBlockAggregatorTest, CarriesTheOpenKeyToTheNextSource) {
+    auto schema = make_agg_schema();
+    uint64_t merged_rows = 0;
+    AggKeyBlockAggregator aggregator(schema, /*key_ordinals=*/ {0}, /*max_rows=*/100,
+                                     /*preferred_block_size_bytes=*/0, &merged_rows);
+    ASSERT_TRUE(aggregator.init(BeExecVersionManager::get_newest_version()).ok());
+    EXPECT_TRUE(aggregator.source_exhausted());
+
+    Block first = make_rows(*schema, {{1, 11, 1}, {2, 22, 2}});
+    aggregator.update_source(first);
+    aggregator.aggregate();
+    EXPECT_TRUE(aggregator.source_exhausted());
+    EXPECT_FALSE(aggregator.is_finish());
+
+    Block second = make_rows(*schema, {{2, 21, 3}, {3, 30, 4}});
+    aggregator.update_source(second);
+    aggregator.aggregate();
+    EXPECT_TRUE(aggregator.source_exhausted());
+    ASSERT_TRUE(aggregator.has_aggregate_data());
+
+    Block batch = schema->create_read_block();
+    aggregator.aggregate_result(&batch);
+    EXPECT_EQ(rows_of(batch), (std::vector<Row> {{1, 11, 1}, {2, 22, 5}, {3, 30, 4}}));
+    EXPECT_EQ(merged_rows, 1);
+    EXPECT_FALSE(aggregator.has_aggregate_data());
+}
+
+// A batch of two keys at most is full in front of the third key, with rows of the source left;
+// the next batch goes on from there.
+TEST(AggKeyBlockAggregatorTest, IsFullInFrontOfANewKey) {
+    auto schema = make_agg_schema();
+    uint64_t merged_rows = 0;
+    AggKeyBlockAggregator aggregator(schema, /*key_ordinals=*/ {0}, /*max_rows=*/2,
+                                     /*preferred_block_size_bytes=*/0, &merged_rows);
+    ASSERT_TRUE(aggregator.init(BeExecVersionManager::get_newest_version()).ok());
+
+    Block source = make_rows(*schema, {{1, 10, 1}, {2, 20, 2}, {3, 31, 3}, {3, 30, 4}});
+    aggregator.update_source(source);
+    aggregator.aggregate();
+    EXPECT_FALSE(aggregator.source_exhausted());
+    ASSERT_TRUE(aggregator.is_finish());
+    Block first = schema->create_read_block();
+    aggregator.aggregate_result(&first);
+    EXPECT_EQ(rows_of(first), (std::vector<Row> {{1, 10, 1}, {2, 20, 2}}));
+
+    aggregator.aggregate();
+    EXPECT_TRUE(aggregator.source_exhausted());
+    Block second = schema->create_read_block();
+    aggregator.aggregate_result(&second);
+    EXPECT_EQ(rows_of(second), (std::vector<Row> {{3, 31, 7}}));
+    EXPECT_EQ(merged_rows, 1);
 }
 
 // Every key becomes one row with the REPLACE value of its first row, the newest one, and the SUM
