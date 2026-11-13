@@ -64,6 +64,9 @@ public:
 
     void stop();
 
+    // Nonblocking shutdown census: return a conservative 1 if the manager is busy.
+    size_t num_active_channels();
+
     std::vector<std::string> get_all_load_channel_ids() {
         std::vector<std::string> result;
         std::lock_guard<std::mutex> lock(_lock);

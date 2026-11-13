@@ -58,6 +58,7 @@ Status LoadStreamMgr::open_load_stream(const POpenLoadStreamRequest* request,
             RETURN_IF_ERROR(p->init(request));
             load_stream = p.get();
             _load_streams_map[load_id] = std::move(p);
+            _num_load_streams.fetch_add(1);
         }
         load_stream->add_source(request->src_id());
     }
@@ -66,7 +67,10 @@ Status LoadStreamMgr::open_load_stream(const POpenLoadStreamRequest* request,
 
 void LoadStreamMgr::clear_load(UniqueId load_id) {
     std::lock_guard<decltype(_lock)> l(_lock);
-    _load_streams_map.erase(load_id);
+    // erase() destroys the stream and can wait for flush tasks after a sender
+    // disconnects. Keep it counted during that wait, without blocking shutdown polling.
+    auto erased = _load_streams_map.erase(load_id);
+    _num_load_streams.fetch_sub(erased);
 }
 
 } // namespace doris

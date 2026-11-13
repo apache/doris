@@ -18,6 +18,9 @@
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gtest/gtest.h>
 
+#include "common/config.h"
+#include "exec/pipeline/pipeline_fragment_context.h"
+#include "runtime/cluster_info.h"
 #include "runtime/descriptor_helper.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
@@ -28,6 +31,7 @@ namespace doris {
 class FragmentMgrCrossClusterCancelTest : public testing::Test {
 public:
     void SetUp() override {
+        _exec_env.set_cluster_info(&_cluster_info);
         // Make frontends list deterministic for this ExecEnv instance.
         _exec_env.update_frontends({});
 
@@ -48,6 +52,7 @@ public:
         delete _exec_env._workload_group_manager;
         _exec_env._workload_group_manager = nullptr;
         _exec_env.update_frontends({});
+        _exec_env.set_cluster_info(nullptr);
     }
 
 protected:
@@ -74,8 +79,45 @@ protected:
         return query_options;
     }
 
+    ClusterInfo _cluster_info;
     ExecEnv _exec_env;
 };
+
+TEST_F(FragmentMgrCrossClusterCancelTest, GracefulRestartPreservesOnlyStreamLoadCoordinator) {
+    auto* fragment_mgr = _exec_env.fragment_mgr();
+    TUniqueId query_id;
+    query_id.__set_hi(10);
+    query_id.__set_lo(20);
+    TNetworkAddress coord;
+    coord.hostname = "old-master";
+    coord.port = 9020;
+    TPipelineFragmentParams params;
+    params.__set_query_id(query_id);
+    params.__set_is_simplified_param(false);
+    params.__set_coord(coord);
+    params.__set_current_connect_fe(coord);
+    params.__set_fragment_num_on_host(1);
+    params.__set_query_options(_make_min_query_options(123));
+    params.__set_desc_tbl(_make_min_desc_tbl());
+    std::shared_ptr<QueryContext> query_ctx;
+    TPipelineFragmentParamsList parent;
+    ASSERT_TRUE(
+            fragment_mgr
+                    ->_get_or_create_query_ctx(params, parent, QuerySource::STREAM_LOAD, query_ctx)
+                    .ok());
+    std::vector<TUniqueId> lost;
+    std::vector<TUniqueId> leaked;
+    std::map<int64_t, std::unordered_set<TUniqueId>> running_queries;
+    std::map<TNetworkAddress, FrontendInfo> running_fes;
+    timespec last_check {};
+    _cluster_info.set_in_graceful_shutdown(true);
+    fragment_mgr->_collect_invalid_queries(lost, leaked, running_queries, running_fes, last_check);
+    EXPECT_TRUE(lost.empty());
+    _cluster_info.set_in_graceful_shutdown(false);
+    fragment_mgr->_collect_invalid_queries(lost, leaked, running_queries, running_fes, last_check);
+    ASSERT_EQ(lost.size(), 1);
+    EXPECT_EQ(lost.front(), query_id);
+}
 
 TEST_F(FragmentMgrCrossClusterCancelTest,
        MarkQuerySourceAsExternalFrontendWhenCoordinatorNotLocal) {

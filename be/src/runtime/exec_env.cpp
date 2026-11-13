@@ -20,6 +20,7 @@
 #include <gen_cpp/HeartbeatService_types.h>
 #include <glog/logging.h>
 
+#include <algorithm>
 #include <mutex>
 #include <utility>
 
@@ -28,7 +29,10 @@
 #include "exec/exchange/vdata_stream_mgr.h"
 #include "exec/sink/delta_writer_v2_pool.h"
 #include "exec/sink/load_stream_map_pool.h"
+#include "load/channel/load_channel_mgr.h"
 #include "load/channel/load_stream_mgr.h"
+#include "load/stream_load/stream_load_context.h"
+#include "runtime/cluster_info.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/frontend_info.h"
 #include "storage/olap_define.h"
@@ -170,20 +174,44 @@ std::map<TNetworkAddress, FrontendInfo> ExecEnv::get_running_frontends() {
     return res;
 }
 
+void ExecEnv::wait_for_shutdown_heartbeat() {
+    int32_t elapsed = 0;
+    while (!k_shutdown_heartbeat_sent && elapsed < config::grace_shutdown_heartbeat_wait_seconds) {
+        sleep(1);
+        ++elapsed;
+    }
+    LOG(INFO) << "shutdown heartbeat prepared: " << k_shutdown_heartbeat_sent.load() << ", waited "
+              << elapsed << " seconds";
+    // The response may still be in transit. This buffer also gives followers time
+    // to replay shutdown state. It does not prove that every FE has applied it.
+    sleep(std::max(0, config::grace_shutdown_heartbeat_propagation_seconds));
+}
+
 void ExecEnv::wait_for_all_tasks_done() {
-    // For graceful shutdown, need to wait for all running queries to stop
+    // Both receiver implementations and the load coordinator must finish. For example,
+    // an HTTP upload or transaction commit can outlive all of its pipeline fragments.
     int32_t wait_seconds_passed = 0;
     while (true) {
         int num_queries = _fragment_mgr->running_query_num();
-        if (num_queries < 1) {
+        size_t num_channels = _load_channel_mgr->num_active_channels();
+        // TODO: Fix partial-open receiver cleanup (see LoadStream::on_closed()) so
+        // abandoned entries do not consume the full grace_shutdown_wait_seconds.
+        // Keep counting receivers until then to avoid exiting during active loads.
+        size_t num_streams = _load_stream_mgr->get_load_stream_num();
+        size_t num_loads = StreamLoadContext::num_active_contexts();
+        if (num_queries == 0 && num_channels == 0 && num_streams == 0 && num_loads == 0) {
             break;
         }
-        if (wait_seconds_passed > doris::config::grace_shutdown_wait_seconds) {
-            LOG(INFO) << "There are still " << num_queries << " queries running, but "
-                      << wait_seconds_passed << " seconds passed, has to exist now";
+        if (wait_seconds_passed >= doris::config::grace_shutdown_wait_seconds) {
+            LOG(INFO) << "shutdown wait expired after " << wait_seconds_passed
+                      << " seconds: " << num_queries << " queries, " << num_channels
+                      << " load channels, " << num_streams << " load streams, " << num_loads
+                      << " load contexts";
             break;
         }
-        LOG(INFO) << "There are still " << num_queries << " queries running, waiting...";
+        LOG(INFO) << "waiting for shutdown: " << num_queries << " queries, " << num_channels
+                  << " load channels, " << num_streams << " load streams, " << num_loads
+                  << " load contexts";
         sleep(1);
         ++wait_seconds_passed;
     }

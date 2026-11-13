@@ -39,9 +39,11 @@ import org.apache.doris.journal.bdbje.BDBDebugger;
 import org.apache.doris.journal.bdbje.BDBTool;
 import org.apache.doris.journal.bdbje.BDBToolOptions;
 import org.apache.doris.persist.meta.MetaReader;
+import org.apache.doris.qe.ConnectScheduler;
 import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.QeService;
+import org.apache.doris.qe.QueryAdmissionController;
 import org.apache.doris.qe.SimpleScheduler;
 import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FrontendOptions;
@@ -72,6 +74,8 @@ import java.nio.channels.OverlappingFileLockException;
 import java.nio.file.StandardOpenOption;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -171,8 +175,11 @@ public class DorisFE {
             // Add shutdown hook for graceful exit
             Runtime.getRuntime().addShutdownHook(new Thread(() -> {
                 LOG.info("Received shutdown signal, starting graceful shutdown...");
-                serverReady.set(false);
-                gracefulShutdown();
+                boolean wasReady = serverReady.getAndSet(false);
+                // Version/tool exits and startup failures have no ready traffic to drain.
+                if (wasReady) {
+                    gracefulShutdown();
+                }
 
                 if (qeService != null) {
                     qeService.stop();
@@ -677,19 +684,77 @@ public class DorisFE {
     }
 
     private static void gracefulShutdown() {
-        // wait for all queries to finish
+        // Health is already 503, but keep serving during LB / DNS convergence.
         try {
-            long now = System.currentTimeMillis();
-            List<Coordinator> allCoordinators = QeProcessorImpl.INSTANCE.getAllCoordinators();
-            while (!allCoordinators.isEmpty() && System.currentTimeMillis() - now < 300 * 1000L) {
-                Thread.sleep(1000);
-                allCoordinators = QeProcessorImpl.INSTANCE.getAllCoordinators();
-                LOG.info("waiting {} queries to finish before shutdown", allCoordinators.size());
-            }
-        } catch (Throwable t) {
-            LOG.error("", t);
+            LOG.info("graceful shutdown: serving during drain for {} seconds", Config.graceful_shutdown_drain_seconds);
+            TimeUnit.SECONDS.sleep(Math.max(0, Config.graceful_shutdown_drain_seconds));
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            LOG.warn("graceful shutdown drain interrupted", e);
         }
 
+        // Close admission before the listener: an accepted connection can race its closure.
+        QueryAdmissionController.INSTANCE.stopAccepting();
+        if (qeService != null) {
+            qeService.stopAcceptNewConnections();
+        }
+        try {
+            long deadline = System.nanoTime()
+                    + TimeUnit.SECONDS.toNanos(Math.max(0, Config.grace_shutdown_wait_seconds));
+            waitForGracefulShutdown(ExecuteEnv.getInstance().getScheduler(), deadline);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            LOG.warn("graceful shutdown wait interrupted", e);
+        } catch (Throwable t) {
+            LOG.error("graceful shutdown failed while draining requests", t);
+        }
         LOG.info("graceful shutdown finished");
+    }
+
+    static void waitForGracefulShutdown(ConnectScheduler scheduler, long deadline) throws InterruptedException {
+        // XNIO invokes close listeners synchronously, including transaction rollback RPCs.
+        // Keep those waits on a daemon worker so even an idle session cannot stall the deadline.
+        ExecutorService idleCloser = ThreadPoolManager.newDaemonFixedThreadPool(
+                1, 1, "graceful-idle-mysql-closer", false);
+        try {
+            Future<?> idleCleanup = null;
+            boolean cleanupStartedIdle = false;
+            while (true) {
+                if (idleCleanup == null) {
+                    cleanupStartedIdle = QueryAdmissionController.INSTANCE.getActiveRequests() == 0;
+                    idleCleanup = idleCloser.submit(() -> scheduler.closeIdleMysqlConnections(deadline));
+                }
+                int activeRequests = QueryAdmissionController.INSTANCE.getActiveRequests();
+                List<Coordinator> coordinators = QeProcessorImpl.INSTANCE.getAllCoordinators();
+                boolean pendingFlightResults = scheduler.hasPendingFlightResults();
+                boolean pendingIdleCleanup = !idleCleanup.isDone();
+                // A scan that skipped an admitted INSERT must not declare its newly idle
+                // transaction drained. Require a complete scan after request quiescence.
+                if (activeRequests == 0 && coordinators.isEmpty() && !pendingFlightResults
+                        && !pendingIdleCleanup && cleanupStartedIdle
+                        && QueryAdmissionController.INSTANCE.getActiveRequests() == 0) {
+                    break;
+                }
+                long remaining = deadline - System.nanoTime();
+                if (remaining <= 0) {
+                    LOG.warn("graceful shutdown wait expired: {} requests, {} coordinators, "
+                                    + "pendingFlightResults={}, pendingIdleCleanup={}",
+                            activeRequests, coordinators.size(), pendingFlightResults, pendingIdleCleanup);
+                    break;
+                }
+                LOG.info("graceful shutdown: waiting for {} requests and {} coordinators, "
+                                + "pendingFlightResults={}, pendingIdleCleanup={}",
+                        activeRequests, coordinators.size(), pendingFlightResults, pendingIdleCleanup);
+                // A completed scan may have skipped a busy session that becomes idle on the next pass.
+                if (!pendingIdleCleanup) {
+                    idleCleanup = null;
+                }
+                TimeUnit.NANOSECONDS.sleep(Math.min(TimeUnit.SECONDS.toNanos(1), remaining));
+            }
+        } finally {
+            // Do not join the worker beyond the shared deadline. Interruptible rollback waits
+            // can stop now; an uninterruptible close must not keep the JVM alive.
+            idleCloser.shutdownNow();
+        }
     }
 }
