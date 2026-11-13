@@ -23,6 +23,7 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsNull;
@@ -118,6 +119,31 @@ class InferAggNotNullTest implements MemoPatternMatchSupported {
                 .matches(
                         logicalAggregate(
                                 logicalOlapScan()
+                        )
+                );
+    }
+
+    @Test
+    void testInferJoinsTheFilterThatAlreadyHoldsOneOfThem() {
+        // The filter under the aggregate already holds the not-null of c0. The not-null of c1 has to join that
+        // filter: in a second filter on top it would hide c0's from the next pass of this rule.
+        LogicalOlapScan scan = newWideNullableScan(2);
+        Expression c0 = scan.getOutput().get(0);
+        Expression c1 = scan.getOutput().get(1);
+        Expression written = new Not(new IsNull(c0));
+        Expression generated = new Not(new IsNull(c1), true);
+        LogicalPlan plan = new LogicalPlanBuilder(scan)
+                .filter(written)
+                .aggGroupUsingIndex(ImmutableList.of(),
+                        ImmutableList.of(new Alias(new Sum(new Add(c0, c1)), "s")))
+                .build();
+
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .applyTopDown(new InferAggNotNull())
+                .matches(
+                        logicalAggregate(
+                                logicalFilter(logicalOlapScan()).when(filter ->
+                                        filter.getConjuncts().equals(ImmutableSet.of(written, generated)))
                         )
                 );
     }

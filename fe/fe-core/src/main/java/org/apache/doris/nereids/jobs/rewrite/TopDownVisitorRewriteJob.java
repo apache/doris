@@ -19,6 +19,7 @@ package org.apache.doris.nereids.jobs.rewrite;
 
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.PlanProcess;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.Rules;
@@ -33,6 +34,10 @@ import java.util.function.Predicate;
 
 /** TopDownVisitorRewriteJob */
 public class TopDownVisitorRewriteJob implements RewriteJob {
+    // The most times the rules of one batch may change one plan node. A rule that changes its node on every
+    // pass has no other way out of doRewrite. No plan needs a number near this one.
+    public static final int MAX_REWRITES_OF_ONE_NODE = 10000;
+
     private final Rules rules;
     private final Predicate<Plan> isTraverseChildren;
 
@@ -96,12 +101,14 @@ public class TopDownVisitorRewriteJob implements RewriteJob {
         return plan;
     }
 
-    private static Plan doRewrite(
+    private Plan doRewrite(
             Plan originParent, int childIndex, Plan plan, JobContext jobContext,
             Rules rules, ProcessState processState) {
         CascadesContext cascadesContext = jobContext.getCascadesContext();
         Plan originPlan = plan;
+        int rewrites = 0;
         while (true) {
+            checkTimeout(jobContext);
             List<Rule> currentRules = rules.getCurrentRules(originPlan);
             BitSet forbidRules = cascadesContext.getAndCacheDisableRules();
 
@@ -113,6 +120,12 @@ public class TopDownVisitorRewriteJob implements RewriteJob {
                 }
                 List<Plan> transform = currentRule.transform(originPlan, cascadesContext);
                 if (!transform.isEmpty() && !transform.get(0).deepEquals(originPlan)) {
+                    if (++rewrites > MAX_REWRITES_OF_ONE_NODE) {
+                        throw new AnalysisException("The rewrite does not converge: rule "
+                                + currentRule.getRuleType().name() + " still changes " + originPlan.getType()
+                                + " after " + MAX_REWRITES_OF_ONE_NODE + " rewrites of that node. The rule can be"
+                                + " switched off with the session variable disable_nereids_rules.");
+                    }
                     Plan newPlan = transform.get(0);
                     currentRule.acceptPlan(originPlan);
                     if (processState != null) {

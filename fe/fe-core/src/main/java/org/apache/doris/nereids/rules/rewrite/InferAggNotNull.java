@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.NullIgnoringAggr
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Filter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.PlanUtils;
 
@@ -62,6 +63,17 @@ public class InferAggNotNull extends OneRewriteRuleFactory {
                     Set<Expression> needGenerateNotNulls = needGenerateNotNullsBuilder.build();
                     if (needGenerateNotNulls.isEmpty()) {
                         return null;
+                    }
+                    if (agg.child() instanceof LogicalFilter) {
+                        // Add to the filter that is already there. This rule reads only the filter right under
+                        // the aggregate, so a second filter on top would hide the first one from its next pass,
+                        // and a not-null the lower filter holds would be generated again.
+                        LogicalFilter<?> filter = (LogicalFilter<?>) agg.child();
+                        ImmutableSet.Builder<Expression> conjuncts = ImmutableSet.builderWithExpectedSize(
+                                predicates.size() + needGenerateNotNulls.size());
+                        conjuncts.addAll(predicates);
+                        conjuncts.addAll(needGenerateNotNulls);
+                        return agg.withChildren(filter.withConjuncts(conjuncts.build()));
                     }
                     return agg.withChildren(PlanUtils.filter(needGenerateNotNulls, agg.child()).get());
                 }).toRule(RuleType.INFER_AGG_NOT_NULL);
