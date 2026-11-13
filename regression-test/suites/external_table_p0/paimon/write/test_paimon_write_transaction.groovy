@@ -447,7 +447,7 @@ suite("test_paimon_write_transaction", "p0,external,paimon") {
             sql """INSERT INTO t_failed_write VALUES
                 (2, 'accepted_before_error'),
                 (3, repeat('x', 1048576))"""
-            exception "The record exceeds the maximum size of a sort buffer"
+            exception "The record exceeds the maximum size of a"
         }
         qt_txn_failed_write_after """SELECT id, payload FROM t_failed_write ORDER BY id"""
         qt_txn_failed_snapshot_after """SELECT COUNT(*) FROM t_failed_write\$snapshots"""

@@ -40,6 +40,7 @@ import org.apache.doris.nereids.analyzer.UnboundStar;
 import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.LogicalPlanBuilder;
+import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.pattern.MatchingContext;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.rules.AppliedAwareRule.AppliedAwareRuleCondition;
@@ -120,7 +121,9 @@ import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.SqlModeHelper;
+import org.apache.doris.tablefunction.ExternalSearchTableValuedFunction;
 import org.apache.doris.tablefunction.FullTextSearchTableValuedFunction;
+import org.apache.doris.tablefunction.PaimonVectorSearchTableValuedFunction;
 import org.apache.doris.tablefunction.VectorSearchTableValuedFunction;
 
 import com.google.common.base.Joiner;
@@ -1963,18 +1966,32 @@ public class BindExpression implements AnalysisRuleFactory {
             return relation;
         }
 
-        // Each distributed Lance search split returns topK + offset candidates. Wrap the TVF
+        // Each distributed external search split returns topK + offset candidates. Wrap the TVF
         // relation with a Doris TopN to merge them into the snapshot-wide result. The predicate
         // pushdown rules move an outer WHERE below this synthetic TopN, where it is evaluated as
-        // a Doris scan residual after each fragment's Lance search and before the global TopN.
+        // a Doris scan residual after each fragment's search and before the global TopN.
         if (tableValuedFunction instanceof VectorSearch) {
-            VectorSearchTableValuedFunction vectorSearch =
-                    (VectorSearchTableValuedFunction) tableValuedFunction.getCatalogFunction();
+            ExternalSearchTableValuedFunction vectorSearch =
+                    (ExternalSearchTableValuedFunction) tableValuedFunction.getCatalogFunction();
+            Plan searchInput = relation;
+            if (vectorSearch instanceof PaimonVectorSearchTableValuedFunction) {
+                PaimonVectorSearchTableValuedFunction paimon =
+                        (PaimonVectorSearchTableValuedFunction) vectorSearch;
+                if (paimon.getFilter().isPresent()) {
+                    Expression filter = buildSimpleExprAnalyzer(relation, ctx.cascadesContext,
+                            ImmutableList.of(relation)).analyze(
+                                    new NereidsParser().parseExpression(paimon.getFilter().get()));
+                    LogicalFilter<Plan> filtered = new LogicalFilter<>(
+                            ImmutableSet.copyOf(ExpressionUtils.extractConjunction(filter)), relation);
+                    paimon.bindFilter(filtered, ctx.cascadesContext);
+                    searchInput = filtered;
+                }
+            }
             Slot distance = requireSearchResultSlot(
                     relation, VectorSearchTableValuedFunction.DISTANCE_COLUMN,
                     VectorSearchTableValuedFunction.NAME);
             return new LogicalTopN<>(ImmutableList.of(new OrderKey(distance, true, false)),
-                    vectorSearch.getTopK(), vectorSearch.getOffset(), relation);
+                    vectorSearch.getTopK(), vectorSearch.getOffset(), searchInput);
         }
         FullTextSearchTableValuedFunction fullTextSearch =
                 (FullTextSearchTableValuedFunction) tableValuedFunction.getCatalogFunction();

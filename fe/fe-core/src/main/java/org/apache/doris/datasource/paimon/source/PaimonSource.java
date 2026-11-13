@@ -69,6 +69,13 @@ public class PaimonSource {
         }
     }
 
+    public PaimonSource(TupleDescriptor desc, PaimonExternalTable externalTable, Table boundTable) {
+        this.desc = desc;
+        this.paimonExtTable = externalTable;
+        this.originTable = boundTable;
+        this.boundSystemDataTable = null;
+    }
+
     public TupleDescriptor getDesc() {
         return desc;
     }

@@ -116,7 +116,7 @@ public class LogicalHudiScan extends LogicalFileScan {
             Optional<MvccSnapshot> relationSnapshot, String tableAlias) {
         super(id, table, qualifier, selectedPartitions, operativeSlots, virtualColumns,
                 tableSample, tableSnapshot, scanParams, groupExpression, logicalProperties, cachedOutputs,
-                relationSchema, relationSnapshot, tableAlias);
+                relationSchema, relationSnapshot, Optional.empty(), tableAlias);
         Objects.requireNonNull(scanParams, "scanParams should not null");
         Objects.requireNonNull(incrementalRelation, "incrementalRelation should not null");
         this.incrementalRelation = incrementalRelation;

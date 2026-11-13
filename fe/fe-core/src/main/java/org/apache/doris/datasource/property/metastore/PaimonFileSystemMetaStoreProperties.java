@@ -48,6 +48,7 @@ public class PaimonFileSystemMetaStoreProperties extends AbstractPaimonPropertie
             }
         });
         appendUserHadoopConfig(conf);
+        mirrorHadoopS3OptionsToCatalogOptions(conf);
         CatalogContext catalogContext = CatalogContext.create(catalogOptions, conf);
         try {
             return this.executionAuthenticator.execute(() -> CatalogFactory.createCatalog(catalogContext));

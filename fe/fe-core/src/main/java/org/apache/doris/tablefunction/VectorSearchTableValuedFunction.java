@@ -17,9 +17,12 @@
 
 package org.apache.doris.tablefunction;
 
+import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.lance.metadata.LanceTableMetadata;
+import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
 import org.apache.doris.thrift.TExternalSearchQuery;
 import org.apache.doris.thrift.TExternalSearchRequest;
 import org.apache.doris.thrift.TSearchVector;
@@ -73,6 +76,16 @@ public class VectorSearchTableValuedFunction extends LanceExternalSearchTableVal
             TABLE, COLUMN, QUERY_VECTOR, TOP_K, OFFSET, METRIC, FILTER, PREFILTER,
             NPROBES, REFINE_FACTOR, EF, USE_INDEX, QUERY_PARALLELISM, APPROX_MODE,
             VERSION, TIMESTAMP, TAG, BRANCH, DISTANCE_LOWER_BOUND, DISTANCE_UPPER_BOUND);
+
+    public static ExternalSearchTableValuedFunction create(Map<String, String> properties,
+            boolean deferQueryVector) throws AnalysisException {
+        Map<String, String> params = normalizeProperties(properties, PROPERTIES, NAME);
+        TableName table = parseTableName(required(params, TABLE, NAME));
+        if (Env.getCurrentEnv().getCatalogMgr().getCatalog(table.getCtl()) instanceof PaimonExternalCatalog) {
+            return new PaimonVectorSearchTableValuedFunction(params, deferQueryVector);
+        }
+        return new VectorSearchTableValuedFunction(params, deferQueryVector);
+    }
 
     public VectorSearchTableValuedFunction(Map<String, String> properties)
             throws AnalysisException {
