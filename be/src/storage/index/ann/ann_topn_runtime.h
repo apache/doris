@@ -142,7 +142,7 @@ public:
      */
     size_t get_src_column_idx() const { return _src_column_idx; }
 
-    bool has_empty_query_vector() const { return _query_array->empty(); }
+    Status validate_query_dimension(size_t index_dimension) const;
 
     /**
      * @brief Gets the destination column index for distance results.

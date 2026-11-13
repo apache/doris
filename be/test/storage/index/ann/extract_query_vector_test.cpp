@@ -220,16 +220,16 @@ TEST_F(ExtractQueryVectorTest, NullArrayFails) {
     EXPECT_TRUE(result.error().to_string().find("cannot be NULL") != std::string::npos);
 }
 
-// Empty query vectors are evaluated as NULL distances by the scalar fallback.
-TEST_F(ExtractQueryVectorTest, EmptyArrayCanFallBack) {
+// Empty query vectors are invalid even when data rows may contain empty arrays.
+TEST_F(ExtractQueryVectorTest, EmptyArrayFails) {
     auto col = make_nullable_array_column({});
 
     auto mock = std::make_shared<MockConstVExpr>();
     mock->set_column(std::move(col));
 
     auto result = extract_query_vector(mock);
-    ASSERT_TRUE(result.has_value());
-    EXPECT_TRUE(result.value()->empty());
+    ASSERT_FALSE(result.has_value());
+    EXPECT_TRUE(result.error().to_string().find("cannot be empty") != std::string::npos);
 }
 
 // Error: not an array column at all

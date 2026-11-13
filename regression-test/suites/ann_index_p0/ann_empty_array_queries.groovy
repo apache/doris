@@ -45,8 +45,7 @@ suite("ann_empty_array_queries") {
                     "SELECT id, ${fn}(vec, ${query}) FROM ann_empty_array_queries ORDER BY id",
                     "SELECT id FROM ann_empty_array_queries WHERE ${fn}(vec, ${query}) < 20.5 ORDER BY id",
                     "SELECT id FROM ann_empty_array_queries WHERE ${fn}(vec, ${query}) > 20.5 ORDER BY id",
-                    "SELECT id FROM ann_empty_array_queries WHERE ${fn}(vec, ${query}) IS NULL ORDER BY id",
-                    "SELECT id FROM ann_empty_array_queries WHERE ${fn}(vec, CAST([] AS ARRAY<FLOAT>)) > 0 ORDER BY id"
+                    "SELECT id FROM ann_empty_array_queries WHERE ${fn}(vec, ${query}) IS NULL ORDER BY id"
                 ]
                 for (def direction : ['ASC', 'DESC']) {
                     for (def nullOrder : ['FIRST', 'LAST']) {
@@ -56,11 +55,33 @@ suite("ann_empty_array_queries") {
                         }
                     }
                 }
-                queries.add("SELECT ${fn}(vec, CAST([] AS ARRAY<FLOAT>)) FROM ann_empty_array_queries "
-                    + "ORDER BY ${fn}(vec, CAST([] AS ARRAY<FLOAT>)) NULLS FIRST LIMIT 3")
                 try {
                     sql "SET hnsw_ef_search = 256"
                     sql "SET ann_index_candidate_rows_percent_threshold = 0"
+                    sql "SET ann_index_candidate_rows_threshold = 1000000"
+                    // Invalid query parameters must fail both scalar fallback and indexed execution.
+                    for (def threshold : [1000000, 0]) {
+                        sql "SET ann_index_candidate_rows_threshold = ${threshold}"
+                        for (def invalid : [
+                                ['CAST([] AS ARRAY<FLOAT>)', 'empty', 'empty'],
+                                ['CAST(NULL AS ARRAY<FLOAT>)', 'cannot', 'cannot'],
+                                ['CAST([NULL, 1] AS ARRAY<FLOAT>)', 'cannot', 'cannot'],
+                                ['CAST([1] AS ARRAY<FLOAT>)', 'input element sizes', 'dimension']]) {
+                            def invalidQuery = invalid[0]
+                            test {
+                                sql "SELECT ${fn}(vec, ${invalidQuery}) FROM ann_empty_array_queries ORDER BY id"
+                                exception invalid[1]
+                            }
+                            test {
+                                sql "SELECT id FROM ann_empty_array_queries WHERE ${fn}(vec, ${invalidQuery}) > 0"
+                                exception invalid[2]
+                            }
+                            test {
+                                sql "SELECT id FROM ann_empty_array_queries ORDER BY ${fn}(vec, ${invalidQuery}) LIMIT 1"
+                                exception invalid[2]
+                            }
+                        }
+                    }
                     sql "SET ann_index_candidate_rows_threshold = 1000000"
                     def scalarResults = queries.collect { sql(it) }
                     sql "SET ann_index_candidate_rows_threshold = 0"

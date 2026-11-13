@@ -22,23 +22,53 @@
 
 namespace doris {
 
-TEST(FunctionArrayApproximateDistanceTest, EmptyArraysProduceNull) {
+TEST(FunctionArrayApproximateDistanceTest, EmptyDataArraysProduceNull) {
     const InputTypeSet types = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_FLOAT,
                                 PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_FLOAT};
     const TestArray empty;
     const TestArray a = {Float32(0), Float32(0)};
     const TestArray b = {Float32(3), Float32(4)};
-    const DataSet l2 = {{{empty, b}, Null()},
-                        {{a, empty}, Null()},
-                        {{empty, empty}, Null()},
-                        {{a, b}, Float32(5)}};
+    const DataSet l2 = {{{empty, b}, Null()}, {{a, b}, Float32(5)}};
     ASSERT_TRUE((check_function<DataTypeFloat32, true>("l2_distance_approximate", types, l2)).ok());
-    const DataSet ip = {{{empty, b}, Null()},
-                        {{b, empty}, Null()},
-                        {{empty, empty}, Null()},
-                        {{b, b}, Float32(25)}};
+    const DataSet ip = {{{empty, b}, Null()}, {{b, b}, Float32(25)}};
     ASSERT_TRUE(
             (check_function<DataTypeFloat32, true>("inner_product_approximate", types, ip)).ok());
+}
+
+TEST(FunctionArrayApproximateDistanceTest, EmptyQueryArraysAreRejected) {
+    const TestArray empty;
+    const TestArray vector = {Float32(1), Float32(2)};
+    for (const auto* name : {"l2_distance_approximate", "inner_product_approximate"}) {
+        for (bool constant_query : {false, true}) {
+            InputTypeSet types = {PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_FLOAT,
+                                  PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_FLOAT};
+            if (constant_query) {
+                types[2] = Consted {PrimitiveType::TYPE_ARRAY};
+            }
+            // A missing data vector must not mask an invalid query vector.
+            for (const auto& data : {vector, empty}) {
+                const DataSet rows = {{{data, empty}, Null()}};
+                auto status =
+                        check_function<DataTypeFloat32, true>(name, types, rows, -1, -1, true);
+                EXPECT_FALSE(status.ok());
+                EXPECT_NE(status.to_string().find("query vector cannot be empty"),
+                          std::string::npos);
+            }
+        }
+    }
+}
+
+TEST(FunctionArrayApproximateDistanceTest, ConstantQueryCanBeTheFirstArgument) {
+    const InputTypeSet types = {Consted {PrimitiveType::TYPE_ARRAY}, PrimitiveType::TYPE_FLOAT,
+                                PrimitiveType::TYPE_ARRAY, PrimitiveType::TYPE_FLOAT};
+    const TestArray query = {Float32(3), Float32(4)};
+    const DataSet rows = {{{query, TestArray {}}, Null()}, {{query, query}, Float32(0)}};
+    ASSERT_TRUE(
+            (check_function<DataTypeFloat32, true>("l2_distance_approximate", types, rows)).ok());
+    const DataSet invalid = {{{TestArray {}, query}, Null()}};
+    auto status = check_function<DataTypeFloat32, true>("l2_distance_approximate", types, invalid,
+                                                        -1, -1, true);
+    EXPECT_FALSE(status.ok());
 }
 
 TEST(FunctionArrayApproximateDistanceTest, NonemptyDimensionMismatchRemainsAnError) {

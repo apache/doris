@@ -912,10 +912,6 @@ void VectorizedFnCall::prepare_ann_range_search(
     }
     range_search_runtime.query_value = extract_result.value();
     range_search_runtime.dim = range_search_runtime.query_value->size();
-    if (range_search_runtime.dim == 0) {
-        mark_unsuitable("Empty query vectors have NULL distances and use scalar evaluation.");
-        return;
-    }
 
     // ========== Step 3: Check right child - must be a float/double literal ==========
     auto right_literal = std::dynamic_pointer_cast<VLiteral>(right_child);

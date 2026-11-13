@@ -121,6 +121,8 @@ TEST_F(VectorSearchTest, AnnTopNRuntimeEvaluate_DimensionMismatch) {
 
     auto runtime = segment_v2::AnnTopNRuntime::create_shared(true, 10, vslot_ctx);
     ASSERT_TRUE(runtime->prepare(&_runtime_state, _row_desc).ok());
+    EXPECT_TRUE(runtime->validate_query_dimension(runtime->_query_array->size()).ok());
+    EXPECT_FALSE(runtime->validate_query_dimension(runtime->_query_array->size() + 1).ok());
 
     // Attach an ANN reader with a different dimension to trigger the mismatch branch.
     {

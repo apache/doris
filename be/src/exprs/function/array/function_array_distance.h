@@ -120,8 +120,8 @@ public:
         return std::make_shared<DataTypeFloat32>();
     }
 
-    // NULL inputs remain errors. Approximate distances return NULL for empty arrays,
-    // matching ANN indexes, which omit rows without a vector from distance predicates.
+    // NULL inputs remain errors. Only empty data vectors produce NULL distances;
+    // query vectors must be non-empty, including during scalar fallback.
     bool use_default_implementation_for_nulls() const override { return false; }
 
     // Validate that neither outer column nor inner array elements contain NULL.
@@ -164,6 +164,13 @@ public:
         // Create views — handles Const/Nullable unwrapping automatically
         auto view1 = ColumnArrayView<TYPE_FLOAT>::create(col1);
         auto view2 = ColumnArrayView<TYPE_FLOAT>::create(col2);
+        // Range predicates also accept distance(query_literal, data_column).
+        // Otherwise the second argument is the query vector. FunctionContext retains
+        // constantness when the default constant evaluator unwraps ColumnConst.
+        bool first_is_query = false;
+        if constexpr (null_for_empty_array) {
+            first_is_query = context->is_col_constant(0) && !context->is_col_constant(1);
+        }
 
         auto dst = ColumnType::create(input_rows_count);
         auto& dst_data = dst->get_data();
@@ -185,7 +192,12 @@ public:
             auto dim2 = a2.size();
 
             if constexpr (null_for_empty_array) {
-                if (null_map != nullptr && (dim1 == 0 || dim2 == 0)) {
+                const auto query_dimension = first_is_query ? dim1 : dim2;
+                if (query_dimension == 0 || (context->is_col_constant(0) && dim1 == 0)) {
+                    return Status::InvalidArgument("ANN query vector cannot be empty");
+                }
+                const auto data_dimension = first_is_query ? dim2 : dim1;
+                if (null_map != nullptr && data_dimension == 0) {
                     null_map->get_data()[row] = 1;
                     dst_data[row] = 0;
                     continue;
