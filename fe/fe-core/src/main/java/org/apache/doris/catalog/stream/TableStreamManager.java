@@ -50,7 +50,6 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -324,35 +323,52 @@ public class TableStreamManager extends MasterDaemon implements Writable, GsonPo
         }
     }
 
-    /**
-     * Record the counters the estimate of a stream read is built from for the partitions whose
-     * offset has just moved. Called after the offset update succeeded, which is why the counters
-     * may describe a slightly later moment than the offset does: an estimate that is a little too
-     * large only makes the optimizer plan the read differently, while one that is too small lets a
-     * large read become the build side of a broadcast join. See PartitionStreamState.
-     */
-    public void recordPartitionStreamStates(long dbId, long streamId, Collection<Long> partitionIds) {
-        if (partitionIds.isEmpty()) {
-            return;
+    /** Sample locally before the commit RPC so a data replacement during it invalidates the sample. */
+    public Map<Long, StreamRowCountBaseline> captureStreamRowCountBaselines(long dbId, long streamId,
+            Map<Long, Long> offsets) {
+        OlapTableStream stream = findOlapTableStream(dbId, streamId);
+        OlapTable baseTable = stream == null ? null : stream.getBaseTableNullable();
+        if (baseTable == null || !baseTable.readLockIfExist()) {
+            return Collections.emptyMap();
         }
-        Optional<Database> db = Env.getCurrentInternalCatalog().getDb(dbId);
-        if (!db.isPresent()) {
-            return;
+        try {
+            Map<Long, StreamRowCountBaseline> states = new HashMap<>();
+            offsets.forEach((id, offset) -> {
+                if (baseTable.getPartition(id) != null) {
+                    states.put(id, StreamRowCountBaseline.capture(baseTable, id, offset));
+                }
+            });
+            return states;
+        } finally {
+            baseTable.readUnlock();
         }
-        Optional<Table> table = db.get().getTable(streamId);
-        if (!table.isPresent() || !(table.get() instanceof OlapTableStream)) {
-            return;
-        }
-        OlapTableStream stream = (OlapTableStream) table.get();
-        if (!stream.writeLockIfExist()) {
-            LOG.warn("stream {}.{} write lock acquire failed", db.get().getFullName(), stream.getName());
+    }
+
+    /** Publish only after success, following the existing base-table then stream lock order. */
+    public void recordStreamRowCountBaselines(long dbId, long streamId, Map<Long, StreamRowCountBaseline> states) {
+        OlapTableStream stream = findOlapTableStream(dbId, streamId);
+        OlapTable baseTable = stream == null ? null : stream.getBaseTableNullable();
+        if (baseTable == null || !baseTable.readLockIfExist()) {
             return;
         }
         try {
-            stream.unprotectedRecordPartitionStreamStates(partitionIds);
+            if (!stream.writeLockIfExist()) {
+                return;
+            }
+            try {
+                states.forEach(stream::unprotectedPublishStreamRowCountBaseline);
+            } finally {
+                stream.writeUnlock();
+            }
         } finally {
-            stream.writeUnlock();
+            baseTable.readUnlock();
         }
+    }
+
+    private OlapTableStream findOlapTableStream(long dbId, long streamId) {
+        Database db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
+        Table table = db == null ? null : db.getTableNullable(streamId);
+        return table instanceof OlapTableStream ? (OlapTableStream) table : null;
     }
 
     private Map<Long, Set<Long>> copyDbStreamMap() {

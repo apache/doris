@@ -271,6 +271,15 @@ public class OlapTableWrapperTest {
         // A partition the caller did not estimate answers with the rows of the wrapped table.
         Assertions.assertEquals(42L,
                 wrapper.getRowCountForPartitionIndex(otherPartitionId, table.getBaseIndexId(), true));
+        OlapTableWrapper partial = new OlapTableWrapper(table, Collections.emptyMap(), Collections.emptyMap(),
+                ImmutableMap.of(partitionId, 3L, otherPartitionId, -1L));
+        Assertions.assertEquals(45L, partial.getRowCountForIndex(table.getBaseIndexId(), true));
+        // An estimate for the base index must not be applied to another selected index.
+        MaterializedIndex rollup = new MaterializedIndex(99L, null);
+        rollup.setRowCount(5L);
+        rollup.setRowCountReported(true);
+        table.getPartition(partitionId).createRollupIndex(rollup);
+        Assertions.assertEquals(5L, wrapper.getRowCountForPartitionIndex(partitionId, 99L, true));
         // A wrapper without an estimate keeps the delegation #69850 introduced.
         Assertions.assertEquals(TableIf.UNKNOWN_ROW_COUNT, new OlapTableWrapper(table).getRowCountEstimate());
     }

@@ -81,27 +81,49 @@ public class OlapTableStream extends BaseTableStream {
     }
 
     // Estimates are local to this FE metadata instance; image/replay never restores their validity.
-    private final transient Map<Long, org.apache.doris.catalog.stream.PartitionStreamState> rowCountStates =
+    private final transient Map<Long, StreamRowCountBaseline> rowCountStates =
             new HashMap<>();
 
-    public org.apache.doris.catalog.stream.PartitionStreamState getPartitionStreamState(long partitionId) {
+    public StreamRowCountBaseline getStreamRowCountBaseline(long partitionId) {
         return rowCountStates.get(partitionId);
     }
 
-    public void unprotectedRecordPartitionStreamStates(Collection<Long> partitionIds) {
+    public void unprotectedRecordStreamRowCountBaselines(Collection<Long> partitionIds) {
         OlapTable baseTable = getBaseTableNullable();
         if (baseTable == null) {
             return;
         }
         for (Long partitionId : partitionIds) {
-            Partition partition = baseTable.getPartition(partitionId);
-            if (partition != null) {
-                rowCountStates.put(partitionId, new org.apache.doris.catalog.stream.PartitionStreamState(
-                        baseTable.getRowCountForPartitionIndex(partitionId,
-                                baseTable.getChangelogIndexMeta().getIndexId(), false),
-                        baseTable.getRowCountForPartitionIndex(partitionId, baseTable.getBaseIndexId(), false)));
-            }
+            PartitionStreamState state = partitionStates.get(partitionId);
+            Long offset = state == null ? null
+                    : state.getHistoricalTso() != null ? state.getHistoricalTso() : state.getOffset();
+            unprotectedRecordStreamRowCountBaseline(partitionId, offset);
         }
+    }
+
+    /** Called under the stream write lock after the authoritative offset update succeeds. */
+    public void unprotectedRecordStreamRowCountBaseline(long partitionId, Long offset) {
+        OlapTable table = getBaseTableNullable();
+        if (table == null || table.getPartition(partitionId) == null || offset == null) {
+            return;
+        }
+        unprotectedPublishStreamRowCountBaseline(partitionId,
+                StreamRowCountBaseline.capture(table, partitionId, offset));
+    }
+
+    public void unprotectedPublishStreamRowCountBaseline(long partitionId,
+            StreamRowCountBaseline state) {
+        OlapTable table = getBaseTableNullable();
+        if (table == null || !state.matches(table, partitionId, state.getBaselineOffset())) {
+            // Metadata may have been replaced while a cloud consumption RPC was in flight.
+            return;
+        }
+        StreamRowCountBaseline previous = rowCountStates.get(partitionId);
+        if (previous != null && previous.matches(table, partitionId, previous.getBaselineOffset())
+                && previous.getBaselineOffset() >= state.getBaselineOffset()) {
+            return;
+        }
+        rowCountStates.put(partitionId, state);
     }
 
     // for persist
@@ -190,7 +212,7 @@ public class OlapTableStream extends BaseTableStream {
                     .forEach(p -> partitionStates.put(p.getId(),
                             new PartitionStreamState(null, -1, p.getTso())));
         }
-        unprotectedRecordPartitionStreamStates(baseTable.getPartitionIds());
+        unprotectedRecordStreamRowCountBaselines(baseTable.getPartitionIds());
     }
 
     public static OlapTableStream read(DataInput in) throws IOException {
@@ -344,17 +366,31 @@ public class OlapTableStream extends BaseTableStream {
 
     @Override
     public void unprotectedUpdateStreamUpdate(AbstractTableStreamUpdate update, Long ts) {
+        unprotectedUpdateStreamUpdate(update, ts, false);
+    }
+
+    public void unprotectedUpdateStreamUpdate(AbstractTableStreamUpdate update, Long ts, boolean isReplay) {
         Map<Long, Long> next = ((OlapTableStreamUpdate) update).getNext();
         for (Map.Entry<Long, Long> entry : next.entrySet()) {
             partitionStates.put(entry.getKey(), new PartitionStreamState(entry.getValue(), ts, null));
         }
-        unprotectedRecordPartitionStreamStates(next.keySet());
+        if (isReplay) {
+            // Current reports cannot be used as the baseline for a journaled historical consumption.
+            rowCountStates.clear();
+        } else {
+            unprotectedRecordStreamRowCountBaselines(next.keySet());
+        }
     }
 
     Set<Long> unprotectedCollectStalePartitionOffsetIds(Set<Long> validPartitionIds) {
         Preconditions.checkState(isWriteLockHeldByCurrentThread(),
                 "unprotectedCollectStalePartitionOffsetIds must be called with write lock held");
         Set<Long> stalePartitionIds = new HashSet<>();
+        for (Long partitionId : rowCountStates.keySet()) {
+            if (!validPartitionIds.contains(partitionId)) {
+                stalePartitionIds.add(partitionId);
+            }
+        }
         for (Long partitionId : partitionStates.keySet()) {
             if (!validPartitionIds.contains(partitionId)) {
                 stalePartitionIds.add(partitionId);

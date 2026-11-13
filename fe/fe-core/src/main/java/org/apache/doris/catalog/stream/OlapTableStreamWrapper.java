@@ -20,6 +20,7 @@ package org.apache.doris.catalog.stream;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
@@ -37,6 +38,8 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.Collection;
 import java.util.List;
@@ -47,13 +50,15 @@ import java.util.stream.Collectors;
 
 // runtime-only class for unified query/insert experience, created when bind relation with OlapTableStream
 public class OlapTableStreamWrapper extends OlapTable {
+    private static final Logger LOG = LogManager.getLogger(OlapTableStreamWrapper.class);
+
     private final OlapTableStream stream;
     private final OlapTable baseTable;
     protected final Map<Long, Pair<Long, Long>> outputUpdateMap;
     // The row counts the stream had recorded when the offsets above were read. The two have to
     // describe the same moment: an offset advance between them would pair the range of the old
     // offset with the counters of the new one, and the estimate of the range would read as empty.
-    private Map<Long, PartitionStreamState> partitionStreamStates;
+    private Map<Long, StreamRowCountBaseline> partitionStreamStates;
     private final KeysType keysType;
     private Map<Long, Cloud.TableStreamPartitionReadStatePB> cloudReadStates = ImmutableMap.of();
     private boolean cloudReadStatesInstalled;
@@ -73,7 +78,7 @@ public class OlapTableStreamWrapper extends OlapTable {
         stream.readLock();
         try {
             this.outputUpdateMap = buildOutputUpdateMap(selectedPartitionIds);
-            this.partitionStreamStates = snapshotPartitionStreamStates(selectedPartitionIds);
+            this.partitionStreamStates = snapshotStreamRowCountBaselines(selectedPartitionIds);
         } finally {
             stream.readUnlock();
         }
@@ -84,10 +89,10 @@ public class OlapTableStreamWrapper extends OlapTable {
      * The row counts the stream recorded for the given partitions, read under the stream lock so
      * that they describe the same moment as the offsets of the same call.
      */
-    private Map<Long, PartitionStreamState> snapshotPartitionStreamStates(Collection<Long> partitionIds) {
-        ImmutableMap.Builder<Long, PartitionStreamState> states = ImmutableMap.builder();
+    private Map<Long, StreamRowCountBaseline> snapshotStreamRowCountBaselines(Collection<Long> partitionIds) {
+        ImmutableMap.Builder<Long, StreamRowCountBaseline> states = ImmutableMap.builder();
         for (Long partitionId : partitionIds) {
-            PartitionStreamState state = stream.getPartitionStreamState(partitionId);
+            StreamRowCountBaseline state = stream.getStreamRowCountBaseline(partitionId);
             if (state != null) {
                 states.put(partitionId, state);
             }
@@ -141,7 +146,7 @@ public class OlapTableStreamWrapper extends OlapTable {
                     outputUpdateMap.put(partitionId, Pair.of(startTso, state.getEndTso()));
                 }
             });
-            partitionStreamStates = snapshotPartitionStreamStates(outputUpdateMap.keySet());
+            partitionStreamStates = snapshotStreamRowCountBaselines(outputUpdateMap.keySet());
         } finally {
             stream.readUnlock();
         }
@@ -398,112 +403,140 @@ public class OlapTableStreamWrapper extends OlapTable {
                         s -> Pair.of(null, TSOTimestamp.toExclusiveBound(s.getValue().first))));
     }
 
-    /**
-     * Per-partition estimate of the rows a changelog read of {@code offsetMap} returns, which the
-     * callers hand to the wrapper the read is planned over. See {@link PartitionStreamState} for
-     * the rules and for why every answer errs on the large side.
-     *
-     * <p>{@code offsetMap} is the one the scan uses, after the changelog TTL adjustment, so the
-     * estimate describes the range the scan actually reads.
-     */
+    /** The range has already been resolved and TTL-adjusted by the scan rewrite. */
     public Map<Long, Long> estimateChangelogRead(List<Long> partitionIds,
-            Map<Long, Pair<Long, Long>> offsetMap) {
-        long tableRowCount = getBaseTableRowCount();
+            Map<Long, Pair<Long, Long>> offsetMap, BaseTableStream.StreamScanType scanType) {
+        Pair<Long, String> fallback = getTableRowCount(baseTable.getChangelogIndexMeta().getIndexId());
+        if (fallback.first <= 0) {
+            fallback = getTableRowCount(baseTable.getBaseIndexId());
+        }
         Map<Long, Long> estimates = Maps.newHashMapWithExpectedSize(partitionIds.size());
         for (Long partitionId : partitionIds) {
-            estimates.put(partitionId, estimatePartitionChangelogRead(partitionId, offsetMap, tableRowCount));
+            long records = estimatePartitionChangeRecords(partitionId, offsetMap.get(partitionId), fallback);
+            long rows = StreamRowCountBaseline.outputRows(records, keysType == KeysType.UNIQUE_KEYS, scanType);
+            estimates.put(partitionId, rows);
+            LOG.debug("Stream {} partition {} actualType={} records={} factor={} outputRows={}",
+                    stream.getId(), partitionId, scanType, records,
+                    StreamRowCountBaseline.outputRows(1, keysType == KeysType.UNIQUE_KEYS, scanType), rows);
         }
         return estimates;
     }
 
-    /**
-     * Per-partition estimate of the rows a snapshot read answers with: the image at the stream
-     * offset. A duplicate key image only grows, so the current rows bound it; a unique or
-     * aggregating one also holds the rows deleted after the offset, which the change rows of the
-     * range bound.
-     */
+    /** Used only for a DUP historical base scan; UNIQUE reconstruction uses its own branch scales. */
     public Map<Long, Long> estimateSnapshotRead(List<Long> partitionIds) {
-        long tableRowCount = getBaseTableRowCount();
-        boolean appendOnly = keysType == KeysType.DUP_KEYS;
+        Pair<Long, String> fallback = getTableRowCount(baseTable.getBaseIndexId());
         Map<Long, Long> estimates = Maps.newHashMapWithExpectedSize(partitionIds.size());
         for (Long partitionId : partitionIds) {
-            PartitionStreamState state = partitionStreamStates.get(partitionId);
-            long storedBaseRowCount = state == null
-                    ? PartitionStreamState.UNKNOWN_ROW_COUNT : state.getBaseRowCount();
-            long delta = appendOnly ? PartitionStreamState.UNKNOWN_ROW_COUNT
-                    : changelogDeltaOf(partitionId, state);
-            estimates.put(partitionId, PartitionStreamState.estimateSnapshotRead(appendOnly, storedBaseRowCount,
-                    getBaseRowCount(partitionId), delta, tableRowCount));
-        }
-        return estimates;
-    }
-
-    private long estimatePartitionChangelogRead(long partitionId, Map<Long, Pair<Long, Long>> offsetMap,
-            long tableRowCount) {
-        Partition basePartition = baseTable.getPartition(partitionId);
-        if (basePartition == null || !basePartition.hasData()) {
-            // Nothing was ever written, so the read returns nothing whatever the counters say.
-            return 1;
-        }
-        PartitionStreamState state = partitionStreamStates.get(partitionId);
-        long storedChangelogRowCount = state == null
-                ? PartitionStreamState.UNKNOWN_ROW_COUNT : state.getChangelogRowCount();
-        long startTso = PartitionStreamState.UNKNOWN_ROW_COUNT;
-        long endTso = PartitionStreamState.UNKNOWN_ROW_COUNT;
-        Pair<Long, Long> range = offsetMap.get(partitionId);
-        if (range == null) {
-            range = outputUpdateMap.get(partitionId);
-        }
-        if (range != null) {
-            startTso = range.first == null ? PartitionStreamState.UNKNOWN_ROW_COUNT : range.first;
-            endTso = range.second == null ? PartitionStreamState.UNKNOWN_ROW_COUNT : range.second;
-        }
-        return PartitionStreamState.estimateChangelogRead(startTso, endTso, storedChangelogRowCount,
-                getChangelogRowCount(partitionId), getBaseRowCount(partitionId), tableRowCount);
-    }
-
-    private long changelogDeltaOf(long partitionId, PartitionStreamState state) {
-        long storedChangelogRowCount = state == null
-                ? PartitionStreamState.UNKNOWN_ROW_COUNT : state.getChangelogRowCount();
-        Pair<Long, Long> range = outputUpdateMap.get(partitionId);
-        long startTso = range == null || range.first == null
-                ? PartitionStreamState.UNKNOWN_ROW_COUNT : range.first;
-        long endTso = range == null || range.second == null
-                ? PartitionStreamState.UNKNOWN_ROW_COUNT : range.second;
-        return PartitionStreamState.changelogDelta(startTso, endTso, storedChangelogRowCount,
-                getChangelogRowCount(partitionId));
-    }
-
-    private long getBaseTableRowCount() {
-        long rowCount = baseTable.getRowCountForIndex(baseTable.getBaseIndexId(), false);
-        if (rowCount > 0) {
-            return rowCount;
-        }
-        // The backends have not reported the tablets yet. The statistics record of the table is
-        // kept up to date by the loads themselves, so it answers for the table as a whole: that
-        // over-estimates a partition of a partitioned table, which is the safe direction.
-        TableStatsMeta tableStatsMeta = Env.getCurrentEnv().getAnalysisManager()
-                .findTableStatsStatus(baseTable.getId());
-        if (tableStatsMeta != null) {
-            long recorded = tableStatsMeta.getRowCountWithDeltaRows(baseTable, baseTable.getBaseIndexId());
-            if (recorded > 0) {
-                return recorded;
+            StreamRowCountBaseline state = matchingBaseline(partitionId);
+            long storedBase = state == null ? StreamRowCountBaseline.UNKNOWN_ROW_COUNT : state.getBaseRowCount();
+            long currentBase = getPartitionRowCount(partitionId, baseTable.getBaseIndexId());
+            long rows = StreamRowCountBaseline.estimateSnapshotRead(keysType == KeysType.DUP_KEYS,
+                    storedBase, currentBase, StreamRowCountBaseline.UNKNOWN_ROW_COUNT, fallback.first);
+            estimates.put(partitionId, rows);
+            if (LOG.isDebugEnabled()) {
+                StreamRowCountBaseline recorded = partitionStreamStates.get(partitionId);
+                Long baselineOffset = recorded == null ? null : recorded.getBaselineOffset();
+                String source;
+                if (storedBase >= 0) {
+                    source = "baseline";
+                } else if (currentBase >= 0) {
+                    source = "partition-index";
+                } else {
+                    source = fallback.second;
+                }
+                LOG.debug("Stream {} partition {} snapshot offset={} baselineOffset={} matched={} B0={} B1={} "
+                                + "tableFallback={} source={} outputRows={} baseReported={}",
+                        stream.getId(), partitionId,
+                        outputUpdateMap.get(partitionId), baselineOffset, state != null, storedBase, currentBase,
+                        fallback.first, source, rows, isRowCountReported(partitionId, baseTable.getBaseIndexId()));
             }
         }
-        return rowCount;
+        return estimates;
     }
 
-    private long getBaseRowCount(long partitionId) {
-        long rowCount = baseTable.getRowCountForPartitionIndex(partitionId, baseTable.getBaseIndexId(), false);
-        return rowCount > 0 ? rowCount : getBaseTableRowCount();
+    private StreamRowCountBaseline matchingBaseline(long partitionId) {
+        StreamRowCountBaseline state = partitionStreamStates.get(partitionId);
+        Pair<Long, Long> originalRange = outputUpdateMap.get(partitionId);
+        // This is the authoritative consumption offset BEFORE scan-bound conversion or TTL pruning.
+        Long offset = originalRange == null ? null : originalRange.first;
+        return state != null && state.matches(baseTable, partitionId, offset) ? state : null;
     }
 
-    private long getChangelogRowCount(long partitionId) {
-        if (!baseTable.hasChangelog()) {
-            return PartitionStreamState.UNKNOWN_ROW_COUNT;
+    private long estimatePartitionChangeRecords(long partitionId, Pair<Long, Long> range, Pair<Long, String> fallback) {
+        StreamRowCountBaseline recorded = partitionStreamStates.get(partitionId);
+        StreamRowCountBaseline state = matchingBaseline(partitionId);
+        long storedC = state == null ? StreamRowCountBaseline.UNKNOWN_ROW_COUNT : state.getChangelogRowCount();
+        long storedB = state == null ? StreamRowCountBaseline.UNKNOWN_ROW_COUNT : state.getBaseRowCount();
+        long currentC = getPartitionRowCount(partitionId, baseTable.getChangelogIndexMeta().getIndexId());
+        long currentB = getPartitionRowCount(partitionId, baseTable.getBaseIndexId());
+        Long start = range == null ? null : range.first;
+        Long end = range == null ? null : range.second;
+        long records = StreamRowCountBaseline.estimateChangeRecords(start, end, storedC, storedB,
+                currentC, currentB, fallback.first);
+        if (LOG.isDebugEnabled()) {
+            Long baselineOffset = recorded == null ? null : recorded.getBaselineOffset();
+            Long deltaC = storedC >= 0 && currentC >= 0 ? currentC - storedC : null;
+            Long deltaB = storedB >= 0 && currentB >= 0 ? currentB - storedB : null;
+            String source;
+            if (start != null && end != null && end <= start) {
+                source = "empty-offset-range";
+            } else if (start != null && end != null
+                    && ((deltaC != null && deltaC > 0) || (deltaB != null && deltaB > 0))) {
+                source = "positive-delta";
+            } else if (currentC > 0) {
+                source = "changelog-index";
+            } else if (currentB > 0) {
+                source = "base-index";
+            } else {
+                source = fallback.second;
+            }
+            LOG.debug("Stream {} partition {} incremental originalRange={} scanRange={} baselineOffset={} "
+                            + "matched={} C0={} B0={} C1={} B1={} deltaC={} deltaB={} tableFallback={} source={} "
+                            + "records={} changelogReported={} baseReported={}", stream.getId(), partitionId,
+                    outputUpdateMap.get(partitionId), range, baselineOffset, state != null, storedC, storedB,
+                    currentC, currentB, deltaC, deltaB, fallback.first, source, records,
+                    isRowCountReported(partitionId, baseTable.getChangelogIndexMeta().getIndexId()),
+                    isRowCountReported(partitionId, baseTable.getBaseIndexId()));
         }
-        return baseTable.getRowCountForPartitionIndex(partitionId,
-                baseTable.getChangelogIndexMeta().getIndexId(), false);
+        return records;
+    }
+
+    private boolean isRowCountReported(long partitionId, long indexId) {
+        Partition partition = baseTable.getPartition(partitionId);
+        MaterializedIndex index = partition == null ? null : partition.getIndex(indexId);
+        return index != null && index.getRowCountReported();
+    }
+
+    private long getPartitionRowCount(long partitionId, long indexId) {
+        Partition partition = baseTable.getPartition(partitionId);
+        return StreamRowCountBaseline.rowCount(partition == null ? null : partition.getIndex(indexId));
+    }
+
+    private Pair<Long, String> getTableRowCount(long indexId) {
+        long rows = 0;
+        boolean available = false;
+        boolean complete = true;
+        for (Partition partition : baseTable.getPartitions()) {
+            MaterializedIndex index = partition.getIndex(indexId);
+            long count = StreamRowCountBaseline.rowCount(index);
+            complete &= count >= 0 && index.getRowCountReported();
+            if (count >= 0) {
+                rows += count;
+                available = true;
+            }
+        }
+        if (available && rows > 0) {
+            return Pair.of(rows, complete ? "whole-index-complete" : "whole-index-partial");
+        }
+        TableStatsMeta tableStats = Env.getCurrentEnv().getAnalysisManager().findTableStatsStatus(baseTable.getId());
+        if (tableStats != null) {
+            long count = tableStats.getRowCountWithDeltaRows(baseTable, indexId);
+            if (count >= 0) {
+                return Pair.of(count, "table-statistics-record");
+            }
+        }
+        return available && complete ? Pair.of(rows, "whole-index-complete")
+                : Pair.of(StreamRowCountBaseline.UNKNOWN_ROW_COUNT, "unknown");
     }
 
     /**

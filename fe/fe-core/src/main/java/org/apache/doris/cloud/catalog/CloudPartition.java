@@ -520,6 +520,7 @@ public class CloudPartition extends Partition {
 
     @Override
     public void updateVersionForRestore(long visibleVersion) {
+        invalidateDataEpoch();
         if (LOG.isDebugEnabled()) {
             LOG.debug("updateVersionForRestore use CloudPartition {} version for restore: visible: {}",
                     super.getName(), visibleVersion);

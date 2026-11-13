@@ -235,13 +235,35 @@ public class OlapTableWrapper extends OlapTable {
      */
     @Override
     public long getRowCountForIndex(long indexId, boolean strict) {
-        long estimate = getRowCountEstimate();
-        return estimate < 0 ? originTable.getRowCountForIndex(indexId, strict) : estimate;
+        if (!hasRowCountEstimates(indexId)) {
+            return originTable.getRowCountForIndex(indexId, strict);
+        }
+        long total = 0;
+        long unknown = 0;
+        for (Map.Entry<Long, Long> entry : partitionRowCounts.entrySet()) {
+            long rows = entry.getValue();
+            if (rows < 0) {
+                rows = originTable.getRowCountForPartitionIndex(entry.getKey(), indexId, strict);
+            }
+            if (rows < 0) {
+                unknown++;
+            } else {
+                total += rows;
+            }
+        }
+        if (unknown > 0) {
+            long tableRows = originTable.getRowCountForIndex(indexId, strict);
+            if (tableRows < 0 && unknown == partitionRowCounts.size()) {
+                return TableIf.UNKNOWN_ROW_COUNT;
+            }
+            total += Math.max(unknown, tableRows * unknown / originTable.getPartitionNum());
+        }
+        return total;
     }
 
     @Override
     public long getRowCountForPartitionIndex(long partitionId, long indexId, boolean strict) {
-        Long rowCount = partitionRowCounts.get(partitionId);
+        Long rowCount = indexId == getBaseIndexId() ? partitionRowCounts.get(partitionId) : null;
         if (rowCount != null) {
             return rowCount;
         }
@@ -253,14 +275,11 @@ public class OlapTableWrapper extends OlapTable {
      * answers instead.
      */
     public long getRowCountEstimate() {
-        if (partitionRowCounts.isEmpty()) {
-            return TableIf.UNKNOWN_ROW_COUNT;
-        }
-        long total = 0;
-        for (long rowCount : partitionRowCounts.values()) {
-            total += rowCount;
-        }
-        return total;
+        return partitionRowCounts.isEmpty() ? TableIf.UNKNOWN_ROW_COUNT : getRowCountForIndex(getBaseIndexId(), true);
+    }
+
+    public boolean hasRowCountEstimates(long indexId) {
+        return indexId == getBaseIndexId() && !partitionRowCounts.isEmpty();
     }
 
     @Override

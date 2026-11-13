@@ -34,20 +34,9 @@ import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
- * A lightweight wrapper base for read changelog of table
- *
- * <p>A changelog scan reads the change rows of an offset range, not the table, and neither the
- * range nor the changelog index reports how many change rows it holds: a read that starts at the
- * beginning of the stream returns about the table's rows while a delta returns a few, and FE
- * cannot tell the two apart.
- *
- * <p>A stream read knows better: it records, next to the offset it reads from, the row count of
- * the partition's changelog index, and hands the difference to this wrapper as the per-partition
- * estimate (see {@link org.apache.doris.catalog.stream.PartitionStreamState}). Without such an
- * estimate the wrapper answers with the row count of the changelog index, i.e. the size of the
- * whole changelog: that over-estimates a delta, but a value in the right order of magnitude keeps
- * the optimizer from treating the read as an empty relation, which is the direction that costs
- * memory.
+ * A changelog scan wrapper. Stream reads provide partition estimates for their resolved offset
+ * ranges; other changelog reads delegate to the corresponding changelog index statistics.
+ * These are approximate scales and can lag writes or retention changes.
  */
 public class OlapChangelogTableWrapper extends OlapTableWrapper {
 

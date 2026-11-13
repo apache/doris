@@ -47,6 +47,7 @@ import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.catalog.stream.BaseTableStream;
 import org.apache.doris.catalog.stream.OlapTableStream;
+import org.apache.doris.catalog.stream.StreamRowCountBaseline;
 import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.catalog.CloudPartition;
 import org.apache.doris.cloud.catalog.CloudReplica;
@@ -127,6 +128,17 @@ public class CloudInternalCatalog extends InternalCatalog {
         }
         OlapTableStream olapStream = (OlapTableStream) stream;
         OlapTable olapBaseTable = (OlapTable) baseTable;
+        Map<Long, StreamRowCountBaseline> initialRowCounts = Maps.newHashMap();
+        olapBaseTable.readLock();
+        try {
+            for (Long id : basePartitionIds) {
+                if (olapBaseTable.getPartition(id) != null) {
+                    initialRowCounts.put(id, StreamRowCountBaseline.capture(olapBaseTable, id, null));
+                }
+            }
+        } finally {
+            olapBaseTable.readUnlock();
+        }
         List<Cloud.TableStreamOffsetPB> initialOffsets = captureTableStreamInitialOffsets(
                 olapStream, olapBaseTable, basePartitionIds);
         Set<Long> basePartitionIdSet = new HashSet<>(basePartitionIds);
@@ -148,6 +160,18 @@ public class CloudInternalCatalog extends InternalCatalog {
             int end = Math.min(start + batchSize, initialOffsets.size());
             commitTableStreamPartitions(baseDbId, olapBaseTable.getId(), streamDb.getId(),
                     olapStream.getId(), initialOffsets.subList(start, end));
+        }
+        olapBaseTable.readLock();
+        try {
+            for (Cloud.TableStreamOffsetPB offset : initialOffsets) {
+                StreamRowCountBaseline sample = initialRowCounts.get(offset.getPartitionId());
+                if (sample != null) {
+                    olapStream.unprotectedPublishStreamRowCountBaseline(
+                            offset.getPartitionId(), sample.atOffset(offset.getOffsetTso()));
+                }
+            }
+        } finally {
+            olapBaseTable.readUnlock();
         }
     }
 

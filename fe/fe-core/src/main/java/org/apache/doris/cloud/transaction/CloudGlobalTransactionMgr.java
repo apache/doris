@@ -29,11 +29,11 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.catalog.stream.CloudOlapTableStreamUpdate;
+import org.apache.doris.catalog.stream.StreamRowCountBaseline;
 import org.apache.doris.catalog.stream.TableStreamManager;
 import org.apache.doris.catalog.stream.TableStreamUpdateInfo;
 import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.catalog.CloudPartition;
-import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.proto.Cloud.AbortSubTxnRequest;
 import org.apache.doris.cloud.proto.Cloud.AbortSubTxnResponse;
 import org.apache.doris.cloud.proto.Cloud.AbortTxnRequest;
@@ -70,6 +70,9 @@ import org.apache.doris.cloud.proto.Cloud.RemoveDeleteBitmapUpdateLockRequest;
 import org.apache.doris.cloud.proto.Cloud.RemoveDeleteBitmapUpdateLockResponse;
 import org.apache.doris.cloud.proto.Cloud.SubTxnInfo;
 import org.apache.doris.cloud.proto.Cloud.TableStatsPB;
+import org.apache.doris.cloud.proto.Cloud.TableStreamIdentityPB;
+import org.apache.doris.cloud.proto.Cloud.TableStreamPartitionUpdatePB;
+import org.apache.doris.cloud.proto.Cloud.TableStreamUpdatePB;
 import org.apache.doris.cloud.proto.Cloud.TabletIndexPB;
 import org.apache.doris.cloud.proto.Cloud.TxnInfoPB;
 import org.apache.doris.cloud.proto.Cloud.TxnStatusPB;
@@ -834,10 +837,14 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         long callbackId = 0L;
         StopWatch stopWatch = new StopWatch();
         stopWatch.start();
+        Map<TableStreamIdentityPB, Map<Long, StreamRowCountBaseline>> streamStates =
+                captureStreamPartitionRowCounts(builder.getTableStreamUpdatesList());
         try {
             txnState = commitTxn(builder, tableList, transactionId, is2PC, tabletCommitInfos, tabletIds);
             txnOperated = true;
-            recordStreamPartitionRowCounts(builder.getTableStreamUpdatesList());
+            TableStreamManager streamManager = Env.getCurrentEnv().getTableStreamManager();
+            streamStates.forEach((identity, states) -> streamManager.recordStreamRowCountBaselines(
+                    identity.getStreamDbId(), identity.getStreamId(), states));
             if (DebugPointUtil.isEnable("CloudGlobalTransactionMgr.commitTransaction.timeout")) {
                 throw new UserException(InternalErrorCode.DELETE_BITMAP_LOCK_ERR,
                         "test delete bitmap update lock timeout, transactionId:" + transactionId);
@@ -875,23 +882,19 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         }
     }
 
-    /**
-     * Record, for the partitions whose stream offset the commit moved, the row counts a later
-     * read is estimated with. Nothing depends on it for correctness: a partition left without a
-     * record is estimated from the counters of the moment it is read. See PartitionStreamState.
-     */
-    private static void recordStreamPartitionRowCounts(List<Cloud.TableStreamUpdatePB> streamUpdates) {
-        if (streamUpdates.isEmpty()) {
-            return;
+    private static Map<TableStreamIdentityPB, Map<Long, StreamRowCountBaseline>> captureStreamPartitionRowCounts(
+            List<TableStreamUpdatePB> streamUpdates) {
+        Map<TableStreamIdentityPB, Map<Long, StreamRowCountBaseline>> states = new HashMap<>();
+        TableStreamManager manager = Env.getCurrentEnv().getTableStreamManager();
+        for (TableStreamUpdatePB update : streamUpdates) {
+            Map<Long, Long> offsets = update.getPartitionUpdatesList().stream()
+                    .collect(Collectors.toMap(TableStreamPartitionUpdatePB::getPartitionId,
+                            TableStreamPartitionUpdatePB::getNextOffsetTso));
+            TableStreamIdentityPB identity = update.getIdentity();
+            states.put(identity, manager.captureStreamRowCountBaselines(
+                    identity.getStreamDbId(), identity.getStreamId(), offsets));
         }
-        TableStreamManager tableStreamManager = Env.getCurrentEnv().getTableStreamManager();
-        for (Cloud.TableStreamUpdatePB update : streamUpdates) {
-            List<Long> partitionIds = update.getPartitionUpdatesList().stream()
-                    .map(Cloud.TableStreamPartitionUpdatePB::getPartitionId)
-                    .collect(Collectors.toList());
-            tableStreamManager.recordPartitionStreamStates(update.getIdentity().getStreamDbId(),
-                    update.getIdentity().getStreamId(), partitionIds);
-        }
+        return states;
     }
 
     private TransactionState commitTxn(CommitTxnRequest.Builder builder, List<Table> tableList,

@@ -72,8 +72,8 @@ suite("test_stream_scan_row_count") {
 
     // The estimated row count of the base table's scan in the physical plan.
     def scanRowCount = { String query ->
-        def planLines = sql "explain physical plan ${query}"
-        def scanLine = planLines.collect { it[0] }.find {
+        def planLines = sql_return_maparray "explain physical plan ${query}"
+        def scanLine = planLines.collect { it["Explain String(Nereids Planner)"] }.find {
             it.contains("PhysicalOlapScan") && it.contains("table=stream_read_rowcount_tbl")
         }
         assertTrue(scanLine != null, "no scan of stream_read_rowcount_tbl in the plan of [${query}]: ${planLines}")
@@ -82,34 +82,37 @@ suite("test_stream_scan_row_count") {
         return stats.group(1) as long
     }
 
-    // The counters a stream records when it advances are the row counts the frontend holds, and
-    // those come from the tablet reports, which a backend sends periodically. Wait for them before
-    // anything is recorded, otherwise the stream records a baseline of zero and every read after
-    // it is over-estimated. SHOW TABLETS prints the same reported row counts the stream records.
-    def awaitTabletRowCount = { long expected ->
+    // Wait for the aggregated FE index counts used by the baseline adapter, not just replica
+    // reports: the index aggregation can still lag a SHOW TABLETS result.
+    def awaitReportedRowCount = { long expected ->
         Awaitility.await().atMost(300, SECONDS).pollInterval(2, SECONDS).until({
-            def tablets = sql_return_maparray "show tablets from stream_read_rowcount_tbl"
-            // Both the base tablet and the changelog tablet hold the rows the table was loaded with.
-            tablets.every { (it["RowCount"] as long) == expected }
+            def baseStats = sql_return_maparray """
+                show index stats stream_read_rowcount_tbl stream_read_rowcount_tbl
+            """
+            def changelogStats = sql_return_maparray """
+                show index stats stream_read_rowcount_tbl `changelog(stream_read_rowcount_tbl)`
+            """
+            (baseStats + changelogStats).every { (it["report_row_count_for_nereids"] as long) == expected }
         })
     }
 
-    awaitTabletRowCount(5L)
+    awaitReportedRowCount(5L)
     sql """
         CREATE STREAM stream_read_rowcount_stream ON TABLE stream_read_rowcount_tbl
         PROPERTIES ('show_initial_rows'='false')
     """
     sql "INSERT INTO stream_read_rowcount_tbl VALUES (6,60),(7,70)"
     sql "sync"
-    awaitTabletRowCount(7L)
+    awaitReportedRowCount(7L)
 
     // stream@reset() reads the table as it is now, in both modes.
-    assertEquals(7L, scanRowCount("select * from stream_read_rowcount_stream@reset()"))
+    qt_reset_estimate "select ${scanRowCount("select * from stream_read_rowcount_stream@reset()")}"
 
     // stream@snapshot() answers with the image at the stream's offset (five rows). A duplicate key
-    // image only grows, so the current table is its upper bound -- but it must not collapse to one
-    // row.
-    assertEquals(7L, scanRowCount("select * from stream_read_rowcount_stream@snapshot()"))
+    // estimate uses the five rows recorded at consumption, rather than today's seven rows.
+    qt_snapshot_estimate "select ${scanRowCount("select * from stream_read_rowcount_stream@snapshot()")}"
+    order_qt_snapshot_rows "select * from stream_read_rowcount_stream@snapshot()"
+    order_qt_initial_delta "select id, v from stream_read_rowcount_stream"
 
     // Consuming the stream advances its offset, and the stream records there the row counts of the
     // changelog index and of the base index the next estimate is built from.
@@ -117,17 +120,18 @@ suite("test_stream_scan_row_count") {
 
     // Nothing was written after the offset: the read returns no row, so the plan keeps no scan at
     // all rather than one estimated at a single row.
-    def emptyPlan = sql "explain physical plan select id, v from stream_read_rowcount_stream"
-    assertTrue(emptyPlan.collect { it[0] }.any { it.contains("PhysicalEmptyRelation") },
-            "the incremental read of a caught-up stream should be an empty relation: ${emptyPlan}")
+    def emptyPlan = sql_return_maparray "explain physical plan select id, v from stream_read_rowcount_stream"
+    qt_empty_relation "select ${emptyPlan.collect { it["Explain String(Nereids Planner)"] }.any { it.contains("PhysicalEmptyRelation") }}"
 
     sql "INSERT INTO stream_read_rowcount_tbl VALUES (8,80),(9,90),(10,100)"
     sql "sync"
-    awaitTabletRowCount(10L)
+    awaitReportedRowCount(10L)
 
     // The three rows written after the offset -- not the ten rows the table holds, and not the
     // ten rows the changelog holds.
-    assertEquals(3L, scanRowCount("select id, v from stream_read_rowcount_stream"))
+    qt_incremental_estimate "select ${scanRowCount("select id, v from stream_read_rowcount_stream")}"
+    order_qt_incremental_rows "select id, v from stream_read_rowcount_stream"
 
-    assertEquals(10L, scanRowCount("select * from stream_read_rowcount_stream@reset()"))
+    qt_final_reset_estimate "select ${scanRowCount("select * from stream_read_rowcount_stream@reset()")}"
+    order_qt_reset_rows "select * from stream_read_rowcount_stream@reset()"
 }

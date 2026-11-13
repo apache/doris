@@ -23,6 +23,7 @@ import org.apache.doris.transaction.TransactionCommitFailedException;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -94,6 +95,9 @@ public class OlapTableStreamUpdateTest {
         stream.write(new DataOutputStream(bytes));
         OlapTableStream restored = OlapTableStream.read(new DataInputStream(
                 new ByteArrayInputStream(bytes.toByteArray())));
+        // This fixture exercises offsets without registering a source table in a catalog.
+        restored = Mockito.spy(restored);
+        Mockito.doReturn(null).when(restored).getBaseTableNullable();
         Assertions.assertTrue(restored.hasHistoricalData(1L));
         Assertions.assertFalse(restored.hasConsumedData(1L));
         Assertions.assertTrue(restored.hasConsumedData(2L));

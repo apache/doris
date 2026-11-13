@@ -99,6 +99,9 @@ public class Partition extends MetaObject {
     @SerializedName(value = "tso")
     private long tso = -1;
 
+    // Local identity for data replacement that keeps this partition and its tablets in place.
+    private transient volatile long dataEpoch;
+
     private transient volatile String remoteMetaChecksum;
 
     protected Partition() {
@@ -140,11 +143,20 @@ public class Partition extends MetaObject {
         this.state = state;
     }
 
+    public long getDataEpoch() {
+        return dataEpoch;
+    }
+
+    protected void invalidateDataEpoch() {
+        dataEpoch++;
+    }
+
     /*
      * If a partition is overwritten by a restore job, we need to reset all version info to
      * the restored partition version info》
      */
     public void updateVersionForRestore(long visibleVersion) {
+        invalidateDataEpoch();
         this.setVisibleVersion(visibleVersion);
         this.nextVersion = this.visibleVersion + 1;
         LOG.info("update partition {}({}) version for restore: visible: {}, next: {}",

@@ -178,8 +178,9 @@ public class NormalizeOlapTableStreamScan extends OneRewriteRuleFactory {
                 ? streamWrapper.getCloudVisibleVersions(selectedPartitionIds)
                 : Collections.emptyMap();
         // The change rows of the range, which neither the changelog index nor the base table
-        // reports. See PartitionStreamState.
-        Map<Long, Long> rowCountEstimates = streamWrapper.estimateChangelogRead(selectedPartitionIds, offsetMap);
+        // reports. See StreamRowCountBaseline.
+        Map<Long, Long> rowCountEstimates = streamWrapper.estimateChangelogRead(
+                selectedPartitionIds, offsetMap, streamScanType);
         OlapChangelogTableWrapper table =
                 new OlapChangelogTableWrapper(baseTable, offsetMap, visibleVersions, rowCountEstimates);
         Map<String, String> scanParams = new HashMap<>();
@@ -338,8 +339,7 @@ public class NormalizeOlapTableStreamScan extends OneRewriteRuleFactory {
             Map<Long, Long> visibleVersions = streamWrapper.hasCloudReadStates()
                     ? streamWrapper.getCloudVisibleVersions(rebuildPartitionIds)
                     : Collections.emptyMap();
-            OlapTableWrapper table = new OlapTableWrapper(baseTable, partitionOffsetMap, visibleVersions,
-                    streamWrapper.estimateSnapshotRead(rebuildPartitionIds));
+            OlapTableWrapper table = new OlapTableWrapper(baseTable, partitionOffsetMap, visibleVersions);
             Plan basePartPlan = makeOlapScanOnBaseTable(scan, cascadesContext, table, rebuildPartitionIds);
             // we rebuild by add back updated & deleted rows from changelog
             Plan changelogPartPlan = makeIncrementalScanFromChangelog(cascadesContext, scan, rebuildPartitionIds,
