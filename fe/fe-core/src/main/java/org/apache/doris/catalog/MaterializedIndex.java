@@ -19,6 +19,9 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.persist.gson.GsonPostProcessable;
 
+import com.google.common.collect.Range;
+import com.google.common.collect.RangeSet;
+import com.google.common.collect.TreeRangeSet;
 import com.google.gson.annotations.SerializedName;
 
 import java.util.ArrayList;
@@ -84,6 +87,12 @@ public class MaterializedIndex extends MetaObject implements GsonPostProcessable
 
     private boolean rowCountReported = false;
 
+    // Local estimates need no replay. Consecutive partition versions coalesce into a single range;
+    // a complete periodic report retires the versions it supersedes. Unlike a last-version check,
+    // this also counts distinct commit responses delivered out of order, e.g. version 4 before 3.
+    private transient RangeSet<Long> changelogRowCountVersions;
+    private transient long changelogRowCountReportVersion = -1;
+
     public MaterializedIndex() {
         this.state = IndexState.NORMAL;
         this.idToTablets = new HashMap<>();
@@ -139,6 +148,10 @@ public class MaterializedIndex extends MetaObject implements GsonPostProcessable
         // lookup-by-id drops them. Maintains tablets ⊆ idToTablets.
         tablets = new ArrayList<>();
         idToTablets = new HashMap<>();
+        rowCount = -1;
+        rowCountReported = false;
+        changelogRowCountVersions = null;
+        changelogRowCountReportVersion = -1;
     }
 
     public void addTablet(Tablet tablet, TabletMeta tabletMeta) {
@@ -201,6 +214,43 @@ public class MaterializedIndex extends MetaObject implements GsonPostProcessable
 
     public void setRowCount(long rowCount) {
         this.rowCount = rowCount;
+    }
+
+    /** Caller holds the owning table's write lock, as for periodic statistics. */
+    public void addChangelogRows(long rows) {
+        // Empty writes (including a replica-normalized zero) cannot turn unknown into known zero.
+        if (rows > 0) {
+            rowCount = Math.max(0, rowCount) + rows;
+        }
+    }
+
+    /** Apply a visible cloud commit once, without dividing its logical rowset count by replicas. */
+    public void addChangelogRows(long version, long rows) {
+        if (version <= changelogRowCountReportVersion) {
+            return;
+        }
+        if (changelogRowCountVersions == null) {
+            changelogRowCountVersions = TreeRangeSet.create();
+        }
+        if (changelogRowCountVersions.contains(version)) {
+            return;
+        }
+        changelogRowCountVersions.add(Range.closedOpen(version, version + 1));
+        addChangelogRows(rows);
+    }
+
+    /** Replace retained stock (which can decrease after TTL), preserving partial-report semantics. */
+    public void setReportedRowCount(long rows, boolean reported, long version) {
+        rowCount = rows;
+        rowCountReported = reported;
+        if (reported && version > changelogRowCountReportVersion) {
+            // Statistics and visibility need not be synchronized. Skipping a late delta already
+            // covered by this version can briefly undercount; subsequent periodic reports calibrate.
+            changelogRowCountReportVersion = version;
+            if (changelogRowCountVersions != null) {
+                changelogRowCountVersions.remove(Range.lessThan(version + 1));
+            }
+        }
     }
 
     public void setRollupIndexInfo(long rollupIndexId, long rollupFinishedVersion) {

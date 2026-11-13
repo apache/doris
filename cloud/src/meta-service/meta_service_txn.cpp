@@ -424,6 +424,40 @@ static void calc_table_stats(std::unordered_map<int64_t, TabletIndexPB>& tablet_
     }
 }
 
+// Use the transaction's final rowset counters, not the tablet's retained-row statistics. A
+// changelog tablet is logical in cloud mode, so its rows must not be divided by replicas.
+static void fill_changelog_stats(const std::unordered_map<int64_t, TabletIndexPB>& tablet_indexes,
+                                 const std::unordered_map<int64_t, TabletStats>& tablet_stats,
+                                 const std::set<int64_t>& changelog_tablet_ids,
+                                 CommitTxnResponse* response) {
+    // Most loads have no changelog; avoid building a partition map on that path.
+    if (changelog_tablet_ids.empty()) {
+        return;
+    }
+    std::unordered_map<int64_t, int64_t> partition_versions;
+    for (int i = 0; i < response->partition_ids_size(); ++i) {
+        partition_versions.emplace(response->partition_ids(i), response->versions(i));
+    }
+    std::map<std::tuple<int64_t, int64_t, int64_t>, ChangelogStatsPB> changelog_stats;
+    for (int64_t tablet_id : changelog_tablet_ids) {
+        const auto& tablet_index = tablet_indexes.at(tablet_id);
+        auto& stats = changelog_stats[{tablet_index.table_id(), tablet_index.partition_id(),
+                                       tablet_index.index_id()}];
+        stats.set_table_id(tablet_index.table_id());
+        stats.set_partition_id(tablet_index.partition_id());
+        stats.set_index_id(tablet_index.index_id());
+        stats.set_version(partition_versions.at(tablet_index.partition_id()));
+        stats.set_updated_row_count(stats.updated_row_count() +
+                                    tablet_stats.at(tablet_id).num_rows);
+        stats.add_tablet_ids(tablet_id);
+    }
+    for (auto& [_, stats] : changelog_stats) {
+        VLOG_DEBUG << "Add ChangelogStats to CommitTxnResponse. txn_id="
+                   << response->txn_info().txn_id() << " stats=" << stats.ShortDebugString();
+        response->add_changelog_stats()->Swap(&stats);
+    }
+}
+
 //TODO: we need move begin/commit etc txn to TxnManager
 void MetaServiceImpl::begin_txn(::google::protobuf::RpcController* controller,
                                 const BeginTxnRequest* request, BeginTxnResponse* response,
@@ -2137,6 +2171,7 @@ void MetaServiceImpl::commit_txn_immediately(
         // <tablet_id, version> -> rowset meta
         std::vector<std::pair<std::tuple<int64_t, int64_t>, const RowsetMetaCloudPB&>> rowsets;
         std::unordered_map<int64_t, TabletStats> tablet_stats; // tablet_id -> stats
+        std::set<int64_t> changelog_tablet_ids;
         rowsets.reserve(tmp_rowsets_meta.size());
 
         int64_t rowsets_visible_ts_ms =
@@ -2172,6 +2207,9 @@ void MetaServiceImpl::commit_txn_immediately(
             auto& stats = tablet_stats[tablet_id];
             stats.data_size += i.total_disk_size();
             stats.num_rows += i.num_rows();
+            if (i.is_changelog()) {
+                changelog_tablet_ids.insert(i.tablet_id());
+            }
             ++stats.num_rowsets;
             stats.num_segs += i.num_segments();
             stats.index_size += i.index_disk_size();
@@ -2512,6 +2550,7 @@ void MetaServiceImpl::commit_txn_immediately(
             }
         }
         response->mutable_txn_info()->CopyFrom(txn_info);
+        fill_changelog_stats(tablet_ids, tablet_stats, changelog_tablet_ids, response);
         TEST_SYNC_POINT_CALLBACK("commit_txn_immediately::finish", &code);
         break;
     } while (true);
@@ -3115,11 +3154,15 @@ void MetaServiceImpl::commit_txn_eventually(
         }
 
         std::unordered_map<int64_t, TabletStats> tablet_stats; // tablet_id -> stats
+        std::set<int64_t> changelog_tablet_ids;
         for (auto& [_, i] : tmp_rowsets_meta) {
             // Accumulate affected rows
             auto& stats = tablet_stats[i.tablet_id()];
             stats.data_size += i.total_disk_size();
             stats.num_rows += i.num_rows();
+            if (i.is_changelog()) {
+                changelog_tablet_ids.insert(i.tablet_id());
+            }
             ++stats.num_rowsets;
             stats.num_segs += i.num_segments();
             stats.index_size += i.index_disk_size();
@@ -3147,6 +3190,11 @@ void MetaServiceImpl::commit_txn_eventually(
         // txn set visible for fe callback
         txn_info.set_status(TxnStatusPB::TXN_STATUS_VISIBLE);
         response->mutable_txn_info()->CopyFrom(txn_info);
+        // A failed lazy task leaves a COMMITTED transaction even though the historical FE
+        // callback below receives VISIBLE. Do not expose additive stats before publication.
+        if (!response->is_lazy_commit_incomplete()) {
+            fill_changelog_stats(tablet_ids, tablet_stats, changelog_tablet_ids, response);
+        }
         TEST_SYNC_POINT_CALLBACK("commit_txn_eventually::finish", &code, &txn_id);
         break;
     } while (true);
@@ -3401,7 +3449,8 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
 
         // <tablet_id, version> -> rowset meta
         std::vector<std::pair<std::tuple<int64_t, int64_t>, RowsetMetaCloudPB>> rowsets;
-        std::unordered_map<int64_t, TabletStats> tablet_stats;    // tablet_id -> stats
+        std::unordered_map<int64_t, TabletStats> tablet_stats; // tablet_id -> stats
+        std::set<int64_t> changelog_tablet_ids;
         rowsets.reserve(sub_txn_to_tmp_rowsets_meta.size() * 10); // rough estimate
         for (const auto& sub_txn_info : sub_txn_infos) {
             auto sub_txn_id = sub_txn_info.sub_txn_id();
@@ -3444,6 +3493,9 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
                 auto& stats = tablet_stats[tablet_id];
                 stats.data_size += i.total_disk_size();
                 stats.num_rows += i.num_rows();
+                if (i.is_changelog()) {
+                    changelog_tablet_ids.insert(i.tablet_id());
+                }
                 ++stats.num_rowsets;
                 stats.num_segs += i.num_segments();
                 stats.index_size += i.index_disk_size();
@@ -3770,6 +3822,7 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
         }
 
         response->mutable_txn_info()->CopyFrom(txn_info);
+        fill_changelog_stats(tablet_ids, tablet_stats, changelog_tablet_ids, response);
         TEST_SYNC_POINT_CALLBACK("commit_txn_with_sub_txn::finish", &code);
         break;
     } while (true);

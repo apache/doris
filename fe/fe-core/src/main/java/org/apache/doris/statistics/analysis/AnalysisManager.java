@@ -1506,64 +1506,76 @@ public class AnalysisManager implements Writable {
                     continue;
                 }
                 OlapTable olapTable = (OlapTable) table;
-                TableStatsMeta statsStatus = findOrCreateTableStats(olapTable);
-                short replicaNum = olapTable.getTableProperty().getReplicaAllocation().getTotalReplicaNum();
-                Map<Long, Long> tabletRows = record.getValue();
-                if (tabletRows == null || tabletRows.isEmpty()) {
-                    LOG.info("Tablet row count map is empty");
-                    continue;
-                }
-                long changelogIndexId = olapTable.hasChangelog()
-                        ? olapTable.getChangelogIndexMeta().getIndexId() : -1;
-                long rowsForAllReplica = 0;
-                boolean enablePartitionAnalyze = StatisticsUtil.enablePartitionAnalyze();
-                Map<Long, Long> baseTabletRows = enablePartitionAnalyze ? new HashMap<>() : Collections.emptyMap();
-                for (Entry<Long, Long> entry : tabletRows.entrySet()) {
-                    if (changelogIndexId > 0) {
-                        TabletMeta tabletMeta = Env.getCurrentEnv().getTabletInvertedIndex()
-                                .getTabletMeta(entry.getKey());
-                        // A partition can be force-dropped before the transaction becomes visible.
-                        // Its changelog tablets must not be mistaken for base tablets after removal.
-                        if (tabletMeta == null) {
-                            continue;
+                olapTable.writeLock();
+                try {
+                    TableStatsMeta statsStatus = findOrCreateTableStats(olapTable);
+                    short replicaNum = olapTable.getTableProperty().getReplicaAllocation().getTotalReplicaNum();
+                    Map<Long, Long> tabletRows = record.getValue();
+                    if (tabletRows == null || tabletRows.isEmpty()) {
+                        LOG.info("Tablet row count map is empty");
+                        continue;
+                    }
+                    long changelogIndexId = olapTable.hasChangelog()
+                            ? olapTable.getChangelogIndexMeta().getIndexId() : -1;
+                    long rowsForAllReplica = 0;
+                    boolean enablePartitionAnalyze = StatisticsUtil.enablePartitionAnalyze();
+                    Map<Long, Long> baseTabletRows = enablePartitionAnalyze ? new HashMap<>() : Collections.emptyMap();
+                    for (Entry<Long, Long> entry : tabletRows.entrySet()) {
+                        if (changelogIndexId > 0) {
+                            TabletMeta tabletMeta = Env.getCurrentEnv().getTabletInvertedIndex()
+                                    .getTabletMeta(entry.getKey());
+                            // A partition can be force-dropped before the transaction becomes visible.
+                            // Its changelog tablets must not be mistaken for base tablets after removal.
+                            if (tabletMeta == null) {
+                                continue;
+                            }
+                            Partition partition = olapTable.getPartition(tabletMeta.getPartitionId());
+                            if (partition == null) {
+                                continue;
+                            }
+                            if (tabletMeta.getIndexId() == changelogIndexId) {
+                                short partitionReplicaNum = olapTable.getPartitionInfo()
+                                        .getReplicaAllocation(tabletMeta.getPartitionId()).getTotalReplicaNum();
+                                MaterializedIndex changelogIndex = partition.getIndex(changelogIndexId);
+                                // A restore can replace tablets without changing partition/index IDs.
+                                if (changelogIndex == null || changelogIndex.getTablet(entry.getKey()) == null) {
+                                    continue;
+                                }
+                                // Update the partition index that stream P/Q snapshots read. A periodic
+                                // tablet report replaces this estimate with the retained row count, so
+                                // TTL does not leave a lifetime accumulator behind. The transaction
+                                // visibility path holds the table write lock, excluding tablet stats.
+                                // A report may already include this load; adding it again temporarily
+                                // overestimates the count until the next report.
+                                long deltaRows = entry.getValue() / partitionReplicaNum;
+                                changelogIndex.addChangelogRows(deltaRows);
+                                LOG.debug("Changelog rows table {} partition {} index {} tablet {} delta {} count {}",
+                                        olapTable.getId(), partition.getId(), changelogIndexId, entry.getKey(),
+                                        deltaRows, changelogIndex.getRowCount());
+                                continue;
+                            }
                         }
-                        Partition partition = olapTable.getPartition(tabletMeta.getPartitionId());
-                        if (partition == null) {
-                            continue;
+                        rowsForAllReplica += entry.getValue();
+                        if (enablePartitionAnalyze) {
+                            // Partition accounting only matches base tablets. A changelog ID left in
+                            // its pending map would force a scan of every partition under the table lock.
+                            baseTabletRows.put(entry.getKey(), entry.getValue());
                         }
-                        if (tabletMeta.getIndexId() == changelogIndexId) {
-                            short partitionReplicaNum = olapTable.getPartitionInfo()
-                                    .getReplicaAllocation(tabletMeta.getPartitionId()).getTotalReplicaNum();
-                            MaterializedIndex changelogIndex = partition.getIndex(changelogIndexId);
-                            // Update the partition index that stream P/Q snapshots read. A periodic
-                            // tablet report replaces this estimate with the retained row count, so
-                            // TTL does not leave a lifetime accumulator behind. The transaction
-                            // visibility path holds the table write lock, excluding tablet stats.
-                            // A report may already include this load; adding it again temporarily
-                            // overestimates the count until the next report.
-                            changelogIndex.setRowCount(Math.max(0, changelogIndex.getRowCount())
-                                    + entry.getValue() / partitionReplicaNum);
-                            continue;
+                        if (LOG.isDebugEnabled()) {
+                            LOG.debug("Table id {}, tablet id {}, row count {}",
+                                    record.getKey(), entry.getKey(), entry.getValue());
                         }
                     }
-                    rowsForAllReplica += entry.getValue();
+                    long tableUpdateRows = rowsForAllReplica / replicaNum;
+                    LOG.info("Update rows for table {} is {}, replicaNum is {}, "
+                            + "rows for all replica {}, tablets count {}",
+                            olapTable.getName(), tableUpdateRows, replicaNum, rowsForAllReplica, tabletRows.size());
+                    statsStatus.updatedRows.addAndGet(tableUpdateRows);
                     if (enablePartitionAnalyze) {
-                        // Partition accounting only matches base tablets. A changelog ID left in
-                        // its pending map would force a scan of every partition under the table lock.
-                        baseTabletRows.put(entry.getKey(), entry.getValue());
+                        updatePartitionRows(olapTable, baseTabletRows, statsStatus, replicaNum);
                     }
-                    if (LOG.isDebugEnabled()) {
-                        LOG.debug("Table id {}, tablet id {}, row count {}",
-                                record.getKey(), entry.getKey(), entry.getValue());
-                    }
-                }
-                long tableUpdateRows = rowsForAllReplica / replicaNum;
-                LOG.info("Update rows for table {} is {}, replicaNum is {}, "
-                        + "rows for all replica {}, tablets count {}",
-                        olapTable.getName(), tableUpdateRows, replicaNum, rowsForAllReplica, tabletRows.size());
-                statsStatus.updatedRows.addAndGet(tableUpdateRows);
-                if (enablePartitionAnalyze) {
-                    updatePartitionRows(olapTable, baseTabletRows, statsStatus, replicaNum);
+                } finally {
+                    olapTable.writeUnlock();
                 }
             }
             return;
