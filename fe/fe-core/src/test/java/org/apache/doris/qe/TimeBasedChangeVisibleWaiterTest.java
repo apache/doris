@@ -228,6 +228,139 @@ public class TimeBasedChangeVisibleWaiterTest {
     }
 
     @Test
+    public void testClassicVisibleWaitTimeoutsReportVisibleWaitTimeout() throws Exception {
+        // One case times out draining earlier transactions, the other acquiring the publisher lock.
+        for (boolean drainTimesOut : new boolean[] {true, false}) {
+            Env master = mockMasterEnv();
+            mockTsoService(master, CURRENT_TSO);
+            GlobalTransactionMgrIface txnMgr = Mockito.mock(GlobalTransactionMgrIface.class);
+            Mockito.when(txnMgr.getTransactionIdWatermark()).thenReturn(300L);
+            Mockito.when(txnMgr.isPreviousTransactionsFinished(300L, DB_ID, ImmutableList.of(TABLE_ID)))
+                    .thenReturn(!drainTimesOut);
+            InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
+            Database database = Mockito.mock(Database.class);
+            Table table = Mockito.mock(Table.class);
+            Mockito.when(catalog.getDbOrMetaException(DB_ID)).thenReturn(database);
+            Mockito.when(database.getTablesOnIdOrderIfExist(ImmutableList.of(TABLE_ID)))
+                    .thenReturn(ImmutableList.of(table));
+            Mockito.when(table.getId()).thenReturn(TABLE_ID);
+            Mockito.when(table.tryReadLock(Mockito.anyLong(), Mockito.eq(TimeUnit.MILLISECONDS))).thenReturn(false);
+            Map<Long, List<Long>> tables = ImmutableMap.of(DB_ID, ImmutableList.of(TABLE_ID));
+            TAcquireTimeBasedChangeReadFenceRequest request = new TAcquireTimeBasedChangeReadFenceRequest();
+            request.setDbToTableIds(tables);
+            request.setEndTimestampMs(CURRENT_PHYSICAL_TIME_MS);
+            request.setTimeoutMs(100);
+            request.setWaitForTransactions(true);
+            IncrWindowNotReadyException direct;
+            TAcquireTimeBasedChangeReadFenceResult response;
+            try (MockedStatic<Config> config = Mockito.mockStatic(Config.class);
+                    MockedStatic<Env> mocked = Mockito.mockStatic(Env.class)) {
+                config.when(Config::isCloudMode).thenReturn(false);
+                mocked.when(Env::getCurrentEnv).thenReturn(master);
+                mocked.when(Env::getCurrentGlobalTransactionMgr).thenReturn(txnMgr);
+                mocked.when(Env::getCurrentInternalCatalog).thenReturn(catalog);
+                direct = Assertions.assertThrows(IncrWindowNotReadyException.class,
+                        () -> TimeBasedChangeVisibleWaiter.acquireFenceOnMaster(
+                                tables, CURRENT_PHYSICAL_TIME_MS, 100, true), "drainTimesOut=" + drainTimesOut);
+                response = new FrontendServiceImpl(null).acquireTimeBasedChangeReadFence(request);
+            }
+            // 5101 is the code TSOService.waitForReadableWindow reports when a bounded cloud read
+            // times out waiting for visibility; a classic visibility-wait timeout must report the same.
+            Assertions.assertEquals(ErrorCode.ERR_INCR_VISIBLE_WAIT_TIMEOUT, direct.getMysqlErrorCode());
+            Assertions.assertTrue(direct.getReason().startsWith(
+                    drainTimesOut ? "PREVIOUS_TRANSACTIONS_NOT_FINISHED" : "PUBLISHER_LOCK_TIMEOUT"),
+                    direct.getReason());
+            // The remaining fields come from the request and the mocked TSO snapshot; no retry delay is suggested.
+            Assertions.assertEquals(CURRENT_PHYSICAL_TIME_MS, direct.getRequestedEndTimestampMs());
+            Assertions.assertEquals(CURRENT_TSO, direct.getCurrentTso());
+            Assertions.assertEquals(100, direct.getTimeoutMs());
+            Assertions.assertEquals(0, direct.getRetryAfterMs());
+            Assertions.assertEquals(ErrorCode.ERR_INCR_VISIBLE_WAIT_TIMEOUT.getCode(),
+                    response.getWindowNotReady().getErrorCode());
+            TAcquireTimeBasedChangeReadFenceResult decoded = new TAcquireTimeBasedChangeReadFenceResult();
+            new TDeserializer().deserialize(decoded, new TSerializer().serialize(response));
+            IncrWindowNotReadyException propagated = receiveWindowErrorOnFollower(decoded, false);
+            Assertions.assertEquals(ErrorCode.ERR_INCR_VISIBLE_WAIT_TIMEOUT, propagated.getMysqlErrorCode());
+            Assertions.assertEquals(direct.getReason(), propagated.getReason());
+        }
+    }
+
+    @Test
+    public void testClassicFollowerJournalReplayTimeoutReportsVisibleWaitTimeout() throws Exception {
+        Env follower = Mockito.mock(Env.class);
+        Mockito.when(follower.getMasterHost()).thenReturn("127.0.0.1");
+        Mockito.when(follower.getMasterRpcPort()).thenReturn(9020);
+        Mockito.when(follower.getReplayedJournalId()).thenReturn(100L);
+        ConnectContext context = mockContext();
+        Mockito.when(context.getEnv()).thenReturn(follower);
+        TAcquireTimeBasedChangeReadFenceResult response = new TAcquireTimeBasedChangeReadFenceResult();
+        response.setStatus(new TStatus(TStatusCode.OK));
+        response.setCurrentTso(CURRENT_TSO);
+        response.setMaxJournalId(123L);
+        FrontendService.Client client = Mockito.mock(FrontendService.Client.class);
+        // The master answers after the session timeout, 1000 ms (SessionVariable.MIN_CHANGE_VISIBLE_TIMEOUT_MS),
+        // so no time is left for journal replay.
+        Mockito.when(client.acquireTimeBasedChangeReadFence(Mockito.any())).thenAnswer(invocation -> {
+            Thread.sleep(1100);
+            return response;
+        });
+        GenericPool<FrontendService.Client> originalPool = ClientPool.frontendPool;
+        GenericPool<FrontendService.Client> pool = Mockito.mock(GenericPool.class);
+        Mockito.when(pool.borrowObject(Mockito.any(), Mockito.anyInt())).thenReturn(client);
+        ClientPool.frontendPool = pool;
+        String endTimestamp = "2024-01-01 00:00:00";
+        try (MockedStatic<Config> config = Mockito.mockStatic(Config.class)) {
+            config.when(Config::isCloudMode).thenReturn(false);
+            IncrWindowNotReadyException error = Assertions.assertThrows(IncrWindowNotReadyException.class,
+                    () -> TimeBasedChangeVisibleWaiter.waitForVisible(context,
+                            newChangeRelation(1, ImmutableMap.of(OlapScanNode.OLAP_END_TIMESTAMP, endTimestamp)),
+                            ImmutableMap.of(TABLE_QUALIFIER, mockOlapTable(DB_ID, TABLE_ID))));
+            // Same code as the master-side visibility-wait timeouts; the other fields come from the
+            // request, the master's fence response and the session timeout.
+            Assertions.assertEquals(ErrorCode.ERR_INCR_VISIBLE_WAIT_TIMEOUT, error.getMysqlErrorCode());
+            Assertions.assertEquals("FOLLOWER_JOURNAL_REPLAY_TIMEOUT maxJournalId=123", error.getReason());
+            Assertions.assertEquals(OlapScanNode.parseChangeTimestamp(endTimestamp),
+                    error.getRequestedEndTimestampMs());
+            Assertions.assertEquals(CURRENT_TSO, error.getCurrentTso());
+            Assertions.assertEquals(1000, error.getTimeoutMs());
+            Mockito.verify(follower, Mockito.never()).getJournalObservable();
+        } finally {
+            ClientPool.frontendPool = originalPool;
+        }
+    }
+
+    @Test
+    public void testEventualConsistentFollowerFenceKeepsSessionSocketTimeout() throws Exception {
+        Env follower = Mockito.mock(Env.class);
+        Mockito.when(follower.getMasterHost()).thenReturn("127.0.0.1");
+        Mockito.when(follower.getMasterRpcPort()).thenReturn(9020);
+        ConnectContext context = mockContext();
+        context.getSessionVariable().setEnableEventualConsistentChange(true);
+        Mockito.when(context.getEnv()).thenReturn(follower);
+        TAcquireTimeBasedChangeReadFenceResult response = new TAcquireTimeBasedChangeReadFenceResult();
+        response.setStatus(new TStatus(TStatusCode.OK));
+        response.setCurrentTso(CURRENT_TSO);
+        response.setMaxJournalId(123L);
+        FrontendService.Client client = Mockito.mock(FrontendService.Client.class);
+        Mockito.when(client.acquireTimeBasedChangeReadFence(Mockito.any())).thenReturn(response);
+        GenericPool<FrontendService.Client> originalPool = ClientPool.frontendPool;
+        GenericPool<FrontendService.Client> pool = Mockito.mock(GenericPool.class);
+        Mockito.when(pool.borrowObject(Mockito.any(), Mockito.anyInt())).thenReturn(client);
+        ClientPool.frontendPool = pool;
+        try (MockedStatic<Config> config = Mockito.mockStatic(Config.class)) {
+            config.when(Config::isCloudMode).thenReturn(false);
+            TimeBasedChangeVisibleWaiter.waitForVisible(context,
+                    newChangeRelation(1, ImmutableMap.of(OlapScanNode.OLAP_END_TIMESTAMP, "2024-01-01 00:00:00")),
+                    ImmutableMap.of(TABLE_QUALIFIER, mockOlapTable(DB_ID, TABLE_ID)));
+            // An eventual-consistent read does not wait for transactions on the master, so its socket
+            // timeout stays at the 1000 ms session timeout without the 1000 ms grace.
+            Mockito.verify(pool).borrowObject(Mockito.any(), Mockito.eq(1000));
+        } finally {
+            ClientPool.frontendPool = originalPool;
+        }
+    }
+
+    @Test
     public void testFenceFailsWhenConflictCheckFails() throws Exception {
         Env env = mockMasterEnv();
         mockTsoService(env, CURRENT_TSO);
@@ -341,7 +474,7 @@ public class TimeBasedChangeVisibleWaiterTest {
             // Exercise the optional fields over the actual Thrift encoding before the follower receives them.
             TAcquireTimeBasedChangeReadFenceResult decoded = new TAcquireTimeBasedChangeReadFenceResult();
             new TDeserializer().deserialize(decoded, new TSerializer().serialize(response));
-            IncrWindowNotReadyException propagated = receiveWindowErrorOnFollower(decoded);
+            IncrWindowNotReadyException propagated = receiveWindowErrorOnFollower(decoded, true);
             Assertions.assertEquals(code, propagated.getMysqlErrorCode());
             Assertions.assertEquals(CURRENT_TSO, propagated.getCurrentTso());
             Assertions.assertEquals(1000, propagated.getTimeoutMs());
@@ -354,13 +487,16 @@ public class TimeBasedChangeVisibleWaiterTest {
         TAcquireTimeBasedChangeReadFenceResult response = new TAcquireTimeBasedChangeReadFenceResult();
         response.setStatus(new TStatus(TStatusCode.ANALYSIS_ERROR));
         response.setWindowNotReady(new TIncrWindowNotReady(CURRENT_PHYSICAL_TIME_MS, 0, 1000));
-        IncrWindowNotReadyException propagated = receiveWindowErrorOnFollower(response);
+        IncrWindowNotReadyException propagated = receiveWindowErrorOnFollower(response, true);
         Assertions.assertEquals(ErrorCode.ERR_INCR_WINDOW_NOT_READY, propagated.getMysqlErrorCode());
         Assertions.assertEquals("WINDOW_NOT_READY", propagated.getReason());
     }
 
-    private IncrWindowNotReadyException receiveWindowErrorOnFollower(TAcquireTimeBasedChangeReadFenceResult response)
-            throws Exception {
+    /**
+     * Runs waitForVisible on a non-master FE whose master Thrift client is mocked to return the given response.
+     */
+    private IncrWindowNotReadyException receiveWindowErrorOnFollower(TAcquireTimeBasedChangeReadFenceResult response,
+            boolean cloudMode) throws Exception {
         Env follower = Mockito.mock(Env.class);
         Mockito.when(follower.getMasterHost()).thenReturn("127.0.0.1");
         Mockito.when(follower.getMasterRpcPort()).thenReturn(9020);
@@ -373,13 +509,15 @@ public class TimeBasedChangeVisibleWaiterTest {
         Mockito.when(pool.borrowObject(Mockito.any(), Mockito.anyInt())).thenReturn(client);
         ClientPool.frontendPool = pool;
         try (MockedStatic<Config> config = Mockito.mockStatic(Config.class)) {
-            config.when(Config::isCloudMode).thenReturn(true);
+            config.when(Config::isCloudMode).thenReturn(cloudMode);
             IncrWindowNotReadyException error = Assertions.assertThrows(IncrWindowNotReadyException.class,
                     () -> TimeBasedChangeVisibleWaiter.waitForVisible(context,
                             newChangeRelation(1, ImmutableMap.of(OlapScanNode.OLAP_END_TIMESTAMP, "2024-01-01 00:00:00")),
                             ImmutableMap.of(TABLE_QUALIFIER, mockOlapTable(DB_ID, TABLE_ID))));
             Assertions.assertEquals(CURRENT_PHYSICAL_TIME_MS, error.getRequestedEndTimestampMs());
             Assertions.assertEquals(0, error.getCommittedTso());
+            // The socket timeout is the 1000 ms session timeout plus 1000 ms, so the master's typed
+            // timeout response arrives first in both modes.
             Mockito.verify(pool).borrowObject(Mockito.any(), Mockito.eq(2000));
             Mockito.verify(pool).returnObject(Mockito.any(), Mockito.eq(client));
             return error;
