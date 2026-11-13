@@ -20,6 +20,7 @@
 #include <atomic>
 #include <cstdlib>
 #include <cstring>
+#include <functional>
 #include <mutex>
 #include <optional>
 #include <ranges>
@@ -278,6 +279,36 @@ TEST(VariantPathBuilderTest, PromotesValuesAndMaterializesMissingRows) {
         if (expected[row].has_value()) {
             EXPECT_DOUBLE_EQ(data[row], *expected[row]);
         }
+    }
+}
+
+TEST(VariantPathBuilderTest, MemoryFailureBypassesJsonbFallback) {
+    VariantBatchBuilder value_builder;
+    auto row = value_builder.begin_row();
+    row.add_int(42);
+    row.finish();
+    auto values = value_builder.finish_batch();
+    const auto value = values.value_at(0);
+
+    for (const auto point :
+         {"VariantPathBuilder.before_append_value", "VariantPathBuilder.before_append_null_map"}) {
+        SCOPED_TRACE(point);
+        segment_v2::VariantPathBuilder builder(PathInData("metric"));
+        ASSERT_TRUE(builder.append(value, 0).ok());
+        const bool old_enable_debug_points = config::enable_debug_points;
+        config::enable_debug_points = true;
+        DebugPoints::instance()->add_with_callback(
+                point, std::function<void()>([] {
+                    throw Exception(ErrorCode::MEM_ALLOC_FAILED, "Injected allocation failure");
+                }));
+        Defer cleanup {[&] {
+            DebugPoints::instance()->remove(point);
+            config::enable_debug_points = old_enable_debug_points;
+        }};
+        const Status status = builder.append(value, 1);
+        EXPECT_TRUE(status.is<ErrorCode::MEM_ALLOC_FAILED>()) << status;
+        EXPECT_EQ(builder.promotion_count(), 0);
+        EXPECT_EQ(remove_nullable(builder.type())->get_primitive_type(), TYPE_BIGINT);
     }
 }
 
