@@ -60,6 +60,8 @@ suite("test_timestamp_ns_complex_type") {
 
     sql "set default_variant_enable_doc_mode = false"
     sql "drop table if exists timestamp_ns_typed_variant"
+    // typed paths to sparse is internal: only the session variable sets it
+    sql "set default_variant_enable_typed_paths_to_sparse = true"
     sql """
         create table timestamp_ns_typed_variant (
             id int,
@@ -67,14 +69,14 @@ suite("test_timestamp_ns_complex_type") {
                 'ordinary':timestamp_ns,
                 'sparse':timestamp_ns,
                 properties(
-                    "variant_max_subcolumns_count" = "1",
-                    "variant_enable_typed_paths_to_sparse" = "true")
+                    "variant_max_subcolumns_count" = "1")
             >
         )
         duplicate key(id)
         distributed by hash(id) buckets 1
         properties("replication_num" = "1")
     """
+    sql "set default_variant_enable_typed_paths_to_sparse = false"
     sql """
         insert into timestamp_ns_typed_variant values
         (1, parse_to_variant('{"ordinary":"1677-09-21 00:12:43.145224192","sparse":"1969-12-31 23:59:59.999999999"}')),

@@ -859,6 +859,13 @@ Status VariantDocCompactWriter::_initialize_v2_shredder() {
     RETURN_IF_ERROR(variant_writer_helpers::make_variant_shredder_options(
             *_opts.rowset_ctx->tablet_schema, parent_column, VariantShredderPhysicalLayout::DOC,
             &options));
+    // Doc value columns are only in a compaction output schema, which chose the dynamic paths that
+    // the column extracts for all its doc buckets.
+    const auto& compaction_paths = _opts.rowset_ctx->variant_compaction_paths;
+    DORIS_CHECK(compaction_paths != nullptr);
+    const auto layout = compaction_paths->find(parent_column.unique_id());
+    DORIS_CHECK(layout != compaction_paths->end());
+    options.compaction_extracted_paths = &layout->second.sub_path_set;
     _v2_shredder = std::make_unique<VariantShredder>(std::move(options));
     return Status::OK();
 }

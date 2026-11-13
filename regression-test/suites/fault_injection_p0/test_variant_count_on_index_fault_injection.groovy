@@ -31,12 +31,13 @@ suite("test_variant_count_on_index_fault_injection", "p0, nonConcurrent") {
     sql "set enable_fallback_to_original_planner = false"
     sql "set inverted_index_skip_threshold = 0"
     sql "set default_variant_enable_doc_mode = false"
+    sql "set default_variant_subcolumn_extraction_min_rows = 0"
 
     sql """
         CREATE TABLE ${tbl} (
             k INT,
-            v  VARIANT<'c':bigint, PROPERTIES("variant_max_subcolumns_count"="0")> NOT NULL,
-            v2 VARIANT<PROPERTIES("variant_max_subcolumns_count"="0")> NOT NULL,
+            v  VARIANT<'c':bigint, PROPERTIES("variant_max_subcolumns_count" = "2048")> NOT NULL,
+            v2 VARIANT<PROPERTIES("variant_max_subcolumns_count" = "2048")> NOT NULL,
             INDEX idx_v(v) USING INVERTED PROPERTIES("parser" = "english") COMMENT '',
             INDEX idx_v2(v2) USING INVERTED PROPERTIES("parser" = "english") COMMENT '',
             INDEX idx_v_c(v) USING INVERTED PROPERTIES("field_pattern" = "c")

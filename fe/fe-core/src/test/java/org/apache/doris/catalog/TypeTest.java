@@ -18,7 +18,11 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.thrift.TVariantSerializeType;
 
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -178,11 +182,11 @@ public class TypeTest {
         Assertions.assertFalse(Type.matchExactType(v1, v4, false));
 
         VariantType differentMaxSubcolumns = new VariantType(fields1, 2048, false, 10000, 1,
-                false, 0L, 64, false);
+                false, 0L, 64, false, TVariantSerializeType.V1);
         Assertions.assertFalse(Type.matchExactType(v1, differentMaxSubcolumns, false));
 
         VariantType docMode = new VariantType(fields1, 0, false, 10000, 1,
-                true, 0L, 64, false);
+                true, 0L, 64, false, TVariantSerializeType.V1);
         Assertions.assertFalse(Type.matchExactType(v1, docMode, false));
 
     }
@@ -190,7 +194,7 @@ public class TypeTest {
     @Test
     public void testVariantToSqlSerializesNestedGroupProperty() {
         VariantType variantType = new VariantType(new ArrayList<>(), 0, false, 10000, 0,
-                false, 0L, 64, true);
+                false, 0L, 64, true, TVariantSerializeType.V1);
 
         Assertions.assertTrue(variantType.toSql().contains("\"variant_enable_nested_group\" = \"true\""));
     }
@@ -200,7 +204,8 @@ public class TypeTest {
         String comment = "O'Reilly \"quoted\" a\\b";
         ArrayList<VariantField> fields = new ArrayList<>();
         fields.add(new VariantField("price", Type.INT, comment));
-        String sql = new VariantType(fields, 0, false, 10000, 1, false, 0L, 64, false).toSql();
+        String sql = new VariantType(fields, 0, false, 10000, 1, false, 0L, 64, false,
+                TVariantSerializeType.V1).toSql();
 
         org.apache.doris.nereids.types.VariantType parsed = (org.apache.doris.nereids.types.VariantType)
                 new NereidsParser().parseDataType(sql);
@@ -213,6 +218,55 @@ public class TypeTest {
     @Test
     public void testVariantToThriftUsesV2() {
         Assertions.assertTrue(new VariantType().toThrift().types.get(0).scalar_type.variant_is_v2);
+    }
+
+    @Test
+    public void testVariantSerializeTypeIsNotPrintedAndComparedForCountZero() {
+        VariantType v1Zero = new VariantType(new ArrayList<>(), 0, false, 10000, 1, false, 0L, 64, false,
+                TVariantSerializeType.V1);
+        VariantType v2Zero = new VariantType(new ArrayList<>(), 0, false, 10000, 1, false, 0L, 64, false,
+                TVariantSerializeType.V2);
+        VariantType v1Counted = new VariantType(new ArrayList<>(), 2048, false, 10000, 1, false, 0L, 64, false,
+                TVariantSerializeType.V1);
+        VariantType v2Counted = new VariantType(new ArrayList<>(), 2048, false, 10000, 1, false, 0L, 64, false,
+                TVariantSerializeType.V2);
+        // it is internal: neither the catalog nor the nereids type prints it
+        Assertions.assertEquals(v1Zero.toSql(), v2Zero.toSql());
+        Assertions.assertFalse(v2Zero.toSql().contains("serialize_type"), v2Zero.toSql());
+        Assertions.assertEquals(v2Zero.toSql(), new org.apache.doris.nereids.types.VariantType(new ArrayList<>(), 0,
+                false, 10000, 1, false, 0L, 64, false, TVariantSerializeType.V2).toSql());
+        // the serialize type is compared only when the count is 0
+        Assertions.assertNotEquals(v1Zero, v2Zero);
+        Assertions.assertEquals(v1Counted, v2Counted);
+
+        // with doc mode a count of 0 also means every path under V1 and none under V2, so the types differ although
+        // they print the same; the shard count comes from the field the mode reads
+        VariantType v1Doc = new VariantType(new ArrayList<>(), 0, false, 0, 0, true, 0L, 8, false,
+                TVariantSerializeType.V1);
+        VariantType v2Doc = new VariantType(new ArrayList<>(), 0, false, 0, 8, true, 0L, 8, false,
+                TVariantSerializeType.V2);
+        Assertions.assertTrue(v2Doc.toSql().contains("\"variant_max_subcolumns_count\" = \"0\""), v2Doc.toSql());
+        Assertions.assertTrue(v1Doc.toSql().contains("\"variant_sparse_hash_shard_count\" = \"8\""), v1Doc.toSql());
+        Assertions.assertEquals(v1Doc.toSql(), v2Doc.toSql());
+        Assertions.assertNotEquals(v1Doc, v2Doc);
+        Assertions.assertEquals(v2Doc.toSql(), new org.apache.doris.nereids.types.VariantType(new ArrayList<>(), 0,
+                false, 0, 8, true, 0L, 8, false, TVariantSerializeType.V2).toSql());
+    }
+
+    @Test
+    public void testVariantGsonWithoutSerializeTypeReadsAsV1() {
+        VariantType v2 = new VariantType(new ArrayList<>(), 0, false, 10000, 1, false, 0L, 64, false,
+                TVariantSerializeType.V2);
+        JsonObject json = JsonParser.parseString(GsonUtils.GSON.toJson(new Column("v", v2, true)))
+                .getAsJsonObject();
+        // deserialize from text: the Type adapter strips the "clazz" discriminator from the tree it is handed
+        Assertions.assertEquals(TVariantSerializeType.V2,
+                GsonUtils.GSON.fromJson(json.toString(), Column.class).getVariantSerializeType());
+
+        // an image written before the field existed carries no key
+        json.getAsJsonObject("type").remove("variantSerializeType");
+        Assertions.assertEquals(TVariantSerializeType.V1,
+                GsonUtils.GSON.fromJson(json.toString(), Column.class).getVariantSerializeType());
     }
 
     // ===================== Mixed Nesting & Precision =====================

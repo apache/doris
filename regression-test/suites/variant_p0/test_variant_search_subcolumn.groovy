@@ -20,7 +20,7 @@
 suite("test_variant_search_subcolumn") {
     def variantV2Function = "parse_to_variant"
     def table_name = "test_variant_search_subcolumn"
-    sql "set default_variant_doc_materialization_min_rows = 0"
+    sql "set default_variant_subcolumn_extraction_min_rows = 0"
 
     sql "DROP TABLE IF EXISTS ${table_name}"
 
@@ -28,7 +28,7 @@ suite("test_variant_search_subcolumn") {
     sql """
         CREATE TABLE ${table_name} (
             id BIGINT,
-            overflowpropertiesfulltext VARIANT<PROPERTIES("variant_max_subcolumns_count"="0")>,
+            overflowpropertiesfulltext VARIANT<PROPERTIES("variant_max_subcolumns_count" = "2048")>,
             INDEX idx_overflow (overflowpropertiesfulltext) USING INVERTED PROPERTIES (
                 "parser" = "unicode",
                 "lower_case" = "true",

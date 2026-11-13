@@ -21,11 +21,11 @@ suite("test_variant_modify_doc_materialization_min_rows", "p0") {
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
 
-    // Step 1: Create table with variant_doc_materialization_min_rows=10
+    // Step 1: Create table with variant_subcolumn_extraction_min_rows=10
     sql """
         CREATE TABLE ${tableName} (
             k INT,
-            v variant<properties("variant_enable_doc_mode"="true","variant_doc_materialization_min_rows"="10", "variant_doc_hash_shard_count" = "32")>
+            v variant<properties("variant_enable_doc_mode"="true","variant_subcolumn_extraction_min_rows"="10", "variant_sparse_hash_shard_count" = "32")>
         ) ENGINE=OLAP
         DUPLICATE KEY(k)
         DISTRIBUTED BY HASH(k) BUCKETS 1
@@ -38,8 +38,8 @@ suite("test_variant_modify_doc_materialization_min_rows", "p0") {
     // Verify SHOW CREATE TABLE shows min_rows=5
     def createResult = sql """ SHOW CREATE TABLE ${tableName} """
     def createStmt = createResult[0][1]
-    assertTrue(createStmt.contains('"variant_doc_materialization_min_rows" = "10"'),
-        "SHOW CREATE TABLE should show variant_doc_materialization_min_rows=10, got: ${createStmt}")
+    assertTrue(createStmt.contains('"variant_subcolumn_extraction_min_rows" = "10"'),
+        "SHOW CREATE TABLE should show variant_subcolumn_extraction_min_rows=10, got: ${createStmt}")
 
     // Verify tablet meta shows min_rows=5
     // Insert 3 rows with different paths (3 < 5, so no sub-columns should be materialized)
@@ -57,16 +57,16 @@ suite("test_variant_modify_doc_materialization_min_rows", "p0") {
     // Expect: only k and v columns, NO sub-columns extracted (3 rows < min_rows=5)
     qt_desc_step1 """desc ${tableName}"""
 
-    // Step 2: ALTER TABLE MODIFY COLUMN to change variant_doc_materialization_min_rows to 2
+    // Step 2: ALTER TABLE MODIFY COLUMN to change variant_subcolumn_extraction_min_rows to 2
     sql """
-        ALTER TABLE ${tableName} MODIFY COLUMN v variant<properties("variant_enable_doc_mode"="true","variant_doc_materialization_min_rows"="2", "variant_doc_hash_shard_count" = "32")>;
+        ALTER TABLE ${tableName} MODIFY COLUMN v variant<properties("variant_enable_doc_mode"="true","variant_subcolumn_extraction_min_rows"="2", "variant_sparse_hash_shard_count" = "32")>;
     """
 
     // Verify SHOW CREATE TABLE shows min_rows=2
     createResult = sql """ SHOW CREATE TABLE ${tableName} """
     createStmt = createResult[0][1]
-    assertTrue(createStmt.contains('"variant_doc_materialization_min_rows" = "2"'),
-        "SHOW CREATE TABLE should show variant_doc_materialization_min_rows=2 after ALTER, got: ${createStmt}")
+    assertTrue(createStmt.contains('"variant_subcolumn_extraction_min_rows" = "2"'),
+        "SHOW CREATE TABLE should show variant_subcolumn_extraction_min_rows=2 after ALTER, got: ${createStmt}")
 
     // Insert 3 more rows with different paths (3 >= 2, so sub-columns should be materialized for new data)
     sql """ INSERT INTO ${tableName} VALUES

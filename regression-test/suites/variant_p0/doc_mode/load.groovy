@@ -19,7 +19,7 @@ suite("regression_test_variant_doc_value", "p0"){
     def variantV2Function = "parse_to_variant"
 
     sql """ set default_variant_enable_doc_mode = true """
-    sql """ set default_variant_doc_materialization_min_rows = 0 """
+    sql """ set default_variant_subcolumn_extraction_min_rows = 0 """
     def load_json_data = {table_name, file_name ->
         // load the json data
         streamLoad {

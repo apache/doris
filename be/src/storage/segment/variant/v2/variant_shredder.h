@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <gen_cpp/olap_file.pb.h>
+
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -30,10 +32,7 @@
 #include "core/data_type/data_type.h"
 #include "storage/segment/variant/v2/variant_path_builder.h"
 #include "storage/segment/variant/variant_statistics.h"
-
-namespace doris {
-class TabletSchema;
-}
+#include "storage/tablet/tablet_schema.h"
 
 namespace doris::segment_v2 {
 
@@ -46,14 +45,22 @@ struct VariantShredderOptions {
     const TabletSchema* tablet_schema = nullptr;
     int32_t parent_column_unique_id = -1;
     VariantShredderPhysicalLayout physical_layout = VariantShredderPhysicalLayout::ORDINARY;
-    // Zero retains all dynamic paths, matching variant_max_subcolumns_count semantics.
+    // Limit of extracted dynamic paths in both layouts.
     size_t max_subcolumns_count = 0;
     bool typed_paths_to_sparse = false;
+    // What max_subcolumns_count == 0 means: every dynamic path (V1) or none (V2).
+    VariantSerializeTypePB serialize_type = VariantSerializeTypePB::VARIANT_SERIALIZE_V1;
     uint32_t sparse_bucket_count = 1;
     size_t max_sparse_column_statistics_size =
             BeConsts::DEFAULT_VARIANT_MAX_SPARSE_COLUMN_STATS_SIZE;
     uint32_t doc_bucket_count = 1;
+    // variant_subcolumn_extraction_min_rows: a segment with fewer rows extracts no dynamic path
+    // (the doc layout no typed path either). Without doc mode a V1 column with a count of 0 keeps
+    // it 0.
     size_t doc_materialization_min_rows = 0;
+    // Doc layout in compaction: the dynamic paths compaction chose for all doc buckets. Unset
+    // chooses by max_subcolumns_count.
+    const PathSet* compaction_extracted_paths = nullptr;
 };
 
 struct VariantShreddedColumns {

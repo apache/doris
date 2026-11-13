@@ -590,15 +590,15 @@ struct VariantShredder::Impl {
         DorisVector<size_t> all(candidate_builders.size());
         std::iota(all.begin(), all.end(), 0);
         RETURN_IF_ERROR(convert_typed_candidates(all, candidate_builders, storage_types));
-        const VariantPathSelection selection = select_variant_paths(
-                candidates, options.max_subcolumns_count, options.typed_paths_to_sparse);
+        const VariantPathSelection selection = select_variant_paths(candidates, rows, options);
         publish_root(result);
         RETURN_IF_ERROR(publish_materialized(selection, candidate_builders, result));
         RETURN_IF_ERROR(publish_sparse(selection, candidate_builders, result));
         return Status::OK();
     }
 
-    Status finish_doc(const DorisVector<VariantPathBuilder*>& candidate_builders,
+    Status finish_doc(const DorisVector<VariantPathSelectionCandidate>& candidates,
+                      const DorisVector<VariantPathBuilder*>& candidate_builders,
                       const DorisVector<DataTypePtr>& storage_types,
                       VariantShreddedColumns* result) {
         DorisVector<DocPlan> doc_plan;
@@ -607,9 +607,20 @@ struct VariantShredder::Impl {
 
         VariantPathSelection selection;
         if (rows >= options.doc_materialization_min_rows) {
-            selection.materialized.reserve(doc_plan.size());
-            for (const DocPlan& entry : doc_plan) {
-                selection.materialized.push_back(entry.candidate_index);
+            // doc mode never moves typed paths to the sparse encoding
+            DORIS_CHECK(!options.typed_paths_to_sparse);
+            if (options.compaction_extracted_paths != nullptr) {
+                // this shredder holds one doc bucket: compaction chose the dynamic paths of all
+                for (const DocPlan& entry : doc_plan) {
+                    if (candidates[entry.candidate_index].is_typed_path ||
+                        options.compaction_extracted_paths->contains(*entry.path)) {
+                        selection.materialized.push_back(entry.candidate_index);
+                    }
+                }
+            } else {
+                // this shredder holds the whole document: typed paths and the top dynamic paths
+                selection.materialized =
+                        select_variant_paths(candidates, rows, options).materialized;
             }
             RETURN_IF_ERROR(convert_typed_candidates(selection.materialized, candidate_builders,
                                                      storage_types));
@@ -626,7 +637,7 @@ struct VariantShredder::Impl {
         RETURN_IF_ERROR(
                 prepare_logical_candidates(&candidates, &candidate_builders, &storage_types));
         if (options.physical_layout == VariantShredderPhysicalLayout::DOC) {
-            RETURN_IF_ERROR(finish_doc(candidate_builders, storage_types, result));
+            RETURN_IF_ERROR(finish_doc(candidates, candidate_builders, storage_types, result));
         } else {
             RETURN_IF_ERROR(finish_ordinary(candidates, candidate_builders, storage_types, result));
         }

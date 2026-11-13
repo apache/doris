@@ -24,6 +24,7 @@ suite("test_bm25_score_variant", "p0") {
     sql """ set enable_segment_limit_pushdown = true """
     sql """ set enable_match_without_inverted_index = false """
     sql """ set default_variant_enable_typed_paths_to_sparse = false """
+    sql """ set default_variant_subcolumn_extraction_min_rows = 0 """
     sql """ set default_variant_enable_doc_mode = false """
 
     // A1: field_pattern exact name (MATCH_NAME)
@@ -74,7 +75,7 @@ suite("test_bm25_score_variant", "p0") {
         sql """
             CREATE TABLE test_bm25_score_variant_c (
                 id INT,
-                v VARIANT,
+                v VARIANT<PROPERTIES("variant_max_subcolumns_count" = "2048")>,
                 INDEX idx_v_plain (v) USING INVERTED PROPERTIES(
                     "parser"="english",
                     "support_phrase"="true"

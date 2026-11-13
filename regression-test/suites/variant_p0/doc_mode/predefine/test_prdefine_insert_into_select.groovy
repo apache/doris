@@ -21,9 +21,9 @@ suite("predefine_insert_into_select_doc_mode", "p0"){
     sql """ set default_variant_enable_doc_mode = true """
     boolean minrowszero = new Random().nextBoolean();
     if (minrowszero) {
-        sql """ set default_variant_doc_materialization_min_rows = 0 """
+        sql """ set default_variant_subcolumn_extraction_min_rows = 0 """
     } else {
-        sql """ set default_variant_doc_materialization_min_rows = 1000000 """
+        sql """ set default_variant_subcolumn_extraction_min_rows = 1000000 """
     }
 
     sql "DROP TABLE IF EXISTS fromTable"

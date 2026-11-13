@@ -47,7 +47,7 @@ suite("test_search_score_cache", "p0") {
     // Keep v.host materialized as an indexed scalar subcolumn so score() can collect BM25.
     sql """ set default_variant_enable_doc_mode = false """
     sql """ set default_variant_max_subcolumns_count = 0 """
-    sql """ set default_variant_doc_materialization_min_rows = 0 """
+    sql """ set default_variant_subcolumn_extraction_min_rows = 0 """
 
     sql "DROP TABLE IF EXISTS ${tableName}"
     sql """
@@ -56,7 +56,7 @@ suite("test_search_score_cache", "p0") {
             status INT,
             title VARCHAR(200),
             content VARCHAR(500),
-            v VARIANT,
+            v VARIANT<PROPERTIES("variant_max_subcolumns_count" = "2048")>,
             INDEX idx_title(title) USING INVERTED PROPERTIES(
                 "parser" = "english",
                 "support_phrase" = "true"

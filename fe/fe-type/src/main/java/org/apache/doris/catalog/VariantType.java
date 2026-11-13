@@ -19,6 +19,7 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.thrift.TScalarType;
 import org.apache.doris.thrift.TTypeDesc;
+import org.apache.doris.thrift.TVariantSerializeType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -65,6 +66,11 @@ public class VariantType extends ScalarType {
     @SerializedName(value = "enableNestedGroup")
     private final boolean enableNestedGroup;
 
+    // Absent from images written before the field existed; Gson reads them through the no-arg constructor,
+    // whose V1 default therefore keeps every existing column on its old layout.
+    @SerializedName(value = "variantSerializeType")
+    private final TVariantSerializeType variantSerializeType;
+
     private Map<String, String> properties = Maps.newHashMap();
 
     public VariantType() {
@@ -78,6 +84,7 @@ public class VariantType extends ScalarType {
         this.variantDocMaterializationMinRows = 0L;
         this.variantDocShardCount = 64;
         this.enableNestedGroup = false;
+        this.variantSerializeType = TVariantSerializeType.V1;
     }
 
     public VariantType(ArrayList<VariantField> fields) {
@@ -95,6 +102,7 @@ public class VariantType extends ScalarType {
         this.variantDocMaterializationMinRows = 0L;
         this.variantDocShardCount = 64;
         this.enableNestedGroup = false;
+        this.variantSerializeType = TVariantSerializeType.V1;
     }
 
     public VariantType(Map<String, String> properties) {
@@ -109,6 +117,7 @@ public class VariantType extends ScalarType {
         this.variantDocMaterializationMinRows = 0L;
         this.variantDocShardCount = 64;
         this.enableNestedGroup = false;
+        this.variantSerializeType = TVariantSerializeType.V1;
     }
 
     public VariantType(ArrayList<VariantField> fields, Map<String, String> properties) {
@@ -127,6 +136,7 @@ public class VariantType extends ScalarType {
         this.variantDocMaterializationMinRows = 0L;
         this.variantDocShardCount = 64;
         this.enableNestedGroup = false;
+        this.variantSerializeType = TVariantSerializeType.V1;
     }
 
     public VariantType(ArrayList<VariantField> fields, int variantMaxSubcolumnsCount,
@@ -136,7 +146,8 @@ public class VariantType extends ScalarType {
                                                         boolean enableVariantDocMode,
                                                         long variantDocMaterializationMinRows,
                                                         int variantDocShardCount,
-                                                        boolean enableNestedGroup) {
+                                                        boolean enableNestedGroup,
+                                                        TVariantSerializeType variantSerializeType) {
         super(PrimitiveType.VARIANT);
         Preconditions.checkNotNull(fields);
         this.predefinedFields = fields;
@@ -151,6 +162,21 @@ public class VariantType extends ScalarType {
         this.variantDocMaterializationMinRows = variantDocMaterializationMinRows;
         this.variantDocShardCount = variantDocShardCount;
         this.enableNestedGroup = enableNestedGroup;
+        this.variantSerializeType = variantSerializeType;
+    }
+
+    /** This type with the given serialize type, as a new instance. */
+    public VariantType withSerializeType(TVariantSerializeType serializeType) {
+        return new VariantType(predefinedFields, variantMaxSubcolumnsCount, enableTypedPathsToSparse,
+                variantMaxSparseColumnStatisticsSize, variantSparseHashShardCount, enableVariantDocMode,
+                variantDocMaterializationMinRows, variantDocShardCount, enableNestedGroup, serializeType);
+    }
+
+    /** This type with the given variant_enable_typed_paths_to_sparse, as a new instance. */
+    public VariantType withEnableTypedPathsToSparse(boolean typedPathsToSparse) {
+        return new VariantType(predefinedFields, variantMaxSubcolumnsCount, typedPathsToSparse,
+                variantMaxSparseColumnStatisticsSize, variantSparseHashShardCount, enableVariantDocMode,
+                variantDocMaterializationMinRows, variantDocShardCount, enableNestedGroup, variantSerializeType);
     }
 
     @Override
@@ -169,25 +195,24 @@ public class VariantType extends ScalarType {
             sb.append("\"variant_enable_doc_mode\" = \"")
                                     .append(String.valueOf(enableVariantDocMode)).append("\"");
             sb.append(",");
-            sb.append("\"variant_doc_materialization_min_rows\" = \"")
-                                        .append(String.valueOf(variantDocMaterializationMinRows)).append("\"");
-            sb.append(",");
-            sb.append("\"variant_doc_hash_shard_count\" = \"")
-                                        .append(String.valueOf(variantDocShardCount)).append("\"");
+            sb.append("\"variant_max_subcolumns_count\" = \"")
+                                    .append(String.valueOf(variantMaxSubcolumnsCount)).append("\"");
         } else {
             sb.append("\"variant_max_subcolumns_count\" = \"")
                                     .append(String.valueOf(variantMaxSubcolumnsCount)).append("\"");
             sb.append(",");
-            sb.append("\"variant_enable_typed_paths_to_sparse\" = \"")
-                                        .append(String.valueOf(enableTypedPathsToSparse)).append("\"");
-            sb.append(",");
             sb.append("\"variant_max_sparse_column_statistics_size\" = \"")
                                         .append(String.valueOf(variantMaxSparseColumnStatisticsSize)).append("\"");
-            sb.append(",");
-            // Output at least 1 for backward compatibility: old data without this parameter defaults to 0
-            sb.append("\"variant_sparse_hash_shard_count\" = \"")
-                                        .append(String.valueOf(Math.max(1, variantSparseHashShardCount))).append("\"");
         }
+        sb.append(",");
+        sb.append("\"variant_subcolumn_extraction_min_rows\" = \"")
+                                    .append(String.valueOf(variantDocMaterializationMinRows)).append("\"");
+        sb.append(",");
+        // The field of the column's mode holds the shard count. Output at least 1 for backward compatibility:
+        // old data without the parameter defaults to 0.
+        sb.append("\"variant_sparse_hash_shard_count\" = \"")
+                .append(String.valueOf(Math.max(1, enableVariantDocMode ? variantDocShardCount
+                        : variantSparseHashShardCount))).append("\"");
         if (enableNestedGroup) {
             sb.append(",");
             sb.append("\"variant_enable_nested_group\" = \"")
@@ -237,7 +262,10 @@ public class VariantType extends ScalarType {
                 && enableTypedPathsToSparse == otherVariantType.enableTypedPathsToSparse
                 && enableVariantDocMode == otherVariantType.enableVariantDocMode
                 && variantDocMaterializationMinRows == otherVariantType.variantDocMaterializationMinRows
-                && enableNestedGroup == otherVariantType.enableNestedGroup;
+                && enableNestedGroup == otherVariantType.enableNestedGroup
+                // the serialize type only changes what a max subcolumns count of 0 means
+                && (variantMaxSubcolumnsCount != 0 || enableNestedGroup
+                        || variantSerializeType == otherVariantType.variantSerializeType);
     }
 
     @Override
@@ -279,6 +307,10 @@ public class VariantType extends ScalarType {
 
     public boolean getEnableNestedGroup() {
         return enableNestedGroup;
+    }
+
+    public TVariantSerializeType getVariantSerializeType() {
+        return variantSerializeType;
     }
 
 }

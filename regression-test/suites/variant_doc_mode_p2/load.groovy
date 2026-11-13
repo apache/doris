@@ -21,9 +21,9 @@ suite("test_doc_value_p2", "nonConcurrent,p2"){
     sql """ set default_variant_enable_doc_mode = true """
     boolean random = new Random().nextBoolean()
     if (random) {
-        sql """ set default_variant_doc_materialization_min_rows = 0 """
+        sql """ set default_variant_subcolumn_extraction_min_rows = 0 """
     } else {
-        sql """ set default_variant_doc_materialization_min_rows = 10000000 """
+        sql """ set default_variant_subcolumn_extraction_min_rows = 10000000 """
     }
     // prepare test table
     def timeout = 300000

@@ -21,7 +21,7 @@ suite("test_variant_predefine_type_multi_index", "p0"){
     sql """ set enable_match_without_inverted_index = false """
     sql """ set enable_segment_limit_pushdown = true """
     sql """ set default_variant_enable_typed_paths_to_sparse = false """
-    sql """ set default_variant_doc_materialization_min_rows = 0 """
+    sql """ set default_variant_subcolumn_extraction_min_rows = 0 """
 
     def tableName = "test_variant_predefine_type_multi_index"
     sql "DROP TABLE IF EXISTS ${tableName}"

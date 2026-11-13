@@ -185,6 +185,33 @@ private:
     std::shared_ptr<ColumnReader> _owner;
 };
 
+// V2 with count 0 keeps dynamic paths (and typed ones with typed_paths_to_sparse) in the sparse
+// column, so a template path `t` may be a subcolumn but a dynamic `a` may not. A BE of an older
+// version, which does not know the serialize type, writes such a column with every path extracted.
+// Reading it fails: compaction would drop those subcolumns, as V2 with count 0 folds none of them
+// into the sparse column.
+Status check_variant_serialize_type_layout(const TabletColumn& column,
+                                           const SubcolumnColumnMetaInfo& subcolumns,
+                                           const io::FileReaderSPtr& segment_file) {
+    if (column.variant_serialize_type() != VariantSerializeTypePB::VARIANT_SERIALIZE_V2 ||
+        column.variant_max_subcolumns_count() != 0 || column.variant_enable_doc_mode() ||
+        column.variant_enable_nested_group()) {
+        return Status::OK();
+    }
+    for (const auto& entry : subcolumns) {
+        if (entry->path.empty()) {
+            continue; // the root
+        }
+        if (!entry->path.get_is_typed() || column.variant_enable_typed_paths_to_sparse()) {
+            return Status::InternalError(
+                    "variant column {} uses serialize type V2 with max subcolumns count 0, but "
+                    "segment {} materializes path {}",
+                    column.name(), segment_file->path().native(), entry->path.get_path());
+        }
+    }
+    return Status::OK();
+}
+
 } // namespace
 
 const SubcolumnColumnMetaInfo::Node* VariantColumnReader::get_subcolumn_meta_by_path(
@@ -1398,7 +1425,8 @@ Status VariantColumnReader::init(const ColumnReaderOptions& opts, ColumnMetaAcce
                                                                   num_rows, _nested_group_readers));
     }
 
-    return Status::OK();
+    return check_variant_serialize_type_layout(_tablet_schema->column_by_uid(_root_unique_id),
+                                               *_subcolumns_meta_info, file_reader);
 }
 
 Status VariantColumnReader::create_reader_from_external_meta(const std::string& path,
@@ -1466,8 +1494,10 @@ Status VariantColumnReader::load_external_meta_once(OlapReaderStatistics* stats,
                                                _tablet_schema->column_by_uid(_root_unique_id))
                                                ? _statistics.get()
                                                : nullptr;
-    return _ext_meta_reader->load_all_once(_subcolumns_meta_info.get(), variant_stats, stats,
-                                           source_io_ctx);
+    RETURN_IF_ERROR(_ext_meta_reader->load_all_once(_subcolumns_meta_info.get(), variant_stats,
+                                                    stats, source_io_ctx));
+    return check_variant_serialize_type_layout(_tablet_schema->column_by_uid(_root_unique_id),
+                                               *_subcolumns_meta_info, _segment_file_reader);
 }
 
 TabletIndexes VariantColumnReader::find_subcolumn_tablet_indexes(const TabletColumn& column,
