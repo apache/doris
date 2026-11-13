@@ -65,7 +65,7 @@ suite ("test_rename_rollup") {
         """
     sql """ sync """
 
-    qt_select """ select * from ${tableName} order by user_id """
+    order_qt_select """ select * from ${tableName} order by user_id """
 
     qt_select """ select user_id, sum(cost) from ${tableName} group by user_id order by user_id """
 
@@ -79,7 +79,7 @@ suite ("test_rename_rollup") {
         """
     qt_desc """ desc ${tableName} ALL"""
 
-    qt_select""" select * from ${tableName} order by user_id """
+    order_qt_select """ select * from ${tableName} order by user_id """
 
     qt_select """ select user_id, sum(cost) from ${tableName} group by user_id order by user_id """
 
