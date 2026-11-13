@@ -610,53 +610,38 @@ public class InternalCatalog implements CatalogIf<Database> {
     }
 
     public void recoverDatabase(String dbName, long dbId, String newDbName) throws DdlException {
-        // check is new db with same name already exist
-        if (!Strings.isNullOrEmpty(newDbName)) {
-            if (getDb(newDbName).isPresent()) {
-                throw new DdlException("Database[" + newDbName + "] already exist.");
-            }
-        } else {
-            if (getDb(dbName).isPresent()) {
-                throw new DdlException("Database[" + dbName + "] already exist.");
-            }
-        }
-
-        Database db = Env.getCurrentRecycleBin().recoverDatabase(dbName, dbId);
-
-        // add db to catalog
         if (!tryLock(false)) {
             throw new DdlException("Failed to acquire catalog lock. Try again");
         }
-        db.writeLock();
-        List<Table> tableList = db.getTablesOnIdOrder();
-        MetaLockUtils.writeLockTables(tableList);
+        Database db;
         try {
-            if (!Strings.isNullOrEmpty(newDbName)) {
-                if (fullNameToDb.containsKey(newDbName)) {
-                    throw new DdlException("Database[" + newDbName + "] already exist.");
-                    // it's ok that we do not put db back to CatalogRecycleBin
-                    // cause this db cannot recover any more
-                }
-            } else {
-                if (fullNameToDb.containsKey(db.getFullName())) {
-                    throw new DdlException("Database[" + db.getFullName() + "] already exist.");
-                    // it's ok that we do not put db back to CatalogRecycleBin
-                    // cause this db cannot recover any more
-                }
+            // check is new db with same name already exist
+            String targetDbName = Strings.isNullOrEmpty(newDbName) ? dbName : newDbName;
+            if (getDb(targetDbName).isPresent()) {
+                throw new DdlException("Database[" + targetDbName + "] already exist.");
             }
-            if (!Strings.isNullOrEmpty(newDbName)) {
-                db.setNameWithLock(newDbName);
+
+            db = Env.getCurrentRecycleBin().recoverDatabase(dbName, dbId);
+            db.writeLock();
+            List<Table> tableList = db.getTablesOnIdOrder();
+            MetaLockUtils.writeLockTables(tableList);
+            try {
+                if (!Strings.isNullOrEmpty(newDbName)) {
+                    db.setNameWithLock(newDbName);
+                }
+                // add db to catalog
+                fullNameToDb.put(db.getFullName(), db);
+                idToDb.put(db.getId(), db);
+                // log
+                RecoverInfo recoverInfo = new RecoverInfo(db.getId(), -1L, -1L, newDbName, "", "", "", "");
+                Env.getCurrentEnv().getEditLog().logRecoverDb(recoverInfo);
+                db.unmarkDropped();
+                registerDbFunctionsToNereids(db);
+            } finally {
+                MetaLockUtils.writeUnlockTables(tableList);
+                db.writeUnlock();
             }
-            fullNameToDb.put(db.getFullName(), db);
-            idToDb.put(db.getId(), db);
-            // log
-            RecoverInfo recoverInfo = new RecoverInfo(db.getId(), -1L, -1L, newDbName, "", "", "", "");
-            Env.getCurrentEnv().getEditLog().logRecoverDb(recoverInfo);
-            db.unmarkDropped();
-            registerDbFunctionsToNereids(db);
         } finally {
-            MetaLockUtils.writeUnlockTables(tableList);
-            db.writeUnlock();
             unlock();
         }
         LOG.info("recover database[{}]", db.getId());
