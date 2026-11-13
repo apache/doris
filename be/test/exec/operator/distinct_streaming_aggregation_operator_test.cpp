@@ -133,6 +133,55 @@ TEST_F(DistinctStreamingAggOperatorTest, test2) {
     }
 }
 
+struct DistinctStreamingAggHavingLimitTest : public DistinctStreamingAggOperatorTest,
+                                             public ::testing::WithParamInterface<int> {
+    void SetUp() override {
+        DistinctStreamingAggOperatorTest::SetUp();
+        state->_batch_size = GetParam();
+        op->_is_streaming_preagg = false;
+        op->_limit = 1;
+        auto type = std::make_shared<DataTypeUInt8>();
+        create_op({type}, {type});
+        // Use the Boolean group key as HAVING: reject 0 and keep 1.
+        // These two groups are sufficient to test LIMIT after filtering.
+        local_state->_conjuncts = MockSlotRef::create_mock_contexts(0, type);
+    }
+};
+
+TEST_P(DistinctStreamingAggHavingLimitTest, filter_before_limit_in_one_block) {
+    // Both groups arrive in one block. LIMIT must not discard 1 before HAVING rejects 0.
+    mock_op->_outout_blocks.push_back(ColumnHelper::create_block<DataTypeUInt8>({0, 1}));
+    Block block;
+    bool eos = false;
+    ASSERT_TRUE(op->get_block(state.get(), &block, &eos).ok());
+    EXPECT_TRUE(ColumnHelper::block_equal(block, ColumnHelper::create_block<DataTypeUInt8>({1})));
+    EXPECT_TRUE(eos);
+    EXPECT_TRUE(local_state->_reach_limit);
+    EXPECT_EQ(local_state->_num_rows_returned, 1);
+}
+
+TEST_P(DistinctStreamingAggHavingLimitTest, read_next_block_after_rejected_group) {
+    // A rejected group must not stop the child before the next block arrives.
+    mock_op->_outout_blocks.push_back(ColumnHelper::create_block<DataTypeUInt8>({0}));
+    mock_op->_outout_blocks.push_back(ColumnHelper::create_block<DataTypeUInt8>({1}));
+    Block block;
+    bool eos = false;
+    ASSERT_TRUE(op->get_block(state.get(), &block, &eos).ok());
+    EXPECT_EQ(block.rows(), 0);
+    EXPECT_FALSE(eos);
+    EXPECT_FALSE(local_state->_reach_limit);
+    EXPECT_EQ(local_state->_num_rows_returned, 0);
+
+    ASSERT_TRUE(op->get_block(state.get(), &block, &eos).ok());
+    EXPECT_TRUE(ColumnHelper::block_equal(block, ColumnHelper::create_block<DataTypeUInt8>({1})));
+    EXPECT_TRUE(eos);
+    EXPECT_TRUE(local_state->_reach_limit);
+    EXPECT_EQ(local_state->_num_rows_returned, 1);
+}
+
+INSTANTIATE_TEST_SUITE_P(BatchSizes, DistinctStreamingAggHavingLimitTest,
+                         ::testing::Values(1, 1024));
+
 TEST_F(DistinctStreamingAggOperatorTest, test3) {
     // batch size  = 10
     op->_is_streaming_preagg = true;
