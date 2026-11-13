@@ -21,15 +21,21 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
+import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.Subtract;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
+import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
@@ -39,6 +45,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
+import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.JoinUtils;
 
@@ -77,6 +84,7 @@ class IvmJoinDeltaHandler {
     private static final String NULL_SIDE_DETAIL_DELTA_ALIAS = "__DORIS_IVM_NULL_SIDE_DETAIL_DELTA__";
     private static final String NULL_SIDE_EVENT_KEY_PREFIX = "__DORIS_IVM_NULL_SIDE_EVENT_KEY_";
     private static final String NULL_SIDE_KEY_DELTA_ALIAS = "__DORIS_IVM_NULL_SIDE_KEY_DELTA__";
+    private static final String NULL_SIDE_KEY_NET_COUNT_ALIAS = "__DORIS_IVM_NULL_SIDE_NET_COUNT__";
     private static final String NULL_SIDE_KEY_POSITIVE_ALIAS = "__DORIS_IVM_NULL_SIDE_KEY_POSITIVE__";
     private static final String NULL_SIDE_KEY_NEGATIVE_ALIAS = "__DORIS_IVM_NULL_SIDE_KEY_NEGATIVE__";
     private static final String NULL_SIDE_PRE_SNAPSHOT_ALIAS = "__DORIS_IVM_NULL_SIDE_PRE_SNAPSHOT__";
@@ -146,9 +154,7 @@ class IvmJoinDeltaHandler {
         }
         Plan deltaSideChild = deltaOnLeft ? join.left() : join.right();
         return rewriteNullSideDelta(new NullSideDeltaContext(join, deltaOnLeft, delta, leftInput, rightInput,
-                helper.preSnapshot(deltaSideChild, rewriteState),
-                helper.postSnapshot(deltaSideChild, rewriteState),
-                rewriteState, delta.maxDeltaIndex));
+                deltaSideChild, rewriteState, delta.maxDeltaIndex));
     }
 
     private IvmDeltaRewriteResult rewriteInnerJoinContribution(LogicalJoin<? extends Plan, ? extends Plan> join,
@@ -327,9 +333,9 @@ class IvmJoinDeltaHandler {
         // full null-side relation, so retain all branches and only replace the one delta scan
         // with its pre/post snapshot.
         Pair<Plan, Map<Slot, Slot>> nullSidePreSnapshot = helper.remapOutputs(helper.aliasPlan(
-                freshSnapshot(deltaContext.deltaSidePreSnapshot), NULL_SIDE_PRE_SNAPSHOT_ALIAS));
+                freshSnapshot(deltaContext.deltaSideSnapshot(false)), NULL_SIDE_PRE_SNAPSHOT_ALIAS));
         Pair<Plan, Map<Slot, Slot>> nullSidePostSnapshot = helper.remapOutputs(helper.aliasPlan(
-                freshSnapshot(deltaContext.deltaSidePostSnapshot), NULL_SIDE_POST_SNAPSHOT_ALIAS));
+                freshSnapshot(deltaContext.deltaSideSnapshot(true)), NULL_SIDE_POST_SNAPSHOT_ALIAS));
         LogicalProject<Plan> preNullProject = buildNullSideRepairProject(deltaContext,
                 freshSideInput(deltaContext.nonDeltaSideInput()),
                 insertedNullSideDelta.second, nullSideInserts, nullSidePreSnapshot,
@@ -373,6 +379,10 @@ class IvmJoinDeltaHandler {
         //        affected null_side_delete_delta keys LEFT ANTI JOIN null_side_post_snapshot
         //      For those keys, the new MV needs one null-side row. The event carries
         //      the join keys, sets null-side outputs to NULL, and uses dml_factor = +1.
+        //
+        // When the null-side equality slots cover a proven unique key, the two existence checks above can
+        // instead be replaced by one signed key aggregate: pre/post counts are each 0 or 1, so the NULL-row
+        // change is -SUM(dml_factor). No null-side snapshot is needed to generate those repair events.
         //
         // By merging the bare join and NULL-row repair rows into null_side_events, the
         // retained-side snapshot is scanned/probed once instead of three times.
@@ -513,11 +523,17 @@ class IvmJoinDeltaHandler {
     private NullSideEventPlan buildNullSideEventPlan(
             NullSideDeltaContext deltaContext, EquiJoinKeys equiJoinKeys) {
         Plan detailEvent = buildNullSideDetailEvent(deltaContext, equiJoinKeys);
-        Plan preNullEvent = buildNullSideRepairEvent(deltaContext, equiJoinKeys, false,
-                new TinyIntLiteral((byte) -1));
-        Plan postNullEvent = buildNullSideRepairEvent(deltaContext, equiJoinKeys, true,
-                new TinyIntLiteral((byte) 1));
-        LogicalUnion union = helper.buildUnionAll(ImmutableList.of(detailEvent, preNullEvent, postNullEvent));
+        LogicalUnion union;
+        if (hasUniqueNullSideKeys(deltaContext, equiJoinKeys)) {
+            union = helper.buildUnionAll(ImmutableList.of(detailEvent,
+                    buildUniqueKeyRepairEvent(deltaContext, equiJoinKeys)));
+        } else {
+            Plan preNullEvent = buildNullSideRepairEvent(deltaContext, equiJoinKeys, false,
+                    new TinyIntLiteral((byte) -1));
+            Plan postNullEvent = buildNullSideRepairEvent(deltaContext, equiJoinKeys, true,
+                    new TinyIntLiteral((byte) 1));
+            union = helper.buildUnionAll(ImmutableList.of(detailEvent, preNullEvent, postNullEvent));
+        }
 
         List<Slot> unionOutputs = union.getOutput();
         Map<Slot, Slot> nullSideOutputMapping = new HashMap<>();
@@ -532,6 +548,53 @@ class IvmJoinDeltaHandler {
         Slot sequenceSlot = unionOutputs.get(unionOutputs.size() - 1);
         return new NullSideEventPlan(union, nullSideOutputMapping, eventKeySlots,
                 dmlFactorSlot, sequenceSlot);
+    }
+
+    /**
+     * Use the snapshot relation's proof, never the incremental stream: a stream can contain several versions of
+     * the same key. Only direct slots are accepted; a non-injective expression over a unique slot need not be unique.
+     */
+    private boolean hasUniqueNullSideKeys(NullSideDeltaContext context, EquiJoinKeys keys) {
+        Set<Slot> keySlots = new HashSet<>();
+        for (Expression key : context.deltaSideKeyExpressions(keys)) {
+            if (!(key instanceof Slot)) {
+                return false;
+            }
+            keySlots.add((Slot) key);
+        }
+        Plan nullSide = context.isDeltaOnLeft ? context.join.left() : context.join.right();
+        return nullSide.getLogicalProperties().getTrait().isUnique(keySlots);
+    }
+
+    /**
+     * For a unique matching key, pre/post multiplicities are in {0, 1}. Hence the NULL-row change is exactly
+     * -(post - pre), without querying either snapshot. Detail changes remain in their own UNION branch.
+     */
+    private Plan buildUniqueKeyRepairEvent(NullSideDeltaContext context, EquiJoinKeys keys) {
+        Pair<Plan, Map<Slot, Slot>> delta = helper.remapOutputs(helper.aliasPlan(
+                helper.freshPlan(context.deltaSideResult().plan), NULL_SIDE_KEY_DELTA_ALIAS));
+        ImmutableList.Builder<Expression> groupBy = ImmutableList.builder();
+        ImmutableList.Builder<NamedExpression> outputs = ImmutableList.builder();
+        ImmutableSet.Builder<Expression> nonNullKeys = ImmutableSet.builder();
+        List<Expression> keyExpressions = context.deltaSideKeyExpressions(keys);
+        for (int i = 0; i < keyExpressions.size(); i++) {
+            Expression key = ExpressionUtils.replace(keyExpressions.get(i), delta.second);
+            groupBy.add(key);
+            outputs.add(new Alias(key, eventKeyName(i)));
+            // Ordinary equality cannot match NULL keys. Filter only repair candidates, never detail events.
+            nonNullKeys.add(new Not(new IsNull(key)));
+        }
+        Alias netCount = new Alias(new Sum(delta.second.get(context.deltaSideResult().dmlFactorSlot)),
+                NULL_SIDE_KEY_NET_COUNT_ALIAS);
+        outputs.add(netCount);
+        Plan aggregate = new LogicalAggregate<>(groupBy.build(), outputs.build(),
+                new LogicalFilter<>(nonNullKeys.build(), delta.first));
+        Plan changedKeys = new LogicalFilter<>(ImmutableSet.of(
+                new Not(new EqualTo(netCount.toSlot(), new BigIntLiteral(0)))), aggregate);
+        // The proven unique endpoints constrain netCount to -1/0/+1; keep the existing event factor type.
+        Expression factor = new Cast(new Subtract(new BigIntLiteral(0), netCount.toSlot()), TinyIntType.INSTANCE);
+        return projectNullSideRepairEvent(context, changedKeys,
+                aggregate.getOutput().subList(0, keyExpressions.size()), factor);
     }
 
     /**
@@ -573,8 +636,7 @@ class IvmJoinDeltaHandler {
                 new GreaterThan(flagSlot, new TinyIntLiteral((byte) 0))), deltaKeys.plan);
         String snapshotAlias = postSnapshot ? NULL_SIDE_POST_SNAPSHOT_ALIAS : NULL_SIDE_PRE_SNAPSHOT_ALIAS;
         Pair<Plan, Map<Slot, Slot>> nullSideSnapshot = helper.remapOutputs(helper.aliasPlan(
-                freshSnapshot(postSnapshot ? deltaContext.deltaSidePostSnapshot
-                        : deltaContext.deltaSidePreSnapshot), snapshotAlias));
+                freshSnapshot(deltaContext.deltaSideSnapshot(postSnapshot)), snapshotAlias));
 
         ImmutableList.Builder<Expression> antiConjuncts = ImmutableList.builderWithExpectedSize(
                 deltaContext.deltaSideKeyExpressions(equiJoinKeys).size());
@@ -587,16 +649,21 @@ class IvmJoinDeltaHandler {
                 antiConjuncts.build(), ImmutableList.of(), join.getDistributeHint(),
                 affectedKeys, nullSideSnapshot.first, JoinReorderContext.EMPTY);
 
+        return projectNullSideRepairEvent(deltaContext, antiJoin, deltaKeys.keySlots, dmlFactor);
+    }
+
+    private Plan projectNullSideRepairEvent(NullSideDeltaContext deltaContext, Plan source,
+            List<Slot> keySlots, Expression dmlFactor) {
         ImmutableList.Builder<NamedExpression> projects = ImmutableList.builder();
-        for (int i = 0; i < deltaKeys.keySlots.size(); i++) {
-            projects.add(new Alias(deltaKeys.keySlots.get(i), eventKeyName(i)));
+        for (int i = 0; i < keySlots.size(); i++) {
+            projects.add(new Alias(keySlots.get(i), eventKeyName(i)));
         }
         for (Slot slot : nullSideValueSlots(deltaContext)) {
             projects.add(new Alias(new NullLiteral(slot.getDataType()), slot.getName()));
         }
         projects.add(new Alias(dmlFactor, Column.IVM_DML_FACTOR_COL));
         projects.add(new Alias(deltaContext.paddingSequence(), Column.SEQUENCE_COL));
-        return new LogicalProject<>(projects.build(), antiJoin);
+        return new LogicalProject<>(projects.build(), source);
     }
 
     /**
@@ -828,8 +895,7 @@ class IvmJoinDeltaHandler {
         private final IvmDeltaRewriteResult deltaSideResult;
         private final SideInput leftInput;
         private final SideInput rightInput;
-        private final Pair<Plan, Map<Slot, Slot>> deltaSidePreSnapshot;
-        private final Pair<Plan, Map<Slot, Slot>> deltaSidePostSnapshot;
+        private final Plan deltaSideSource;
         private final IvmDeltaRewriteState rewriteState;
         private final int maxDeltaIndex;
 
@@ -839,16 +905,14 @@ class IvmJoinDeltaHandler {
         private NullSideDeltaContext(LogicalJoin<? extends Plan, ? extends Plan> join,
                 boolean deltaOnLeft, IvmDeltaRewriteResult deltaSideResult,
                 SideInput leftInput, SideInput rightInput,
-                Pair<Plan, Map<Slot, Slot>> deltaSidePreSnapshot,
-                Pair<Plan, Map<Slot, Slot>> deltaSidePostSnapshot, IvmDeltaRewriteState rewriteState,
+                Plan deltaSideSource, IvmDeltaRewriteState rewriteState,
                 int maxDeltaIndex) {
             this.join = join;
             this.isDeltaOnLeft = deltaOnLeft;
             this.deltaSideResult = deltaSideResult;
             this.leftInput = leftInput;
             this.rightInput = rightInput;
-            this.deltaSidePreSnapshot = deltaSidePreSnapshot;
-            this.deltaSidePostSnapshot = deltaSidePostSnapshot;
+            this.deltaSideSource = deltaSideSource;
             this.rewriteState = rewriteState;
             this.maxDeltaIndex = maxDeltaIndex;
         }
@@ -858,6 +922,12 @@ class IvmJoinDeltaHandler {
          */
         private IvmDeltaRewriteResult deltaSideResult() {
             return deltaSideResult;
+        }
+
+        // Unique-key event repair does not need either null-side snapshot.
+        private Pair<Plan, Map<Slot, Slot>> deltaSideSnapshot(boolean postSnapshot) {
+            return postSnapshot ? IvmDeltaRewriteHelper.INSTANCE.postSnapshot(deltaSideSource, rewriteState)
+                    : IvmDeltaRewriteHelper.INSTANCE.preSnapshot(deltaSideSource, rewriteState);
         }
 
         private Expression paddingSequence() {

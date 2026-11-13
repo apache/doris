@@ -139,7 +139,11 @@ abstract class IvmDeltaTestBase {
 
     /** Builds a scan for the given table id and name (for delta plan generator tests). */
     protected LogicalOlapScan buildScanForTable(long tableId, String tableName) {
-        OlapTable table = PlanConstructor.newOlapTable(tableId, tableName, 0);
+        return buildScanForTable(tableId, tableName, KeysType.DUP_KEYS);
+    }
+
+    protected LogicalOlapScan buildScanForTable(long tableId, String tableName, KeysType keysType) {
+        OlapTable table = PlanConstructor.newOlapTable(tableId, tableName, 0, keysType);
         addTestPartition(table);
         enableChangelog(table);
         table.setQualifiedDbName("test_db");
