@@ -60,9 +60,9 @@
 #include "storage/rowset/rowset_fwd.h"
 #include "storage/rowset/rowset_reader.h"
 #include "storage/rowset/rowset_writer_context.h"
+#include "storage/segment/column_read_ahead_resources.h"
 #include "storage/segment/column_reader.h"
 #include "storage/segment/rowid_read_ahead.h"
-#include "storage/segment/segment_read_ahead.h"
 #include "storage/tablet/tablet_fwd.h"
 #include "storage/txn/txn_manager.h"
 #include "util/bvar_helper.h"
@@ -166,8 +166,8 @@ Status _read_row_store_with_read_ahead(
     }
     read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
     read_options.io_ctx.file_cache_stats = &stats.file_cache_stats;
-    std::unique_ptr<segment_v2::SegmentReadAhead> read_ahead;
-    RETURN_IF_ERROR(segment_v2::SegmentReadAhead::create_for_query(
+    std::shared_ptr<const segment_v2::ColumnReadAheadResources> read_ahead;
+    RETURN_IF_ERROR(segment_v2::ColumnReadAheadResources::create_for_query(
             segment->file_reader(), ExecEnv::GetInstance(), read_ahead_context, read_options,
             &read_ahead));
 
@@ -181,7 +181,7 @@ Status _read_row_store_with_read_ahead(
         return column_iterator->read_by_rowids(rowids.data(), rowids.size(), result);
     }
     return segment_v2::read_column_by_rowids_with_read_ahead(
-            *segment, column, rowids, result, read_options, column_iterator, *read_ahead);
+            *segment, column, rowids, result, read_options, column_iterator, read_ahead);
 }
 
 } // namespace

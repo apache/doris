@@ -36,39 +36,38 @@ namespace segment_v2 {
 
 class ColumnIterator;
 class Segment;
-class SegmentReadAhead;
+struct ColumnReadAheadResources;
 
 struct RowIdColumnRead {
     /// Logical slot used to resolve the physical TabletColumn.
     SlotDescriptor* slot {nullptr};
     /// Destination column populated by the exact row-id read.
     MutableColumnPtr* result {nullptr};
-    /// Per-column read options updated to use the read-ahead reader.
+    /// Per-column read options, including request-scoped constants and statistics.
     StorageReadOptions* read_options {nullptr};
     /// Iterator initialized on demand and reused for decoding.
     std::unique_ptr<ColumnIterator>* iterator {nullptr};
 };
 
-/// Initializes top-level scalar iterators on the read-ahead reader and submits their data pages
-/// together. Complex columns and extracted variant paths keep the original Segment path.
-Status prepare_columns_by_rowids_with_read_ahead(Segment& segment, const TabletSchema& schema,
-                                                 const std::vector<uint32_t>& row_ids,
-                                                 std::span<RowIdColumnRead> columns,
-                                                 SegmentReadAhead& read_ahead);
+/// Initializes top-level scalar iterators and submits their independently planned pages before
+/// decoding. Complex columns and extracted Variant paths keep the original Segment path.
+Status prepare_columns_by_rowids_with_read_ahead(
+        Segment& segment, const TabletSchema& schema, const std::vector<uint32_t>& row_ids,
+        std::span<RowIdColumnRead> columns,
+        const std::shared_ptr<const ColumnReadAheadResources>& read_ahead);
 
 /// Prepares all columns, then delegates decoding to Segment::seek_and_read_by_rowid().
-Status read_columns_by_rowids_with_read_ahead(Segment& segment, const TabletSchema& schema,
-                                              const std::vector<uint32_t>& row_ids,
-                                              std::span<RowIdColumnRead> columns,
-                                              SegmentReadAhead& read_ahead);
+Status read_columns_by_rowids_with_read_ahead(
+        Segment& segment, const TabletSchema& schema, const std::vector<uint32_t>& row_ids,
+        std::span<RowIdColumnRead> columns,
+        const std::shared_ptr<const ColumnReadAheadResources>& read_ahead);
 
 /// Reads a physical scalar column whose TabletColumn is known, such as the row-store column.
-Status read_column_by_rowids_with_read_ahead(Segment& segment, const TabletColumn& column,
-                                             const std::vector<uint32_t>& row_ids,
-                                             MutableColumnPtr& result,
-                                             StorageReadOptions& read_options,
-                                             std::unique_ptr<ColumnIterator>& iterator,
-                                             SegmentReadAhead& read_ahead);
+Status read_column_by_rowids_with_read_ahead(
+        Segment& segment, const TabletColumn& column, const std::vector<uint32_t>& row_ids,
+        MutableColumnPtr& result, StorageReadOptions& read_options,
+        std::unique_ptr<ColumnIterator>& iterator,
+        const std::shared_ptr<const ColumnReadAheadResources>& read_ahead);
 
 } // namespace segment_v2
 } // namespace doris

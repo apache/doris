@@ -70,12 +70,14 @@
 #include "storage/rowset/rowset_reader_context.h"
 #include "storage/schema.h"
 #include "storage/segment/column_meta_accessor.h"
+#include "storage/segment/column_read_ahead_resources.h"
 #include "storage/segment/column_reader.h"
 #include "storage/segment/column_reader_cache.h"
 #include "storage/segment/common.h" // k_segment_magic
 #include "storage/segment/empty_segment_iterator.h"
 #include "storage/segment/page_io.h"
 #include "storage/segment/page_pointer.h"
+#include "storage/segment/read_ahead_column_iterator.h"
 #include "storage/segment/segment_iterator.h"
 #include "storage/segment/stream_reader.h"
 #include "storage/segment/variant/variant_column_reader.h"
@@ -1004,6 +1006,14 @@ Status Segment::new_column_iterator(const TabletColumn& tablet_column,
                      << " column schema type: " << int(tablet_column.type())
                      << " column reader meta type: " << int(reader->get_meta_type());
         return Status::InternalError("different type between schema and column reader");
+    }
+    // Wrap only the resolved top-level physical scalar. Child factories remain unchanged, and a
+    // Variant LEAF may itself be a FileColumnIterator while its requested path is extracted.
+    if (ColumnReadAheadResources::enabled() &&
+        opt->io_ctx.reader_type == ReaderType::READER_QUERY &&
+        is_scalar_type(tablet_column.type()) && !tablet_column.is_extracted_column() &&
+        (*iter)->get_column_reader() != nullptr) {
+        *iter = std::make_unique<ReadAheadColumnIterator>(std::move(*iter));
     }
     return Status::OK();
 }
