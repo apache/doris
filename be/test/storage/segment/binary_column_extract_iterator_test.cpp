@@ -17,6 +17,7 @@
 
 #include "storage/segment/variant/binary_column_extract_iterator.h"
 
+#include <glog/logging.h>
 #include <gtest/gtest.h>
 
 #include <algorithm>
@@ -40,6 +41,8 @@
 #include "core/value/jsonb_value.h"
 #include "exec/common/variant_util.h"
 #include "storage/iterators.h"
+#include "storage/segment/variant/sparse_column_merge_iterator.h"
+#include "storage/segment/variant/v2/variant_assembler.h"
 
 namespace doris::segment_v2 {
 namespace {
@@ -787,6 +790,95 @@ TEST(BinaryColumnExtractIteratorV2Test, DoesNotRescanFrozenPathOrdering) {
     auto& nullable = assert_cast<ColumnNullable&>(*dst);
     auto& variant = assert_cast<ColumnVariantV2&>(nullable.get_nested_column());
     EXPECT_EQ(variant_v2_json_at(variant, 0), "7");
+}
+
+// Debug builds must reject a sparse row that violates the byte-order invariant; the check is a
+// DCHECK so release scans and compaction pay nothing.
+#if DCHECK_IS_ON()
+TEST(VariantAssemblerTest, DebugCheckRejectsUnsortedSparseRows) {
+    auto sparse = variant_util::create_variant_binary_column();
+    auto& map = assert_cast<ColumnMap&>(*sparse);
+    DataTypeInt64 int_type;
+    auto ints = ColumnInt64::create();
+    ints->insert_value(1);
+    ints->insert_value(2);
+    append_storage_cell(map, "a.c", int_type, *ints, 0);
+    append_storage_cell(map, "a-b", int_type, *ints, 1);
+    map.get_offsets().push_back(2);
+
+    variant_v2::VariantAssemblerOptions options;
+    options.storage_map_kind = variant_v2::StorageMapKind::SPARSE;
+    auto assembler = variant_v2::VariantAssembler::create(std::move(options));
+    ASSERT_TRUE(assembler.has_value());
+    EXPECT_DEATH(
+            {
+                ColumnNullable::MutablePtr result;
+                (void)(*assembler)
+                        ->assemble({.num_rows = map.size(),
+                                    .materialized_columns = {},
+                                    .storage_map = &map},
+                                   &result);
+            },
+            "is_variant_sparse_row_sorted");
+}
+#endif
+
+// Vertical compaction merges the source sparse row with materialized subcolumns. The interleaving
+// assumes both sides are byte-ordered, and the merged row is what later readers see, so it must
+// keep that invariant.
+TEST(SparseColumnMergeIteratorTest, KeepsByteOrderWhenMergingMaterializedSubcolumn) {
+    auto sparse = variant_util::create_variant_binary_column();
+    auto& map = assert_cast<ColumnMap&>(*sparse);
+    DataTypeInt64 int_type;
+    auto ints = ColumnInt64::create();
+    ints->insert_value(1);
+    ints->insert_value(2);
+    append_storage_cell(map, "a-b", int_type, *ints, 0);
+    append_storage_cell(map, "a.c", int_type, *ints, 1);
+    map.get_offsets().push_back(2);
+
+    auto counters = std::make_shared<SparseReadCounters>();
+    auto cache = std::make_shared<BinaryColumnCache>(
+            std::make_unique<FixedSparseIterator>(std::move(sparse), counters),
+            variant_util::create_variant_binary_column());
+
+    // Materialized path a.d; the dense iterator yields one nullable bigint row: 3.
+    auto dense_type = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt64>());
+    auto dense_values = ColumnNullable::create(ColumnInt64::create(), ColumnUInt8::create());
+    assert_cast<ColumnInt64&>(dense_values->get_nested_column()).insert_value(3);
+    dense_values->get_null_map_data().push_back(0);
+    SubstreamReaderTree src_subcolumns;
+    ASSERT_TRUE(src_subcolumns.add(
+            PathInData("a.d"),
+            SubstreamIterator(
+                    ColumnNullable::create(ColumnInt64::create(), ColumnUInt8::create()),
+                    std::make_unique<FixedSparseIterator>(std::move(dense_values),
+                                                          std::make_shared<SparseReadCounters>()),
+                    dense_type)));
+
+    VariantCompactionPaths path_set_info;
+    OlapReaderStatistics stats;
+    StorageReadOptions read_options(stats);
+    SparseColumnMergeIterator iterator(path_set_info, std::move(cache), std::move(src_subcolumns),
+                                       &read_options);
+    ColumnIteratorOptions iterator_options;
+    iterator_options.stats = &stats;
+    ASSERT_TRUE(iterator.init(iterator_options).ok());
+    ASSERT_TRUE(iterator.seek_to_ordinal(0).ok());
+    auto dst = variant_util::create_variant_binary_column();
+    size_t rows = 1;
+    bool has_null = false;
+    ASSERT_TRUE(iterator.next_batch(&rows, dst, &has_null).ok());
+    ASSERT_EQ(dst->size(), 1);
+    const auto& merged = assert_cast<const ColumnMap&>(*dst);
+    const auto& paths = assert_cast<const ColumnString&>(merged.get_keys());
+    std::vector<std::string> actual;
+    const size_t begin = merged.offset_at(0);
+    const size_t end = begin + merged.size_at(0);
+    for (size_t cell = begin; cell < end; ++cell) {
+        actual.push_back(paths.get_data_at(cell).to_string());
+    }
+    EXPECT_EQ(actual, (std::vector<std::string> {"a-b", "a.c", "a.d"}));
 }
 
 } // namespace

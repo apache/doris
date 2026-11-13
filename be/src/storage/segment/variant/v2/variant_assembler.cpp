@@ -90,6 +90,12 @@ struct StorageMapRowCursor {
         DORIS_CHECK(values != nullptr);
         DORIS_CHECK_EQ(paths->size(), values->size());
         DCHECK(rows == 0 || storage_map->offset_at(static_cast<ssize_t>(rows)) == paths->size());
+        // Readers binary-search sparse keys by raw path bytes. The writer (#70001) and vertical
+        // compaction canonicalize every row, so a non-conforming row reaching this cursor is a
+        // producer bug; keep the check debug-only so release scans pay nothing.
+        for (size_t row = 0; row < rows; ++row) {
+            DCHECK(is_variant_sparse_row_sorted(*paths, begin(row), row_end(row)));
+        }
     }
 
     size_t begin(size_t row) const noexcept { return source->offset_at(static_cast<ssize_t>(row)); }

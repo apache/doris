@@ -26,6 +26,7 @@
 #include "core/column/column.h"
 #include "core/column/column_nullable.h"
 #include "core/column/subcolumn_tree.h"
+#include "core/column/variant_column_utils.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_nullable.h"
 #include "storage/segment/column_reader.h"
@@ -123,6 +124,9 @@ void SparseColumnMergeIterator::_merge_to(MutableColumnPtr& dst) {
 
         size_t offset = src_serialized_sparse_column_offsets[row - 1];
         size_t end = src_serialized_sparse_column_offsets[row];
+        // Compaction only copies cells, and every reader binary-searches by raw path bytes, so the
+        // source row must already be byte-ordered. Debug-only: release compaction pays nothing.
+        DCHECK(is_variant_sparse_row_sorted(src_sparse_column_paths, offset, end));
         // Iterator over [path, binary value]
         for (size_t i = offset; i != end; ++i) {
             const StringRef src_sparse_path_string = src_sparse_column_paths.get_data_at(i);
@@ -157,6 +161,12 @@ void SparseColumnMergeIterator::_merge_to(MutableColumnPtr& dst) {
                                                  dst_sparse_column_values, src_path, row);
         }
 
+        // The interleaving above assumes the source sparse cells and the materialized subcolumns
+        // are byte-ordered. Assert the merged row keeps that invariant for downstream readers;
+        // debug-only, so release compaction pays nothing.
+        DCHECK(is_variant_sparse_row_sorted(dst_sparse_column_paths,
+                                            dst_sparse_column_offsets[ssize_t(row) - 1],
+                                            dst_sparse_column_paths.size()));
         // All the sparse columns in this row are null.
         dst_sparse_column_offsets.push_back(dst_sparse_column_paths.size());
     }

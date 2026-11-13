@@ -30,6 +30,11 @@ struct JsonbValue;
 size_t find_variant_sparse_path_lower_bound(StringRef path, const ColumnString& sparse_paths,
                                             size_t start, size_t end);
 
+// Readers merge and binary-search sparse keys by raw path bytes, so every segment must persist a
+// row in that order: the writer sorts the sparse plan (#70001) and compaction copies cells verbatim.
+// Only debug assertions call this, so release reads and compaction pay nothing for the check.
+bool is_variant_sparse_row_sorted(const ColumnString& sparse_paths, size_t start, size_t end);
+
 // True when a JSONB value recursively contains no visible scalar payload. Variant V1 and V2
 // readers share this rule when deciding whether a materialized nested value contributes a path.
 bool is_variant_jsonb_value_semantically_empty(const JsonbValue* value);
