@@ -15,7 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <brpc/closure_guard.h>
+#include <brpc/details/server_private_accessor.h>
+#include <brpc/server.h>
+#include <butil/endpoint.h>
 #include <gen_cpp/AgentService_types.h>
+#include <gen_cpp/cloud.pb.h>
 #include <gen_cpp/olap_file.pb.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
@@ -26,16 +31,19 @@
 #include <mutex>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <unordered_map>
 
 #include "cloud/cloud_base_compaction.h"
 #include "cloud/cloud_cluster_info.h"
 #include "cloud/cloud_cumulative_compaction.h"
+#include "cloud/cloud_full_compaction.h"
 #include "cloud/cloud_rowset_builder.h"
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet.h"
 #include "cloud/cloud_tablet_mgr.h"
 #include "cloud/config.h"
+#include "cloud/pb_convert.h"
 #include "common/metrics/doris_metrics.h"
 #include "cpp/sync_point.h"
 #include "io/fs/s3_file_system.h"
@@ -47,6 +55,7 @@
 #include "storage/rowset/rowset_meta.h"
 #include "storage/storage_policy.h"
 #include "storage/tablet/tablet_meta.h"
+#include "util/debug/leak_annotations.h"
 #include "util/defer_op.h"
 #include "util/s3_util.h"
 #include "util/threadpool.h"
@@ -57,6 +66,111 @@ namespace doris {
 class TabletMap;
 
 namespace {
+
+// Keep the real BE metadata/bitmap synchronization path and replace only the MS RPC peer.
+class FullCompactionBitmapService : public cloud::MetaService {
+public:
+    std::vector<cloud::RowsetMetaCloudPB> rowsets;
+    bool empty_bitmap = false;
+    bool fail_bitmap = false;
+    int bitmap_requests = 0;
+
+    void get_rowset(google::protobuf::RpcController*, const cloud::GetRowsetRequest* request,
+                    cloud::GetRowsetResponse* response, google::protobuf::Closure* done) override {
+        brpc::ClosureGuard guard(done);
+        response->mutable_status()->set_code(cloud::MetaServiceCode::OK);
+        auto* stats = response->mutable_stats();
+        stats->set_base_compaction_cnt(0);
+        stats->set_cumulative_compaction_cnt(0);
+        stats->set_full_compaction_cnt(0);
+        stats->set_cumulative_point(2);
+        stats->set_num_rowsets(rowsets.size());
+        for (const auto& rowset : rowsets) {
+            if (rowset.end_version() >= request->start_version()) {
+                *response->add_rowset_meta() = rowset;
+            }
+        }
+    }
+
+    void get_delete_bitmap(google::protobuf::RpcController*,
+                           const cloud::GetDeleteBitmapRequest* request,
+                           cloud::GetDeleteBitmapResponse* response,
+                           google::protobuf::Closure* done) override {
+        brpc::ClosureGuard guard(done);
+        ++bitmap_requests;
+        if (fail_bitmap) {
+            response->mutable_status()->set_code(cloud::MetaServiceCode::KV_TXN_GET_ERR);
+            response->mutable_status()->set_msg("injected bitmap read failure");
+            return;
+        }
+        response->mutable_status()->set_code(cloud::MetaServiceCode::OK);
+        for (int i = 0; i < request->rowset_ids_size(); ++i) {
+            response->add_returned_rowset_ids(request->rowset_ids(i));
+            if (!empty_bitmap && request->rowset_ids(i) == rowsets.front().rowset_id_v2() &&
+                request->begin_versions(i) <= 2 && request->end_versions(i) >= 2) {
+                roaring::Roaring bitmap;
+                bitmap.add(0);
+                std::string bytes(bitmap.getSizeInBytes(), '\0');
+                bitmap.write(bytes.data());
+                response->add_rowset_ids(request->rowset_ids(i));
+                response->add_segment_ids(7);
+                response->add_versions(2);
+                response->add_segment_delete_bitmaps(std::move(bytes));
+            }
+        }
+        response->set_has_more(false);
+    }
+};
+
+class ScopedFullCompactionBitmapService {
+public:
+    explicit ScopedFullCompactionBitmapService(FullCompactionBitmapService* service)
+            : _endpoint(config::meta_service_endpoint),
+              _connection_age(config::meta_service_connection_age_base_seconds),
+              _idle_timeout(config::meta_service_idle_connection_timeout_ms),
+              _read_version(config::delete_bitmap_store_read_version),
+              _write_version(config::delete_bitmap_store_write_version) {
+        CHECK_EQ(_server.AddService(service, brpc::SERVER_DOESNT_OWN_SERVICE), 0);
+        brpc::ServerOptions options;
+        options.num_threads = 1;
+        butil::EndPoint endpoint;
+        CHECK_EQ(butil::str2endpoint("127.0.0.1", 0, &endpoint), 0);
+        {
+            doris::debug::ScopedLSANDisabler lsan_disabler;
+            CHECK_EQ(_server.Start(endpoint, &options), 0);
+        }
+        ANNOTATE_LEAKING_OBJECT_PTR(brpc::ServerPrivateAccessor(&_server).acceptor());
+        config::meta_service_endpoint =
+                "127.0.0.1:" + std::to_string(_server.listen_address().port);
+        config::meta_service_connection_age_base_seconds = 0;
+        config::meta_service_idle_connection_timeout_ms = 1;
+        config::delete_bitmap_store_read_version = 1;
+        config::delete_bitmap_store_write_version = 1;
+        // The proxy pool survives tests. Expire any channel to a previous test's server.
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+
+    ~ScopedFullCompactionBitmapService() {
+        CHECK_EQ(_server.Stop(1000), 0);
+        CHECK_EQ(_server.Join(), 0);
+        _server.ClearServices();
+        // Channels created above have a zero connection age; don't reuse them after cleanup.
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        config::meta_service_endpoint = _endpoint;
+        config::meta_service_connection_age_base_seconds = _connection_age;
+        config::meta_service_idle_connection_timeout_ms = _idle_timeout;
+        config::delete_bitmap_store_read_version = _read_version;
+        config::delete_bitmap_store_write_version = _write_version;
+    }
+
+private:
+    brpc::Server _server;
+    const std::string _endpoint;
+    const int32_t _connection_age;
+    const int32_t _idle_timeout;
+    const int32_t _read_version;
+    const int32_t _write_version;
+};
 
 void expect_segment_group_merge_ranges(const std::vector<cloud::SegmentGroupMergeRange>& actual,
                                        const std::vector<cloud::SegmentGroupMergeRange>& expected) {
@@ -150,6 +264,66 @@ class CloudCompactionTest : public testing::Test {
     }
 
 protected:
+    void check_full_compaction_bitmap(bool changelog, bool empty_bitmap, bool fail_bitmap) {
+        auto meta = std::make_shared<TabletMeta>(*_tablet_meta);
+        meta->set_tablet_state(TABLET_RUNNING);
+        meta->set_enable_unique_key_merge_on_write(!changelog);
+        TabletSchemaPB schema_pb;
+        meta->tablet_schema()->to_schema_pb(&schema_pb);
+        schema_pb.set_keys_type(changelog ? DUP_KEYS : UNIQUE_KEYS);
+        meta->tablet_schema()->init_from_pb(schema_pb);
+        if (changelog) {
+            meta->set_tablet_role(TabletRolePB::TABLET_ROLE_CHANGELOG);
+        }
+        auto tablet = std::make_shared<CloudTablet>(_engine, meta);
+        FullCompactionBitmapService service;
+        service.empty_bitmap = empty_bitmap;
+        service.fail_bitmap = fail_bitmap;
+        std::vector<RowsetSharedPtr> cached_rowsets;
+        for (int64_t version : {2, 3}) {
+            auto rs_meta = std::make_shared<RowsetMeta>();
+            init_rs_meta(rs_meta, version, version);
+            rs_meta->set_tablet_schema(meta->tablet_schema());
+            RowsetId rowset_id;
+            rowset_id.init(100 + version);
+            rs_meta->set_rowset_id(rowset_id);
+            rs_meta->set_num_rows(1);
+            rs_meta->set_num_segments(1);
+            rs_meta->set_segment_ids({7});
+            service.rowsets.push_back(cloud::doris_rowset_meta_to_cloud(rs_meta->get_rowset_pb()));
+            RowsetSharedPtr rowset;
+            ASSERT_TRUE(RowsetFactory::create_rowset(nullptr, "", rs_meta, &rowset).ok());
+            cached_rowsets.push_back(std::move(rowset));
+        }
+        const auto invalid_rowset_id = cached_rowsets.front()->rowset_id();
+        {
+            std::unique_lock lock(tablet->get_header_lock());
+            tablet->add_rowsets(std::move(cached_rowsets), false, lock);
+            tablet->set_cumulative_layer_point(2);
+        }
+        ASSERT_EQ(tablet->max_version().second, 3);
+        ASSERT_EQ(tablet->tablet_meta()->delete_bitmap().cardinality(), 0);
+        ScopedFullCompactionBitmapService server(&service);
+        CloudFullCompaction compaction(_engine, tablet);
+        const auto status = compaction.prepare_compact();
+        if (fail_bitmap) {
+            EXPECT_FALSE(status.ok());
+            EXPECT_NE(status.to_string().find("injected bitmap read failure"), std::string::npos);
+            EXPECT_TRUE(compaction._input_rowsets.empty());
+            return;
+        }
+        ASSERT_TRUE(status.ok()) << status.to_string();
+        EXPECT_EQ(compaction._input_rowsets.size(), 2);
+        if (changelog) {
+            EXPECT_GT(service.bitmap_requests, 0);
+            EXPECT_EQ(tablet->tablet_meta()->delete_bitmap().cardinality(), empty_bitmap ? 0 : 1);
+            EXPECT_EQ(tablet->tablet_meta()->delete_bitmap().contains({invalid_rowset_id, 7, 2}, 0),
+                      !empty_bitmap);
+        } else {
+            EXPECT_EQ(service.bitmap_requests, 0);
+        }
+    }
+
     std::string _previous_cloud_unique_id;
     ClusterInfo* _previous_cluster_info = nullptr;
     std::string _json_rowset_meta;
@@ -159,6 +333,22 @@ public:
     CloudStorageEngine _engine;
     std::shared_ptr<CloudClusterInfo> _cluster_info;
 };
+
+TEST_F(CloudCompactionTest, full_compaction_restores_changelog_delete_bitmap) {
+    check_full_compaction_bitmap(true, false, false);
+}
+
+TEST_F(CloudCompactionTest, full_compaction_accepts_empty_changelog_delete_bitmap) {
+    check_full_compaction_bitmap(true, true, false);
+}
+
+TEST_F(CloudCompactionTest, full_compaction_stops_on_changelog_bitmap_read_failure) {
+    check_full_compaction_bitmap(true, false, true);
+}
+
+TEST_F(CloudCompactionTest, full_compaction_keeps_normal_tablet_incremental_sync) {
+    check_full_compaction_bitmap(false, false, false);
+}
 
 TEST_F(CloudCompactionTest, failure_base_compaction_tablet_sleep_test) {
     auto filter_out = [](CloudTablet* t) { return false; };
