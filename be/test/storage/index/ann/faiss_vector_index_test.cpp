@@ -16,7 +16,11 @@
 // under the License.
 
 #include <faiss/IndexHNSW.h>
+#include <faiss/IndexIDMap.h>
 #include <faiss/IndexIVFFlat.h>
+#include <faiss/impl/io.h>
+#include <faiss/index_io.h>
+#include <faiss/invlists/PreadInvertedLists.h>
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
@@ -24,7 +28,9 @@
 #include <atomic>
 #include <barrier>
 #include <chrono>
+#include <cmath>
 #include <cstddef>
+#include <cstring>
 #include <future>
 #include <limits>
 #include <memory>
@@ -36,6 +42,7 @@
 #include "common/config.h"
 #include "common/metrics/doris_metrics.h"
 #include "storage/index/ann/ann_index.h"
+#include "storage/index/ann/ann_index_files.h"
 #include "storage/index/ann/ann_search_params.h"
 #include "storage/index/ann/faiss_ann_index.h"
 // metrics.h not used directly here
@@ -46,6 +53,275 @@
 using namespace doris::segment_v2;
 
 namespace doris {
+
+// Verify native IVF labels and HNSW IDMap through serialization and query-time filtering.
+TEST_F(VectorSearchTest, SparseLabelsSurviveReloadAndDeleteBitmapFiltering) {
+    const bool previous = config::enable_ann_index_empty_array;
+    config::enable_ann_index_empty_array = false;
+    Defer restore_config([&] { config::enable_ann_index_empty_array = previous; });
+    // FAISS serialization and readers do not consult the index-writer feature flag.
+    AnnIndexIVFListCache::create_global_cache(64 * 1024 * 1024);
+    Defer destroy_cache([] { AnnIndexIVFListCache::destroy_global_cache(); });
+    for (auto type : {FaissBuildParameter::IndexType::HNSW, FaissBuildParameter::IndexType::IVF,
+                      FaissBuildParameter::IndexType::IVF_ON_DISK}) {
+        for (auto metric :
+             {FaissBuildParameter::MetricType::L2, FaissBuildParameter::MetricType::IP}) {
+            SCOPED_TRACE(static_cast<int>(type));
+            SCOPED_TRACE(static_cast<int>(metric));
+            const bool l2 = metric == FaissBuildParameter::MetricType::L2;
+            FaissBuildParameter build;
+            build.dim = 2;
+            build.max_degree = 16;
+            build.ivf_nlist = 1;
+            build.index_type = type;
+            build.metric_type = metric;
+            FaissVectorIndex writer;
+            writer.build(build);
+            std::vector<float> vectors;
+            std::vector<Int64> labels;
+            constexpr int rows = 193;
+            for (int i = 0; i < 64; ++i) {
+                vectors.insert(vectors.end(), {static_cast<float>(i), 1.0f});
+                labels.push_back(3 * i + 1);
+            }
+            ASSERT_TRUE(writer.train(64, vectors.data()).ok());
+            ASSERT_TRUE(writer.add_with_ids(64, vectors.data(), labels.data()).ok());
+            auto dir = std::make_shared<lucene::store::RAMDirectory>();
+            ASSERT_TRUE(writer.save(dir.get()).ok());
+            EXPECT_TRUE(dir->fileExists(faiss_index_fila_name));
+            EXPECT_FALSE(dir->fileExists("ann.sparse.v1.faiss"));
+
+            // A native FAISS reader must understand the file without a Doris bitmap header.
+            faiss::VectorIOReader native_bytes;
+            auto input = std::unique_ptr<lucene::store::IndexInput>(
+                    dir->openInput(faiss_index_fila_name));
+            native_bytes.data.resize(cast_set<size_t>(input->length()));
+            input->readBytes(native_bytes.data.data(), cast_set<int32_t>(native_bytes.data.size()));
+            input->close();
+            auto native = std::unique_ptr<faiss::Index>(faiss::read_index(
+                    &native_bytes,
+                    faiss::IO_FLAG_SKIP_IVF_DATA | faiss::IO_FLAG_SKIP_PRECOMPUTE_TABLE));
+            EXPECT_EQ(native->ntotal, 64);
+            EXPECT_EQ(dynamic_cast<faiss::IndexIDMap*>(native.get()) != nullptr,
+                      type == FaissBuildParameter::IndexType::HNSW);
+
+            FaissVectorIndex reader;
+            reader.set_type(type == FaissBuildParameter::IndexType::HNSW ? AnnIndexType::HNSW
+                            : type == FaissBuildParameter::IndexType::IVF
+                                    ? AnnIndexType::IVF
+                                    : AnnIndexType::IVF_ON_DISK);
+            reader.set_metric(l2 ? AnnIndexMetric::L2 : AnnIndexMetric::IP);
+            reader.set_ivfdata_cache_key_prefix("sparse_labels_" +
+                                                std::to_string(static_cast<int>(metric)));
+            ASSERT_TRUE(reader.load(dir.get()).ok());
+            EXPECT_EQ(reader._indexed_rows, nullptr);
+            // Concurrent first complements share one complete domain, including IDs-only disk reads.
+            std::barrier start(4);
+            std::vector<std::future<Status>> initializations;
+            for (int i = 0; i < 4; ++i) {
+                initializations.emplace_back(std::async(std::launch::async, [&] {
+                    start.arrive_and_wait();
+                    return reader._init_indexed_rows();
+                }));
+            }
+            for (auto& initialization : initializations) {
+                ASSERT_TRUE(initialization.get().ok());
+            }
+            roaring::Roaring indexed;
+            for (auto id : labels) {
+                indexed.add(cast_set<uint32_t>(id));
+            }
+            EXPECT_EQ(*reader._indexed_rows, indexed);
+            HNSWSearchParameters hnsw;
+            hnsw.ef_search = 256;
+            IVFSearchParameters ivf;
+            ivf.nprobe = 1;
+            IndexSearchParameters& params = type == FaissBuildParameter::IndexType::HNSW
+                                                    ? static_cast<IndexSearchParameters&>(hnsw)
+                                                    : static_cast<IndexSearchParameters&>(ivf);
+            const float query[] = {l2 ? 0.0f : 1.0f, 0.0f};
+            for (bool delete_best : {false, true}) {
+                roaring::Roaring allowed;
+                allowed.addRange(0, rows);
+                const int best = l2 ? 0 : 63;
+                if (delete_best) {
+                    allowed.remove(labels[best]);
+                }
+                params.roaring = &allowed;
+                params.rows_of_segment = rows;
+                IndexSearchResult topn;
+                ASSERT_TRUE(reader.ann_topn_search(query, 1, params, topn).ok());
+                const int winner = delete_best ? (l2 ? 1 : 62) : best;
+                ASSERT_EQ(topn.row_ids->size(), 1);
+                EXPECT_EQ((*topn.row_ids)[0], labels[winner]);
+                EXPECT_FLOAT_EQ(topn.distances[0], l2 ? std::sqrt(winner * winner + 1.0f)
+                                                      : static_cast<float>(winner));
+                for (bool less : {false, true}) {
+                    params.is_le_or_lt = less;
+                    IndexSearchResult range;
+                    ASSERT_TRUE(reader.range_search(query, 10.5f, params, range).ok());
+                    roaring::Roaring expected;
+                    for (int i = 0; i < 64; ++i) {
+                        if ((i <= 10) == less && (!delete_best || i != best)) {
+                            expected.add(labels[i]);
+                        }
+                    }
+                    EXPECT_EQ(*range.roaring, expected);
+                }
+            }
+        }
+    }
+}
+
+TEST_F(VectorSearchTest, FailedIvfIdReadDoesNotPublishPartialDomain) {
+    struct FailOnceIdsReader : faiss::RandomAccessReader {
+        mutable int reads = 0;
+        void read_at(size_t offset, void* output, size_t bytes) const override {
+            ++reads;
+            if (reads == 2) {
+                throw Exception(ErrorCode::IO_ERROR, "injected second-list failure");
+            }
+            const faiss::idx_t id = offset == 8 ? 0 : 3;
+            EXPECT_EQ(bytes, sizeof(id));
+            std::memcpy(output, &id, sizeof(id));
+        }
+    };
+    FaissBuildParameter build;
+    build.dim = 2;
+    build.index_type = FaissBuildParameter::IndexType::IVF_ON_DISK;
+    build.ivf_nlist = 2;
+    FaissVectorIndex index;
+    index.build(build);
+    auto* ivf = dynamic_cast<faiss::IndexIVF*>(index._index.get());
+    ASSERT_NE(ivf, nullptr);
+    std::vector<faiss::OnDiskOneList> lists(2);
+    for (size_t i = 0; i < lists.size(); ++i) {
+        lists[i].size = lists[i].capacity = 1;
+        lists[i].offset = i * 16;
+    }
+    auto pread = std::make_unique<faiss::PreadInvertedLists>(2, 8, std::move(lists));
+    auto reader = std::make_unique<FailOnceIdsReader>();
+    auto* reader_ptr = reader.get();
+    pread->set_reader(std::move(reader));
+    ivf->replace_invlists(pread.release(), true);
+    auto status = index._init_indexed_rows();
+    EXPECT_TRUE(status.is<ErrorCode::IO_ERROR>());
+    EXPECT_EQ(index._indexed_rows, nullptr);
+    ASSERT_TRUE(index._init_indexed_rows().ok());
+    EXPECT_EQ(*index._indexed_rows, roaring::Roaring::bitmapOf(2, 0, 3));
+    EXPECT_EQ(reader_ptr->reads, 4);
+    ASSERT_TRUE(index._init_indexed_rows().ok());
+    EXPECT_EQ(reader_ptr->reads, 4);
+}
+
+TEST_F(VectorSearchTest, LegacyDenseHnswNeedsNoLabelCollection) {
+    FaissBuildParameter build;
+    build.dim = 2;
+    build.max_degree = 8;
+    FaissVectorIndex writer;
+    writer.build(build);
+    const float vectors[] = {0, 0, 1, 0, 2, 0, 3, 0};
+    ASSERT_TRUE(writer.add(4, vectors).ok());
+    auto dir = std::make_shared<lucene::store::RAMDirectory>();
+    ASSERT_TRUE(writer.save(dir.get()).ok());
+    FaissVectorIndex reader;
+    reader.set_type(AnnIndexType::HNSW);
+    reader.set_metric(AnnIndexMetric::L2);
+    ASSERT_TRUE(reader.load(dir.get()).ok());
+    EXPECT_NE(dynamic_cast<faiss::IndexHNSW*>(reader._index.get()), nullptr);
+    EXPECT_EQ(dynamic_cast<faiss::IndexIDMap*>(reader._index.get()), nullptr);
+    roaring::Roaring allowed = roaring::Roaring::bitmapOf(3, 0, 1, 2);
+    HNSWSearchParameters params;
+    params.ef_search = 32;
+    params.roaring = &allowed;
+    params.rows_of_segment = 4;
+    const float query[] = {0, 0};
+    IndexSearchResult result;
+    params.is_le_or_lt = true;
+    ASSERT_TRUE(reader.range_search(query, 1.5f, params, result).ok());
+    EXPECT_EQ(*result.roaring, roaring::Roaring::bitmapOf(2, 0, 1));
+    EXPECT_EQ(reader._indexed_rows, nullptr);
+    params.is_le_or_lt = false;
+    ASSERT_TRUE(reader.range_search(query, 1.5f, params, result).ok());
+    EXPECT_EQ(*result.roaring, roaring::Roaring::bitmapOf(1, 2));
+    EXPECT_EQ(reader._indexed_rows, nullptr);
+}
+
+TEST_F(VectorSearchTest, DenseIvfComplementsDoNotCollectAllListIds) {
+    AnnIndexIVFListCache::create_global_cache(16 * 1024 * 1024);
+    Defer destroy_cache([] { AnnIndexIVFListCache::destroy_global_cache(); });
+    for (auto type :
+         {FaissBuildParameter::IndexType::IVF, FaissBuildParameter::IndexType::IVF_ON_DISK}) {
+        FaissBuildParameter build;
+        build.dim = 2;
+        build.index_type = type;
+        build.ivf_nlist = 1;
+        FaissVectorIndex writer;
+        writer.build(build);
+        std::vector<float> vectors;
+        for (int i = 0; i < 64; ++i) {
+            vectors.insert(vectors.end(), {static_cast<float>(i), 0.0f});
+        }
+        ASSERT_TRUE(writer.train(64, vectors.data()).ok());
+        ASSERT_TRUE(writer.add(64, vectors.data()).ok());
+        auto dir = std::make_shared<lucene::store::RAMDirectory>();
+        ASSERT_TRUE(writer.save(dir.get()).ok());
+        FaissVectorIndex reader;
+        reader.set_type(type == FaissBuildParameter::IndexType::IVF ? AnnIndexType::IVF
+                                                                    : AnnIndexType::IVF_ON_DISK);
+        reader.set_ivfdata_cache_key_prefix("dense_complement");
+        ASSERT_TRUE(reader.load(dir.get()).ok());
+        EXPECT_EQ(reader.get_num_rows_in_index(), 64);
+        roaring::Roaring allowed;
+        allowed.addRange(0, 64);
+        IVFSearchParameters params;
+        params.roaring = &allowed;
+        params.rows_of_segment = 64;
+        params.is_le_or_lt = false;
+        const float query[] = {0, 0};
+        IndexSearchResult result;
+        ASSERT_TRUE(reader.range_search(query, 10.5f, params, result).ok());
+        roaring::Roaring expected;
+        expected.addRange(11, 64);
+        EXPECT_EQ(*result.roaring, expected);
+        EXPECT_EQ(reader._indexed_rows, nullptr);
+    }
+}
+
+TEST_F(VectorSearchTest, AllEmptySparseIndexNeedsNoTraining) {
+    for (auto type : {FaissBuildParameter::IndexType::HNSW, FaissBuildParameter::IndexType::IVF,
+                      FaissBuildParameter::IndexType::IVF_ON_DISK}) {
+        FaissBuildParameter build;
+        build.dim = 2;
+        build.max_degree = 16;
+        build.ivf_nlist = 1;
+        build.index_type = type;
+        FaissVectorIndex writer;
+        writer.build(build);
+        roaring::Roaring empty_rows;
+        empty_rows.addRange(0, 3);
+        ASSERT_TRUE(writer.add_with_ids(0, nullptr, nullptr).ok());
+        auto dir = std::make_shared<lucene::store::RAMDirectory>();
+        ASSERT_TRUE(writer.save(dir.get()).ok());
+        FaissVectorIndex reader;
+        reader.set_type(type == FaissBuildParameter::IndexType::HNSW  ? AnnIndexType::HNSW
+                        : type == FaissBuildParameter::IndexType::IVF ? AnnIndexType::IVF
+                                                                      : AnnIndexType::IVF_ON_DISK);
+        ASSERT_TRUE(reader.load(dir.get()).ok());
+        HNSWSearchParameters params;
+        params.roaring = &empty_rows;
+        params.rows_of_segment = 3;
+        const float query[] = {0, 0};
+        IndexSearchResult result;
+        ASSERT_TRUE(reader.ann_topn_search(query, 1, params, result).ok());
+        EXPECT_TRUE(result.roaring->isEmpty());
+        for (bool less : {false, true}) {
+            params.is_le_or_lt = less;
+            ASSERT_TRUE(reader.range_search(query, 1, params, result).ok());
+            EXPECT_TRUE(result.roaring->isEmpty());
+        }
+    }
+}
 
 // Test saving and loading an index
 TEST_F(VectorSearchTest, TestSaveAndLoad) {

@@ -19,11 +19,15 @@
 
 #include <gen_cpp/DataSinks_types.h>
 
+#include <charconv>
 #include <chrono>
 #include <thread>
 
+#include "core/column/column_array.h"
+#include "core/column/column_nullable.h"
 #include "exec/sink/vtablet_block_convertor.h"
 #include "load/group_commit/group_commit_mgr.h"
+#include "storage/tablet/tablet_schema.h"
 #include "util/debug_points.h"
 
 namespace doris {
@@ -297,8 +301,85 @@ Status GroupCommitBlockSinkOperatorX::prepare(RuntimeState* state) {
         LOG(WARNING) << "unknown destination tuple descriptor, id=" << _tuple_desc_id;
         return Status::InternalError("unknown destination tuple descriptor");
     }
+    RETURN_IF_ERROR(_init_ann_validation());
     RETURN_IF_ERROR(VExpr::prepare(_output_vexpr_ctxs, state, _row_desc));
     return VExpr::open(_output_vexpr_ctxs, state);
+}
+
+Status GroupCommitBlockSinkOperatorX::_init_ann_validation() {
+    _ann_columns.clear();
+    for (const auto* schema : _schema->indexes()) {
+        for (const auto* index : schema->indexes) {
+            // Only ANN imposes a fixed array dimension on an otherwise valid ARRAY column.
+            if (!index->is_ann_index()) {
+                continue;
+            }
+            const auto& properties = index->properties();
+            auto it = properties.find("dim");
+            // Match AnnIndexColumnWriter's default for metadata without an explicit dimension.
+            const std::string dimension = it == properties.end() ? "512" : it->second;
+            size_t dim = 0;
+            auto [end, error] =
+                    std::from_chars(dimension.data(), dimension.data() + dimension.size(), dim);
+            // Reject malformed metadata before async group commit can acknowledge any rows.
+            if (error != std::errc() || end != dimension.data() + dimension.size() || dim == 0 ||
+                index->col_unique_ids().size() != 1) {
+                return Status::InvalidArgument("Invalid ANN index metadata: {}",
+                                               index->index_name());
+            }
+            bool found = false;
+            for (const auto* column : schema->columns) {
+                // Column IDs belong to the materialized index; resolve its name in the output tuple.
+                if (column->unique_id() != index->col_unique_ids()[0]) {
+                    continue;
+                }
+                const auto& slots = _output_tuple_desc->slots();
+                for (size_t position = 0; position < slots.size(); ++position) {
+                    // The converted block is ordered by destination slots, not index column IDs.
+                    if (slots[position]->col_name_lower_case() == column->name_lower_case()) {
+                        _ann_columns.push_back({position, dim, column->name()});
+                        found = true;
+                        break;
+                    }
+                }
+                break;
+            }
+            // A missing indexed column cannot safely bypass validation and enter the WAL.
+            if (!found) {
+                return Status::InternalError("Cannot find column for ANN index {}",
+                                             index->index_name());
+            }
+        }
+    }
+    return Status::OK();
+}
+
+Status GroupCommitBlockSinkOperatorX::_validate_ann_vectors(const Block& block) const {
+    for (const auto& ann : _ann_columns) {
+        auto column = block.get_by_position(ann.position).column->convert_to_full_column_if_const();
+        const auto& array = assert_cast<const ColumnArray&>(*remove_nullable(column));
+        for (size_t row = 0; row < block.rows(); ++row) {
+            const auto dimension = array.size_at(row);
+            // A bad dimension would abort the shared background transaction after async success.
+            // Fail this request before enqueue/WAL, even if max_filter_ratio would allow filtering.
+            // Reject empty arrays before acknowledging the WAL, rather than failing only
+            // in the background index writer. Keep the flag enabled after accepting such data.
+            if (dimension == 0 && !config::enable_ann_index_empty_array) {
+                return Status::InvalidArgument(
+                        "Empty arrays in ANN-indexed columns require "
+                        "enable_ann_index_empty_array=true. "
+                        "Writing them prevents downgrade to versions without sparse ANN support. "
+                        "Column: {}, row: {}",
+                        ann.name, row);
+            }
+            if (dimension != 0 && dimension != ann.dimension) {
+                return Status::InvalidArgument(
+                        "Ann index expect array with {} dim, got {}. Column: {}, row: {}",
+                        ann.dimension, dimension, ann.name, row);
+            }
+        }
+    }
+    return Status::OK();
 }
 
 Status GroupCommitBlockSinkOperatorX::sink_impl(RuntimeState* state, Block* input_block, bool eos) {
@@ -408,6 +489,9 @@ Status GroupCommitBlockSinkOperatorX::sink_impl(RuntimeState* state, Block* inpu
                                                rows_to_keep.data() + rows_to_keep.size()));
             block->swap(res_block.to_block());
         }
+        // Check retained rows before buffering/enqueueing: async success only guarantees WAL storage,
+        // and an invalid vector discovered by the segment writer cannot be repaired by WAL replay.
+        RETURN_IF_ERROR(_validate_ann_vectors(*block));
         // add block into block queue
         RETURN_IF_ERROR(local_state._add_block(state, block));
     }

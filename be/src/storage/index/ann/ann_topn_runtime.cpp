@@ -82,10 +82,6 @@ Result<ColumnFloat32::Ptr> extract_query_vector(std::shared_ptr<VExpr> arg_expr)
     IColumn::Ptr values_holder_col = array_col->get_data_ptr();
     size_t value_count = array_col->get_offsets()[0];
 
-    if (value_count == 0) {
-        return ResultError(Status::InvalidArgument("Ann topn query vector cannot be empty"));
-    }
-
     if (auto* value_nullable_col = check_and_get_column<ColumnNullable>(nested_data_any)) {
         if (value_nullable_col->has_null(0, value_count)) {
             return ResultError(Status::InvalidArgument(
@@ -229,6 +225,10 @@ Status AnnTopNRuntime::evaluate_vector_ann_search(segment_v2::AnnIndexIterator* 
         result_column_float->get_data()[i] = ann_query_params.distance[i];
     }
     result_column = std::move(result_column_float);
+    if (_order_by_expr_ctx->root()->data_type()->is_nullable()) {
+        result_column = ColumnNullable::create(std::move(result_column),
+                                               ColumnUInt8::create(num_results, 0));
+    }
     row_ids = ann_query_params.row_ids;
     ann_index_stats = *ann_query_params.stats;
     return Status::OK();

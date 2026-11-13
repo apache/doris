@@ -142,6 +142,8 @@ public:
      */
     size_t get_src_column_idx() const { return _src_column_idx; }
 
+    bool has_empty_query_vector() const { return _query_array->empty(); }
+
     /**
      * @brief Gets the destination column index for distance results.
      * @return Column index where distance values will be stored

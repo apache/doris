@@ -88,6 +88,11 @@ public:
      */
     virtual doris::Status add(Int64 n, const float* x) = 0;
 
+    // Build a segment with empty ARRAY rows omitted. FAISS stores the physical rowids.
+    virtual doris::Status add_with_ids(Int64 n, const float* x, const Int64* rowids) = 0;
+
+    virtual Int64 get_num_rows_in_index() const = 0;
+
     /**
      * @brief Returns the minimum number of rows required for training the index.
      *

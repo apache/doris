@@ -295,6 +295,7 @@ Status AnnIndexReader::range_search(const AnnRangeSearchParams& params,
 
                 search_param->is_le_or_lt = params.is_le_or_lt;
                 search_param->roaring = params.roaring;
+                search_param->rows_of_segment = _rows_of_segment;
                 search_param->io_ctx = io_ctx;
                 DCHECK(search_param->roaring != nullptr);
 
@@ -375,6 +376,10 @@ Status AnnIndexReader::range_search(const AnnRangeSearchParams& params,
 
 size_t AnnIndexReader::get_dimension() const {
     return _dim;
+}
+
+Int64 AnnIndexReader::get_num_rows_in_index() const {
+    return _vector_index->get_num_rows_in_index();
 }
 
 } // namespace doris::segment_v2

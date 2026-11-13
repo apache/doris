@@ -29,6 +29,7 @@
 #include <condition_variable>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <limits>
 #include <memory>
 #include <mutex>
@@ -45,6 +46,7 @@
 #include "faiss/Index.h"
 #include "faiss/IndexFlat.h"
 #include "faiss/IndexHNSW.h"
+#include "faiss/IndexIDMap.h"
 #include "faiss/IndexIVF.h"
 #include "faiss/IndexIVFFlat.h"
 #include "faiss/IndexIVFPQ.h"
@@ -527,6 +529,7 @@ doris::Status FaissVectorIndex::add(Int64 n, const float* vec) {
     DCHECK(vec != nullptr);
     DCHECK(_index != nullptr);
 
+    _indexed_rows.reset();
     ScopedThreadName scoped_name("faiss_build_idx");
     // Apply the same thread budget when adding vectors to limit concurrency.
     ScopedOmpThreadBudget thread_budget;
@@ -541,6 +544,36 @@ doris::Status FaissVectorIndex::add(Int64 n, const float* vec) {
     }
 
     return doris::Status::OK();
+}
+
+doris::Status FaissVectorIndex::add_with_ids(Int64 n, const float* vec, const Int64* rowids) {
+    // The writer buffers a whole segment. Wrapping a populated HNSW would lose the
+    // external labels of its existing nodes, so sparse builds must start empty.
+    DORIS_CHECK(_index->ntotal == 0);
+    ScopedThreadName scoped_name("faiss_build_idx");
+    ScopedOmpThreadBudget thread_budget;
+    try {
+        // IVF stores external labels natively. HNSW needs an IDMap because its graph
+        // nodes remain dense: nodes [0, 1] can represent segment rows [0, 2].
+        if (_index_type == AnnIndexType::HNSW) {
+            auto mapped = std::make_unique<faiss::IndexIDMap>(_index.get());
+            mapped->own_fields = true;
+            (void)_index.release();
+            _index = std::move(mapped);
+        }
+        // All-empty segments need metadata but no FAISS add/train call (IVF is untrained).
+        if (n != 0) {
+            _index->add_with_ids(n, vec, rowids);
+            DorisMetrics::instance()->ann_index_in_memory_rows_cnt->increment(n);
+        }
+    } catch (const faiss::FaissException& e) {
+        return Status::RuntimeError("exception occurred during adding ANN rowids: {}", e.what());
+    }
+    return Status::OK();
+}
+
+Int64 FaissVectorIndex::get_num_rows_in_index() const {
+    return _index->ntotal;
 }
 
 Int64 FaissVectorIndex::get_min_train_rows() const {
@@ -571,6 +604,7 @@ Int64 FaissVectorIndex::get_min_train_rows() const {
 }
 
 void FaissVectorIndex::build(const FaissBuildParameter& params) {
+    _indexed_rows.reset();
     _params = params;
     _dimension = params.dim;
     switch (params.metric_type) {
@@ -705,6 +739,14 @@ void FaissVectorIndex::build(const FaissBuildParameter& params) {
 doris::Status FaissVectorIndex::ann_topn_search(const float* query_vec, int k,
                                                 const segment_v2::IndexSearchParameters& params,
                                                 segment_v2::IndexSearchResult& result) {
+    // All-empty segments have no FAISS training data. They still represent a complete
+    // empty result, rather than a missing index that should evaluate distance on [].
+    if (_index->ntotal == 0) {
+        result.roaring = std::make_shared<roaring::Roaring>();
+        result.row_ids = std::make_shared<std::vector<uint64_t>>();
+        result.distances = std::shared_ptr<float[]>(new float[0]);
+        return Status::OK();
+    }
     const int64_t cache_hit_cnt_before = g_ivf_on_disk_cache_stats.hit_cnt;
     const int64_t cache_miss_cnt_before = g_ivf_on_disk_cache_stats.miss_cnt;
     std::unique_ptr<float[]> distances_ptr;
@@ -813,6 +855,63 @@ doris::Status FaissVectorIndex::ann_topn_search(const float* query_vec, int k,
     return doris::Status::OK();
 }
 
+Status FaissVectorIndex::_init_indexed_rows() {
+    std::lock_guard lock(_indexed_rows_mutex);
+    if (_indexed_rows != nullptr) {
+        return Status::OK();
+    }
+    auto rows = std::make_unique<roaring::Roaring>();
+    try {
+        RETURN_IF_CATCH_EXCEPTION({
+            if (const auto* mapped = dynamic_cast<const faiss::IndexIDMap*>(_index.get())) {
+                for (auto id : mapped->id_map) {
+                    rows->add(cast_set<uint32_t>(id));
+                }
+            } else if (const auto* ivf = dynamic_cast<const faiss::IndexIVF*>(_index.get())) {
+                const auto* lists = ivf->invlists;
+                const auto* pread = dynamic_cast<const faiss::PreadInvertedLists*>(lists);
+                for (size_t list_no = 0; list_no < lists->nlist; ++list_no) {
+                    const auto size = lists->list_size(list_no);
+                    if (size == 0) {
+                        continue;
+                    }
+                    if (pread != nullptr) {
+                        // Read only IDs, not vector codes. The borrowed reference owns/pins the
+                        // bytes until this list is consumed, including on exceptions.
+                        const auto& list = pread->lists[list_no];
+                        auto ref = pread->reader().borrow(
+                                list.offset + list.capacity * lists->code_size,
+                                size * sizeof(faiss::idx_t));
+                        for (size_t i = 0; i < size; ++i) {
+                            faiss::idx_t id;
+                            std::memcpy(&id, ref->data() + i * sizeof(id), sizeof(id));
+                            rows->add(cast_set<uint32_t>(id));
+                        }
+                    } else {
+                        faiss::InvertedLists::ScopedIds ids(lists, list_no);
+                        for (size_t i = 0; i < size; ++i) {
+                            rows->add(cast_set<uint32_t>(ids[i]));
+                        }
+                    }
+                }
+            } else {
+                // Original HNSW files have implicit, contiguous labels.
+                DORIS_CHECK(dynamic_cast<const faiss::IndexHNSW*>(_index.get()) != nullptr);
+                rows->addRange(0, cast_set<uint64_t>(_index->ntotal));
+            }
+            rows->runOptimize();
+        });
+    } catch (const faiss::FaissException& e) {
+        return Status::RuntimeError("Failed to collect ANN rowids: {}", e.what());
+    } catch (const CLuceneError& e) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
+                "Failed to read ANN rowids: {}", e.what());
+    }
+    // Publish only a complete domain; a failed disk read must not leave a partial cache.
+    _indexed_rows = std::move(rows);
+    return Status::OK();
+}
+
 // For l2 distance, range search radius is the squared distance.
 // For inner product, range search radius is the actual distance.
 // range search on inner product returns all vectors with inner product greater than or equal to the radius.
@@ -820,6 +919,18 @@ doris::Status FaissVectorIndex::ann_topn_search(const float* query_vec, int k,
 doris::Status FaissVectorIndex::range_search(const float* query_vec, const float& radius,
                                              const segment_v2::IndexSearchParameters& params,
                                              segment_v2::IndexSearchResult& result) {
+    const bool needs_complement = (_metric == AnnIndexMetric::L2 && !params.is_le_or_lt) ||
+                                  (_metric == AnnIndexMetric::IP && params.is_le_or_lt);
+    // All-empty segments have no FAISS training data. They still represent a complete
+    // empty result, rather than a missing index that should evaluate distance on [].
+    if (_index->ntotal == 0) {
+        result.roaring = std::make_shared<roaring::Roaring>();
+        // Complement results never carry distances, even when the result is empty.
+        // AnnIndexReader and the expression evaluator rely on this contract.
+        result.row_ids = needs_complement ? nullptr : std::make_shared<std::vector<uint64_t>>();
+        result.distances = needs_complement ? nullptr : std::shared_ptr<float[]>(new float[0]);
+        return Status::OK();
+    }
     const int64_t cache_hit_cnt_before = g_ivf_on_disk_cache_stats.hit_cnt;
     const int64_t cache_miss_cnt_before = g_ivf_on_disk_cache_stats.miss_cnt;
     DCHECK(_index != nullptr);
@@ -866,6 +977,31 @@ doris::Status FaissVectorIndex::range_search(const float* query_vec, const float
         }
     }
 
+    // The pinned FAISS IDMap::range_search slices SearchParametersHNSW to its base
+    // type. Translate the selector here and call the child with the original params,
+    // preserving efSearch/bounded_queue even when filtering out segment rowids.
+    auto* mapped = dynamic_cast<faiss::IndexIDMap*>(_index.get());
+    faiss::Index* search_index = mapped != nullptr ? mapped->index : _index.get();
+    std::unique_ptr<faiss::IDSelectorTranslated> translated_selector;
+    if (mapped != nullptr && search_param->sel != nullptr) {
+        translated_selector =
+                std::make_unique<faiss::IDSelectorTranslated>(mapped->id_map, search_param->sel);
+        search_param->sel = translated_selector.get();
+    }
+    // Empty arrays must not reappear when an L2 > radius / IP < radius predicate
+    // complements the hits. E.g. [] is absent from both sides of a distance comparison.
+    roaring::Roaring sparse_candidates;
+    const roaring::Roaring* range_domain = params.roaring;
+    // Dense files already cover every data row. Avoid collecting all IVF list IDs
+    // (and reading every on-disk list) just to reconstruct the same candidate domain.
+    if (needs_complement && cast_set<size_t>(_index->ntotal) != params.rows_of_segment) {
+        SCOPED_RAW_TIMER(&result.engine_prepare_ns);
+        ScopedIoCtxBinding io_ctx_binding(params.io_ctx);
+        RETURN_IF_ERROR(_init_indexed_rows());
+        sparse_candidates = *params.roaring & *_indexed_rows;
+        range_domain = &sparse_candidates;
+    }
+
     faiss::RangeSearchResult native_search_result(1, true);
     {
         // Engine search: FAISS range_search
@@ -874,15 +1010,15 @@ doris::Status FaissVectorIndex::range_search(const float* query_vec, const float
         try {
             if (_metric == AnnIndexMetric::L2) {
                 if (radius <= 0) {
-                    _index->range_search(1, query_vec, 0.0f, &native_search_result,
-                                         search_param.get());
+                    search_index->range_search(1, query_vec, 0.0f, &native_search_result,
+                                               search_param.get());
                 } else {
-                    _index->range_search(1, query_vec, radius * radius, &native_search_result,
-                                         search_param.get());
+                    search_index->range_search(1, query_vec, radius * radius, &native_search_result,
+                                               search_param.get());
                 }
             } else if (_metric == AnnIndexMetric::IP) {
-                _index->range_search(1, query_vec, radius, &native_search_result,
-                                     search_param.get());
+                search_index->range_search(1, query_vec, radius, &native_search_result,
+                                           search_param.get());
             }
         } catch (faiss::FaissException& e) {
             return doris::Status::RuntimeError("exception occurred during ann range search: {}",
@@ -890,6 +1026,13 @@ doris::Status FaissVectorIndex::range_search(const float* query_vec, const float
         }
     }
 
+    // Downstream bitmaps, distances and result-cache entries all use segment rowids.
+    if (mapped != nullptr) {
+        for (size_t i = 0; i < native_search_result.lims[1]; ++i) {
+            auto& label = native_search_result.labels[i];
+            label = mapped->id_map[label];
+        }
+    }
     size_t begin = native_search_result.lims[0];
     size_t end = native_search_result.lims[1];
     auto row_ids = std::make_shared<std::vector<uint64_t>>();
@@ -923,7 +1066,7 @@ doris::Status FaissVectorIndex::range_search(const float* query_vec, const float
             // For IP, we can not use the distance directly.
             // range search on ip gets all vectors with inner product greater than or equal to the radius.
             // so we need to do a convertion.
-            const roaring::Roaring& origin_row_ids = *params.roaring;
+            const roaring::Roaring& origin_row_ids = *range_domain;
             std::shared_ptr<roaring::Roaring> roaring = std::make_shared<roaring::Roaring>();
             {
                 // Engine convert: compute roaring difference
@@ -946,7 +1089,7 @@ doris::Status FaissVectorIndex::range_search(const float* query_vec, const float
         if (_metric == AnnIndexMetric::L2) {
             // Faiss can only return labels in the range of radius.
             // If the precidate is not less than, we need to to a convertion.
-            const roaring::Roaring& origin_row_ids = *params.roaring;
+            const roaring::Roaring& origin_row_ids = *range_domain;
             std::shared_ptr<roaring::Roaring> roaring = std::make_shared<roaring::Roaring>();
             {
                 // Engine convert: compute roaring difference
@@ -999,6 +1142,7 @@ doris::Status FaissVectorIndex::range_search(const float* query_vec, const float
 doris::Status FaissVectorIndex::save(lucene::store::Directory* dir) {
     auto start_time = std::chrono::high_resolution_clock::now();
 
+    const char* index_file_name = faiss_index_fila_name;
     try {
         if (_index_type == AnnIndexType::IVF_ON_DISK) {
             // IVF_ON_DISK: write ivf data to a separate file, then write index metadata.
@@ -1067,17 +1211,11 @@ doris::Status FaissVectorIndex::save(lucene::store::Directory* dir) {
             // but write it for format completeness.
             od->filename = faiss_ivfdata_file_name;
             ivf->replace_invlists(od, true);
-
-            // Step 3: Write index metadata to ann.faiss (includes "ilod" fourcc)
-            FaissIndexWriter writer(dir->createOutput(faiss_index_fila_name));
-            RETURN_IF_CATCH_EXCEPTION(faiss::write_index(_index.get(), &writer));
-            RETURN_IF_ERROR(writer.close());
-        } else {
-            // HNSW / IVF: write the full index to ann.faiss
-            FaissIndexWriter writer(dir->createOutput(faiss_index_fila_name));
-            RETURN_IF_CATCH_EXCEPTION(faiss::write_index(_index.get(), &writer));
-            RETURN_IF_ERROR(writer.close());
         }
+        // Native FAISS serialization includes the IVF labels / HNSW IDMap.
+        FaissIndexWriter writer(dir->createOutput(index_file_name));
+        RETURN_IF_CATCH_EXCEPTION(faiss::write_index(_index.get(), &writer));
+        RETURN_IF_ERROR(writer.close());
     } catch (const CLuceneError& e) {
         return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                 "Failed to save vector index: {}", e.what());
@@ -1086,7 +1224,7 @@ doris::Status FaissVectorIndex::save(lucene::store::Directory* dir) {
     auto end_time = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
     LOG_INFO(fmt::format("Faiss index saved to {}, {}, rows {}, cost {} ms", dir->toString(),
-                         faiss_index_fila_name, _index->ntotal, duration.count()));
+                         index_file_name, _index->ntotal, duration.count()));
 
     return doris::Status::OK();
 }
@@ -1094,21 +1232,23 @@ doris::Status FaissVectorIndex::save(lucene::store::Directory* dir) {
 doris::Status FaissVectorIndex::load(lucene::store::Directory* dir) {
     auto start_time = std::chrono::high_resolution_clock::now();
 
+    _indexed_rows.reset();
+    auto open_reader = [&]() -> Result<std::unique_ptr<FaissIndexReader>> {
+        try {
+            return std::make_unique<FaissIndexReader>(dir->openInput(faiss_index_fila_name));
+        } catch (const CLuceneError& e) {
+            return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
+                    "Failed to open ANN index: {}", e.what()));
+        }
+    };
+
     if (_index_type == AnnIndexType::IVF_ON_DISK) {
         // IVF_ON_DISK load:
         // 1. Read index metadata from ann.faiss with IO_FLAG_SKIP_IVF_DATA.
         //    This reads "ilod" metadata (lists[], slots[], etc.) without mmap.
         // 2. Replace the OnDiskInvertedLists with PreadInvertedLists.
         // 3. Open ann.ivfdata via CLucene IndexInput and bind as RandomAccessReader.
-        lucene::store::IndexInput* idx_input = nullptr;
-        try {
-            idx_input = dir->openInput(faiss_index_fila_name);
-        } catch (const CLuceneError& e) {
-            return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
-                    "Failed to open index file: {}, error: {}", faiss_index_fila_name, e.what());
-        }
-
-        auto reader = std::make_unique<FaissIndexReader>(idx_input);
+        auto reader = DORIS_TRY(open_reader());
         // IO_FLAG_SKIP_IVF_DATA: read only index metadata (quantizer, PQ codebook,
         //   inverted-list slot table) without loading the bulk inverted-list data.
         //
@@ -1174,15 +1314,7 @@ doris::Status FaissVectorIndex::load(lucene::store::Directory* dir) {
         DorisMetrics::instance()->ann_index_in_memory_rows_cnt->increment(_index->ntotal);
     } else {
         // HNSW / IVF: load the full index from ann.faiss
-        lucene::store::IndexInput* idx_input = nullptr;
-        try {
-            idx_input = dir->openInput(faiss_index_fila_name);
-        } catch (const CLuceneError& e) {
-            return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
-                    "Failed to open index file: {}, error: {}", faiss_index_fila_name, e.what());
-        }
-
-        auto reader = std::make_unique<FaissIndexReader>(idx_input);
+        auto reader = DORIS_TRY(open_reader());
         // IO_FLAG_SKIP_PRECOMPUTE_TABLE: skip rebuilding IVFPQ precomputed
         // distance tables for in-memory IVF.  Same rationale as IVF_ON_DISK –
         // each segment's table can be hundreds of MiBs (see calculation above),

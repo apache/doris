@@ -1139,6 +1139,13 @@ Status SegmentIterator::_apply_ann_topn_predicate() {
     VLOG_DEBUG << fmt::format("Try apply ann topn: {}", _ann_topn_runtime->debug_string());
     // AnnTopNRuntime keeps VSlotRef::column_id(), which is the read-schema ordinal.
     ColumnId src_cid = cast_set<ColumnId>(_ann_topn_runtime->get_src_column_idx());
+    // An empty query vector has NULL distance to every row. Let normal evaluation
+    // and sorting preserve NULL ordering and LIMIT rather than searching FAISS.
+    if (_ann_topn_runtime->has_empty_query_vector()) {
+        _column_states[src_cid].need_read_data = true;
+        _opts.stats->ann_fall_back_brute_force_cnt += 1;
+        return Status::OK();
+    }
     IndexIterator* ann_index_iterator = _index_iterators[src_cid].get();
     bool has_ann_index = _column_has_ann_index(src_cid);
     bool has_common_expr_push_down = !_common_expr_ctxs_push_down.empty();
@@ -1235,6 +1242,15 @@ Status SegmentIterator::_apply_ann_topn_predicate() {
                 static_cast<double>(ann_index_stats.load_index_costs_ns.value()) / 1000000.0;
         DorisMetrics::instance()->ann_index_load_costs_ms->increment(
                 static_cast<int64_t>(load_costs_ms));
+    }
+
+    // Empty arrays have NULL distances. Omitting them would break NULLS FIRST,
+    // and also NULLS LAST when LIMIT exceeds the number of non-empty vectors.
+    // Sparse segments use scalar evaluation and the normal SQL sort for TopN.
+    if (cast_set<size_t>(ann_index_reader->get_num_rows_in_index()) != rows_of_segment) {
+        _column_states[src_cid].need_read_data = true;
+        _opts.stats->ann_fall_back_brute_force_cnt += 1;
+        return Status::OK();
     }
 
     bool enable_ann_index_result_cache =

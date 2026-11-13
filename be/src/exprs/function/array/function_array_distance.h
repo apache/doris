@@ -21,6 +21,8 @@
 #include <faiss/utils/distances.h>
 #include <gen_cpp/Types_types.h>
 
+#include <type_traits>
+
 #include "common/exception.h"
 #include "common/status.h"
 #include "core/assert_cast.h"
@@ -93,6 +95,9 @@ public:
     using ColumnType = PrimitiveTypeTraits<TYPE_FLOAT>::ColumnType;
 
     static constexpr auto name = DistanceImpl::name;
+    static constexpr bool null_for_empty_array =
+            std::is_same_v<DistanceImpl, L2DistanceApproximate> ||
+            std::is_same_v<DistanceImpl, InnerProductApproximate>;
     String get_name() const override { return name; }
     static FunctionPtr create() { return std::make_shared<FunctionArrayDistance<DistanceImpl>>(); }
     size_t get_number_of_arguments() const override { return 2; }
@@ -109,11 +114,14 @@ public:
                                    "Arguments for function {} must be arrays", get_name());
         }
 
+        if constexpr (null_for_empty_array) {
+            return make_nullable(std::make_shared<DataTypeFloat32>());
+        }
         return std::make_shared<DataTypeFloat32>();
     }
 
-    // All array distance functions has always not nullable return type.
-    // We want to make sure throw exception if input columns contain NULL.
+    // NULL inputs remain errors. Approximate distances return NULL for empty arrays,
+    // matching ANN indexes, which omit rows without a vector from distance predicates.
     bool use_default_implementation_for_nulls() const override { return false; }
 
     // Validate that neither outer column nor inner array elements contain NULL.
@@ -159,6 +167,14 @@ public:
 
         auto dst = ColumnType::create(input_rows_count);
         auto& dst_data = dst->get_data();
+        ColumnUInt8::MutablePtr null_map;
+        if constexpr (null_for_empty_array) {
+            // Older FEs declare these functions non-nullable. Preserve that layout
+            // during a BE-first rolling upgrade until all FEs support NULL distances.
+            if (block.get_by_position(result).type->is_nullable()) {
+                null_map = ColumnUInt8::create(input_rows_count, 0);
+            }
+        }
 
         for (size_t row = 0; row < input_rows_count; ++row) {
             auto a1 = view1[row];
@@ -168,6 +184,13 @@ public:
             auto dim1 = a1.size();
             auto dim2 = a2.size();
 
+            if constexpr (null_for_empty_array) {
+                if (null_map != nullptr && (dim1 == 0 || dim2 == 0)) {
+                    null_map->get_data()[row] = 1;
+                    dst_data[row] = 0;
+                    continue;
+                }
+            }
             if (dim1 != dim2) [[unlikely]] {
                 return Status::InvalidArgument(
                         "function {} have different input element sizes of array: {} and {}",
@@ -176,7 +199,14 @@ public:
             dst_data[row] = DistanceImpl::distance(p1, p2, dim1);
         }
 
-        block.replace_by_position(result, std::move(dst));
+        ColumnPtr result_column = std::move(dst);
+        if constexpr (null_for_empty_array) {
+            if (null_map != nullptr) {
+                result_column =
+                        ColumnNullable::create(std::move(result_column), std::move(null_map));
+            }
+        }
+        block.replace_by_position(result, std::move(result_column));
         return Status::OK();
     }
 };
