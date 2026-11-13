@@ -117,6 +117,10 @@ public class StatisticsCache {
         return new OlapTableStatistics(olapScan);
     }
 
+    public OlapTableStatistics getOlapTableStats(OlapTable table, long selectedIndexId) {
+        return new OlapTableStatistics(table, selectedIndexId);
+    }
+
     private ColumnStatistic doGetColumnStatistics(
             long catalogId, long dbId, long tblId, long idxId, String colName, ConnectContext ctx) {
         StatisticsCacheKey k = new StatisticsCacheKey(catalogId, dbId, tblId, idxId, colName);
@@ -407,8 +411,11 @@ public class StatisticsCache {
         public final long tableId;
 
         public OlapTableStatistics(OlapScan logicalOlapScan) {
-            this.olapTable = logicalOlapScan.getTable();
-            long selectedIndexId = logicalOlapScan.getSelectedIndexId();
+            this(logicalOlapScan.getTable(), logicalOlapScan.getSelectedIndexId());
+        }
+
+        public OlapTableStatistics(OlapTable olapTable, long selectedIndexId) {
+            this.olapTable = olapTable;
 
             DatabaseIf database = olapTable.getDatabase();
             CatalogIf catalog = database == null ? null : database.getCatalog();

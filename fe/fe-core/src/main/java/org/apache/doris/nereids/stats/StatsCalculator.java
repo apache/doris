@@ -24,12 +24,15 @@ import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.MTMV;
+import org.apache.doris.catalog.OlapChangelogTableWrapper;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.OlapTableWrapper;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.stream.OlapTableStreamWrapper;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
@@ -148,6 +151,7 @@ import org.apache.doris.statistics.model.PartitionColumnStatisticBuilder;
 import org.apache.doris.statistics.model.StatisticRange;
 import org.apache.doris.statistics.model.Statistics;
 import org.apache.doris.statistics.model.StatisticsBuilder;
+import org.apache.doris.statistics.util.Hll128;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -490,10 +494,16 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
 
     // check validation of ndv.
     private Optional<String> checkNdvValidation(OlapScan olapScan, double rowCount) {
-        OlapTableStatistics olapTableStats = Env.getCurrentEnv().getStatisticsCache().getOlapTableStats(olapScan);
+        OlapTableStatistics olapTableStats = getOlapScanSourceStatistics(olapScan);
+        Statistics streamStats = needsStreamColumnStatistics(olapScan) ? computeOlapScan(olapScan) : null;
+        if (streamStats != null) {
+            rowCount = streamStats.getRowCount();
+        }
         for (Slot slot : ((Plan) olapScan).getOutput()) {
             if (isVisibleSlotReference(slot)) {
-                ColumnStatistic cache = olapTableStats.getColumnStatistics(slot.getName(), connectContext);
+                ColumnStatistic cache = streamStats == null
+                        ? olapTableStats.getColumnStatistics(slot.getName(), connectContext)
+                        : streamStats.findColumnStatistics(slot);
                 if (!cache.isUnKnown) {
                     if ((cache.ndv == 0 && (cache.minExpr != null || cache.maxExpr != null))
                             || cache.ndv > rowCount * 10) {
@@ -510,12 +520,15 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
      */
     public Statistics computeOlapScan(OlapScan olapScan) {
         OlapTable olapTable = olapScan.getTable();
-        double tableRowCount = getOlapTableRowCount(olapScan);
-        tableRowCount = Math.max(1, tableRowCount);
+        double scanRowCount = getOlapTableRowCount(olapScan);
+        double tableRowCount = Math.max(1, scanRowCount);
+        boolean useStreamColumnStatistics = needsStreamColumnStatistics(olapScan);
 
-        OlapTableStatistics olapTableStats = Env.getCurrentEnv().getStatisticsCache().getOlapTableStats(olapScan);
+        OlapTableStatistics olapTableStats = getOlapScanSourceStatistics(olapScan);
 
-        if (olapScan.getSelectedIndexId() != olapScan.getTable().getBaseIndexId() || olapTable instanceof MTMV) {
+        if (!useStreamColumnStatistics
+                && (olapScan.getSelectedIndexId() != olapScan.getTable().getBaseIndexId()
+                        || olapTable instanceof MTMV)) {
             // mv is selected, return its estimated stats
             Optional<Statistics> optStats = ConnectContext.get().getStatementContext()
                     .getStatistics(((Relation) olapScan).getRelationId());
@@ -570,6 +583,10 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             }
             setHasUnknownColStatsInStatementContext();
             return builder.setRowCount(tableRowCount).build();
+        }
+
+        if (useStreamColumnStatistics) {
+            return computeStreamScanColumnStatistics(olapScan, scanRowCount, olapTableStats);
         }
 
         // build Stats for olapScan
@@ -639,6 +656,117 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             builder.setRowCount(tableRowCount);
         }
         return computeVirtualColumnStats(olapScan, builder.build());
+    }
+
+    private boolean needsStreamColumnStatistics(OlapScan scan) {
+        OlapTable table = scan.getTable();
+        if (table instanceof OlapTableStreamWrapper) {
+            return !((LogicalOlapTableStreamScan) scan).isReset();
+        }
+        if (table instanceof OlapChangelogTableWrapper) {
+            return true;
+        }
+        if (table instanceof OlapTableWrapper) {
+            OlapTableWrapper wrapper = (OlapTableWrapper) table;
+            // Fixed visible versions also wrap current/reset reads in cloud mode. Only an offset
+            // range makes a base scan historical and requires a new column-statistics population.
+            return scan.getSelectedPartitionIds().stream().anyMatch(id -> wrapper.getPartitionOffset(id) != null);
+        }
+        return false;
+    }
+
+    private OlapTableStatistics getOlapScanSourceStatistics(OlapScan scan) {
+        OlapTable table = scan.getTable();
+        if (table instanceof OlapTableStreamWrapper) {
+            return Env.getCurrentEnv().getStatisticsCache().getOlapTableStats(
+                    ((OlapTableStreamWrapper) table).getBaseTable(), scan.getSelectedIndexId());
+        }
+        if (table instanceof OlapTableWrapper) {
+            OlapTable sourceTable = ((OlapTableWrapper) table).getOriginTable();
+            long indexId = table instanceof OlapChangelogTableWrapper
+                    ? sourceTable.getBaseIndexId() : scan.getSelectedIndexId();
+            return Env.getCurrentEnv().getStatisticsCache().getOlapTableStats(sourceTable, indexId);
+        }
+        return Env.getCurrentEnv().getStatisticsCache().getOlapTableStats(scan);
+    }
+
+    private Statistics computeStreamScanColumnStatistics(OlapScan scan, double rowCount,
+            OlapTableStatistics sourceStats) {
+        OlapTable table = scan.getTable();
+        OlapTable sourceTable = table instanceof OlapTableStreamWrapper
+                ? ((OlapTableStreamWrapper) table).getBaseTable() : ((OlapTableWrapper) table).getOriginTable();
+        long sourceIndexId = table instanceof OlapChangelogTableWrapper
+                ? sourceTable.getBaseIndexId() : scan.getSelectedIndexId();
+        double outputRowCount = Math.max(1, rowCount);
+        if (!isRegisteredRowCount(scan) && scan.getSelectedPartitionIds().size() < table.getPartitionNum()) {
+            rowCount = getSelectedPartitionRowCount(scan, outputRowCount);
+            outputRowCount = rowCount;
+        }
+        // Keep the existing scan row-count convention, including zero for selected partitions.
+        // An unavailable estimate must stay unavailable to the column-distribution estimator.
+        double columnRowCount = rowCount < 0 ? rowCount : outputRowCount;
+        List<String> partitionNames = scan.getSelectedPartitionIds().stream()
+                .map(id -> sourceTable.getPartition(id).getName()).collect(Collectors.toList());
+        StatisticsBuilder builder = new StatisticsBuilder().setRowCount(outputRowCount)
+                .setDeltaRowCount(computeDeltaRowCount(scan));
+        for (Slot slot : ((Plan) scan).getOutput()) {
+            String columnName = slot.getName();
+            boolean beforeColumn = table instanceof OlapChangelogTableWrapper
+                    && Column.isChangelogBeforeColumn(columnName);
+            if (beforeColumn) {
+                // Generated by Column.generateBeforeColName; the scan may hide this storage
+                // slot while still using it to reconstruct a business column's before image.
+                columnName = columnName.substring(Column.CHANGELOG_BEFORE_PREFIX.length(), columnName.length() - 2);
+            }
+            Column sourceColumn = sourceTable.getColumn(columnName);
+            ColumnStatistic columnStats = ColumnStatistic.UNKNOWN;
+            // Internal op/TSO/LSN and stream virtual columns have no visible source column.
+            if ((isVisibleSlotReference(slot) || beforeColumn) && sourceColumn != null && sourceColumn.isVisible()) {
+                ColumnStatistic source = null;
+                if (connectContext.getSessionVariable().enablePartitionAnalyze) {
+                    source = getPartitionColumnStatistic(sourceStats, sourceColumn.getName(), partitionNames);
+                }
+                boolean usedPartitionStatistics = source != null;
+                if (source == null) {
+                    source = sourceStats.getColumnStatistics(sourceColumn.getName(), connectContext);
+                }
+                columnStats = estimateStreamColumnStatistics(source, columnRowCount, slot.getDataType());
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("Stream column stats: table={}, index={}, partitions={}, partitionStats={}, column={}, "
+                                    + "source count/nulls/ndv={}/{}/{}, target rows={}, result={}",
+                            sourceTable.getId(), sourceIndexId, partitionNames, usedPartitionStatistics,
+                            sourceColumn.getName(),
+                            source.count, source.numNulls, source.ndv, columnRowCount, columnStats);
+                }
+            }
+            builder.putColumnStatistics(slot, columnStats);
+        }
+        checkIfUnknownStatsUsedAsKey(builder);
+        return computeVirtualColumnStats(scan, builder.build());
+    }
+
+    /**
+     * Estimate a stream/historical scan from one unmodified source population. The source range
+     * and NULL fraction are distribution approximations, including for DELETE/UPDATE_BEFORE;
+     * they are not exact historical bounds or measurements of the changed keys.
+     */
+    @VisibleForTesting
+    static ColumnStatistic estimateStreamColumnStatistics(ColumnStatistic source, double rowCount, DataType dataType) {
+        if (rowCount == 0) {
+            return new ColumnStatisticBuilder().setNdv(0).setNumNulls(0).setAvgSizeByte(0).build();
+        }
+        if (rowCount < 0 || source.isUnKnown || source.count <= 0) {
+            return ColumnStatistic.UNKNOWN;
+        }
+        double numNulls = Math.min(rowCount, Math.max(0, rowCount * (source.numNulls / source.count)));
+        ColumnStatisticBuilder builder = new ColumnStatisticBuilder(source, rowCount)
+                .setNumNulls(numNulls)
+                .setNdv(Math.min(source.ndv, rowCount - numNulls))
+                .setDataSize(0)
+                .setOriginal(null)
+                .setHotValues(null);
+        builder.normalizeAvgSizeByte(dataType);
+        return builder.build();
     }
 
     private Statistics computeVirtualColumnStats(OlapScan relation, Statistics stats) {
@@ -1261,7 +1389,10 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         // try to merge partition column stats
         for (PartitionColumnStatistic pcolStats : pColStatsLists) {
             if (isFirst) {
-                builder = new PartitionColumnStatisticBuilder(pcolStats);
+                // merge() mutates its HLL; never merge into the shared cache object's sketch.
+                Hll128 ndv = new Hll128();
+                ndv.merge(pcolStats.ndv);
+                builder = new PartitionColumnStatisticBuilder(pcolStats).setNdv(ndv);
                 isFirst = false;
             } else {
                 builder.merge(pcolStats);
