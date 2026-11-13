@@ -273,6 +273,11 @@ public class LocalTablet extends Tablet {
     }
 
     @Override
+    public void clearReplicas() {
+        replicas = new ArrayList<>();
+    }
+
+    @Override
     public List<Replica> getReplicas() {
         // Volatile read: returns the current immutable snapshot; callers iterate without locking.
         return Collections.unmodifiableList(replicas);
