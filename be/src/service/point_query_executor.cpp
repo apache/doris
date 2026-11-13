@@ -98,8 +98,6 @@ static void get_missing_and_include_cids(const TabletSchema& schema,
     for (auto* slot : slots) {
         missing_cids.insert(slot->col_unique_id());
     }
-    // insert delete sign column id
-    missing_cids.insert(schema.columns()[schema.delete_sign_idx()]->unique_id());
     if (target_rs_column_id == -1) {
         // no row store columns
         return;
@@ -168,11 +166,11 @@ Status Reusable::init(const TDescriptorTable& t_desc_tbl, const std::vector<TExp
     _create_timestamp = butil::gettimeofday_ms();
     _data_type_serdes = create_data_type_serdes(tuple_desc()->slots());
     _col_default_values.resize(tuple_desc()->slots().size());
-    bool has_delete_sign = false;
+    _delete_sign_idx = -1;
     for (int i = 0; i < tuple_desc()->slots().size(); ++i) {
         auto* slot = tuple_desc()->slots()[i];
         if (slot->col_name() == DELETE_SIGN) {
-            has_delete_sign = true;
+            _delete_sign_idx = i;
         }
         _col_uid_to_idx[slot->col_unique_id()] = i;
         _col_default_values[i] = slot->col_default_value();
@@ -184,9 +182,11 @@ Status Reusable::init(const TDescriptorTable& t_desc_tbl, const std::vector<TExp
         extract_slot_ref(expr->root(), tuple_desc(), output_slot_descs);
     }
 
-    // get the delete sign idx in block
-    if (has_delete_sign) {
-        _delete_sign_idx = _col_uid_to_idx[schema.columns()[schema.delete_sign_idx()]->unique_id()];
+    // With show_hidden_columns=true, SELECT v can omit the delete-sign slot. Requesting
+    // its schema UID anyway makes the column-store fallback access a nonexistent tuple slot.
+    // When the slot is present for normal delete filtering, read it even if not projected.
+    if (_delete_sign_idx != -1) {
+        output_slot_descs.push_back(tuple_desc()->slots()[_delete_sign_idx]);
     }
 
     if (schema.have_column(BeConsts::ROW_STORE_COL)) {
@@ -520,7 +520,9 @@ Status PointQueryExecutor::_lookup_row_key() {
     std::vector<std::unique_ptr<SegmentCacheHandle>> segment_caches(specified_rowsets.size());
     for (size_t i = 0; i < _row_read_ctxs.size(); ++i) {
         RowLocation location;
-        if (!config::disable_storage_row_cache) {
+        // A cached payload cannot supply columns outside row_store_columns. For example,
+        // after SELECT v warms the cache, SELECT v,w must still resolve w's physical row.
+        if (!config::disable_storage_row_cache && _reusable->missing_col_uids().empty()) {
             RowCache::CacheHandle cache_handle;
             auto hit_cache = RowCache::instance()->lookup(
                     {_tablet->tablet_id(), _row_read_ctxs[i]._primary_key}, &cache_handle);
