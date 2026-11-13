@@ -28,15 +28,14 @@ namespace io {
 class RemoteFileSystem;
 } // namespace io
 
-/// Spill store on the object storage of a cloud storage vault (spill_storage_type=s3).
+/// Spill store on the object storage of a cloud storage vault (spill_storage_type=remote).
 ///
 /// Object layout, relative to the vault prefix:
-///   spill/{ip}_{port}/{query_id}/{spill file}/{part}
-/// {ip}_{port} is the address this BE advertises (BackendOptions::get_localhost(), normally its
-/// IP) and its heartbeat_service_port, the pair FE identifies a BE by, so several BEs on one
-/// host get different directories and a key tells which BE wrote it and which query it belongs
-/// to. The objects of a spill file are deleted when its SpillFile is destroyed, which happens
-/// when the query is done with it; a deletion that failed is retried by the GC thread. Nothing
+///   spill/{backend_uid}/{query_id}/{spill file}/{part}
+/// A random process-scoped ID avoids exposing this BE's address in object keys. A restart
+/// gets a new root; old remote objects remain subject to the bucket lifecycle rule.
+/// SpillFile destruction queues its objects for the GC thread once the query is done
+/// with them; failed deletions remain queued for retry. Nothing
 /// else deletes spill objects: what a BE that crashed left behind stays until an object
 /// lifecycle rule of the bucket (expiring keys under <vault prefix>/spill/ and aborting
 /// incomplete multipart uploads) removes it.
@@ -69,9 +68,6 @@ public:
     /// spill_s3_storage_vault_id every call selects again; existing files retain their FS.
     Status ensure_ready(io::FileSystemSPtr* file_fs);
 
-    /// Bind a file system directly for tests without a cloud storage engine.
-    void init_remote_fs(io::FileSystemSPtr fs, std::string endpoint);
-
     /// nullptr until ready.
     io::FileSystemSPtr fs() const override;
 
@@ -82,22 +78,17 @@ public:
     void release_persisted_bytes(int64_t bytes) override;
     int64_t get_persisted_bytes() override;
 
-    /// "{ip}_{port}" in the object keys; empty until ready.
-    const std::string& endpoint() const { return _endpoint; }
-
-    const std::string& vault_id() const { return _vault_id; }
-
 protected:
-    bool _reach_limit_unlocked(int64_t incoming_data_size) override;
+    bool _reach_limit_unlocked(int64_t incoming_data_size,
+                               const std::lock_guard<std::mutex>& lock) override;
 
 private:
-    void _bind_fs_unlocked(io::FileSystemSPtr fs, std::string endpoint);
+    // Caller holds _init_mutex.
+    void _bind_fs_unlocked(io::FileSystemSPtr fs, const std::lock_guard<std::mutex>& lock);
     std::string _vault_id;
-    std::string _endpoint;
     mutable std::mutex _init_mutex;
     std::atomic<bool> _ready {false};
     io::FileSystemSPtr _fs;
-    bool _test_binding = false;
     int64_t _persisted_bytes = 0;
 };
 

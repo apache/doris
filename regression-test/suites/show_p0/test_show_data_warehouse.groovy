@@ -148,7 +148,7 @@ suite("test_show_data_warehouse") {
                 continue
             }
             if (row[0].toString() == "__remote_spill__") {
-                // spill bytes currently held in object storage; 0 unless spill_storage_type=s3
+                // spill bytes currently held in object storage; 0 unless spill_storage_type=remote
                 spillRows++
                 assertTrue(row[1].toLong() >= 0)
                 assertEquals("0", row[2].toString())

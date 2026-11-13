@@ -1783,11 +1783,11 @@ DECLARE_String(spill_storage_root_path);
 // Must larger than 0.
 // If specified as percentage, the final limit value is:
 //   disk_capacity_bytes * storage_flood_stage_usage_percent * spill_storage_limit
-// It does not apply to the object storage store of spill_storage_type=s3, which is bounded by
+// It does not apply to the object storage store of spill_storage_type=remote, which is bounded by
 // spill_storage_limit_bytes only.
 DECLARE_String(spill_storage_limit);
 // Upper bound, in bytes, of the spill data kept by each spill store: every local spill path
-// and the object storage store of spill_storage_type=s3 are limited separately. For a local
+// and the object storage store of spill_storage_type=remote are limited separately. For a local
 // path the effective limit is the smaller of this and spill_storage_limit, which always
 // applies. 0 means no byte limit (a local path is then bounded by spill_storage_limit only,
 // object storage is unbounded).
@@ -1797,23 +1797,19 @@ DECLARE_mInt32(spill_gc_work_time_ms);
 // Maximum size of each spill part file before rotation (bytes). Default 1GB.
 DECLARE_mInt64(spill_file_part_size_bytes);
 DECLARE_Int64(spill_in_paused_queue_timeout_ms);
-// Where spill data is written: "local" (spill_storage_root_path) or "s3" (the storage vault of a
-// cloud instance). "s3" is only valid in cloud mode.
+// Where spill data is written: "local" (spill_storage_root_path) or "remote" (the storage vault of a
+// cloud instance). Remote spill is cloud-mode only.
 DECLARE_String(spill_storage_type);
-// Storage vault ID (not the vault name) used by spill when spill_storage_type is "s3". When
+// Storage vault ID (not the vault name) used by spill when remote spill is enabled. When
 // empty, an instance without storage vaults uses its latest object storage and an instance
 // with storage vaults uses the S3 vault with the largest ID (the newest one), so that changing
 // the default vault does not move spill. Files already spilled stay on the vault they were
 // written to until they are deleted.
 DECLARE_String(spill_s3_storage_vault_id);
-// Back-pressure threshold for spill uploads to object storage: spill writers pause before
-// appending another serialized block to object storage while the S3 upload queue (shared with
-// every other S3 writer of this BE) holds at least this many bytes of buffers waiting for an
-// upload thread, every buffer counted as s3_write_buffer_size. It slows down a spill that
-// produces data faster than object storage takes it, but is not a hard memory limit: buffers
-// being uploaded by a thread and buffers still being filled by open writers are not counted,
-// the buffers of one block each concurrently appending writer may add after the check and the
-// final buffer of every part are queued without waiting for the check.
+// Back-pressure threshold for submitted spill uploads to object storage. Counts queued and
+// running spill buffers, not uploads from unrelated writers sharing the same thread pool.
+// Idle, partially filled buffers do not count. This is not a hard memory limit: each concurrent
+// append can overshoot by one block, and close must always be allowed to submit the final buffer.
 DECLARE_mInt64(spill_s3_max_inflight_upload_bytes);
 // Upper bound of one object-storage read of spill data. Adjacent spilled blocks are coalesced
 // into one GET of at most this size (further capped by the query's spill_buffer_size_bytes);

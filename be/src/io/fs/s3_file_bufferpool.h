@@ -97,6 +97,12 @@ struct FileBuffer {
     * @param S the execution result
     */
     void set_status(Status s) { _state.set_status(s); }
+
+    // Set before submitting the buffer, when its actual allocation capacity is known.
+    void set_completion_callback(std::function<bool(Status)> callback) {
+        _state._sync_after_complete_task = std::move(callback);
+    }
+
     /**
     * get the start offset of this file buffer
     *
