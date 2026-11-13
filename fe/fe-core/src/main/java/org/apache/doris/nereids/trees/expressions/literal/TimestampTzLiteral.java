@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions.literal;
 
 import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.common.util.TimeZoneParser;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.nereids.exceptions.UnboundException;
@@ -35,6 +36,9 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
+import java.time.ZonedDateTime;
 import java.util.Objects;
 
 /**
@@ -183,8 +187,24 @@ public class TimestampTzLiteral extends DateTimeLiteral {
         throw new AnalysisException(String.format("Cast from %s to %s not supported", this, targetType));
     }
 
+    /** Add calendar days in the session timezone, retaining the local time of day. */
     public Expression plusDays(long days) {
-        return fromJavaDateType(toJavaDateType().plusDays(days), getDataType().getScale());
+        // Predicate movement relies on zero days being an identity even when the local
+        // display year of a valid UTC boundary value is outside [0, 9999].
+        if (days == 0) {
+            return this;
+        }
+        ZoneId zone = TimeZoneParser.parse(getSessionTimeZone(), TimeZoneParser.Usage.SESSION);
+        ZonedDateTime local = toJavaDateType().atOffset(ZoneOffset.UTC).atZoneSameInstant(zone);
+        LocalDateTime target = local.toLocalDateTime().plusDays(days);
+        // Like BE, reject local years outside [0, 9999], even when UTC is representable.
+        if (isDateOutOfRange(local.toLocalDateTime()) || isDateOutOfRange(target)) {
+            throw new AnalysisException("datetime out of range: " + target);
+        }
+        // Keep the original offset in an overlap and shift gap input by the gap length,
+        // matching BE lookup.pre: New York's 2024-03-10 02:30 becomes 03:30.
+        return fromJavaDateType(LocalDateTime.ofInstant(
+                ZonedDateTime.ofLocal(target, zone, local.getOffset()).toInstant(), ZoneOffset.UTC), getScale());
     }
 
     /**

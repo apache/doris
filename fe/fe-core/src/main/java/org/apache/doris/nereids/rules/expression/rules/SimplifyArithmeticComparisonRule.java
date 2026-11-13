@@ -27,6 +27,8 @@ import org.apache.doris.nereids.trees.expressions.Divide;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Multiply;
 import org.apache.doris.nereids.trees.expressions.Subtract;
+import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
+import org.apache.doris.nereids.trees.expressions.functions.DateAddSubMonotonic;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DaysAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DaysSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursAdd;
@@ -38,6 +40,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.WeeksAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.WeeksSub;
 import org.apache.doris.nereids.trees.expressions.literal.ComparableLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
@@ -99,6 +102,9 @@ public class SimplifyArithmeticComparisonRule implements ExpressionPatternRuleFa
         }
         try {
             List<Expression> children = tryRearrangeChildren(newComparison.left(), newComparison.right(), context);
+            if (children == null) {
+                return comparison;
+            }
             newComparison = (ComparisonPredicate) simplify(
                     (ComparisonPredicate) newComparison.withChildren(children), context);
             return TypeCoercionUtils.processComparisonPredicate(newComparison);
@@ -112,6 +118,23 @@ public class SimplifyArithmeticComparisonRule implements ExpressionPatternRuleFa
             return false;
         }
 
+        // The rule can move a date interval only if the date function keeps the order of input values.
+        // It calls isMonotonic(null, null) because it has no input range bounds.
+        // Calendar day addition can change UTC time order for TIMESTAMPTZ values when the UTC offset changes.
+        //
+        // Example in America/New_York:
+        // ts = 2024-11-03 01:50:00-04:00
+        // cutoff = 2024-11-04 01:30:00-05:00
+        // days_add(ts, 1) < cutoff is false.
+        // ts < days_sub(cutoff, 1) is true.
+        // The subtraction selects the second 01:30 on November 3, with UTC offset -05:00.
+        //
+        // The check keeps the original comparison if isMonotonic returns false.
+        if (cmp.left() instanceof DateAddSubMonotonic
+                && !((DateAddSubMonotonic) cmp.left()).isMonotonic(null, null)) {
+            return false;
+        }
+
         for (Expression child : cmp.left().children()) {
             if (child.isConstant()) {
                 return true;
@@ -120,7 +143,7 @@ public class SimplifyArithmeticComparisonRule implements ExpressionPatternRuleFa
         return false;
     }
 
-    private static List<Expression> tryRearrangeChildren(Expression left, Expression right,
+    private static @Nullable List<Expression> tryRearrangeChildren(Expression left, Expression right,
             ExpressionRewriteContext context) throws Exception {
         if (!left.child(1).isConstant()) {
             throw new RuntimeException(String.format("Expected literal when arranging children for Expr %s", left));
@@ -131,6 +154,18 @@ public class SimplifyArithmeticComparisonRule implements ExpressionPatternRuleFa
         Class<? extends Expression> oppositeOperator = REARRANGEMENT_MAP.get(left.getClass());
         Expression newChild = oppositeOperator.getConstructor(Expression.class, Expression.class)
                 .newInstance(right, leftLiteral);
+
+        if (newChild instanceof BoundFunction) {
+            // Date arithmetic has a finite range. For example, days_sub(d, 1) < MAX must not
+            // become d < days_add(MAX, 1). Check the inverse on FE before accepting the rewrite.
+            // NULL and expressions that cannot fold are not valid date boundaries. This also
+            // excludes a boundary supplied by a column, which can contain MAX at execution time.
+            newChild = FoldConstantRuleOnFE.evaluate(
+                    TypeCoercionUtils.processBoundFunction((BoundFunction) newChild), context);
+            if (!(newChild instanceof DateLiteral)) {
+                return null;
+            }
+        }
 
         if (left instanceof Divide && leftLiteral.compareTo(new IntegerLiteral(0)) < 0) {
             // Multiplying by a negative number will change the operator.
