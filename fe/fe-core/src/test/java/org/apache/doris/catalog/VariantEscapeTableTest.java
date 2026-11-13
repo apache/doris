@@ -173,6 +173,42 @@ public class VariantEscapeTableTest extends TestWithFeService {
     }
 
     @Test
+    public void testCtasDoesNotInheritStorageTemplates() throws Exception {
+        createTable("CREATE TABLE template_legacy(k INT, v VARIANT<MATCH_NAME '50%':STRING,"
+                + "MATCH_NAME 'a%2Eb':STRING, PROPERTIES('variant_max_subcolumns_count'='3',"
+                + "'variant_enable_nested_group'='false')>) DUPLICATE KEY(k) "
+                + "DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES('replication_num'='1')");
+        createTable("CREATE TABLE template_escaped(k INT, v VARIANT<MATCH_NAME '50%25':STRING,"
+                + "MATCH_NAME 'a%2Eb':STRING, PROPERTIES('variant_enable_nested_group'='false')>) "
+                + "DUPLICATE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1 "
+                + "PROPERTIES('replication_num'='1','variant_escape_dots_in_keys'='true')");
+        createTable("CREATE TABLE template_escaped_int(k INT) DUPLICATE KEY(k) "
+                + "DISTRIBUTED BY HASH(k) BUCKETS 1 "
+                + "PROPERTIES('replication_num'='1','variant_escape_dots_in_keys'='true')");
+        for (String policy : new String[] {"inherited", "true", "false"}) {
+            String explicit = policy.equals("inherited") ? ""
+                    : ",'variant_escape_dots_in_keys'='" + policy + "'";
+            String name = "template_ctas_" + policy;
+            createTable("CREATE TABLE " + name + " DISTRIBUTED BY HASH(k) BUCKETS 1 "
+                    + "PROPERTIES('replication_num'='1'" + explicit + ") AS SELECT l.k,l.v "
+                    + "FROM template_legacy l JOIN template_escaped_int e ON l.k=e.k");
+            Assertions.assertEquals(!policy.equals("false"), table(name).getVariantEscapeDotsInKeys());
+            Assertions.assertTrue(((VariantType) table(name).getColumn("v").getType()).getPredefinedFields().isEmpty());
+            Assertions.assertEquals(3, table(name).getColumn("v").getVariantMaxSubcolumnsCount());
+        }
+        createTable("CREATE TABLE template_ctas_to_legacy DISTRIBUTED BY HASH(k) BUCKETS 1 "
+                + "PROPERTIES('replication_num'='1','variant_escape_dots_in_keys'='false') "
+                + "AS SELECT k,v FROM template_escaped");
+        Assertions.assertFalse(table("template_ctas_to_legacy").getVariantEscapeDotsInKeys());
+        Assertions.assertTrue(((VariantType) table("template_ctas_to_legacy").getColumn("v").getType())
+                .getPredefinedFields().isEmpty());
+        Assertions.assertEquals(2, ((VariantType) table("template_legacy").getColumn("v").getType())
+                .getPredefinedFields().size());
+        Assertions.assertEquals(2, ((VariantType) table("template_escaped").getColumn("v").getType())
+                .getPredefinedFields().size());
+    }
+
+    @Test
     public void testAsyncMvInheritanceAndExplicitPolicy() throws Exception {
         createTable("CREATE TABLE async_source(k INT, v VARIANT) DUPLICATE KEY(k) "
                 + "DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES('replication_num'='1',"

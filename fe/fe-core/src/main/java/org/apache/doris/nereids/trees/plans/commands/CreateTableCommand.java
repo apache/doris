@@ -52,6 +52,7 @@ import org.apache.doris.nereids.types.NullType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
+import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
@@ -182,6 +183,9 @@ public class CreateTableCommand extends Command implements NeedAuditEncryption, 
         for (int i = 0; i < slots.size(); i++) {
             Slot s = slots.get(i);
             DataType dataType = s.getDataType().conversion();
+            if (dataType instanceof VariantType) {
+                dataType = ((VariantType) dataType).withoutPredefinedFields();
+            }
             if (dataType.isVarBinaryType()) {
                 throw new AnalysisException("doris do not support varbinary create table, could use it by catalog");
             }

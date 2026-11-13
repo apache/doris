@@ -200,7 +200,9 @@ public class ExpressionTranslatorTest {
                         .visitSearchExpression(search, context);
                 Assertions.assertSame(indexes.get(i), predicate.getFieldIndexes().get(0));
             }
-            Mockito.verify(table, Mockito.times(2)).getInvertedIndex(column, paths.get(i));
+            Mockito.verify(table).getInvertedIndex(column, paths.get(i));
+            Mockito.verify(table, Mockito.times(2)).getInvertedIndexByStoragePath(
+                    column, table.toVariantStoragePath(paths.get(i)), null);
         }
     }
 }

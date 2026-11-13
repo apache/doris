@@ -133,6 +133,13 @@ public class VariantType extends PrimitiveType {
                                     variantDocShardCount, enableNestedGroup);
     }
 
+    /** CTAS infers values, not templates whose paths belong to the source table's storage namespace. */
+    public VariantType withoutPredefinedFields() {
+        return new VariantType(ImmutableList.of(), variantMaxSubcolumnsCount, enableTypedPathsToSparse,
+                variantMaxSparseColumnStatisticsSize, variantSparseHashShardCount, enableVariantDocMode,
+                variantDocMaterializationMinRows, variantDocShardCount, enableNestedGroup);
+    }
+
     @Override
     public Type toCatalogDataType() {
         org.apache.doris.catalog.VariantType type = new org.apache.doris.catalog.VariantType(predefinedFields.stream()
