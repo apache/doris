@@ -41,6 +41,7 @@
 #include "storage/index/inverted/analysis/analyzer/ik/IKAnalyzer.h"
 #include "storage/index/inverted/analysis/analyzer/ik/core/CharacterUtil.h"
 #include "storage/index/inverted/analysis/analyzer/kuromoji/KuromojiAnalyzer.h"
+#include "storage/index/inverted/analysis/analyzer/kuromoji/kuromoji_normalize.h"
 #include "storage/index/inverted/analysis/char_filter/char_replace_char_filter_factory.h"
 #include "storage/index/inverted/analysis/token_filter/lower_case_filter.h"
 #include "util/string_util.h"
@@ -70,6 +71,12 @@ std::string normalize_builtin_term(InvertedIndexParserType parser_type, bool low
     switch (parser_type) {
     case InvertedIndexParserType::PARSER_IK:
         CharacterUtil::regularizeString(text, lower_case);
+        return text;
+    case InvertedIndexParserType::PARSER_KUROMOJI:
+        text = kuromoji::cjk_width_normalize(text);
+        if (lower_case) {
+            unicode_lower(text);
+        }
         return text;
     case InvertedIndexParserType::PARSER_ICU:
     case InvertedIndexParserType::PARSER_BASIC:

@@ -19,7 +19,10 @@
 
 #include <gtest/gtest.h>
 
+#include <map>
 #include <string>
+
+#include "storage/index/inverted/analysis/analyzer/analyzer.h"
 
 namespace doris::segment_v2::inverted_index::kuromoji {
 
@@ -45,6 +48,18 @@ TEST(KuromojiNormalizeTest, PreservesOtherText) {
     EXPECT_EQ(cjk_width_normalize("\xEF\xBC\xA1\xE6\x9D\xB1\xEF\xBC\xA2"),
               "A\xE6\x9D\xB1"
               "B");
+}
+
+TEST(KuromojiNormalizeTest, QueryTermWidthAndUnicodeCase) {
+    const std::string value = "ＡＢＣ É";
+    for (const auto* property : {"parser", "analyzer"}) {
+        std::map<std::string, std::string> properties {{property, "kuromoji"}};
+        EXPECT_EQ(InvertedIndexAnalyzer::normalize(value, properties), "abc é");
+        properties["lower_case"] = "false";
+        EXPECT_EQ(InvertedIndexAnalyzer::normalize(value, properties), "ABC É");
+        properties["lower_case"] = "true";
+        EXPECT_EQ(InvertedIndexAnalyzer::normalize(value, properties), "abc é");
+    }
 }
 
 } // namespace doris::segment_v2::inverted_index::kuromoji
