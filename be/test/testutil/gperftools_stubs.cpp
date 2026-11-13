@@ -17,7 +17,7 @@
 
 // Supply the gperftools symbols required by the dictionary tool when it uses system malloc.
 
-#if defined(__APPLE__) && defined(__aarch64__)
+#if defined(__APPLE__) && defined(__aarch64__) && defined(KUROMOJI_DICT_TOOL)
 
 #include <cstddef>
 
