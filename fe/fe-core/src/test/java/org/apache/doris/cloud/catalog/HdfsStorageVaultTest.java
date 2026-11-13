@@ -44,7 +44,9 @@ import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
+import java.util.Collections;
 import java.util.HashSet;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
@@ -75,7 +77,7 @@ public class HdfsStorageVaultTest {
 
         Assertions.assertEquals("hdfs/localhost@EXAMPLE.COM", buildConf.getHdfsKerberosPrincipal());
         Assertions.assertEquals("/etc/krb5.keytab", buildConf.getHdfsKerberosKeytab());
-        Assertions.assertEquals(List.of(Cloud.HdfsBuildConf.HdfsConfKVPair.newBuilder()
+        Assertions.assertEquals(Collections.singletonList(Cloud.HdfsBuildConf.HdfsConfKVPair.newBuilder()
                 .setKey(authKey)
                 .setValue("kerberos").build()), buildConf.getHdfsConfsList());
     }
