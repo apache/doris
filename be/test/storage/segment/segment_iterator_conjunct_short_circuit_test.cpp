@@ -327,6 +327,25 @@ TEST_F(SegmentIteratorConjunctShortCircuitTest, empty_bitmap_skips_ann_topn) {
     ASSERT_TRUE(_iter->_apply_ann_topn_predicate().ok());
 }
 
+// Missing query vectors must fall back before accessing ANN readers or validating dimensions.
+TEST_F(SegmentIteratorConjunctShortCircuitTest,
+       missing_query_preserves_candidates_for_scalar_topn) {
+    auto order_expr = std::make_shared<BitmapEvalExpr>(std::vector<uint32_t> {});
+    auto runtime = std::make_shared<AnnTopNRuntime>(true, 10, make_bitmap_ctx(order_expr));
+    runtime->_src_column_idx = 0;
+    runtime->_dest_column_idx = 0;
+    runtime->_metric_type = AnnIndexMetric::L2;
+    runtime->_query_array = ColumnFloat32::create();
+    _iter->_ann_topn_runtime = std::move(runtime);
+    _iter->_row_bitmap.addRange(0, 100);
+    _iter->_column_states[0].need_read_data = false;
+
+    ASSERT_TRUE(_iter->_apply_ann_topn_predicate().ok());
+    EXPECT_TRUE(_iter->_column_states[0].need_read_data);
+    EXPECT_EQ(_iter->_row_bitmap.cardinality(), 100);
+    EXPECT_EQ(_stats.ann_fall_back_brute_force_cnt, 1);
+}
+
 // A conjunct whose index result does not empty the bitmap must not stop
 // evaluation of the following conjuncts; consumed results are intersected
 // progressively.

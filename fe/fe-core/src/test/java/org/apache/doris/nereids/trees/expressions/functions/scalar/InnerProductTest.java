@@ -33,6 +33,13 @@ public class InnerProductTest {
     private static final NereidsParser PARSER = new NereidsParser();
 
     @Test
+    public void testMapResultRemainsNonNullable() {
+        Expression expression = analyze("inner_product(map(1, cast(2 as float)),"
+                + " map(1, cast(3 as float)))");
+        Assertions.assertFalse(expression.nullable());
+    }
+
+    @Test
     public void testInferNullMapKeyType() {
         Expression expression = analyze(
                 "inner_product(map(null, cast(2 as float)),"

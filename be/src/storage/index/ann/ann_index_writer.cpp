@@ -93,6 +93,8 @@ Status AnnIndexColumnWriter::add_values(const uint8_t* values, size_t count) {
 void AnnIndexColumnWriter::close_on_error() {
     PODArray<float> empty_buffered_vectors;
     _buffered_vectors.swap(empty_buffered_vectors);
+    PODArray<Int64> empty_row_ids;
+    _data_row_ids_in_index.swap(empty_row_ids);
 }
 
 Status AnnIndexColumnWriter::add_array_values(size_t field_size, const uint8_t* value_ptr,
@@ -105,20 +107,58 @@ Status AnnIndexColumnWriter::add_array_values(size_t field_size, const uint8_t* 
 
     const auto* offsets = offsets_ptr;
     const size_t dim = _vector_index->get_dimension();
+    size_t num_rows_to_index = 0;
+    const bool allow_empty_arrays = config::enable_ann_index_empty_array;
+    // Validate the whole batch before changing row IDs or buffered vectors. Empty arrays
+    // occupy a row in the data file but have no ANN entry, regardless of the delete sign.
     for (size_t i = 0; i < num_rows; ++i) {
-        auto array_elem_size = offsets[i + 1] - offsets[i];
-        if (array_elem_size != dim) {
-            return Status::InvalidArgument("Ann index expect array with {} dim, got {}.", dim,
-                                           array_elem_size);
+        const auto count = offsets[i + 1] - offsets[i];
+        // For [vector, [], vector], the second vector must keep label 2, not label 1.
+        if (count == 0) {
+            if (!allow_empty_arrays) {
+                return Status::InvalidArgument(
+                        "Empty arrays in ANN-indexed columns require "
+                        "enable_ann_index_empty_array=true. "
+                        "Writing them prevents downgrade to versions without sparse ANN support. "
+                        "Index: {}, row: {}",
+                        _index_meta->index_name(), i);
+            }
+            continue;
         }
+        if (count != dim) {
+            return Status::InvalidArgument("Ann index expect array with {} dim, got {}.", dim,
+                                           count);
+        }
+        ++num_rows_to_index;
     }
 
-    const float* p = reinterpret_cast<const float*>(value_ptr);
-
-    // The offsets check above guarantees every array row matches the ANN index dimension.
-    DCHECK(p != nullptr);
-    _buffered_vectors.insert(_buffered_vectors.end(), p, p + num_rows * dim);
-    _total_rows += cast_set<int64_t>(num_rows);
+    // Without empty arrays, index row IDs equal data-file row IDs, so no mapping is needed.
+    // At the first empty array, record the preceding data-file row IDs as well.
+    if (num_rows_to_index != num_rows && !_has_empty_arrays) {
+        for (int64_t row = 0; row < _num_rows_in_data_file; ++row) {
+            _data_row_ids_in_index.push_back(row);
+        }
+    }
+    const bool needs_explicit_row_ids = _has_empty_arrays || num_rows_to_index != num_rows;
+    if (needs_explicit_row_ids) {
+        for (size_t i = 0; i < num_rows; ++i) {
+            if (offsets[i + 1] == offsets[i]) {
+                _has_empty_arrays = true;
+            } else {
+                const auto data_row_id = _num_rows_in_data_file + cast_set<int64_t>(i);
+                _data_row_ids_in_index.push_back(data_row_id);
+            }
+        }
+    }
+    // Empty arrays contain no items, so the surviving vectors are already contiguous.
+    // An all-empty batch may have a null value pointer; never do pointer arithmetic on it.
+    if (num_rows_to_index != 0) {
+        const float* p = reinterpret_cast<const float*>(value_ptr);
+        DCHECK(p != nullptr);
+        _buffered_vectors.insert(_buffered_vectors.end(), p, p + num_rows_to_index * dim);
+    }
+    _num_rows_in_data_file += cast_set<int64_t>(num_rows);
+    _num_rows_in_index_file += cast_set<int64_t>(num_rows_to_index);
 
     return Status::OK();
 }
@@ -136,21 +176,26 @@ int64_t AnnIndexColumnWriter::size() const {
 }
 
 Status AnnIndexColumnWriter::finish() {
-    if (_total_rows == 0) {
-        LOG_INFO("No data to train/add for ANN index. Skipping index building.");
+    if (_num_rows_in_data_file == 0) {
+        LOG_INFO("Skip ANN index build: no data rows, index_id={}, index_name={}, writer={}",
+                 _index_meta->index_id(), _index_meta->index_name(),
+                 _index_file_writer->debug_string());
         return _index_file_writer->delete_index(_index_meta);
     }
 
     const Int64 min_train_rows = _vector_index->get_min_train_rows();
-    const Int64 effective_min_rows =
-            std::max(min_train_rows, cast_set<Int64>(config::ann_index_build_min_segment_rows));
-    if (_total_rows < effective_min_rows) {
+    const Int64 configured_min_rows = cast_set<Int64>(config::ann_index_build_min_segment_rows);
+    const Int64 effective_min_rows = std::max(min_train_rows, configured_min_rows);
+    // An all-empty segment has a complete, empty index and requires no training.
+    if (_num_rows_in_index_file != 0 && _num_rows_in_index_file < effective_min_rows) {
         LOG_INFO(
-                "Total data size {} is less than minimum {} rows required for ANN index build. "
-                "Skipping index building for this segment.",
-                _total_rows, effective_min_rows);
-        PODArray<float> empty_buffered_vectors;
-        _buffered_vectors.swap(empty_buffered_vectors);
+                "Skip ANN index build: insufficient non-empty vectors, index_id={}, index_name={}, "
+                "rows_in_data_file={}, rows_in_index_file={}, required_rows={}, min_train_rows={}, "
+                "configured_min_rows={}, writer={}",
+                _index_meta->index_id(), _index_meta->index_name(), _num_rows_in_data_file,
+                _num_rows_in_index_file, effective_min_rows, min_train_rows, configured_min_rows,
+                _index_file_writer->debug_string());
+        close_on_error();
         return _index_file_writer->delete_index(_index_meta);
     }
 
@@ -160,13 +205,22 @@ Status AnnIndexColumnWriter::finish() {
 Status AnnIndexColumnWriter::_build_and_save(Int64 min_train_rows, Int64 effective_min_rows) {
     const size_t dim = _vector_index->get_dimension();
     DCHECK(_buffered_vectors.size() % dim == 0);
-    const Int64 train_rows = cast_set<Int64>(_buffered_vectors.size() / dim);
-    DORIS_CHECK(train_rows == _total_rows);
-    DORIS_CHECK(train_rows >= effective_min_rows);
-    if (min_train_rows > 0) {
-        RETURN_IF_ERROR(_vector_index->train(train_rows, _buffered_vectors.data()));
+    const Int64 num_buffered_vectors = cast_set<Int64>(_buffered_vectors.size() / dim);
+    DORIS_CHECK(num_buffered_vectors == _num_rows_in_index_file);
+    DORIS_CHECK(num_buffered_vectors == 0 || num_buffered_vectors >= effective_min_rows);
+    if (min_train_rows > 0 && num_buffered_vectors != 0) {
+        RETURN_IF_ERROR(_vector_index->train(num_buffered_vectors, _buffered_vectors.data()));
     }
-    RETURN_IF_ERROR(_vector_index->add(train_rows, _buffered_vectors.data()));
+    // Index entries retain their row IDs in the data file across empty arrays and batches.
+    if (!_has_empty_arrays) {
+        RETURN_IF_ERROR(_vector_index->add(num_buffered_vectors, _buffered_vectors.data()));
+    } else {
+        DORIS_CHECK(_data_row_ids_in_index.size() == num_buffered_vectors);
+        RETURN_IF_ERROR(_vector_index->add_with_ids(num_buffered_vectors, _buffered_vectors.data(),
+                                                    _data_row_ids_in_index.data()));
+    }
+    PODArray<Int64> empty_row_ids;
+    _data_row_ids_in_index.swap(empty_row_ids);
     // PODArray::clear() keeps the allocated capacity. Swap with an empty array so the
     // full-segment build buffer is released before saving the index.
     PODArray<float> empty_buffered_vectors;

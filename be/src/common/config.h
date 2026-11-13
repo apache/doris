@@ -2107,6 +2107,7 @@ DECLARE_String(ann_index_ivf_list_cache_limit);
 DECLARE_mInt32(ann_index_ivf_list_cache_stale_sweep_time_sec);
 // Minimum segment rows required to persist an ANN index.
 DECLARE_mInt64(ann_index_build_min_segment_rows);
+DECLARE_mBool(enable_ann_index_empty_array);
 
 DECLARE_mBool(enable_prefill_output_dbm_agg_cache_after_compaction);
 DECLARE_mBool(enable_prefill_all_dbm_agg_cache_after_compaction);

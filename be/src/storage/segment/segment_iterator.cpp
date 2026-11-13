@@ -1139,8 +1139,28 @@ Status SegmentIterator::_apply_ann_topn_predicate() {
     VLOG_DEBUG << fmt::format("Try apply ann topn: {}", _ann_topn_runtime->debug_string());
     // AnnTopNRuntime keeps VSlotRef::column_id(), which is the read-schema ordinal.
     ColumnId src_cid = cast_set<ColumnId>(_ann_topn_runtime->get_src_column_idx());
+    // NULL/[] queries give every row a NULL distance. Normal evaluation and sorting
+    // must preserve NULL ordering and LIMIT; FAISS cannot search a missing vector.
+    if (_ann_topn_runtime->has_missing_query_vector()) {
+        _column_states[src_cid].need_read_data = true;
+        _opts.stats->ann_fall_back_brute_force_cnt += 1;
+        return Status::OK();
+    }
     IndexIterator* ann_index_iterator = _index_iterators[src_cid].get();
     bool has_ann_index = _column_has_ann_index(src_cid);
+    if (has_ann_index) {
+        // Validate against index metadata before any scalar fallback. An all-empty
+        // segment has no non-empty data vector from which to infer the dimension.
+        auto reader = ann_index_iterator->get_reader(AnnIndexReaderType::ANN);
+        auto* ann_reader = dynamic_cast<AnnIndexReader*>(reader.get());
+        // A missing or mismatched reader cannot provide the required index dimension.
+        if (ann_reader == nullptr) {
+            return Status::InternalError(
+                    "Expected ANN index reader when validating query dimension, column id={}",
+                    src_cid);
+        }
+        RETURN_IF_ERROR(_ann_topn_runtime->validate_query_dimension(ann_reader->get_dimension()));
+    }
     bool has_common_expr_push_down = !_common_expr_ctxs_push_down.empty();
     bool has_predicate_column = std::ranges::any_of(
             _column_states, [](const auto& state) { return state.has_predicate(); });
@@ -1235,6 +1255,15 @@ Status SegmentIterator::_apply_ann_topn_predicate() {
                 static_cast<double>(ann_index_stats.load_index_costs_ns.value()) / 1000000.0;
         DorisMetrics::instance()->ann_index_load_costs_ms->increment(
                 static_cast<int64_t>(load_costs_ms));
+    }
+
+    // Empty arrays have NULL distances. Omitting them would break NULLS FIRST,
+    // and also NULLS LAST when LIMIT exceeds the number of non-empty vectors.
+    // Sparse segments use scalar evaluation and the normal SQL sort for TopN.
+    if (cast_set<size_t>(ann_index_reader->get_num_rows_in_index()) != rows_of_segment) {
+        _column_states[src_cid].need_read_data = true;
+        _opts.stats->ann_fall_back_brute_force_cnt += 1;
+        return Status::OK();
     }
 
     bool enable_ann_index_result_cache =

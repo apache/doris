@@ -52,6 +52,7 @@ namespace doris::segment_v2 {
 struct AnnIndexStats;
 class AnnIndexIterator;
 
+// Returns an empty column for NULL or [] queries; these require scalar evaluation.
 Result<ColumnFloat32::Ptr> extract_query_vector(std::shared_ptr<VExpr> arg_expr);
 
 /**
@@ -141,6 +142,11 @@ public:
      * @return Column index in the table schema
      */
     size_t get_src_column_idx() const { return _src_column_idx; }
+
+    // NULL and [] queries have NULL distance to every row, so they cannot search FAISS.
+    bool has_missing_query_vector() const { return _query_array->size() == 0; }
+
+    Status validate_query_dimension(size_t index_dimension) const;
 
     /**
      * @brief Gets the destination column index for distance results.

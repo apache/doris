@@ -50,6 +50,9 @@ public:
     MockVectorIndex() { _dimension = 4; } // Set dimension for test
     MOCK_METHOD(doris::Status, train, (Int64 n, const float* vec), (override));
     MOCK_METHOD(doris::Status, add, (Int64 n, const float* vec), (override));
+    MOCK_METHOD(doris::Status, add_with_ids, (Int64 n, const float* vec, const Int64* rowids),
+                (override));
+    MOCK_METHOD(Int64, get_num_rows_in_index, (), (const, override));
     MOCK_METHOD(doris::Status, ann_topn_search,
                 (const float* query_vec, int k, const segment_v2::IndexSearchParameters& params,
                  segment_v2::IndexSearchResult& result),
@@ -247,7 +250,9 @@ TEST_F(AnnIndexWriterTest, TestAddArrayValuesFromFirstItem) {
     for (int i = 1; i <= 12; ++i) {
         floats->insert_value(static_cast<float>(i));
     }
-    const auto items = ColumnNullable::create(std::move(floats), ColumnUInt8::create(12, 0));
+    auto nulls = ColumnUInt8::create(12, 0);
+    nulls->get_data()[0] = 1; // A NULL in an earlier batch must not reject rows [1, 3).
+    const auto items = ColumnNullable::create(std::move(floats), std::move(nulls));
     const std::vector<uint64_t> offsets {100, 104, 108};
     auto stored_offsets = ColumnOffset64::create();
     stored_offsets->get_data().assign(offsets.begin(), offsets.end());
@@ -259,6 +264,130 @@ TEST_F(AnnIndexWriterTest, TestAddArrayValuesFromFirstItem) {
     const std::vector<float> buffered(writer->_buffered_vectors.begin(),
                                       writer->_buffered_vectors.end());
     EXPECT_EQ(buffered, (std::vector<float> {5, 6, 7, 8, 9, 10, 11, 12}));
+}
+
+TEST_F(AnnIndexWriterTest, LegacyNullElementsRemainWritable) {
+    TestAnnIndexColumnWriter writer(_index_file_writer.get(), _tablet_index.get());
+    writer.set_vector_index(std::make_shared<MockVectorIndex>());
+    const float values[] = {1, 0, 3, 4};
+    const uint8_t nulls[] = {0, 1, 0, 0};
+    const uint64_t offsets[] = {0, 4};
+    // Old versions accepted NULL coordinates. Rewriting old rows during compaction
+    // must not start failing as a side effect of enabling empty-array support.
+    ASSERT_TRUE(writer.add_array_values(sizeof(float), reinterpret_cast<const uint8_t*>(values),
+                                        nulls, offsets, 1)
+                        .ok());
+    EXPECT_EQ(writer._num_rows_in_index_file, 1);
+    EXPECT_EQ(writer._buffered_vectors[2], 3);
+}
+
+TEST_F(AnnIndexWriterTest, EmptyArraysRequireOptInBeforeChangingBuffers) {
+    const bool previous = config::enable_ann_index_empty_array;
+    Defer restore([&] { config::enable_ann_index_empty_array = previous; });
+    config::enable_ann_index_empty_array = false;
+    TestAnnIndexColumnWriter writer(_index_file_writer.get(), _tablet_index.get());
+    writer.set_vector_index(std::make_shared<MockVectorIndex>());
+    const float values[] = {1, 2, 3, 4};
+    const uint64_t offsets[] = {0, 4, 4};
+    auto status = writer.add_array_values(sizeof(float), reinterpret_cast<const uint8_t*>(values),
+                                          nullptr, offsets, 2);
+    ASSERT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("enable_ann_index_empty_array=true"), std::string::npos);
+    EXPECT_EQ(writer._num_rows_in_data_file, 0);
+    EXPECT_EQ(writer._num_rows_in_index_file, 0);
+    EXPECT_TRUE(writer._buffered_vectors.empty());
+    EXPECT_FALSE(writer._has_empty_arrays);
+    EXPECT_TRUE(writer.add_array_values(sizeof(float), reinterpret_cast<const uint8_t*>(values),
+                                        nullptr, offsets, 1)
+                        .ok());
+    const uint64_t empty[] = {0, 0};
+    EXPECT_FALSE(writer.add_array_values(sizeof(float), nullptr, nullptr, empty, 1).ok());
+    EXPECT_EQ(writer._num_rows_in_data_file, 1);
+    EXPECT_EQ(writer._num_rows_in_index_file, 1);
+
+    config::enable_ann_index_empty_array = true;
+    ASSERT_TRUE(writer.add_array_values(sizeof(float), reinterpret_cast<const uint8_t*>(values),
+                                        nullptr, offsets, 2)
+                        .ok());
+    EXPECT_EQ(writer._num_rows_in_data_file, 3);
+    EXPECT_EQ(writer._num_rows_in_index_file, 2);
+    EXPECT_EQ(std::vector<Int64>(writer._data_row_ids_in_index.begin(),
+                                 writer._data_row_ids_in_index.end()),
+              (std::vector<Int64> {0, 1}));
+
+    config::enable_ann_index_empty_array = false;
+    EXPECT_FALSE(writer.add_array_values(sizeof(float), nullptr, nullptr, empty, 1).ok());
+    EXPECT_EQ(writer._num_rows_in_data_file, 3);
+    EXPECT_EQ(writer._num_rows_in_index_file, 2);
+    EXPECT_EQ(writer._buffered_vectors.size(), 8);
+}
+
+TEST_F(AnnIndexWriterTest, EmptyArraysPreserveRowidsAcrossBatches) {
+    const bool previous_empty_array = config::enable_ann_index_empty_array;
+    config::enable_ann_index_empty_array = true;
+    Defer restore_empty_array([&] { config::enable_ann_index_empty_array = previous_empty_array; });
+    TestAnnIndexColumnWriter writer(_index_file_writer.get(), _tablet_index.get());
+    writer.set_vector_index(std::make_shared<MockVectorIndex>());
+    const std::vector<float> values {1, 2, 3, 4, 5, 6, 7, 8};
+    const uint64_t dense[] = {100, 104};
+    ASSERT_TRUE(writer.add_array_values(sizeof(float),
+                                        reinterpret_cast<const uint8_t*>(values.data()), nullptr,
+                                        dense, 1)
+                        .ok());
+    EXPECT_TRUE(writer._data_row_ids_in_index.empty());
+
+    // Data-file rows 1 and 3 are empty; the two vectors keep row IDs 2 and 4.
+    const uint64_t sparse[] = {200, 200, 204, 204, 208};
+    ASSERT_TRUE(writer.add_array_values(sizeof(float),
+                                        reinterpret_cast<const uint8_t*>(values.data()), nullptr,
+                                        sparse, 4)
+                        .ok());
+    const uint64_t empty[] = {300, 300, 300};
+    ASSERT_TRUE(writer.add_array_values(sizeof(float), nullptr, nullptr, empty, 2).ok());
+    ASSERT_TRUE(writer.add_array_values(sizeof(float),
+                                        reinterpret_cast<const uint8_t*>(values.data()), nullptr,
+                                        dense, 1)
+                        .ok());
+    EXPECT_EQ(writer._num_rows_in_data_file, 8);
+    EXPECT_EQ(writer._num_rows_in_index_file, 4);
+    EXPECT_EQ(std::vector<Int64>(writer._data_row_ids_in_index.begin(),
+                                 writer._data_row_ids_in_index.end()),
+              (std::vector<Int64> {0, 2, 4, 7}));
+    EXPECT_TRUE(writer._has_empty_arrays);
+    EXPECT_EQ(std::vector<float>(writer._buffered_vectors.begin(), writer._buffered_vectors.end()),
+              (std::vector<float> {1, 2, 3, 4, 1, 2, 3, 4, 5, 6, 7, 8, 1, 2, 3, 4}));
+}
+
+TEST_F(AnnIndexWriterTest, FinishUsesSparseLabelsIncludingAllEmptySegments) {
+    const bool previous_empty_array = config::enable_ann_index_empty_array;
+    config::enable_ann_index_empty_array = true;
+    Defer restore_empty_array([&] { config::enable_ann_index_empty_array = previous_empty_array; });
+    const auto previous_min = config::ann_index_build_min_segment_rows;
+    config::ann_index_build_min_segment_rows = 0;
+    Defer restore([&] { config::ann_index_build_min_segment_rows = previous_min; });
+    for (bool all_empty : {false, true}) {
+        TestAnnIndexColumnWriter writer(_index_file_writer.get(), _tablet_index.get());
+        auto index = std::make_shared<MockVectorIndex>();
+        writer.set_vector_index(index);
+        const float values[] = {1, 2, 3, 4};
+        const uint64_t offsets[] = {50, 50, all_empty ? 50UL : 54UL};
+        ASSERT_TRUE(writer.add_array_values(sizeof(float), reinterpret_cast<const uint8_t*>(values),
+                                            nullptr, offsets, 2)
+                            .ok());
+        EXPECT_CALL(*index, get_min_train_rows()).WillOnce(testing::Return(all_empty ? 128 : 0));
+        EXPECT_CALL(*index, train(testing::_, testing::_)).Times(0);
+        EXPECT_CALL(*index, add(testing::_, testing::_)).Times(0);
+        EXPECT_CALL(*index, add_with_ids(all_empty ? 0 : 1, testing::_, testing::_))
+                .WillOnce(testing::Invoke([&](Int64 n, const float* vec, const Int64* rowids) {
+                    if (n != 0) {
+                        EXPECT_EQ(rowids[0], 1);
+                        EXPECT_EQ(vec[3], 4);
+                    }
+                    return Status::OK();
+                }));
+        EXPECT_CALL(*index, save(testing::_)).WillOnce(testing::Return(Status::OK()));
+        ASSERT_TRUE(writer.finish().ok());
+    }
 }
 
 // Every NaN is buffered as the quiet NaN, as the item writer stores it.
@@ -277,7 +406,7 @@ TEST_F(AnnIndexWriterTest, TestAddArrayValuesBuffersTheQuietNaN) {
         floats->insert_value(value);
     }
     auto nulls = ColumnUInt8::create(4, 0);
-    nulls->get_data()[1] = 1; // ANN retains this component and normalizes its NaN payload.
+    nulls->get_data()[1] = 1; // Preserve legacy NULL-element handling during rewrites.
     const auto items = ColumnNullable::create(std::move(floats), std::move(nulls));
     const std::vector<uint64_t> offsets {0, 4};
     auto stored_offsets = ColumnOffset64::create();

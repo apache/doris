@@ -200,8 +200,8 @@ TEST_F(ExtractQueryVectorTest, NonConstantExprFails) {
     EXPECT_TRUE(result.error().to_string().find("must be constant") != std::string::npos);
 }
 
-// Error: NULL array
-TEST_F(ExtractQueryVectorTest, NullArrayFails) {
+// NULL queries use the same missing-vector representation as [].
+TEST_F(ExtractQueryVectorTest, NullArrayProducesMissingQuery) {
     auto float_col = ColumnFloat32::create();
     auto null_map_inner = ColumnUInt8::create(0, 0);
     auto nullable_inner = ColumnNullable::create(std::move(float_col), std::move(null_map_inner));
@@ -216,20 +216,20 @@ TEST_F(ExtractQueryVectorTest, NullArrayFails) {
     mock->set_column(std::move(nullable_outer));
 
     auto result = extract_query_vector(mock);
-    ASSERT_FALSE(result.has_value());
-    EXPECT_TRUE(result.error().to_string().find("cannot be NULL") != std::string::npos);
+    ASSERT_TRUE(result.has_value());
+    EXPECT_EQ(result.value()->size(), 0);
 }
 
-// Error: empty array
-TEST_F(ExtractQueryVectorTest, EmptyArrayFails) {
+// Empty queries require scalar NULL evaluation, never a FAISS search.
+TEST_F(ExtractQueryVectorTest, EmptyArrayProducesMissingQuery) {
     auto col = make_nullable_array_column({});
 
     auto mock = std::make_shared<MockConstVExpr>();
     mock->set_column(std::move(col));
 
     auto result = extract_query_vector(mock);
-    ASSERT_FALSE(result.has_value());
-    EXPECT_TRUE(result.error().to_string().find("cannot be empty") != std::string::npos);
+    ASSERT_TRUE(result.has_value());
+    EXPECT_EQ(result.value()->size(), 0);
 }
 
 // Error: not an array column at all
