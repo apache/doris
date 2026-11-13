@@ -233,7 +233,7 @@ public class DorisFE {
 
             FrontendOptions.init();
 
-            checkAllPorts(rpcListener == null);
+            checkAllPorts(options);
 
             if (Config.enable_bdbje_debug_mode) {
                 // Start in BDB Debug mode
@@ -330,33 +330,36 @@ public class DorisFE {
         }
     }
 
-    private static void checkAllPorts(boolean checkRpc) throws IOException {
+    static void checkAllPorts(StartupOptions options) throws IOException {
         if (Config.enable_check_compatibility_mode) {
             // The compatibility mode does not need to listen ports.
             return;
         }
 
-        if (!NetUtils.isPortAvailable(FrontendOptions.getLocalHostAddress(), Config.edit_log_port,
-                "Edit log port", NetUtils.EDIT_LOG_PORT_SUGGESTION)) {
+        // LocalJournal writes to disk and does not open a replication listener.
+        if ("bdb".equalsIgnoreCase(Config.edit_log_type)
+                && !NetUtils.isPortAvailable(FrontendOptions.getLocalHostAddress(), Config.edit_log_port,
+                        "Edit log port", NetUtils.EDIT_LOG_PORT_SUGGESTION)) {
             throw new IOException("port " + Config.edit_log_port + " already in use");
         }
-        if (!NetUtils.isPortAvailable(FrontendOptions.getLocalHostAddress(), Config.http_port,
-                "Http port", NetUtils.HTTP_PORT_SUGGESTION)) {
+        if (options.enableHttpServer && !NetUtils.isPortAvailable(FrontendOptions.getLocalHostAddress(),
+                Config.http_port, "Http port", NetUtils.HTTP_PORT_SUGGESTION)) {
             throw new IOException("port " + Config.http_port + " already in use");
         }
-        if (Config.enable_https && !NetUtils.isPortAvailable(FrontendOptions.getLocalHostAddress(),
-                Config.https_port, "Https port", NetUtils.HTTPS_PORT_SUGGESTION)) {
+        if (options.enableHttpServer && Config.enable_https
+                && !NetUtils.isPortAvailable(FrontendOptions.getLocalHostAddress(), Config.https_port,
+                        "Https port", NetUtils.HTTPS_PORT_SUGGESTION)) {
             throw new IOException("port " + Config.https_port + " already in use");
         }
-        if (!NetUtils.isPortAvailable(FrontendOptions.getLocalHostAddress(), Config.query_port,
-                "Query port", NetUtils.QUERY_PORT_SUGGESTION)) {
+        if (options.enableQeService && !NetUtils.isPortAvailable(FrontendOptions.getLocalHostAddress(),
+                Config.query_port, "Query port", NetUtils.QUERY_PORT_SUGGESTION)) {
             throw new IOException("port " + Config.query_port + " already in use");
         }
-        if (checkRpc && !NetUtils.isPortAvailable(FrontendOptions.getLocalHostAddress(), Config.rpc_port,
-                "Rpc port", NetUtils.RPC_PORT_SUGGESTION)) {
+        if (!options.useEphemeralRpcPort && !NetUtils.isPortAvailable(FrontendOptions.getLocalHostAddress(),
+                Config.rpc_port, "Rpc port", NetUtils.RPC_PORT_SUGGESTION)) {
             throw new IOException("port " + Config.rpc_port + " already in use");
         }
-        if (Config.arrow_flight_sql_port != -1
+        if (options.enableQeService && Config.arrow_flight_sql_port != -1
                 && !NetUtils.isPortAvailable(FrontendOptions.getLocalHostAddress(), Config.arrow_flight_sql_port,
                 "Arrow Flight SQL port", NetUtils.ARROW_FLIGHT_SQL_SUGGESTION)) {
             throw new IOException("port " + Config.arrow_flight_sql_port + " already in use");
