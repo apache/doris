@@ -225,11 +225,7 @@ function(download_and_setup_fdb version)
             file(COPY "${client_dir}/lib/${FDB_LIBRARY_NAME}" DESTINATION "${install_dir}/lib64")
             file(REMOVE_RECURSE "${package_dir}")
         else()
-            execute_process(COMMAND tar xf "${THIRDPARTY_SRC}/${fdb_lib}" -C "${install_dir}"
-                            RESULT_VARIABLE extract_ret)
-            if (NOT "${extract_ret}" STREQUAL "0")
-                message(FATAL_ERROR "Failed to extract FDB archive ${THIRDPARTY_SRC}/${fdb_lib}")
-            endif()
+            execute_process(COMMAND tar xf "${THIRDPARTY_SRC}/${fdb_lib}" -C "${install_dir}")
         endif()
     endif ()
 
