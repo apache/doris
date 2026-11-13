@@ -17,9 +17,11 @@
 
 #include "storage/index/inverted/analysis/analyzer/kuromoji/dict/kuromoji_ipadic_parser.h"
 
+#include <algorithm>
 #include <charconv>
 #include <limits>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace doris::segment_v2::inverted_index::kuromoji {
@@ -119,17 +121,39 @@ void for_each_line(std::string_view content, F&& fn) {
 
 uint8_t ipadic_category_ordinal(std::string_view name) {
     name = trim(name);
-    if (name == "DEFAULT") return CAT_DEFAULT;
-    if (name == "SPACE") return CAT_SPACE;
-    if (name == "KANJI") return CAT_KANJI;
-    if (name == "SYMBOL") return CAT_SYMBOL;
-    if (name == "NUMERIC") return CAT_NUMERIC;
-    if (name == "ALPHA") return CAT_ALPHA;
-    if (name == "HIRAGANA") return CAT_HIRAGANA;
-    if (name == "KATAKANA") return CAT_KATAKANA;
-    if (name == "KANJINUMERIC") return CAT_KANJINUMERIC;
-    if (name == "GREEK") return CAT_GREEK;
-    if (name == "CYRILLIC") return CAT_CYRILLIC;
+    if (name == "DEFAULT") {
+        return CAT_DEFAULT;
+    }
+    if (name == "SPACE") {
+        return CAT_SPACE;
+    }
+    if (name == "KANJI") {
+        return CAT_KANJI;
+    }
+    if (name == "SYMBOL") {
+        return CAT_SYMBOL;
+    }
+    if (name == "NUMERIC") {
+        return CAT_NUMERIC;
+    }
+    if (name == "ALPHA") {
+        return CAT_ALPHA;
+    }
+    if (name == "HIRAGANA") {
+        return CAT_HIRAGANA;
+    }
+    if (name == "KATAKANA") {
+        return CAT_KATAKANA;
+    }
+    if (name == "KANJINUMERIC") {
+        return CAT_KANJINUMERIC;
+    }
+    if (name == "GREEK") {
+        return CAT_GREEK;
+    }
+    if (name == "CYRILLIC") {
+        return CAT_CYRILLIC;
+    }
     return CAT_CLASS_COUNT; // unknown
 }
 
@@ -193,8 +217,8 @@ Status parse_matrix_def(std::string_view content, MatrixInput* out) {
             st = Status::InvalidArgument("kuromoji ipadic: bad matrix.def row");
             return;
         }
-        if (a < 0 || b < 0 || static_cast<uint32_t>(a) >= out->forward_size ||
-            static_cast<uint32_t>(b) >= out->backward_size) {
+        if (a < 0 || b < 0 || std::cmp_greater_equal(a, out->forward_size) ||
+            std::cmp_greater_equal(b, out->backward_size)) {
             st = Status::InvalidArgument("kuromoji ipadic: matrix.def id out of range");
             return;
         }
@@ -209,7 +233,7 @@ Status parse_matrix_def(std::string_view content, MatrixInput* out) {
 
 Status parse_char_def(std::string_view content, CharDefInput* out) {
     out->catmap.fill(static_cast<uint8_t>(CAT_DEFAULT));
-    out->defs.assign(CAT_CLASS_COUNT, CategoryDef {0, 0, 0});
+    out->defs.assign(CAT_CLASS_COUNT, CategoryDef {.invoke = 0, .group = 0, .length = 0});
     Status st = Status::OK();
     for_each_line(content, [&](std::string_view raw) {
         if (!st.ok()) {
@@ -246,9 +270,8 @@ Status parse_char_def(std::string_view content, CharDefInput* out) {
             if (ord >= CAT_CLASS_COUNT) {
                 return;
             }
-            if (hi > 0xFFFF) {
-                hi = 0xFFFF; // catmap covers the BMP only
-            }
+            // Keep the character map within the Basic Multilingual Plane.
+            hi = std::min<uint32_t>(hi, 0xFFFF);
             for (uint32_t cp = lo; cp <= hi && cp <= 0xFFFF; ++cp) {
                 out->catmap[cp] = ord;
             }
@@ -265,9 +288,9 @@ Status parse_char_def(std::string_view content, CharDefInput* out) {
                 !parse_dec(tok[3], &length)) {
                 return;
             }
-            out->defs[ord] = CategoryDef {static_cast<uint8_t>(invoke != 0),
-                                          static_cast<uint8_t>(group != 0),
-                                          static_cast<uint16_t>(length < 0 ? 0 : length)};
+            out->defs[ord] = CategoryDef {.invoke = static_cast<uint8_t>(invoke != 0),
+                                          .group = static_cast<uint8_t>(group != 0),
+                                          .length = static_cast<uint16_t>(length < 0 ? 0 : length)};
         }
     });
     return st;

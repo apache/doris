@@ -70,7 +70,8 @@ public:
 
     // System dictionary.
     WordIdRun run_for_value(uint32_t trie_value) const {
-        return trie_value < _runs_count ? _runs[trie_value] : WordIdRun {0, 0};
+        return trie_value < _runs_count ? _runs[trie_value]
+                                        : WordIdRun {.entry_start = 0, .count = 0};
     }
     const WordEntry& word(uint32_t word_id) const { return _entries[word_id]; }
     std::string_view feature(const WordEntry& e) const {
@@ -92,7 +93,8 @@ public:
 
     // Unknown-word dictionary.
     WordIdRun unknown_run(uint8_t category) const {
-        return category < _unk_runs_count ? _unk_runs[category] : WordIdRun {0, 0};
+        return category < _unk_runs_count ? _unk_runs[category]
+                                          : WordIdRun {.entry_start = 0, .count = 0};
     }
     const WordEntry& unknown_word(uint32_t word_id) const { return _unk_entries[word_id]; }
     std::string_view unknown_feature(const WordEntry& e) const {

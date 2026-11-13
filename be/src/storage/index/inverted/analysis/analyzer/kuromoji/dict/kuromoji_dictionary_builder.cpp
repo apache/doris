@@ -63,7 +63,8 @@ KmjFileHeader make_header(KmjFileKind kind) {
 // Appends one run's worth of entries (+ feature blob bytes) and returns the run.
 WordIdRun append_words(const std::vector<BuilderWord>& words, std::vector<WordEntry>& entries,
                        std::vector<uint8_t>& features) {
-    WordIdRun run {static_cast<uint32_t>(entries.size()), static_cast<uint32_t>(words.size())};
+    WordIdRun run {.entry_start = static_cast<uint32_t>(entries.size()),
+                   .count = static_cast<uint32_t>(words.size())};
     for (const auto& w : words) {
         WordEntry e {};
         e.left_id = w.left_id;
@@ -105,8 +106,7 @@ Status flush_file(const std::string& path, std::vector<uint8_t>& buf) {
 Status KuromojiDictionaryBuilder::write_system(const std::string& path, const SystemDictInput& in) {
     // Sort surfaces by raw bytes (Darts requirement); trie value = sorted index.
     auto surfaces = in.surfaces;
-    std::sort(surfaces.begin(), surfaces.end(),
-              [](const auto& a, const auto& b) { return a.first < b.first; });
+    std::ranges::sort(surfaces, [](const auto& a, const auto& b) { return a.first < b.first; });
 
     std::vector<WordIdRun> runs;
     std::vector<WordEntry> entries;

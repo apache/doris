@@ -91,7 +91,7 @@ TEST(KuromojiRealDictTest, SegmentsRealJapanese) {
     EXPECT_LT(toks.size(), 10U);
 
     // The particle U+306B must be a separate token.
-    EXPECT_NE(std::find(toks.begin(), toks.end(), std::string("\xE3\x81\xAB")), toks.end());
+    EXPECT_NE(std::ranges::find(toks, std::string("\xE3\x81\xAB")), toks.end());
 
     std::cout << "segmentation of the Tokyo sentence:";
     for (const auto& t : toks) {
@@ -144,7 +144,7 @@ TEST(KuromojiRealDictTest, AnalyzerSegmentsViaBuiltinParser) {
                 "\xE6\x9D\xB1\xE4\xBA\xAC\xE9\x83\xBD\xE3\x81\xAB\xE4\xBD\x8F"
                 "\xE3\x82\x93\xE3\x81\xA7\xE3\x81\x84\xE3\x81\xBE\xE3\x81\x99";
         lucene::util::SStringReader<char> reader;
-        reader.init(text.data(), text.size(), false);
+        reader.init(text.data(), static_cast<int32_t>(text.size()), false);
         std::unique_ptr<lucene::analysis::TokenStream> ts(
                 (lucene::analysis::TokenStream*)analyzer->tokenStream(L"", &reader));
         lucene::analysis::Token t;
@@ -163,15 +163,15 @@ TEST(KuromojiRealDictTest, AnalyzerSegmentsViaBuiltinParser) {
 
     EXPECT_GT(toks.size(), 1U);
     // Part-of-speech stop filtering removes the particle U+306B.
-    EXPECT_EQ(std::find(toks.begin(), toks.end(), std::string("\xE3\x81\xAB")),
+    EXPECT_EQ(std::ranges::find(toks, std::string("\xE3\x81\xAB")),
               toks.end()); // Particle U+306B
     // Content words survive; Tokyo is kept as-is.
-    EXPECT_NE(std::find(toks.begin(), toks.end(), std::string("\xE6\x9D\xB1\xE4\xBA\xAC")),
+    EXPECT_NE(std::ranges::find(toks, std::string("\xE6\x9D\xB1\xE4\xBA\xAC")),
               toks.end()); // Tokyo
     // Base-form normalization replaces the inflected verb with its lemma.
-    EXPECT_EQ(std::find(toks.begin(), toks.end(), std::string("\xE4\xBD\x8F\xE3\x82\x93")),
+    EXPECT_EQ(std::ranges::find(toks, std::string("\xE4\xBD\x8F\xE3\x82\x93")),
               toks.end()); // Inflected form absent
-    EXPECT_NE(std::find(toks.begin(), toks.end(), std::string("\xE4\xBD\x8F\xE3\x82\x80")),
+    EXPECT_NE(std::ranges::find(toks, std::string("\xE4\xBD\x8F\xE3\x82\x80")),
               toks.end()); // Base form present
 }
 

@@ -47,7 +47,7 @@ DecodedCp decode_utf8(std::string_view text, std::size_t pos) {
     auto b0 = static_cast<unsigned char>(text[pos]);
     const std::size_t avail = text.size() - pos;
     if (b0 < 0x80) {
-        return {b0, 1};
+        return {.cp = b0, .len = 1};
     }
     auto cont = [&](std::size_t i) {
         return (static_cast<unsigned char>(text[pos + i]) & 0xC0U) == 0x80U;
@@ -56,7 +56,7 @@ DecodedCp decode_utf8(std::string_view text, std::size_t pos) {
         auto b1 = static_cast<unsigned char>(text[pos + 1]);
         const auto cp = static_cast<char32_t>(((b0 & 0x1FU) << 6) | (b1 & 0x3FU));
         if (cp >= 0x80) { // reject overlong
-            return {cp, 2};
+            return {.cp = cp, .len = 2};
         }
     } else if ((b0 >> 4) == 0xE && avail >= 3 && cont(1) && cont(2)) {
         auto b1 = static_cast<unsigned char>(text[pos + 1]);
@@ -64,7 +64,7 @@ DecodedCp decode_utf8(std::string_view text, std::size_t pos) {
         const auto cp =
                 static_cast<char32_t>(((b0 & 0x0FU) << 12) | ((b1 & 0x3FU) << 6) | (b2 & 0x3FU));
         if (cp >= 0x800 && (cp < 0xD800 || cp > 0xDFFF)) { // reject overlong + surrogates
-            return {cp, 3};
+            return {.cp = cp, .len = 3};
         }
     } else if ((b0 >> 3) == 0x1E && avail >= 4 && cont(1) && cont(2) && cont(3)) {
         auto b1 = static_cast<unsigned char>(text[pos + 1]);
@@ -73,10 +73,10 @@ DecodedCp decode_utf8(std::string_view text, std::size_t pos) {
         const auto cp = static_cast<char32_t>(((b0 & 0x07U) << 18) | ((b1 & 0x3FU) << 12) |
                                               ((b2 & 0x3FU) << 6) | (b3 & 0x3FU));
         if (cp >= 0x10000 && cp <= 0x10FFFF) { // reject overlong + out of range
-            return {cp, 4};
+            return {.cp = cp, .len = 4};
         }
     }
-    return {b0, 1};
+    return {.cp = b0, .len = 1};
 }
 
 // Lucene JapaneseTokenizer's search-mode penalty for the token covering
@@ -123,6 +123,8 @@ struct VNode {
 
 } // namespace
 
+// Keep lattice traversal and backtracking together so node indices stay local.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity,readability-function-size)
 void KuromojiViterbi::segment(std::string_view text, std::vector<KuromojiMorpheme>* out) const {
     out->clear();
     const auto n = static_cast<uint32_t>(text.size());
@@ -135,7 +137,15 @@ void KuromojiViterbi::segment(std::string_view text, std::vector<KuromojiMorphem
     std::vector<int32_t> end_next;
 
     // BOS (index 0): ends at position 0, context id 0, zero cost.
-    nodes.push_back(VNode {0, 0, 0, 0, 0, false, 0, 0, -1});
+    nodes.push_back(VNode {.start = 0,
+                           .end = 0,
+                           .left_id = 0,
+                           .right_id = 0,
+                           .word_cost = 0,
+                           .known = false,
+                           .word_id = 0,
+                           .total_cost = 0,
+                           .back = -1});
     end_next.push_back(-1);
     end_head[0] = 0;
 
@@ -165,8 +175,15 @@ void KuromojiViterbi::segment(std::string_view text, std::vector<KuromojiMorphem
             return;
         }
         const auto idx = static_cast<int>(nodes.size());
-        nodes.push_back(
-                VNode {s, e, lid, rid, wcost, known, wid, best + wcost + penalty, best_prev});
+        nodes.push_back(VNode {.start = s,
+                               .end = e,
+                               .left_id = lid,
+                               .right_id = rid,
+                               .word_cost = wcost,
+                               .known = known,
+                               .word_id = wid,
+                               .total_cost = best + wcost + penalty,
+                               .back = best_prev});
         end_next.push_back(end_head[e]);
         end_head[e] = idx;
     };
@@ -277,7 +294,7 @@ void KuromojiViterbi::segment(std::string_view text, std::vector<KuromojiMorphem
     for (int cur = best_prev; cur > 0; cur = nodes[static_cast<std::size_t>(cur)].back) {
         path.push_back(cur);
     }
-    std::reverse(path.begin(), path.end());
+    std::ranges::reverse(path);
     out->reserve(path.size());
     for (int idx : path) {
         const VNode& nd = nodes[static_cast<std::size_t>(idx)];
@@ -289,11 +306,15 @@ void KuromojiViterbi::segment(std::string_view text, std::vector<KuromojiMorphem
         if (_mode == KuromojiMode::Extended && !nd.known) {
             for (uint32_t p = nd.start; p < nd.end;) {
                 const uint32_t len = decode_utf8(text, p).len;
-                out->push_back(KuromojiMorpheme {p, len, false, nd.word_id});
+                out->push_back(KuromojiMorpheme {
+                        .byte_start = p, .byte_len = len, .known = false, .word_id = nd.word_id});
                 p += len;
             }
         } else {
-            out->push_back(KuromojiMorpheme {nd.start, nd.end - nd.start, nd.known, nd.word_id});
+            out->push_back(KuromojiMorpheme {.byte_start = nd.start,
+                                             .byte_len = nd.end - nd.start,
+                                             .known = nd.known,
+                                             .word_id = nd.word_id});
         }
     }
 }

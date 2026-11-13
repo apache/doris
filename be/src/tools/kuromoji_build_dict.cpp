@@ -75,6 +75,8 @@ void for_each_line(const std::string& content, const std::function<void(std::str
 
 } // namespace
 
+// Keep the dictionary generation steps together in their required order.
+// NOLINTNEXTLINE(readability-function-size)
 int main(int argc, char** argv) {
     if (argc < 3) {
         std::fprintf(stderr, "usage: %s <ipadic_src_dir> <out_dir>\n", argv[0]);
@@ -99,7 +101,7 @@ int main(int argc, char** argv) {
             csv_paths.push_back(entry.path().string());
         }
     }
-    std::sort(csv_paths.begin(), csv_paths.end());
+    std::ranges::sort(csv_paths);
 
     std::unordered_map<std::string, std::vector<BuilderWord>> by_surface;
     std::size_t lexicon_rows = 0;
@@ -136,19 +138,18 @@ int main(int argc, char** argv) {
     SystemDictInput sys;
     sys.surfaces.reserve(by_surface.size());
     for (auto& kv : by_surface) {
-        std::sort(kv.second.begin(), kv.second.end(),
-                  [](const BuilderWord& a, const BuilderWord& b) {
-                      if (a.word_cost != b.word_cost) {
-                          return a.word_cost < b.word_cost;
-                      }
-                      if (a.left_id != b.left_id) {
-                          return a.left_id < b.left_id;
-                      }
-                      if (a.right_id != b.right_id) {
-                          return a.right_id < b.right_id;
-                      }
-                      return a.feature < b.feature;
-                  });
+        std::ranges::sort(kv.second, [](const BuilderWord& a, const BuilderWord& b) {
+            if (a.word_cost != b.word_cost) {
+                return a.word_cost < b.word_cost;
+            }
+            if (a.left_id != b.left_id) {
+                return a.left_id < b.left_id;
+            }
+            if (a.right_id != b.right_id) {
+                return a.right_id < b.right_id;
+            }
+            return a.feature < b.feature;
+        });
         sys.surfaces.emplace_back(kv.first, std::move(kv.second));
     }
     if (Status st = KuromojiDictionaryBuilder::write_system(out + "/system.bin.tmp", sys);

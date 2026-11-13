@@ -26,6 +26,7 @@
 #include <limits>
 #include <map>
 #include <mutex>
+#include <utility>
 
 #include "common/logging.h"
 
@@ -243,8 +244,8 @@ Status KuromojiDictionary::validate_ranges() const {
                                 const char* what) -> Status {
         for (uint64_t i = 0; i < count; ++i) {
             const WordEntry& e = entries[i];
-            if (e.left_id < 0 || static_cast<uint32_t>(e.left_id) >= _backward_size ||
-                e.right_id < 0 || static_cast<uint32_t>(e.right_id) >= _forward_size) {
+            if (e.left_id < 0 || std::cmp_greater_equal(e.left_id, _backward_size) ||
+                e.right_id < 0 || std::cmp_greater_equal(e.right_id, _forward_size)) {
                 return Status::Corruption("kuromoji dict: {} entry {} has out-of-range context id",
                                           what, i);
             }
