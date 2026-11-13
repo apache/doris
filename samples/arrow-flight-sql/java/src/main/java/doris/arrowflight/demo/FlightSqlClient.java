@@ -33,6 +33,7 @@ import org.apache.arrow.vector.VectorSchemaRoot;
 
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.util.List;
 
 /**
  * Manually execute Arrow Flight SQL Rpc process, usually used for debug.
@@ -50,10 +51,7 @@ public class FlightSqlClient {
     public static FlightInfoResult<FlightInfo, CredentialCallOption, org.apache.arrow.flight.sql.FlightSqlClient.PreparedStatement> getFlightInfoFromDorisFe(
             Configuration configuration) throws URISyntaxException {
         BufferAllocator allocatorFE = new RootAllocator(Integer.MAX_VALUE);
-        final Location clientLocationFE = new Location(
-                new URI("grpc", null, configuration.ip, Integer.parseInt(configuration.arrowFlightPort),
-                        null, null, null));
-        FlightClient clientFE = FlightClient.builder(allocatorFE, clientLocationFE).build();
+        FlightClient clientFE = FlightClient.builder(allocatorFE, feLocation(configuration)).build();
         org.apache.arrow.flight.sql.FlightSqlClient sqlClinetFE = new org.apache.arrow.flight.sql.FlightSqlClient(
                 clientFE);
 
@@ -67,12 +65,20 @@ public class FlightSqlClient {
         return new FlightInfoResult<>(info, credentialCallOption, preparedStatement);
     }
 
+    public static Location feLocation(Configuration configuration) throws URISyntaxException {
+        return new Location(new URI("grpc", null, configuration.ip, Integer.parseInt(configuration.arrowFlightPort),
+                null, null, null));
+    }
+
     /**
      * Use the correct Bearertoken and the correct Ticket, and the expected return result is normal.
+     * An endpoint with no location is a result the FE holds itself (a SHOW, a SET, ... under the FE config
+     * arrow_flight_fe_result_empty_location): it is redeemed on the FE that issued the ticket.
      */
-    public static void getResultFromDorisBe(FlightInfo info, Ticket ticket, CredentialCallOption credentialCallOption)
-            throws Exception {
-        final Location locationBE = info.getEndpoints().get(0).getLocations().get(0);
+    public static void getResultFromDorisBe(FlightInfo info, Ticket ticket, CredentialCallOption credentialCallOption,
+            Location feLocation) throws Exception {
+        final List<Location> locations = info.getEndpoints().get(0).getLocations();
+        final Location locationBE = locations.isEmpty() ? feLocation : locations.get(0);
         // 连接 BE Arrow Flight Server
         BufferAllocator allocatorBE = new RootAllocator(Integer.MAX_VALUE);
         FlightClient clientBE = FlightClient.builder(allocatorBE, locationBE).build();
@@ -122,13 +128,14 @@ public class FlightSqlClient {
             System.out.println("FlightSqlClient > getFlightInfoFromDorisFe");
             var flightInfo = getFlightInfoFromDorisFe(configuration);
             getResultFromDorisBe(flightInfo.first(), flightInfo.first().getEndpoints().get(0).getTicket(),
-                    flightInfo.second());
+                    flightInfo.second(), feLocation(configuration));
             System.out.println();
 
             System.out.println(
                     "FlightSqlClient > constructDummyFlightInfo, don't be afraid! expected to get error `INVALID_ARGUMENT: Malformed ticket`");
             var dummyFlightInfo = constructDummyFlightInfo();
-            getResultFromDorisBe(flightInfo.first(), dummyFlightInfo.first(), dummyFlightInfo.second());
+            getResultFromDorisBe(flightInfo.first(), dummyFlightInfo.first(), dummyFlightInfo.second(),
+                    feLocation(configuration));
             System.out.println();
 
             flightInfo.third().close(flightInfo.second());

@@ -2769,6 +2769,24 @@ public class Config extends ConfigBase {
             + "(wait_timeout still governs that). 0 disables the bound.")
     public static int arrow_flight_deferred_query_idle_timeout_second = 3600;
 
+    @ConfField(mutable = true, description = "Arrow Flight SQL only. Where a client fetches (DoGet) a result that "
+            + "only this FE can serve: the result of a statement that is not a query (SHOW, EXPLAIN, USE, SET, "
+            + "DDL, DML), which is cached in the session on this FE, and the answer to every metadata request "
+            + "(GetCatalogs, GetDbSchemas, GetTables, GetTableTypes, GetSqlInfo, ...), which this FE computes at "
+            + "DoGet for the session that presents the ticket. Either way the DoGet has to come back to this FE, "
+            + "where the session and its bearer token exist. "
+            + "false (the default) names this FE's own address in the endpoint (its host as FrontendOptions "
+            + "reports it, and arrow_flight_sql_port), which a client outside the cluster network often cannot "
+            + "resolve or reach, for example one that connects through a load balancer or a proxy. true sends "
+            + "the endpoint with no location, which the Flight protocol defines as redeemable only on the "
+            + "service that issued the ticket: a client that redeems a location-less endpoint on its own "
+            + "connection (the Flight SQL JDBC driver 15.0.0 or later and the ADBC Flight SQL drivers do) "
+            + "fetches over the connection it already holds to this FE; code that connects to the endpoint's "
+            + "first location must fall back to its FE connection when the list is empty. The result of a "
+            + "query stays on a BE and is not affected (see public_host and arrow_flight_sql_proxy_port in "
+            + "be.conf). Read for each request, so a change applies from the next GetFlightInfo.")
+    public static boolean arrow_flight_fe_result_empty_location = false;
+
     @ConfField(mutable = true, masterOnly = true, description = "In auto bucketing, the number of buckets is "
             + "estimated based on the partition size. For storage "
             + "and computing integration, a partition size of 5GB " + "is estimated as one bucket, but for cloud, a "

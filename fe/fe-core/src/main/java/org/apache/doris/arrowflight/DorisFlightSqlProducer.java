@@ -26,6 +26,7 @@ import org.apache.doris.arrowflight.protocol.FlightProtocolAdapter.PreparedQuery
 import org.apache.doris.arrowflight.results.FlightSqlEndpointsLocation;
 import org.apache.doris.arrowflight.results.FlightSqlResultCacheEntry;
 import org.apache.doris.arrowflight.sessions.FlightSessionsManager;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.IncrWindowNotReadyException;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.util.DebugUtil;
@@ -931,9 +932,28 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
     private <T extends Message> FlightInfo getFlightInfoForSchema(final T request, final FlightDescriptor descriptor,
             final Schema schema) {
         final Ticket ticket = new Ticket(Any.pack(request).toByteArray());
-        final List<FlightEndpoint> endpoints = Collections.singletonList(new FlightEndpoint(ticket, location));
+        final List<FlightEndpoint> endpoints = Collections.singletonList(localResultEndpoint(ticket));
 
         return new FlightInfo(schema, descriptor, endpoints, -1, -1);
+    }
+
+    /**
+     * The endpoint of a result only this FE can serve: the result of a statement that is not a query
+     * (SHOW, EXPLAIN, USE, SET, DDL, DML), which is cached in the session on this FE, and the answer
+     * to a metadata request, which this FE computes at DoGet for the session that presents the ticket.
+     * Either way the DoGet has to come back to this FE, where the session and its bearer token exist:
+     * by this FE's own address, or, with {@link Config#arrow_flight_fe_result_empty_location}, by no
+     * location at all, which the Flight protocol defines as redeemable only on the service that issued
+     * the ticket. A client that redeems such an endpoint on its own connection fetches over the one it
+     * already holds to this FE; code that connects to an endpoint's first location must fall back to
+     * its FE connection when the list is empty. The setting is read per request, so a runtime change
+     * applies to the next one.
+     */
+    private FlightEndpoint localResultEndpoint(Ticket ticket) {
+        if (Config.arrow_flight_fe_result_empty_location) {
+            return new FlightEndpoint(ticket);
+        }
+        return new FlightEndpoint(ticket, location);
     }
 
     private static void handleStreamException(Throwable e, String errMsg, ServerStreamListener listener) {

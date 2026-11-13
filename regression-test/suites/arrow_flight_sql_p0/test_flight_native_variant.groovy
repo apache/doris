@@ -55,13 +55,22 @@ suite("test_flight_native_variant", "arrow_flight_sql") {
             }
         }
         info.endpoints.each { endpoint ->
-            FlightClient.builder(allocator, endpoint.locations[0]).build().withCloseable { beClient ->
-                beClient.getStream(endpoint.ticket, auth, CallOptions.timeout(30, TimeUnit.SECONDS)).withCloseable { stream ->
+            def readFrom = { FlightClient reader ->
+                reader.getStream(endpoint.ticket, auth, CallOptions.timeout(30, TimeUnit.SECONDS)).withCloseable { stream ->
                     assertEquals(info.schema, stream.schema, "Result endpoints must share the published schema")
                     while (stream.next()) {
                         inspect(stream.root)
                         count += stream.root.rowCount
                     }
+                }
+            }
+            // An endpoint with no location (an FE-held result under arrow_flight_fe_result_empty_location) is
+            // redeemed on the client that issued the ticket, as the Flight SQL JDBC driver does.
+            if (endpoint.locations.isEmpty()) {
+                readFrom(feClient)
+            } else {
+                FlightClient.builder(allocator, endpoint.locations[0]).build().withCloseable { beClient ->
+                    readFrom(beClient)
                 }
             }
         }

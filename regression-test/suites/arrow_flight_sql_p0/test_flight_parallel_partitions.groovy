@@ -42,8 +42,8 @@ suite("test_flight_parallel_partitions", "arrow_flight_sql") {
     def auth
     def readEndpoint = { endpoint, boolean collectRows ->
         def rows = []
-        FlightClient.builder(allocator, endpoint.locations[0]).build().withCloseable { beClient ->
-            beClient.getStream(endpoint.ticket, auth, CallOptions.timeout(30, TimeUnit.SECONDS)).withCloseable { stream ->
+        def readFrom = { FlightClient reader ->
+            reader.getStream(endpoint.ticket, auth, CallOptions.timeout(30, TimeUnit.SECONDS)).withCloseable { stream ->
                 while (stream.next()) {
                     if (collectRows) {
                         def vector = stream.root.getVector(0)
@@ -52,6 +52,15 @@ suite("test_flight_parallel_partitions", "arrow_flight_sql") {
                         }
                     }
                 }
+            }
+        }
+        // An endpoint with no location (an FE-held result under arrow_flight_fe_result_empty_location) is
+        // redeemed on the client that issued the ticket, as the Flight SQL JDBC driver does.
+        if (endpoint.locations.isEmpty()) {
+            readFrom(feClient)
+        } else {
+            FlightClient.builder(allocator, endpoint.locations[0]).build().withCloseable { beClient ->
+                readFrom(beClient)
             }
         }
         rows
