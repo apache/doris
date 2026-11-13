@@ -167,6 +167,8 @@ private:
 
     TFileType::type _file_type = TFileType::FILE_HDFS;
     std::vector<TNetworkAddress> _broker_addresses;
+    // Typed Azure access; output_path then keeps its native Azure form.
+    std::optional<TAzureClientConfig> _azure_client_config;
 
     // Partition information
     int32_t _partition_spec_id = 0;

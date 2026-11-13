@@ -51,14 +51,15 @@
 #include "io/fs/file_writer.h"
 #include "io/fs/hdfs_file_system.h"
 #include "io/fs/local_file_system.h"
-#include "io/fs/s3_file_system.h"
+#include "io/fs/obj_storage_file_system.h"
 #include "io/hdfs_builder.h"
+#include "io/obj_storage/obj_storage_config_resolver.h"
+#include "io/obj_storage/obj_storage_uri.h"
 #include "runtime/descriptors.h"
 #include "runtime/result_block_buffer.h"
 #include "runtime/runtime_state.h"
 #include "service/backend_options.h"
 #include "util/mysql_row_buffer.h"
-#include "util/s3_uri.h"
 #include "util/s3_util.h"
 #include "util/uid_util.h"
 
@@ -128,7 +129,9 @@ Status VFileResultWriter::_create_file_writer(const std::string& file_name) {
             {
                     .write_file_cache = false,
                     .sync_file_data = false,
-            }));
+            },
+            _file_opts->azure_client_config.has_value() ? &*_file_opts->azure_client_config
+                                                        : nullptr));
     switch (_file_opts->file_format) {
     case TFileFormatType::FORMAT_CSV_PLAIN:
         _vfile_writer.reset(new VCSVTransformer(
@@ -443,13 +446,11 @@ Status VFileResultWriter::_delete_dir() {
         return fs->delete_directory(dir);
     }
     case TStorageBackendType::S3: {
-        S3URI s3_uri(dir);
-        RETURN_IF_ERROR(s3_uri.parse());
-        S3Conf s3_conf;
-        std::shared_ptr<io::S3FileSystem> s3_fs = nullptr;
-        RETURN_IF_ERROR(S3ClientFactory::convert_properties_to_s3_conf(
-                _file_opts->broker_properties, s3_uri, &s3_conf));
-        auto fs = DORIS_TRY(io::S3FileSystem::create(s3_conf, io::FileSystem::TMP_FS_ID));
+        auto location = DORIS_TRY(io::ObjStorageUri::parse_s3(dir));
+        auto config = DORIS_TRY(io::ObjStorageConfigResolver::from_properties(
+                _file_opts->broker_properties, location));
+        auto fs = DORIS_TRY(
+                io::ObjStorageFileSystem::create(std::move(config), io::FileSystem::TMP_FS_ID));
         return fs->delete_directory(dir);
     }
     default:

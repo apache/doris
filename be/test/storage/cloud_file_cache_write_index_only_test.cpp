@@ -34,8 +34,8 @@
 #include "io/cache/block_file_cache_factory.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
-#include "io/fs/s3_file_system.h"
-#include "io/fs/s3_file_writer.h"
+#include "io/fs/obj_storage_file_system.h"
+#include "io/fs/obj_storage_file_writer.h"
 #include "io/io_common.h"
 #include "runtime/exec_env.h"
 #include "storage/index/inverted/clucene/inverted_index_writer.h"
@@ -45,6 +45,7 @@
 #include "storage/rowset/rowset_writer_context.h"
 #include "storage/segment/segment_index_file_cache_loader.h"
 #include "storage/storage_engine.h"
+#include "testutil/obj_storage_test_util.h"
 #include "util/threadpool.h"
 #include "util/time.h"
 
@@ -175,14 +176,11 @@ protected:
             _created_s3_upload_pool = true;
         }
 
-        S3Conf s3_conf;
-        s3_conf.client_conf.ak = "fake_ak";
-        s3_conf.client_conf.sk = "fake_sk";
-        s3_conf.client_conf.endpoint = "fake_s3_endpoint";
-        s3_conf.client_conf.region = "fake_s3_region";
-        s3_conf.bucket = "fake_s3_bucket";
-        s3_conf.prefix = "cloud_file_cache_write_index_only_e2e";
-        auto fs = io::S3FileSystem::create(std::move(s3_conf), "cloud-file-cache-index-only-ut-fs");
+        io::ObjStorageConfig s3_conf = io::make_test_s3_storage_config(
+                "fake_s3_bucket", "cloud_file_cache_write_index_only_e2e", "fake_s3_endpoint",
+                "fake_s3_region", "fake_ak", "fake_sk");
+        auto fs = io::ObjStorageFileSystem::create(std::move(s3_conf),
+                                                   "cloud-file-cache-index-only-ut-fs");
         ASSERT_TRUE(fs.has_value()) << fs.error();
         _remote_fs = fs.value();
 
@@ -341,7 +339,7 @@ protected:
         sp->set_call_back(
                 "S3FileWriter::_put_object",
                 [created_files](auto&& args) {
-                    auto* writer = try_any_cast<io::S3FileWriter*>(args[0]);
+                    auto* writer = try_any_cast<io::ObjStorageFileWriter*>(args[0]);
                     for (auto& file : *created_files) {
                         if (has_suffix(writer->path().native(), file.path)) {
                             file.bytes_appended = writer->bytes_appended();
@@ -363,7 +361,8 @@ protected:
                     created_files->push_back(CreatedS3File {
                             .path = *path,
                             .file_type = *file_type,
-                            .is_s3_writer = dynamic_cast<io::S3FileWriter*>(writer) != nullptr,
+                            .is_s3_writer =
+                                    dynamic_cast<io::ObjStorageFileWriter*>(writer) != nullptr,
                             .has_cache_builder = writer->cache_builder() != nullptr,
                             .write_file_cache = opts->write_file_cache,
                             .allow_adaptive_file_cache_write =
@@ -484,7 +483,7 @@ protected:
     }
 
     StorageEngine* _engine = nullptr;
-    std::shared_ptr<io::S3FileSystem> _remote_fs;
+    std::shared_ptr<io::ObjStorageFileSystem> _remote_fs;
 
     io::FileCacheFactory* _origin_file_cache_factory = nullptr;
     std::unique_ptr<io::FileCacheFactory> _owned_file_cache_factory;
@@ -569,14 +568,11 @@ TEST_F(CloudFileCacheWriteIndexOnlyConfigTest,
     config::enable_file_cache_write_index_file_only = true;
     config::cloud_unique_id = "cloud_file_cache_empty_range_ut";
 
-    S3Conf s3_conf;
-    s3_conf.client_conf.ak = "fake_ak";
-    s3_conf.client_conf.sk = "fake_sk";
-    s3_conf.client_conf.endpoint = "fake_s3_endpoint";
-    s3_conf.client_conf.region = "fake_s3_region";
-    s3_conf.bucket = "fake_s3_bucket";
-    s3_conf.prefix = "cloud_file_cache_empty_range_ut";
-    auto fs = io::S3FileSystem::create(std::move(s3_conf), "cloud-file-cache-empty-range-ut-fs");
+    io::ObjStorageConfig s3_conf = io::make_test_s3_storage_config(
+            "fake_s3_bucket", "cloud_file_cache_empty_range_ut", "fake_s3_endpoint",
+            "fake_s3_region", "fake_ak", "fake_sk");
+    auto fs = io::ObjStorageFileSystem::create(std::move(s3_conf),
+                                               "cloud-file-cache-empty-range-ut-fs");
     ASSERT_TRUE(fs.has_value()) << fs.error();
 
     int open_file_count = 0;

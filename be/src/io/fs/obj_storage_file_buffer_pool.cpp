@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "io/fs/s3_file_bufferpool.h"
+#include "io/fs/obj_storage_file_buffer_pool.h"
 
 #include <bvar/bvar.h>
 #include <crc32c/crc32c.h>
