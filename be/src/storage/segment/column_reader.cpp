@@ -71,12 +71,12 @@
 #include "storage/segment/binary_dict_page.h" // for BinaryDictPageDecoder
 #include "storage/segment/binary_plain_page.h"
 #include "storage/segment/column_meta_accessor.h"
-#include "storage/segment/column_page_read_observer.h"
 #include "storage/segment/encoding_info.h" // for EncodingInfo
 #include "storage/segment/page_decoder.h"
 #include "storage/segment/page_handle.h" // for PageHandle
 #include "storage/segment/page_io.h"
 #include "storage/segment/page_pointer.h" // for PagePointer
+#include "storage/segment/read_ahead_file_column_iterator.h"
 #include "storage/segment/row_ranges.h"
 #include "storage/segment/segment.h"
 #include "storage/segment/segment_prefetcher.h"
@@ -1069,16 +1069,24 @@ Status ColumnReader::new_iterator(ColumnIteratorUPtr* iterator, const TabletColu
 }
 
 Status ColumnReader::new_iterator(ColumnIteratorUPtr* iterator, const TabletColumn* tablet_column,
-                                  const StorageReadOptions* opt) {
+                                  const StorageReadOptions* opt, bool enable_read_ahead) {
     if (is_empty()) {
         *iterator = std::make_unique<EmptyFileColumnIterator>();
         return Status::OK();
     }
     if (is_scalar_type(_meta_type)) {
         if (is_string_type(_meta_type)) {
-            *iterator = std::make_unique<StringFileColumnIterator>(shared_from_this());
+            if (enable_read_ahead) {
+                *iterator = std::make_unique<ReadAheadStringColumnIterator>(shared_from_this());
+            } else {
+                *iterator = std::make_unique<StringFileColumnIterator>(shared_from_this());
+            }
         } else {
-            *iterator = std::make_unique<FileColumnIterator>(shared_from_this());
+            if (enable_read_ahead) {
+                *iterator = std::make_unique<ReadAheadFileColumnIterator>(shared_from_this());
+            } else {
+                *iterator = std::make_unique<FileColumnIterator>(shared_from_this());
+            }
         }
         (*iterator)->set_column_name(tablet_column ? tablet_column->name() : "");
         return Status::OK();
@@ -3252,15 +3260,8 @@ Status FileColumnIterator::_load_next_page(bool* eos) {
 }
 
 Status FileColumnIterator::_read_data_page(const OrdinalPageIndexIterator& iter) {
-    auto* observer = _page_read_observer;
-    const io::FileRange range {.offset = iter.page().offset, .size = iter.page().size};
-    const auto context = observer != nullptr ? observer->before_page_read(iter.page_index(), range)
-                                             : ColumnPageReadContext {};
-    Defer finish_page_read {[&] {
-        if (observer != nullptr) {
-            observer->after_page_read(iter.page_index(), range);
-        }
-    }};
+    const auto context = _before_page_read(iter.page_index());
+    Defer finish_page_read {[&] { _after_page_read(iter.page_index(), iter.page()); }};
     PageHandle handle;
     Slice page_body;
     PageFooterPB footer;

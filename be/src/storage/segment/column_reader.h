@@ -89,8 +89,6 @@ class RowRanges;
 class ZoneMapIndexReader;
 class IndexIterator;
 class ColumnMetaAccessor;
-class ColumnPageReadObserver;
-class ReadAheadColumnIterator;
 struct ColumnReadAheadHint;
 
 struct ColumnReaderOptions {
@@ -148,7 +146,7 @@ public:
 
     // create a new column iterator. Client should delete returned iterator
     virtual Status new_iterator(ColumnIteratorUPtr* iterator, const TabletColumn* col,
-                                const StorageReadOptions*);
+                                const StorageReadOptions*, bool enable_read_ahead = false);
     Status new_iterator(ColumnIteratorUPtr* iterator, const TabletColumn* tablet_column);
     Status new_array_iterator(ColumnIteratorUPtr* iterator, const TabletColumn* tablet_column);
     Status new_struct_iterator(ColumnIteratorUPtr* iterator, const TabletColumn* tablet_column);
@@ -370,9 +368,9 @@ public:
         return Status::OK();
     }
 
-    virtual void set_column_name(const std::string& column_name) { _column_name = column_name; }
+    void set_column_name(const std::string& column_name) { _column_name = column_name; }
 
-    virtual const std::string& column_name() const { return _column_name; }
+    const std::string& column_name() const { return _column_name; }
 
     // Per-iterator read requirement derived from nested access paths.
     //
@@ -391,7 +389,7 @@ public:
         set_read_requirement_self(requirement);
     }
 
-    virtual ReadRequirement read_requirement() const { return _read_requirement; }
+    ReadRequirement read_requirement() const { return _read_requirement; }
 
     virtual void set_lazy_output_requirement() {
         set_read_requirement(ReadRequirement::LAZY_OUTPUT);
@@ -400,9 +398,6 @@ public:
     virtual void remove_pruned_sub_iterators() {};
 
     virtual Status init_prefetcher(const SegmentPrefetchParams& params) { return Status::OK(); }
-
-    /// Physical column metadata is absent for synthetic and non-file iterators.
-    virtual std::shared_ptr<ColumnReader> get_column_reader() const { return nullptr; }
 
     virtual Status prepare_read_ahead(const ColumnReadAheadHint& hint) { return Status::OK(); }
 
@@ -423,10 +418,8 @@ public:
     // When these modes are enabled, actual content data is skipped.
     enum class MetaReadMode : int { DEFAULT, OFFSET_ONLY, NULL_MAP_ONLY };
 
-    virtual bool read_offset_only() const { return _meta_read_mode == MetaReadMode::OFFSET_ONLY; }
-    virtual bool read_null_map_only() const {
-        return _meta_read_mode == MetaReadMode::NULL_MAP_ONLY;
-    }
+    bool read_offset_only() const { return _meta_read_mode == MetaReadMode::OFFSET_ONLY; }
+    bool read_null_map_only() const { return _meta_read_mode == MetaReadMode::NULL_MAP_ONLY; }
 
     // The current scanner phase. This is intentionally separate from ReadRequirement
     // (why this iterator is needed) and MetaReadMode (what physical metadata to read).
@@ -465,7 +458,7 @@ public:
     // decision is different from materializing the parent's own offsets/null-map:
     // if the parent was already read for predicate evaluation, LAZY mode should
     // only fill the missing children and must not append parent meta again.
-    virtual bool need_to_read_meta_columns() const { return ColumnIterator::need_to_read(); }
+    bool need_to_read_meta_columns() const { return ColumnIterator::need_to_read(); }
 
     virtual void finalize_lazy_phase(MutableColumnPtr& dst) {
         _recovery_from_place_holder_column(dst);
@@ -489,11 +482,6 @@ public:
     }
 
 protected:
-    friend class ReadAheadColumnIterator;
-    // A decorator installs a foreground-only physical-page interceptor. Other iterator types
-    // keep the default no-op; FileColumnIterator invokes it for seek and next_batch page loads.
-    virtual void set_page_read_observer(ColumnPageReadObserver* observer) {}
-
     struct AccessPathSplit {
         TColumnAccessPaths descendant_paths;
         bool reads_current_data = false;
@@ -596,15 +584,20 @@ public:
     bool is_all_dict_encoding() const override { return _is_all_dict_encoding; }
 
     Status init_prefetcher(const SegmentPrefetchParams& params) override;
-    std::shared_ptr<ColumnReader> get_column_reader() const override { return _reader; }
     void collect_prefetchers(
             std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
             PrefetcherInitMethod init_method) override;
 
 protected:
-    void set_page_read_observer(ColumnPageReadObserver* observer) override {
-        _page_read_observer = observer;
-    }
+    struct PageReadContext {
+        io::ReadAheadRangeBuffer* buffer {nullptr};
+        bool retry_on_error {false};
+    };
+
+    // Called synchronously at every physical data-page load, including dictionary inspection
+    // during init() and page transitions inside a batch. No worker invokes these hooks.
+    virtual PageReadContext _before_page_read(int32_t page_index) { return {}; }
+    virtual void _after_page_read(int32_t page_index, const PagePointer& page) {}
 
     // Exposed to derived iterators (e.g. StringFileColumnIterator) so they can
     // query column metadata such as the storage field type.
@@ -646,7 +639,6 @@ private:
     bool _enable_prefetch {false};
     std::unique_ptr<SegmentPrefetcher> _prefetcher;
     std::shared_ptr<io::CachedRemoteFileReader> _cached_remote_file_reader {nullptr};
-    ColumnPageReadObserver* _page_read_observer {nullptr};
 };
 
 class EmptyFileColumnIterator final : public ColumnIterator {
@@ -659,7 +651,7 @@ public:
 // reading for string/binary column types. When the OFFSET path is detected in set_access_paths, it
 // sets only_read_offsets on the ColumnIteratorOptions so that the BinaryPlainPageDecoder skips
 // chars memcpy and only fills offsets.
-class StringFileColumnIterator final : public FileColumnIterator {
+class StringFileColumnIterator : public FileColumnIterator {
 public:
     explicit StringFileColumnIterator(std::shared_ptr<ColumnReader> reader);
     ~StringFileColumnIterator() override = default;
@@ -1113,7 +1105,8 @@ public:
                            bool* matched) const override;
 
     Status new_iterator(ColumnIteratorUPtr* iterator, const TabletColumn* /*col*/,
-                        const StorageReadOptions* /*opt*/) override {
+                        const StorageReadOptions* /*opt*/,
+                        bool /*enable_read_ahead*/ = false) override {
         *iterator = std::make_unique<ConstantColumnIterator>(_value);
         return Status::OK();
     }

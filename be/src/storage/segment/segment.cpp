@@ -77,7 +77,6 @@
 #include "storage/segment/empty_segment_iterator.h"
 #include "storage/segment/page_io.h"
 #include "storage/segment/page_pointer.h"
-#include "storage/segment/read_ahead_column_iterator.h"
 #include "storage/segment/segment_iterator.h"
 #include "storage/segment/stream_reader.h"
 #include "storage/segment/variant/variant_column_reader.h"
@@ -982,7 +981,13 @@ Status Segment::new_column_iterator(const TabletColumn& tablet_column,
         RETURN_IF_ERROR(variant_reader->new_iterator(
                 iter, &tablet_column, opt, _column_reader_cache.get(), sparse_column_cache_ptr));
     } else {
-        RETURN_IF_ERROR(reader->new_iterator(iter, &tablet_column, opt));
+        // Only this top-level scalar request can select the read-ahead subclass. Recursive child
+        // factories keep it disabled, including physical scalar leaves of extracted Variant paths.
+        const bool enable_read_ahead = ColumnReadAheadResources::enabled() &&
+                                       opt->io_ctx.reader_type == ReaderType::READER_QUERY &&
+                                       is_scalar_type(tablet_column.type()) &&
+                                       !tablet_column.is_extracted_column();
+        RETURN_IF_ERROR(reader->new_iterator(iter, &tablet_column, opt, enable_read_ahead));
         if (opt->all_access_paths.contains(unique_id) ||
             opt->predicate_access_paths.contains(unique_id)) {
             const auto& all_access_paths = opt->all_access_paths.contains(unique_id)
@@ -1006,14 +1011,6 @@ Status Segment::new_column_iterator(const TabletColumn& tablet_column,
                      << " column schema type: " << int(tablet_column.type())
                      << " column reader meta type: " << int(reader->get_meta_type());
         return Status::InternalError("different type between schema and column reader");
-    }
-    // Wrap only the resolved top-level physical scalar. Child factories remain unchanged, and a
-    // Variant LEAF may itself be a FileColumnIterator while its requested path is extracted.
-    if (ColumnReadAheadResources::enabled() &&
-        opt->io_ctx.reader_type == ReaderType::READER_QUERY &&
-        is_scalar_type(tablet_column.type()) && !tablet_column.is_extracted_column() &&
-        (*iter)->get_column_reader() != nullptr) {
-        *iter = std::make_unique<ReadAheadColumnIterator>(std::move(*iter));
     }
     return Status::OK();
 }

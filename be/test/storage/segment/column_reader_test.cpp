@@ -62,7 +62,7 @@
 #include "storage/segment/column_reader_cache.h"
 #include "storage/segment/column_writer.h"
 #include "storage/segment/mock/mock_segment.h"
-#include "storage/segment/read_ahead_column_iterator.h"
+#include "storage/segment/read_ahead_file_column_iterator.h"
 #include "storage/segment/segment.h"
 #include "storage/segment/variant/variant_column_reader.h"
 #include "storage/tablet/tablet_schema.h"
@@ -832,8 +832,7 @@ protected:
         OlapReaderStatistics stats;
         stats.read_ahead_stats = resources->statistics;
         ColumnIteratorUPtr iterator;
-        ASSERT_TRUE(reader->new_iterator(&iterator, nullptr).ok());
-        iterator = std::make_unique<ReadAheadColumnIterator>(std::move(iterator));
+        ASSERT_TRUE(reader->new_iterator(&iterator, nullptr, nullptr, true).ok());
         ASSERT_TRUE(iterator->init({.use_page_cache = cached,
                                     .file_reader = source.get(),
                                     .stats = &stats,
@@ -941,8 +940,7 @@ protected:
                             };
                         }});
         ColumnIteratorUPtr iterator;
-        ASSERT_TRUE(reader->new_iterator(&iterator, nullptr).ok());
-        iterator = std::make_unique<ReadAheadColumnIterator>(std::move(iterator));
+        ASSERT_TRUE(reader->new_iterator(&iterator, nullptr, nullptr, true).ok());
         ASSERT_TRUE(iterator->init({.file_reader = source.get(),
                                     .stats = &stats,
                                     .io_ctx = {},
@@ -962,7 +960,8 @@ protected:
         EXPECT_THAT(consumed, ::testing::ElementsAre(expected));
         EXPECT_EQ(resources->statistics->fallback_pages.value(), corrupt ? 1 : 0);
         EXPECT_EQ(resources->statistics->fallback_bytes.value(), corrupt ? expected.size : 0);
-        auto* controller = static_cast<ReadAheadColumnIterator*>(iterator.get())->_read_ahead.get();
+        auto* controller =
+                static_cast<ReadAheadFileColumnIterator*>(iterator.get())->_read_ahead.get();
         EXPECT_FALSE(controller->_window->pending(0));
         const auto candidates = resources->statistics->candidate_pages.value();
         ASSERT_TRUE(iterator->prepare_read_ahead(ExactRowReadAheadHint {{&rowid, 1}}).ok());
@@ -973,7 +972,7 @@ private:
     bool _old_disable_storage_page_cache = false;
 };
 
-TEST_F(ColumnReaderTest, ReadAheadWrapperPreservesDictionaryInitAndOffsetAccessPaths) {
+TEST_F(ColumnReaderTest, ReadAheadSubclassPreservesDictionaryInitAndOffsetAccessPaths) {
     const bool old_low_cardinality = config::enable_low_cardinality_optimize;
     Defer restore {[&] { config::enable_low_cardinality_optimize = old_low_cardinality; }};
     config::enable_low_cardinality_optimize = true;
@@ -1003,14 +1002,14 @@ TEST_F(ColumnReaderTest, ReadAheadWrapperPreservesDictionaryInitAndOffsetAccessP
                                        .cache_block_size = 1024 * 1024,
                                        .block_fill_min_coverage = 1.0}});
         ColumnIteratorUPtr iterator;
-        ASSERT_TRUE(reader->new_iterator(&iterator, nullptr).ok());
+        ASSERT_TRUE(reader->new_iterator(&iterator, nullptr, nullptr, true).ok());
+        ASSERT_NE(dynamic_cast<ReadAheadStringColumnIterator*>(iterator.get()), nullptr);
         iterator->set_column_name("s");
         if (offsets_only) {
             const TColumnAccessPaths paths {
                     create_meta_access_path({"s", ColumnIterator::ACCESS_OFFSET})};
             ASSERT_TRUE(iterator->set_access_paths(paths, paths).ok());
         }
-        iterator = std::make_unique<ReadAheadColumnIterator>(std::move(iterator));
         EXPECT_EQ(iterator->column_name(), "s");
         EXPECT_EQ(iterator->read_offset_only(), offsets_only);
         EXPECT_FALSE(iterator->read_null_map_only());
@@ -1052,7 +1051,83 @@ TEST_F(ColumnReaderTest, ReadAheadWrapperPreservesDictionaryInitAndOffsetAccessP
     read_ahead_test_executor()->wait();
 }
 
-TEST_F(ColumnReaderTest, SegmentWrapsOnlyEnabledPhysicalScalarQueries) {
+TEST_F(ColumnReaderTest, ReadAheadSubclassMaterializesFilteredLazyRows) {
+    constexpr size_t num_rows = 64;
+    ColumnMetaPB meta;
+    io::FileReaderSPtr source;
+    ASSERT_TRUE(create_int_column_file("read_ahead_lazy", num_rows, 16, &meta, &source).ok());
+    std::shared_ptr<ColumnReader> reader;
+    ASSERT_TRUE(ColumnReader::create({}, meta, num_rows, source, &reader).ok());
+    std::unique_ptr<io::FileRangeReadScheduler> scheduler;
+    ASSERT_TRUE(io::FileRangeReadScheduler::create(
+                        {.max_bytes_per_query = 1024 * 1024, .max_bytes_per_be = 2 * 1024 * 1024},
+                        read_ahead_test_executor(), &scheduler)
+                        .ok());
+    auto resources = std::make_shared<ColumnReadAheadResources>(
+            source, scheduler.get(), scheduler->create_context(), io::FileRangeReadIOContext {},
+            ColumnReadAheadIOOptions {
+                    .range_plan = {.coalesce_options = {.max_gap_bytes = 0,
+                                                        .max_range_bytes = 1024 * 1024,
+                                                        .max_read_amplification_ratio = 1.0},
+                                   .cache_block_size = 1024 * 1024,
+                                   .block_fill_min_coverage = 1.0}});
+    ColumnIteratorUPtr iterator;
+    ASSERT_TRUE(reader->new_iterator(&iterator, nullptr, nullptr, true).ok());
+    iterator->set_column_name("lazy_output");
+    iterator->set_lazy_output_requirement();
+    OlapReaderStatistics stats;
+    ASSERT_TRUE(iterator->init({.file_reader = source.get(),
+                                .stats = &stats,
+                                .io_ctx = {},
+                                .read_ahead = resources})
+                        .ok());
+    iterator->set_read_phase(ColumnIterator::ReadPhase::PREDICATE);
+    roaring::Roaring rows;
+    rows.addRange(0, num_rows);
+    ASSERT_TRUE(iterator->prepare_read_ahead(ScanReadAheadHint {.candidate_rows = &rows}).ok());
+    EXPECT_EQ(resources->statistics->candidate_pages.value(), 0);
+    MutableColumnPtr output = ColumnInt32::create();
+    size_t count = num_rows;
+    ASSERT_TRUE(iterator->next_batch(&count, output).ok());
+    ASSERT_EQ(output->size(), num_rows);
+    const std::array<rowid_t, 2> rowids {3, 57};
+    IColumn::Filter filter;
+    filter.resize_fill(num_rows, 0);
+    for (auto rowid : rowids) {
+        filter[rowid] = 1;
+    }
+    output = IColumn::mutate(output->filter(filter, rowids.size()));
+    iterator->set_read_phase(ColumnIterator::ReadPhase::LAZY);
+    EXPECT_TRUE(iterator->need_to_read());
+    EXPECT_TRUE(iterator->need_to_read_meta_columns());
+    EXPECT_EQ(iterator->column_name(), "lazy_output");
+    EXPECT_EQ(iterator->read_requirement(), ColumnIterator::ReadRequirement::LAZY_OUTPUT);
+    ASSERT_TRUE(iterator->prepare_read_ahead(ExactRowReadAheadHint {rowids}).ok());
+    ASSERT_TRUE(iterator->read_by_rowids(rowids.data(), rowids.size(), output).ok());
+    iterator->finalize_lazy_phase(output);
+    ASSERT_EQ(output->size(), rowids.size());
+    const auto& values = assert_cast<const ColumnInt32&>(*output).get_data();
+    EXPECT_EQ(values[0], 3);
+    EXPECT_EQ(values[1], 57);
+    EXPECT_GT(resources->statistics->candidate_pages.value(), 0);
+    read_ahead_test_executor()->wait();
+}
+
+TEST_F(ColumnReaderTest, ReadAheadSelectionDoesNotPropagateToNestedChildren) {
+    auto reader = create_test_reader(false, 64, FieldType::OLAP_FIELD_TYPE_ARRAY);
+    reader->_sub_readers = {
+            create_test_reader(false, 64),
+            create_test_reader(false, 64, FieldType::OLAP_FIELD_TYPE_UNSIGNED_BIGINT)};
+    ColumnIteratorUPtr iterator;
+    ASSERT_TRUE(reader->new_iterator(&iterator, nullptr, nullptr, true).ok());
+    auto* array = dynamic_cast<ArrayFileColumnIterator*>(iterator.get());
+    ASSERT_NE(array, nullptr);
+    EXPECT_EQ(dynamic_cast<ReadAheadFileColumnIterator*>(array->_item_iterator.get()), nullptr);
+    auto* offsets = array->_offset_iterator->_offset_iterator.get();
+    EXPECT_EQ(dynamic_cast<ReadAheadFileColumnIterator*>(offsets), nullptr);
+}
+
+TEST_F(ColumnReaderTest, SegmentSelectsReadAheadScalarSubclasses) {
     const auto old_cloud_id = config::cloud_unique_id;
     const bool old_read_ahead = config::enable_query_read_ahead;
     const bool old_async_write = config::enable_async_file_cache_write;
@@ -1061,7 +1136,7 @@ TEST_F(ColumnReaderTest, SegmentWrapsOnlyEnabledPhysicalScalarQueries) {
         config::enable_query_read_ahead = old_read_ahead;
         config::enable_async_file_cache_write = old_async_write;
     }};
-    config::cloud_unique_id = "ReadAheadColumnIteratorTest";
+    config::cloud_unique_id = "ReadAheadIteratorTest";
     config::enable_query_read_ahead = true;
     config::enable_async_file_cache_write = true;
     ColumnMetaPB meta;
@@ -1092,31 +1167,32 @@ TEST_F(ColumnReaderTest, SegmentWrapsOnlyEnabledPhysicalScalarQueries) {
     options.predicate_access_paths = options.all_access_paths;
     ColumnIteratorUPtr iterator;
     ASSERT_TRUE(segment.new_column_iterator(column, &iterator, &options).ok());
-    EXPECT_NE(dynamic_cast<ReadAheadColumnIterator*>(iterator.get()), nullptr);
+    EXPECT_NE(dynamic_cast<ReadAheadFileColumnIterator*>(iterator.get()), nullptr);
     EXPECT_EQ(iterator->column_name(), "i");
     EXPECT_EQ(iterator->read_requirement(), ColumnIterator::ReadRequirement::PREDICATE);
-    EXPECT_NE(iterator->get_column_reader(), nullptr);
     // A persisted extracted scalar path can also produce a FileColumnIterator.
     auto extracted = column;
     extracted.set_path_info(PathInData("v.i"));
     extracted.set_parent_unique_id(9);
     ASSERT_TRUE(segment.new_column_iterator(extracted, &iterator, &options).ok());
     EXPECT_NE(dynamic_cast<FileColumnIterator*>(iterator.get()), nullptr);
+    EXPECT_EQ(dynamic_cast<ReadAheadFileColumnIterator*>(iterator.get()), nullptr);
     auto missing = column;
     missing.set_unique_id(1);
     missing.set_default_value("42");
     ASSERT_TRUE(segment.new_column_iterator(missing, &iterator, &options).ok());
-    EXPECT_EQ(dynamic_cast<ReadAheadColumnIterator*>(iterator.get()), nullptr);
-    EXPECT_EQ(iterator->get_column_reader(), nullptr);
+    EXPECT_EQ(dynamic_cast<ReadAheadFileColumnIterator*>(iterator.get()), nullptr);
+    EXPECT_NE(dynamic_cast<ConstantColumnIterator*>(iterator.get()), nullptr);
     for (int disabled_gate = 0; disabled_gate < 4; ++disabled_gate) {
         SCOPED_TRACE(disabled_gate);
         config::enable_query_read_ahead = disabled_gate != 0;
         config::enable_async_file_cache_write = disabled_gate != 1;
-        config::cloud_unique_id = disabled_gate == 2 ? "" : "ReadAheadColumnIteratorTest";
+        config::cloud_unique_id = disabled_gate == 2 ? "" : "ReadAheadIteratorTest";
         options.io_ctx.reader_type =
                 disabled_gate == 3 ? ReaderType::READER_BASE_COMPACTION : ReaderType::READER_QUERY;
         ASSERT_TRUE(segment.new_column_iterator(column, &iterator, &options).ok());
         EXPECT_NE(dynamic_cast<FileColumnIterator*>(iterator.get()), nullptr);
+        EXPECT_EQ(dynamic_cast<ReadAheadFileColumnIterator*>(iterator.get()), nullptr);
     }
 }
 
@@ -1168,10 +1244,8 @@ TEST_F(ColumnReaderTest, IndependentIteratorsShareBudgetAndOutliveDestroyedContr
             source, scheduler.get(), scheduler->create_context(), io::FileRangeReadIOContext {},
             options);
     ColumnIteratorUPtr first, second;
-    ASSERT_TRUE(reader->new_iterator(&first, nullptr).ok());
-    ASSERT_TRUE(reader->new_iterator(&second, nullptr).ok());
-    first = std::make_unique<ReadAheadColumnIterator>(std::move(first));
-    second = std::make_unique<ReadAheadColumnIterator>(std::move(second));
+    ASSERT_TRUE(reader->new_iterator(&first, nullptr, nullptr, true).ok());
+    ASSERT_TRUE(reader->new_iterator(&second, nullptr, nullptr, true).ok());
     for (auto* iterator : {first.get(), second.get()}) {
         ASSERT_TRUE(iterator->init({.file_reader = source.get(),
                                     .stats = &stats,
@@ -1258,8 +1332,7 @@ TEST_F(ColumnReaderTest, FileColumnIteratorPreparesCompressedPageByteWindow) {
                                    .block_fill_min_coverage = 1.0}},
             ColumnReadAheadOptions {.window_bytes = 1024 * 1024});
     ColumnIteratorUPtr iterator;
-    ASSERT_TRUE(reader->new_iterator(&iterator, nullptr).ok());
-    iterator = std::make_unique<ReadAheadColumnIterator>(std::move(iterator));
+    ASSERT_TRUE(reader->new_iterator(&iterator, nullptr, nullptr, true).ok());
     OlapReaderStatistics stats;
     ASSERT_TRUE(iterator->init({.file_reader = source.get(),
                                 .stats = &stats,
@@ -1270,7 +1343,7 @@ TEST_F(ColumnReaderTest, FileColumnIteratorPreparesCompressedPageByteWindow) {
     rows.addRange(0, num_rows);
     ASSERT_TRUE(iterator->prepare_read_ahead(ScanReadAheadHint {.candidate_rows = &rows}).ok());
     EXPECT_GT(resources->statistics->candidate_pages.value(), 1);
-    auto* controller = static_cast<ReadAheadColumnIterator*>(iterator.get())->_read_ahead.get();
+    auto* controller = static_cast<ReadAheadFileColumnIterator*>(iterator.get())->_read_ahead.get();
     EXPECT_EQ(controller->_window->pending_bytes(),
               static_cast<size_t>(resources->statistics->candidate_bytes.value()));
 }
@@ -3180,32 +3253,6 @@ TEST_F(ColumnReaderTest, FinalizeLazyModeOnNestedStruct) {
     auto& column_struct = assert_cast<ColumnStruct&, TypeCheckOnRelease::DISABLE>(*struct_mut);
     auto nested_after = column_struct.get_column_ptr(0);
     EXPECT_EQ(0, nested_after->size());
-}
-
-TEST_F(ColumnReaderTest, ReadAheadWrapperKeepsNestedControlFlowSeparateFromParentMetadata) {
-    auto child = std::make_unique<TestColumnIterator>();
-    auto* lazy_child = child.get();
-    child->set_lazy_output_requirement();
-    std::vector<ColumnIteratorUPtr> children;
-    children.emplace_back(std::move(child));
-    auto inner = std::make_unique<StructFileColumnIterator>(create_test_reader(), nullptr,
-                                                            std::move(children));
-    inner->set_read_requirement_self(ColumnIterator::ReadRequirement::PREDICATE);
-    ColumnIteratorUPtr iterator = std::make_unique<ReadAheadColumnIterator>(std::move(inner));
-    iterator->set_read_phase(ColumnIterator::ReadPhase::PREDICATE);
-    MutableColumnPtr nested = ColumnInt32::create();
-    lazy_child->convert_to_place_holder_column(nested, 5);
-    Columns columns;
-    columns.emplace_back(std::move(nested));
-    MutableColumnPtr output = ColumnStruct::create(columns);
-    iterator->set_read_phase(ColumnIterator::ReadPhase::LAZY);
-    // A lazy child keeps control flow active, while parent offsets/nulls were already read.
-    EXPECT_TRUE(iterator->need_to_read());
-    EXPECT_FALSE(iterator->need_to_read_meta_columns());
-    EXPECT_TRUE(iterator->has_lazy_read_target());
-    iterator->finalize_lazy_phase(output);
-    const auto& result = assert_cast<const ColumnStruct&>(*output);
-    EXPECT_EQ(result.get_column_ptr(0)->size(), 0);
 }
 
 TEST_F(ColumnReaderTest, SplitAccessPathsClassifiesCurrentAndDescendantPaths) {
