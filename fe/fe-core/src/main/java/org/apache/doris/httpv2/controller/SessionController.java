@@ -20,6 +20,7 @@ package org.apache.doris.httpv2.controller;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.SchemaTable;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.common.util.HttpURLUtil;
 import org.apache.doris.httpv2.entity.ResponseBody;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.httpv2.rest.RestBaseController;
@@ -118,8 +119,8 @@ public class SessionController extends RestBaseController {
                                                           Frontend frontend) throws IOException {
         Map<String, String> header = Maps.newHashMap();
         header.put(NodeAction.AUTHORIZATION, request.getHeader(NodeAction.AUTHORIZATION));
-        String res = HttpUtils.doGet(String.format("http://%s:%s/rest/v1/session",
-                frontend.getHost(), Env.getCurrentEnv().getMasterHttpPort()), header);
+        String res = HttpUtils.doGet(HttpURLUtil.buildInternalFeUrl(
+                frontend.getHost(), "/rest/v1/session", null), header);
         ObjectMapper objectMapper = new ObjectMapper();
         Map<String, Object> jsonMap = objectMapper.readValue(res,
             new TypeReference<Map<String, Object>>() {});
