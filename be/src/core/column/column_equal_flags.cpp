@@ -60,8 +60,11 @@ void and_equal_to_previous_row(const ColumnType& column, const uint8_t* null_map
         }
         return;
     }
+    // Any byte other than 0 is a NULL, as in ColumnNullable::is_null_at().
     for (size_t row = 1; row < rows; ++row) {
-        flags[row] &= (null_map[row - 1] == null_map[row]) & (null_map[row] | equal(row));
+        const uint8_t previous_null = null_map[row - 1] != 0;
+        const uint8_t null = null_map[row] != 0;
+        flags[row] &= (previous_null == null) & (null | equal(row));
     }
 }
 

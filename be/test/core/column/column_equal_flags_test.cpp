@@ -28,6 +28,7 @@
 #include <cstdint>
 #include <cstring>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "core/assert_cast.h"
@@ -209,6 +210,25 @@ TEST(ColumnEqualFlagsTest, KeepsAFlagWhenEveryColumnRepeats) {
     first_row_cleared[0] = 0;
     build_equal_flags_for_column(*block.get_by_position(0).column, TYPE_INT, &first_row_cleared);
     EXPECT_EQ(first_row_cleared[0], 0);
+}
+
+// Any null-map byte other than 0 is a NULL, as ColumnNullable::is_null_at() reads it: NULLs are
+// equal whatever their bytes and the values under them.
+TEST(ColumnEqualFlagsTest, TakesEveryNonZeroNullByteAsNull) {
+    auto nested = ColumnInt32::create();
+    auto null_map = ColumnUInt8::create();
+    for (auto [value, null_byte] : std::vector<std::pair<int32_t, uint8_t>> {
+                 {0, 1}, {0, 255}, {0, 2}, {7, 2}, {5, 254}, {5, 0}, {5, 0}}) {
+        nested->insert_value(value);
+        null_map->insert_value(null_byte);
+    }
+    Block block;
+    block.insert(ColumnWithTypeAndName(
+            ColumnNullable::create(std::move(nested), std::move(null_map)),
+            DataTypeFactory::instance().create_data_type(TYPE_INT, true), "k"));
+    const EqualFlags flags = equal_flags(block);
+    EXPECT_EQ(flags, compare_at_flags(block));
+    EXPECT_EQ(flags, (EqualFlags {1, 1, 1, 1, 1, 0, 1}));
 }
 
 // A column that is not of a key type, or not of the column class of its type, is compared by
