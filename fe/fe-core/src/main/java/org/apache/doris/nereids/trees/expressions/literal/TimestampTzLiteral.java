@@ -184,7 +184,9 @@ public class TimestampTzLiteral extends DateTimeLiteral {
     }
 
     public Expression plusDays(long days) {
-        return fromJavaDateType(toJavaDateType().plusDays(days), getDataType().getScale());
+        LocalDateTime start = toJavaDateType();
+        return fromJavaDateType(adjustYear0ForDayArithmetic(start, start.plusDays(days)),
+                getDataType().getScale());
     }
 
     /**
@@ -356,15 +358,19 @@ public class TimestampTzLiteral extends DateTimeLiteral {
     }
 
     public Expression plusMonths(long months) {
-        return fromJavaDateType(toJavaDateType().plusMonths(months), getDataType().getScale());
+        return fromJavaDateType(clampYear0Feb29(toJavaDateType().plusMonths(months)),
+                getDataType().getScale());
     }
 
     public Expression plusWeeks(long weeks) {
-        return fromJavaDateType(toJavaDateType().plusWeeks(weeks), getDataType().getScale());
+        LocalDateTime start = toJavaDateType();
+        return fromJavaDateType(adjustYear0ForDayArithmetic(start, start.plusWeeks(weeks)),
+                getDataType().getScale());
     }
 
     public Expression plusYears(long years) {
-        return fromJavaDateType(toJavaDateType().plusYears(years), getDataType().getScale());
+        return fromJavaDateType(clampYear0Feb29(toJavaDateType().plusYears(years)),
+                getDataType().getScale());
     }
 
     public Expression plusHours(long hours) {

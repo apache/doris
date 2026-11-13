@@ -469,19 +469,21 @@ public class DateTimeLiteral extends DateLiteral {
     }
 
     public Expression plusDays(long days) {
-        return fromJavaDateType(toJavaDateType().plusDays(days), 0);
+        LocalDateTime start = toJavaDateType();
+        return fromJavaDateType(adjustYear0ForDayArithmetic(start, start.plusDays(days)), 0);
     }
 
     public Expression plusMonths(long months) {
-        return fromJavaDateType(toJavaDateType().plusMonths(months), 0);
+        return fromJavaDateType(clampYear0Feb29(toJavaDateType().plusMonths(months)), 0);
     }
 
     public Expression plusWeeks(long weeks) {
-        return fromJavaDateType(toJavaDateType().plusWeeks(weeks), 0);
+        LocalDateTime start = toJavaDateType();
+        return fromJavaDateType(adjustYear0ForDayArithmetic(start, start.plusWeeks(weeks)), 0);
     }
 
     public Expression plusYears(long years) {
-        return fromJavaDateType(toJavaDateType().plusYears(years), 0);
+        return fromJavaDateType(clampYear0Feb29(toJavaDateType().plusYears(years)), 0);
     }
 
     public Expression plusHours(long hours) {

@@ -200,22 +200,24 @@ public final class TimeStampNsLiteral extends DateLiteral {
 
     @Override
     public TimeStampNsLiteral plusDays(long days) {
-        return fromJavaDateType(toJavaDateType().plusDays(days));
+        LocalDateTime start = toJavaDateType();
+        return fromJavaDateType(adjustYear0ForDayArithmetic(start, start.plusDays(days)));
     }
 
     @Override
     public TimeStampNsLiteral plusMonths(long months) {
-        return fromJavaDateType(toJavaDateType().plusMonths(months));
+        return fromJavaDateType(clampYear0Feb29(toJavaDateType().plusMonths(months)));
     }
 
     @Override
     public TimeStampNsLiteral plusWeeks(long weeks) {
-        return fromJavaDateType(toJavaDateType().plusWeeks(weeks));
+        LocalDateTime start = toJavaDateType();
+        return fromJavaDateType(adjustYear0ForDayArithmetic(start, start.plusWeeks(weeks)));
     }
 
     @Override
     public TimeStampNsLiteral plusYears(long years) {
-        return fromJavaDateType(toJavaDateType().plusYears(years));
+        return fromJavaDateType(clampYear0Feb29(toJavaDateType().plusYears(years)));
     }
 
     public TimeStampNsLiteral plusHours(long hours) {
