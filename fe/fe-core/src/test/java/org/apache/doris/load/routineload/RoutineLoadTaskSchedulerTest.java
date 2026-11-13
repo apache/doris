@@ -211,4 +211,54 @@ public class RoutineLoadTaskSchedulerTest {
             return renewCalledWithWriteLock;
         }
     }
+
+    @Test
+    public void testTaskWithNothingToConsumeWaitsForMaxBatchInterval() throws Exception {
+        long jobId = 1L;
+        long maxBatchIntervalS = 60L;
+        KafkaRoutineLoadJob routineLoadJob = Mockito.mock(KafkaRoutineLoadJob.class);
+        Mockito.when(routineLoadJob.getMaxBatchIntervalS()).thenReturn(maxBatchIntervalS);
+        Mockito.when(routineLoadManager.getJob(jobId)).thenReturn(routineLoadJob);
+        Mockito.when(routineLoadManager.checkTaskInJob(Mockito.any(RoutineLoadTaskInfo.class))).thenReturn(true);
+        Mockito.when(routineLoadManager.getClusterIdleSlotNum()).thenReturn(1);
+        // the task of a job that was just created or resumed: never scheduled, not at EOF, not delayed
+        IdleKafkaTaskInfo task = new IdleKafkaTaskInfo(UUID.randomUUID(), jobId);
+        Assertions.assertFalse(task.needDedalySchedule());
+        RoutineLoadTaskScheduler routineLoadTaskScheduler = new RoutineLoadTaskScheduler(routineLoadManager);
+        LinkedBlockingDeque<RoutineLoadTaskInfo> needScheduleTasksQueue =
+                Deencapsulation.getField(routineLoadTaskScheduler, "needScheduleTasksQueue");
+        needScheduleTasksQueue.add(task);
+
+        for (int pass = 0; pass < 5; pass++) {
+            routineLoadTaskScheduler.runAfterCatalogReady();
+        }
+        // It asked the data source once and now waits. Without the delay it asks on every pass.
+        Assertions.assertEquals(1, task.lookups);
+        Assertions.assertTrue(task.needDedalySchedule());
+        Assertions.assertEquals(1, needScheduleTasksQueue.size());
+        Assertions.assertSame(task, needScheduleTasksQueue.peek());
+
+        // max_batch_interval later it asks again, once
+        task.setLastScheduledTime(System.currentTimeMillis() - (maxBatchIntervalS + 1) * 1000);
+        for (int pass = 0; pass < 5; pass++) {
+            routineLoadTaskScheduler.runAfterCatalogReady();
+        }
+        Assertions.assertEquals(2, task.lookups);
+        Assertions.assertSame(task, needScheduleTasksQueue.peek());
+    }
+
+    /** A Kafka task whose topic never has anything new. It counts how often the scheduler asks. */
+    private static class IdleKafkaTaskInfo extends KafkaTaskInfo {
+        private int lookups = 0;
+
+        private IdleKafkaTaskInfo(UUID id, long jobId) {
+            super(id, jobId, 20000, Maps.newHashMap(), false, -1, false);
+        }
+
+        @Override
+        protected boolean hasMoreDataToConsume() {
+            lookups++;
+            return false;
+        }
+    }
 }

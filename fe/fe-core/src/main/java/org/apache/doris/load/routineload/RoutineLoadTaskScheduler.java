@@ -155,6 +155,12 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
 
             // check if topic has more data to consume
             if (!routineLoadTaskInfo.hasMoreDataToConsume()) {
+                // Nothing to consume: look again after max_batch_interval, as a task that ended at EOF does.
+                // A task that has not committed yet (a new job, a resumed job, a new master) is neither at
+                // EOF nor delayed, so without this it comes back on the next pass and asks the data source
+                // for its offsets again, hundreds of times a second for as long as nothing arrives. The
+                // flag is computed again when the task commits.
+                routineLoadTaskInfo.setDelaySchedule(true);
                 needScheduleTasksQueue.addLast(routineLoadTaskInfo);
                 return;
             }
