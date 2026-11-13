@@ -29,6 +29,7 @@
 
 #include "common/check.h"
 #include "common/exception.h"
+#include "runtime/thread_context.h"
 #include "storage/rowid_conversion.h"
 
 namespace doris::snii::compaction {
