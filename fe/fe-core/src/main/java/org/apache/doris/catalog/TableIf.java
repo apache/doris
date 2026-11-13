@@ -368,8 +368,9 @@ public interface TableIf {
                     return "SYSTEM VIEW";
                 case INLINE_VIEW:
                 case VIEW:
-                case STREAM:
                     return "VIEW";
+                // A stream is read like a table and has no view definition
+                case STREAM:
                 case OLAP:
                 case MYSQL:
                 case ODBC:
