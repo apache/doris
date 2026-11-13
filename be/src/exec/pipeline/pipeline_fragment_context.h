@@ -209,6 +209,7 @@ private:
                                     const std::map<int, int>& bucket_seq_to_instance_idx,
                                     const std::map<int, int>& shuffle_idx_to_instance_idx);
 
+    bool _should_prepare_tasks_in_parallel() const;
     Status _build_pipeline_tasks(ThreadPool* thread_pool);
     Status _build_pipeline_tasks_for_instance(
             int instance_idx,
