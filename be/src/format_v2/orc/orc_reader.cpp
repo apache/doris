@@ -1552,6 +1552,10 @@ Status OrcReader::_fill_schema_field(const ::orc::Type& type, int32_t local_id,
     field->local_id = local_id;
     field->name = field_name;
     field->column_type = format::ColumnType::DATA_COLUMN;
+    field->has_lossy_timestamp_precision =
+            type.getKind() == ::orc::TypeKind::TIMESTAMP_INSTANT &&
+            type.hasAttributeKey("iceberg.timestamp-unit") &&
+            type.getAttributeValue("iceberg.timestamp-unit") == "NANOS";
     if (type.hasAttributeKey(ORC_ICEBERG_ID_ATTRIBUTE)) {
         const auto iceberg_id = type.getAttributeValue(ORC_ICEBERG_ID_ATTRIBUTE);
         int32_t parsed_id = 0;

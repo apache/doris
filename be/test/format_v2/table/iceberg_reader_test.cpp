@@ -5405,14 +5405,15 @@ void write_id_and_key_parquet_file(const std::string& file_path, const std::vect
     write_parquet_table(file_path, arrow::Table::Make(arrow::schema(fields), columns));
 }
 
+// Writes a physical file at the given path and returns its format.
+using EqualityDeleteFileWriter = std::function<TFileFormatType::type(const std::string&)>;
+
 struct KeyDataFile {
     std::vector<int32_t> ids;
     // nullptr: the data file has no `k`, as one written before the key was added.
     std::shared_ptr<arrow::Array> keys;
+    EqualityDeleteFileWriter write_file = {};
 };
-
-// Writes an equality delete file at the given path and returns its format.
-using EqualityDeleteFileWriter = std::function<TFileFormatType::type(const std::string&)>;
 
 // Reads each data file as one split of a single reader. Every split carries the same equality
 // delete file on `equality_field_id`, whose one column has the name and field id of `key_field`
@@ -5420,14 +5421,12 @@ using EqualityDeleteFileWriter = std::function<TFileFormatType::type(const std::
 // field id. `write_delete_file`, when given, writes that file instead, for physical shapes Arrow
 // does not produce. `key_field` describes that column in the scan's schema metadata, as the FE
 // sends it. Returns the surviving ids of each split.
-Status read_ids_after_key_equality_delete(const std::string& test_name,
-                                          const std::vector<KeyDataFile>& data_files,
-                                          const std::shared_ptr<arrow::Array>& delete_keys,
-                                          schema::external::TFieldPtr key_field,
-                                          std::vector<std::vector<int32_t>>* ids_per_split,
-                                          int32_t equality_field_id = 1,
-                                          bool enable_mapping_timestamp_tz = false,
-                                          const EqualityDeleteFileWriter& write_delete_file = {}) {
+Status read_ids_after_key_equality_delete(
+        const std::string& test_name, const std::vector<KeyDataFile>& data_files,
+        const std::shared_ptr<arrow::Array>& delete_keys, schema::external::TFieldPtr key_field,
+        std::vector<std::vector<int32_t>>* ids_per_split, int32_t equality_field_id = 1,
+        bool enable_mapping_timestamp_tz = false,
+        const EqualityDeleteFileWriter& write_delete_file = {}, int32_t format_version = 2) {
     const auto test_dir = std::filesystem::temp_directory_path() / test_name;
     std::filesystem::remove_all(test_dir);
     std::filesystem::create_directories(test_dir);
@@ -5467,12 +5466,23 @@ Status read_ids_after_key_equality_delete(const std::string& test_name,
     init_iceberg_reader(&reader, projected_columns, &scan_params, io_ctx, &state, &profile);
     for (size_t index = 0; index < data_files.size(); ++index) {
         const auto file_path = (test_dir / ("data-" + std::to_string(index) + ".parquet")).string();
-        write_id_and_key_parquet_file(file_path, data_files[index].ids, data_files[index].keys);
+        auto data_format = TFileFormatType::FORMAT_PARQUET;
+        if (data_files[index].write_file) {
+            data_format = data_files[index].write_file(file_path);
+        } else {
+            write_id_and_key_parquet_file(file_path, data_files[index].ids, data_files[index].keys);
+        }
         auto split_options = build_split_options(file_path);
+        split_options.current_range.__set_format_type(data_format);
+        split_options.current_split_format = data_format == TFileFormatType::FORMAT_PARQUET
+                                                     ? FileFormat::PARQUET
+                                                     : FileFormat::ORC;
         split_options.cache = &cache;
         split_options.current_range.__set_table_format_params(make_iceberg_table_format_desc(
-                file_path, {make_iceberg_equality_delete_file(delete_file_path, {equality_field_id},
-                                                              delete_file_format)}));
+                file_path,
+                {make_iceberg_equality_delete_file(delete_file_path, {equality_field_id},
+                                                   delete_file_format)},
+                format_version));
         RETURN_IF_ERROR(reader.prepare_split(split_options));
         std::vector<int32_t> ids;
         bool eos = false;
@@ -5501,6 +5511,234 @@ constexpr int32_t DAYS_1600_01_01 = -135140;
 constexpr int32_t DAYS_2000_01_01 = 10957;
 constexpr int32_t DAYS_2024_01_02 = 19724;
 constexpr int32_t DAYS_2024_01_03 = 19725;
+
+std::shared_ptr<arrow::Array> build_zoned_timestamp_keys(
+        arrow::TimeUnit::type unit, const std::vector<std::optional<int64_t>>& ticks) {
+    arrow::TimestampBuilder builder(arrow::timestamp(unit, "UTC"), arrow::default_memory_pool());
+    return build_nullable_array(&builder, ticks);
+}
+
+EqualityDeleteFileWriter zoned_nanos_orc_writer(const std::vector<int32_t>& ids,
+                                                const std::vector<std::optional<int64_t>>& nanos) {
+    return [ids, nanos](const std::string& path) {
+        auto type = ::orc::createStructType();
+        if (!ids.empty()) {
+            auto id_type = ::orc::createPrimitiveType(::orc::INT);
+            id_type->setAttribute("iceberg.id", "0");
+            type->addStructField("id", std::move(id_type));
+        }
+        auto key_type = ::orc::createPrimitiveType(::orc::TIMESTAMP_INSTANT);
+        key_type->setAttribute("iceberg.id", "1");
+        key_type->setAttribute("iceberg.timestamp-unit", "NANOS");
+        type->addStructField("k", std::move(key_type));
+        MemoryOutputStream stream(1024 * 1024);
+        ::orc::WriterOptions options;
+        options.setTimezoneName("GMT");
+        auto writer = ::orc::createWriter(*type, &stream, options);
+        auto batch = writer->createRowBatch(std::max<size_t>(nanos.size(), 1));
+        auto& root = dynamic_cast<::orc::StructVectorBatch&>(*batch);
+        root.numElements = nanos.size();
+        if (!ids.empty()) {
+            auto& values = dynamic_cast<::orc::LongVectorBatch&>(*root.fields[0]);
+            values.numElements = ids.size();
+            for (size_t row = 0; row < ids.size(); ++row) {
+                values.data[row] = ids[row];
+            }
+        }
+        auto& values =
+                dynamic_cast<::orc::TimestampVectorBatch&>(*root.fields[ids.empty() ? 0 : 1]);
+        values.numElements = nanos.size();
+        values.hasNulls = true;
+        for (size_t row = 0; row < nanos.size(); ++row) {
+            values.notNull[row] = nanos[row].has_value();
+            const int64_t value = nanos[row].value_or(0);
+            values.data[row] = value / 1000000000;
+            values.nanoseconds[row] = value % 1000000000;
+            // ORC stores seconds plus a non-negative fractional part, including before epoch.
+            if (values.nanoseconds[row] < 0) {
+                --values.data[row];
+                values.nanoseconds[row] += 1000000000;
+            }
+        }
+        writer->add(*batch);
+        writer->close();
+        std::ofstream out(path, std::ios::binary);
+        out.write(stream.getData(), static_cast<std::streamsize>(stream.getLength()));
+        return TFileFormatType::FORMAT_ORC;
+    };
+}
+
+TEST(IcebergV2ReaderTest, EqualityDeleteRejectsPresentZonedNanosecondKeys) {
+    for (const bool mapping : {false, true}) {
+        for (const bool data_orc : {false, true}) {
+            for (const bool delete_orc : {false, true}) {
+                SCOPED_TRACE(::testing::Message() << mapping << data_orc << delete_orc);
+                const std::vector<std::optional<int64_t>> keys {100, 200, 1000};
+                std::vector<std::vector<int32_t>> ids;
+                const auto status = read_ids_after_key_equality_delete(
+                        "zoned_nanos_present",
+                        {{.ids = {1, 2, 3},
+                          .keys = build_zoned_timestamp_keys(arrow::TimeUnit::NANO, keys),
+                          .write_file = data_orc ? zoned_nanos_orc_writer({1, 2, 3}, keys)
+                                                 : EqualityDeleteFileWriter {}}},
+                        build_zoned_timestamp_keys(arrow::TimeUnit::NANO, {200}),
+                        external_schema_field("k", 1, {}, std::nullopt,
+                                              external_primitive_type(TPrimitiveType::STRING)),
+                        &ids, 1, mapping,
+                        delete_orc ? zoned_nanos_orc_writer({}, {200})
+                                   : EqualityDeleteFileWriter {},
+                        3);
+                EXPECT_TRUE(status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) << status;
+                EXPECT_NE(status.to_string().find("without losing precision"), std::string::npos);
+                EXPECT_TRUE(ids.empty()) << ::testing::PrintToString(ids);
+            }
+        }
+    }
+}
+
+TEST(IcebergV2ReaderTest, EqualityDeleteRejectsEitherLossyTimestampSide) {
+    for (const bool mapping : {false, true}) {
+        for (const bool data_nanos : {false, true}) {
+            for (const int64_t sign : {-1, 1}) {
+                SCOPED_TRACE(::testing::Message() << mapping << data_nanos << sign);
+                std::vector<std::vector<int32_t>> ids;
+                const auto status = read_ids_after_key_equality_delete(
+                        "zoned_nanos_mixed",
+                        {{.ids = {1, 2},
+                          .keys = build_zoned_timestamp_keys(
+                                  data_nanos ? arrow::TimeUnit::NANO : arrow::TimeUnit::MICRO,
+                                  {sign * 100, sign * 200})}},
+                        build_zoned_timestamp_keys(
+                                data_nanos ? arrow::TimeUnit::MICRO : arrow::TimeUnit::NANO,
+                                {sign * 200}),
+                        external_schema_field("k", 1, {}, std::nullopt,
+                                              external_primitive_type(TPrimitiveType::STRING)),
+                        &ids, 1, mapping, {}, 3);
+                EXPECT_TRUE(status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) << status;
+                EXPECT_TRUE(ids.empty());
+            }
+        }
+    }
+}
+
+TEST(IcebergV2ReaderTest, EqualityDeleteKeepsSafeZonedNanosecondNullAndEmptyDeletes) {
+    for (const bool mapping : {false, true}) {
+        for (const bool data_orc : {false, true}) {
+            for (const bool delete_orc : {false, true}) {
+                for (const bool empty : {false, true}) {
+                    SCOPED_TRACE(::testing::Message()
+                                 << mapping << data_orc << delete_orc << empty);
+                    const std::vector<std::optional<int64_t>> keys {std::nullopt, 100, 200};
+                    const std::vector<std::optional<int64_t>> tombstones =
+                            empty ? std::vector<std::optional<int64_t>> {}
+                                  : std::vector<std::optional<int64_t>> {std::nullopt};
+                    std::vector<std::vector<int32_t>> ids;
+                    const auto status = read_ids_after_key_equality_delete(
+                            "zoned_nanos_nulls",
+                            {{.ids = {1, 2, 3},
+                              .keys = build_zoned_timestamp_keys(arrow::TimeUnit::NANO, keys),
+                              .write_file = data_orc ? zoned_nanos_orc_writer({1, 2, 3}, keys)
+                                                     : EqualityDeleteFileWriter {}}},
+                            build_zoned_timestamp_keys(arrow::TimeUnit::NANO, tombstones),
+                            external_schema_field("k", 1, {}, std::nullopt,
+                                                  external_primitive_type(TPrimitiveType::STRING)),
+                            &ids, 1, mapping,
+                            delete_orc ? zoned_nanos_orc_writer({}, tombstones)
+                                       : EqualityDeleteFileWriter {},
+                            3);
+                    ASSERT_TRUE(status.ok()) << status;
+                    EXPECT_EQ(ids, (std::vector<std::vector<int32_t>> {
+                                           empty ? std::vector<int32_t> {1, 2, 3}
+                                                 : std::vector<int32_t> {2, 3}}));
+                }
+            }
+        }
+    }
+}
+
+TEST(IcebergV2ReaderTest, EqualityDeleteRetainsNanosecondPrecisionMetadataAcrossSplits) {
+    for (const bool mapping : {false, true}) {
+        for (const bool delete_orc : {false, true}) {
+            std::vector<std::vector<int32_t>> ids;
+            const auto status = read_ids_after_key_equality_delete(
+                    "zoned_nanos_cached",
+                    {{.ids = {1, 2}, .keys = nullptr},
+                     {.ids = {3, 4},
+                      .keys = build_zoned_timestamp_keys(arrow::TimeUnit::NANO, {100, 200})}},
+                    build_zoned_timestamp_keys(arrow::TimeUnit::NANO, {200}),
+                    external_schema_field("k", 1, {}, std::nullopt,
+                                          external_primitive_type(TPrimitiveType::STRING), false,
+                                          true),
+                    &ids, 1, mapping,
+                    delete_orc ? zoned_nanos_orc_writer({}, {200}) : EqualityDeleteFileWriter {},
+                    3);
+            EXPECT_TRUE(status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) << status;
+            EXPECT_EQ(ids, (std::vector<std::vector<int32_t>> {{1, 2}}));
+        }
+    }
+}
+
+TEST(IcebergV2ReaderTest, EqualityDeleteRejectsNestedZonedNanosecondKeys) {
+    const auto nested = [](const std::vector<std::optional<int64_t>>& ticks) {
+        const auto keys = build_zoned_timestamp_keys(arrow::TimeUnit::NANO, ticks);
+        const auto field =
+                arrow::field("k", keys->type(), true)
+                        ->WithMetadata(arrow::key_value_metadata({"PARQUET:field_id"}, {"3"}));
+        return arrow::StructArray::Make({keys}, {field}).ValueOrDie();
+    };
+    for (const bool mapping : {false, true}) {
+        std::vector<std::vector<int32_t>> ids;
+        const auto status = read_ids_after_key_equality_delete(
+                "zoned_nanos_nested", {{.ids = {1, 2}, .keys = nested({100, 200})}}, nested({200}),
+                external_struct_schema_field(
+                        "payload", 1,
+                        {external_schema_field("k", 3, {}, std::nullopt,
+                                               external_primitive_type(TPrimitiveType::STRING))}),
+                &ids, 3, mapping, {}, 3);
+        EXPECT_TRUE(status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) << status;
+        EXPECT_NE(status.to_string().find("field id 3"), std::string::npos);
+        EXPECT_TRUE(ids.empty());
+    }
+}
+
+TEST(IcebergV2ReaderTest, EqualityDeleteRejectsOrcNanosecondsAgainstParquetMicros) {
+    for (const bool mapping : {false, true}) {
+        for (const bool data_nanos : {false, true}) {
+            std::vector<std::vector<int32_t>> ids;
+            const auto status = read_ids_after_key_equality_delete(
+                    "zoned_nanos_orc_mixed",
+                    {{.ids = {1, 2},
+                      .keys = build_zoned_timestamp_keys(arrow::TimeUnit::MICRO, {0, 1}),
+                      .write_file = data_nanos ? zoned_nanos_orc_writer({1, 2}, {100, 200})
+                                               : EqualityDeleteFileWriter {}}},
+                    build_zoned_timestamp_keys(arrow::TimeUnit::MICRO, {0}),
+                    external_schema_field("k", 1, {}, std::nullopt,
+                                          external_primitive_type(TPrimitiveType::STRING)),
+                    &ids, 1, mapping,
+                    data_nanos ? EqualityDeleteFileWriter {} : zoned_nanos_orc_writer({}, {200}),
+                    3);
+            EXPECT_TRUE(status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) << status;
+            EXPECT_NE(status.to_string().find("without losing precision"), std::string::npos);
+            EXPECT_TRUE(ids.empty());
+        }
+    }
+}
+
+TEST(IcebergV2ReaderTest, EqualityDeletePreservesUnzonedNanosecondKeys) {
+    for (const bool mapping : {false, true}) {
+        std::vector<std::vector<int32_t>> ids;
+        const auto status = read_ids_after_key_equality_delete(
+                "unzoned_nanos_exact",
+                {{.ids = {1, 2, 3},
+                  .keys = build_timestamp_keys(arrow::TimeUnit::NANO, {100, 200, 1000})}},
+                build_timestamp_keys(arrow::TimeUnit::NANO, {200}),
+                external_schema_field("k", 1, {}, std::nullopt,
+                                      external_primitive_type(TPrimitiveType::TIMESTAMP_NS)),
+                &ids, 1, mapping, {}, 3);
+        ASSERT_TRUE(status.ok()) << status;
+        EXPECT_EQ(ids, (std::vector<std::vector<int32_t>> {{1, 3}}));
+    }
+}
 
 // After expireSnapshots().cleanExpiredMetadata(true) removes the schema of a schema-only
 // INT -> LONG promotion, the FE types a dropped key INT although its tombstones are LONG.

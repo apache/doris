@@ -288,6 +288,10 @@ struct ColumnDefinition {
     // Logical timestamp semantic supplied by a table format when the physical encoding cannot
     // carry it (for example, Paimon TIMESTAMP versus TIMESTAMP_LTZ stored as INT96).
     std::optional<bool> timestamp_is_adjusted_to_utc = std::nullopt;
+    // File materialization discards timestamp precision, even though the exposed DataType is
+    // valid. For example, UTC nanoseconds 100 and 200 both decode as microsecond zero. Consumers
+    // that require exact keys must retain this information beyond physical schema discovery.
+    bool has_lossy_timestamp_precision = false;
     // Partition columns are constants from split metadata and should not be matched against file
     // schema unless table-format logic explicitly asks for it.
     bool is_partition_key = false;
