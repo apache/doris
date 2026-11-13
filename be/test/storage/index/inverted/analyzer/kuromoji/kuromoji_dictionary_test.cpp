@@ -42,8 +42,8 @@ protected:
         ::mkdir(_dir.c_str(), 0755);
 
         SystemDictInput sys;
-        sys.surfaces.push_back({"\xE6\x9D\xB1", {{1, 1, 100, "f-east"}}});             // 東
-        sys.surfaces.push_back({"\xE6\x9D\xB1\xE4\xBA\xAC", {{2, 2, 50, "f-tokyo"}}}); // 東京
+        sys.surfaces.push_back({"\xE6\x9D\xB1", {{1, 1, 100, "f-east"}}});             // U+6771
+        sys.surfaces.push_back({"\xE6\x9D\xB1\xE4\xBA\xAC", {{2, 2, 50, "f-tokyo"}}}); // Tokyo
         ASSERT_TRUE(KuromojiDictionaryBuilder::write_system(_dir + "/system.bin", sys).ok());
 
         MatrixInput m;
@@ -54,7 +54,7 @@ protected:
 
         CharDefInput cd;
         cd.catmap.fill(CAT_DEFAULT);
-        cd.catmap[0x6771] = CAT_KANJI; // 東
+        cd.catmap[0x6771] = CAT_KANJI; // U+6771
         cd.defs.assign(CAT_CLASS_COUNT, CategoryDef {0, 0, 0});
         cd.defs[CAT_DEFAULT] = CategoryDef {1, 1, 0}; // invoke=1, group=1
         cd.defs[CAT_KANJI] = CategoryDef {0, 0, 2};   // invoke=0, group=0
@@ -71,13 +71,13 @@ TEST_F(KuromojiDictionaryTest, LoadAndQuery) {
     std::unique_ptr<KuromojiDictionary> dict;
     ASSERT_TRUE(KuromojiDictionary::load(_dir, &dict).ok());
 
-    // common-prefix search over "東京" finds "東" (len 3) and "東京" (len 6).
+    // common-prefix search over "Tokyo" finds "U+6771" (len 3) and "Tokyo" (len 6).
     const std::string text = "\xE6\x9D\xB1\xE4\xBA\xAC";
     std::vector<KuromojiDictionary::PrefixMatch> matches;
     dict->common_prefix_search(text.data(), text.size(), &matches);
     ASSERT_EQ(matches.size(), 2U);
 
-    // Resolve "東京" (length 6) -> its single entry: cost 50, leftId 2, feature "f-tokyo".
+    // Resolve "Tokyo" (length 6) -> its single entry: cost 50, leftId 2, feature "f-tokyo".
     bool checked = false;
     for (const auto& mt : matches) {
         if (mt.length == 6) {

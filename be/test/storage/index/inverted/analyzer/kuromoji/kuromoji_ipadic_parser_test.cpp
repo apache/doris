@@ -40,7 +40,7 @@ TEST(KuromojiIpadicParserTest, LexiconLine) {
                                    "noun,general,*,*,*,*,base,reading,pron",
                                    &surface, &w)
                         .ok());
-    EXPECT_EQ(surface, "\xE4\xBB\x95\xE8\x88\x9E\xE3\x81\x84"); // 仕舞い
+    EXPECT_EQ(surface, "\xE4\xBB\x95\xE8\x88\x9E\xE3\x81\x84"); // the inflected verb
     EXPECT_EQ(w.left_id, 1285);
     EXPECT_EQ(w.right_id, 1285);
     EXPECT_EQ(w.word_cost, 5543);

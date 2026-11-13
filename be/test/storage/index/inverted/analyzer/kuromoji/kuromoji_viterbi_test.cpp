@@ -33,7 +33,7 @@
 
 namespace doris::segment_v2::inverted_index::kuromoji {
 
-// 東 = E6 9D B1 (U+6771), 京 = E4 BA AC (U+4EAC), 府 = E5 BA 9C (U+5E9C)
+// U+6771 = E6 9D B1 (U+6771), U+4EAC = E4 BA AC (U+4EAC), U+5E9C = E5 BA 9C (U+5E9C)
 static const std::string TOU = "\xE6\x9D\xB1";
 static const std::string KYO = "\xE4\xBA\xAC";
 static const std::string FU = "\xE5\xBA\x9C";
@@ -47,8 +47,8 @@ protected:
         _dir = std::string(::testing::TempDir()) + "/kmj_viterbi";
         ::mkdir(_dir.c_str(), 0755);
 
-        // Lexicon: single chars cost 1000 each; the compound "東京" costs 100.
-        // With an all-zero connection matrix, the min-cost path must pick "東京".
+        // Lexicon: single chars cost 1000 each; the compound "Tokyo" costs 100.
+        // With an all-zero connection matrix, the min-cost path must pick "Tokyo".
         SystemDictInput sys;
         sys.surfaces.push_back({TOU, {{1, 1, 1000, "noun,East"}}});
         sys.surfaces.push_back({KYO, {{1, 1, 1000, "noun,Capital"}}});
@@ -63,9 +63,9 @@ protected:
 
         CharDefInput cd;
         cd.catmap.fill(CAT_DEFAULT);
-        cd.catmap[0x6771] = CAT_KANJI; // 東
-        cd.catmap[0x4EAC] = CAT_KANJI; // 京
-        cd.catmap[0x5E9C] = CAT_KANJI; // 府 (not in lexicon -> unknown)
+        cd.catmap[0x6771] = CAT_KANJI; // U+6771
+        cd.catmap[0x4EAC] = CAT_KANJI; // U+4EAC
+        cd.catmap[0x5E9C] = CAT_KANJI; // U+5E9C (not in lexicon -> unknown)
         cd.defs.assign(CAT_CLASS_COUNT, CategoryDef {0, 0, 0});
         cd.defs[CAT_KANJI] = CategoryDef {0, 0, 0};   // invoke=0, group=0 -> single-char unknown
         cd.defs[CAT_DEFAULT] = CategoryDef {1, 1, 0}; // invoke=1, group=1
@@ -93,12 +93,12 @@ protected:
 };
 
 TEST_F(KuromojiViterbiTest, PrefersCompoundOverSingleChars) {
-    // "東京" must segment as one word, not 東 + 京.
+    // "Tokyo" must segment as one word, not U+6771 + U+4EAC.
     EXPECT_EQ(surfaces(TOU + KYO), (std::vector<std::string> {TOU + KYO}));
 }
 
 TEST_F(KuromojiViterbiTest, KnownPlusUnknown) {
-    // "東京府" -> 東京 (known) + 府 (unknown), since 東京(100)+府(5000) beats 東+京+府.
+    // "TokyoU+5E9C" -> Tokyo (known) + U+5E9C (unknown), since Tokyo(100)+U+5E9C(5000) beats U+6771+U+4EAC+U+5E9C.
     KuromojiViterbi v(*_dict);
     std::vector<KuromojiMorpheme> ms;
     v.segment(TOU + KYO + FU, &ms);
@@ -121,7 +121,7 @@ TEST_F(KuromojiViterbiTest, EmptyInput) {
 }
 
 TEST_F(KuromojiViterbiTest, AllUnknown) {
-    // A lone unknown kanji 府 -> exactly one unknown morpheme covering it.
+    // A lone unknown kanji U+5E9C -> exactly one unknown morpheme covering it.
     KuromojiViterbi v(*_dict);
     std::vector<KuromojiMorpheme> ms;
     v.segment(FU, &ms);
@@ -131,7 +131,7 @@ TEST_F(KuromojiViterbiTest, AllUnknown) {
 }
 
 // End-to-end through the CLucene Tokenizer wrapper: with a dictionary, the
-// tokenizer emits Viterbi morphemes ("東京", "府") rather than unigrams.
+// tokenizer emits Viterbi morphemes ("Tokyo", "U+5E9C") rather than unigrams.
 TEST_F(KuromojiViterbiTest, TokenizerUsesDictionary) {
     const std::string s = TOU + KYO + FU;
     lucene::util::SStringReader<char> reader;
@@ -148,7 +148,7 @@ TEST_F(KuromojiViterbiTest, TokenizerUsesDictionary) {
     EXPECT_EQ(toks, (std::vector<std::string> {TOU + KYO, FU}));
 }
 
-// 都 = E9 83 BD (U+90FD), 山 = E5 B1 B1 (U+5C71), 川 = E5 B7 9D (U+5DDD)
+// U+90FD = E9 83 BD (U+90FD), U+5C71 = E5 B1 B1 (U+5C71), U+5DDD = E5 B7 9D (U+5DDD)
 static const std::string TO = "\xE9\x83\xBD";
 static const std::string YAMA = "\xE5\xB1\xB1";
 static const std::string KAWA = "\xE5\xB7\x9D";
@@ -166,7 +166,7 @@ protected:
         _dir = std::string(::testing::TempDir()) + "/kmj_search";
         ::mkdir(_dir.c_str(), 0755);
 
-        // Single kanji cost 1000 each; compounds "東京都" and "山川" cost 100.
+        // Single kanji cost 1000 each; compounds "Tokyo Metropolis" and "U+5C71U+5DDD" cost 100.
         SystemDictInput sys;
         sys.surfaces.push_back({TOU, {{1, 1, 1000, "noun"}}});
         sys.surfaces.push_back({KYO, {{1, 1, 1000, "noun"}}});
@@ -185,11 +185,11 @@ protected:
 
         CharDefInput cd;
         cd.catmap.fill(CAT_DEFAULT);
-        cd.catmap[0x6771] = CAT_KANJI; // 東
-        cd.catmap[0x4EAC] = CAT_KANJI; // 京
-        cd.catmap[0x90FD] = CAT_KANJI; // 都
-        cd.catmap[0x5C71] = CAT_KANJI; // 山
-        cd.catmap[0x5DDD] = CAT_KANJI; // 川
+        cd.catmap[0x6771] = CAT_KANJI; // U+6771
+        cd.catmap[0x4EAC] = CAT_KANJI; // U+4EAC
+        cd.catmap[0x90FD] = CAT_KANJI; // U+90FD
+        cd.catmap[0x5C71] = CAT_KANJI; // U+5C71
+        cd.catmap[0x5DDD] = CAT_KANJI; // U+5DDD
         cd.defs.assign(CAT_CLASS_COUNT, CategoryDef {0, 0, 0});
         cd.defs[CAT_KANJI] = CategoryDef {0, 0, 0};
         cd.defs[CAT_DEFAULT] = CategoryDef {1, 1, 0};
@@ -217,19 +217,19 @@ protected:
 };
 
 TEST_F(KuromojiSearchModeTest, NormalModeKeepsCompound) {
-    // 東京都(100) beats 東+京+都(3000): the compound is one token.
+    // Tokyo Metropolis(100) beats U+6771+U+4EAC+U+90FD(3000): the compound is one token.
     EXPECT_EQ(surfaces(TOU + KYO + TO, KuromojiMode::Normal),
               (std::vector<std::string> {TOU + KYO + TO}));
 }
 
 TEST_F(KuromojiSearchModeTest, SearchModeDecompoundsKanjiCompound) {
-    // 東京都 is 3 kanji: penalty (3-2)*3000 makes it 3100, so 東+京+都(3000) wins.
+    // Tokyo Metropolis is 3 kanji: penalty (3-2)*3000 makes it 3100, so U+6771+U+4EAC+U+90FD(3000) wins.
     EXPECT_EQ(surfaces(TOU + KYO + TO, KuromojiMode::Search),
               (std::vector<std::string> {TOU, KYO, TO}));
 }
 
 TEST_F(KuromojiSearchModeTest, SearchModeKeepsShortCompound) {
-    // 山川 is only 2 kanji (not > SEARCH_MODE_KANJI_LENGTH), so no penalty: it is
+    // U+5C71U+5DDD is only 2 kanji (not > SEARCH_MODE_KANJI_LENGTH), so no penalty: it is
     // kept whole even in search mode.
     EXPECT_EQ(surfaces(YAMA + KAWA, KuromojiMode::Search),
               (std::vector<std::string> {YAMA + KAWA}));

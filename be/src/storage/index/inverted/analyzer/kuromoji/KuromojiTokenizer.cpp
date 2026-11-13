@@ -50,11 +50,11 @@ std::string_view feature_field(std::string_view feat, int idx) {
 // Lucene/OpenSearch's ja stoptags: particles, auxiliary verbs, conjunctions,
 // symbols, fillers. (Full stoptags fidelity is a later refinement.)
 bool is_stop_pos(std::string_view pos1) {
-    return pos1 == "\xE5\x8A\xA9\xE8\xA9\x9E" ||                       // 助詞 (particle)
-           pos1 == "\xE5\x8A\xA9\xE5\x8B\x95\xE8\xA9\x9E" ||           // 助動詞 (auxiliary verb)
-           pos1 == "\xE6\x8E\xA5\xE7\xB6\x9A\xE8\xA9\x9E" ||           // 接続詞 (conjunction)
-           pos1 == "\xE8\xA8\x98\xE5\x8F\xB7" ||                       // 記号 (symbol)
-           pos1 == "\xE3\x83\x95\xE3\x82\xA3\xE3\x83\xA9\xE3\x83\xBC"; // フィラー (filler)
+    return pos1 == "\xE5\x8A\xA9\xE8\xA9\x9E" ||                       // Particle
+           pos1 == "\xE5\x8A\xA9\xE5\x8B\x95\xE8\xA9\x9E" ||           // Auxiliary verb
+           pos1 == "\xE6\x8E\xA5\xE7\xB6\x9A\xE8\xA9\x9E" ||           // Conjunction
+           pos1 == "\xE8\xA8\x98\xE5\x8F\xB7" ||                       // Symbol
+           pos1 == "\xE3\x83\x95\xE3\x82\xA3\xE3\x83\xA9\xE3\x83\xBC"; // Filler
 }
 
 void ascii_lower(std::string& s) {
@@ -65,11 +65,8 @@ void ascii_lower(std::string& s) {
     }
 }
 
-// Unicode-aware lowercasing via ICU, matching Doris's shared LowerCaseFilter
-// (ΜΈΓΑ -> μέγα, ÜBER -> über) so kuromoji folds the same way as every other
-// analyzer and an indexed term matches its lowercased query. The UCaseMap is
-// immutable after open, so a process-wide instance is safe to share. Falls back
-// to ASCII-only folding only if ICU is unavailable.
+// Apply ICU lowercasing to match the shared LowerCaseFilter.
+// Use ASCII folding if ICU cannot initialize.
 void unicode_lower(std::string& s) {
     if (s.empty()) {
         return;
