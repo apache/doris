@@ -41,11 +41,35 @@ import java.util.Objects;
 /**LogicalPlanBuilderForEncryption*/
 public class LogicalPlanBuilderForEncryption extends LogicalPlanBuilder {
     private final Map<Pair<Integer, Integer>, String> indexInSqlToString;
+    private final boolean preserveFormatting;
 
     public LogicalPlanBuilderForEncryption(Map<Integer, ParserRuleContext> selectHintMap,
                                            Map<Pair<Integer, Integer>, String> indexInSqlToString) {
+        this(selectHintMap, indexInSqlToString, false);
+    }
+
+    public LogicalPlanBuilderForEncryption(Map<Integer, ParserRuleContext> selectHintMap,
+            Map<Pair<Integer, Integer>, String> indexInSqlToString, boolean preserveFormatting) {
         super(selectHintMap);
         this.indexInSqlToString = Objects.requireNonNull(indexInSqlToString, "indexInSqlToString is null");
+        this.preserveFormatting = preserveFormatting;
+    }
+
+    @Override
+    public Map<String, String> visitPropertyItemList(DorisParser.PropertyItemListContext ctx) {
+        Map<String, String> properties = super.visitPropertyItemList(ctx);
+        if (preserveFormatting && ctx != null) {
+            for (DorisParser.PropertyItemContext property : ctx.properties) {
+                String key = parsePropertyKey(property.key);
+                if (DatasourcePrintableMap.isSensitiveKey(key) || DatasourcePrintableMap.HIDDEN_KEY.contains(key)) {
+                    // Keep whitespace, comments, key spelling and the surrounding SQL unchanged.
+                    String quote = property.value.getText().startsWith("\"") ? "\"" : "'";
+                    indexInSqlToString.put(Pair.of(property.value.start.getStartIndex(),
+                            property.value.stop.getStopIndex()), quote + DatasourcePrintableMap.PASSWORD_MASK + quote);
+                }
+            }
+        }
+        return properties;
     }
 
     // select into outfile clause
@@ -279,7 +303,7 @@ public class LogicalPlanBuilderForEncryption extends LogicalPlanBuilder {
     }
 
     private void encryptProperty(Map<String, String> properties, int start, int stop) {
-        if (MapUtils.isNotEmpty(properties)) {
+        if (!preserveFormatting && MapUtils.isNotEmpty(properties)) {
             DatasourcePrintableMap<String, String> printableMap = new DatasourcePrintableMap<>(properties, "=",
                     true, false, true);
             indexInSqlToString.put(Pair.of(start, stop), printableMap.toString());
