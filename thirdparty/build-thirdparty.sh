@@ -1664,6 +1664,22 @@ build_tsan_header() {
     cp "${TSAN_HEADER_FILE}" "${TP_INSTALL_DIR}/include/sanitizer/"
 }
 
+build_oss_sdk() {
+    check_if_source_exist "${OSS_SDK_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${OSS_SDK_SOURCE}"
+    "${CMAKE_CMD}" -G "${GENERATOR}" -S . -B "${BUILD_DIR}" \
+        -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
+        -DCMAKE_INSTALL_LIBDIR=lib64 -DCMAKE_PREFIX_PATH="${TP_INSTALL_DIR}" \
+        -DCMAKE_FIND_ROOT_PATH="${TP_INSTALL_DIR}" -DCMAKE_FIND_ROOT_PATH_MODE_PACKAGE=ONLY \
+        -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY \
+        -DUSE_SYSTEM_CURL=ON -DCURL_NO_CURL_CMAKE=ON -DCURL_INCLUDE_DIR="${TP_INSTALL_DIR}/include" \
+        -DCURL_LIBRARY_RELEASE="${TP_INSTALL_DIR}/lib/libcurl.a" -DUSE_SYSTEM_OPENSSL=ON \
+        -DOPENSSL_INCLUDE_DIR="${TP_INSTALL_DIR}/include" -DOPENSSL_SSL_LIBRARY="${TP_INSTALL_DIR}/lib/libssl.a" \
+        -DOPENSSL_CRYPTO_LIBRARY="${TP_INSTALL_DIR}/lib/libcrypto.a" -DENABLE_RTTI=ON
+    "${CMAKE_CMD}" --build "${BUILD_DIR}" -j "${PARALLEL}"
+    "${CMAKE_CMD}" --install "${BUILD_DIR}"
+}
+
 # aws_sdk
 build_aws_sdk() {
     check_if_source_exist "${AWS_SDK_SOURCE}"
@@ -2750,6 +2766,7 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         tsan_header
         mysql
         aws_sdk
+        oss_sdk
         js_and_css
         xml2
         idn
@@ -2888,6 +2905,7 @@ cleanup_package_source() {
         pugixml)         src_var="PUGIXML_SOURCE" ;;
         lance_c)         src_var="LANCE_C_SOURCE" ;;
         paimon_rust)     src_var="PAIMON_RUST_SOURCE" ;;
+        oss_sdk)         src_var="OSS_SDK_SOURCE" ;;
         aws_sdk)         src_var="AWS_SDK_SOURCE" ;;
         lzma)            src_var="LZMA_SOURCE" ;;
         xml2)            src_var="XML2_SOURCE" ;;

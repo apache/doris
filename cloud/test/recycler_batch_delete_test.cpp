@@ -100,7 +100,7 @@ public:
     ObjStorageCapabilities capabilities() const override {
         return {.max_delete_batch = batch_size_};
     }
-    ObjStorageResponse get_lifecycle(const std::string&, int64_t*) override {
+    ObjStorageResponse get_lifecycle(const ObjStoragePath&, int64_t*) override {
         return not_supported();
     }
     ObjStorageResponse check_versioning(const std::string&) override { return not_supported(); }

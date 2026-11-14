@@ -71,6 +71,7 @@ add_thirdparty(leveldb) # Required by brpc
 add_thirdparty(brpc LIB64)
 add_thirdparty(rocksdb) # For local storage mocking
 add_thirdparty(libz LIBNAME "lib/libz.a") # Required by google::protobuf
+add_thirdparty(alibabacloud-oss-cpp-sdk-v2 LIB64)
 add_thirdparty(curl)
 add_thirdparty(google_cloud_cpp_oauth2)
 add_thirdparty(google_cloud_cpp_rest_internal)
@@ -110,6 +111,7 @@ add_thirdparty(com_err)
 add_thirdparty(gssapi_krb5)
 add_thirdparty(k5crypto)
 add_thirdparty(xml2 LIB64)
+add_thirdparty(pugixml LIB64)
 add_thirdparty(lzma LIB64)
 add_thirdparty(idn LIB64)
 add_thirdparty(gsasl)

@@ -397,6 +397,14 @@ TEST_F(S3AccessorTest, path_style_test) {
     }
 }
 
+TEST(S3AccessorConfigTest, PreserveOssVaultProvider) {
+    ObjectStoreInfoPB info;
+    info.set_provider(ObjectStoreInfoPB::OSS);
+    auto conf = S3Conf::from_obj_store_info(info);
+    ASSERT_TRUE(conf.has_value());
+    EXPECT_EQ(S3Conf::OSS, conf->provider);
+}
+
 TEST(S3AccessorConfigTest, GcpCredentialFromObjectStoreInfo) {
     ObjectStoreInfoPB obj_info;
     obj_info.set_provider(ObjectStoreInfoPB::GCP);

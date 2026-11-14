@@ -70,6 +70,7 @@
 #include "cpp/obj-client/auth/gcp/gcp_auth.h"
 #include "cpp/obj-client/auth/gcp/gcp_s3_client.h"
 #include "cpp/obj-client/auth/gcp/gcs_signed_url.h"
+#include "cpp/obj-client/oss_obj_storage_client.h"
 #include "cpp/obj-client/rate_limited_obj_storage_client.h"
 #include "cpp/obj-client/s3_obj_storage_client.h"
 #include "cpp/sync_point.h"
@@ -801,6 +802,40 @@ TEST_F(S3ClientFactoryTest, ConvertPropertiesToS3ConfProviderTypeMatrix) {
                 << "provider_type=" << test_case.provider_type;
         ASSERT_EQ(s3_conf.client_conf.cred_provider_type, test_case.expected)
                 << "provider_type=" << test_case.provider_type;
+    }
+}
+
+TEST_F(S3ClientFactoryTest, OssPropertiesSelectNativeClient) {
+    CloudModeConfigGuard cloud_mode(true);
+    S3URI uri("s3://test-bucket/key");
+    ASSERT_TRUE(uri.parse().ok());
+    std::map<std::string, std::string> properties {{"provider", "oss"},
+                                                   {"AWS_ENDPOINT", "oss-cn-hangzhou.aliyuncs.com"},
+                                                   {"AWS_REGION", "cn-hangzhou"}};
+    S3Conf conf;
+    ASSERT_TRUE(S3ClientFactory::convert_properties_to_s3_conf(properties, uri, &conf).ok());
+    EXPECT_EQ(conf.client_conf.provider, io::ObjStorageProvider::OSS);
+    auto client = S3ClientFactory::instance().create(conf.client_conf);
+    ASSERT_TRUE(client.has_value()) << client.error();
+    EXPECT_NE(std::dynamic_pointer_cast<OssObjStorageClient>(client.value()), nullptr);
+}
+
+TEST_F(S3ClientFactoryTest, S3CompatibleProvidersPresignWithHmacCredentials) {
+    CloudModeConfigGuard cloud_mode(true);
+    S3ClientConf conf;
+    conf.endpoint = "storage.googleapis.com";
+    conf.region = "us-east-1";
+    conf.ak = "test-access-key";
+    conf.sk = "test-secret-key";
+    for (auto provider :
+         {io::ObjStorageProvider::GCP, io::ObjStorageProvider::AWS, io::ObjStorageProvider::COS}) {
+        SCOPED_TRACE(static_cast<int>(provider));
+        conf.provider = provider;
+        auto client = S3ClientFactory::instance().create(conf);
+        ASSERT_TRUE(client.has_value()) << client.error();
+        auto url =
+                client.value()->generate_presigned_url({.bucket = "test-bucket", .key = "key"}, 60);
+        EXPECT_NE(url.find("X-Amz-Signature="), std::string::npos);
     }
 }
 
