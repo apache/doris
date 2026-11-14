@@ -24,10 +24,13 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.load.NereidsLoadTaskInfo.NereidsImportColumnDescs;
+import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.TryParseToVariant;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.TypeOf;
+import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
@@ -60,7 +63,8 @@ public class VariantLoadParseInjectionTest extends TestWithFeService {
     private enum InputShape {
         DIRECT,
         MAPPING,
-        EXPLICIT_CAST
+        EXPLICIT_CAST,
+        TYPEOF_MAPPING
     }
 
     @Override
@@ -98,6 +102,25 @@ public class VariantLoadParseInjectionTest extends TestWithFeService {
         for (InputShape shape : InputShape.values()) {
             assertParseInjectionInBothModes(() -> createRoutineFixture(shape), shape);
         }
+    }
+
+    @Test
+    public void testTypeOfLoadMappingIsRewrittenDuringAnalysis() throws Exception {
+        LoadFixture fixture = createStreamFixture(InputShape.TYPEOF_MAPPING);
+        List<Plan> nodes = fixture.plan.<Plan>collectToList(ignored -> true);
+        List<TypeOf> typeOfFunctions = new ArrayList<>();
+        List<StringLikeLiteral> stringLiterals = new ArrayList<>();
+        for (Plan node : nodes) {
+            for (Expression expression : node.getExpressions()) {
+                typeOfFunctions.addAll(expression.<TypeOf>collectToList(TypeOf.class::isInstance));
+                stringLiterals.addAll(expression.<StringLikeLiteral>collectToList(
+                        StringLikeLiteral.class::isInstance));
+            }
+        }
+        Assertions.assertTrue(typeOfFunctions.isEmpty(), fixture.evidence());
+        Assertions.assertTrue(stringLiterals.stream().anyMatch(literal -> literal.getValue().equals("varchar(65533)")),
+                fixture.evidence());
+        assertParseInjection(fixture, InputShape.TYPEOF_MAPPING, true);
     }
 
     private void assertParseInjectionInBothModes(LoadFixtureSupplier fixtureSupplier, InputShape shape)
@@ -221,9 +244,14 @@ public class VariantLoadParseInjectionTest extends TestWithFeService {
             descs.descs.add(new NereidsImportColumnDesc("v"));
         } else {
             descs.descs.add(new NereidsImportColumnDesc("raw_v"));
-            Expression mapping = shape == InputShape.MAPPING
-                    ? new UnboundSlot("raw_v")
-                    : new Cast(new UnboundSlot("raw_v"), tableTargetVariantType(), true);
+            Expression mapping;
+            if (shape == InputShape.MAPPING) {
+                mapping = new UnboundSlot("raw_v");
+            } else if (shape == InputShape.TYPEOF_MAPPING) {
+                mapping = new NereidsParser().parseExpression("typeof(raw_v)");
+            } else {
+                mapping = new Cast(new UnboundSlot("raw_v"), tableTargetVariantType(), true);
+            }
             descs.descs.add(new NereidsImportColumnDesc("v", mapping));
         }
         return descs;

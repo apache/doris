@@ -573,6 +573,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.TrimArray;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.TrimIn;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Truncate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.TryParseToVariant;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.TypeOf;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Uncompress;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Unhex;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UnhexNull;
@@ -1189,6 +1190,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(TrimArray.class, "trim_array"),
             scalar(TrimIn.class, "trim_in"),
             scalar(Truncate.class, "truncate"),
+            scalar(TypeOf.class, "typeof"),
             scalar(Unhex.class, "unhex"),
             scalar(UnhexNull.class, "unhex_null"),
             scalar(UnixTimestamp.class, "unix_timestamp"),
