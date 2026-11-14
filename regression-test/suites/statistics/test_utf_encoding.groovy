@@ -45,7 +45,13 @@ suite("test_utf_encoding") {
     assertEquals("\'预计负债\'", result[0][8])
     explain {
         sql """memo plan select * from t1;"""
-        contains("min=64379158486625512.000000(一般风险准备)")
+        // On JDK 21, `%f` on a double whose magnitude exceeds a double's real precision
+        // (~15-17 significant digits) is implementation-defined past that precision: JDK 19
+        // changed the shared Double/Float-to-decimal algorithm, so the same double bit pattern
+        // that printed as ...512 on JDK 17 now prints as ...510 on JDK 21. The value itself is
+        // unchanged (confirmed via Double.doubleToLongBits on both JDKs); only these no-longer-
+        // meaningful trailing digits differ.
+        contains("min=64379158486625510.000000(一般风险准备)")
         contains("max=65762361296724456.000000(预计负债)")
     }
 
