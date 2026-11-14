@@ -42,6 +42,20 @@ Status deserialize_crypto_metadata(std::span<const uint8_t> bytes, uint32_t* con
 Status deserialize_crypto_metadata(std::span<const uint8_t> bytes, uint32_t* consumed,
                                    tparquet::PageHeader* metadata);
 
+Status deserialize_crypto_metadata(std::span<const uint8_t> bytes, uint32_t* consumed,
+                                   tparquet::ColumnIndex* metadata);
+Status deserialize_crypto_metadata(std::span<const uint8_t> bytes, uint32_t* consumed,
+                                   tparquet::OffsetIndex* metadata);
+Status deserialize_crypto_metadata(std::span<const uint8_t> bytes, uint32_t* consumed,
+                                   tparquet::BloomFilterHeader* metadata);
+
+enum class ParquetMetadataModule : int8_t {
+    COLUMN_INDEX = 6,
+    OFFSET_INDEX = 7,
+    BLOOM_FILTER_HEADER = 8,
+    BLOOM_FILTER_BITSET = 9,
+};
+
 class ParquetColumnCrypto;
 
 // Immutable file key/AAD owner. Encrypted metadata is never admitted to shared caches.
@@ -68,6 +82,8 @@ private:
 // References extend one column's reader stack only; never reuse an instance between readers.
 class ParquetColumnCrypto {
 public:
+    Status decrypt_metadata(ParquetMetadataModule module, std::span<const uint8_t> bytes,
+                            DorisVector<uint8_t>* plaintext);
     ~ParquetColumnCrypto();
     Status plaintext_size(int32_t ciphertext_size, int32_t* size) const;
     Status decrypt_header(std::span<const uint8_t> bytes, bool dictionary, int32_t page,

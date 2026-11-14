@@ -655,7 +655,6 @@ Status ParquetReader::init(RuntimeState* state) {
         _clear_decryption_parameters();
         RETURN_IF_ERROR(footer_status);
         if (_state->file_context.native_metadata->encryption() != nullptr) {
-            _state->enable_bloom_filter = false;
             _state->enable_page_cache = false;
         }
     }
