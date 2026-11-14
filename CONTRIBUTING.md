@@ -19,7 +19,7 @@ under the License.
 
 # Contribute to Doris
 
-Thank you very much for your interest in the Doris project. We welcome your suggestions, comments (including criticisms), comments and contributions to the Doris project.
+Thank you very much for your interest in the Doris project. We welcome your suggestions, comments (including criticisms), and contributions to the Doris project.
 
 Your suggestions, comments and comments on Doris can be made directly through GitHub's [Issues](https://github.com/apache/doris/issues/new/choose).
 
