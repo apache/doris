@@ -23,11 +23,13 @@
 #include <cstdint>
 #include <functional>
 #include <iostream>
+#include <memory>
 #include <mutex>
 #include <shared_mutex>
 #include <string>
 #include <thread>
 #include <unordered_map>
+#include <unordered_set>
 
 #include "common/status.h"
 
@@ -64,6 +66,10 @@ public:
     // get ip by hostname
     Status get(const std::string& hostname, std::string* ip);
 
+    // Force resolution on the next get(), retaining the last known IP as fallback
+    // if a socket error coincides with a transient DNS failure.
+    void invalidate(const std::string& hostname);
+
 private:
     // Resolve hostname to IP address.
     // If resolution fails, falls back to cached IP if available.
@@ -76,8 +82,10 @@ private:
     // current failure bookkeeping read under the same lock; out_ip (if non-null)
     // receives the resolved IP so callers can use it without a second cache lookup
     // (avoids operator[] mutation under shared_lock).
+    // Normal get() calls may reuse a result published while waiting for the hostname
+    // lock. Background refresh and reserved negative-cache retries always resolve.
     Status _update(const std::string& hostname, FailureState* out_state = nullptr,
-                   std::string* out_ip = nullptr);
+                   std::string* out_ip = nullptr, bool reuse_cached = false);
 
     // erase a hostname from cache unconditionally (with unique_lock)
     void _erase(const std::string& hostname);
@@ -145,6 +153,13 @@ private:
     Resolver _resolver; // null → use global hostname_to_ip
     // hostname -> ip
     std::unordered_map<std::string, std::string> cache;
+    // Hostnames that must be resolved again after invalidation.
+    std::unordered_set<std::string> _refresh_pending;
+    // Claimed explicit refreshes: keep warm readers waiting until their result is published.
+    std::unordered_set<std::string> _refresh_inflight;
+    // Serialize lookups for one hostname without holding the cache mutex over DNS I/O.
+    // Entries exist only while a lookup is running or waiting.
+    std::unordered_map<std::string, std::shared_ptr<std::mutex>> _refresh_locks;
     // hostname -> consecutive resolution failure bookkeeping
     std::unordered_map<std::string, FailureState> failure_count;
     // hostname -> eviction timestamp; effective deadline is computed as
