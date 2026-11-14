@@ -769,21 +769,52 @@ struct DateTimeOp {
         }
     }
 
+    static ToType execute(const ValueType0& from, const ValueType1& delta,
+                          FunctionContext* context) {
+        if constexpr (std::is_same_v<Transform, AddYearsImpl<TYPE_TIMESTAMPTZ>> ||
+                      std::is_same_v<Transform, SubtractYearsImpl<TYPE_TIMESTAMPTZ>>) {
+            // Use the local date for calendar years. In +08:00, 2024-02-29 00:00
+            // is 2024-02-28 16:00 UTC. A year added in UTC gives March 1 locally.
+            // The DATETIME transform changes February 29 to February 28 when needed.
+            const auto& timezone = context->state()->timezone_obj();
+            DateV2Value<DateTimeV2ValueType> local;
+            from.convert_utc_to_local(timezone, local);
+            using LocalTransform =
+                    std::conditional_t<std::is_same_v<Transform, AddYearsImpl<TYPE_TIMESTAMPTZ>>,
+                                       AddYearsImpl<TYPE_DATETIMEV2>,
+                                       SubtractYearsImpl<TYPE_DATETIMEV2>>;
+            const auto local_result = LocalTransform::execute(local, delta);
+            TimestampTzValue result;
+            // Keep the input offset when the target time occurs twice during a DST change.
+            // This also keeps years_add(ts, 0) equal to ts in the repeated hour.
+            result.convert_local_to_utc(timezone, local_result, from.utc_offset(timezone));
+            // A valid local date can exceed the UTC range, for example year 0 in +08:00.
+            if (!result.is_valid_date()) [[unlikely]] {
+                throw_out_of_bound_date_int(Transform::name, from, delta);
+            }
+            return result;
+        } else {
+            return Transform::execute(from, delta);
+        }
+    }
+
     // execute on the null value's nested value may cause false positive exception, so use nullmaps to skip them.
     static void vector_vector(const PaddedPODArray<ValueType0>& vec_from0,
                               const IntervalColumnType& vec_from1, PaddedPODArray<ToType>& vec_to,
-                              const NullMap* nullmap0, const NullMap* nullmap1) {
+                              const NullMap* nullmap0, const NullMap* nullmap1,
+                              FunctionContext* context) {
         for (size_t i = 0; i < vec_from0.size(); ++i) {
             if ((nullmap0 && (*nullmap0)[i]) || (nullmap1 && (*nullmap1)[i])) [[unlikely]] {
                 continue;
             }
-            vec_to[i] = Transform::execute(vec_from0[i], get_element(vec_from1, i));
+            vec_to[i] = execute(vec_from0[i], get_element(vec_from1, i), context);
         }
     }
 
     static void vector_constant(const PaddedPODArray<ValueType0>& vec_from,
                                 PaddedPODArray<ToType>& vec_to, const ValueType1& delta,
-                                const NullMap* nullmap0, const NullMap* nullmap1) {
+                                const NullMap* nullmap0, const NullMap* nullmap1,
+                                FunctionContext* context) {
         if (nullmap1 && (*nullmap1)[0]) [[unlikely]] {
             return;
         }
@@ -792,13 +823,13 @@ struct DateTimeOp {
             if (nullmap0 && (*nullmap0)[i]) [[unlikely]] {
                 continue;
             }
-            vec_to[i] = Transform::execute(vec_from[i], delta);
+            vec_to[i] = execute(vec_from[i], delta, context);
         }
     }
 
     static void constant_vector(const ValueType0& from, PaddedPODArray<ToType>& vec_to,
                                 const IntervalColumnType& delta, const NullMap* nullmap0,
-                                const NullMap* nullmap1) {
+                                const NullMap* nullmap1, FunctionContext* context) {
         if (nullmap0 && (*nullmap0)[0]) [[unlikely]] {
             return;
         }
@@ -807,7 +838,7 @@ struct DateTimeOp {
             if (nullmap1 && (*nullmap1)[i]) [[unlikely]] {
                 continue;
             }
-            vec_to[i] = Transform::execute(from, get_element(delta, i));
+            vec_to[i] = execute(from, get_element(delta, i), context);
         }
     }
 };
@@ -877,11 +908,12 @@ public:
                 const auto& col1_inside_const =
                         assert_cast<const RightColumnType&>(nest_col1_const->get_data_column());
                 Op::vector_constant(sources->get_data(), res_col->get_data(),
-                                    Op::get_element(col1_inside_const, 0), nullmap0, nullmap1);
+                                    Op::get_element(col1_inside_const, 0), nullmap0, nullmap1,
+                                    context);
             } else { // vector-vector
                 const auto& concrete_col1 = assert_cast<const RightColumnType&>(*nest_col1);
                 Op::vector_vector(sources->get_data(), concrete_col1, res_col->get_data(), nullmap0,
-                                  nullmap1);
+                                  nullmap1, context);
             }
 
             // update result nullmap with inputs
@@ -908,7 +940,7 @@ public:
             const ColumnPtr nested_col1 = remove_nullable(col1);
             const auto& concrete_col1 = assert_cast<const RightColumnType&>(*nested_col1);
             Op::constant_vector(col0_inside_const.get_data()[0], res_col->get_data(), concrete_col1,
-                                nullmap0, nullmap1);
+                                nullmap0, nullmap1, context);
 
             // update result nullmap with inputs
             if (result_nullable) {
@@ -1002,11 +1034,12 @@ public:
                 const auto& col1_inside_const =
                         assert_cast<const IntervalColumnType&>(nest_col1_const->get_data_column());
                 Op::vector_constant(sources->get_data(), res_col->get_data(),
-                                    Op::get_element(col1_inside_const, 0), nullmap0, nullmap1);
+                                    Op::get_element(col1_inside_const, 0), nullmap0, nullmap1,
+                                    context);
             } else { // vector-vector
                 const auto& concrete_col1 = assert_cast<const IntervalColumnType&>(*nest_col1);
                 Op::vector_vector(sources->get_data(), concrete_col1, res_col->get_data(), nullmap0,
-                                  nullmap1);
+                                  nullmap1, context);
             }
 
             // update result nullmap with inputs
@@ -1033,7 +1066,7 @@ public:
             const ColumnPtr nested_col1 = remove_nullable(col1);
             const auto& concrete_col1 = assert_cast<const IntervalColumnType&>(*nested_col1);
             Op::constant_vector(col0_inside_const.get_data()[0], res_col->get_data(), concrete_col1,
-                                nullmap0, nullmap1);
+                                nullmap0, nullmap1, context);
 
             // update result nullmap with inputs
             if (result_nullable) {

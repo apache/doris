@@ -68,6 +68,80 @@ TEST(VTimestampFunctionsTest, iso8601_preserves_negative_subhour_offset) {
               "2024-01-01T08:05:43.000000+08:05:43");
 }
 
+TEST(VTimestampFunctionsTest, timestamptz_years_use_local_date) {
+    MockRuntimeState state;
+    state._timezone_obj = cctz::fixed_time_zone(cctz::seconds(8 * 3600));
+    FunctionContext context;
+    context._state = &state;
+    using Add = DateTimeOp<TYPE_TIMESTAMPTZ, TYPE_INT, TimestampTzValue,
+                           AddYearsImpl<TYPE_TIMESTAMPTZ>>;
+    using Sub = DateTimeOp<TYPE_TIMESTAMPTZ, TYPE_INT, TimestampTzValue,
+                           SubtractYearsImpl<TYPE_TIMESTAMPTZ>>;
+
+    // One input is enough to expose the bug. Its local date is February 29,
+    // but its UTC date is February 28. Keep a fraction to detect precision loss.
+    DateV2Value<DateTimeV2ValueType> local;
+    local.unchecked_set_time(2024, 2, 29, 0, 0, 0, 123456);
+    TimestampTzValue input;
+    ASSERT_TRUE(input.from_datetime(local, state._timezone_obj, 6, 6));
+    const struct {
+        int delta;
+        int year;
+        int day;
+    } cases[] = {{1, 2025, 28}, {-1, 2023, 28}, {4, 2028, 29},    {-4, 2020, 29},
+                 {0, 2024, 29}, {76, 2100, 28}, {-124, 1900, 28}, {-24, 2000, 29}};
+    for (const auto& test : cases) {
+        SCOPED_TRACE(test.delta);
+        local.unchecked_set_time(test.year, 2, test.day, 0, 0, 0, 123456);
+        TimestampTzValue expected;
+        ASSERT_TRUE(expected.from_datetime(local, state._timezone_obj, 6, 6));
+        EXPECT_EQ(Add::execute(input, test.delta, &context), expected);
+        EXPECT_EQ(Sub::execute(input, -test.delta, &context), expected);
+    }
+}
+
+TEST(VTimestampFunctionsTest, timestamptz_years_check_date_range) {
+    MockRuntimeState state;
+    state._timezone_obj = cctz::fixed_time_zone(cctz::seconds(8 * 3600));
+    FunctionContext context;
+    context._state = &state;
+    using Add = DateTimeOp<TYPE_TIMESTAMPTZ, TYPE_INT, TimestampTzValue,
+                           AddYearsImpl<TYPE_TIMESTAMPTZ>>;
+
+    // Local year 0 is valid, but its first eight hours fall in UTC year -1.
+    DateV2Value<DateTimeV2ValueType> utc;
+    utc.unchecked_set_time(0, 12, 31, 16, 0, 0, 0);
+    EXPECT_THROW(Add::execute(TimestampTzValue(utc), -1, &context), Exception);
+
+    // This UTC input is valid, but its local date is in year 10000.
+    // Do not allow a year change to hide an invalid local input date.
+    utc.unchecked_set_time(9999, 12, 31, 20, 0, 0, 0);
+    EXPECT_THROW(Add::execute(TimestampTzValue(utc), -1, &context), Exception);
+}
+
+TEST(VTimestampFunctionsTest, timestamptz_years_keep_dst_policy) {
+    MockRuntimeState state;
+    ASSERT_TRUE(cctz::load_time_zone("America/New_York", &state._timezone_obj));
+    FunctionContext context;
+    context._state = &state;
+    using Add = DateTimeOp<TYPE_TIMESTAMPTZ, TYPE_INT, TimestampTzValue,
+                           AddYearsImpl<TYPE_TIMESTAMPTZ>>;
+
+    // At 06:30 UTC, 01:30 occurs for the second time. Adding zero years must
+    // keep this instant, rather than select the first 01:30 at 05:30 UTC.
+    DateV2Value<DateTimeV2ValueType> utc;
+    utc.unchecked_set_time(2024, 11, 3, 6, 30, 0, 123456);
+    TimestampTzValue input(utc);
+    EXPECT_EQ(Add::execute(input, 0, &context), input);
+
+    // The target 2024-03-10 02:30 does not exist in New York. Use the existing
+    // gap rule: select 03:00 and keep the fraction, which is 07:00 UTC.
+    utc.unchecked_set_time(2023, 3, 10, 7, 30, 0, 123456);
+    input = TimestampTzValue(utc);
+    utc.unchecked_set_time(2024, 3, 10, 7, 0, 0, 123456);
+    EXPECT_EQ(Add::execute(input, 1, &context), TimestampTzValue(utc));
+}
+
 template <typename Transform>
 void check_quarter_interval_overflow(const typename Transform::InputValueType& date) {
     SCOPED_TRACE(Transform::name);
