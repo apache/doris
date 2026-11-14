@@ -17,9 +17,12 @@
 
 package org.apache.doris.connector.spi;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * The security-sensitive property surface a connector exposes to the engine's CREATE / ALTER CATALOG
@@ -72,6 +75,14 @@ public final class ConnectorSecuritySurface {
      */
     public static ConnectorSecuritySurface ofJdbcDriverUrls(String flavorKey, String... keys) {
         return new ConnectorSecuritySurface(Collections.emptyList(), Arrays.asList(keys), flavorKey);
+    }
+
+    /** Adds endpoint checks without dropping an existing driver-url flavor constraint. */
+    public ConnectorSecuritySurface withSsrfEndpoints(String... keys) {
+        Set<String> endpoints = new LinkedHashSet<>(ssrfEndpointKeys);
+        endpoints.addAll(Arrays.asList(keys));
+        return new ConnectorSecuritySurface(Collections.unmodifiableList(new ArrayList<>(endpoints)),
+                jdbcDriverUrlKeys, jdbcDriverUrlFlavorKey);
     }
 
     /** The endpoint property keys to check against the SSRF policy; empty when none. */

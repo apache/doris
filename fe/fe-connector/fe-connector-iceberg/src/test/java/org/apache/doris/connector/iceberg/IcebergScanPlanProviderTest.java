@@ -6122,14 +6122,19 @@ public class IcebergScanPlanProviderTest {
 
     // --- T09: vended credentials (extractVendedToken + static/vended location.* + URI threading) ---
 
-    @Test
-    public void extractVendedTokenMergesIoPropsAndStorageCredentials() {
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void extractVendedTokenMergesIoPropsAndStorageCredentials(boolean encryptedRest) {
         FakeIcebergTable table = fakeTable("t1");
         Map<String, String> ioProps = new HashMap<>();
         ioProps.put("s3.endpoint", "ep");
         StorageCredential cred =
                 StorageCredential.create("s3://b", Collections.singletonMap("s3.access-key-id", "ak"));
-        table.setIo(new VendedFileIO(ioProps, Collections.singletonList(cred)));
+        FileIO io = new VendedFileIO(ioProps, Collections.singletonList(cred));
+        if (encryptedRest) {
+            io = new IcebergRestEncryptionFileIO(io, new java.util.concurrent.atomic.AtomicReference<>(), false);
+        }
+        table.setIo(io);
 
         Map<String, String> token = IcebergScanPlanProvider.extractVendedToken(table, true);
 
