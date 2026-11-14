@@ -173,8 +173,16 @@ Status Sorter::partial_sort(Block& src_block, Block& dest_block, bool reversed) 
     RETURN_IF_ERROR(_prepare_sort_columns(src_block, dest_block, reversed));
     {
         SCOPED_TIMER(_partial_sort_timer);
-        uint64_t limit = reversed ? 0 : (_offset + _limit);
-        sort_block(src_block, dest_block, _sort_description, _hybrid_sorter, limit);
+        if (reversed) {
+            // A reversed sort feeds the TopN heap, which keeps the best `_offset + _limit` rows:
+            // the last ones of the reversed order. Sort the whole block as before, so rows that
+            // tie keep their order, but copy only the rows the heap can keep: under LIMIT 200 a
+            // 4096-row block permutes 200 rows of every column instead of 4096.
+            sort_block_tail(src_block, dest_block, _sort_description, _hybrid_sorter,
+                            _offset + _limit);
+        } else {
+            sort_block(src_block, dest_block, _sort_description, _hybrid_sorter, _offset + _limit);
+        }
     }
 
     src_block.clear_column_data(num_cols);
