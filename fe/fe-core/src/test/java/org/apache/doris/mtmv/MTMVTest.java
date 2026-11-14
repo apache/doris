@@ -80,6 +80,14 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class MTMVTest {
     @Test
+    public void testEngineAndMysqlType() {
+        // information_schema.tables and SHOW TABLE STATUS show these as ENGINE and TABLE_TYPE.
+        MTMV mtmv = new MTMV();
+        Assertions.assertEquals("MaterializedView", mtmv.getEngine());
+        Assertions.assertEquals("BASE TABLE", mtmv.getMysqlType());
+    }
+
+    @Test
     public void testToInfoString() {
         String expect
                 = "MTMV{refreshInfo=BUILD IMMEDIATE REFRESH COMPLETE ON SCHEDULE EVERY 2 SECOND STARTS \"ss\", "
