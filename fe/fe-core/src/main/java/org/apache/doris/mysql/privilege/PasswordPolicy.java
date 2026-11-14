@@ -26,6 +26,7 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.qe.GlobalVariable;
 
 import com.google.common.base.Joiner;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Queues;
 import com.google.gson.annotations.SerializedName;
@@ -55,12 +56,23 @@ public class PasswordPolicy {
     private static final String EXPIRATION_SECONDS = "password_policy.expiration_seconds";
     private static final String PASSWORD_CREATION_TIME = "password_policy.password_creation_time";
     private static final String HISTORY_NUM = "password_policy.history_num";
-    private static final String HISTORY_PASSWORDS = "password_policy.history_passwords";
+    // Package-visible: Auth masks this column of mysql.user by name.
+    static final String HISTORY_PASSWORDS = "password_policy.history_passwords";
     private static final String NUM_FAILED_LOGIN = "password_policy.num_failed_login";
     private static final String PASSWORD_LOCK_SECONDS = "password_policy.password_lock_seconds";
     private static final String FAILED_LOGIN_COUNTER = "password_policy.failed_login_counter";
     private static final String LOCK_TIME = "password_policy.lock_time";
     private static final String ACCOUNT_LOCKED = "password_policy.account_locked";
+    /**
+     * The password-policy columns of mysql.user, in column order: every row name {@link #getInfo()}
+     * reports. The same list lives in three places that must agree - here, the trailing columns of
+     * the "user" table in {@code MysqlDBTable}, and the BE's {@code SchemaUserScanner} column list
+     * (be/src/information_schema/schema_user_scanner.cpp), which copies a row by position. Auth fills
+     * mysql.user by name and asserts that the table ends with exactly this list.
+     */
+    public static final List<String> MYSQL_USER_COLUMNS = ImmutableList.of(EXPIRATION_SECONDS,
+            PASSWORD_CREATION_TIME, HISTORY_NUM, HISTORY_PASSWORDS, NUM_FAILED_LOGIN, PASSWORD_LOCK_SECONDS,
+            FAILED_LOGIN_COUNTER, LOCK_TIME, ACCOUNT_LOCKED);
 
     @SerializedName(value = "expirePolicy")
     private ExpirePolicy expirePolicy = new ExpirePolicy();
