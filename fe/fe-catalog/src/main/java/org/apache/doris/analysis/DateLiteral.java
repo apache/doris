@@ -1260,7 +1260,9 @@ public class DateLiteral extends LiteralExpr {
 
     // Package-private so DateLiteralUtils can use it for validation
     boolean checkRange() {
-        return year > MAX_DATETIME.year || month > MAX_DATETIME.month || day > MAX_DATETIME.day
+        // A time zone conversion can cross year zero even when the parsed fields are nonnegative.
+        return year < MIN_DATETIME.year || year > MAX_DATETIME.year
+            || month > MAX_DATETIME.month || day > MAX_DATETIME.day
             || hour > MAX_DATETIME.hour || minute > MAX_DATETIME.minute || second > MAX_DATETIME.second
             || microsecond > MAX_MICROSECOND;
     }

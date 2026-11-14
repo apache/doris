@@ -38,5 +38,8 @@ import java.util.Optional;
   * The planner centrally handles SQL cache admission after an implementation returns a result set.
   */
 public interface ComputeResultSet {
+    /** Check FE execution eligibility without materializing or formatting the requested values. */
+    boolean canComputeResultInFe(List<Slot> outputSlots);
+
     Optional<ResultSet> computeResultInFe(CascadesContext cascadesContext, List<Slot> outputSlots);
 }

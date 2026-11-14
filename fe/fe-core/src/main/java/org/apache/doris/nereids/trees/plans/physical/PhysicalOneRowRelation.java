@@ -158,6 +158,26 @@ public class PhysicalOneRowRelation extends PhysicalRelation implements OneRowRe
     }
 
     @Override
+    public boolean canComputeResultInFe(List<Slot> outputSlots) {
+        for (Slot outputSlot : outputSlots) {
+            for (int i = 0; i < projects.size(); i++) {
+                Slot output = getOutput().get(i);
+                if (outputSlot.getExprId().equals(output.getExprId())
+                        && !canComputeLiteralInFe(projects.get(i), output)) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    private static boolean canComputeLiteralInFe(NamedExpression item, Slot output) {
+        // FE result cells are UTF-8 Strings; a VARBINARY round trip can change the raw bytes.
+        // Leave these outputs to BE until ResultSet supports byte[] cells.
+        return item.child(0) instanceof Literal && !output.getDataType().toCatalogDataType().isVarbinaryType();
+    }
+
+    @Override
     public Optional<ResultSet> computeResultInFe(
             CascadesContext cascadesContext, List<Slot> outputSlots) {
         List<Column> columns = Lists.newArrayList();
@@ -165,33 +185,18 @@ public class PhysicalOneRowRelation extends PhysicalRelation implements OneRowRe
         for (Slot outputSlot : outputSlots) {
             for (int i = 0; i < projects.size(); i++) {
                 NamedExpression item = projects.get(i);
-                NamedExpression output = getOutput().get(i);
+                Slot output = getOutput().get(i);
                 if (!outputSlot.getExprId().equals(output.getExprId())) {
                     continue;
                 }
-                Expression expr = item.child(0);
-                if (expr instanceof Literal) {
-                    LiteralExpr legacyExpr = ((Literal) expr).toLegacyLiteral();
-                    columns.add(new Column(output.getName(), output.getDataType().toCatalogDataType()));
-                    if (output.getDataType().toCatalogDataType().isVarbinaryType()) {
-                        // The FE (computeResultInFe) can currently only build a ResultSet<List<List<String>>>.
-                        // If we materialize a VARBINARY literal via ExprToStringValueVisitor:
-                        //   1) We first wrap the raw bytes in a Java String.
-                        //   2) Later StmtExecutor.sendTextResultRow re-encodes that String as UTF-8 when
-                        //      writing the MySQL wire protocol. This may expand bytes (e.g. 0xAB becomes
-                        //      two bytes 0xC2 0xAB), so the client observes a different value than the BE path.
-                        // The BE execution path is correct because it sends the raw bytes already serialized
-                        // for the MySQL protocol without a lossy String round-trip.
-                        // Todo: Refactor ResultSet (supports per-cell byte[])
-                        // so we can VARBINARY safely and remove this early return.
-                        return Optional.empty();
-                    }
-                    data.add(legacyExpr.accept(ExprToStringValueVisitor.INSTANCE,
-                            StringValueContext.forQuery(
-                                    cascadesContext.getStatementContext().getFormatOptions())));
-                } else {
+                if (!canComputeLiteralInFe(item, output)) {
                     return Optional.empty();
                 }
+                LiteralExpr legacyExpr = ((Literal) item.child(0)).toLegacyLiteral();
+                columns.add(new Column(output.getName(), output.getDataType().toCatalogDataType()));
+                data.add(legacyExpr.accept(ExprToStringValueVisitor.INSTANCE,
+                        StringValueContext.forQuery(
+                                cascadesContext.getStatementContext().getFormatOptions())));
             }
         }
 
