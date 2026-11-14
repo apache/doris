@@ -26,7 +26,7 @@ import java.util.Objects;
 /**
  * A function call expression (catch-all for unsupported function types).
  * Connector plugins can inspect the function name and arguments to decide
- * whether to push down or reject.
+ * whether to push down or reject; only a call that {@link #isBuiltin() is a builtin} may be matched by name.
  */
 public final class ConnectorFunctionCall implements ConnectorExpression {
 
@@ -35,19 +35,39 @@ public final class ConnectorFunctionCall implements ConnectorExpression {
     private final String functionName;
     private final ConnectorType returnType;
     private final List<ConnectorExpression> arguments;
+    private final boolean builtin;
 
+    /** A call of a Doris builtin function or operator. */
     public ConnectorFunctionCall(String functionName,
             ConnectorType returnType,
             List<ConnectorExpression> arguments) {
+        this(functionName, returnType, arguments, true);
+    }
+
+    public ConnectorFunctionCall(String functionName,
+            ConnectorType returnType,
+            List<ConnectorExpression> arguments,
+            boolean builtin) {
         this.functionName = Objects.requireNonNull(functionName, "functionName");
         this.returnType = Objects.requireNonNull(returnType, "returnType");
         this.arguments = arguments == null
                 ? Collections.emptyList()
                 : Collections.unmodifiableList(arguments);
+        this.builtin = builtin;
     }
 
     public String getFunctionName() {
         return functionName;
+    }
+
+    /**
+     * Whether this calls a Doris builtin function or operator. A user-defined function (a Java or Python UDF)
+     * does not: its name says nothing about what it computes, so a connector must never translate it by name.
+     * For the fallback carrier (Rule 6 of the {@code pushdown} package), false when the expression it renders
+     * calls a user-defined function.
+     */
+    public boolean isBuiltin() {
+        return builtin;
     }
 
     public ConnectorType getReturnType() {
@@ -79,11 +99,12 @@ public final class ConnectorFunctionCall implements ConnectorExpression {
         ConnectorFunctionCall that = (ConnectorFunctionCall) o;
         return functionName.equals(that.functionName)
                 && returnType.equals(that.returnType)
-                && arguments.equals(that.arguments);
+                && arguments.equals(that.arguments)
+                && builtin == that.builtin;
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(functionName, returnType, arguments);
+        return Objects.hash(functionName, returnType, arguments, builtin);
     }
 }

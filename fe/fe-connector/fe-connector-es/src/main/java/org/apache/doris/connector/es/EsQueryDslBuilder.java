@@ -177,8 +177,7 @@ public final class EsQueryDslBuilder {
     }
 
     private static boolean referencesUnsafeSourceField(ConnectorExpression expression, Set<String> unsafeFields) {
-        if (expression instanceof ConnectorFunctionCall
-                && "esquery".equals(((ConnectorFunctionCall) expression).getFunctionName())) {
+        if (isEsquery(expression)) {
             // esquery explicitly requests ES index semantics rather than SQL source-value semantics.
             return false;
         }
@@ -194,8 +193,7 @@ public final class EsQueryDslBuilder {
     }
 
     private static void requireLocalEvaluation(ConnectorExpression expression) {
-        if (expression instanceof ConnectorFunctionCall
-                && "esquery".equals(((ConnectorFunctionCall) expression).getFunctionName())) {
+        if (isEsquery(expression)) {
             // esquery has no BE implementation. Never leave it inside a residual OR/NOT that
             // cannot be translated exactly; a remote match_all cannot make it locally evaluable.
             throw new DorisConnectorException("Cannot evaluate esquery locally: its containing Boolean expression "
@@ -664,10 +662,16 @@ public final class EsQueryDslBuilder {
     // Function call (esquery)
     // -----------------------------------------------------------------------
 
+    /** The builtin esquery(field, dsl), whose DSL Elasticsearch runs; a UDF of that name is not it. */
+    private static boolean isEsquery(ConnectorExpression expression) {
+        return expression instanceof ConnectorFunctionCall
+                && ((ConnectorFunctionCall) expression).isBuiltin()
+                && "esquery".equals(((ConnectorFunctionCall) expression).getFunctionName());
+    }
+
     private static String functionCallToDsl(ConnectorFunctionCall funcCall,
             List<ConnectorExpression> notPushDownList) {
-        if ("esquery".equals(funcCall.getFunctionName())
-                && funcCall.getArguments().size() == 2) {
+        if (isEsquery(funcCall) && funcCall.getArguments().size() == 2) {
             ConnectorExpression secondArg = funcCall.getArguments().get(1);
             if (secondArg instanceof ConnectorLiteral) {
                 Object val = ((ConnectorLiteral) secondArg).getValue();

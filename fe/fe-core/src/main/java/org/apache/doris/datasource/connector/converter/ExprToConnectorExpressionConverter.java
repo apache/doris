@@ -39,6 +39,7 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.catalog.ArrayType;
+import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.StructField;
@@ -114,10 +115,10 @@ public final class ExprToConnectorExpressionConverter {
             String fnName = fce.getFnName().getFunction();
             // Nereids translates Like/Regexp to FunctionCallExpr via visitScalarFunction,
             // so we need to detect them here and convert to ConnectorLike.
-            if ("like".equalsIgnoreCase(fnName) && fce.getChildren().size() == 2) {
+            if (isBuiltin(fce) && "like".equalsIgnoreCase(fnName) && fce.getChildren().size() == 2) {
                 return new ConnectorLike(ConnectorLike.Operator.LIKE,
                         convert(fce.getChild(0)), convert(fce.getChild(1)));
-            } else if ("regexp".equalsIgnoreCase(fnName) && fce.getChildren().size() == 2) {
+            } else if (isBuiltin(fce) && "regexp".equalsIgnoreCase(fnName) && fce.getChildren().size() == 2) {
                 return new ConnectorLike(ConnectorLike.Operator.REGEXP,
                         convert(fce.getChild(0)), convert(fce.getChild(1)));
             }
@@ -336,7 +337,12 @@ public final class ExprToConnectorExpressionConverter {
         List<ConnectorExpression> args = fce.getChildren().stream()
                 .map(ExprToConnectorExpressionConverter::convert)
                 .collect(Collectors.toList());
-        return new ConnectorFunctionCall(fnName, retType, args);
+        // A UDF keeps only its bare name here, which may be a builtin's; the flag is what tells them apart.
+        return new ConnectorFunctionCall(fnName, retType, args, isBuiltin(fce));
+    }
+
+    private static boolean isBuiltin(FunctionCallExpr fce) {
+        return fce.getFn().getBinaryType() == Function.BinaryType.BUILTIN;
     }
 
     private static ConnectorExpression fallback(Expr expr) {
@@ -351,7 +357,9 @@ public final class ExprToConnectorExpressionConverter {
         } catch (Exception e) {
             sql = expr.debugString();
         }
-        return new ConnectorFunctionCall(sql, retType, Collections.emptyList());
+        boolean callsUdf = expr.contains(
+                (Expr node) -> node instanceof FunctionCallExpr && !isBuiltin((FunctionCallExpr) node));
+        return new ConnectorFunctionCall(sql, retType, Collections.emptyList(), !callsUdf);
     }
 
     private static ConnectorType scalarTypeToConnectorType(ScalarType st) {

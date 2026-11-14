@@ -152,14 +152,22 @@
  * original expression as the residual, so their predicates are also evaluated on BE. That is correct but not
  * free — and it is the reason a slightly-too-wide pushdown is survivable today.</p>
  *
- * <h2>Rule 6 — {@link ConnectorFunctionCall} is also the fallback carrier. Do not match it by name</h2>
+ * <h2>Rule 6 — {@link ConnectorFunctionCall} is also the fallback carrier and the user-defined function.
+ * Match it by name only when it is a builtin</h2>
  *
- * <p>{@code ExprToConnectorExpressionConverter.fallback} turns any expression it does not model into a
- * {@link ConnectorFunctionCall} whose <b>name is the rendered Doris SQL text</b> and whose argument list is
- * <b>empty</b>. It is not a function call at all. Matching function names blindly will make a connector
- * translate {@code my_udf(a, b) = 1} as a call to a function literally named {@code "my_udf(a, b) = 1"}.
- * jdbc handles this deliberately: an argument-less call whose name is not a plain identifier is emitted as a
- * pre-rendered SQL fragment ({@code JdbcQueryBuilder}).</p>
+ * <p>{@code ExprToConnectorExpressionConverter.fallback} turns any expression it does not model, such as a
+ * {@code CASE} expression, into a {@link ConnectorFunctionCall} whose <b>name is the rendered Doris SQL text</b>
+ * and whose argument list is <b>empty</b>. It is not a function call at all. Matching function names blindly
+ * will make a connector translate {@code CASE WHEN a > 0 THEN b END} as a call to a function literally named
+ * by that text. jdbc handles this deliberately: an argument-less call whose name is not a plain identifier is
+ * emitted as a pre-rendered SQL fragment ({@code JdbcQueryBuilder}).</p>
+ *
+ * <p>A user-defined function (a Java or Python UDF) arrives with its own name and real arguments, exactly like
+ * a builtin, but with {@link ConnectorFunctionCall#isBuiltin()} false
+ * ({@code ExprToConnectorExpressionConverter.convertFunctionCall}). Its name says nothing about what it
+ * computes: a UDF may be named {@code starts_with} or {@code esquery}, and no remote system runs it. Never
+ * translate such a call. A fallback whose rendered expression calls one is not a builtin either, so a
+ * connector that emits fallbacks as SQL must check it too.</p>
  *
  * <p>Two related shapes to expect:</p>
  * <ul>
@@ -168,8 +176,8 @@
  *     {@code ConnectorFunctionCall} named {@code like} with three arguments. A connector that only handles
  *     {@link ConnectorLike} therefore never sees a custom escape character, and may assume the fixed
  *     backslash escape documented on {@link ConnectorLike}.</li>
- * <li>Arithmetic and genuine scalar functions arrive as {@link ConnectorFunctionCall} with real arguments;
- *     those are safe to match by name.</li>
+ * <li>Arithmetic and builtin scalar functions arrive as {@link ConnectorFunctionCall} with real arguments and
+ *     {@link ConnectorFunctionCall#isBuiltin()} true; those are safe to match by name.</li>
  * </ul>
  *
  * <p>Anything you cannot interpret confidently falls under Rule 1: drop the conjunct.</p>
