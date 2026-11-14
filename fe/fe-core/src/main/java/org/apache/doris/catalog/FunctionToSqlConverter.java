@@ -79,6 +79,7 @@ public class FunctionToSqlConverter {
             boolean isReturnNull = fn.getNullableMode() == NullableMode.ALWAYS_NULLABLE;
             sb.append(",\n  \"ALWAYS_NULLABLE\"=").append("\"" + isReturnNull + "\"");
             sb.append(",\n  \"VOLATILITY\"=").append("\"" + fn.getVolatility().toSql() + "\"");
+            sb.append(",\n  \"STATIC_LOAD\"=").append("\"" + fn.isStaticLoad() + "\"");
         } else if (fn.getBinaryType() == Function.BinaryType.PYTHON_UDF) {
             appendFileIfPresent(sb, fn, true);
             boolean isReturnNull = fn.getNullableMode() == NullableMode.ALWAYS_NULLABLE;
@@ -164,6 +165,7 @@ public class FunctionToSqlConverter {
             boolean isReturnNull = fn.getNullableMode() == NullableMode.ALWAYS_NULLABLE;
             sb.append("\n  \"ALWAYS_NULLABLE\"=").append("\"" + isReturnNull + "\",");
             sb.append("\n  \"VOLATILITY\"=").append("\"" + fn.getVolatility().toSql() + "\",");
+            sb.append("\n  \"STATIC_LOAD\"=").append("\"" + fn.isStaticLoad() + "\",");
         } else if (fn.getBinaryType() == Function.BinaryType.PYTHON_UDF) {
             appendFileIfPresent(sb, fn, false);
             if (fn.getLocation() != null) {
