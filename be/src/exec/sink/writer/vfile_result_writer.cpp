@@ -134,7 +134,7 @@ Status VFileResultWriter::_create_file_writer(const std::string& file_name) {
         _vfile_writer.reset(new VCSVTransformer(
                 _state, _file_writer_impl.get(), _vec_output_expr_ctxs, _output_object_data,
                 _header_type, _header, _file_opts->column_separator, _file_opts->line_delimiter,
-                _file_opts->with_bom, _file_opts->compression_type));
+                _file_opts->with_bom, _file_opts->csv_quote, _file_opts->compression_type));
         break;
     case TFileFormatType::FORMAT_PARQUET:
         _vfile_writer.reset(new VParquetWriter(

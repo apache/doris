@@ -180,6 +180,10 @@ public class OutFileClause {
         return ((CsvFileFormatProperties) fileFormatProperties).getHeaderType();
     }
 
+    public boolean isCsvQuote() {
+        return ((CsvFileFormatProperties) fileFormatProperties).isCsvQuote();
+    }
+
     public TFileFormatType getFileFormatType() {
         return fileFormatProperties.getFileFormatType();
     }
@@ -520,6 +524,11 @@ public class OutFileClause {
 
         analyzeBrokerDesc(copiedProps);
 
+        if (copiedProps.containsKey(CsvFileFormatProperties.PROP_CSV_QUOTE)
+                && !(fileFormatProperties instanceof CsvFileFormatProperties)) {
+            throw new AnalysisException(CsvFileFormatProperties.PROP_CSV_QUOTE
+                    + " is only supported for CSV format");
+        }
         fileFormatProperties.analyzeFileFormatProperties(copiedProps, true);
         // check if compression type for csv is supported
         if (fileFormatProperties instanceof CsvFileFormatProperties) {
