@@ -290,7 +290,7 @@ under the License.
         <commons-math3.version>3.6.1</commons-math3.version>
         <commons-validator.version>1.9.0</commons-validator.version>
         <gson.version>2.10.1</gson.version>
-        <guava.version>33.2.1-jre</guava.version>
+        <guava.version>33.7.1-jre</guava.version>
         <!-- Keep Jackson 2 aligned on the LTS maintenance release fixing CVE-2026-110879. -->
         <jackson.version>2.21.8</jackson.version>
         <javassist.version>3.18.2-GA</javassist.version>
