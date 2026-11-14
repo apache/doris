@@ -1542,6 +1542,10 @@ public class StmtExecutor {
         }
         masterOpExecutor.setMoreStmtExists(moreStmtExists);
         masterOpExecutor.execute();
+        // A successful RPC can still carry a failed statement. Do not apply its local changes.
+        if (MysqlStateType.ERR.name().equalsIgnoreCase(masterOpExecutor.getProxyStatus())) {
+            return;
+        }
         if (parsedStmt instanceof LogicalPlanAdapter) {
             // for nereids command
             if (((LogicalPlanAdapter) parsedStmt).getLogicalPlan() instanceof Forward) {
