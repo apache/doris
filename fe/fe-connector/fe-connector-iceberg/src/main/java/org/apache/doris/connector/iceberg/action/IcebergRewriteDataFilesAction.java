@@ -125,8 +125,8 @@ public class IcebergRewriteDataFilesAction extends BaseIcebergAction {
         // Output specification argument
         namedArguments.registerOptionalArgument(OUTPUT_SPEC_ID,
                 "Partition specification ID for output files",
-                2L,
-                ArgumentParsers.positiveLong(OUTPUT_SPEC_ID));
+                null,
+                ArgumentParsers.longRange(OUTPUT_SPEC_ID, 0, Integer.MAX_VALUE));
     }
 
     @Override

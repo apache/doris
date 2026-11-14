@@ -498,6 +498,29 @@ suite("test_iceberg_optimize_actions_ddl", "p0,external") {
         exception "min-file-size-bytes must be less than or equal to max-file-size-bytes"
     }
 
+    sql """
+        ALTER TABLE ${catalog_name}.${db_name}.test_fast_forward
+        EXECUTE rewrite_data_files("output-spec-id" = "0", "rewrite-all" = "true")
+    """
+
+    test {
+        sql """
+            ALTER TABLE ${catalog_name}.${db_name}.test_fast_forward
+            EXECUTE rewrite_data_files("output-spec-id" = "9999", "rewrite-all" = "true")
+        """
+        exception "Unknown output partition spec ID: 9999"
+    }
+
+    for (String specId : ["-1", "2147483648"]) {
+        test {
+            sql """
+                ALTER TABLE ${catalog_name}.${db_name}.test_fast_forward
+                EXECUTE rewrite_data_files("output-spec-id" = "${specId}")
+            """
+            exception "output-spec-id must be between 0 and 2147483647"
+        }
+    }
+
     // Test set_current_snapshot with both snapshot_id and ref
     test {
         sql """

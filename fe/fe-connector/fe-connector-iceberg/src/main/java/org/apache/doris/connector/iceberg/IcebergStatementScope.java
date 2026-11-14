@@ -72,6 +72,7 @@ final class IcebergStatementScope {
     static final String REWRITABLE_DELETE_SUPPLY_NAMESPACE = "iceberg.rewritable-delete-supply";
     static final String WRITE_SCHEMA_NAMESPACE = "iceberg.write-schema";
     static final String ACTIVE_WRITE_SCHEMA_NAMESPACE = "iceberg.active-write-schema";
+    static final String REWRITE_SCHEMA_NAMESPACE = "iceberg.rewrite-schema";
 
     static final String MANIFEST_READ_BUDGET_NAMESPACE = "iceberg.manifest-read-budget";
 
@@ -362,6 +363,16 @@ final class IcebergStatementScope {
             return Optional.empty();
         }
         return Optional.ofNullable(activeWriteSchemas(session).get(tableKey(dbName, tableName)));
+    }
+
+    static void pinRewriteSchema(ConnectorSession session, String dbName, String tableName,
+            IcebergWriteSchemaContext schemaContext) {
+        ConnectorStatementScopes.resolveInStatement(
+                session, REWRITE_SCHEMA_NAMESPACE, dbName, tableName, () -> schemaContext);
+    }
+
+    static IcebergWriteSchemaContext rewriteSchema(ConnectorSession session, String dbName, String tableName) {
+        return ConnectorStatementScopes.getIfPresent(session, REWRITE_SCHEMA_NAMESPACE, dbName, tableName);
     }
 
     private static Map<String, IcebergWriteSchemaContext> activeWriteSchemas(ConnectorSession session) {
