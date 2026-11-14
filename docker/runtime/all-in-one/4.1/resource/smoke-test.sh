@@ -90,8 +90,13 @@ for d in be/lib/java_extensions/preload-extensions \
 done
 
 step "flavor payload matches ${FLAVOR}"
+# Paimon's package directory differs across 4.1.x releases.
+in_image "be/lib/java_extensions/paimon-scanner" \
+    || in_image "be/lib/java_extensions/paimon-connector" \
+    || fail "missing from base payload: paimon-scanner or paimon-connector"
+echo "  ok Paimon scanner"
 # Present in both tags.
-for d in paimon-scanner iceberg-metadata-scanner jdbc-scanner java-writer; do
+for d in iceberg-metadata-scanner jdbc-scanner java-writer; do
     in_image "be/lib/java_extensions/${d}" || fail "missing from base payload: ${d}"
     echo "  ok ${d}"
 done
