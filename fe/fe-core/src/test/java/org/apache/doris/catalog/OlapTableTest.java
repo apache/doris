@@ -40,6 +40,8 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -502,8 +504,9 @@ public class OlapTableTest {
                 tableProperty.getProperties().containsKey(PropertyAnalyzer.LEGACY_PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED));
     }
 
-    @Test
-    public void testGetPartitionRowCount() {
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void testGetPartitionRowCount(boolean temporary) {
         OlapTable olapTable = new OlapTable();
         // Partition is null.
         long row = olapTable.getRowCountForPartitionIndex(0, 0, true);
@@ -512,7 +515,11 @@ public class OlapTableTest {
         // Index is null.
         MaterializedIndex index = new MaterializedIndex(10, MaterializedIndex.IndexState.NORMAL);
         Partition partition = new Partition(11, "p1", index, null);
-        olapTable.addPartition(partition);
+        if (temporary) {
+            olapTable.addTempPartition(partition);
+        } else {
+            olapTable.addPartition(partition);
+        }
         row = olapTable.getRowCountForPartitionIndex(11, 0, true);
         Assertions.assertEquals(-1, row);
 
