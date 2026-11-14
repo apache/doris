@@ -121,8 +121,9 @@ public class PhysicalExcept extends PhysicalSetOperation implements Except {
 
     @Override
     public PhysicalExcept resetLogicalProperties() {
-        return new PhysicalExcept(qualifier, outputs, regularChildrenOutputs, Optional.empty(),
-                getLogicalProperties(), physicalProperties, statistics, children);
+        return rebuildKeepingStates(this,
+                new PhysicalExcept(qualifier, outputs, regularChildrenOutputs, Optional.empty(),
+                getLogicalProperties(), physicalProperties, statistics, children));
     }
 
     private Map<Slot, Slot> constructReplaceMapForChild(int index) {

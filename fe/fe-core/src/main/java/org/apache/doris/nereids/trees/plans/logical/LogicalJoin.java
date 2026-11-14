@@ -767,13 +767,4 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
         }
     }
 
-    @Override
-    public String getFingerprint() {
-        List<Object> args = Lists.newArrayList(
-                "type", joinType,
-                "hashCondition", hashJoinConjuncts,
-                "otherCondition", otherJoinConjuncts,
-                "markCondition", markJoinConjuncts);
-        return Utils.toSqlString("JOIN", args.toArray());
-    }
 }
