@@ -64,8 +64,6 @@ public class AggStateType extends DataType {
     private final List<DataType> subTypes;
     private final List<Boolean> subTypeNullables;
     private final boolean returnNullable;
-    // Planning-only coercion policy; it is not part of the serialized AggState type identity.
-    private final boolean looseTypeCoercionAllowed;
 
     /**
      * Constructor for AggStateType
@@ -76,12 +74,6 @@ public class AggStateType extends DataType {
      */
     public AggStateType(String functionName, List<DataType> subTypes,
             List<Boolean> subTypeNullables, boolean returnNullable) {
-        this(functionName, subTypes, subTypeNullables, returnNullable, true);
-    }
-
-    /** Constructor with a planning-time type coercion policy. */
-    public AggStateType(String functionName, List<DataType> subTypes,
-            List<Boolean> subTypeNullables, boolean returnNullable, boolean looseTypeCoercionAllowed) {
         // be only supports lowercase function names
         Objects.requireNonNull(functionName, "functionName should not be null");
         functionName = functionName.toLowerCase(Locale.ROOT);
@@ -92,7 +84,6 @@ public class AggStateType extends DataType {
         Preconditions.checkState(subTypes.size() == subTypeNullables.size(),
                 "AggStateType' subTypes.size()!=subTypeNullables.size()");
         this.returnNullable = returnNullable;
-        this.looseTypeCoercionAllowed = looseTypeCoercionAllowed;
     }
 
     public List<DataType> getSubTypes() {
@@ -107,10 +98,6 @@ public class AggStateType extends DataType {
         return functionName;
     }
 
-    public boolean isLooseTypeCoercionAllowed() {
-        return looseTypeCoercionAllowed;
-    }
-
     @Override
     public Type toCatalogDataType() {
         List<Type> types = subTypes.stream().map(DataType::toCatalogDataType).collect(Collectors.toList());
@@ -121,7 +108,7 @@ public class AggStateType extends DataType {
     public DataType conversion() {
         return new AggStateType(functionName,
                 subTypes.stream().map(DataType::conversion).collect(Collectors.toList()),
-                subTypeNullables, returnNullable, looseTypeCoercionAllowed);
+                subTypeNullables, returnNullable);
     }
 
     @Override

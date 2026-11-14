@@ -51,7 +51,7 @@ public class ConvertAggStateCast implements ExpressionPatternRuleFactory {
     }
 
     /** convert */
-    public static Expression convert(Cast cast) {
+    public static Cast convert(Cast cast) {
         Expression child = cast.child();
         DataType originalType = child.getDataType();
         DataType targetType = cast.getDataType();

@@ -607,9 +607,6 @@ public class TypeCoercionUtils {
         if (canCastTo(input, target)) {
             return;
         }
-        if (CheckCast.requiresExactAggStateMatch(input, target)) {
-            throw new AnalysisException(CheckCast.exactAggStateMatchError(input, target));
-        }
         throw new AnalysisException("can not cast from origin type " + input + " to target type=" + target);
     }
 

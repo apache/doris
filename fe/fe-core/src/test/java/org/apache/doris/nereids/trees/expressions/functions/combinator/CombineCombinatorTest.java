@@ -146,17 +146,17 @@ class CombineCombinatorTest {
                 ImmutableList.of(IntegerType.INSTANCE), ImmutableList.of(true), true);
 
         Assertions.assertTrue(CheckCast.checkWithLooseAggState(exactType, exactType, false));
-        Assertions.assertFalse(CheckCast.checkWithLooseAggState(exactType, differentSubtype, false));
-        Assertions.assertFalse(CheckCast.checkWithLooseAggState(exactType, differentNullability, false));
-        Assertions.assertTrue(CheckCast.checkWithLooseAggState(
-                StateCombinator.create(new Avg(argument)).getDataType(), differentSubtype, false));
+        Assertions.assertTrue(CheckCast.checkWithLooseAggState(exactType, differentSubtype, false));
+        Assertions.assertTrue(CheckCast.checkWithLooseAggState(exactType, differentNullability, false));
+        Assertions.assertTrue(CheckCast.check(exactType, exactType, false));
+        Assertions.assertFalse(CheckCast.check(exactType, differentSubtype, false));
+        Assertions.assertFalse(CheckCast.check(exactType, differentNullability, false));
 
-        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
-                () -> PlanChecker.from(MemoTestUtils.createConnectContext())
-                        .analyze("select cast(avg_combine(cast(1 as int)) "
-                                + "as agg_state<avg(bigint not null)>)"));
+        PlanChecker checker = PlanChecker.from(MemoTestUtils.createConnectContext())
+                .analyze("select cast(avg_combine(cast(1 as int)) as agg_state<avg(bigint not null)>)");
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class, checker::rewrite);
         Assertions.assertTrue(exception.getMessage().contains(
-                "Aggregate combine state requires an exact AggState type match"));
+                "cannot cast agg_state<avg("));
     }
 
     @Test
