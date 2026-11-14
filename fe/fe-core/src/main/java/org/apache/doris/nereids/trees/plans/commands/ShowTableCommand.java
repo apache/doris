@@ -134,7 +134,7 @@ public class ShowTableCommand extends ShowCommand {
         // This also applies to the internal catalog.
         LogicalPlan plan = Utils.buildLogicalPlan(selectList, fullTblName,
                 whereClause + " and `TABLE_SCHEMA` = '" + db + "'");
-        List<List<String>> rows = Utils.executePlan(ctx, executor, plan);
+        List<List<String>> rows = executor.executeEmbeddedQuery(plan);
         return new ShowResultSet(getMetaData(), rows);
     }
 

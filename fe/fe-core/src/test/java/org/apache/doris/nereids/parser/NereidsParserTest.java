@@ -738,6 +738,10 @@ public class NereidsParserTest extends ParserTestBase {
         sql = "update a set b =1";
         plan = nereidsParser.parseSingle(sql);
         Assertions.assertEquals(plan.stmtType(), StmtType.UPDATE);
+
+        sql = "SHOW FULL TABLES WHERE Table_type = 'BASE TABLE'";
+        plan = nereidsParser.parseSingle(sql);
+        Assertions.assertEquals(StmtType.SHOW, plan.stmtType());
     }
 
     @Test

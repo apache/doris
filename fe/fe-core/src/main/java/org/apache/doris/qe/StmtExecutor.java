@@ -216,6 +216,8 @@ public class StmtExecutor {
     // Pair the snapshot with its query id atomically so a retried attempt cannot inherit
     // stale BEs even when audit and query retry run on different threads.
     private volatile AuditBackendSnapshot dispatchedAuditBackends;
+    // A filtered SHOW keeps its own audit ID while its embedded SELECT reports BE stats under this ID.
+    private TUniqueId embeddedQueryIdForAuditStatistics;
 
     private static final class AuditBackendSnapshot {
         private final TUniqueId queryId;
@@ -602,6 +604,10 @@ public class StmtExecutor {
             backendIds.addAll(coord.getDispatchedBackendIdsForAudit());
         }
         return backendIds;
+    }
+
+    public TUniqueId getEmbeddedQueryIdForAuditStatistics() {
+        return embeddedQueryIdForAuditStatistics;
     }
 
     private void rememberDispatchedAuditBackends(Coordinator executedCoordinator) {
@@ -2283,11 +2289,44 @@ public class StmtExecutor {
     }
 
     public List<ResultRow> executeInternalQuery() {
+        return executeInternalQuery(true);
+    }
+
+    public List<ResultRow> executeInternalQueryWithoutAudit() {
+        return executeInternalQuery(false);
+    }
+
+    /** Execute a SELECT used by a SHOW command without changing the SHOW audit event. */
+    public List<List<String>> executeEmbeddedQuery(LogicalPlan plan) {
+        StatementBase originalStmt = parsedStmt;
+        TUniqueId originalQueryId = context.queryId();
+        String originalSqlHash = context.getSqlHash();
+        boolean wasInternal = context.getState().isInternal();
+        boolean wasQuery = context.getState().isQuery();
+        boolean wasNereids = context.getState().isNereids();
+        try {
+            setParsedStmt(new LogicalPlanAdapter(plan, context.getStatementContext()));
+            return executeInternalQueryWithoutAudit().stream()
+                    .map(ResultRow::getValues).collect(Collectors.toList());
+        } finally {
+            if (coord != null && !coord.getDispatchedBackendIdsForAudit().isEmpty()) {
+                embeddedQueryIdForAuditStatistics = context.queryId().deepCopy();
+            }
+            setParsedStmt(originalStmt);
+            context.setQueryId(originalQueryId);
+            context.setSqlHash(originalSqlHash);
+            context.getState().setInternal(wasInternal);
+            context.getState().setIsQuery(wasQuery);
+            context.getState().setNereids(wasNereids);
+        }
+    }
+
+    private List<ResultRow> executeInternalQuery(boolean audit) {
         if (LOG.isDebugEnabled()) {
             LOG.debug("INTERNAL QUERY: {}", originStmt.toString());
         }
         try {
-            return executeInternalQueryCommon(null, null);
+            return executeInternalQueryCommon(null, null, audit);
         } catch (Exception e) {
             throw new RuntimeException("Failed to execute internal SQL. "
                     + Util.getRootCauseMessage(e), e);
@@ -2300,7 +2339,7 @@ public class StmtExecutor {
      * calling session's: this executor's own session is not connected to any client.
      */
     public void executeInternalQueryAndSend(LogicalPlanAdapter adapter, ResultSender sender) throws Exception {
-        executeInternalQueryCommon(adapter, sender);
+        executeInternalQueryCommon(adapter, sender, true);
     }
 
     /**
@@ -2310,7 +2349,7 @@ public class StmtExecutor {
      * {@link #executeAndSendResult}; otherwise they are collected into a {@code List<ResultRow>}.
      */
     private List<ResultRow> executeInternalQueryCommon(LogicalPlanAdapter prebuilt,
-            ResultSender sendTo) throws Exception {
+            ResultSender sendTo, boolean audit) throws Exception {
         TUniqueId queryId = UniqueIdUtils.fastUniqueId();
         context.setQueryId(queryId);
         if (originStmt != null && originStmt.originStmt != null) {
@@ -2415,8 +2454,10 @@ public class StmtExecutor {
             if (collectMode && coord != null) {
                 coord.close();
             }
-            AuditLogHelper.logAuditLog(context, originStmt == null ? null : originStmt.originStmt,
-                    parsedStmt, getQueryStatisticsForAuditLog(), true);
+            if (audit) {
+                AuditLogHelper.logAuditLog(context, originStmt == null ? null : originStmt.originStmt,
+                        parsedStmt, getQueryStatisticsForAuditLog(), true);
+            }
             scanTaskScope.close();
             QeProcessorImpl.INSTANCE.unregisterQuery(context.queryId());
             updateProfile(true);
