@@ -35,6 +35,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Maps;
 
 import java.util.Map;
 
@@ -111,16 +112,18 @@ public class CreateStorageVaultCommand extends Command implements ForwardWithSyn
             throw new AnalysisException("Property " + StorageVault.PropertyKey.TYPE + " cannot be empty");
         }
 
-        final String pathVersionString = properties.get(PATH_VERSION);
+        // path_version and shard_num describe the object key layout, they are not vault properties
+        Map<String, String> vaultProperties = Maps.newHashMap(properties);
+        final String pathVersionString = vaultProperties.remove(PATH_VERSION);
         if (pathVersionString != null) {
-            this.pathVersion = Integer.parseInt(pathVersionString);
-            properties.remove(PATH_VERSION);
+            this.pathVersion = parseIntProperty(PATH_VERSION, pathVersionString);
         }
-        final String numShardString = properties.get(SHARD_NUM);
+        final String numShardString = vaultProperties.remove(SHARD_NUM);
         if (numShardString != null) {
-            this.numShard = Integer.parseInt(numShardString);
-            properties.remove(SHARD_NUM);
+            this.numShard = parseIntProperty(SHARD_NUM, numShardString);
         }
+        validatePathFormat(numShardString != null);
+        properties = ImmutableMap.copyOf(vaultProperties);
         setAsDefault = Boolean.parseBoolean(properties.getOrDefault(SET_AS_DEFAULT, "false"));
         setStorageVaultType(StorageVault.StorageVaultType.fromString(type));
 
@@ -130,6 +133,30 @@ public class CreateStorageVaultCommand extends Command implements ForwardWithSyn
                     .putAll(properties)
                     .put(S3ResourceCompat.USE_PATH_STYLE, "true")
                     .build();
+        }
+    }
+
+    private static int parseIntProperty(String key, String value) throws AnalysisException {
+        try {
+            return Integer.parseInt(value.trim());
+        } catch (NumberFormatException e) {
+            throw new AnalysisException("Invalid " + key + ": " + value + ", it must be an integer");
+        }
+    }
+
+    private void validatePathFormat(boolean hasShardNum) throws AnalysisException {
+        if (pathVersion != 0 && pathVersion != 1) {
+            throw new AnalysisException("Invalid " + PATH_VERSION + ": " + pathVersion
+                    + ", only 0 and 1 are supported");
+        }
+        if (pathVersion == 1 && !hasShardNum) {
+            throw new AnalysisException(SHARD_NUM + " is required when " + PATH_VERSION + " is 1");
+        }
+        if (pathVersion == 0 && hasShardNum) {
+            throw new AnalysisException(SHARD_NUM + " is only supported when " + PATH_VERSION + " is 1");
+        }
+        if (pathVersion == 1 && numShard <= 0) {
+            throw new AnalysisException("Invalid " + SHARD_NUM + ": " + numShard + ", it must be positive");
         }
     }
 

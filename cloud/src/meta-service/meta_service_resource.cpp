@@ -726,6 +726,91 @@ bool normalize_hdfs_fs_name(std::string& fs_name) {
 
 } // namespace detail
 
+// Validate the object key layout of a storage vault, see `StorageResource` in BE.
+// Absent path format means version 0.
+static bool validate_path_format(const StorageVaultPB& vault, MetaServiceCode& code,
+                                 std::string& msg) {
+    if (!vault.has_path_format()) {
+        return true;
+    }
+    const auto& path_format = vault.path_format();
+    if (path_format.path_version() != 0 && path_format.path_version() != 1) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = fmt::format("vault_name={} invalid path_version={}, only 0 and 1 are supported",
+                          vault.name(), path_format.path_version());
+        return false;
+    }
+    if (path_format.path_version() == 1 && path_format.shard_num() <= 0) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = fmt::format(
+                "vault_name={} invalid shard_num={}, it must be positive when "
+                "path_version is 1",
+                vault.name(), path_format.shard_num());
+        return false;
+    }
+    return true;
+}
+
+// An S3 root (bucket and prefix) must hold a single path_version: v0 tablet 10005 and v1 shard
+// 10005 are both data/10005/, and recycling the tablet would delete the other vault's objects.
+// The endpoint is not compared, one bucket has several endpoint names (e.g. http/https).
+static bool check_s3_root_path_version(Transaction* txn, const InstanceInfoPB& instance,
+                                       const std::string& bucket, std::string prefix,
+                                       int64_t path_version, MetaServiceCode& code,
+                                       std::string& msg) {
+    // Prefixes are stored trimmed, e.g. "/shared/" as "shared"
+    trim(prefix);
+    auto same_root = [&](const ObjectStoreInfoPB& obj) {
+        std::string obj_prefix = obj.prefix();
+        trim(obj_prefix);
+        return obj.bucket() == bucket && obj_prefix == prefix;
+    };
+    auto reject = [&](std::string_view name, int64_t existing_path_version) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = fmt::format(
+                "storage {} already uses bucket={} prefix={} with path_version={}, a vault with "
+                "path_version={} must use a different bucket or prefix",
+                name, bucket, prefix, existing_path_version, path_version);
+        return false;
+    };
+    // Legacy obj infos have no path format, they use path_version 0
+    for (const auto& obj : instance.obj_info()) {
+        if (same_root(obj) && path_version != 0) {
+            return reject(fmt::format("obj_info id={}", obj.id()), 0);
+        }
+    }
+    std::string start = storage_vault_key({instance.instance_id(), ""});
+    std::string end = storage_vault_key({instance.instance_id(), "\xff"});
+    std::unique_ptr<RangeGetIterator> it;
+    while (it == nullptr /* may be not init */ || it->more()) {
+        TxnErrorCode err = txn->get(start, end, &it);
+        if (err != TxnErrorCode::TXN_OK) {
+            code = cast_as<ErrCategory::READ>(err);
+            msg = fmt::format("failed to get storage vault, err={}", err);
+            return false;
+        }
+        while (it->has_next()) {
+            auto [k, v] = it->next();
+            StorageVaultPB vault;
+            if (!vault.ParseFromArray(v.data(), v.size())) {
+                code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+                msg = fmt::format("malformed storage vault, key={}", hex(k));
+                return false;
+            }
+            if (vault.has_obj_info() && same_root(vault.obj_info()) &&
+                vault.path_format().path_version() != path_version) {
+                return reject(fmt::format("vault {}", vault.name()),
+                              vault.path_format().path_version());
+            }
+            if (!it->has_next()) {
+                start = k;
+            }
+        }
+        start.push_back('\x00'); // Update to next smallest key for iteration
+    }
+    return true;
+}
+
 static int add_hdfs_storage_vault(InstanceInfoPB& instance, Transaction* txn,
                                   StorageVaultPB& hdfs_param, MetaServiceCode& code,
                                   std::string& msg) {
@@ -869,8 +954,19 @@ static int add_vault_into_instance(InstanceInfoPB& instance, Transaction* txn,
         return -1;
     }
 
+    if (!validate_path_format(vault_param, code, msg)) {
+        return -1;
+    }
+
     if (vault_param.has_hdfs_info()) {
         return add_hdfs_storage_vault(instance, txn, vault_param, code, msg);
+    }
+
+    // The built-in vault (create_instance, ADD_BUILT_IN_VAULT) is also an S3 root
+    const auto& obj = vault_param.obj_info();
+    if (!check_s3_root_path_version(txn, instance, obj.bucket(), obj.prefix(),
+                                    vault_param.path_format().path_version(), code, msg)) {
+        return -1;
     }
 
     create_object_info_with_encrypt(instance, vault_param.mutable_obj_info(), true, code, msg);
@@ -1586,6 +1682,9 @@ void MetaServiceImpl::alter_storage_vault(google::protobuf::RpcController* contr
             msg = "s3 conf lease provider info";
             return;
         }
+        if (!validate_path_format(request->vault(), code, msg)) {
+            return;
+        }
         if (instance.obj_info().size() >= 10) {
             code = MetaServiceCode::UNDEFINED_ERR;
             msg = "this instance history has greater than 10 objs, please new another instance";
@@ -1626,6 +1725,10 @@ void MetaServiceImpl::alter_storage_vault(google::protobuf::RpcController* contr
                 return;
             }
         }
+        if (!check_s3_root_path_version(txn.get(), instance, bucket, prefix,
+                                        request->vault().path_format().path_version(), code, msg)) {
+            return;
+        }
         // calc id
         auto tmp_tuple = ObjectStorageDesc {ak,       sk,
                                             bucket,   prefix,
@@ -1650,6 +1753,9 @@ void MetaServiceImpl::alter_storage_vault(google::protobuf::RpcController* contr
         *instance.mutable_resource_ids()->Add() = vault.id();
         *instance.mutable_storage_vault_names()->Add() = vault.name();
         vault.mutable_obj_info()->MergeFrom(last_item);
+        if (request->vault().has_path_format()) {
+            vault.mutable_path_format()->CopyFrom(request->vault().path_format());
+        }
         auto vault_key = storage_vault_key({instance.instance_id(), last_item.id()});
         txn->put(vault_key, vault.SerializeAsString());
         if (request->has_set_as_default_storage_vault() &&

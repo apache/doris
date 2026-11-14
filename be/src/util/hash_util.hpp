@@ -29,6 +29,7 @@
 #include <functional>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "cpp/murmur_hash.h"
 #include "exec/common/endian.h"
 #include "util/cpu_info.h"
 #include "util/hash/city.h"
@@ -317,71 +318,10 @@ public:
         return hash;
     }
 
-    // Our hash function is MurmurHash2, 64 bit version.
-    // It was modified in order to provide the same result in
-    // big and little endian archs (endian neutral).
+    // MurmurHash2, 64 bit version, endian neutral. The implementation is shared with cloud, see
+    // `cpp/murmur_hash.h`; its results are persisted (e.g. HLL values), so it must not change.
     static uint64_t murmur_hash64A(const void* key, int64_t len, unsigned int seed) {
-        const uint64_t m = MURMUR_PRIME;
-        const int r = 47;
-        uint64_t h = seed ^ (len * m);
-        const uint8_t* data = (const uint8_t*)key;
-        const uint8_t* end = data + (len - (len & 7));
-
-        while (data != end) {
-            uint64_t k;
-            if constexpr (std::endian::native == std::endian::big) {
-                k = (uint64_t)data[0];
-                k |= (uint64_t)data[1] << 8;
-                k |= (uint64_t)data[2] << 16;
-                k |= (uint64_t)data[3] << 24;
-                k |= (uint64_t)data[4] << 32;
-                k |= (uint64_t)data[5] << 40;
-                k |= (uint64_t)data[6] << 48;
-                k |= (uint64_t)data[7] << 56;
-            } else if constexpr (std::endian::native == std::endian::little) {
-                memcpy(&k, data, sizeof(k));
-            } else {
-                static_assert(std::endian::native == std::endian::big ||
-                                      std::endian::native == std::endian::little,
-                              "Unsupported endianness");
-            }
-
-            k *= m;
-            k ^= k >> r;
-            k *= m;
-            h ^= k;
-            h *= m;
-            data += 8;
-        }
-
-        switch (len & 7) {
-        case 7:
-            h ^= (uint64_t)data[6] << 48;
-            [[fallthrough]];
-        case 6:
-            h ^= (uint64_t)data[5] << 40;
-            [[fallthrough]];
-        case 5:
-            h ^= (uint64_t)data[4] << 32;
-            [[fallthrough]];
-        case 4:
-            h ^= (uint64_t)data[3] << 24;
-            [[fallthrough]];
-        case 3:
-            h ^= (uint64_t)data[2] << 16;
-            [[fallthrough]];
-        case 2:
-            h ^= (uint64_t)data[1] << 8;
-            [[fallthrough]];
-        case 1:
-            h ^= (uint64_t)data[0];
-            h *= m;
-        }
-
-        h ^= h >> r;
-        h *= m;
-        h ^= h >> r;
-        return h;
+        return ::doris::murmur_hash64A(key, len, seed);
     }
 
     // Computes the hash value for data.  Will call either CrcHash or FnvHash
