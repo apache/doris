@@ -1120,12 +1120,26 @@ TEST(MetaServiceHttpTest, AbortTxnTest) {
     }
 }
 
-TEST(MetaServiceHttpTest, AlterIamTest) {
+TEST(MetaServiceHttpTest, RetiredServiceMethods) {
+    ASSERT_EQ(MetaService::descriptor()->FindMethodByName("alter_iam"), nullptr);
+    ASSERT_EQ(RecyclerService::descriptor()->FindMethodByName("recycle_instance"), nullptr);
+
+    HttpContext ctx;
+    auto [status_code, body] = ctx.query<std::string>("alter_iam", "");
+    ASSERT_EQ(status_code, 404) << body;
+
+    const auto& handlers = get_http_handlers();
+    auto it = handlers.find("recycle_instance");
+    ASSERT_NE(it, handlers.end());
+    ASSERT_EQ(it->second.role, HttpRole::RECYCLER);
+}
+
+TEST(MetaServiceHttpTest, AlterRamUserTest) {
     HttpContext ctx;
 
     brpc::Controller cntl;
     auto cloud_unique_id = "test_cloud_unique_id";
-    std::string instance_id = "alter_iam_test_instance_id";
+    std::string instance_id = "alter_ram_user_test_instance_id";
     [[maybe_unused]] auto sp = SyncPoint::get_instance();
     DORIS_CLOUD_DEFER {
         SyncPoint::get_instance()->clear_all_call_backs();
@@ -1200,18 +1214,6 @@ TEST(MetaServiceHttpTest, AlterIamTest) {
             ctx.forward<MetaServiceResponseStatus>("alter_ram_user", alter_ram_user_request);
     ASSERT_EQ(status_code, 200);
     ASSERT_EQ(resp.code(), MetaServiceCode::OK);
-
-    // alter iam
-    {
-        AlterIamRequest alter_iam_request;
-        alter_iam_request.set_ak("new_ak");
-        alter_iam_request.set_sk("new_sk");
-        alter_iam_request.set_account_id("account_id");
-        auto [status_code, resp] =
-                ctx.forward<MetaServiceResponseStatus>("alter_iam", alter_iam_request);
-        ASSERT_EQ(status_code, 200);
-        ASSERT_EQ(resp.code(), MetaServiceCode::OK);
-    }
 
     // get iam and ram user
     ctx.meta_service_->get_iam(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),

@@ -298,24 +298,21 @@ void RecyclerServiceImpl::statistics_recycle(StatisticsRecycleRequest& req, Meta
     msg = ss.str();
 }
 
-void RecyclerServiceImpl::recycle_instance(::google::protobuf::RpcController* controller,
-                                           const ::doris::cloud::RecycleInstanceRequest* request,
-                                           ::doris::cloud::RecycleInstanceResponse* response,
-                                           ::google::protobuf::Closure* done) {
-    auto ctrl = static_cast<brpc::Controller*>(controller);
-    LOG(INFO) << "rpc from " << ctrl->remote_side() << " request=" << request->ShortDebugString();
-    brpc::ClosureGuard closure_guard(done);
+void RecyclerServiceImpl::recycle_instance(const brpc::Controller& ctrl,
+                                           const RecycleInstanceRequest& request,
+                                           RecycleInstanceResponse& response) {
+    LOG(INFO) << "http from " << ctrl.remote_side() << " request=" << request.ShortDebugString();
     MetaServiceCode code = MetaServiceCode::OK;
     std::string msg = "OK";
     DORIS_CLOUD_DEFER {
-        response->mutable_status()->set_code(code);
-        response->mutable_status()->set_msg(msg);
+        response.mutable_status()->set_code(code);
+        response.mutable_status()->set_msg(msg);
         LOG(INFO) << (code == MetaServiceCode::OK ? "succ to " : "failed to ") << "recycle_instance"
-                  << " " << ctrl->remote_side() << " " << msg;
+                  << " " << ctrl.remote_side() << " " << msg;
     };
 
     std::vector<InstanceInfoPB> instances;
-    instances.reserve(request->instance_ids_size());
+    instances.reserve(request.instance_ids_size());
 
     std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
@@ -325,7 +322,7 @@ void RecyclerServiceImpl::recycle_instance(::google::protobuf::RpcController* co
         return;
     }
 
-    for (auto& id : request->instance_ids()) {
+    for (const auto& id : request.instance_ids()) {
         InstanceKeyInfo key_info {id};
         std::string key;
         instance_key(key_info, &key);
