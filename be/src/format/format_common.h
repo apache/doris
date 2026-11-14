@@ -17,8 +17,11 @@
 
 #pragma once
 
+#include <functional>
 #include <memory>
+#include <mutex>
 #include <typeindex>
+#include <unordered_map>
 
 #include "core/data_type/primitive_type.h"
 #include "core/types.h"
@@ -59,15 +62,14 @@ struct DecimalScaleParams {
 /**
  * Key-Value Cache Helper.
  *
- * It store a object instance global. User can invoke get method by key and a
- * object creator callback. If there is a instance stored in cache, then it will
- * return a void pointer of it, otherwise, it will invoke creator callback, create
- * a new instance store global, and return it.
+ * Stores objects by key and value type. get() returns shared ownership of the cached
+ * value, invoking the creator on a miss. A null result is not cached and can be retried.
+ * Concurrent misses create independently without holding cache locks; the first value
+ * published wins. cache_hit is true when returning an already published value, including
+ * when another caller publishes while this caller is creating its own value.
  *
- * The stored objects will be deleted when deconstructing, so user do not need to
- * delete the returned pointer.
- *
- * User can invoke erase method by key to delete data.
+ * erase() and cache destruction release only the cache's ownership. For example, a
+ * value returned by get() remains alive after erase() until its last caller releases it.
  *
  * @tparam KType is the key type
  */
@@ -96,46 +98,51 @@ public:
                 _entries.erase(key_it);
             }
         }
-        // Destroy the cached value outside the shard lock.
+        // Release the cached value outside the shard lock; callers may still own it.
     }
 
     template <class T>
-    T* get(const KType& key, const std::function<T*()> create_func, bool* cache_hit = nullptr) {
+    std::shared_ptr<T> get(const KType& key, const std::function<std::shared_ptr<T>()>& create_func,
+                           bool* cache_hit = nullptr) {
         std::shared_ptr<Entry> entry = _get_or_create_entry<T>(key);
+        {
+            std::lock_guard<std::mutex> entry_lock(entry->_lock);
+            if (entry->_value != nullptr) {
+                if (cache_hit != nullptr) {
+                    *cache_hit = true;
+                }
+                return std::static_pointer_cast<T>(entry->_value);
+            }
+        }
+        if (cache_hit != nullptr) {
+            *cache_hit = false;
+        }
+        // A stalled I/O in one factory must not prevent another caller from loading the same key.
+        auto value = create_func();
+        // Preserve this caller's factory failure even if another caller has since published a value.
+        if (value == nullptr) {
+            return nullptr;
+        }
+        // Declared after value so a losing candidate is destroyed after unlocking, even if its
+        // destructor calls back into this cache.
         std::lock_guard<std::mutex> entry_lock(entry->_lock);
+        // Another caller may have finished its I/O first. Reuse its value instead of replacing it.
         if (entry->_value != nullptr) {
             if (cache_hit != nullptr) {
                 *cache_hit = true;
             }
-            return static_cast<T*>(entry->_value);
-        } else {
-            if (cache_hit != nullptr) {
-                *cache_hit = false;
-            }
-            T* rawPtr = create_func();
-            if (rawPtr != nullptr) {
-                entry->_delete_fn = [](void* obj) { delete static_cast<T*>(obj); };
-                entry->_value = rawPtr;
-            }
-            return rawPtr;
+            return std::static_pointer_cast<T>(entry->_value);
         }
+        entry->_value = value;
+        return value;
     }
 
 private:
-    using DeleteFn = void (*)(void*);
-
     struct Entry {
-        ~Entry() {
-            if (_value != nullptr) {
-                _delete_fn(_value);
-            }
-        }
-
-        // The shard lock only protects the map. Factory calls hold this entry lock, so an
-        // unrelated key can keep loading while another key is doing remote I/O.
+        // The shard lock protects the map; this lock only protects value lookup and publication.
+        // Factories run without either lock, including concurrent loads of the same key.
         std::mutex _lock;
-        void* _value = nullptr;
-        DeleteFn _delete_fn = nullptr;
+        std::shared_ptr<void> _value;
     };
 
     template <class T>
@@ -172,9 +179,10 @@ public:
     }
 
     template <class T>
-    T* get(const std::string& key, const std::function<T*()> create_func,
-           bool* cache_hit = nullptr) {
-        return _shards[_get_idx(key)]->get(key, create_func, cache_hit);
+    std::shared_ptr<T> get(const std::string& key,
+                           const std::function<std::shared_ptr<T>()>& create_func,
+                           bool* cache_hit = nullptr) {
+        return _shards[_get_idx(key)]->get<T>(key, create_func, cache_hit);
     }
 
 private:

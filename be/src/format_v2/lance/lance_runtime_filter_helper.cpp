@@ -535,11 +535,10 @@ std::shared_ptr<const LanceRuntimeFilterSql> get_or_create_lance_runtime_filter_
         return build_runtime_filter_sql(conjuncts, physical_schema);
     }
 
-    auto* cached = cache->get<std::shared_ptr<const LanceRuntimeFilterSql>>(
-            *cache_key, [&]() -> std::shared_ptr<const LanceRuntimeFilterSql>* {
-                return new std::shared_ptr<const LanceRuntimeFilterSql>(
-                        build_runtime_filter_sql(conjuncts, physical_schema));
-            });
+    auto cached = cache->get<std::shared_ptr<const LanceRuntimeFilterSql>>(*cache_key, [&]() {
+        return std::make_shared<std::shared_ptr<const LanceRuntimeFilterSql>>(
+                build_runtime_filter_sql(conjuncts, physical_schema));
+    });
     return cached == nullptr ? nullptr : *cached;
 }
 
