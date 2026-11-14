@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands.execute;
 
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.RefreshManager;
 import org.apache.doris.common.Status;
@@ -29,6 +30,7 @@ import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.handle.ConnectorTransaction;
 import org.apache.doris.connector.spi.handle.RewriteCapableTransaction;
+import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
 import org.apache.doris.connector.spi.procedure.ConnectorProcedureOps;
 import org.apache.doris.connector.spi.procedure.ConnectorProcedureResult;
 import org.apache.doris.connector.spi.procedure.ConnectorRewriteGroup;
@@ -36,7 +38,11 @@ import org.apache.doris.connector.spi.procedure.ConnectorRewriteStatistics;
 import org.apache.doris.connector.spi.pushdown.ConnectorColumnRef;
 import org.apache.doris.connector.spi.pushdown.ConnectorPredicate;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.mvcc.MvccTable;
+import org.apache.doris.datasource.mvcc.MvccTableInfo;
+import org.apache.doris.datasource.mvcc.PluginDrivenMvccSnapshot;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
@@ -57,6 +63,7 @@ import org.mockito.Mockito;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -73,6 +80,112 @@ import java.util.concurrent.atomic.AtomicReference;
  * below — it reports the right numbers and returns the connector's result untouched.</p>
  */
 public class ConnectorRewriteDriverTest {
+
+    private static ExternalTable mvccTable(PluginDrivenExternalCatalog catalog) {
+        ExternalTable table = Mockito.mock(ExternalTable.class,
+                Mockito.withSettings().extraInterfaces(MvccTable.class));
+        DatabaseIf database = Mockito.mock(DatabaseIf.class);
+        Mockito.when(table.getName()).thenReturn("events");
+        Mockito.when(table.getDatabase()).thenReturn(database);
+        Mockito.when(database.getFullName()).thenReturn("db");
+        Mockito.when(database.getCatalog()).thenReturn(catalog);
+        Mockito.when(catalog.getName()).thenReturn("catalog");
+        return table;
+    }
+
+    @Test
+    public void pinsOnceBeforePlanningAndSharesThePinWithAllGroups() throws Exception {
+        ConnectorProcedureOps procedureOps = Mockito.mock(ConnectorProcedureOps.class);
+        ConnectorMetadata metadata = Mockito.mock(ConnectorMetadata.class);
+        ConnectorSession session = Mockito.mock(ConnectorSession.class);
+        ConnectorTableHandle input = Mockito.mock(ConnectorTableHandle.class);
+        ConnectorTableHandle pinned = Mockito.mock(ConnectorTableHandle.class);
+        ConnectorTransaction transaction = Mockito.mock(ConnectorTransaction.class,
+                Mockito.withSettings().extraInterfaces(RewriteCapableTransaction.class));
+        PluginDrivenExternalCatalog catalog = Mockito.mock(PluginDrivenExternalCatalog.class);
+        PluginDrivenTransactionManager manager = Mockito.mock(PluginDrivenTransactionManager.class);
+        ExternalTable table = mvccTable(catalog);
+        MvccTable mvccTable = (MvccTable) table;
+        ConnectorMvccSnapshot identity = ConnectorMvccSnapshot.builder().snapshotId(100L).schemaId(7L).build();
+        PluginDrivenMvccSnapshot snapshot = PluginDrivenMvccSnapshot.deferred(identity);
+        PluginDrivenMvccSnapshot later = PluginDrivenMvccSnapshot.deferred(
+                ConnectorMvccSnapshot.builder().snapshotId(200L).schemaId(8L).build());
+        Mockito.when(mvccTable.loadSnapshot(Optional.empty(), Optional.empty())).thenReturn(snapshot, later);
+        Mockito.when(metadata.applySnapshot(session, input, identity)).thenReturn(pinned);
+        Mockito.when(metadata.beginTransaction(session, pinned)).thenReturn(transaction);
+        Mockito.when(catalog.getTransactionManager()).thenReturn(manager);
+        Mockito.when(manager.begin(transaction)).thenReturn(7L);
+        ConnectorRewriteGroup first = new ConnectorRewriteGroup(ImmutableSet.of("a.parquet"), 1, 100L, 0);
+        ConnectorRewriteGroup second = new ConnectorRewriteGroup(ImmutableSet.of("b.parquet"), 1, 100L, 0);
+        Mockito.when(procedureOps.planRewrite(session, pinned, "rewrite_data_files", Collections.emptyMap(),
+                null, Collections.emptyList())).thenReturn(Arrays.asList(first, second));
+        ConnectContext context = new ConnectContext();
+        context.setStatementContext(new StatementContext(context, null));
+        Env env = Mockito.mock(Env.class);
+        TransientTaskManager tasks = Mockito.mock(TransientTaskManager.class);
+        Mockito.when(env.getTransientTaskManager()).thenReturn(tasks);
+        Mockito.when(env.getRefreshManager()).thenReturn(Mockito.mock(RefreshManager.class));
+        AtomicInteger ids = new AtomicInteger();
+        Map<ConnectorRewriteGroupTask, ConnectorRewriteGroupTask.RewriteResultCallback> callbacks =
+                new ConcurrentHashMap<>();
+        ConnectorRewriteDriver driver = new ConnectorRewriteDriver(context, table, catalog, metadata, procedureOps,
+                session, input, "rewrite_data_files", Collections.emptyMap(), Collections.emptyList(), null, null);
+
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class);
+                MockedConstruction<ConnectorRewriteGroupTask> construction = Mockito.mockConstruction(
+                        ConnectorRewriteGroupTask.class, (task, arguments) -> {
+                            Assertions.assertEquals(Optional.of(snapshot), arguments.arguments().get(5));
+                            Mockito.when(task.getId()).thenReturn((long) ids.incrementAndGet());
+                            callbacks.put(task, (ConnectorRewriteGroupTask.RewriteResultCallback)
+                                    arguments.arguments().get(6));
+                        })) {
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            Mockito.when(tasks.addMemoryTask(Mockito.any())).thenAnswer(invocation -> {
+                ConnectorRewriteGroupTask task = invocation.getArgument(0);
+                callbacks.get(task).onTaskCompleted(task.getId());
+                return task.getId();
+            });
+
+            driver.run();
+
+            Assertions.assertEquals(2, construction.constructed().size());
+            Mockito.verify(manager).commit(7L);
+            Mockito.verify((RewriteCapableTransaction) transaction)
+                    .registerRewriteSourceFiles(ImmutableSet.of("a.parquet", "b.parquet"));
+        }
+        InOrder order = Mockito.inOrder(mvccTable, metadata, procedureOps);
+        order.verify(mvccTable).loadSnapshot(Optional.empty(), Optional.empty());
+        order.verify(metadata).applySnapshot(session, input, identity);
+        order.verify(procedureOps).planRewrite(session, pinned, "rewrite_data_files", Collections.emptyMap(),
+                null, Collections.emptyList());
+        order.verify(metadata).beginTransaction(session, pinned);
+        Mockito.verify(mvccTable, Mockito.times(1)).loadSnapshot(Optional.empty(), Optional.empty());
+    }
+
+    @Test
+    public void reusesAnAlreadyPinnedOperationSnapshot() throws Exception {
+        ConnectorProcedureOps procedureOps = Mockito.mock(ConnectorProcedureOps.class);
+        ConnectorMetadata metadata = Mockito.mock(ConnectorMetadata.class);
+        ConnectorSession session = Mockito.mock(ConnectorSession.class);
+        ConnectorTableHandle input = Mockito.mock(ConnectorTableHandle.class);
+        ConnectorTableHandle pinned = Mockito.mock(ConnectorTableHandle.class);
+        PluginDrivenExternalCatalog catalog = Mockito.mock(PluginDrivenExternalCatalog.class);
+        ExternalTable table = mvccTable(catalog);
+        ConnectContext context = new ConnectContext();
+        StatementContext statement = new StatementContext(context, null);
+        context.setStatementContext(statement);
+        ConnectorMvccSnapshot identity = ConnectorMvccSnapshot.builder().snapshotId(100L).schemaId(7L).build();
+        statement.setSnapshot(new MvccTableInfo(table), PluginDrivenMvccSnapshot.deferred(identity));
+        Mockito.when(metadata.applySnapshot(session, input, identity)).thenReturn(pinned);
+
+        new ConnectorRewriteDriver(context, table, catalog, metadata, procedureOps, session, input,
+                "rewrite_data_files", Collections.emptyMap(), Collections.emptyList(), null, null).run();
+
+        Mockito.verify((MvccTable) table, Mockito.never()).loadSnapshot(Mockito.any(), Mockito.any());
+        Mockito.verify(procedureOps).planRewrite(session, pinned, "rewrite_data_files", Collections.emptyMap(),
+                null, Collections.emptyList());
+        Mockito.verify(metadata, Mockito.never()).beginTransaction(Mockito.any(), Mockito.any());
+    }
 
     private ConnectorRewriteDriver driverWith(ConnectorProcedureOps procedureOps, ConnectorMetadata metadata) {
         return driverWith(procedureOps, metadata, null);
@@ -203,7 +316,7 @@ public class ConnectorRewriteDriverTest {
                 MockedConstruction<ConnectorRewriteGroupTask> taskConstruction = Mockito.mockConstruction(
                         ConnectorRewriteGroupTask.class, (task, constructionContext) -> {
                             callback.set((ConnectorRewriteGroupTask.RewriteResultCallback)
-                                    constructionContext.arguments().get(5));
+                                    constructionContext.arguments().get(6));
                             Mockito.when(task.getId()).thenReturn(11L);
                         })) {
             envStatic.when(Env::getCurrentEnv).thenReturn(env);
@@ -269,7 +382,7 @@ public class ConnectorRewriteDriverTest {
                         ConnectorRewriteGroupTask.class, (task, constructionContext) -> {
                             Mockito.when(task.getId()).thenReturn((long) ids.incrementAndGet());
                             callbacks.put(task, (ConnectorRewriteGroupTask.RewriteResultCallback)
-                                    constructionContext.arguments().get(5));
+                                    constructionContext.arguments().get(6));
                         })) {
             envStatic.when(Env::getCurrentEnv).thenReturn(env);
             Mockito.when(transientTaskManager.addMemoryTask(Mockito.any())).thenAnswer(invocation -> {
@@ -462,7 +575,7 @@ public class ConnectorRewriteDriverTest {
                         ConnectorRewriteGroupTask.class, (task, constructionContext) -> {
                             Mockito.when(task.getId()).thenReturn((long) ids.incrementAndGet());
                             callbacks.put(task, (ConnectorRewriteGroupTask.RewriteResultCallback)
-                                    constructionContext.arguments().get(5));
+                                    constructionContext.arguments().get(6));
                         })) {
             envStatic.when(Env::getCurrentEnv).thenReturn(harness.env);
             Mockito.when(harness.transientTaskManager.addMemoryTask(Mockito.any())).thenAnswer(invocation -> {

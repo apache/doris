@@ -191,7 +191,7 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
     // shared commitDataList channel (like INSERT) and are materialized into filesToAdd at commit time.
     private final List<DataFile> filesToDelete = new ArrayList<>();
     private final List<DataFile> filesToAdd = new ArrayList<>();
-    // OCC anchor: the current snapshot captured at begin time, passed verbatim to
+    // OCC anchor: the snapshot read by every rewrite group, passed verbatim to
     // RewriteFiles.validateFromSnapshot (-1 when the table has no snapshot). REWRITE uses this, NOT
     // baseSnapshotId (which drives the RowDelta path). Ported from legacy IcebergTransaction.startingSnapshotId.
     private long startingSnapshotId = -1L;
@@ -248,10 +248,15 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
                 throw new DorisConnectorException("Iceberg transaction is already closed");
             }
             if (writeStarted) {
-                // Already begun. A shared distributed-rewrite transaction is opened once by the first group's
-                // planWrite; subsequent concurrent group writes reuse the same loaded table + pinned OCC
-                // snapshot. Single-statement writes call beginWrite exactly once, so this is never reached
-                // for them (byte-identical to the pre-guard path).
+                if (writeOperation == WriteOperation.REWRITE) {
+                    long readSnapshotId = requireRewriteReadSnapshot(ctx, tableName);
+                    if (readSnapshotId != startingSnapshotId) {
+                        throw new DorisConnectorException("Rewrite read snapshot " + readSnapshotId
+                                + " does not match starting snapshot " + startingSnapshotId
+                                + " for iceberg table " + tableName + " in transaction " + transactionId);
+                    }
+                }
+                // Reuse the shared SDK transaction only after checking the group's read baseline.
                 return;
             }
             beginInProgress = true;
@@ -536,13 +541,16 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
     private void applyBeginGuards(IcebergWriteContext ctx, String tableName) {
         WriteOperation op = ctx.getWriteOperation();
         if (op == WriteOperation.REWRITE) {
-            // rewrite_data_files works directly on the main table (legacy IcebergTransaction.beginRewrite:175):
-            // never targets a branch, never pins baseSnapshotId; instead it captures the current snapshot as the
-            // OCC anchor for the commit-time RewriteFiles.validateFromSnapshot (-1 when the table has none).
+            // Deletes committed after planning must remain in the validation range even when the SDK
+            // transaction opens against newer metadata. Every group must use this same read baseline.
+            long readSnapshotId = requireRewriteReadSnapshot(ctx, tableName);
+            if (readSnapshotId >= 0 && table.snapshot(readSnapshotId) == null) {
+                throw new DorisConnectorException("Rewrite read snapshot " + readSnapshotId
+                        + " is no longer available for iceberg table " + tableName);
+            }
             this.branchName = null;
             this.baseSnapshotId = null;
-            Long current = getSnapshotIdIfPresent(table);
-            this.startingSnapshotId = current != null ? current : -1L;
+            this.startingSnapshotId = resolveReadBaseSnapshot(ctx, getSnapshotIdIfPresent(table), tableName);
             return;
         }
         if (op == WriteOperation.DELETE || op == WriteOperation.UPDATE || op == WriteOperation.MERGE) {
@@ -579,16 +587,24 @@ public class IcebergConnectorTransaction implements ConnectorTransaction, Rewrit
                             + " is a tag, not a branch. Tags cannot be targets for producing snapshots");
                 }
                 this.baseSnapshotId = op == WriteOperation.OVERWRITE
-                        ? resolveOverwriteBaseSnapshot(ctx, branchRef.snapshotId(), tableName) : null;
+                        ? resolveReadBaseSnapshot(ctx, branchRef.snapshotId(), tableName) : null;
             } else {
                 this.branchName = null;
                 this.baseSnapshotId = op == WriteOperation.OVERWRITE
-                        ? resolveOverwriteBaseSnapshot(ctx, getSnapshotIdIfPresent(table), tableName) : null;
+                        ? resolveReadBaseSnapshot(ctx, getSnapshotIdIfPresent(table), tableName) : null;
             }
         }
     }
 
-    private Long resolveOverwriteBaseSnapshot(IcebergWriteContext ctx, Long targetHead, String tableName) {
+    private long requireRewriteReadSnapshot(IcebergWriteContext ctx, String tableName) {
+        if (!ctx.isReadSnapshotResolved()) {
+            throw new DorisConnectorException("Cannot rewrite iceberg table " + tableName
+                    + " in transaction " + transactionId + " without a resolved read snapshot");
+        }
+        return ctx.getReadSnapshotId();
+    }
+
+    private Long resolveReadBaseSnapshot(IcebergWriteContext ctx, Long targetHead, String tableName) {
         if (!ctx.isReadSnapshotResolved()) {
             return targetHead;
         }

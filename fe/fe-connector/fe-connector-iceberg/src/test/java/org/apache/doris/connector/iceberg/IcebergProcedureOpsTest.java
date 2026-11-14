@@ -19,11 +19,16 @@ package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.spi.ConnectorColumn;
 import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.ConnectorType;
 import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.procedure.ConnectorProcedureResult;
 import org.apache.doris.connector.spi.procedure.ConnectorRewriteGroup;
 import org.apache.doris.connector.spi.procedure.ConnectorRewriteStatistics;
 import org.apache.doris.connector.spi.procedure.ProcedureExecutionMode;
+import org.apache.doris.connector.spi.pushdown.ConnectorColumnRef;
+import org.apache.doris.connector.spi.pushdown.ConnectorComparison;
+import org.apache.doris.connector.spi.pushdown.ConnectorLiteral;
+import org.apache.doris.connector.spi.pushdown.ConnectorPredicate;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -45,6 +50,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 
@@ -171,6 +177,104 @@ public class IcebergProcedureOpsTest {
         // MUTATION: planning outside auth scope -> authCount 0 -> red.
         Assertions.assertEquals(1, ctx.authCount, "planning runs in one auth scope");
         Assertions.assertEquals(1, ops.tableCleanupCount, "rewrite planning releases its operation-owned table");
+    }
+
+    @Test
+    public void planRewriteExcludesFilesAppendedAfterTheOperationSnapshot() {
+        InMemoryCatalog catalog = tableWithThreeSmallFiles();
+        Table table = catalog.loadTable(TableIdentifier.of("db1", "t"));
+        IcebergTableHandle handle = new IcebergTableHandle("db1", "t").withSnapshot(
+                table.currentSnapshot().snapshotId(), null, table.schema().schemaId());
+        append(catalog, "later", 1L);
+
+        List<ConnectorRewriteGroup> groups = planPinnedRewrite(catalog, handle, null, true);
+
+        Assertions.assertEquals(3, groups.size());
+        Set<String> paths = groups.stream().flatMap(group -> group.getDataFilePaths().stream())
+                .collect(Collectors.toSet());
+        Assertions.assertEquals(ImmutableSet.of("s3://b/db1/f1.parquet", "s3://b/db1/f2.parquet",
+                "s3://b/db1/f3.parquet"), paths);
+    }
+
+    @Test
+    public void planRewriteKeepsAnExplicitEmptySnapshotAfterTheFirstAppend() {
+        InMemoryCatalog catalog = new InMemoryCatalog();
+        catalog.initialize("test", Collections.emptyMap());
+        catalog.createNamespace(Namespace.of("db1"));
+        Table table = catalog.createTable(TableIdentifier.of("db1", "t"),
+                new Schema(Types.NestedField.required(1, "id", Types.IntegerType.get())));
+        IcebergTableHandle handle = new IcebergTableHandle("db1", "t").withSnapshot(
+                -1L, null, table.schema().schemaId());
+        append(catalog, "first", 1L);
+
+        Assertions.assertTrue(planPinnedRewrite(catalog, handle, null, false).isEmpty());
+    }
+
+    @Test
+    public void planRewriteBindsWhereToTheOperationSchemaAfterARename() {
+        InMemoryCatalog catalog = tableWithThreeSmallFiles();
+        Table table = catalog.loadTable(TableIdentifier.of("db1", "t"));
+        IcebergTableHandle handle = new IcebergTableHandle("db1", "t").withSnapshot(
+                table.currentSnapshot().snapshotId(), null, table.schema().schemaId());
+        table.updateSchema().renameColumn("id", "event_id").commit();
+        ConnectorPredicate where = new ConnectorPredicate(new ConnectorComparison(ConnectorComparison.Operator.EQ,
+                new ConnectorColumnRef("id", ConnectorType.of("INT")),
+                new ConnectorLiteral(ConnectorType.of("INT"), 1L)));
+
+        Assertions.assertEquals(3, planPinnedRewrite(catalog, handle, where, true).size());
+    }
+
+    @Test
+    public void planRewriteKeepsASchemaOnlyGenerationWhenALaterSnapshotArrives() {
+        InMemoryCatalog catalog = tableWithThreeSmallFiles();
+        Table table = catalog.loadTable(TableIdentifier.of("db1", "t"));
+        table.updateSchema().renameColumn("id", "event_id").commit();
+        IcebergTableHandle handle = new IcebergTableHandle("db1", "t").withSnapshot(
+                table.currentSnapshot().snapshotId(), null, table.schema().schemaId());
+        append(catalog, "later", 1L);
+        ConnectorPredicate where = new ConnectorPredicate(new ConnectorComparison(ConnectorComparison.Operator.EQ,
+                new ConnectorColumnRef("event_id", ConnectorType.of("INT")),
+                new ConnectorLiteral(ConnectorType.of("INT"), 1L)));
+
+        Assertions.assertEquals(3, planPinnedRewrite(catalog, handle, where, true).size());
+    }
+
+    @Test
+    public void planRewriteRejectsAnExpiredOperationSnapshot() {
+        InMemoryCatalog catalog = tableWithThreeSmallFiles();
+        Table table = catalog.loadTable(TableIdentifier.of("db1", "t"));
+        IcebergTableHandle handle = new IcebergTableHandle("db1", "t").withSnapshot(
+                table.currentSnapshot().snapshotId(), null, table.schema().schemaId());
+        append(catalog, "later", 1L);
+        catalog.loadTable(TableIdentifier.of("db1", "t")).expireSnapshots()
+                .expireSnapshotId(handle.getSnapshotId()).commit();
+
+        DorisConnectorException exception = Assertions.assertThrows(DorisConnectorException.class,
+                () -> planPinnedRewrite(catalog, handle, null, true));
+        Assertions.assertTrue(exception.getMessage().contains(String.valueOf(handle.getSnapshotId())));
+    }
+
+    @Test
+    public void planRewriteRejectsAnUnavailableOperationSchema() {
+        InMemoryCatalog catalog = tableWithThreeSmallFiles();
+        Table table = catalog.loadTable(TableIdentifier.of("db1", "t"));
+        IcebergTableHandle handle = new IcebergTableHandle("db1", "t").withSnapshot(
+                table.currentSnapshot().snapshotId(), null, 999L);
+
+        DorisConnectorException exception = Assertions.assertThrows(DorisConnectorException.class,
+                () -> planPinnedRewrite(catalog, handle, null, false));
+        Assertions.assertTrue(exception.getMessage().contains("Rewrite read schema 999 is no longer available"));
+    }
+
+    private static List<ConnectorRewriteGroup> planPinnedRewrite(InMemoryCatalog catalog, IcebergTableHandle handle,
+            ConnectorPredicate where, boolean authenticated) {
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.table = catalog.loadTable(TableIdentifier.of("db1", "t"));
+        IcebergProcedureOps procedures = new IcebergProcedureOps(Collections.emptyMap(), ops,
+                authenticated ? new RecordingConnectorContext() : null);
+        return procedures.planRewrite(SESSION, handle, "rewrite_data_files",
+                ImmutableMap.of("rewrite-all", "true", "max-file-group-size-bytes", "1024"),
+                where, Collections.emptyList());
     }
 
     @Test

@@ -202,6 +202,36 @@ public class RewriteDataFilePlannerTest {
     // ---- planning / grouping --------------------------------------------------------------------------------
 
     @Test
+    public void operationSnapshotKeepsBothFilesAndTheirDeletesAtTheReadVersion() throws Exception {
+        Table table = createV2Unpartitioned("pinned");
+        DataFile original = unpartFile("original.parquet", 1024L);
+        append(table, original);
+        long snapshot = table.currentSnapshot().snapshotId();
+        Schema schema = table.schema();
+        table.newRowDelta().addDeletes(positionDelete("new-delete.parquet", original.path().toString(), 1L))
+                .addRows(unpartFile("later.parquet", 1024L)).commit();
+        RewriteDataFilePlanner planner = new RewriteDataFilePlanner(rewriteAll(Long.MAX_VALUE, null), ZoneOffset.UTC);
+
+        try (CloseableIterable<FileScanTask> tasks = planner.planFileScanTasks(table, snapshot, schema)) {
+            Iterator<FileScanTask> iterator = tasks.iterator();
+            FileScanTask task = iterator.next();
+            Assertions.assertEquals(original.path().toString(), task.file().path().toString());
+            Assertions.assertTrue(task.deletes().isEmpty(), "a delete committed after the pin must not enter the read");
+            Assertions.assertFalse(iterator.hasNext(), "a later append must not enter the rewrite file set");
+        }
+        try (CloseableIterable<FileScanTask> tasks = planner.planFileScanTasks(table)) {
+            int files = 0;
+            int deletes = 0;
+            for (FileScanTask task : tasks) {
+                files++;
+                deletes += task.deletes().size();
+            }
+            Assertions.assertEquals(2, files);
+            Assertions.assertEquals(1, deletes);
+        }
+    }
+
+    @Test
     public void rewriteAllGroupsEveryFile() {
         Table t = createUnpartitioned("t1");
         append(t, unpartFile("a", 100), unpartFile("b", 100), unpartFile("c", 100));
