@@ -145,9 +145,11 @@ public class IcebergSysTableColumnValue implements ColumnValue {
     @Override
     public LocalDateTime getDateTime() {
         // NTZ is a wall-clock value; only timestamptz mapped to DATETIME uses the session zone.
-        ZoneId zone = icebergType instanceof Types.TimestampType
-                && !((Types.TimestampType) icebergType).shouldAdjustToUTC()
-                ? ZoneOffset.UTC : ZoneId.of(timezone);
+        boolean withoutZone = (icebergType instanceof Types.TimestampType
+                && !((Types.TimestampType) icebergType).shouldAdjustToUTC())
+                || (icebergType instanceof Types.TimestampNanoType
+                && !((Types.TimestampNanoType) icebergType).shouldAdjustToUTC());
+        ZoneId zone = withoutZone ? ZoneOffset.UTC : ZoneId.of(timezone);
         return LocalDateTime.ofInstant(timestampInstant(), zone);
     }
 
@@ -157,6 +159,11 @@ public class IcebergSysTableColumnValue implements ColumnValue {
     }
 
     private Instant timestampInstant() {
+        if (icebergType instanceof Types.TimestampNanoType) {
+            long nanos = (long) fieldData;
+            return Instant.ofEpochSecond(Math.floorDiv(nanos, 1_000_000_000L),
+                    Math.floorMod(nanos, 1_000_000_000L));
+        }
         long micros = (long) fieldData;
         return Instant.ofEpochSecond(Math.floorDiv(micros, 1_000_000L),
                 Math.floorMod(micros, 1_000_000L) * 1_000L);
