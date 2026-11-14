@@ -18,6 +18,7 @@
 package org.apache.doris.transaction;
 
 import org.apache.doris.alter.AlterJobV2;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.binlog.UpsertRecord;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
@@ -338,6 +339,15 @@ public class DatabaseTransactionMgr {
             long listenerId, long timeoutSecond)
             throws DuplicatedRequestException, LabelAlreadyUsedException, BeginTransactionException,
             AnalysisException, QuotaExceedException, MetaNotFoundException {
+        return beginTransaction(tableIdList, label, requestId, coordinator, sourceType, listenerId,
+                timeoutSecond, null);
+    }
+
+    public long beginTransaction(List<Long> tableIdList, String label, TUniqueId requestId,
+            TransactionState.TxnCoordinator coordinator, TransactionState.LoadJobSourceType sourceType,
+            long listenerId, long timeoutSecond, UserIdentity txnUser)
+            throws DuplicatedRequestException, LabelAlreadyUsedException, BeginTransactionException,
+            AnalysisException, QuotaExceedException, MetaNotFoundException {
 
         if (!Env.getCurrentEnv().isMaster() && !FeConstants.runningUnitTest) {
             throw new BeginTransactionException("FE is not master");
@@ -395,6 +405,7 @@ public class DatabaseTransactionMgr {
             tid = idGenerator.getNextTransactionId();
             transactionState = new TransactionState(dbId, tableIdList,
                     tid, label, requestId, sourceType, coordinator, listenerId, timeoutSecond * 1000);
+            transactionState.setTxnUser(txnUser);
             transactionState.setPrepareTime(System.currentTimeMillis());
             unprotectUpdateInMemoryState(transactionState, false);
             updateTxnLabels(transactionState);
