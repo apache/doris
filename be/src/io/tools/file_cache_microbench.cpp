@@ -1016,9 +1016,7 @@ public:
         }
 
         config::group_commit_wal_max_disk_limit = "100M";
-        LOG(INFO) << "Obj config. ak=" << doris::config::test_s3_ak
-                  << " sk=" << doris::config::test_s3_sk
-                  << " region=" << doris::config::test_s3_region
+        LOG(INFO) << "Obj config. region=" << doris::config::test_s3_region
                   << " endpoint=" << doris::config::test_s3_endpoint
                   << " bucket=" << doris::config::test_s3_bucket;
 
