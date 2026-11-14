@@ -433,8 +433,9 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
 
     /**
      * Parse one endpoint — {@code scheme://host:port} (e.g. {@code thrift://host:9083}) or a bare
-     * {@code host:port} — into host and port for the SSRF probe. Returns null when no concrete host:port
-     * can be extracted (nothing to probe); {@link HostAndPort} handles IPv6 literals in brackets natively.
+     * {@code host:port} — into host and port for the SSRF probe. An http or https URL that names no port is
+     * probed at its scheme's default port. Returns null when no concrete host:port can be extracted (nothing to
+     * probe); {@link HostAndPort} handles IPv6 literals in brackets natively.
      */
     static HostAndPort parseEndpoint(String value) {
         if (value == null || value.isEmpty()) {
@@ -445,10 +446,11 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
                 // Match the HMS client's URI semantics: query, fragment and userinfo do not name
                 // the socket destination. HostAndPort.fromParts also strips IPv6 brackets.
                 URI uri = new URI(value);
-                if (uri.getHost() == null || uri.getPort() < 0) {
+                int port = uri.getPort() >= 0 ? uri.getPort() : defaultWebPort(uri.getScheme());
+                if (uri.getHost() == null || port < 0) {
                     return null;
                 }
-                return HostAndPort.fromParts(uri.getHost(), uri.getPort());
+                return HostAndPort.fromParts(uri.getHost(), port);
             }
             String authority = value;
             int slashIdx = authority.indexOf('/');
@@ -463,6 +465,21 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         } catch (URISyntaxException | IllegalArgumentException e) {
             return null;
         }
+    }
+
+    /**
+     * The port an http or https client connects to when the URI names none, 80 or 443 (RFC 9110 section 4.2), so a
+     * REST endpoint such as {@code https://host/ns} is probed where it connects; -1 for any other scheme, whose
+     * default, if it has one, is its client's.
+     */
+    private static int defaultWebPort(String scheme) {
+        if ("http".equalsIgnoreCase(scheme)) {
+            return 80;
+        }
+        if ("https".equalsIgnoreCase(scheme)) {
+            return 443;
+        }
+        return -1;
     }
 
     private void checkHiveParquetTimeZone(CatalogProperty property) throws DdlException {
