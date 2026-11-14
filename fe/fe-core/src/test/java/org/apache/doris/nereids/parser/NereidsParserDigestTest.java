@@ -79,6 +79,11 @@ public class NereidsParserDigestTest extends ParserTestBase {
         logicalPlanList = nereidsParser.parseMultiple(sql);
         assertDigestEquals("SELECT * FROM test TABLET(?)", logicalPlanList);
 
+        // test max_visible_partition
+        sql = "select * from test max_visible_partition()";
+        logicalPlanList = nereidsParser.parseMultiple(sql);
+        assertDigestEquals("SELECT * FROM test MAX_VISIBLE_PARTITION()", logicalPlanList);
+
         // test except
         sql = "select * except(age) from student;";
         logicalPlanList = nereidsParser.parseMultiple(sql);
