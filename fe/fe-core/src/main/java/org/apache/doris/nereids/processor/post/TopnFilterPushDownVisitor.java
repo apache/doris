@@ -21,9 +21,11 @@ import org.apache.doris.nereids.processor.post.TopnFilterPushDownVisitor.PushDow
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.NullToNonNullFunction;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitors;
+import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.TopN;
 import org.apache.doris.nereids.trees.plans.algebra.Union;
@@ -214,11 +216,7 @@ public class TopnFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownCont
     @Override
     public Boolean visitPhysicalHashJoin(PhysicalHashJoin<? extends Plan, ? extends Plan> join,
             PushDownContext ctx) {
-        if (ctx.nullsFirst && (join.getJoinType().isOuterJoin() || join.getJoinType().isAsofOuterJoin())) {
-            // topn-filter can be pushed down to the left child of leftOuterJoin
-            // and to the right child of rightOuterJoin,
-            // but PushDownTopNThroughJoin rule already pushes topn to the left and right side.
-            // the topn-filter will be generated according to the inferred topn node.
+        if (!canPushToJoinLeft(join.getJoinType(), ctx)) {
             return false;
         }
         if (join.left().getOutputSet().containsAll(ctx.probeExpr.getInputSlots())) {
@@ -233,6 +231,9 @@ public class TopnFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownCont
                 if (ctx.probeExpr.equals(conj.child(1))) {
                     // push to left child. right child is blocking operator, do not need topn-filter
                     PushDownContext ctxOnLeftChild = ctx.withNewProbeExpression(conj.child(0));
+                    if (!canPushToJoinLeft(join.getJoinType(), ctxOnLeftChild)) {
+                        continue;
+                    }
                     PushDownContext childPushDownContext = adjustProbeExprNullableThroughOuterJoin(join.left(),
                             ctxOnLeftChild);
                     return join.left().accept(this, childPushDownContext);
@@ -247,11 +248,7 @@ public class TopnFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownCont
     @Override
     public Boolean visitPhysicalNestedLoopJoin(PhysicalNestedLoopJoin<? extends Plan, ? extends Plan> join,
             PushDownContext ctx) {
-        if (ctx.nullsFirst && join.getJoinType().isOuterJoin()) {
-            // topn-filter can be pushed down to the left child of leftOuterJoin
-            // and to the right child of rightOuterJoin,
-            // but PushDownTopNThroughJoin rule already pushes topn to the left and right side.
-            // the topn-filter will be generated according to the inferred topn node.
+        if (!canPushToJoinLeft(join.getJoinType(), ctx)) {
             return false;
         }
         // push to left child. right child is blocking operator, do not need topn-filter
@@ -259,6 +256,18 @@ public class TopnFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownCont
             return join.left().accept(this, ctx);
         }
         return false;
+    }
+
+    private boolean canPushToJoinLeft(JoinType joinType, PushDownContext ctx) {
+        if (ctx.nullsFirst && (joinType.isOuterJoin() || joinType.isAsofOuterJoin())) {
+            // PushDownTopNThroughJoin already creates a child TopN for safe preserved-side pushdown.
+            // Its filter is generated separately; the parent filter must not create leading NULL rows.
+            return false;
+        }
+        // Filtering a left match may make a RIGHT/FULL join emit a new null-extended row.
+        // NULLS LAST cannot protect expressions such as COALESCE that turn those NULLs into values.
+        return !joinType.isLeftSideNullable()
+                || !ctx.probeExpr.anyMatch(e -> NullToNonNullFunction.canConvertNullToNonNull((Expression) e));
     }
 
     @Override
