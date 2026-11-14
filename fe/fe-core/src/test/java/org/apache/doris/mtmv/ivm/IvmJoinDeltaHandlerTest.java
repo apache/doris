@@ -20,6 +20,7 @@ package org.apache.doris.mtmv.ivm;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.stream.OlapTableStream;
 import org.apache.doris.common.Pair;
@@ -30,15 +31,20 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
+import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Random;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
+import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableStreamScan;
@@ -46,6 +52,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.types.BigIntType;
+import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
@@ -385,6 +392,133 @@ class IvmJoinDeltaHandlerTest extends IvmDeltaTestBase {
             assertNullSideRepairEvent((LogicalProject<?>) union.child(2), (byte) 1);
         }
         assertNoDuplicateScanRelationIds(result.plan);
+    }
+
+    @Test
+    void testUniqueNullSideDeltaUsesNetRepairForLeftOuterJoin() {
+        LogicalOlapScan leftSnapshot = buildSnapshotScanForTable(1201, "unique_left_retained");
+        LogicalOlapScan rightDelta = buildUniqueScan(1202, "unique_left_delta", false);
+        NormalizedOuterJoinPlan bundle = normalizedOuterJoin(rowIdProject(leftSnapshot), rowIdProject(rightDelta));
+
+        assertUniqueNullSideEvents(bundle, 1);
+    }
+
+    @Test
+    void testUniqueNullSideDeltaUsesNetRepairForRightOuterJoin() {
+        LogicalOlapScan leftDelta = buildUniqueScan(1211, "unique_right_delta", false);
+        LogicalOlapScan rightSnapshot = buildSnapshotScanForTable(1212, "unique_right_retained");
+        NormalizedOuterJoinPlan bundle = normalizedRightOuterJoin(rowIdProject(leftDelta),
+                rowIdProject(rightSnapshot));
+
+        assertUniqueNullSideEvents(bundle, 1);
+    }
+
+    @Test
+    void testCompositeUniqueNullSideKeyUsesNetRepair() {
+        Plan left = rowIdProject(buildSnapshotScanForTable(1221, "composite_retained"));
+        Plan right = rowIdProject(buildUniqueScan(1222, "composite_delta", true));
+        LogicalJoin<?, ?> join = new LogicalJoin<>(JoinType.LEFT_OUTER_JOIN,
+                ImmutableList.of(new EqualTo(left.getOutput().get(1), right.getOutput().get(1)),
+                        new EqualTo(left.getOutput().get(2), right.getOutput().get(2))),
+                left, right, JoinReorderContext.EMPTY);
+        LogicalProject<Plan> topProject = normalizedJoinProject(join);
+        NormalizedOuterJoinPlan bundle = new NormalizedOuterJoinPlan(topProject, left.getOutput().size(),
+                deterministicRewriteResult(topProject));
+
+        assertUniqueNullSideEvents(bundle, 2);
+    }
+
+    @Test
+    void testPartialCompositeUniqueKeyKeepsSnapshotChecks() {
+        LogicalOlapScan leftSnapshot = buildSnapshotScanForTable(1231, "partial_key_retained");
+        LogicalOlapScan rightDelta = buildUniqueScan(1232, "partial_key_delta", true);
+        NormalizedOuterJoinPlan bundle = normalizedOuterJoin(rowIdProject(leftSnapshot), rowIdProject(rightDelta));
+
+        IvmDeltaRewriteResult result = new TestableIvmJoinDeltaHandler().exposeRewritePlan(bundle.topProject,
+                newRefreshContext(bundle.topProject, bundle.rewriteResult));
+
+        Assertions.assertEquals(3, findOnlyUnion(result.plan).children().size());
+        Assertions.assertEquals(2, result.plan.collectToList(node -> node instanceof LogicalJoin
+                && ((LogicalJoin<?, ?>) node).getJoinType().isLeftAntiJoin()).size());
+    }
+
+    @Test
+    void testUniqueNullSideExpressionKeyKeepsSnapshotChecks() {
+        Plan left = rowIdProject(buildSnapshotScanForTable(1241, "expression_key_retained"));
+        Plan right = rowIdProject(buildUniqueScan(1242, "expression_key_delta", false));
+        LogicalJoin<?, ?> join = new LogicalJoin<>(JoinType.LEFT_OUTER_JOIN,
+                ImmutableList.of(new EqualTo(firstUserSlot(left),
+                        new Add(firstUserSlot(right), new TinyIntLiteral((byte) 1)))),
+                left, right, JoinReorderContext.EMPTY);
+        LogicalProject<Plan> topProject = normalizedJoinProject(join);
+        IvmRewriteResult rewriteResult = deterministicRewriteResult(topProject);
+
+        IvmDeltaRewriteResult result = new TestableIvmJoinDeltaHandler().exposeRewritePlan(topProject,
+                newRefreshContext(topProject, rewriteResult));
+
+        Assertions.assertEquals(3, findOnlyUnion(result.plan).children().size());
+        Assertions.assertEquals(2, result.plan.collectToList(node -> node instanceof LogicalJoin
+                && ((LogicalJoin<?, ?>) node).getJoinType().isLeftAntiJoin()).size());
+    }
+
+    @Test
+    void testUniqueNullSideResidualConditionKeepsGeneralRepair() {
+        LogicalOlapScan leftSnapshot = buildSnapshotScanForTable(1251, "unique_residual_retained");
+        LogicalOlapScan rightDelta = buildUniqueScan(1252, "unique_residual_delta", false);
+        NormalizedOuterJoinPlan bundle = normalizedOuterJoinWithNonHashOtherConjunct(
+                rowIdProject(leftSnapshot), rowIdProject(rightDelta));
+
+        IvmDeltaRewriteResult result = new TestableIvmJoinDeltaHandler().exposeRewritePlan(bundle.topProject,
+                newRefreshContext(bundle.topProject, bundle.rewriteResult));
+
+        Assertions.assertEquals(3, findOnlyUnion(result.plan).children().size());
+        Assertions.assertTrue(result.plan.collectToList(node -> node instanceof LogicalAggregate).isEmpty());
+    }
+
+    private LogicalOlapScan buildUniqueScan(long tableId, String name, boolean compositeKey) {
+        LogicalOlapScan scan = buildScanForTable(tableId, name, KeysType.UNIQUE_KEYS);
+        if (!compositeKey) {
+            scan.getTable().getColumn("name").setIsKey(false);
+        }
+        return scan;
+    }
+
+    private void assertUniqueNullSideEvents(NormalizedOuterJoinPlan bundle, int eventKeyCount) {
+        IvmDeltaRewriteResult result = new TestableIvmJoinDeltaHandler().exposeRewritePlan(bundle.topProject,
+                newRefreshContext(bundle.topProject, bundle.rewriteResult));
+        LogicalUnion union = findOnlyUnion(result.plan);
+        Assertions.assertEquals(2, union.children().size());
+        assertUnionChildrenAlign(union);
+        assertUnionOutputsDoNotReuseChildExprIds(union);
+        assertNoDuplicateScanRelationIds(result.plan);
+        Assertions.assertFalse(bundle.rewriteResult.isAggMv(),
+                "An internal repair aggregate must not turn the join MV into an aggregate MV");
+        Assertions.assertTrue(result.plan.collectToList(node -> node instanceof LogicalJoin
+                && ((LogicalJoin<?, ?>) node).getJoinType().isLeftAntiJoin()).isEmpty());
+        List<LogicalAggregate> aggregates = union.collectToList(node -> node instanceof LogicalAggregate);
+        Assertions.assertEquals(1, aggregates.size());
+        LogicalAggregate<?> aggregate = aggregates.get(0);
+        Assertions.assertEquals(eventKeyCount, aggregate.getGroupByExpressions().size());
+        LogicalFilter<?> nonNullKeys = Assertions.assertInstanceOf(LogicalFilter.class, aggregate.child());
+        for (Expression key : aggregate.getGroupByExpressions()) {
+            Assertions.assertTrue(nonNullKeys.getConjuncts().contains(new Not(new IsNull(key))),
+                    "A NULL join key must not generate a repair event");
+        }
+        Assertions.assertEquals(1, aggregate.getOutputExpressions().stream()
+                .filter(expr -> expr.anyMatch(child -> child instanceof Sum)).count());
+        Assertions.assertTrue(union.collectToList(node -> node instanceof LogicalOlapScan).stream()
+                .allMatch(scan -> IvmDeltaRewriteHelper.INSTANCE.isIncrementalDeltaScan((LogicalOlapScan) scan)),
+                "Unique-key event generation must not read null-side snapshots");
+
+        LogicalProject<?> repair = (LogicalProject<?>) union.child(1);
+        for (int i = eventKeyCount; i < repair.getProjects().size() - 2; i++) {
+            Assertions.assertInstanceOf(NullLiteral.class, ((Alias) repair.getProjects().get(i)).child());
+        }
+        NamedExpression factor = repair.getProjects().get(repair.getProjects().size() - 2);
+        Assertions.assertEquals(Column.IVM_DML_FACTOR_COL, factor.getName());
+        Assertions.assertEquals(TinyIntType.INSTANCE, factor.getDataType());
+        Assertions.assertEquals(Column.SEQUENCE_COL,
+                repair.getProjects().get(repair.getProjects().size() - 1).getName());
     }
 
     @Test
