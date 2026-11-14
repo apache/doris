@@ -2709,4 +2709,109 @@ TEST(ArrayMapFunctionTest, NestedLambdaCapturesOuterArgumentBeforeInnerArgument)
     EXPECT_EQ(values.get_element(3), 18);
 }
 
+// Counts columns in the inner lambda block. Used to assert unused outer arguments are not
+// expanded into every inner element (issue #69918).
+class MockCountLambdaBlockColumnsExpr final : public VExpr {
+public:
+    MockCountLambdaBlockColumnsExpr(DataTypePtr type, size_t* observed_columns)
+            : VExpr(type, false),
+              _type(std::move(type)),
+              _observed_columns(observed_columns) {}
+
+    const std::string& expr_name() const override { return _name; }
+
+    Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
+                               size_t count, ColumnPtr& result_column) const override {
+        *_observed_columns = block->columns();
+        ColumnPtr input;
+        RETURN_IF_ERROR(get_child(0)->execute_column(context, block, selector, count, input));
+        const IColumn* input_data = input.get();
+        if (const auto* nullable = check_and_get_column<ColumnNullable>(input_data)) {
+            input_data = &nullable->get_nested_column();
+        }
+        const auto& values = assert_cast<const ColumnInt32&>(*input_data);
+        auto result = ColumnInt32::create();
+        result->reserve(count);
+        for (size_t i = 0; i < count; ++i) {
+            result->insert_value(values.get_element(i) + 1);
+        }
+        result_column = std::move(result);
+        return Status::OK();
+    }
+
+    DataTypePtr execute_type(const Block* /*block*/) const override { return _type; }
+
+private:
+    DataTypePtr _type;
+    size_t* _observed_columns;
+    std::string _name = "mock_count_lambda_block_columns";
+};
+
+TEST(ArrayMapFunctionTest, NestedLambdaDoesNotMaterializeUnusedOuterArgument) {
+    auto int_type = std::make_shared<DataTypeInt32>();
+    auto array_int_type = std::make_shared<DataTypeArray>(int_type);
+    auto nested_array_int_type = std::make_shared<DataTypeArray>(array_int_type);
+
+    // array_map((x, unused) -> array_map(y -> y + 1, x), arr, unused_arr)
+    // The inner body never names `unused`, so the inner lambda block must not expand that
+    // outer array once per element (would be quadratic in |x|).
+    auto root =
+            VLambdaFunctionCallExpr::create_shared(make_lambda_call_node(nested_array_int_type, 3));
+    auto outer_lambda = VLambdaFunctionExpr::create_shared(
+            make_lambda_expr_node(array_int_type, {"x", "unused"}));
+    auto inner_call =
+            VLambdaFunctionCallExpr::create_shared(make_lambda_call_node(array_int_type, 2));
+    auto inner_lambda = VLambdaFunctionExpr::create_shared(make_lambda_expr_node(int_type, {"y"}));
+    size_t inner_block_columns = 0;
+    auto body = std::make_shared<MockCountLambdaBlockColumnsExpr>(int_type, &inner_block_columns);
+    body->add_child(VColumnRef::create_shared(make_column_ref_node(0, "y", int_type)));
+    inner_lambda->add_child(body);
+    inner_call->add_child(inner_lambda);
+    // Iterate the outer `x` array; do not capture it into the inner body by name.
+    inner_call->add_child(VColumnRef::create_shared(make_column_ref_node(0, "x", array_int_type)));
+    outer_lambda->add_child(inner_call);
+    root->add_child(outer_lambda);
+    root->add_child(std::make_shared<MockColumnExpr>(make_int_array_column({{1, 2}, {3}}),
+                                                     array_int_type, "x_arrays"));
+    // Wide unused outer array: if wrongly captured, each inner element would hold a full copy.
+    std::vector<int32_t> unused_payload(2048, 7);
+    root->add_child(std::make_shared<MockColumnExpr>(
+            make_int_array_column({unused_payload, unused_payload}), array_int_type, "unused_arrays"));
+
+    VExprContext context(root);
+    open_expr(root, &context);
+
+    Block block;
+    ColumnPtr result;
+    auto status = root->execute_column(&context, &block, nullptr, 2, result);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    // Inner block should only materialize `y` (no unused outer capture column).
+    EXPECT_EQ(inner_block_columns, 1);
+
+    const auto& outer_array = assert_cast<const ColumnArray&>(*result);
+    ASSERT_EQ(outer_array.size(), 2);
+    ASSERT_EQ(outer_array.get_offsets()[0], 2);
+    ASSERT_EQ(outer_array.get_offsets()[1], 3);
+
+    const auto* nullable_inner_arrays =
+            check_and_get_column<ColumnNullable>(&outer_array.get_data());
+    ASSERT_NE(nullable_inner_arrays, nullptr);
+    const auto& inner_arrays =
+            assert_cast<const ColumnArray&>(nullable_inner_arrays->get_nested_column());
+    ASSERT_EQ(inner_arrays.size(), 3);
+    ASSERT_EQ(inner_arrays.get_offsets()[0], 2);
+    ASSERT_EQ(inner_arrays.get_offsets()[1], 4);
+    ASSERT_EQ(inner_arrays.get_offsets()[2], 5);
+
+    const auto* nullable_values = check_and_get_column<ColumnNullable>(&inner_arrays.get_data());
+    ASSERT_NE(nullable_values, nullptr);
+    const auto& values = assert_cast<const ColumnInt32&>(nullable_values->get_nested_column());
+    ASSERT_EQ(values.size(), 5);
+    EXPECT_EQ(values.get_element(0), 2);
+    EXPECT_EQ(values.get_element(1), 3);
+    EXPECT_EQ(values.get_element(2), 2);
+    EXPECT_EQ(values.get_element(3), 3);
+    EXPECT_EQ(values.get_element(4), 4);
+}
+
 } // namespace doris
