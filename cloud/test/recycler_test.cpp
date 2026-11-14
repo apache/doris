@@ -8683,7 +8683,7 @@ TEST(RecyclerTest, init_vault_accessor_failed_test) {
     instance_key(key_info, &key);
     InstanceInfoPB instance;
     instance.set_instance_id("GetObjStoreInfoTestInstance");
-    // failed to init because S3Conf::from_obj_store_info() fails
+    // failed to init because parse_recycler_storage_config() fails
     {
         ObjectStoreInfoPB obj_info;
         StorageVaultPB vault;
@@ -9057,7 +9057,7 @@ TEST(RecyclerTest, init_all_vault_accessors_failed_test) {
     instance_key(key_info, &key);
     InstanceInfoPB instance;
     instance.set_instance_id("GetObjStoreInfoTestInstance");
-    // failed to init because S3Conf::from_obj_store_info() fails
+    // failed to init because parse_recycler_storage_config() fails
     {
         ObjectStoreInfoPB obj_info;
         StorageVaultPB vault;

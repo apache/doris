@@ -40,19 +40,20 @@
 #include "io/fs/http_file_system.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/multi_table_pipe.h"
-#include "io/fs/s3_file_reader.h"
-#include "io/fs/s3_file_system.h"
-#include "io/fs/s3_file_writer.h"
+#include "io/fs/obj_storage_file_reader.h"
+#include "io/fs/obj_storage_file_system.h"
+#include "io/fs/obj_storage_file_writer.h"
 #include "io/fs/stream_load_pipe.h"
 #include "io/hdfs_builder.h"
 #include "io/hdfs_util.h"
+#include "io/object_storage/obj_storage_config_parser.h"
+#include "io/object_storage/obj_storage_rate_limiter_manager.h"
 #include "load/stream_load/new_load_stream_mgr.h"
 #include "load/stream_load/stream_load_context.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "service/backend_options.h"
 #include "util/s3_uri.h"
-#include "util/s3_util.h"
 #include "util/uid_util.h"
 
 namespace doris {
@@ -128,10 +129,11 @@ Result<io::FileSystemSPtr> FileFactory::create_fs(const io::FSPropertiesRef& fs_
     case TFileType::FILE_S3: {
         S3URI s3_uri(file_description.path);
         RETURN_IF_ERROR_RESULT(s3_uri.parse());
-        S3Conf s3_conf;
-        RETURN_IF_ERROR_RESULT(S3ClientFactory::convert_properties_to_s3_conf(
-                *fs_properties.properties, s3_uri, &s3_conf));
-        return io::S3FileSystem::create(std::move(s3_conf), io::FileSystem::TMP_FS_ID);
+        auto resource = ObjStorageConfigParser::from_properties(*fs_properties.properties, s3_uri);
+        if (!resource) {
+            return unexpected(std::move(resource).error());
+        }
+        return io::ObjStorageFileSystem::create(std::move(*resource), io::FileSystem::TMP_FS_ID);
     }
     case TFileType::FILE_HDFS: {
         std::string fs_name = _get_fs_name(file_description);
@@ -192,13 +194,17 @@ Result<io::FileWriterPtr> FileFactory::create_file_writer(
     case TFileType::FILE_S3: {
         S3URI s3_uri(path);
         RETURN_IF_ERROR_RESULT(s3_uri.parse());
-        S3Conf s3_conf;
-        RETURN_IF_ERROR_RESULT(
-                S3ClientFactory::convert_properties_to_s3_conf(properties, s3_uri, &s3_conf));
-        auto client = std::make_shared<io::ObjClientHolder>(std::move(s3_conf.client_conf));
+        auto resource = ObjStorageConfigParser::from_properties(properties, s3_uri);
+        if (!resource) {
+            return unexpected(std::move(resource).error());
+        }
+        auto client = std::make_shared<io::ObjStorageClientHolder>(
+                std::move(resource->client),
+                ObjStorageRateLimiterManager::policy_for(resource->is_internal_bucket));
         RETURN_IF_ERROR_RESULT(client->init());
-        return std::make_unique<io::S3FileWriter>(std::move(client), std::move(s3_conf.bucket),
-                                                  s3_uri.get_key(), &options);
+        return std::make_unique<io::ObjStorageFileWriter>(
+                std::move(client), std::move(resource->bucket), s3_uri.get_key(), &options,
+                resource->sse_enabled);
     }
     case TFileType::FILE_HDFS: {
         THdfsParams hdfs_params = parse_properties(properties);
@@ -240,14 +246,23 @@ Result<io::FileReaderSPtr> FileFactory::_create_file_reader_internal(
     case TFileType::FILE_S3: {
         S3URI s3_uri(file_description.path);
         RETURN_IF_ERROR_RESULT(s3_uri.parse());
-        S3Conf s3_conf;
-        RETURN_IF_ERROR_RESULT(S3ClientFactory::convert_properties_to_s3_conf(
-                system_properties.properties, s3_uri, &s3_conf));
-        auto client_holder = std::make_shared<io::ObjClientHolder>(s3_conf.client_conf);
+        auto resource =
+                ObjStorageConfigParser::from_properties(system_properties.properties, s3_uri);
+        if (!resource) {
+            return unexpected(std::move(resource).error());
+        }
+        const auto* aws = std::get_if<AwsObjStorageConfig>(&resource->client);
+        auto storage = aws && aws->use_sdk_endpoint
+                               ? fmt::format("aws:{}", aws->region)
+                               : obj_storage_connection(resource->client).endpoint;
+        auto options = with_storage_in_cache_key(reader_options, std::move(storage));
+        auto client_holder = std::make_shared<io::ObjStorageClientHolder>(
+                std::move(resource->client),
+                ObjStorageRateLimiterManager::policy_for(resource->is_internal_bucket));
         RETURN_IF_ERROR_RESULT(client_holder->init());
-        auto options = with_storage_in_cache_key(reader_options, s3_conf.client_conf.endpoint);
-        return io::S3FileReader::create(std::move(client_holder), s3_conf.bucket, s3_uri.get_key(),
-                                        file_description.file_size, profile)
+        return io::ObjStorageFileReader::create(std::move(client_holder),
+                                                std::move(resource->bucket), s3_uri.get_key(),
+                                                file_description.file_size, profile)
                 .and_then([&options](auto&& reader) {
                     return io::create_cached_file_reader(std::move(reader), options);
                 });

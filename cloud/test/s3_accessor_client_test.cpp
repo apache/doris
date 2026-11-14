@@ -29,7 +29,7 @@
 #include "common/config.h"
 #include "common/configbase.h"
 #include "common/logging.h"
-#include "cpp/aws_common.h"
+#include "cpp/obj-storage/client/obj_storage_client_builder.h"
 #include "cpp/sync_point.h"
 #include "recycler/recycler_service.h"
 #include "recycler/s3_accessor.h"
@@ -48,6 +48,7 @@ int main(int argc, char** argv) {
         return -1;
     }
     LOG(INFO) << "s3_accessor_test starting";
+    initialize_obj_storage_sdks(cloud::config::aws_log_level, cloud::config::azure_log_level);
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }
@@ -183,33 +184,36 @@ protected:
         }
     }
 
-    S3Conf::Provider convert_provider(const std::string& provider_str) {
-        if (provider_str == "AZURE") {
-            return S3Conf::AZURE;
-        } else if (provider_str == "GCS") {
-            return S3Conf::GCS;
-        } else {
-            return S3Conf::S3; // Default to S3
+    ObjectStoreInfoPB::Provider convert_provider(const std::string& provider_str) {
+        if (provider_str == "GCS") {
+            return ObjectStoreInfoPB::GCP;
         }
+        ObjectStoreInfoPB::Provider provider;
+        return ObjectStoreInfoPB::Provider_Parse(provider_str, &provider) ? provider
+                                                                          : ObjectStoreInfoPB::S3;
     }
 
     int create_client() {
-        S3Conf s3_conf;
-        s3_conf.ak = config_->get_access_key();
-        s3_conf.sk = config_->get_secret_key();
-        s3_conf.endpoint = config_->get_endpoint();
-        s3_conf.region = config_->get_region();
-        s3_conf.bucket = config_->get_bucket();
-        s3_conf.prefix = config_->get_prefix();
-        s3_conf.provider = convert_provider(config_->get_provider());
+        ObjectStoreInfoPB vault;
+        vault.set_ak(config_->get_access_key());
+        vault.set_sk(config_->get_secret_key());
+        vault.set_endpoint(config_->get_endpoint());
+        vault.set_region(config_->get_region());
+        vault.set_bucket(config_->get_bucket());
+        vault.set_prefix(config_->get_prefix());
+        vault.set_provider(convert_provider(config_->get_provider()));
         if (config_->use_instance_profile()) {
-            s3_conf.cred_provider_type = CredProviderType::InstanceProfile;
-            s3_conf.role_arn = config_->get_role_arn();
-            s3_conf.external_id = config_->get_external_id();
+            vault.set_cred_provider_type(CredProviderTypePB::INSTANCE_PROFILE);
+            vault.set_role_arn(config_->get_role_arn());
+            vault.set_external_id(config_->get_external_id());
         }
 
+        auto resource = parse_recycler_storage_config(std::move(vault));
+        if (!resource) {
+            return -1;
+        }
         std::shared_ptr<S3Accessor> accessor;
-        int ret = S3Accessor::create(s3_conf, &accessor);
+        int ret = S3Accessor::create(std::move(*resource), &accessor);
         if (ret != 0) {
             return ret;
         }
@@ -465,7 +469,7 @@ TEST_F(S3AccessorClientTest, RateLimiterPutTest) {
 
     // Set a very strict rate limit for PUT operations
     // limit: 2 (allow only 2 requests total, the 3rd will fail)
-    int ret = reset_s3_rate_limiter(S3RateLimitType::PUT, 10, 10, 2);
+    int ret = reset_s3_rate_limiter(ObjStorageRateLimitType::PUT, 10, 10, 2);
     ASSERT_EQ(ret, 0) << "Failed to set rate limiter for PUT operations";
 
     std::cout << "Rate limiter set: limit 2 total requests for PUT operations" << std::endl;
@@ -489,8 +493,8 @@ TEST_F(S3AccessorClientTest, RateLimiterPutTest) {
     std::cout << "Third put failed as expected: error code " << ret_fail << std::endl;
 
     // Reset rate limiter to default (no limit) to avoid affecting other tests
-    reset_s3_rate_limiter(S3RateLimitType::PUT, 10000, 10000, 0);
-    reset_s3_rate_limiter(S3RateLimitType::GET, 10000, 10000, 0);
+    reset_s3_rate_limiter(ObjStorageRateLimitType::PUT, 10000, 10000, 0);
+    reset_s3_rate_limiter(ObjStorageRateLimitType::GET, 10000, 10000, 0);
 
     // Restore original config
     config::enable_s3_rate_limiter = original_enable_rate_limiter;
@@ -515,7 +519,7 @@ TEST_F(S3AccessorClientTest, RateLimiterGetTest) {
 
     // Set rate limit for GET operations
     // limit: 2 (allow only 2 requests total, the 3rd will fail)
-    ret = reset_s3_rate_limiter(S3RateLimitType::GET, 10, 10, 2);
+    ret = reset_s3_rate_limiter(ObjStorageRateLimitType::GET, 10, 10, 2);
     ASSERT_EQ(ret, 0) << "Failed to set rate limiter for GET operations";
 
     std::cout << "Rate limiter set: limit 2 total requests for GET operations" << std::endl;
@@ -534,8 +538,8 @@ TEST_F(S3AccessorClientTest, RateLimiterGetTest) {
     std::cout << "Third get failed as expected: error code " << ret << std::endl;
 
     // Reset rate limiter
-    reset_s3_rate_limiter(S3RateLimitType::PUT, 10000, 10000, 0);
-    reset_s3_rate_limiter(S3RateLimitType::GET, 10000, 10000, 0);
+    reset_s3_rate_limiter(ObjStorageRateLimitType::PUT, 10000, 10000, 0);
+    reset_s3_rate_limiter(ObjStorageRateLimitType::GET, 10000, 10000, 0);
 
     // Restore original config
     config::enable_s3_rate_limiter = original_enable_rate_limiter;
@@ -565,7 +569,7 @@ TEST_F(S3AccessorClientTest, RateLimiterPutDeleteTest) {
 
     // Set rate limit for PUT operations (delete uses PUT rate limiter)
     // limit: 2 (allow only 2 requests total, the 3rd will fail)
-    int ret = reset_s3_rate_limiter(S3RateLimitType::PUT, 10, 10, 2);
+    int ret = reset_s3_rate_limiter(ObjStorageRateLimitType::PUT, 10, 10, 2);
     ASSERT_EQ(ret, 0) << "Failed to set rate limiter for PUT operations";
 
     std::cout << "Rate limiter set: limit 2 total requests for PUT operations (delete)"
@@ -585,8 +589,8 @@ TEST_F(S3AccessorClientTest, RateLimiterPutDeleteTest) {
     std::cout << "Third delete failed as expected: error code " << ret << std::endl;
 
     // Reset rate limiter
-    reset_s3_rate_limiter(S3RateLimitType::PUT, 10000, 10000, 0);
-    reset_s3_rate_limiter(S3RateLimitType::GET, 10000, 10000, 0);
+    reset_s3_rate_limiter(ObjStorageRateLimitType::PUT, 10000, 10000, 0);
+    reset_s3_rate_limiter(ObjStorageRateLimitType::GET, 10000, 10000, 0);
 
     // Restore original config
     config::enable_s3_rate_limiter = original_enable_rate_limiter;
@@ -618,7 +622,7 @@ TEST_F(S3AccessorClientTest, RateLimiterGetListTest) {
 
     // Set rate limit for GET operations (list uses GET rate limiter)
     // limit: 2 (allow only 2 requests total, the 3rd will fail)
-    int ret = reset_s3_rate_limiter(S3RateLimitType::GET, 10, 10, 2);
+    int ret = reset_s3_rate_limiter(ObjStorageRateLimitType::GET, 10, 10, 2);
     ASSERT_EQ(ret, 0) << "Failed to set rate limiter for GET operations";
 
     std::cout << "Rate limiter set: limit 2 total requests for GET operations (list)" << std::endl;
@@ -655,8 +659,8 @@ TEST_F(S3AccessorClientTest, RateLimiterGetListTest) {
     std::cout << "Third has_next() failed as expected due to rate limit" << std::endl;
 
     // Reset rate limiter
-    reset_s3_rate_limiter(S3RateLimitType::PUT, 10000, 10000, 0);
-    reset_s3_rate_limiter(S3RateLimitType::GET, 10000, 10000, 0);
+    reset_s3_rate_limiter(ObjStorageRateLimitType::PUT, 10000, 10000, 0);
+    reset_s3_rate_limiter(ObjStorageRateLimitType::GET, 10000, 10000, 0);
 
     // Restore original config
     config::enable_s3_rate_limiter = original_enable_rate_limiter;
@@ -822,7 +826,7 @@ TEST_F(S3AccessorClientTest, AzureBatchDeleteWithRateLimiterExceptionTest) {
     auto* sp = SyncPoint::get_instance();
     std::vector<SyncPoint::CallbackGuard> guards;
     sp->set_call_back(
-            "AzureObjClient::delete_objects",
+            "ObjStorageClient::delete_batch_size",
             [](auto&& args) {
                 auto* delete_batch_size = try_any_cast<size_t*>(args[0]);
                 *delete_batch_size = 1;
@@ -853,7 +857,7 @@ TEST_F(S3AccessorClientTest, AzureBatchDeleteWithRateLimiterExceptionTest) {
 
     // Set rate limit for PUT operations (delete uses PUT rate limiter)
     // limit: 2 (allow only 2 requests total, the 3rd will fail)
-    int ret = reset_s3_rate_limiter(S3RateLimitType::PUT, 10, 10, 2);
+    int ret = reset_s3_rate_limiter(ObjStorageRateLimitType::PUT, 10, 10, 2);
     ASSERT_EQ(ret, 0) << "Failed to set rate limiter for PUT operations";
 
     std::cout << "Rate limiter set: limit 2 total requests for PUT operations (batch delete)"
@@ -867,11 +871,11 @@ TEST_F(S3AccessorClientTest, AzureBatchDeleteWithRateLimiterExceptionTest) {
     std::cout << "Batch delete failed as expected: error code " << ret << std::endl;
 
     // Reset rate limiter to default (no limit) to avoid affecting other tests
-    reset_s3_rate_limiter(S3RateLimitType::PUT, 10000, 10000, 0);
-    reset_s3_rate_limiter(S3RateLimitType::GET, 10000, 10000, 0);
+    reset_s3_rate_limiter(ObjStorageRateLimitType::PUT, 10000, 10000, 0);
+    reset_s3_rate_limiter(ObjStorageRateLimitType::GET, 10000, 10000, 0);
 
     // Clean up created files
-    reset_s3_rate_limiter(S3RateLimitType::PUT, 10000, 10000, 0);
+    reset_s3_rate_limiter(ObjStorageRateLimitType::PUT, 10000, 10000, 0);
     for (const auto& file_path : test_files) {
         s3_accessor->delete_file(file_path);
     }
@@ -927,7 +931,7 @@ TEST_F(S3AccessorClientTest, AzureDeleteRecursivelyWithRateLimiterExceptionTest)
 
     // Set rate limit for GET operations (list uses GET rate limiter)
     // limit: 1 (allow only 1 request, the 2nd will fail)
-    int ret = reset_s3_rate_limiter(S3RateLimitType::GET, 10, 10, 1);
+    int ret = reset_s3_rate_limiter(ObjStorageRateLimitType::GET, 10, 10, 1);
     ASSERT_EQ(ret, 0) << "Failed to set rate limiter for GET operations";
 
     std::cout << "Rate limiter set: limit 1 request for GET operations (list)" << std::endl;
@@ -941,8 +945,8 @@ TEST_F(S3AccessorClientTest, AzureDeleteRecursivelyWithRateLimiterExceptionTest)
     std::cout << "Recursive delete failed as expected: error code " << ret << std::endl;
 
     // Reset rate limiter
-    reset_s3_rate_limiter(S3RateLimitType::PUT, 10000, 10000, 0);
-    reset_s3_rate_limiter(S3RateLimitType::GET, 10000, 10000, 0);
+    reset_s3_rate_limiter(ObjStorageRateLimitType::PUT, 10000, 10000, 0);
+    reset_s3_rate_limiter(ObjStorageRateLimitType::GET, 10000, 10000, 0);
 
     // Clean up created files
     for (const auto& file_path : test_files) {
@@ -974,7 +978,7 @@ TEST_F(S3AccessorClientTest, AzurePutObjectWithRateLimiterExceptionTest) {
 
     // Set rate limit for PUT operations
     // limit: 1 (allow only 1 request total, the 2nd will fail)
-    int ret = reset_s3_rate_limiter(S3RateLimitType::PUT, 10, 10, 1);
+    int ret = reset_s3_rate_limiter(ObjStorageRateLimitType::PUT, 10, 10, 1);
     ASSERT_EQ(ret, 0) << "Failed to set rate limiter for PUT operations";
 
     std::cout << "Rate limiter set: limit 1 request for PUT operations" << std::endl;
@@ -993,8 +997,8 @@ TEST_F(S3AccessorClientTest, AzurePutObjectWithRateLimiterExceptionTest) {
     std::cout << "Second put failed as expected: error code " << ret << std::endl;
 
     // Reset rate limiter
-    reset_s3_rate_limiter(S3RateLimitType::PUT, 10000, 10000, 0);
-    reset_s3_rate_limiter(S3RateLimitType::GET, 10000, 10000, 0);
+    reset_s3_rate_limiter(ObjStorageRateLimitType::PUT, 10000, 10000, 0);
+    reset_s3_rate_limiter(ObjStorageRateLimitType::GET, 10000, 10000, 0);
 
     // Clean up
     s3_accessor->delete_file(test_file_1);
@@ -1032,7 +1036,7 @@ TEST_F(S3AccessorClientTest, AzureHeadObjectWithRateLimiterExceptionTest) {
 
     // Set rate limit for GET operations
     // limit: 1 (allow only 1 request total, the 2nd will fail)
-    ret = reset_s3_rate_limiter(S3RateLimitType::GET, 10, 10, 1);
+    ret = reset_s3_rate_limiter(ObjStorageRateLimitType::GET, 10, 10, 1);
     ASSERT_EQ(ret, 0) << "Failed to set rate limiter for GET operations";
 
     std::cout << "Rate limiter set: limit 1 request for GET operations" << std::endl;
@@ -1048,8 +1052,8 @@ TEST_F(S3AccessorClientTest, AzureHeadObjectWithRateLimiterExceptionTest) {
     std::cout << "Second head failed as expected: error code " << ret << std::endl;
 
     // Reset rate limiter
-    reset_s3_rate_limiter(S3RateLimitType::PUT, 10000, 10000, 0);
-    reset_s3_rate_limiter(S3RateLimitType::GET, 10000, 10000, 0);
+    reset_s3_rate_limiter(ObjStorageRateLimitType::PUT, 10000, 10000, 0);
+    reset_s3_rate_limiter(ObjStorageRateLimitType::GET, 10000, 10000, 0);
 
     // Clean up
     s3_accessor->delete_file(test_file);

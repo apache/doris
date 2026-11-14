@@ -101,13 +101,14 @@ Status CloudDeltaWriter::write(const Block* block, const TabletAddRowsPayload& r
     CHECK(_is_init || _is_cancelled);
     {
         SCOPED_TIMER(_wait_flush_limit_timer);
-        auto* s3_file_upload_pool = rowset_builder()->is_s3_storage()
-                                            ? ExecEnv::GetInstance()->s3_file_upload_thread_pool()
-                                            : nullptr;
-        const auto need_backpressure = [this, s3_file_upload_pool] {
-            if (s3_file_upload_pool != nullptr) {
-                return s3_file_upload_pool->get_queue_size() >
-                       AdaptiveThreadPoolController::kS3QueueBusyThreshold;
+        auto* obj_storage_upload_pool =
+                rowset_builder()->uses_object_storage()
+                        ? ExecEnv::GetInstance()->obj_storage_upload_thread_pool()
+                        : nullptr;
+        const auto need_backpressure = [this, obj_storage_upload_pool] {
+            if (obj_storage_upload_pool != nullptr) {
+                return obj_storage_upload_pool->get_queue_size() >
+                       AdaptiveThreadPoolController::kUploadQueueBusyThreshold;
             }
             const auto effective_flush_running_count_limit =
                     config::memtable_flush_running_count_limit *

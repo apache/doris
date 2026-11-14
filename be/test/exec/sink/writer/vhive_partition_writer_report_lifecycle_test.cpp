@@ -26,8 +26,8 @@
 #include "exec/pipeline/pipeline_fragment_context.h"
 #include "exec/sink/writer/vhive_partition_writer.h"
 #include "format/transformer/vfile_format_transformer.h"
-#include "io/fs/s3_file_system.h"
-#include "io/fs/s3_file_writer.h"
+#include "io/fs/obj_storage_file_system.h"
+#include "io/fs/obj_storage_file_writer.h"
 #include "runtime/exec_env.h"
 #include "testutil/mock/mock_runtime_state.h"
 
@@ -64,8 +64,8 @@ public:
         return io::ObjStorageResponse::OK();
     }
 
-    io::ObjStorageResponse delete_objects(const io::ObjStoragePath&,
-                                          std::vector<std::string>) override {
+    io::ObjStorageResponse delete_objects_batch(const io::ObjStoragePath&,
+                                                std::span<std::string>) override {
         return io::ObjStorageResponse::OK();
     }
 
@@ -111,8 +111,7 @@ public:
 std::unique_ptr<VHivePartitionWriter> create_closed_hive_writer(
         RuntimeState* state, const VExprContextSPtrs& output_exprs,
         const std::shared_ptr<RecordingObjStorageClient>& client,
-        io::ObjStorageProvider provider = io::ObjStorageProvider::AWS,
-        std::string staged_block_id = {}) {
+        ObjStorageClientConfig config = AwsObjStorageConfig {}, std::string staged_block_id = {}) {
     THiveTableSink hive_sink;
     TDataSink sink;
     sink.__set_type(TDataSinkType::HIVE_TABLE_SINK);
@@ -128,13 +127,11 @@ std::unique_ptr<VHivePartitionWriter> create_closed_hive_writer(
             std::move(write_info), "part", 0, TFileFormatType::FORMAT_PARQUET,
             TFileCompressType::PLAIN, nullptr, hadoop_conf);
 
-    S3ClientConf client_conf;
-    client_conf.provider = provider;
-    auto holder = std::make_shared<io::ObjClientHolder>(client_conf);
+    auto holder = std::make_shared<io::ObjStorageClientHolder>(std::move(config));
     holder->_client = client;
     io::FileWriterOptions options {.used_by_s3_committer = true};
-    auto file_writer =
-            std::make_unique<io::S3FileWriter>(holder, "bucket", "table/part.parquet", &options);
+    auto file_writer = std::make_unique<io::ObjStorageFileWriter>(holder, "bucket",
+                                                                  "table/part.parquet", &options);
     file_writer->_upload_id = "upload-id";
     if (!staged_block_id.empty()) {
         file_writer->_completed_parts.push_back(
@@ -205,8 +202,9 @@ TEST(VHivePartitionWriterReportLifecycleTest, AzureFinalReportCarriesExactBlockI
     MockRuntimeState state;
     VExprContextSPtrs output_exprs;
     auto client = std::make_shared<RecordingObjStorageClient>();
-    auto writer = create_closed_hive_writer(&state, output_exprs, client,
-                                            io::ObjStorageProvider::AZURE, "exact-block-id");
+    AzureObjStorageConfig config;
+    auto writer = create_closed_hive_writer(&state, output_exprs, client, std::move(config),
+                                            "exact-block-id");
     auto context = create_fragment_context(TUniqueId());
     auto final_request = report_request(&state, true);
     TReportExecStatusParams final_params;

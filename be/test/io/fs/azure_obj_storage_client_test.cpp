@@ -16,24 +16,28 @@
 // under the License.
 
 #ifdef USE_AZURE
-#include "cpp/obj-client/azure_obj_storage_client.h"
+#include "cpp/obj-storage/client/azure_obj_storage_client.h"
 
-#include "cpp/obj-client/auth/azure_auth_factory.h"
+#include "cpp/obj-storage/obj_storage_config.h"
 #endif
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
+#include <future>
 #include <memory>
+#include <mutex>
+#include <vector>
 
-#include "cpp/obj-client/obj_storage_client.h"
+#include "cpp/obj-storage/client/obj_storage_client.h"
 #include "io/fs/file_system.h"
-#include "util/s3_util.h"
+#include "io/object_storage/obj_storage_client_factory.h"
 
 #ifdef USE_AZURE
-#include <aws/core/utils/HashingUtils.h>
-
+#include <azure/core/base64.hpp>
+#include <azure/core/http/transport.hpp>
 #include <azure/storage/blobs.hpp>
 #include <azure/storage/blobs/blob_client.hpp>
 #include <azure/storage/blobs/blob_container_client.hpp>
@@ -52,20 +56,20 @@ TEST(AzureObjStorageClientMultipartHelperTest, full_upload_uuid_isolates_writer_
 
     EXPECT_NE(first_block, second_block);
     EXPECT_EQ(first_block.size(), io::azure_multipart_block_id(first_upload, 999).size());
-    auto decoded = Aws::Utils::HashingUtils::Base64Decode(first_block);
-    ASSERT_EQ(first_upload.size() + sizeof(uint32_t), decoded.GetLength());
+    auto decoded = Azure::Core::Convert::Base64Decode(first_block);
+    ASSERT_EQ(first_upload.size() + sizeof(uint32_t), decoded.size());
     EXPECT_EQ(first_upload,
-              std::string_view(reinterpret_cast<const char*>(decoded.GetUnderlyingData()),
-                               first_upload.size()));
-    EXPECT_EQ(1, decoded.GetUnderlyingData()[first_upload.size()]);
-    EXPECT_EQ(0, decoded.GetUnderlyingData()[first_upload.size() + 1]);
-    EXPECT_EQ(0, decoded.GetUnderlyingData()[first_upload.size() + 2]);
-    EXPECT_EQ(0, decoded.GetUnderlyingData()[first_upload.size() + 3]);
+              std::string_view(reinterpret_cast<const char*>(decoded.data()), first_upload.size()));
+    EXPECT_EQ(1, decoded[first_upload.size()]);
+    EXPECT_EQ(0, decoded[first_upload.size() + 1]);
+    EXPECT_EQ(0, decoded[first_upload.size() + 2]);
+    EXPECT_EQ(0, decoded[first_upload.size() + 3]);
 }
 
 TEST(AzureObjStorageClientMultipartHelperTest, create_upload_is_provider_free) {
-    io::AzureObjStorageClient client(std::shared_ptr<Azure::Storage::Blobs::BlobContainerClient> {},
-                                     {});
+    io::AzureObjStorageClient client(
+            Azure::Storage::Blobs::BlobServiceClient("https://account.blob.core.windows.net"),
+            nullptr, {});
 
     auto first = client.create_multipart_upload({});
     auto second = client.create_multipart_upload({});
@@ -81,11 +85,71 @@ TEST(AzureObjStorageClientMultipartHelperTest, create_upload_is_provider_free) {
 
 using namespace Azure::Storage::Blobs;
 
-TEST(AzureAuthFactoryTest, AllowsEmptySharedKeyCredentials) {
-    auto result = AzureAuthFactory::create("https://account.blob.core.windows.net/container",
-                                           {.account_name = "", .account_key = ""}, {});
+TEST(AzureObjStorageClientOfflineTest, SignsSameKeyForDifferentContainers) {
+    AzureObjStorageConfig config;
+    config.connection.endpoint = "https://account.blob.core.windows.net";
+    config.auth = {.account_name = "account", .account_key = "dGVzdA=="};
+    auto built = AzureObjStorageClient::create(config);
+    ASSERT_TRUE(built.client);
+    for (std::string container : {"first", "second"}) {
+        ObjStoragePath target {.bucket = container, .key = "a b"};
+        auto signed_url = built.client->generate_presigned_url(target, 60);
+        EXPECT_TRUE(
+                signed_url.starts_with(config.connection.endpoint + "/" + container + "/a%20b?"));
+    }
+}
 
-    EXPECT_TRUE(result);
+namespace {
+class MultipartRecordingTransport final : public Azure::Core::Http::HttpTransport {
+public:
+    std::unique_ptr<Azure::Core::Http::RawResponse> Send(Azure::Core::Http::Request& request,
+                                                         const Azure::Core::Context&) override {
+        const auto& url = request.GetUrl();
+        {
+            std::lock_guard lock(_mutex);
+            requests.emplace_back(url.GetPath(), url.GetQueryParameters().at("comp"));
+        }
+        auto response = std::make_unique<Azure::Core::Http::RawResponse>(
+                1, 1, Azure::Core::Http::HttpStatusCode::Created, "Created");
+        response->SetHeader("ETag", "\"etag\"");
+        response->SetHeader("Last-Modified", "Thu, 12 Nov 2026 00:00:00 GMT");
+        response->SetHeader("x-ms-request-server-encrypted", "true");
+        return response;
+    }
+
+    std::vector<std::pair<std::string, std::string>> requests;
+
+private:
+    std::mutex _mutex;
+};
+} // namespace
+
+TEST(AzureObjStorageClientOfflineTest, MultipartRequestsUseTheirOwnContainer) {
+    auto transport = std::make_shared<MultipartRecordingTransport>();
+    BlobClientOptions options;
+    options.Transport.Transport = transport;
+    AzureObjStorageClient client(
+            BlobServiceClient("https://account.blob.core.windows.net", options), nullptr, {});
+    auto upload = [&](const std::string& container) {
+        ObjStoragePath path {.bucket = container, .key = "shared"};
+        auto create = client.create_multipart_upload(path);
+        ASSERT_TRUE(create.upload_id.has_value());
+        auto part = client.upload_part(path, *create.upload_id, "data", 1);
+        ASSERT_TRUE(part.resp.ok()) << part.resp.status.msg;
+        EXPECT_TRUE(
+                client.complete_multipart_upload(path, *create.upload_id, {{.part_num = 1}}).ok());
+    };
+    auto first = std::async(std::launch::async, upload, "first");
+    auto second = std::async(std::launch::async, upload, "second");
+    first.get();
+    second.get();
+    std::sort(transport->requests.begin(), transport->requests.end());
+    const std::vector<std::pair<std::string, std::string>> expected {
+            {"first/shared", "block"},
+            {"first/shared", "blocklist"},
+            {"second/shared", "block"},
+            {"second/shared", "blocklist"}};
+    EXPECT_EQ(transport->requests, expected);
 }
 
 TEST(AzureObjStorageClientTlsHelperTest, detects_tls_ca_error) {
@@ -119,6 +183,7 @@ TEST(AzureObjStorageClientBatchDeleteTest, failure_message_preserves_object_key)
 class AzureObjStorageClientTest : public testing::Test {
 protected:
     static std::shared_ptr<ObjStorageClient> obj_storage_client;
+    inline static std::string container;
 
     static void SetUpTestSuite() {
         if (!std::getenv("AZURE_ACCOUNT_NAME") || !std::getenv("AZURE_ACCOUNT_KEY") ||
@@ -128,21 +193,11 @@ protected:
 
         std::string accountName = std::getenv("AZURE_ACCOUNT_NAME");
         std::string accountKey = std::getenv("AZURE_ACCOUNT_KEY");
-        std::string containerName = std::getenv("AZURE_CONTAINER_NAME");
-
-        // Initialize Azure SDK
-        [[maybe_unused]] auto& s3ClientFactory = S3ClientFactory::instance();
-
-        auto client_result = S3ClientFactory::instance().create(
-                {.endpoint = fmt::format("https://{}.blob.core.windows.net", accountName),
-                 .region = "dummy-region",
-                 .ak = accountName,
-                 .sk = accountKey,
-                 .token = "",
-                 .bucket = containerName,
-                 .provider = ObjStorageProvider::AZURE,
-                 .role_arn = "",
-                 .external_id = ""});
+        container = std::getenv("AZURE_CONTAINER_NAME");
+        AzureObjStorageConfig config;
+        config.connection.endpoint = fmt::format("https://{}.blob.core.windows.net", accountName);
+        config.auth = {std::move(accountName), std::move(accountKey)};
+        auto client_result = ObjStorageClientFactory::instance().create(config);
         ASSERT_TRUE(client_result.has_value()) << client_result.error();
         AzureObjStorageClientTest::obj_storage_client = std::move(client_result).value();
     }
@@ -160,23 +215,24 @@ TEST_F(AzureObjStorageClientTest, put_list_delete_object) {
     LOG(INFO) << "AzureObjStorageClientTest::put_list_delete_object";
 
     auto response = AzureObjStorageClientTest::obj_storage_client->put_object(
-            {.key = "AzureObjStorageClientTest/put_list_delete_object"}, std::string("aaaa"));
+            {.bucket = container, .key = "AzureObjStorageClientTest/put_list_delete_object"},
+            std::string("aaaa"));
     EXPECT_EQ(response.status.code, ErrorCode::OK);
 
     std::vector<ObjectMeta> objects;
     response = AzureObjStorageClientTest::obj_storage_client->list_objects(
-            {.bucket = "dummy", .prefix = "AzureObjStorageClientTest/put_list_delete_object"},
+            {.bucket = container, .prefix = "AzureObjStorageClientTest/put_list_delete_object"},
             &objects);
     EXPECT_TRUE(response.ok());
     EXPECT_EQ(objects.size(), 1);
     objects.clear();
 
     response = AzureObjStorageClientTest::obj_storage_client->delete_object(
-            {.key = "AzureObjStorageClientTest/put_list_delete_object"});
+            {.bucket = container, .key = "AzureObjStorageClientTest/put_list_delete_object"});
     EXPECT_EQ(response.status.code, ErrorCode::OK);
 
     response = AzureObjStorageClientTest::obj_storage_client->list_objects(
-            {.bucket = "dummy", .prefix = "AzureObjStorageClientTest/put_list_delete_object"},
+            {.bucket = container, .prefix = "AzureObjStorageClientTest/put_list_delete_object"},
             &objects);
     EXPECT_TRUE(response.ok());
     EXPECT_TRUE(objects.empty());
@@ -190,14 +246,14 @@ TEST_F(AzureObjStorageClientTest, delete_objects_recursively) {
                 "AzureObjStorageClientTest/delete_objects_recursively" + std::to_string(i);
 
         auto response = AzureObjStorageClientTest::obj_storage_client->put_object(
-                {.key = key}, std::string("aaaa"));
+                {.bucket = container, .key = key}, std::string("aaaa"));
         EXPECT_EQ(response.status.code, ErrorCode::OK);
         LOG(INFO) << "put " << key << " OK";
     }
 
     std::vector<ObjectMeta> objects;
     auto response = AzureObjStorageClientTest::obj_storage_client->list_objects(
-            {.bucket = "dummy", .prefix = "AzureObjStorageClientTest/delete_objects_recursively"},
+            {.bucket = container, .prefix = "AzureObjStorageClientTest/delete_objects_recursively"},
             &objects);
     EXPECT_TRUE(response.ok());
     EXPECT_EQ(objects.size(), 22);
@@ -205,18 +261,20 @@ TEST_F(AzureObjStorageClientTest, delete_objects_recursively) {
 
     response = delete_objects_recursively(
             AzureObjStorageClientTest::obj_storage_client,
-            {.prefix = "AzureObjStorageClientTest/delete_objects_recursively"});
+            {.bucket = container,
+             .prefix = "AzureObjStorageClientTest/delete_objects_recursively"});
     EXPECT_EQ(response.status.code, ErrorCode::OK);
 
     response = AzureObjStorageClientTest::obj_storage_client->list_objects(
-            {.bucket = "dummy", .prefix = "AzureObjStorageClientTest/delete_objects_recursively"},
+            {.bucket = container, .prefix = "AzureObjStorageClientTest/delete_objects_recursively"},
             &objects);
     EXPECT_TRUE(response.ok());
     EXPECT_TRUE(objects.empty());
 }
 
 TEST_F(AzureObjStorageClientTest, concurrent_multipart_uploads_do_not_share_staged_blocks) {
-    ObjStoragePath first {.key = "AzureObjStorageClientTest/concurrent_multipart"};
+    ObjStoragePath first {.bucket = container,
+                          .key = "AzureObjStorageClientTest/concurrent_multipart"};
     ObjStoragePath second = first;
     auto first_create = obj_storage_client->create_multipart_upload(first);
     auto second_create = obj_storage_client->create_multipart_upload(second);

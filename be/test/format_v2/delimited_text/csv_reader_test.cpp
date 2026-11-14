@@ -48,6 +48,7 @@
 #include "format_v2/column_mapper.h"
 #include "io/fs/stream_load_pipe.h"
 #include "io/io_common.h"
+#include "io/object_storage/obj_storage_client_factory.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_profile.h"
 #include "testutil/desc_tbl_builder.h"
@@ -56,7 +57,6 @@
 #include "testutil/scoped_temp_dir.h"
 #include "util/debug_points.h"
 #include "util/defer_op.h"
-#include "util/s3_util.h"
 #include "util/threadpool.h"
 
 namespace doris::format::csv {
@@ -107,8 +107,8 @@ public:
         return unexpected_operation();
     }
 
-    io::ObjStorageResponse delete_objects(const io::ObjStoragePath&,
-                                          std::vector<std::string>) override {
+    io::ObjStorageResponse delete_objects_batch(const io::ObjStoragePath&,
+                                                std::span<std::string>) override {
         return unexpected_operation();
     }
 
@@ -580,7 +580,7 @@ TEST_F(CsvV2ReaderTest, S3PrefetchPreservesSplitRowsAndReadStatistics) {
         env->_buffered_reader_prefetch_thread_pool.reset();
         env->_buffered_reader_prefetch_thread_pool = std::move(saved_pool);
         config::in_memory_file_size = saved_in_memory_size;
-        S3ClientFactory::instance().clear_client_creator_for_test();
+        ObjStorageClientFactory::instance().clear_client_creator_for_test();
     });
     ASSERT_TRUE(ThreadPoolBuilder("CsvPrefetchTest")
                         .set_min_threads(1)
@@ -590,8 +590,8 @@ TEST_F(CsvV2ReaderTest, S3PrefetchPreservesSplitRowsAndReadStatistics) {
     // Keep the small fixture on the same prefetch path as a large S3 CSV file.
     config::in_memory_file_size = 0;
     auto client = std::make_shared<CsvPrefetchS3Client>();
-    S3ClientFactory::instance().set_client_creator_for_test(
-            [client](const S3ClientConf&) { return client; });
+    ObjStorageClientFactory::instance().set_client_creator_for_test(
+            [client](const ObjStorageClientConfig&) { return client; });
     _params.__set_file_type(TFileType::FILE_S3);
     _state._query_options.__set_enable_file_cache(false);
 

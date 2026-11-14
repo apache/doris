@@ -23,7 +23,7 @@
 namespace doris::cloud {
 
 // This helper keeps provider-specific credential branches out of MetaService.
-// Provider authentication implementations belong in common/cpp/obj-client/auth; this
+// Provider authentication implementations belong in common/cpp/obj-storage/auth; this
 // Cloud layer owns vault-field validation, compatibility cleanup, and protobuf
 // persistence mutations.
 

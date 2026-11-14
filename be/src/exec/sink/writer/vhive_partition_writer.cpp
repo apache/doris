@@ -27,8 +27,8 @@
 #include "format/transformer/vorc_transformer.h"
 #include "format/transformer/vparquet_writer.h"
 #include "io/file_factory.h"
-#include "io/fs/s3_file_system.h"
-#include "io/fs/s3_file_writer.h"
+#include "io/fs/obj_storage_file_system.h"
+#include "io/fs/obj_storage_file_writer.h"
 #include "runtime/runtime_state.h"
 
 namespace doris {
@@ -74,9 +74,9 @@ Status VHivePartitionWriter::open(RuntimeState* state, RuntimeProfile* operator_
             .path = fmt::format("{}/{}", _write_info.write_path, _get_target_file_name()),
             .fs_name {}};
     _fs = DORIS_TRY(FileFactory::create_fs(fs_properties, file_description));
-    if (auto* s3_fs = dynamic_cast<io::S3FileSystem*>(_fs.get());
-        s3_fs != nullptr &&
-        !hive_multipart_protocol_supported(s3_fs->client_holder()->s3_client_conf().provider,
+    if (auto* obj_fs = dynamic_cast<io::ObjStorageFileSystem*>(_fs.get());
+        obj_fs != nullptr &&
+        !hive_multipart_protocol_supported(storage_provider(obj_fs->client_holder()->config()),
                                            _supports_deferred_azure_multipart)) {
         // An old coordinator cannot publish namespaced Azure block IDs; lease expiry is not a
         // compatibility fence, so reject before creating an upload that it could corrupt.
@@ -193,8 +193,8 @@ bool VHivePartitionWriter::_build_s3_mpu_pending_upload(TS3MPUPendingUpload* pen
         return false;
     }
 
-    doris::io::S3FileWriter* s3_mpu_file_writer =
-            dynamic_cast<doris::io::S3FileWriter*>(_file_writer.get());
+    doris::io::ObjStorageFileWriter* s3_mpu_file_writer =
+            dynamic_cast<doris::io::ObjStorageFileWriter*>(_file_writer.get());
     DCHECK(s3_mpu_file_writer != nullptr);
     std::string upload_id = s3_mpu_file_writer->upload_id();
     if (upload_id.empty()) {

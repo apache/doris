@@ -56,7 +56,6 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "cpp/obj-client/obj_storage_client.h"
 #include "cpp/sync_point.h"
 #include "load/stream_load/stream_load_context.h"
 #include "runtime/cluster_info.h"
@@ -72,7 +71,6 @@
 #include "util/client_cache.h"
 #include "util/client_connection_provider.h"
 #include "util/network_util.h"
-#include "util/s3_util.h"
 #include "util/thrift_rpc_helper.h"
 #include "util/time.h"
 
@@ -1909,42 +1907,21 @@ Status CloudMetaMgr::get_storage_vault_info(StorageVaultInfos* vault_infos, bool
 
     *is_vault_mode = resp.enable_storage_vault();
 
-    auto add_obj_store = [&vault_infos](const auto& obj_store) {
-        vault_infos->emplace_back(obj_store.id(), S3Conf::get_s3_conf(obj_store),
-                                  StorageVaultPB_PathFormat {});
-    };
-
-    std::ranges::for_each(resp.obj_info(), add_obj_store);
-    std::ranges::for_each(resp.storage_vault(), [&](const auto& vault) {
+    for (const auto& info : resp.obj_info()) {
+        vault_infos->emplace_back(info.id(), info, StorageVaultPB_PathFormat {});
+    }
+    for (const auto& vault : resp.storage_vault()) {
         if (vault.has_hdfs_info()) {
             vault_infos->emplace_back(vault.id(), vault.hdfs_info(), vault.path_format());
+        } else if (vault.has_obj_info()) {
+            const auto& id = vault.id().empty() ? vault.obj_info().id() : vault.id();
+            vault_infos->emplace_back(id, vault.obj_info(), vault.path_format());
         }
-        if (vault.has_obj_info()) {
-            add_obj_store(vault.obj_info());
-        }
-    });
-
-    // desensitization, hide secret
-    for (int i = 0; i < resp.obj_info_size(); ++i) {
-        resp.mutable_obj_info(i)->set_sk(resp.obj_info(i).sk().substr(0, 2) + "xxx");
-    }
-    for (int i = 0; i < resp.storage_vault_size(); ++i) {
-        auto* j = resp.mutable_storage_vault(i);
-        if (!j->has_obj_info()) continue;
-        j->mutable_obj_info()->set_sk(j->obj_info().sk().substr(0, 2) + "xxx");
     }
 
-    for (int i = 0; i < resp.obj_info_size(); ++i) {
-        resp.mutable_obj_info(i)->set_ak(hide_access_key(resp.obj_info(i).sk()));
-    }
-    for (int i = 0; i < resp.storage_vault_size(); ++i) {
-        auto* j = resp.mutable_storage_vault(i);
-        if (!j->has_obj_info()) continue;
-        j->mutable_obj_info()->set_sk(hide_access_key(j->obj_info().sk()));
-    }
-
-    LOG(INFO) << "get storage vault, enable_storage_vault=" << *is_vault_mode
-              << " response=" << resp.ShortDebugString();
+    LOG_INFO("received storage vaults")
+            .tag("count", vault_infos->size())
+            .tag("vault_mode", *is_vault_mode);
     return Status::OK();
 }
 

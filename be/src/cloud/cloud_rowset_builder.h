@@ -37,7 +37,7 @@ public:
 
     const RowsetMetaSharedPtr& rowset_meta();
 
-    virtual bool is_s3_storage() const;
+    virtual bool uses_object_storage() const;
 
     virtual Status commit_rowset(const std::string& job_id, int64_t table_id);
 
@@ -96,7 +96,7 @@ public:
         return _data_builder->get_partial_update_info();
     }
 
-    bool is_s3_storage() const override { return _data_builder->is_s3_storage(); }
+    bool uses_object_storage() const override { return _data_builder->uses_object_storage(); }
 
     CloudRowsetBuilder* data_builder() { return _data_builder.get(); }
 

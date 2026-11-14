@@ -54,9 +54,10 @@
 #include "io/cache/file_cache_common.h"
 #include "io/fs/file_system.h"
 #include "io/fs/hdfs_file_system.h"
-#include "io/fs/s3_file_system.h"
+#include "io/fs/obj_storage_file_system.h"
 #include "io/hdfs_util.h"
 #include "io/io_common.h"
+#include "io/object_storage/obj_storage_config_parser.h"
 #include "load/memtable/memtable_flush_executor.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/cache_manager.h"
@@ -124,37 +125,22 @@ CloudStorageEngine::~CloudStorageEngine() {
     stop();
 }
 
-static Status vault_process_error(std::string_view id,
-                                  std::variant<S3Conf, cloud::HdfsVaultInfo>& vault, Status err) {
-    std::stringstream ss;
-    std::visit(
-            [&]<typename T>(T& val) {
-                if constexpr (std::is_same_v<T, S3Conf>) {
-                    ss << val.to_string();
-                } else if constexpr (std::is_same_v<T, cloud::HdfsVaultInfo>) {
-                    val.SerializeToOstream(&ss);
-                }
-            },
-            vault);
-    return Status::IOError("Invalid vault, id {}, err {}, detail conf {}", id, err, ss.str());
-}
-
 struct VaultCreateFSVisitor {
     VaultCreateFSVisitor(const std::string& id, const cloud::StorageVaultPB_PathFormat& path_format,
                          bool check_fs)
             : id(id), path_format(path_format), check_fs(check_fs) {}
-    Status operator()(const S3Conf& s3_conf) const {
-        LOG(INFO) << "get new s3 info: " << s3_conf.to_string() << " resource_id=" << id
-                  << " check_fs: " << check_fs;
+    Status operator()(const ObjStorageResourceConfig& storage_config) const {
+        LOG(INFO) << "get new s3 info: " << obj_storage_config_to_string(storage_config.client)
+                  << " resource_id=" << id << " check_fs: " << check_fs;
 
-        auto fs = DORIS_TRY(io::S3FileSystem::create(s3_conf, id));
-        if (check_fs && !s3_conf.client_conf.role_arn.empty()) {
+        auto fs = DORIS_TRY(io::ObjStorageFileSystem::create(storage_config, id));
+        if (check_fs) {
             bool res = false;
             // just check connectivity, not care object if exist
             auto st = fs->exists("not_exist_object", &res);
             if (!st.ok()) {
                 LOG(FATAL) << "failed to check s3 fs, resource_id: " << id << " st: " << st
-                           << "s3_conf: " << s3_conf.to_string()
+                           << "s3_conf: " << obj_storage_config_to_string(storage_config.client)
                            << "add enable_check_storage_vault=false to be.conf to skip the check";
             }
         }
@@ -184,11 +170,16 @@ struct RefreshFSVaultVisitor {
                           const cloud::StorageVaultPB_PathFormat& path_format)
             : id(id), fs(std::move(fs)), path_format(path_format) {}
 
-    Status operator()(const S3Conf& s3_conf) const {
-        DCHECK_EQ(fs->type(), io::FileSystemType::S3) << id;
-        auto s3_fs = std::static_pointer_cast<io::S3FileSystem>(fs);
-        auto client_holder = s3_fs->client_holder();
-        auto st = client_holder->reset(s3_conf.client_conf);
+    Status operator()(const ObjStorageResourceConfig& storage_config) const {
+        if (fs->type() != io::FileSystemType::OBJECT_STORAGE) {
+            return VaultCreateFSVisitor {id, path_format, false}(storage_config);
+        }
+        auto obj_fs = std::static_pointer_cast<io::ObjStorageFileSystem>(fs);
+        if (!obj_fs->same_target(storage_config)) {
+            return VaultCreateFSVisitor {id, path_format, false}(storage_config);
+        }
+        auto client_holder = obj_fs->client_holder();
+        auto st = client_holder->reset(storage_config.client);
         if (!st.ok()) {
             LOG(WARNING) << "failed to update s3 fs, resource_id=" << id << ": " << st;
         }
@@ -456,6 +447,9 @@ Status CloudStorageEngine::start_bg_threads(std::shared_ptr<WorkloadGroup> wg_sp
 }
 
 void CloudStorageEngine::sync_storage_vault() {
+    // The periodic refresh and a lookup for a missing vault can overlap. Serialize the fetch as
+    // well as publication, so an older metadata snapshot cannot overwrite newer credentials.
+    std::lock_guard lock(_sync_storage_vault_mutex);
     cloud::StorageVaultInfos vault_infos;
     bool enable_storage_vault = false;
 
@@ -481,20 +475,29 @@ void CloudStorageEngine::sync_storage_vault() {
 
     for (auto& [id, vault_info, path_format] : vault_infos) {
         auto fs = get_filesystem(id);
-        auto status =
-                (fs == nullptr)
-                        ? std::visit(VaultCreateFSVisitor {id, path_format, check_storage_vault},
-                                     vault_info)
-                        : std::visit(RefreshFSVaultVisitor {id, std::move(fs), path_format},
-                                     vault_info);
-        if (!status.ok()) [[unlikely]] {
-            LOG(WARNING) << vault_process_error(id, vault_info, std::move(st));
+        auto apply = [&](const auto& config, bool check_fs) {
+            if (fs) {
+                return RefreshFSVaultVisitor {id, fs, path_format}(config);
+            }
+            return VaultCreateFSVisitor {id, path_format, check_fs}(config);
+        };
+        Status status;
+        if (auto* info = std::get_if<cloud::ObjectStoreInfoPB>(&vault_info)) {
+            auto resource = ObjStorageConfigParser::from_vault(*info);
+            status = resource ? apply(*resource, check_storage_vault && !info->role_arn().empty())
+                              : std::move(resource).error();
+        } else {
+            status = apply(std::get<cloud::HdfsVaultInfo>(vault_info), false);
+        }
+        if (!status.ok()) {
+            LOG(WARNING) << "failed to refresh storage vault " << id << ": " << status;
         }
     }
 
-    if (auto& id = std::get<0>(vault_infos.back());
-        (latest_fs() == nullptr || latest_fs()->id() != id) && !enable_storage_vault) {
-        set_latest_fs(get_filesystem(id));
+    if (!enable_storage_vault) {
+        if (auto latest = get_filesystem(std::get<0>(vault_infos.back()))) {
+            set_latest_fs(std::move(latest));
+        }
     }
 }
 

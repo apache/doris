@@ -45,6 +45,7 @@
 #include "common/metrics/metrics.h"
 #include "common/metrics/system_metrics.h"
 #include "common/status.h"
+#include "io/object_storage/obj_storage_rate_limiter_manager.h"
 #include "load/memtable/memtable_memory_limiter.h"
 #include "runtime/be_proc_monitor.h"
 #include "runtime/exec_env.h"
@@ -60,7 +61,6 @@
 #include "util/algorithm_util.h"
 #include "util/mem_info.h"
 #include "util/perf_counters.h"
-#include "util/s3_rate_limiter_manager.h"
 #include "util/time.h"
 
 namespace doris {
@@ -590,7 +590,7 @@ void Daemon::s3_rate_limiter_refresh_thread() {
     // own parameters, so quiet iterations are cheap no-ops.
     while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(10))) {
         if (config::enable_s3_rate_limiter) {
-            S3RateLimiterManager::instance().refresh();
+            ObjStorageRateLimiterManager::instance().refresh();
         }
     }
 }

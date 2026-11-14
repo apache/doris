@@ -17,9 +17,14 @@
 
 #include <gtest/gtest.h>
 
-#include "cpp/obj-client/obj_storage_client.h"
+#include <cstdlib>
+#include <map>
+
+#include "cpp/obj-storage/client/obj_storage_client.h"
 #include "io/fs/file_system.h"
-#include "util/s3_util.h"
+#include "io/object_storage/obj_storage_client_factory.h"
+#include "io/object_storage/obj_storage_config_parser.h"
+#include "util/s3_uri.h"
 
 namespace doris {
 
@@ -30,37 +35,32 @@ protected:
     static std::string prefix;
 
     static void SetUpTestSuite() {
-        if (!std::getenv("AWS_ROLE_ARN") || !std::getenv("AWS_EXTERNAL_ID") ||
-            !std::getenv("AWS_ENDPOINT") || !std::getenv("AWS_REGION")) {
+        auto* role_arn = std::getenv("AWS_ROLE_ARN");
+        auto* external_id = std::getenv("AWS_EXTERNAL_ID");
+        auto* endpoint = std::getenv("AWS_ENDPOINT");
+        auto* region = std::getenv("AWS_REGION");
+        auto* bucket_name = std::getenv("AWS_BUCKET");
+        if (!role_arn || !external_id || !endpoint || !region || !bucket_name || !*bucket_name) {
             return;
         }
 
-        std::string role_arn = std::getenv("AWS_ROLE_ARN");
-        std::string external_id = std::getenv("AWS_EXTERNAL_ID");
-        std::string endpoint = std::getenv("AWS_ENDPOINT");
-        std::string region = std::getenv("AWS_REGION");
-
-        S3ObjStorageClientRoleTest::bucket = std::getenv("AWS_BUCKET");
-
-        S3ObjStorageClientRoleTest::bucket = std::getenv("AWS_BUCKET");
-        if (!std::getenv("AWS_PREFIX")) {
-            S3ObjStorageClientRoleTest::prefix = "";
-        } else {
-            S3ObjStorageClientRoleTest::prefix = std::getenv("AWS_PREFIX");
+        bucket = bucket_name;
+        if (auto* key_prefix = std::getenv("AWS_PREFIX")) {
+            prefix = key_prefix;
         }
 
-        auto client_result = S3ClientFactory::instance().create(
-                {.endpoint = endpoint,
-                 .region = region,
-                 .ak = "",
-                 .sk = "",
-                 .token = "",
-                 .bucket = bucket,
-                 .provider = ObjStorageProvider::AWS,
-                 .use_virtual_addressing = false,
-                 .cred_provider_type = CredProviderType::InstanceProfile,
-                 .role_arn = role_arn,
-                 .external_id = external_id});
+        S3URI uri("s3://" + bucket);
+        ASSERT_TRUE(uri.parse().ok());
+        const std::map<std::string, std::string> properties {
+                {"provider", "AWS"},
+                {"AWS_ENDPOINT", endpoint},
+                {"AWS_REGION", region},
+                {"AWS_ROLE_ARN", role_arn},
+                {"AWS_EXTERNAL_ID", external_id},
+                {"AWS_CREDENTIALS_PROVIDER_TYPE", "INSTANCE_PROFILE"},
+                {"use_path_style", "true"}};
+        auto config = TEST_TRY(ObjStorageConfigParser::from_properties(properties, uri));
+        auto client_result = ObjStorageClientFactory::instance().create(config.client);
         ASSERT_TRUE(client_result.has_value()) << client_result.error();
         S3ObjStorageClientRoleTest::obj_storage_client = std::move(client_result).value();
     }

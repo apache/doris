@@ -18,6 +18,7 @@
 #include <memory>
 #include <string>
 
+#include "cpp/obj-storage/client/obj_storage_client_builder.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/phdr_cache.h"
@@ -87,6 +88,7 @@ int main(int argc, char** argv) {
     }
 
     doris::init_glog("be-test");
+    doris::initialize_obj_storage_sdks(doris::config::aws_log_level, doris::config::azure_log_level);
     ::testing::InitGoogleTest(&argc, argv);
 
     doris::CpuInfo::init();

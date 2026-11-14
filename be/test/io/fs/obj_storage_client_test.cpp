@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "cpp/obj-client/obj_storage_client.h"
+#include "cpp/obj-storage/client/obj_storage_client.h"
 
 #include <gtest/gtest.h>
 
@@ -100,7 +100,8 @@ public:
         return page;
     }
 
-    ObjStorageResponse delete_objects(const ObjStoragePath&, std::vector<std::string>) override {
+    ObjStorageResponse delete_objects_batch(const ObjStoragePath&,
+                                            std::span<std::string>) override {
         ++calls;
         return ObjStorageResponse::OK();
     }

@@ -138,15 +138,16 @@ TEST(S3RateLimiterHolderTest, BvarMetric) {
 
 TEST(S3RateLimiterHolderTest, ApplyS3RateLimitRecordsRejectedMetric) {
     auto rate_limiter_holder = doris::S3RateLimiterHolder(
-            125, 250, 1, doris::s3_rate_limiter_metric_func(doris::S3RateLimitType::PUT));
+            125, 250, 1, doris::s3_rate_limiter_metric_func(doris::ObjStorageRateLimitType::PUT));
     auto rejected_count = doris::s3_put_rate_limit_rejected_count.get_value();
 
-    int64_t sleep_time =
-            doris::apply_s3_rate_limit(doris::S3RateLimitType::PUT, &rate_limiter_holder, 1);
+    int64_t sleep_time = doris::apply_s3_rate_limit(doris::ObjStorageRateLimitType::PUT,
+                                                    &rate_limiter_holder, 1);
     EXPECT_EQ(sleep_time, 0);
     EXPECT_EQ(doris::s3_put_rate_limit_rejected_count.get_value(), rejected_count);
 
-    sleep_time = doris::apply_s3_rate_limit(doris::S3RateLimitType::PUT, &rate_limiter_holder, 1);
+    sleep_time = doris::apply_s3_rate_limit(doris::ObjStorageRateLimitType::PUT,
+                                            &rate_limiter_holder, 1);
     EXPECT_EQ(sleep_time, -1);
     EXPECT_EQ(doris::s3_put_rate_limit_rejected_count.get_value(), rejected_count + 1);
 }

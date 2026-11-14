@@ -29,13 +29,13 @@
 #include "cloud/config.h"
 #include "common/config.h"
 #include "core/block/block.h"
-#include "cpp/obj-client/s3_obj_storage_client.h"
+#include "cpp/obj-storage/client/s3_obj_storage_client.h"
 #include "cpp/sync_point.h"
 #include "io/cache/block_file_cache_factory.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
-#include "io/fs/s3_file_system.h"
-#include "io/fs/s3_file_writer.h"
+#include "io/fs/obj_storage_file_system.h"
+#include "io/fs/obj_storage_file_writer.h"
 #include "io/io_common.h"
 #include "runtime/exec_env.h"
 #include "storage/index/inverted/clucene/inverted_index_writer.h"
@@ -164,25 +164,27 @@ protected:
         ASSERT_TRUE(tmp_file_dirs->init().ok());
         ExecEnv::GetInstance()->set_tmp_file_dir(std::move(tmp_file_dirs));
 
-        if (ExecEnv::GetInstance()->s3_file_upload_thread_pool() == nullptr) {
+        if (ExecEnv::GetInstance()->obj_storage_upload_thread_pool() == nullptr) {
             std::unique_ptr<ThreadPool> pool;
             ASSERT_TRUE(ThreadPoolBuilder("cloud_file_cache_write_index_only_s3_upload")
                                 .set_min_threads(1)
                                 .set_max_threads(4)
                                 .build(&pool)
                                 .ok());
-            ExecEnv::GetInstance()->_s3_file_upload_thread_pool = std::move(pool);
-            _created_s3_upload_pool = true;
+            ExecEnv::GetInstance()->_obj_storage_upload_thread_pool = std::move(pool);
+            _created_upload_pool = true;
         }
 
-        S3Conf s3_conf;
-        s3_conf.client_conf.ak = "fake_ak";
-        s3_conf.client_conf.sk = "fake_sk";
-        s3_conf.client_conf.endpoint = "fake_s3_endpoint";
-        s3_conf.client_conf.region = "fake_s3_region";
-        s3_conf.bucket = "fake_s3_bucket";
-        s3_conf.prefix = "cloud_file_cache_write_index_only_e2e";
-        auto fs = io::S3FileSystem::create(std::move(s3_conf), "cloud-file-cache-index-only-ut-fs");
+        ObjStorageResourceConfig s3_conf {
+                .bucket = "fake_s3_bucket",
+                .prefix = "cloud_file_cache_write_index_only_e2e",
+                .client = AwsObjStorageConfig {
+                        .connection = {.endpoint = "fake_s3_endpoint"},
+                        .auth = {.source = AccessKeyObjStorageAuth {.access_key = "fake_ak",
+                                                                    .secret_key = "fake_sk"}},
+                        .region = "fake_s3_region"}};
+        auto fs = io::ObjStorageFileSystem::create(std::move(s3_conf),
+                                                   "cloud-file-cache-index-only-ut-fs");
         ASSERT_TRUE(fs.has_value()) << fs.error();
         _remote_fs = fs.value();
 
@@ -201,8 +203,8 @@ protected:
         _engine = nullptr;
         ExecEnv::GetInstance()->set_storage_engine(nullptr);
 
-        if (_created_s3_upload_pool) {
-            ExecEnv::GetInstance()->_s3_file_upload_thread_pool.reset();
+        if (_created_upload_pool) {
+            ExecEnv::GetInstance()->_obj_storage_upload_thread_pool.reset();
         }
         ExecEnv::GetInstance()->set_tmp_file_dir(nullptr);
 
@@ -334,14 +336,14 @@ protected:
         sp->set_call_back(
                 "s3_client_factory::create",
                 [](auto&& args) {
-                    auto* ret = try_any_cast_ret<std::shared_ptr<io::S3ObjStorageClient>>(args);
+                    auto* ret = try_any_cast_ret<doris::ObjStorageClientBuildResult>(args);
                     ret->second = true;
                 },
                 s3_client_guard);
         sp->set_call_back(
                 "S3FileWriter::_put_object",
                 [created_files](auto&& args) {
-                    auto* writer = try_any_cast<io::S3FileWriter*>(args[0]);
+                    auto* writer = try_any_cast<io::ObjStorageFileWriter*>(args[0]);
                     for (auto& file : *created_files) {
                         if (has_suffix(writer->path().native(), file.path)) {
                             file.bytes_appended = writer->bytes_appended();
@@ -363,7 +365,8 @@ protected:
                     created_files->push_back(CreatedS3File {
                             .path = *path,
                             .file_type = *file_type,
-                            .is_s3_writer = dynamic_cast<io::S3FileWriter*>(writer) != nullptr,
+                            .is_s3_writer =
+                                    dynamic_cast<io::ObjStorageFileWriter*>(writer) != nullptr,
                             .has_cache_builder = writer->cache_builder() != nullptr,
                             .write_file_cache = opts->write_file_cache,
                             .allow_adaptive_file_cache_write =
@@ -484,11 +487,11 @@ protected:
     }
 
     StorageEngine* _engine = nullptr;
-    std::shared_ptr<io::S3FileSystem> _remote_fs;
+    std::shared_ptr<io::ObjStorageFileSystem> _remote_fs;
 
     io::FileCacheFactory* _origin_file_cache_factory = nullptr;
     std::unique_ptr<io::FileCacheFactory> _owned_file_cache_factory;
-    bool _created_s3_upload_pool = false;
+    bool _created_upload_pool = false;
 
     bool _origin_index_only = false;
     bool _origin_enable_file_cache = false;
@@ -569,14 +572,16 @@ TEST_F(CloudFileCacheWriteIndexOnlyConfigTest,
     config::enable_file_cache_write_index_file_only = true;
     config::cloud_unique_id = "cloud_file_cache_empty_range_ut";
 
-    S3Conf s3_conf;
-    s3_conf.client_conf.ak = "fake_ak";
-    s3_conf.client_conf.sk = "fake_sk";
-    s3_conf.client_conf.endpoint = "fake_s3_endpoint";
-    s3_conf.client_conf.region = "fake_s3_region";
-    s3_conf.bucket = "fake_s3_bucket";
-    s3_conf.prefix = "cloud_file_cache_empty_range_ut";
-    auto fs = io::S3FileSystem::create(std::move(s3_conf), "cloud-file-cache-empty-range-ut-fs");
+    ObjStorageResourceConfig s3_conf {
+            .bucket = "fake_s3_bucket",
+            .prefix = "cloud_file_cache_empty_range_ut",
+            .client = AwsObjStorageConfig {
+                    .connection = {.endpoint = "fake_s3_endpoint"},
+                    .auth = {.source = AccessKeyObjStorageAuth {.access_key = "fake_ak",
+                                                                .secret_key = "fake_sk"}},
+                    .region = "fake_s3_region"}};
+    auto fs = io::ObjStorageFileSystem::create(std::move(s3_conf),
+                                               "cloud-file-cache-empty-range-ut-fs");
     ASSERT_TRUE(fs.has_value()) << fs.error();
 
     int open_file_count = 0;

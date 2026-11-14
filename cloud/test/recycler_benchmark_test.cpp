@@ -545,7 +545,7 @@ protected:
                                                        txn_lazy_committer_);
 
         if (load_benchmark_s3_config().enabled) {
-            auto s3_conf = S3Conf::from_obj_store_info(instance_.obj_info(0));
+            auto s3_conf = parse_recycler_storage_config(instance_.obj_info(0));
             ASSERT_TRUE(s3_conf.has_value());
 
             std::shared_ptr<S3Accessor> accessor;

@@ -26,13 +26,15 @@
 #include <string>
 #include <vector>
 
+#include "common/config.h"
 #include "core/column/column_const.h"
 #include "core/data_type/data_type_jsonb.h"
 #include "core/data_type/data_type_number.h"
 #include "core/value/jsonb_value.h"
-#include "cpp/obj-client/obj_storage_client.h"
+#include "cpp/obj-storage/client/obj_storage_client.h"
 #include "exprs/function/ai/ai_adapter.h"
 #include "exprs/function/simple_function_factory.h"
+#include "io/object_storage/obj_storage_client_factory.h"
 #include "runtime/runtime_profile.h"
 #include "testutil/column_helper.h"
 #include "testutil/mock/mock_runtime_state.h"
@@ -86,8 +88,8 @@ public:
         return {.resp = io::ObjStorageResponse::OK()};
     }
 
-    io::ObjStorageResponse delete_objects(const io::ObjStoragePath& /*opts*/,
-                                          std::vector<std::string> /*objs*/) override {
+    io::ObjStorageResponse delete_objects_batch(const io::ObjStoragePath& /*opts*/,
+                                                std::span<std::string> /*objs*/) override {
         return io::ObjStorageResponse::OK();
     }
 
@@ -104,7 +106,7 @@ public:
 
     io::ObjStoragePath last_opts;
     int64_t last_expiration_secs = 0;
-    S3ClientConf last_conf;
+    ObjStorageClientConfig last_conf;
 };
 
 class CountingMultimodalMockAdapter : public MockAdapter {
@@ -774,8 +776,8 @@ TEST(EMBED_TEST, embed_function_multimodal_s3_presigned_url) {
     auto ctx = FunctionContext::create_context(&runtime_state, {}, {});
 
     auto mock_client = std::make_shared<MockEmbedObjStorageClient>();
-    S3ClientFactory::instance().set_client_creator_for_test(
-            [mock_client](const S3ClientConf& conf) {
+    ObjStorageClientFactory::instance().set_client_creator_for_test(
+            [mock_client](const ObjStorageClientConfig& conf) {
                 mock_client->last_conf = conf;
                 return mock_client;
             });
@@ -810,7 +812,7 @@ TEST(EMBED_TEST, embed_function_multimodal_s3_presigned_url) {
     Status exec_status = embed_func->execute_impl(ctx.get(), block, arguments, result_idx,
                                                   file_json_rows.size());
 
-    S3ClientFactory::instance().clear_client_creator_for_test();
+    ObjStorageClientFactory::instance().clear_client_creator_for_test();
 
     ASSERT_TRUE(exec_status.ok()) << exec_status.to_string();
     const auto& col_array =
@@ -820,12 +822,14 @@ TEST(EMBED_TEST, embed_function_multimodal_s3_presigned_url) {
     ASSERT_EQ(mock_client->last_opts.bucket, "test-bucket");
     ASSERT_EQ(mock_client->last_opts.key, "path/to/image.png");
     ASSERT_EQ(mock_client->last_expiration_secs, 123);
-    ASSERT_EQ(mock_client->last_conf.endpoint, "cos.ap-beijing.myqcloud.com");
-    ASSERT_EQ(mock_client->last_conf.region, "ap-beijing");
-    ASSERT_EQ(mock_client->last_conf.ak, "test-ak");
-    ASSERT_EQ(mock_client->last_conf.sk, "test-sk");
-    ASSERT_EQ(mock_client->last_conf.role_arn, "test-role");
-    ASSERT_EQ(mock_client->last_conf.external_id, "test-external-id");
+    const auto& s3 = std::get<AwsObjStorageConfig>(mock_client->last_conf);
+    EXPECT_EQ(s3.connection.endpoint,
+              config::s3_client_http_scheme + "://cos.ap-beijing.myqcloud.com");
+    ASSERT_EQ(s3.region, "ap-beijing");
+    const auto& keys = std::get<AccessKeyObjStorageAuth>(s3.auth.source);
+    EXPECT_EQ(keys.access_key, "test-ak");
+    EXPECT_EQ(keys.secret_key, "test-sk");
+    EXPECT_FALSE(s3.auth.assume_role);
 }
 
 TEST(EMBED_TEST, embed_function_multimodal_s3_missing_endpoint) {

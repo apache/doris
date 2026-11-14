@@ -17,7 +17,6 @@
 
 #include "cpp/util.h"
 
-#include <aws/core/client/ClientConfiguration.h>
 #include <bthread/countdown_event.h>
 
 #include <stdexcept>
@@ -445,31 +444,22 @@ TEST(UtilTest, test_normalize_http_uri) {
               "https://example.com/path?query=value#fragment");
 }
 
-TEST(UtilTest, test_set_s3_client_default_http_scheme) {
-    doris::cloud::S3Environment::getInstance();
-    Aws::Client::ClientConfiguration client_config =
-            doris::cloud::S3Environment::getClientConfiguration();
-
-    client_config.endpointOverride = "example.com:9000";
-    doris::set_s3_client_default_http_scheme(client_config, "http");
-    EXPECT_EQ(client_config.endpointOverride, "example.com:9000");
-    EXPECT_EQ(client_config.scheme, Aws::Http::Scheme::HTTP);
-
-    doris::set_s3_client_default_http_scheme(client_config, "https");
-    EXPECT_EQ(client_config.endpointOverride, "example.com:9000");
-    EXPECT_EQ(client_config.scheme, Aws::Http::Scheme::HTTPS);
-
-    client_config.endpointOverride = "http://example.com:9000";
-    client_config.scheme = Aws::Http::Scheme::HTTP;
-    doris::set_s3_client_default_http_scheme(client_config, "https");
-    EXPECT_EQ(client_config.endpointOverride, "http://example.com:9000");
-    EXPECT_EQ(client_config.scheme, Aws::Http::Scheme::HTTP);
-
-    client_config.endpointOverride = "https://example.com:9000";
-    client_config.scheme = Aws::Http::Scheme::HTTPS;
-    doris::set_s3_client_default_http_scheme(client_config, "http");
-    EXPECT_EQ(client_config.endpointOverride, "https://example.com:9000");
-    EXPECT_EQ(client_config.scheme, Aws::Http::Scheme::HTTPS);
+TEST(UtilTest, RecyclerPreservesExplicitEndpointScheme) {
+    doris::ensure_aws_sdk_initialized(config::aws_log_level);
+    ObjectStoreInfoPB vault;
+    vault.set_provider(ObjectStoreInfoPB::S3);
+    vault.set_bucket("bucket");
+    vault.set_region("us-east-1");
+    for (const std::string endpoint : {"example.com:9000", "http://example.com:9000",
+                                       "https://example.com:9000"}) {
+        vault.set_endpoint(endpoint);
+        auto resource = parse_recycler_storage_config(vault);
+        ASSERT_TRUE(resource.has_value());
+        const auto expected = endpoint.find("://") == std::string::npos
+                                      ? config::s3_client_http_scheme + "://" + endpoint
+                                      : endpoint;
+        EXPECT_EQ(doris::obj_storage_connection(resource->client).endpoint, expected);
+    }
 }
 
 TEST(UtilTest, test_long_normalize_http_uri) {

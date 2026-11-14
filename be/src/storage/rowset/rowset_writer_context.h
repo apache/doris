@@ -247,7 +247,7 @@ struct RowsetWriterContext {
             }
         }();
 
-        bool is_s3_fs = fs->type() == io::FileSystemType::S3;
+        bool is_obj_storage_fs = fs->type() == io::FileSystemType::OBJECT_STORAGE;
 
         auto algorithm = encrypt_algorithm;
 
@@ -282,7 +282,8 @@ struct RowsetWriterContext {
 
         // Only enable merge file for S3 file system, not for HDFS or other remote file systems
         packed_file_active = allow_packed_file && config::is_cloud_mode() &&
-                             config::enable_packed_file && !has_v1_inverted_index && is_s3_fs;
+                             config::enable_packed_file && !has_v1_inverted_index &&
+                             is_obj_storage_fs;
 
         if (packed_file_active) {
             io::PackedAppendContext append_info;

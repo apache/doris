@@ -15,14 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "io/fs/gcs_signed_url_provider.h"
+#include "cpp/obj-storage/auth/gcp/gcs_signed_url_provider.h"
 
 #include <gtest/gtest.h>
 
 #include <chrono>
 #include <utility>
 
-#include "cpp/obj-client/auth/gcp/gcp_token_provider.h"
+#include "cpp/obj-storage/auth/gcp/gcp_token_provider.h"
 #include "cpp/sync_point.h"
 
 namespace doris::io {
@@ -47,7 +47,6 @@ class GcsSignedUrlProviderTest : public testing::Test {
 protected:
     void TearDown() override {
         SyncPoint::get_instance()->clear_call_back("GcsV4Signer::sign_blob");
-        SyncPoint::get_instance()->clear_call_back("HttpClient::set_ca_cert_file");
         SyncPoint::get_instance()->disable_processing();
     }
 };
@@ -64,7 +63,7 @@ TEST_F(GcsSignedUrlProviderTest, DefaultSignsErrorLogWithResolvedIdentity) {
                           "vm@my-project.iam.gserviceaccount.com");
                 EXPECT_EQ(try_any_cast<std::string_view>(args[2]).find("GOOG4-RSA-SHA256"), 0);
                 *try_any_cast<std::string*>(args[3]) = "test-signature";
-                auto* result = try_any_cast_ret<Status>(args);
+                auto* result = try_any_cast_ret<google::cloud::Status>(args);
                 result->second = true;
             });
     SyncPoint::get_instance()->enable_processing();
@@ -93,15 +92,11 @@ TEST_F(GcsSignedUrlProviderTest, SignBlobUsesConfiguredCaBundle) {
                                            .ca_cert_file_path = "/custom/certs/proxy-ca.pem"};
     bool called = false;
     SyncPoint::get_instance()->set_call_back(
-            "HttpClient::set_ca_cert_file", [&](std::vector<std::any>&& args) {
-                called = true;
-                EXPECT_EQ(*try_any_cast<const std::string*>(args[0]), options.ca_cert_file_path);
-            });
-    SyncPoint::get_instance()->set_call_back(
             "GcsV4Signer::sign_blob", [&](std::vector<std::any>&& args) {
-                // Exercise HTTP client setup but avoid sending a live IAM request.
+                called = true;
+                EXPECT_EQ(*try_any_cast<const std::string*>(args[4]), options.ca_cert_file_path);
                 *try_any_cast<std::string*>(args[3]) = "test-signature";
-                try_any_cast_ret<Status>(args)->second = true;
+                try_any_cast_ret<google::cloud::Status>(args)->second = true;
             });
     SyncPoint::get_instance()->enable_processing();
     std::string url;

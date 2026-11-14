@@ -24,9 +24,10 @@
 #include <string>
 #include <unordered_map>
 
+#include "common/config.h"
 #include "common/status.h"
+#include "cpp/aws_common.h"
 #include "testutil/container_credentials_endpoint.h"
-#include "util/s3_util.h"
 
 namespace doris {
 
@@ -36,14 +37,6 @@ protected:
         // Setup test configuration
         config.region = "us-east-1";
     }
-
-    // Nothing in this binary initialises the AWS SDK on its own - neither BE-UT's main() nor this
-    // file - and without Aws::InitAPI there is no HTTP client factory, so a credentials provider
-    // quietly returns nothing instead of making a request. Constructing the S3 client factory is
-    // the cheapest in-tree way to get InitAPI called, exactly once per process, and it is the same
-    // trick the S3 client factory tests use. Only the tests that drive a real fetch need it, so it
-    // stays out of SetUp() where it would change what the older tests in this file do.
-    static void ensure_aws_sdk_initialized() { (void)S3ClientFactory::instance(); }
 
     AwsMskIamAuth::Config config;
 };
@@ -227,7 +220,7 @@ TEST_F(AwsMskIamAuthTest, TestOAuthCallbackCreationWithExternalIdWithoutRoleArn)
 }
 
 TEST_F(AwsMskIamAuthTest, ContainerProviderReadsTokenFileForPodIdentity) {
-    ensure_aws_sdk_initialized();
+    ensure_aws_sdk_initialized(doris::config::aws_log_level);
 
     ContainerCredentialsEndpoint endpoint;
     ASSERT_TRUE(endpoint.start());
@@ -251,7 +244,7 @@ TEST_F(AwsMskIamAuthTest, ContainerProviderReadsTokenFileForPodIdentity) {
 }
 
 TEST_F(AwsMskIamAuthTest, EcsProviderAliasReachesContainerCredentialsEndpoint) {
-    ensure_aws_sdk_initialized();
+    ensure_aws_sdk_initialized(doris::config::aws_log_level);
 
     ContainerCredentialsEndpoint endpoint;
     ASSERT_TRUE(endpoint.start());

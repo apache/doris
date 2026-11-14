@@ -48,6 +48,7 @@
 #include "format_v2/column_data.h"
 #include "format_v2/table_reader.h"
 #include "io/io_common.h"
+#include "io/object_storage/obj_storage_client_factory.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_profile.h"
@@ -55,7 +56,6 @@
 #include "testutil/mock/obj_storage_client_test_stub.h"
 #include "testutil/scoped_temp_dir.h"
 #include "util/defer_op.h"
-#include "util/s3_util.h"
 #include "util/threadpool.h"
 
 namespace doris::format::json {
@@ -107,8 +107,8 @@ public:
         return unexpected_operation();
     }
 
-    io::ObjStorageResponse delete_objects(const io::ObjStoragePath&,
-                                          std::vector<std::string>) override {
+    io::ObjStorageResponse delete_objects_batch(const io::ObjStoragePath&,
+                                                std::span<std::string>) override {
         return unexpected_operation();
     }
 
@@ -607,7 +607,7 @@ TEST_P(JsonReaderPrefetchTest, ClosePublishesReadStatisticsOnce) {
         env->_buffered_reader_prefetch_thread_pool.reset();
         env->_buffered_reader_prefetch_thread_pool = std::move(saved_pool);
         config::in_memory_file_size = saved_in_memory_size;
-        S3ClientFactory::instance().clear_client_creator_for_test();
+        ObjStorageClientFactory::instance().clear_client_creator_for_test();
     });
     ASSERT_TRUE(ThreadPoolBuilder("JsonPrefetchTest")
                         .set_min_threads(1)
@@ -617,8 +617,8 @@ TEST_P(JsonReaderPrefetchTest, ClosePublishesReadStatisticsOnce) {
     // A small fixture must still use prefetch rather than the in-memory S3 optimization.
     config::in_memory_file_size = 0;
     auto client = std::make_shared<JsonPrefetchS3Client>();
-    S3ClientFactory::instance().set_client_creator_for_test(
-            [client](const S3ClientConf&) { return client; });
+    ObjStorageClientFactory::instance().set_client_creator_for_test(
+            [client](const ObjStorageClientConfig&) { return client; });
     auto properties = std::make_shared<io::FileSystemProperties>();
     properties->system_type = TFileType::FILE_S3;
     properties->properties = {{"AWS_ENDPOINT", "http://json-prefetch.invalid"},

@@ -287,6 +287,7 @@ private:
             std::unordered_map<std::string_view, std::shared_ptr<CloudCumulativeCompactionPolicy>>;
     CumuPolices _cumulative_compaction_policies;
 
+    std::mutex _sync_storage_vault_mutex;
     std::atomic_bool first_sync_storage_vault {true};
 
     EngineOptions _options;
