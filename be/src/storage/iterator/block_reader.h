@@ -32,7 +32,8 @@
 #include "core/data_type/data_type.h"
 #include "exprs/aggregate/aggregate_function.h"
 #include "storage/changelog_types.h"
-#include "storage/iterator/vcollect_iterator.h"
+#include "storage/iterator/merged_row_cursor.h"
+#include "storage/iterators.h"
 #include "storage/rowset/rowset_reader.h"
 #include "storage/tablet/tablet_reader.h"
 
@@ -50,7 +51,9 @@ public:
     Status next_block_with_aggregation(Block* block, bool* eof) override;
 
     void update_profile(RuntimeProfile* profile) override {
-        return _vcollect_iter.update_profile(profile);
+        if (_rows_iter != nullptr) {
+            _rows_iter->update_profile(profile);
+        }
     }
 
     // Returns the configured preferred output block byte budget; 0 when adaptive is disabled.
@@ -64,10 +67,6 @@ private:
     Status _direct_next_block(Block* block, bool* eof);
     // For normal AGGREGATE KEY tables, read data by a merge heap.
     Status _agg_key_next_block(Block* block, bool* eof);
-    // For UNIQUE KEY tables, read data by a merge heap.
-    // The difference from _agg_key_next_block is that it will read the data from high version to low version,
-    // to minimize the comparison time in merge heap.
-    Status _unique_key_next_block(Block* block, bool* eof);
 
     Status _min_delta_next_block(Block* block, bool* eof);
 
@@ -87,7 +86,29 @@ private:
 
     Status _replace_key_next_block(Block* block, bool* eof);
 
-    Status _init_collect_iter(const ReaderParams& read_params);
+    // Set up `_rows_iter`, the rows of every rowset of the read: merged by one VHeapMergeIterator
+    // when the rowsets overlap and the read needs them merged, one rowset after another
+    // otherwise, or the TopN rows of an ORDER BY key LIMIT n read.
+    Status _init_rows_iter(const ReaderParams& read_params);
+
+    // Whether the rowsets are merged with each other, which only happens when their keys overlap.
+    // Queries of DUP_KEYS and merge-on-write UNIQUE_KEYS tablets, direct-mode queries and the
+    // reads of changelog tablets read the rowsets one after another instead, unless they force
+    // key order (ORDER BY key, a MIN_DELTA changelog scan).
+    bool _merge_rowsets(const ReaderParams& read_params);
+
+    // Add the rows of the rowset of `rs_reader` to `children`, the children of the merge: its
+    // segments when the rowset reader would merge them, the rowset reader itself otherwise.
+    Status _add_merge_children(const RowsetReaderSharedPtr& rs_reader,
+                               std::vector<RowwiseIteratorUPtr>* children);
+
+    // Set up `_rows_iter` as the merge of `children`.
+    Status _init_merge(std::vector<RowwiseIteratorUPtr> children, const MergeDecision& decision,
+                       RuntimeState* runtime_state);
+
+    // The read modes that fold the rows of a key read them one at a time through `_cursor`;
+    // position it on the first row, in `_next_row`.
+    Status _init_next_row();
 
     Status _init_agg_state(const ReaderParams& read_params);
 
@@ -113,7 +134,15 @@ private:
     // return false if keys of rowsets are mono ascending and disjoint
     bool _rowsets_not_mono_asc_disjoint(const ReaderParams& read_params);
 
-    VCollectIterator _vcollect_iter;
+    // The readers of the rowsets whose segments are children of the merge, for as long as their
+    // segment iterators live: a rowset reader holds a reference on its rowset (Rowset::acquire).
+    std::vector<RowsetReaderSharedPtr> _rs_readers;
+    // Whether `_rows_iter` merges the rowsets.
+    bool _merge = false;
+    // The rows of the read.
+    RowwiseIteratorUPtr _rows_iter;
+    // `_rows_iter` one row at a time, for the read modes that fold the rows of a key.
+    std::unique_ptr<MergedRowCursor> _cursor;
     IteratorRowRef _next_row {{}, -1, false};
 
     std::vector<AggregateFunctionPtr> _agg_functions;

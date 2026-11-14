@@ -573,12 +573,9 @@ TEST_F(SegCompactionTest, SegCompactionThenRead) {
             bool eof = false;
             while (!eof) {
                 auto output_block = std::make_shared<Block>(read_schema->create_read_block());
-                std::vector<bool> row_is_same;
-                BlockWithSameBit block_with_same_bit {.block = output_block.get(),
-                                                      .same_bit = row_is_same};
-                s = rowset_reader->next_batch(&block_with_same_bit);
-                if (s != Status::OK()) {
-                    eof = true;
+                s = rowset_reader->next_batch(output_block.get());
+                if (!s.ok()) {
+                    break;
                 }
                 EXPECT_GT(output_block->rows(), 0);
                 EXPECT_EQ(return_columns.size(), output_block->columns());
@@ -1086,12 +1083,9 @@ TEST_F(SegCompactionTest, SegCompactionThenReadUniqueTableSmall) {
             bool eof = false;
             while (!eof) {
                 auto output_block = std::make_shared<Block>(read_schema->create_read_block());
-                std::vector<bool> row_is_same;
-                BlockWithSameBit block_with_same_bit {.block = output_block.get(),
-                                                      .same_bit = row_is_same};
-                s = rowset_reader->next_batch(&block_with_same_bit);
-                if (s != Status::OK()) {
-                    eof = true;
+                s = rowset_reader->next_batch(output_block.get());
+                if (!s.ok()) {
+                    break;
                 }
                 EXPECT_GT(output_block->rows(), 0);
                 EXPECT_EQ(return_columns.size(), output_block->columns());
@@ -1358,12 +1352,9 @@ TEST_F(SegCompactionTest, SegCompactionThenReadAggTableSmall) {
             bool eof = false;
             while (!eof) {
                 auto output_block = std::make_shared<Block>(read_schema->create_read_block());
-                std::vector<bool> row_is_same;
-                BlockWithSameBit block_with_same_bit {.block = output_block.get(),
-                                                      .same_bit = row_is_same};
-                s = rowset_reader->next_batch(&block_with_same_bit);
-                if (s != Status::OK()) {
-                    eof = true;
+                s = rowset_reader->next_batch(output_block.get());
+                if (!s.ok()) {
+                    break;
                 }
                 EXPECT_GT(output_block->rows(), 0);
                 EXPECT_EQ(return_columns.size(), output_block->columns());

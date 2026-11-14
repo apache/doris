@@ -34,7 +34,6 @@
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_number.h"
 #include "storage/iterator/block_reader.h"
-#include "storage/iterator/vcollect_iterator.h"
 #include "storage/iterator/vertical_block_reader.h"
 #include "storage/iterator/vertical_merge_iterator.h"
 #include "storage/tablet/tablet_schema.h"
@@ -70,19 +69,13 @@ TabletSchemaSPtr make_row_ttl_schema() {
     return schema;
 }
 
-class FakeRowTtlIterator final : public VCollectIterator::LevelIterator {
+class FakeRowTtlIterator final : public RowwiseIterator {
 public:
-    FakeRowTtlIterator(TabletReader* reader, bool fail) : LevelIterator(reader), _fail(fail) {}
+    FakeRowTtlIterator(const ReadSchema& schema, bool fail) : _schema(schema), _fail(fail) {}
 
-    Status init(bool /*get_data_by_ref*/) override { return Status::OK(); }
+    const ReadSchema& schema() const override { return _schema; }
 
-    int64_t version() const override { return 0; }
-
-    Status next(IteratorRowRef* /*ref*/) override {
-        return Status::Error<ErrorCode::END_OF_FILE>("");
-    }
-
-    Status next(Block* block) override {
+    Status next_batch(Block* block) override {
         if (_fail) {
             return Status::InternalError("injected row ttl read failure");
         }
@@ -114,11 +107,8 @@ public:
         return Status::OK();
     }
 
-    Status ensure_first_row_ref() override { return Status::OK(); }
-
-    void update_profile(RuntimeProfile* /*profile*/) override {}
-
 private:
+    const ReadSchema& _schema;
     bool _fail = false;
     bool _emitted = false;
 };
@@ -170,7 +160,7 @@ void configure_reader(BlockReader* reader, const TabletSchemaSPtr& schema, bool 
         reader->_read_schema->append_compaction_rowid_column();
     }
     reader->_next_block_func = &BlockReader::_direct_next_block;
-    reader->_vcollect_iter._inner_iter = std::make_unique<FakeRowTtlIterator>(reader, fail);
+    reader->_rows_iter = std::make_unique<FakeRowTtlIterator>(*reader->_read_schema, fail);
 }
 
 void check_surviving_keys(const Block& block) {

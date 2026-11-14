@@ -183,11 +183,31 @@ struct CompactionSampleInfo {
     int64_t null_count = 0; // Number of NULL cells in this column group
 };
 
-struct BlockWithSameBit {
-    Block* block;
-    std::vector<bool>& same_bit;
-
-    bool empty() const { return block->rows() == 0; }
+// How a VHeapMergeIterator orders the rows of its children, and whether the older versions of
+// a key are dropped above it. decide_merge() works it out from the RowsetReaderContext of a
+// read; the merge of the rowsets of a tablet and the merge of the segments of one rowset use
+// the same one.
+struct MergeDecision {
+    // Read-schema ordinals two rows are compared by. The key columns, unless the read sorts by
+    // something else: the ORDER BY prefix of a TopN read or the cluster key of a schema change.
+    std::vector<uint32_t> compare_ordinals;
+    // Whether `compare_ordinals` is the whole key, so two rows comparing equal are versions of
+    // one key.
+    bool compare_whole_key = true;
+    // The column that orders two rows of the same key, -1 without one: the sequence column (the
+    // larger value is the newer row) or the changelog TSO (the smaller one goes first,
+    // `small_sequence_first`).
+    int sequence_ordinal = -1;
+    bool small_sequence_first = false;
+    // Keys descending (ORDER BY key DESC LIMIT n).
+    bool reverse = false;
+    // Among the rows of one key and sequence value, the older one goes first; by default the
+    // newer one does.
+    bool older_first = false;
+    // Keep only the newest row of a key (merge-on-read UNIQUE_KEYS without a sequence map). The
+    // merge itself only sorts; the UniqueKeyIterator above it drops the older rows.
+    // Never set without `compare_whole_key`: rows equal on a prefix are not versions of one key.
+    bool drop_older_versions = false;
 };
 
 class RowwiseIterator;
@@ -221,16 +241,6 @@ public:
                                      demangle(typeid(*this).name()));
     }
 
-    virtual Status next_batch(BlockWithSameBit* block_with_same_bit) {
-        return Status::InternalError("should not reach here, current class: " +
-                                     demangle(typeid(*this).name()));
-    }
-
-    virtual Status next_batch(BlockView* block_view) {
-        return Status::InternalError("should not reach here, current class: " +
-                                     demangle(typeid(*this).name()));
-    }
-
     virtual Status next_row(IteratorRowRef* ref) {
         return Status::InternalError("should not reach here, current class: " +
                                      demangle(typeid(*this).name()));
@@ -240,13 +250,10 @@ public:
                                      demangle(typeid(*this).name()));
     }
 
-    virtual bool is_merge_iterator() const { return false; }
-
     // return schema for this Iterator
     virtual const ReadSchema& schema() const = 0;
 
-    // Return the data id such as segment id, used for keep the insert order when do
-    // merge sort in priority queue
+    // Return the data id such as segment id
     virtual uint64_t data_id() const { return 0; }
 
     virtual void update_profile(RuntimeProfile* profile) {}

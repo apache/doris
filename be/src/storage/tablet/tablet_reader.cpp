@@ -179,7 +179,8 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
     _reader_context.delete_handler = &_delete_handler;
     _reader_context.stats = &_stats;
     _reader_context.use_page_cache = read_params.use_page_cache;
-    _reader_context.is_unique = tablet()->keys_type() == UNIQUE_KEYS;
+    _reader_context.is_unique =
+            tablet()->keys_type() == UNIQUE_KEYS && !_tablet_schema->has_seq_map();
     _reader_context.merged_rows = &_merged_rows;
     _reader_context.delete_bitmap = read_params.delete_bitmap;
     _reader_context.enable_unique_key_merge_on_write = tablet()->enable_unique_key_merge_on_write();
@@ -390,7 +391,7 @@ Status TabletReader::_init_orderby_keys_param(const ReaderParams& read_params) {
     }
 
     // Storage TopN sorts rows by these columns, and only DUP and merge-on-write tablets set
-    // them up. Without them, fail the scan here instead of aborting later in VCollectIterator.
+    // them up. Without them, fail the scan here instead of aborting later in TopNIterator.
     if (read_params.read_orderby_key_limit > 0 && _orderby_key_columns.empty()) {
         return Status::Error<ErrorCode::INTERNAL_ERROR>(
                 "storage TopN needs order-by key columns, but none are set up: keys_type={}, "
