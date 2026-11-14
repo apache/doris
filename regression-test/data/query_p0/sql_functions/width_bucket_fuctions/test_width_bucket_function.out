@@ -108,3 +108,18 @@
 -- !select_width_bucket_5 --
 10
 
+-- !width_bucket_dense_1 --
+19
+
+-- !width_bucket_dense_2 --
+7
+
+-- !width_bucket_dense_3 --
+3
+
+-- !width_bucket_dense_4 --
+1
+
+-- !width_bucket_dense_5 --
+0
+
