@@ -955,15 +955,30 @@ public class PluginDrivenExternalTable extends ExternalTable {
      * connector already uses the view's own dialect internally to pick the SQL representation.)
      */
     public String getViewText() {
+        return getViewDefinition().getSql();
+    }
+
+    /** The statement's complete connector view definition. */
+    public ConnectorViewDefinition getViewDefinition() {
         PluginDrivenExternalCatalog pluginCatalog = (PluginDrivenExternalCatalog) catalog;
         Connector connector = pluginCatalog.getConnector();
         ConnectorSession session = pluginCatalog.buildConnectorSession();
         ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
         String dbName = db != null ? db.getRemoteName() : "";
-        ConnectorViewDefinition definition = readConnectorMetadata(
+        return readConnectorMetadata(
                 observeConnectorTableLookup(connector), session, metadata,
                 () -> metadata.getViewDefinition(session, dbName, getRemoteName()));
-        return definition.getSql();
+    }
+
+    /** Convert the captured definition without reloading a view or its cross-statement schema cache. */
+    public List<Column> getViewSchema(ConnectorViewDefinition definition) {
+        PluginDrivenExternalCatalog pluginCatalog = (PluginDrivenExternalCatalog) catalog;
+        ConnectorSession session = pluginCatalog.buildConnectorSession();
+        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, pluginCatalog.getConnector());
+        String dbName = db != null ? db.getRemoteName() : "";
+        ConnectorTableSchema schema = new ConnectorTableSchema(
+                getRemoteName(), definition.getColumns(), null, Collections.emptyMap());
+        return toSchemaCacheValue(metadata, session, dbName, getRemoteName(), schema).getSchema();
     }
 
     /**

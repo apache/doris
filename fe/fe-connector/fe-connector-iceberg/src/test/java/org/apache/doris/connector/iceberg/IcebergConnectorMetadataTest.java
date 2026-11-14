@@ -63,6 +63,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Supplier;
 
 /**
  * Characterization tests for {@link IcebergConnectorMetadata}, pinning the read-path behavior after
@@ -154,15 +156,19 @@ public class IcebergConnectorMetadataTest {
                 .setLocation("s3://warehouse/db1/v1")
                 .setCurrentVersion(version, schema)
                 .build();
+        return viewWithMetadataSupplier(() -> metadata);
+    }
+
+    private static View viewWithMetadataSupplier(Supplier<ViewMetadata> metadata) {
         return new BaseView(new ViewOperations() {
             @Override
             public ViewMetadata current() {
-                return metadata;
+                return metadata.get();
             }
 
             @Override
             public ViewMetadata refresh() {
-                return metadata;
+                return metadata.get();
             }
 
             @Override
@@ -776,17 +782,80 @@ public class IcebergConnectorMetadataTest {
 
         // WHY (H8): ONE loadView yields the sql/dialect (BindRelation / SHOW CREATE) AND the column schema
         // (DESC / SHOW COLUMNS / information_schema.columns). SQL and dialect come from the selected
-        // representation, while columns come from parseSchema(view.schema()).
+        // representation, while columns come from the schema selected by the captured version.
         Assertions.assertEquals("SELECT 1", def.getSql());
         Assertions.assertEquals("spark", def.getDialect());
+        Assertions.assertFalse(def.getDefaultCatalog().isPresent());
+        Assertions.assertEquals(Collections.singletonList("db1"), def.getDefaultNamespace().get());
         List<ConnectorColumn> cols = def.getColumns();
-        Assertions.assertEquals(2, cols.size(), "the view columns must come from parseSchema(view.schema())");
+        Assertions.assertEquals(2, cols.size(), "the view columns must come from its declared schema");
         Assertions.assertEquals("id", cols.get(0).getName());
         Assertions.assertEquals("name", cols.get(1).getName());
         Assertions.assertEquals("db1", ops.lastLoadViewDb);
         Assertions.assertEquals("v1", ops.lastLoadViewName);
         Assertions.assertEquals(Collections.singletonList("loadView:db1.v1"), ops.log,
                 "getViewDefinition must do exactly one loadView() carrying db/view verbatim");
+    }
+
+    @Test
+    public void sqlAndSchemaUseTheCapturedVersionWhenViewMetadataAdvances() {
+        ViewMetadata first = ViewMetadata.builder()
+                .setLocation("s3://warehouse/db1/v1")
+                .setCurrentVersion(viewVersionWith("spark", "spark", "SELECT 1 AS id"), idNameSchema())
+                .build();
+        ViewVersion nextVersion = ImmutableViewVersion.builder()
+                .from(viewVersionWith("spark", "spark", "SELECT 2 AS renamed"))
+                .versionId(2)
+                .timestampMillis(1L)
+                .defaultCatalog("next_catalog")
+                .defaultNamespace(Namespace.of("next_namespace"))
+                .build();
+        ViewMetadata next = ViewMetadata.buildFrom(first)
+                .setCurrentVersion(nextVersion,
+                        new Schema(Types.NestedField.required(1, "renamed", Types.IntegerType.get())))
+                .build();
+        AtomicInteger reads = new AtomicInteger();
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.view = viewWithMetadataSupplier(() -> reads.getAndIncrement() == 0 ? first : next);
+
+        ConnectorViewDefinition definition = metadataWith(ops).getViewDefinition(null, "db1", "v1");
+        Assertions.assertEquals("SELECT 1 AS id", definition.getSql());
+        Assertions.assertEquals("id", definition.getColumns().get(0).getName());
+        Assertions.assertFalse(definition.getDefaultCatalog().isPresent());
+        Assertions.assertEquals(Collections.singletonList("db1"), definition.getDefaultNamespace().get());
+        Assertions.assertEquals(2, reads.get());
+    }
+
+    @Test
+    public void viewDefinitionIsStableWithinAStatementAndReloadedForTheNextExecution() {
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.view = viewWithMetadata(viewVersionWith("spark", "spark", "SELECT 1 AS id"), idNameSchema());
+        IcebergConnectorMetadata metadata = metadataWith(ops);
+        TestStatementScope scope = new TestStatementScope();
+        ConnectorSession firstSession = new IcebergStatementScopeTest.ScopeSession(1L, "q1", scope);
+        ConnectorViewDefinition first = metadata.getViewDefinition(firstSession, "db1", "v1");
+
+        ViewVersion nextVersion = ImmutableViewVersion.builder()
+                .from(viewVersionWith(null, "spark", "SELECT 2 AS renamed"))
+                .defaultCatalog("saved_catalog")
+                .defaultNamespace(Namespace.empty())
+                .build();
+        ops.view = viewWithMetadata(nextVersion,
+                new Schema(Types.NestedField.required(1, "renamed", Types.IntegerType.get())));
+        Assertions.assertSame(first, metadata.getViewDefinition(firstSession, "db1", "v1"));
+        Assertions.assertEquals(1, ops.log.size());
+
+        ConnectorSession nextSession = new IcebergStatementScopeTest.ScopeSession(1L, "q2", scope);
+        ConnectorViewDefinition next = metadata.getViewDefinition(nextSession, "db1", "v1");
+        Assertions.assertEquals("SELECT 2 AS renamed", next.getSql());
+        Assertions.assertEquals("renamed", next.getColumns().get(0).getName());
+        Assertions.assertEquals("saved_catalog", next.getDefaultCatalog().get());
+        Assertions.assertEquals(Collections.emptyList(), next.getDefaultNamespace().get());
+        Assertions.assertEquals(2, ops.log.size());
+
+        ConnectorSession anotherCatalog = new IcebergStatementScopeTest.ScopeSession(2L, "q1", scope);
+        Assertions.assertNotSame(first, metadata.getViewDefinition(anotherCatalog, "db1", "v1"));
+        Assertions.assertEquals(3, ops.log.size());
     }
 
     @Test
