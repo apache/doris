@@ -50,6 +50,7 @@ import org.apache.doris.connector.spi.write.ConnectorChangelogMode;
 import org.apache.doris.connector.spi.write.ConnectorRowChangeStyle;
 import org.apache.doris.connector.spi.write.ConnectorRowLevelDmlRequest;
 import org.apache.doris.connector.spi.write.ConnectorWritePlanProvider;
+import org.apache.doris.connector.spi.write.ConnectorWriteTarget;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalTable;
@@ -664,8 +665,34 @@ public class PluginDrivenExternalTable extends ExternalTable {
                 .orElse(false);
     }
 
+    /** Validates names against the bound target, or the connector's legacy metadata rule. */
+    public void validateWriteStaticPartitions(List<String> columnNames) {
+        PluginDrivenExternalCatalog pluginCatalog = (PluginDrivenExternalCatalog) catalog;
+        Connector connector = pluginCatalog.getConnector();
+        withPluginContextClassLoader(connector, () -> {
+            ConnectorSession session = pluginCatalog.buildConnectorSession();
+            Optional<ConnectorWriteTarget> target = getBoundWriteTarget();
+            if (target.isPresent()) {
+                ConnectorWritePlanProvider provider = connector.getWritePlanProvider(target.get().getTableHandle());
+                return withPluginContextClassLoader(provider, () -> {
+                    provider.validateStaticPartitions(session, target.get(), columnNames);
+                    return null;
+                });
+            }
+            ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
+            ConnectorTableHandle handle = resolveConnectorTableHandle(session, metadata)
+                    .orElseThrow(() -> new DorisConnectorException("Cannot resolve write target " + getName()));
+            metadata.validateStaticPartitionColumns(session, handle, columnNames);
+            return null;
+        });
+    }
+
     /** Resolves all objects and traits used to plan one physical connector write in one metadata view. */
     public ConnectorWritePlanContext resolveWritePlanContext() {
+        return resolveWritePlanContext(null);
+    }
+
+    public ConnectorWritePlanContext resolveWritePlanContext(ConnectorWriteTarget target) {
         if (!(catalog instanceof PluginDrivenExternalCatalog)) {
             throw new DorisConnectorException("Write target is not backed by a plugin-driven catalog: "
                     + getName());
@@ -678,9 +705,11 @@ public class PluginDrivenExternalTable extends ExternalTable {
         return withPluginContextClassLoader(connector, () -> {
             ConnectorSession session = pluginCatalog.buildConnectorSession();
             ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
-            ConnectorTableHandle handle = resolveConnectorTableHandle(session, metadata)
-                    .orElseThrow(() -> new DorisConnectorException(
-                            "Cannot resolve connector table handle for write target " + getName()));
+            ConnectorTableHandle handle = target == null
+                    ? resolveConnectorTableHandle(session, metadata)
+                            .orElseThrow(() -> new DorisConnectorException(
+                                    "Cannot resolve connector table handle for write target " + getName()))
+                    : target.getTableHandle();
             ConnectorWritePlanProvider provider = connector.getWritePlanProvider(handle);
             if (provider == null) {
                 throw new DorisConnectorException(
@@ -688,10 +717,11 @@ public class PluginDrivenExternalTable extends ExternalTable {
             }
             return withPluginContextClassLoader(provider, () -> new ConnectorWritePlanContext(
                     session, metadata, handle, provider,
-                    provider.getWriteDistribution(session, handle), provider.requiresParallelWrite(),
+                    target == null ? provider.getWriteDistribution(session, handle)
+                            : provider.getWriteDistribution(session, target), provider.requiresParallelWrite(),
                     provider.requiresPartitionLocalSort(), provider.requiresPartitionHashWrite(),
                     provider.requiresFullSchemaWriteOrder(),
-                    ConnectContext.get().getStatementContext().getBeExecVersion()));
+                    ConnectContext.get().getStatementContext().getBeExecVersion(), target));
         });
     }
 
@@ -1141,6 +1171,16 @@ public class PluginDrivenExternalTable extends ExternalTable {
      * newer column ordinal.
      */
     public WriteSchemaSnapshot getWriteSchemaSnapshot() {
+        Optional<ConnectorWriteTarget> target = getBoundWriteTarget();
+        if (target.isPresent()) {
+            List<Column> columns = ConnectorColumnConverter.convertColumns(target.get().getColumns());
+            List<String> partitionNames = target.get().getPartitionColumnNames();
+            List<Column> partitions = columns.stream()
+                    .filter(column -> partitionNames.contains(column.getName()))
+                    .collect(Collectors.toList());
+            return new WriteSchemaSnapshot(columns, appendSyntheticWriteColumns(columns),
+                    partitions, target.get().getMetadataIdentity());
+        }
         makeSureInitialized();
         PluginDrivenSchemaCacheValue value = getSchemaCacheValue(Optional.empty())
                 .map(PluginDrivenSchemaCacheValue.class::cast)
@@ -1203,11 +1243,25 @@ public class PluginDrivenExternalTable extends ExternalTable {
         return ConnectorColumnConverter.convertColumns(fetchSyntheticWriteColumns());
     }
 
-    /**
-     * Resolves request-scoped data columns for write analysis. A connector may pin remote schema/default
-     * metadata here; an empty result tells the engine to keep using the cached table schema.
-     */
+    /** The INSERT destination captured before normalizing values and defaults in this statement. */
+    public Optional<ConnectorWriteTarget> getBoundWriteTarget() {
+        ConnectContext ctx = ConnectContext.get();
+        return ctx == null || ctx.getStatementContext() == null ? Optional.empty()
+                : ctx.getStatementContext().getConnectorWriteTarget(getId());
+    }
+
+    /** Legacy schema-only entry point retained for row-level DML. */
     public Optional<List<Column>> resolveWriteColumns(Optional<String> branchName) {
+        return resolveWriteColumns(branchName, Optional.empty());
+    }
+
+    /** Pins an explicit target when supported; other providers retain their schema-only behavior. */
+    public Optional<List<Column>> resolveWriteColumns(Optional<String> branchName, WriteOperation operation) {
+        return resolveWriteColumns(branchName, Optional.of(operation));
+    }
+
+    private Optional<List<Column>> resolveWriteColumns(Optional<String> branchName,
+            Optional<WriteOperation> operation) {
         PluginDrivenExternalCatalog pluginCatalog = (PluginDrivenExternalCatalog) catalog;
         Connector connector = pluginCatalog.getConnector();
         if (connector == null) {
@@ -1225,6 +1279,23 @@ public class PluginDrivenExternalTable extends ExternalTable {
             return Optional.empty();
         }
         return read.execute(() -> withPluginContextClassLoader(provider, () -> {
+            Optional<ConnectorWriteTarget> target = operation.isPresent()
+                    ? provider.resolveWriteTarget(session, handle.get(), operation.get(), branchName)
+                    : Optional.empty();
+            if (target.isPresent()) {
+                ConnectorWriteTarget resolved = target.get();
+                Preconditions.checkState(resolved.getBranchName().equals(branchName),
+                        "Connector resolved a different write branch");
+                ConnectContext ctx = ConnectContext.get();
+                if (ctx != null && ctx.getStatementContext() != null) {
+                    ctx.getStatementContext().setConnectorWriteTarget(getId(), resolved);
+                    if (resolved.getMetadataIdentity() != null) {
+                        ctx.getStatementContext().setConnectorWriteMetadataIdentity(
+                                getId(), resolved.getMetadataIdentity());
+                    }
+                }
+                return Optional.of(ConnectorColumnConverter.convertColumns(resolved.getColumns()));
+            }
             Optional<List<ConnectorColumn>> connectorColumns =
                     provider.getWriteColumns(session, handle.get(), branchName);
             if (!connectorColumns.isPresent()) {

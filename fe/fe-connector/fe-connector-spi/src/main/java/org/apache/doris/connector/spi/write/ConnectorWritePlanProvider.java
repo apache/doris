@@ -19,6 +19,7 @@ package org.apache.doris.connector.spi.write;
 
 import org.apache.doris.connector.spi.ConnectorColumn;
 import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.handle.ConnectorWriteHandle;
 import org.apache.doris.connector.spi.handle.WriteOperation;
@@ -41,6 +42,38 @@ import java.util.Set;
  * dispatches the resulting Thrift data sink to BE unchanged.</p>
  */
 public interface ConnectorWritePlanProvider {
+
+    /** Resolves a complete writer target before DEFAULT and omitted-column expansion. */
+    default Optional<ConnectorWriteTarget> resolveWriteTarget(ConnectorSession session,
+            ConnectorTableHandle tableHandle, WriteOperation operation, Optional<String> branchName) {
+        return Optional.empty();
+    }
+
+    /** Derives distribution from the exact metadata used to bind this target. */
+    default ConnectorWriteDistribution getWriteDistribution(ConnectorSession session, ConnectorWriteTarget target) {
+        return getWriteDistribution(session, target.getTableHandle());
+    }
+
+    /** Resolves sort positions against bound output columns while retaining the target's sort order. */
+    default List<ConnectorWriteSortColumn> getWriteSortColumns(ConnectorSession session,
+            ConnectorWriteTarget target, List<ConnectorColumn> boundTargetColumns) {
+        return getWriteSortColumns(session, target.getTableHandle(), boundTargetColumns);
+    }
+
+    default ConnectorWritePartitionSpec getWritePartitioning(ConnectorSession session, ConnectorWriteTarget target) {
+        return getWritePartitioning(session, target.getTableHandle());
+    }
+
+    /** Validates static partition names against this target, without consulting a live table cache. */
+    default void validateStaticPartitions(ConnectorSession session, ConnectorWriteTarget target,
+            List<String> columnNames) {
+        for (String column : columnNames) {
+            if (target.getPartitionColumnNames().stream().noneMatch(column::equalsIgnoreCase)) {
+                throw new DorisConnectorException(
+                        "Column '" + column + "' is not a partition column of the write target");
+            }
+        }
+    }
 
     /**
      * Returns the statement-pinned data columns for a write target.

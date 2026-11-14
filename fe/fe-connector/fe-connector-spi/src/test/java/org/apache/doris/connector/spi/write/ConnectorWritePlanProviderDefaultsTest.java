@@ -20,9 +20,12 @@ package org.apache.doris.connector.spi.write;
 import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.handle.ConnectorWriteHandle;
+import org.apache.doris.connector.spi.handle.WriteOperation;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+
+import java.util.Optional;
 
 /**
  * Pins the {@link ConnectorWritePlanProvider#getWriteSortColumns} default.
@@ -41,6 +44,13 @@ public class ConnectorWritePlanProviderDefaultsTest {
         public ConnectorSinkPlan planWrite(ConnectorSession session, ConnectorWriteHandle handle) {
             return null;
         }
+    }
+
+    @Test
+    public void explicitTargetsAreOptIn() {
+        ConnectorTableHandle table = new ConnectorTableHandle() { };
+        Assertions.assertFalse(new BareWritePlanProvider().resolveWriteTarget(
+                null, table, WriteOperation.INSERT, Optional.empty()).isPresent());
     }
 
     @Test

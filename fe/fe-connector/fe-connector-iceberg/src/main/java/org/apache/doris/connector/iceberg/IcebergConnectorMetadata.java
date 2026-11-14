@@ -738,13 +738,16 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
      * ({@code `col` ASC|DESC NULLS FIRST|LAST}). Returns "" when the table is unsorted.
      */
     static String buildShowSortClause(Table table) {
-        SortOrder sortOrder = table.sortOrder();
+        return buildShowSortClause(table.schema(), table.sortOrder());
+    }
+
+    static String buildShowSortClause(Schema schema, SortOrder sortOrder) {
         if (sortOrder == null || sortOrder.isUnsorted() || sortOrder.fields().isEmpty()) {
             return "";
         }
         List<String> sortItems = new ArrayList<>();
         for (org.apache.iceberg.SortField sortField : sortOrder.fields()) {
-            String columnName = table.schema().findColumnName(sortField.sourceId());
+            String columnName = schema.findColumnName(sortField.sourceId());
             if (columnName != null) {
                 boolean isAscending = sortField.direction() != org.apache.iceberg.SortDirection.DESC;
                 boolean isNullFirst = sortField.nullOrder() == org.apache.iceberg.NullOrder.NULLS_FIRST;
@@ -2402,10 +2405,8 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         }
         IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
         String tableName = iceHandle.getTableName();
-        // Validate against the schema/spec this statement actually writes with. A branch-targeted write pins the
-        // BRANCH's writer schema before analysis is complete (getWriteColumns -> IcebergStatementScope.writeSchema)
-        // and binding, planning and the BE sink all consume that pinned copy, so after a main-only column rename
-        // the current metadata can disagree with the schema the branch statement binds to.
+        // Legacy row-level writes retain their statement-scoped schema. INSERT targets validate
+        // through the write provider with their explicit schema and partition spec.
         Optional<IcebergWriteSchemaContext> pinned = IcebergStatementScope.activeWriteSchema(
                 session, iceHandle.getDbName(), tableName);
         Schema schema;
@@ -2418,6 +2419,11 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             schema = table.schema();
             spec = table.spec();
         }
+        validateStaticPartitionColumns(schema, spec, staticPartitionColumnNames, tableName);
+    }
+
+    static void validateStaticPartitionColumns(Schema schema, PartitionSpec spec,
+            List<String> staticPartitionColumnNames, String tableName) {
         if (!spec.isPartitioned()) {
             throw new DorisConnectorException(String.format(
                     "Table %s is not partitioned, cannot use static partition syntax", tableName));

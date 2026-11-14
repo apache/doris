@@ -823,16 +823,8 @@ public class BindSink implements AnalysisRuleFactory {
         if (!(table.getCatalog() instanceof PluginDrivenExternalCatalog)) {
             return;
         }
-        PluginDrivenExternalCatalog catalog = (PluginDrivenExternalCatalog) table.getCatalog();
-        ConnectorSession session = catalog.buildConnectorSession();
-        ConnectorMetadata metadata = PluginDrivenMetadata.get(session, catalog.getConnector());
-        ConnectorTableHandle handle = metadata.getTableHandle(
-                        session, table.getRemoteDbName(), table.getRemoteName())
-                .orElseThrow(() -> new AnalysisException("Table not found: "
-                        + table.getRemoteDbName() + "." + table.getRemoteName()
-                        + " in catalog " + catalog.getName()));
         try {
-            metadata.validateStaticPartitionColumns(session, handle, new ArrayList<>(staticPartitionColNames));
+            table.validateWriteStaticPartitions(new ArrayList<>(staticPartitionColNames));
         } catch (DorisConnectorException e) {
             throw new AnalysisException(e.getMessage(), e);
         }
@@ -1025,8 +1017,10 @@ public class BindSink implements AnalysisRuleFactory {
                         .collect(ImmutableList.toImmutableList()),
                 sink.getDMLCommandType(),
                 sink.isRewrite(),
+                false,
                 Optional.empty(),
                 Optional.empty(),
+                table.getBoundWriteTarget().orElse(null),
                 child);
         if (boundSink.getCols().size() != child.getOutput().size()) {
             // Carry the "Expected N columns but got M" detail that legacy (and the sibling count-check in this

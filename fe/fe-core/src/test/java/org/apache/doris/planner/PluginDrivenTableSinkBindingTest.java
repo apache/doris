@@ -32,6 +32,7 @@ import org.apache.doris.connector.spi.handle.WriteOperation;
 import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
 import org.apache.doris.connector.spi.write.ConnectorSinkPlan;
 import org.apache.doris.connector.spi.write.ConnectorWritePlanProvider;
+import org.apache.doris.connector.spi.write.ConnectorWriteTarget;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.datasource.mvcc.PluginDrivenMvccSnapshot;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
@@ -273,9 +274,11 @@ public class PluginDrivenTableSinkBindingTest {
         PluginDrivenMvccSnapshot snapshot = new PluginDrivenMvccSnapshot(
                 connectorSnapshot, Collections.emptyMap(), Collections.emptyMap());
         Mockito.when(metadata.applySnapshot(session, baseHandle, connectorSnapshot)).thenReturn(pinnedHandle);
+        ConnectorWriteTarget target = Mockito.mock(ConnectorWriteTarget.class);
+        Mockito.when(target.getBranchName()).thenReturn(Optional.of("audit"));
         PluginDrivenTableSink sink = new PluginDrivenTableSink(table, provider, session, baseHandle,
                 Collections.emptyList(), Collections.emptyList(), null, WriteOperation.INSERT,
-                true, false, null, metadata, Config.max_be_exec_version);
+                true, false, null, metadata, Config.max_be_exec_version, target);
         PluginDrivenInsertCommandContext ctx = new PluginDrivenInsertCommandContext();
         ctx.setBranchName(Optional.of("audit"));
 
@@ -294,6 +297,7 @@ public class PluginDrivenTableSinkBindingTest {
         }
 
         Assertions.assertSame(pinnedHandle, provider.capturedHandle.getTableHandle());
+        Assertions.assertSame(target, provider.capturedHandle.getWriteTarget().orElseThrow());
     }
 
     private static Map<String, String> castStaticPartitionSpec(Map<String, Expression> partition,

@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.physical;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.connector.spi.write.ConnectorWriteDistribution;
+import org.apache.doris.connector.spi.write.ConnectorWriteTarget;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.plugin.ConnectorWritePlanContext;
@@ -211,7 +212,18 @@ public class PhysicalConnectorTableSink<CHILD_TYPE extends Plan> extends Physica
         this(database, targetTable, boundTargetSchema, boundPartitionColumns,
                 boundWriteMetadataIdentity, cols, outputExprs, groupExpression, logicalProperties,
                 physicalProperties, statistics, isRewrite, dmlCommandType, hasRowOperationColumn,
-                new WritePlanContextHolder(), child);
+                new WritePlanContextHolder(null), child);
+    }
+
+    public PhysicalConnectorTableSink(ExternalDatabase database, ExternalTable targetTable,
+            List<Column> boundTargetSchema, List<Column> boundPartitionColumns, String boundWriteMetadataIdentity,
+            List<Column> cols, List<NamedExpression> outputExprs, Optional<GroupExpression> groupExpression,
+            LogicalProperties logicalProperties, PhysicalProperties physicalProperties, Statistics statistics,
+            boolean isRewrite, DMLCommandType dmlCommandType, boolean hasRowOperationColumn,
+            ConnectorWriteTarget writeTarget, CHILD_TYPE child) {
+        this(database, targetTable, boundTargetSchema, boundPartitionColumns, boundWriteMetadataIdentity,
+                cols, outputExprs, groupExpression, logicalProperties, physicalProperties, statistics,
+                isRewrite, dmlCommandType, hasRowOperationColumn, new WritePlanContextHolder(writeTarget), child);
     }
 
     private PhysicalConnectorTableSink(ExternalDatabase database,
@@ -312,13 +324,15 @@ public class PhysicalConnectorTableSink<CHILD_TYPE extends Plan> extends Physica
                 && hasRowOperationColumn == that.hasRowOperationColumn
                 && Objects.equals(boundTargetSchema, that.boundTargetSchema)
                 && Objects.equals(boundPartitionColumns, that.boundPartitionColumns)
-                && Objects.equals(boundWriteMetadataIdentity, that.boundWriteMetadataIdentity);
+                && Objects.equals(boundWriteMetadataIdentity, that.boundWriteMetadataIdentity)
+                && Objects.equals(writePlanContextHolder.target, that.writePlanContextHolder.target);
     }
 
     @Override
     public int hashCode() {
         return Objects.hash(super.hashCode(), boundTargetSchema, boundPartitionColumns,
-                boundWriteMetadataIdentity, isRewrite, dmlCommandType, hasRowOperationColumn);
+                boundWriteMetadataIdentity, isRewrite, dmlCommandType, hasRowOperationColumn,
+                writePlanContextHolder.target);
     }
 
     /**
@@ -544,11 +558,16 @@ public class PhysicalConnectorTableSink<CHILD_TYPE extends Plan> extends Physica
     }
 
     private static class WritePlanContextHolder {
+        private final ConnectorWriteTarget target;
         private ConnectorWritePlanContext context;
+
+        private WritePlanContextHolder(ConnectorWriteTarget target) {
+            this.target = target;
+        }
 
         synchronized ConnectorWritePlanContext get(PluginDrivenExternalTable table) {
             if (context == null) {
-                context = table.resolveWritePlanContext();
+                context = target == null ? table.resolveWritePlanContext() : table.resolveWritePlanContext(target);
             }
             return context;
         }

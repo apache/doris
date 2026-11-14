@@ -22,6 +22,7 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.connector.spi.write.ConnectorWriteDistribution;
+import org.apache.doris.connector.spi.write.ConnectorWriteTarget;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.plugin.ConnectorWritePlanContext;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
@@ -474,7 +475,8 @@ public class PhysicalConnectorTableSinkTest {
         PluginDrivenExternalTable table = Mockito.mock(PluginDrivenExternalTable.class);
         ConnectorWritePlanContext first = Mockito.mock(ConnectorWritePlanContext.class);
         ConnectorWritePlanContext refreshed = Mockito.mock(ConnectorWritePlanContext.class);
-        Mockito.when(table.resolveWritePlanContext()).thenReturn(first, refreshed);
+        ConnectorWriteTarget target = Mockito.mock(ConnectorWriteTarget.class);
+        Mockito.when(table.resolveWritePlanContext(target)).thenReturn(first, refreshed);
         Plan child = Mockito.mock(Plan.class);
         Mockito.when(child.getOutput()).thenReturn(ImmutableList.of(dataSlot));
         Mockito.when(child.getAllChildrenTypes()).thenReturn(new BitSet());
@@ -484,13 +486,13 @@ public class PhysicalConnectorTableSinkTest {
                 ImmutableList.of(), "generation-1", ImmutableList.of(DATA),
                 ImmutableList.of(dataSlot), Optional.empty(),
                 new LogicalProperties(() -> ImmutableList.of(dataSlot), () -> DataTrait.EMPTY_TRAIT),
-                null, null, false, DMLCommandType.NONE, false, child);
+                null, null, false, DMLCommandType.NONE, false, target, child);
 
         Assertions.assertSame(first, sink.getWritePlanContext());
         PhysicalConnectorTableSink<?> copy = (PhysicalConnectorTableSink<?>)
                 sink.withPhysicalPropertiesAndStats(PhysicalProperties.GATHER, null);
         Assertions.assertSame(first, copy.getWritePlanContext());
-        Mockito.verify(table, Mockito.times(1)).resolveWritePlanContext();
+        Mockito.verify(table, Mockito.times(1)).resolveWritePlanContext(target);
     }
 
     // ==================== helpers ====================
