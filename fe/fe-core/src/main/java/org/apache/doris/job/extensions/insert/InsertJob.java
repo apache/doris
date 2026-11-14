@@ -45,6 +45,7 @@ import org.apache.doris.load.loadv2.LoadStatistic;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.mysql.privilege.Privilege;
 import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
+import org.apache.doris.nereids.trees.plans.commands.NeedAuditEncryption;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -85,7 +86,8 @@ import java.util.stream.Collectors;
 @EqualsAndHashCode(callSuper = true)
 @Data
 @Log4j2
-public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> implements GsonPostProcessable {
+public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> implements GsonPostProcessable,
+        NeedAuditEncryption {
 
     public static final ImmutableList<Column> SCHEMA = ImmutableList.<Column>builder()
             .add(new Column("Id", ScalarType.createStringType()))
@@ -306,6 +308,8 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> impl
     @Override
     public void cancelTaskById(long taskId) throws JobException {
         super.cancelTaskById(taskId);
+        // Persist both the task terminal state and the one-time job's FINISHED state.
+        logUpdateOperation();
     }
 
     @Override
@@ -551,6 +555,34 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> impl
     }
 
     @Override
+    public boolean needAuditEncryption() {
+        return true;
+    }
+
+    private String getDisplaySql() {
+        if (StringUtils.isEmpty(getExecuteSql())) {
+            return getExecuteSql();
+        }
+        if (StringUtils.isEmpty(getEncryptedSql())) {
+            try {
+                setEncryptedSql(geneEncryptionSQL(getExecuteSql()));
+            } catch (Exception e) {
+                // Never fall back to credentials from the persisted SQL if masking fails.
+                log.warn("Failed to mask INSERT JOB SQL, job id: {}", getJobId());
+                return "<redacted>";
+            }
+        }
+        return getEncryptedSql();
+    }
+
+    @Override
+    public List<String> getCommonShowInfo() {
+        List<String> info = super.getCommonShowInfo();
+        info.set(6, getDisplaySql());
+        return info;
+    }
+
+    @Override
     public TRow getTvfInfo() {
         TRow trow = new TRow();
         trow.addToColumnValue(new TCell().setStringVal(String.valueOf(getJobId())));
@@ -559,7 +591,7 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> impl
         trow.addToColumnValue(new TCell().setStringVal(getJobConfig().getExecuteType().name()));
         trow.addToColumnValue(new TCell().setStringVal(getJobConfig().convertRecurringStrategyToString()));
         trow.addToColumnValue(new TCell().setStringVal(getJobStatus().name()));
-        trow.addToColumnValue(new TCell().setStringVal(getExecuteSql()));
+        trow.addToColumnValue(new TCell().setStringVal(getDisplaySql()));
         trow.addToColumnValue(new TCell().setStringVal(TimeUtils.longToTimeString(getCreateTimeMs())));
         trow.addToColumnValue(new TCell().setStringVal(String.valueOf(getSucceedTaskCount().get())));
         trow.addToColumnValue(new TCell().setStringVal(String.valueOf(getFailedTaskCount().get())));

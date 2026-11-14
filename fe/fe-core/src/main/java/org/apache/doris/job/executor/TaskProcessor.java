@@ -21,6 +21,7 @@ import org.apache.doris.job.task.AbstractTask;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QeProcessorImpl;
+import org.apache.doris.qe.StmtExecutor;
 
 import lombok.extern.log4j.Log4j2;
 
@@ -95,12 +96,20 @@ public class TaskProcessor {
         ConnectContext connectContext = ConnectContext.get();
         try {
             if (connectContext != null) {
-                if (connectContext.queryId() != null) {
-                    QeProcessorImpl.INSTANCE.unregisterQuery(connectContext.queryId());
-                }
-                StatementContext statementContext = connectContext.getStatementContext();
-                if (statementContext != null) {
-                    statementContext.close();
+                try {
+                    StmtExecutor stmtExecutor = connectContext.getExecutor();
+                    if (stmtExecutor != null) {
+                        // Jobs may run commands directly, without StmtExecutor.execute()'s finalizer.
+                        stmtExecutor.finalizeQuery();
+                    } else if (connectContext.queryId() != null) {
+                        // Initialization can fail before an executor is bound.
+                        QeProcessorImpl.INSTANCE.unregisterQuery(connectContext.queryId());
+                    }
+                } finally {
+                    StatementContext statementContext = connectContext.getStatementContext();
+                    if (statementContext != null) {
+                        statementContext.close();
+                    }
                 }
             }
         } finally {

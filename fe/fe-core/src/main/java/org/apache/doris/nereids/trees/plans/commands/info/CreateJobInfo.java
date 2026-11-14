@@ -36,6 +36,7 @@ import org.apache.doris.job.extensions.insert.InsertJob;
 import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTVFCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
@@ -243,6 +244,11 @@ public class CreateJobInfo {
 
     protected void checkAuth() throws AnalysisException {
         if (streamingJob) {
+            if (StringUtils.isNotEmpty(executeSql)
+                    && new NereidsParser().parseSingle(executeSql) instanceof InsertIntoTVFCommand) {
+                throw new AnalysisException("INSERT INTO TVF is not supported in STREAMING JOB; "
+                        + "S3 INSERT JOB requires ON SCHEDULE AT CURRENT_TIMESTAMP");
+            }
             StreamingInsertJob.checkPrivilege(ConnectContext.get(), executeSql, targetDb);
             return;
         }
@@ -282,7 +288,7 @@ public class CreateJobInfo {
 
     /**
      * Analyzes the provided SQL statement and creates an appropriate job based on the parsed logical plan.
-     * Currently, only "InsertIntoTableCommand" is supported for job creation.
+     * Supports table INSERT and immediate, one-time S3 TVF INSERT.
      *
      * @param sql                       the SQL statement to be analyzed
      * @param currentDbName             the current database name where the SQL statement will be executed
@@ -294,24 +300,31 @@ public class CreateJobInfo {
             JobExecutionConfiguration jobExecutionConfiguration) throws UserException {
         NereidsParser parser = new NereidsParser();
         LogicalPlan logicalPlan = parser.parseSingle(sql);
-        if (logicalPlan instanceof InsertIntoTableCommand) {
-            InsertIntoTableCommand insertIntoTableCommand = (InsertIntoTableCommand) logicalPlan;
-            try {
+        try {
+            if (logicalPlan instanceof InsertIntoTableCommand) {
+                InsertIntoTableCommand insertIntoTableCommand = (InsertIntoTableCommand) logicalPlan;
                 insertIntoTableCommand.initPlan(ConnectContext.get(), ConnectContext.get().getExecutor(), false);
-                return new InsertJob(labelNameOptional.get(),
-                        JobStatus.RUNNING,
-                        currentDbName,
-                        comment,
-                        ConnectContext.get().getCurrentUserIdentity(),
-                        jobExecutionConfiguration,
-                        System.currentTimeMillis(),
-                        sql);
-            } catch (Exception e) {
-                throw new AnalysisException(e.getMessage());
+            } else if (logicalPlan instanceof InsertIntoTVFCommand) {
+                if (jobExecutionConfiguration.getExecuteType() != JobExecuteType.ONE_TIME
+                        || !jobExecutionConfiguration.isImmediate()) {
+                    throw new AnalysisException("S3 INSERT JOB only supports ON SCHEDULE AT CURRENT_TIMESTAMP; "
+                            + "recurring and delayed TVF jobs are not supported");
+                }
+                ((InsertIntoTVFCommand) logicalPlan).validateForJob(
+                        ConnectContext.get(), ConnectContext.get().getExecutor());
+            } else {
+                throw new AnalysisException("Unsupported INSERT JOB command: " + logicalPlan.getClass().getName());
             }
-        } else {
-            throw new AnalysisException("Not support this sql : " + sql + " Command class is "
-                    + logicalPlan.getClass().getName() + ".");
+            return new InsertJob(labelNameOptional.get(),
+                    JobStatus.RUNNING,
+                    currentDbName,
+                    comment,
+                    ConnectContext.get().getCurrentUserIdentity(),
+                    jobExecutionConfiguration,
+                    System.currentTimeMillis(),
+                    sql);
+        } catch (Exception e) {
+            throw new AnalysisException(e.getMessage(), e);
         }
     }
 
