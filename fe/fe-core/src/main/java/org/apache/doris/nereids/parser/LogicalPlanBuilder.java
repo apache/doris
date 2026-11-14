@@ -5385,12 +5385,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             List<Boolean> nullables = dataTypeWithNullables.stream()
                     .map(dt -> dt.second)
                     .collect(ImmutableList.toImmutableList());
-            String functionName = ctx.functionNameIdentifier().getText();
+            String functionName = ctx.functionNameIdentifier().getText().toLowerCase(Locale.ROOT);
             if (!BuiltinAggregateFunctions.INSTANCE.aggFuncNameNullableMap.containsKey(functionName)) {
                 // TODO use function binder to check function exists
                 throw new ParseException("Can not found function '" + functionName + "'", ctx);
             }
-            return new AggStateType(functionName, dataTypes, nullables,
+            return AggStateType.declaration(functionName, dataTypes, nullables,
                     BuiltinAggregateFunctions.INSTANCE.aggFuncNameNullableMap.get(functionName));
         });
     }

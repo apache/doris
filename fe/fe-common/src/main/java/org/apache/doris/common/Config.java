@@ -2035,8 +2035,11 @@ public class Config extends ConfigBase {
     // Older backends cannot hash VARBINARY values in a shuffle or partition exchange.
     public static final int VARBINARY_SHUFFLE_HASH_MIN_BE_EXEC_VERSION = 19;
 
+    // Older backends reconstruct aggregate states using only their argument types.
+    public static final int AGG_STATE_RESULT_TYPE_MIN_BE_EXEC_VERSION = 20;
+
     @ConfField(mutable = false)
-    public static int max_be_exec_version = VARBINARY_SHUFFLE_HASH_MIN_BE_EXEC_VERSION;
+    public static int max_be_exec_version = AGG_STATE_RESULT_TYPE_MIN_BE_EXEC_VERSION;
 
     /**
      * Min data version of backends serialize block.

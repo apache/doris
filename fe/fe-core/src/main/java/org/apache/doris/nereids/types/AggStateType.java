@@ -17,8 +17,15 @@
 
 package org.apache.doris.nereids.types;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.Config;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -64,6 +71,8 @@ public class AggStateType extends DataType {
     private final List<DataType> subTypes;
     private final List<Boolean> subTypeNullables;
     private final boolean returnNullable;
+    // Null until a SQL declaration is bound during analysis.
+    private final DataType resultType;
     // Planning-only coercion policy; it is not part of the serialized AggState type identity.
     private final boolean looseTypeCoercionAllowed;
 
@@ -82,6 +91,14 @@ public class AggStateType extends DataType {
     /** Constructor with a planning-time type coercion policy. */
     public AggStateType(String functionName, List<DataType> subTypes,
             List<Boolean> subTypeNullables, boolean returnNullable, boolean looseTypeCoercionAllowed) {
+        this(functionName, subTypes, subTypeNullables, returnNullable, looseTypeCoercionAllowed, null);
+    }
+
+    /** Constructor retaining the producer's result signature. */
+    public AggStateType(String functionName, List<DataType> subTypes,
+            List<Boolean> subTypeNullables, boolean returnNullable, boolean looseTypeCoercionAllowed,
+            DataType resultType) {
+        this.resultType = resultType;
         // be only supports lowercase function names
         Objects.requireNonNull(functionName, "functionName should not be null");
         functionName = functionName.toLowerCase(Locale.ROOT);
@@ -93,6 +110,49 @@ public class AggStateType extends DataType {
                 "AggStateType' subTypes.size()!=subTypeNullables.size()");
         this.returnNullable = returnNullable;
         this.looseTypeCoercionAllowed = looseTypeCoercionAllowed;
+    }
+
+    /** Retain the result type selected by FE for every aggregate state. */
+    public static DataType resultTypeFor(AggregateFunction nested) {
+        if (Config.be_exec_version < Config.AGG_STATE_RESULT_TYPE_MIN_BE_EXEC_VERSION) {
+            throw new AnalysisException("Aggregate states require be_exec_version >= "
+                    + Config.AGG_STATE_RESULT_TYPE_MIN_BE_EXEC_VERSION);
+        }
+        return nested.getDataType();
+    }
+
+    /** Record a declaration without binding functions or consulting the session in the parser. */
+    public static AggStateType declaration(String name, List<DataType> inputs,
+            List<Boolean> nullables, boolean returnNullable) {
+        return new AggStateType(name, inputs, nullables, returnNullable, true, null);
+    }
+
+    /** Resolve new declarations only; catalog types retain their saved signatures. */
+    public AggStateType resolveDeclaration() {
+        if (resultType != null) {
+            return this;
+        }
+        ImmutableList.Builder<Expression> arguments = ImmutableList.builderWithExpectedSize(subTypes.size());
+        for (int i = 0; i < subTypes.size(); i++) {
+            arguments.add(new SlotReference("input" + i, subTypes.get(i), subTypeNullables.get(i)));
+        }
+        List<Expression> inputs = arguments.build();
+        FunctionBuilder builder = Env.getCurrentEnv().getFunctionRegistry().findFunctionBuilder(functionName, inputs);
+        AggregateFunction nested = (AggregateFunction) builder.build(functionName, inputs).first;
+        // Declarations contain types, not values: percentile's level, for example, is not a literal here.
+        // Validate constant arguments when analyzing the state producer, and only bind types here.
+        nested = (AggregateFunction) TypeCoercionUtils.implicitCastInputTypes(nested, nested.expectedInputTypes());
+        return new AggStateType(functionName,
+                nested.children().stream().map(Expression::getDataType).collect(Collectors.toList()),
+                nested.children().stream().map(Expression::nullable).collect(Collectors.toList()),
+                returnNullable, true, resultTypeFor(nested));
+    }
+
+    public DataType getResultType() {
+        if (resultType == null) {
+            throw new AnalysisException("Aggregate state is missing its result type; recreate the state");
+        }
+        return resultType;
     }
 
     public List<DataType> getSubTypes() {
@@ -114,14 +174,16 @@ public class AggStateType extends DataType {
     @Override
     public Type toCatalogDataType() {
         List<Type> types = subTypes.stream().map(DataType::toCatalogDataType).collect(Collectors.toList());
-        return new org.apache.doris.catalog.AggStateType(functionName, returnNullable, types, subTypeNullables);
+        return new org.apache.doris.catalog.AggStateType(functionName, returnNullable, types, subTypeNullables,
+                resultType == null ? null : resultType.toCatalogDataType());
     }
 
     @Override
     public DataType conversion() {
         return new AggStateType(functionName,
                 subTypes.stream().map(DataType::conversion).collect(Collectors.toList()),
-                subTypeNullables, returnNullable, looseTypeCoercionAllowed);
+                subTypeNullables, returnNullable, looseTypeCoercionAllowed,
+                resultType == null ? null : resultType.conversion());
     }
 
     @Override
@@ -141,33 +203,15 @@ public class AggStateType extends DataType {
         }
 
         AggStateType rhs = (AggStateType) o;
-        if (!Objects.equals(functionName, rhs.functionName)) {
-            return false;
-        }
-        if ((subTypes == null) != (rhs.subTypes == null)) {
-            return false;
-        }
-        if (subTypes == null) {
-            return true;
-        }
-        if (subTypes.size() != rhs.subTypes.size()) {
-            return false;
-        }
-
-        for (int i = 0; i < subTypes.size(); i++) {
-            if (!subTypes.get(i).equals(rhs.subTypes.get(i))) {
-                return false;
-            }
-            if (!subTypeNullables.get(i).equals(rhs.subTypeNullables.get(i))) {
-                return false;
-            }
-        }
-        return true;
+        return Objects.equals(resultType, rhs.resultType)
+                && functionName.equals(rhs.functionName)
+                && subTypes.equals(rhs.subTypes)
+                && subTypeNullables.equals(rhs.subTypeNullables);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(super.hashCode(), subTypes, subTypeNullables, functionName);
+        return Objects.hash(super.hashCode(), subTypes, subTypeNullables, functionName, resultType);
     }
 
     @Override

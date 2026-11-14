@@ -43,6 +43,7 @@ import org.apache.doris.nereids.types.AggStateType;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BitmapType;
+import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.util.MemoTestUtils;
@@ -141,9 +142,9 @@ class CombineCombinatorTest {
                 ImmutableList.of(argument), new Avg(argument));
         AggStateType exactType = (AggStateType) combine.getDataType();
         AggStateType differentSubtype = new AggStateType("avg",
-                ImmutableList.of(BigIntType.INSTANCE), ImmutableList.of(false), true);
+                ImmutableList.of(BigIntType.INSTANCE), ImmutableList.of(false), true, true, DoubleType.INSTANCE);
         AggStateType differentNullability = new AggStateType("avg",
-                ImmutableList.of(IntegerType.INSTANCE), ImmutableList.of(true), true);
+                ImmutableList.of(IntegerType.INSTANCE), ImmutableList.of(true), true, true, DoubleType.INSTANCE);
 
         Assertions.assertTrue(CheckCast.checkWithLooseAggState(exactType, exactType, false));
         Assertions.assertFalse(CheckCast.checkWithLooseAggState(exactType, differentSubtype, false));

@@ -349,7 +349,8 @@ TEST(DataTypeInsertDefaultTest, AllTypeFamilies) {
     {
         SCOPED_TRACE("agg_state<count>");
         auto actual = get_default_field(std::make_shared<DataTypeAggState>(
-                DataTypes {int_type}, false, "count", BeExecVersionManager::get_newest_version()));
+                DataTypes {int_type}, false, "count", BeExecVersionManager::get_newest_version(),
+                make_simple_type(TYPE_BIGINT)));
         ASSERT_EQ(actual.get_type(), TYPE_STRING);
         EXPECT_EQ(actual.get<TYPE_STRING>(), String(8, '\0'));
     }

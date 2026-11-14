@@ -21,6 +21,10 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.proto.OlapFile;
 import org.apache.doris.proto.OlapFile.PatternTypePB;
+import org.apache.doris.proto.Types;
+import org.apache.doris.thrift.TScalarType;
+import org.apache.doris.thrift.TStructField;
+import org.apache.doris.thrift.TTypeNode;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
@@ -59,9 +63,11 @@ public class ColumnToProtobuf {
         if (column.getAggregationType() != null) {
             if (column.getType().isAggStateType()) {
                 AggStateType aggState = (AggStateType) column.getType();
+                aggState.checkBeExecVersion();
                 builder.setAggregation(aggState.getFunctionName());
                 builder.setResultIsNullable(aggState.getResultIsNullable());
                 builder.setBeExecVersion(Config.be_exec_version);
+                builder.setAggStateResultType(aggStateResultToPb(aggState.getResultType()));
                 if (column.getChildren() != null) {
                     for (Column child : column.getChildren()) {
                         builder.addChildrenColumns(toPb(child, Sets.newHashSet(), Lists.newArrayList()));
@@ -134,6 +140,45 @@ public class ColumnToProtobuf {
         }
 
         return builder.build();
+    }
+
+    private static Types.PTypeDesc aggStateResultToPb(Type resultType) {
+        Types.PTypeDesc.Builder result = Types.PTypeDesc.newBuilder();
+        for (TTypeNode node : resultType.toThrift().getTypes()) {
+            Types.PTypeNode.Builder output = Types.PTypeNode.newBuilder().setType(node.type.getValue());
+            if (node.isSetScalarType()) {
+                TScalarType scalar = node.scalar_type;
+                Types.PScalarType.Builder value = Types.PScalarType.newBuilder().setType(scalar.type.getValue());
+                if (scalar.isSetLen()) {
+                    value.setLen(scalar.len);
+                }
+                if (scalar.isSetPrecision()) {
+                    value.setPrecision(scalar.precision);
+                }
+                if (scalar.isSetScale()) {
+                    value.setScale(scalar.scale);
+                }
+                output.setScalarType(value);
+            }
+            if (node.isSetStructFields()) {
+                for (TStructField field : node.struct_fields) {
+                    Types.PStructField.Builder outputField = Types.PStructField.newBuilder()
+                            .setName(field.name).setContainsNull(field.contains_null);
+                    if (field.isSetComment()) {
+                        outputField.setComment(field.comment);
+                    }
+                    output.addStructFields(outputField);
+                }
+            }
+            if (node.isSetContainsNull()) {
+                output.setContainsNull(node.contains_null);
+            }
+            if (node.isSetContainsNulls()) {
+                output.addAllContainsNulls(node.contains_nulls);
+            }
+            result.addTypes(output);
+        }
+        return result.build();
     }
 
     public static void addChildren(Column column, OlapFile.ColumnPB.Builder builder) throws DdlException {

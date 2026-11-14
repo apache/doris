@@ -103,6 +103,7 @@ struct TypeSpec {
     std::string_view aggregate_function;
     std::string_view aggregate_argument;
     int32_t aggregate_argument_length;
+    PrimitiveType aggregate_result = INVALID_TYPE;
 };
 
 // One spec per storage type a ScalarColumnWriter writes, and one per serialized shape of
@@ -141,10 +142,36 @@ constexpr std::array kTypeSpecs {
         TypeSpec {"hll", "HLL", 16387, 0, 0, false, {}, {}, 0},
         TypeSpec {"bitmap", "BITMAP", 16, 0, 0, false, {}, {}, 0},
         TypeSpec {"quantile_state", "QUANTILE_STATE", 16, 0, 0, false, {}, {}, 0},
-        TypeSpec {"agg_state_count", "AGG_STATE", 1, 0, 0, false, "count", "INT", 4},
-        TypeSpec {"agg_state_hll_union", "AGG_STATE", 1, 0, 0, false, "hll_union", "HLL", 16387},
-        TypeSpec {"agg_state_bitmap_union", "AGG_STATE", 1, 0, 0, false, "bitmap_union", "BITMAP",
-                  16},
+        TypeSpec {.name = "agg_state_count",
+                  .storage_type = "AGG_STATE",
+                  .length = 1,
+                  .precision = 0,
+                  .scale = 0,
+                  .nullable = false,
+                  .aggregate_function = "count",
+                  .aggregate_argument = "INT",
+                  .aggregate_argument_length = 4,
+                  .aggregate_result = TYPE_BIGINT},
+        TypeSpec {.name = "agg_state_hll_union",
+                  .storage_type = "AGG_STATE",
+                  .length = 1,
+                  .precision = 0,
+                  .scale = 0,
+                  .nullable = false,
+                  .aggregate_function = "hll_union",
+                  .aggregate_argument = "HLL",
+                  .aggregate_argument_length = 16387,
+                  .aggregate_result = TYPE_HLL},
+        TypeSpec {.name = "agg_state_bitmap_union",
+                  .storage_type = "AGG_STATE",
+                  .length = 1,
+                  .precision = 0,
+                  .scale = 0,
+                  .nullable = false,
+                  .aggregate_function = "bitmap_union",
+                  .aggregate_argument = "BITMAP",
+                  .aggregate_argument_length = 16,
+                  .aggregate_result = TYPE_BITMAP},
 };
 
 struct CaseInput {
@@ -483,6 +510,9 @@ ColumnPB column_pb(const TypeSpec& spec) {
     column.set_frac(spec.scale);
     if (!spec.aggregate_function.empty()) {
         column.set_result_is_nullable(false);
+        DataTypeFactory::instance()
+                .create_data_type(spec.aggregate_result, false)
+                ->to_protobuf(column.mutable_agg_state_result_type());
         column.set_be_exec_version(kGoldenBeExecVersion);
         auto* argument = column.add_children_columns();
         argument->set_unique_id(2);
@@ -743,6 +773,9 @@ void init_column_meta(ColumnMetaPB* meta, const TabletColumn& column) {
     meta->set_result_is_nullable(column.get_result_is_nullable());
     meta->set_function_name(column.get_aggregation_name());
     meta->set_be_exec_version(column.get_be_exec_version());
+    if (column.type() == FieldType::OLAP_FIELD_TYPE_AGG_STATE) {
+        column.get_agg_state_result_type()->to_protobuf(meta->mutable_agg_state_result_type());
+    }
 }
 
 // Appends the rows block by block to a ScalarColumnWriter, or to the OffsetColumnWriter of array

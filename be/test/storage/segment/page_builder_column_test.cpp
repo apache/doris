@@ -42,6 +42,7 @@
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/column/column_vector.h"
+#include "core/data_type/data_type_factory.hpp"
 #include "core/value/bitmap_value.h"
 #include "core/value/decimalv2_value.h"
 #include "core/value/hll.h"
@@ -298,7 +299,7 @@ void expect_same_pages(const IColumn& source, PageBuilderOptions options, size_t
 
 // An AGG_STATE column of `function(argument)`; its writer stores what the function serialises to.
 TabletColumnPtr agg_state_column(std::string_view function, std::string_view argument,
-                                 int32_t argument_length) {
+                                 int32_t argument_length, PrimitiveType result_type) {
     ColumnPB column;
     column.set_unique_id(0);
     column.set_name("v");
@@ -308,6 +309,9 @@ TabletColumnPtr agg_state_column(std::string_view function, std::string_view arg
     column.set_aggregation(std::string(function));
     column.set_length(1);
     column.set_result_is_nullable(false);
+    DataTypeFactory::instance()
+            .create_data_type(result_type, false)
+            ->to_protobuf(column.mutable_agg_state_result_type());
     column.set_be_exec_version(BeExecVersionManager::get_newest_version());
     auto* arg = column.add_children_columns();
     arg->set_unique_id(1);
@@ -515,11 +519,11 @@ TEST(PageBuilderColumnTest, AggregateStatesBorrowSerializedBatches) {
     expect_same_pages<FieldType::OLAP_FIELD_TYPE_AGG_STATE,
                       BinaryPlainPageBuilder<FieldType::OLAP_FIELD_TYPE_AGG_STATE>>(
             *counts, small_pages(128), 2, 2500, FieldType::OLAP_FIELD_TYPE_AGG_STATE,
-            agg_state_column("count", "INT", 4));
+            agg_state_column("count", "INT", 4, TYPE_BIGINT));
     expect_same_pages<FieldType::OLAP_FIELD_TYPE_AGG_STATE,
                       BinaryPlainPageV3Builder<FieldType::OLAP_FIELD_TYPE_AGG_STATE>>(
             *strings, small_pages(128), 2, 2500, FieldType::OLAP_FIELD_TYPE_VARCHAR,
-            agg_state_column("hll_union", "HLL", 16387));
+            agg_state_column("hll_union", "HLL", 16387, TYPE_HLL));
 }
 
 TEST(PageBuilderColumnTest, PlainInt) {
