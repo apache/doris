@@ -46,7 +46,11 @@ public class BitmapIntersect extends NotNullableAggregateFunction
      * constructor with 1 argument.
      */
     public BitmapIntersect(Expression arg) {
-        super("bitmap_intersect", arg);
+        this("bitmap_intersect", arg);
+    }
+
+    protected BitmapIntersect(String name, Expression arg) {
+        super(name, arg);
     }
 
     /**
@@ -57,7 +61,7 @@ public class BitmapIntersect extends NotNullableAggregateFunction
     }
 
     /** constructor for withChildren and reuse signature */
-    private BitmapIntersect(AggregateFunctionParams functionParams) {
+    protected BitmapIntersect(AggregateFunctionParams functionParams) {
         super(functionParams);
     }
 
