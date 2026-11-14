@@ -154,10 +154,21 @@ bvar::Adder<uint64_t> cooldown_processing_task("cooldown_processing_task");
 void set_last_failure_time(Tablet* tablet, const Compaction& compaction, int64_t ms) {
     switch (compaction.compaction_type()) {
     case ReaderType::READER_CUMULATIVE_COMPACTION:
-        tablet->set_last_cumu_compaction_failure_time(ms);
+        // one failure event must grow the streak exactly once; the Defer inside
+        // CumulativeCompaction::execute_compact also bumps the timestamp for the
+        // same event, so counting lives here and there only.
+        if (ms != 0) {
+            tablet->note_cumu_compaction_failure(ms);
+        } else {
+            tablet->set_last_cumu_compaction_failure_time(ms);
+        }
         return;
     case ReaderType::READER_BASE_COMPACTION:
-        tablet->set_last_base_compaction_failure_time(ms);
+        if (ms != 0) {
+            tablet->note_base_compaction_failure(ms);
+        } else {
+            tablet->set_last_base_compaction_failure_time(ms);
+        }
         return;
     case ReaderType::READER_FULL_COMPACTION:
         tablet->set_last_full_compaction_failure_time(ms);
@@ -167,6 +178,20 @@ void set_last_failure_time(Tablet* tablet, const Compaction& compaction, int64_t
                    << " tablet_id: " << tablet->tablet_id();
     }
 };
+
+// Backoff window in seconds for a consecutively failing tablet: the base scheduling
+// delay doubles on every consecutive failure, capped by
+// config::compaction_failure_backoff_max_second.
+// Example with the default 5s base and 300s cap: failures 1,2,3,...,8+ map to
+// 5s, 10s, 20s, ..., 300s, so a permanently failing tablet (e.g. a rowset whose
+// single column always fails to decompress) stops hammering the compaction
+// thread pool every 5s and settles at one attempt per 5 minutes.
+int64_t compaction_failure_backoff_seconds(int32_t consecutive_failures) {
+    int64_t shift = std::min(consecutive_failures - 1, 20);
+    int64_t backoff_seconds = (config::tablet_sched_delay_time_ms / 1000) << shift;
+    return std::min(backoff_seconds,
+                    static_cast<int64_t>(config::compaction_failure_backoff_max_second));
+}
 
 } // namespace
 
@@ -1482,6 +1507,10 @@ void Tablet::get_compaction_status(std::string* json_result) {
                                     _last_base_compaction_failure_millis)
     FORMAT_UNIXMILLIS_ADD_JSON_NODE(root, "last full failure time",
                                     _last_full_compaction_failure_millis)
+    root.AddMember("cumu compaction consecutive failures",
+                   _cumu_compaction_consecutive_failures.load(), root.GetAllocator());
+    root.AddMember("base compaction consecutive failures",
+                   _base_compaction_consecutive_failures.load(), root.GetAllocator());
     FORMAT_UNIXMILLIS_ADD_JSON_NODE(root, "last cumulative success time",
                                     _last_cumu_compaction_success_millis)
     FORMAT_UNIXMILLIS_ADD_JSON_NODE(root, "last base success time",
@@ -1826,7 +1855,7 @@ Status Tablet::prepare_compaction_and_calculate_permits(
             // no need to wait 5s.
             if (!res.is<ErrorCode::CUMULATIVE_MEET_DELETE_VERSION>() ||
                 config::enable_sleep_between_delete_cumu_compaction) {
-                tablet->set_last_cumu_compaction_failure_time(UnixMillis());
+                tablet->note_cumu_compaction_failure(UnixMillis());
             }
             if (!res.is<CUMULATIVE_NO_SUITABLE_VERSION>() &&
                 !res.is<ErrorCode::CUMULATIVE_MEET_DELETE_VERSION>()) {
@@ -1858,7 +1887,7 @@ Status Tablet::prepare_compaction_and_calculate_permits(
 
         tablet->set_last_base_compaction_status(res.to_string());
         if (!res.ok()) {
-            tablet->set_last_base_compaction_failure_time(UnixMillis());
+            tablet->note_base_compaction_failure(UnixMillis());
             permits = 0;
             if (!res.is<BE_NO_SUITABLE_VERSION>()) {
                 DorisMetrics::instance()->base_compaction_request_failed->increment(1);
@@ -1892,7 +1921,9 @@ Status Tablet::prepare_compaction_and_calculate_permits(
         Status res = compaction->prepare_compact();
 
         if (!res.ok()) {
-            tablet->set_last_cumu_compaction_failure_time(UnixMillis());
+            // changelog compaction shares the cumu failure gate, so count it into the
+            // cumu streak as well
+            tablet->note_cumu_compaction_failure(UnixMillis());
             permits = 0;
             if (!res.is<CUMULATIVE_NO_SUITABLE_VERSION>()) {
                 return Status::InternalError("prepare changelog compaction with err: {}",
@@ -2710,12 +2741,22 @@ void Tablet::set_skip_compaction(bool skip, CompactionType compaction_type, int6
 }
 
 bool Tablet::should_skip_compaction(CompactionType compaction_type, int64_t now) {
-    if (compaction_type == CompactionType::CUMULATIVE_COMPACTION && _skip_cumu_compaction &&
-        now < _skip_cumu_compaction_ts + config::skip_tablet_compaction_second) {
-        return true;
-    } else if (compaction_type == CompactionType::BASE_COMPACTION && _skip_base_compaction &&
-               now < _skip_base_compaction_ts + config::skip_tablet_compaction_second) {
-        return true;
+    if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) {
+        int32_t failures = _cumu_compaction_consecutive_failures.load();
+        if (failures > 0) {
+            return now < _last_cumu_compaction_failure_millis / 1000 +
+                                 compaction_failure_backoff_seconds(failures);
+        }
+        return _skip_cumu_compaction &&
+               now < _skip_cumu_compaction_ts + config::skip_tablet_compaction_second;
+    } else if (compaction_type == CompactionType::BASE_COMPACTION) {
+        int32_t failures = _base_compaction_consecutive_failures.load();
+        if (failures > 0) {
+            return now < _last_base_compaction_failure_millis / 1000 +
+                                 compaction_failure_backoff_seconds(failures);
+        }
+        return _skip_base_compaction &&
+               now < _skip_base_compaction_ts + config::skip_tablet_compaction_second;
     } else if (compaction_type == CompactionType::CHANGELOG_COMPACTION &&
                _skip_changelog_compaction &&
                now < _skip_changelog_compaction_ts + config::skip_tablet_compaction_second) {
