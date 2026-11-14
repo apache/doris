@@ -122,7 +122,7 @@ suite("test_iceberg_schema_metadata_atomicity_matrix",
                 alter table ${tableName}
                 add column default_added string default 'default-value'
             """
-            exception "non-null default"
+            exception "format-version 3"
         }
         assertEquals(metadataBeforeDefault, schemaCount())
 

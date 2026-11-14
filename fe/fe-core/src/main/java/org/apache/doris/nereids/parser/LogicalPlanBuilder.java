@@ -4276,7 +4276,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     defaultValue = Optional.of(new DefaultValue("-" + ctx.DECIMAL_VALUE().getText()));
                 }
             } else if (ctx.stringValue != null) {
-                defaultValue = Optional.of(new DefaultValue(toStringValue(ctx.stringValue.getText())));
+                defaultValue = Optional.of(new DefaultValue(
+                        SqlLiteralUtils.parseStringLiteral(ctx.stringValue.getText())));
             } else if (ctx.nullValue != null) {
                 defaultValue = Optional.of(DefaultValue.NULL_DEFAULT_VALUE);
             } else if (ctx.defaultTimestamp != null) {
@@ -4341,59 +4342,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public ColumnDefinitionWithPath visitColumnDefWithPath(ColumnDefWithPathContext ctx) {
-        if (ctx.columnDef() != null) {
-            ColumnDefinition columnDefinition = visitColumnDef(ctx.columnDef());
-            ColumnPath columnPath = parseColumnPath(ctx, Collections.singletonList(columnDefinition.getName()));
-            return new ColumnDefinitionWithPath(columnDefinition, columnPath);
-        }
-
-        ColumnPath columnPath = parseColumnPath(ctx, ctx.colNames.stream()
-                .map(RuleContext::getText)
-                .collect(Collectors.toList()));
-        String colName = columnPath.getLeafName();
-        DataType colType = ctx.type instanceof PrimitiveDataTypeContext
-                ? visitPrimitiveDataType(((PrimitiveDataTypeContext) ctx.type))
-                : ctx.type instanceof ComplexDataTypeContext
-                        ? visitComplexDataType((ComplexDataTypeContext) ctx.type)
-                    : ctx.type instanceof VariantPredefinedFieldsContext
-                            ? visitVariantPredefinedFields((VariantPredefinedFieldsContext) ctx.type)
-                        : visitAggStateDataType((AggStateDataTypeContext) ctx.type);
-        colType = colType.conversion();
-        boolean isKey = ctx.KEY() != null;
-        ColumnNullableType nullableType = ColumnNullableType.DEFAULT;
-        if (ctx.NOT() != null) {
-            nullableType = ColumnNullableType.NOT_NULLABLE;
-        } else if (ctx.nullable != null) {
-            nullableType = ColumnNullableType.NULLABLE;
-        }
-        String aggTypeString = ctx.aggType != null ? ctx.aggType.getText() : null;
-        AggregateType aggType = null;
-        if (aggTypeString != null) {
-            try {
-                aggType = AggregateType.valueOf(aggTypeString.toUpperCase());
-            } catch (Exception e) {
-                throw new AnalysisException(String.format("Aggregate type %s is unsupported", aggTypeString),
-                        e.getCause());
-            }
-        }
-        String comment = ctx.comment != null
-                ? SqlLiteralUtils.parseStringLiteral(ctx.comment.getText()) : "";
-        long autoIncInitValue = -1;
-        if (ctx.AUTO_INCREMENT() != null) {
-            if (ctx.autoIncInitValue != null) {
-                autoIncInitValue = Long.valueOf(ctx.autoIncInitValue.getText());
-                if (autoIncInitValue < 0) {
-                    throw new AnalysisException("AUTO_INCREMENT start value can not be negative.");
-                }
-            } else {
-                autoIncInitValue = Long.valueOf(1);
-            }
-        }
-        Optional<GeneratedColumnDesc> desc = ctx.generatedExpr != null
-                ? Optional.of(new GeneratedColumnDesc(ctx.generatedExpr.getText(), getExpression(ctx.generatedExpr)))
-                : Optional.empty();
-        ColumnDefinition columnDefinition = new ColumnDefinition(colName, colType, isKey, aggType, nullableType,
-                autoIncInitValue, Optional.empty(), Optional.empty(), comment, ctx.comment != null, true, desc);
+        ColumnDefinition columnDefinition = visitColumnDef(ctx.columnDef());
+        List<String> parts = ctx.colNames.stream().map(RuleContext::getText).collect(Collectors.toList());
+        parts.add(columnDefinition.getName());
+        ColumnPath columnPath = parseColumnPath(ctx, parts);
         return new ColumnDefinitionWithPath(columnDefinition, columnPath);
     }
 
