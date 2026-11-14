@@ -54,6 +54,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.persist.EditLog;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
@@ -66,6 +67,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.gson.JsonObject;
 import com.google.gson.annotations.SerializedName;
 import lombok.Data;
 import org.apache.commons.lang3.StringUtils;
@@ -85,6 +87,7 @@ import java.util.stream.Collectors;
 
 @Data
 public class ExportJob implements Writable {
+    public static final long MIN_HISTORY_RETENTION_MS = 5 * 60 * 1000L;
     private static final Logger LOG = LogManager.getLogger(ExportJob.class);
 
     private static final String BROKER_PROPERTY_PREFIXES = "broker.";
@@ -96,6 +99,9 @@ public class ExportJob implements Writable {
     private long id;
     @SerializedName("label")
     private String label;
+    // Null means legacy metadata without explicit label ownership. Guarded by the ExportMgr lock.
+    @SerializedName("labelOwner")
+    private Boolean labelOwner;
     @SerializedName("dbId")
     private long dbId;
     @SerializedName("tableId")
@@ -673,9 +679,31 @@ public class ExportJob implements Writable {
         return this.state == ExportJobState.CANCELLED || this.state == ExportJobState.FINISHED;
     }
 
-    public boolean isExpired(long curTime) {
-        return (curTime - createTimeMs) / 1000 > Config.history_job_keep_max_second
-                && (state == ExportJobState.CANCELLED || state == ExportJobState.FINISHED);
+    public synchronized boolean isExpired(long curTime) {
+        return isRemovableAt(curTime, Config.history_job_keep_max_second);
+    }
+
+    public synchronized boolean isRemovableAt(long curTime, long ttlSeconds) {
+        if (state != ExportJobState.CANCELLED && state != ExportJobState.FINISHED) {
+            return false;
+        }
+        if (finishTimeMs <= 0 || finishTimeMs > curTime) {
+            return false;
+        }
+        long configuredRetentionMs = ttlSeconds > Long.MAX_VALUE / 1000L
+                ? Long.MAX_VALUE : ttlSeconds * 1000L;
+        long retentionMs = Math.max(MIN_HISTORY_RETENTION_MS, configuredRetentionMs);
+        return curTime - finishTimeMs >= retentionMs;
+    }
+
+    public synchronized boolean backfillFinishTime(long confirmedTimeMs, EditLog editLog) {
+        if ((state != ExportJobState.CANCELLED && state != ExportJobState.FINISHED)
+                || finishTimeMs > 0) {
+            return false;
+        }
+        finishTimeMs = confirmedTimeMs;
+        editLog.logExportUpdateState(this, state);
+        return true;
     }
 
     public String getWhereStr() {
@@ -714,6 +742,13 @@ public class ExportJob implements Writable {
     public void write(DataOutput out) throws IOException {
         String json = GsonUtils.GSON.toJson(this);
         Text.writeString(out, json);
+    }
+
+    public void write(DataOutput out, boolean isLabelOwner) throws IOException {
+        // A checkpoint must mark every selected job, including legacy history whose owner was removed.
+        JsonObject json = GsonUtils.GSON.toJsonTree(this).getAsJsonObject();
+        json.addProperty("labelOwner", isLabelOwner);
+        Text.writeString(out, json.toString());
     }
 
     @Override

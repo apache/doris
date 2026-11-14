@@ -41,6 +41,7 @@ import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Or;
+import org.apache.doris.persist.EditLog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.scheduler.exception.JobException;
 
@@ -56,7 +57,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
-import java.util.Iterator;
+import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
@@ -79,7 +80,12 @@ public class ExportMgr {
     }
 
     public List<ExportJob> getJobs() {
-        return Lists.newArrayList(exportIdToJob.values());
+        readLock();
+        try {
+            return Lists.newArrayList(exportIdToJob.values());
+        } finally {
+            readUnlock();
+        }
     }
 
     private void readLock() {
@@ -109,6 +115,7 @@ public class ExportMgr {
                     throw new LabelAlreadyUsedException(job.getLabel());
                 }
             }
+            job.setLabelOwner(true);
             unprotectAddJob(job);
             Env.getCurrentEnv().getEditLog().logExportCreate(job);
         } finally {
@@ -246,8 +253,42 @@ public class ExportMgr {
 
     public void unprotectAddJob(ExportJob job) {
         exportIdToJob.put(job.getId(), job);
-        dbTolabelToExportJobId.computeIfAbsent(job.getDbId(),
-                k -> Maps.newHashMap()).put(job.getLabel(), job.getId());
+        unprotectRegisterLabel(job);
+    }
+
+    private void unprotectRegisterLabel(ExportJob job) {
+        if (Boolean.FALSE.equals(job.getLabelOwner())) {
+            return;
+        }
+        Map<String, Long> labelToJobId = dbTolabelToExportJobId.computeIfAbsent(
+                job.getDbId(), k -> Maps.newHashMap());
+        Long currentJobId = labelToJobId.get(job.getLabel());
+        ExportJob currentJob = currentJobId == null ? null : exportIdToJob.get(currentJobId);
+        if (Boolean.TRUE.equals(job.getLabelOwner())) {
+            // Live admission and ordered CREATE replay are authoritative, regardless of IDs or states.
+            if (currentJob != null) {
+                currentJob.setLabelOwner(false);
+            }
+            job.setLabelOwner(true);
+        } else if (currentJob != null) {
+            // Only legacy metadata uses the old state preference; it cannot displace an explicit owner.
+            if (currentJob.getLabelOwner() != null
+                    || (job.getState() == ExportJobState.CANCELLED
+                    && currentJob.getState() != ExportJobState.CANCELLED)) {
+                return;
+            }
+        }
+        labelToJobId.put(job.getLabel(), job.getId());
+    }
+
+    public boolean isLabelOwner(ExportJob job) {
+        readLock();
+        try {
+            return Long.valueOf(job.getId()).equals(dbTolabelToExportJobId
+                    .getOrDefault(job.getDbId(), Collections.emptyMap()).get(job.getLabel()));
+        } finally {
+            readUnlock();
+        }
     }
 
     public ExportJob getJob(long jobId) {
@@ -461,55 +502,115 @@ public class ExportMgr {
 
     public void removeOldExportJobs() {
         long currentTimeMs = System.currentTimeMillis();
+        long ttlSeconds = Config.history_job_keep_max_second;
+        int maxCount = Config.max_export_history_job_num;
+        backfillMissingFinishTimes(currentTimeMs);
+        removeOldExportJobs(currentTimeMs, ttlSeconds, maxCount);
+    }
 
+    @VisibleForTesting
+    void removeOldExportJobs(long currentTimeMs, long ttlSeconds, int maxCount) {
         writeLock();
         try {
-            Iterator<Map.Entry<Long, ExportJob>> iter = exportIdToJob.entrySet().iterator();
-            while (iter.hasNext()) {
-                Map.Entry<Long, ExportJob> entry = iter.next();
-                ExportJob job = entry.getValue();
-                if ((currentTimeMs - job.getCreateTimeMs()) / 1000 > Config.history_job_keep_max_second
-                        && (job.getState() == ExportJobState.CANCELLED
-                        || job.getState() == ExportJobState.FINISHED)) {
-                    iter.remove();
-                    Map<String, Long> labelJobs = dbTolabelToExportJobId.get(job.getDbId());
-                    if (labelJobs != null) {
-                        labelJobs.remove(job.getLabel(), job.getId());
-                        if (labelJobs.isEmpty()) {
-                            dbTolabelToExportJobId.remove(job.getDbId());
-                        }
-                    }
+            List<ExportJob> jobsToRemove = selectJobsToRemove(
+                    new ArrayList<>(exportIdToJob.values()), currentTimeMs, ttlSeconds, maxCount);
+            for (ExportJob job : jobsToRemove) {
+                if (exportIdToJob.remove(job.getId(), job)) {
+                    unprotectRemoveLabel(job);
                 }
             }
-
-            if (exportIdToJob.size() > Config.max_export_history_job_num) {
-                List<Map.Entry<Long, ExportJob>> jobList = new ArrayList<>(exportIdToJob.entrySet());
-                jobList.sort(Comparator.comparingLong(entry -> entry.getValue().getCreateTimeMs()));
-                Iterator<Map.Entry<Long, ExportJob>> jobIterator = jobList.iterator();
-                while (exportIdToJob.size() > Config.max_export_history_job_num && jobIterator.hasNext()) {
-                    Map.Entry<Long, ExportJob> oldestEntry = jobIterator.next();
-                    ExportJob job = oldestEntry.getValue();
-                    if (job.getState() != ExportJobState.CANCELLED && job.getState() != ExportJobState.FINISHED) {
-                        continue;
-                    }
-                    exportIdToJob.remove(oldestEntry.getKey());
-                    Map<String, Long> labelJobs = dbTolabelToExportJobId.get(job.getDbId());
-                    if (labelJobs != null) {
-                        labelJobs.remove(job.getLabel(), job.getId());
-                        if (labelJobs.isEmpty()) {
-                            dbTolabelToExportJobId.remove(job.getDbId());
-                        }
-                    }
-                }
+            if (maxCount >= 0 && exportIdToJob.size() > maxCount) {
+                LOG.warn("export history remains over limit after safe cleanup: current={}, limit={}",
+                        exportIdToJob.size(), maxCount);
             }
         } finally {
             writeUnlock();
         }
     }
 
+    private void backfillMissingFinishTimes(long confirmedTimeMs) {
+        Env currentEnv = Env.getCurrentEnv();
+        backfillMissingFinishTimes(currentEnv, Env.getServingEnv(), Env.isCheckpointThread(), confirmedTimeMs);
+    }
+
+    @VisibleForTesting
+    void backfillMissingFinishTimes(
+            Env currentEnv, Env servingEnv, boolean checkpointThread, long confirmedTimeMs) {
+        if (currentEnv != servingEnv || checkpointThread
+                || !currentEnv.isReady() || !currentEnv.isMaster()) {
+            return;
+        }
+        EditLog editLog = currentEnv.getEditLog();
+        for (ExportJob job : getJobs()) {
+            job.backfillFinishTime(confirmedTimeMs, editLog);
+        }
+    }
+
+    private void unprotectRemoveLabel(ExportJob job) {
+        Map<String, Long> labelJobs = dbTolabelToExportJobId.get(job.getDbId());
+        if (labelJobs != null) {
+            labelJobs.remove(job.getLabel(), job.getId());
+            if (labelJobs.isEmpty()) {
+                dbTolabelToExportJobId.remove(job.getDbId());
+            }
+        }
+    }
+
+    @VisibleForTesting
+    public static List<ExportJob> selectJobsToRemove(
+            List<ExportJob> jobs, long currentTimeMs, long ttlSeconds, int maxCount) {
+        List<ExportJob> result = new ArrayList<>();
+        Set<Long> selectedIds = new HashSet<>();
+        for (ExportJob job : jobs) {
+            if (job.isRemovableAt(currentTimeMs, ttlSeconds)) {
+                result.add(job);
+                selectedIds.add(job.getId());
+            }
+        }
+        if (maxCount < 0) {
+            LOG.warn("skip export history count cleanup because max_export_history_job_num is {}", maxCount);
+            return result;
+        }
+
+        int excess = jobs.size() - result.size() - maxCount;
+        if (excess <= 0) {
+            return result;
+        }
+        List<ExportJob> countCandidates = new ArrayList<>();
+        for (ExportJob job : jobs) {
+            if (!selectedIds.contains(job.getId())
+                    && job.isRemovableAt(currentTimeMs, 0)) {
+                countCandidates.add(job);
+            }
+        }
+        countCandidates.sort(Comparator.comparingLong(ExportJob::getFinishTimeMs)
+                .thenComparingLong(ExportJob::getId));
+        for (int i = 0; i < Math.min(excess, countCandidates.size()); i++) {
+            result.add(countCandidates.get(i));
+        }
+        return result;
+    }
+
+    public List<ExportJob> getJobsForImage(long currentTimeMs) {
+        long ttlSeconds = Config.history_job_keep_max_second;
+        int maxCount = Config.max_export_history_job_num;
+        readLock();
+        try {
+            List<ExportJob> jobs = new ArrayList<>(exportIdToJob.values());
+            Set<Long> removedIds = selectJobsToRemove(
+                    jobs, currentTimeMs, ttlSeconds, maxCount).stream()
+                    .map(ExportJob::getId).collect(Collectors.toSet());
+            return jobs.stream().filter(job -> !removedIds.contains(job.getId()))
+                    .collect(Collectors.toList());
+        } finally {
+            readUnlock();
+        }
+    }
+
     public void replayCreateExportJob(ExportJob job) {
         writeLock();
         try {
+            job.setLabelOwner(true);
             unprotectAddJob(job);
         } finally {
             writeUnlock();
@@ -531,6 +632,11 @@ public class ExportMgr {
             job.setFinishTimeMs(stateTransfer.getFinishTimeMs());
             job.setFailMsg(stateTransfer.getFailMsg());
             job.setOutfileInfo(stateTransfer.getOutFileInfo());
+            // A late legacy update may refine an existing legacy mapping, never resurrect a removed owner.
+            if (job.getLabelOwner() == null && dbTolabelToExportJobId
+                    .getOrDefault(job.getDbId(), Collections.emptyMap()).containsKey(job.getLabel())) {
+                unprotectRegisterLabel(job);
+            }
         } finally {
             writeUnlock();
         }
