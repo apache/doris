@@ -316,7 +316,7 @@ TEST(HierarchicalDataIteratorTest, RejectsNonV2Destination) {
     OlapReaderStatistics stats;
     ASSERT_TRUE(HierarchicalDataIterator::create(
                         &iterator, 0, PathInData("s"), nullptr, make_two_row_jsonb_sparse_stream(),
-                        nullptr, nullptr, &stats,
+                        nullptr, nullptr, 16, &stats,
                         HierarchicalDataIterator::ReadType::SUBCOLUMNS_AND_SPARSE)
                         .ok());
 
@@ -337,7 +337,7 @@ TEST(HierarchicalDataIteratorTest, MissingSubtreeRowsBecomeNullableOuterNulls) {
     OlapReaderStatistics stats;
     ASSERT_TRUE(HierarchicalDataIterator::create(
                         &iterator, 0, PathInData("unrecorded"), nullptr, make_empty_sparse_stream(),
-                        nullptr, nullptr, &stats,
+                        nullptr, nullptr, 16, &stats,
                         HierarchicalDataIterator::ReadType::SUBCOLUMNS_AND_SPARSE)
                         .ok());
 
@@ -363,7 +363,7 @@ TEST(HierarchicalDataIteratorTest, ExactSparseJsonNullKeepsVariantNullValue) {
     OlapReaderStatistics stats;
     ASSERT_TRUE(HierarchicalDataIterator::create(
                         &iterator, 0, PathInData("s"), nullptr, make_two_row_jsonb_sparse_stream(),
-                        nullptr, nullptr, &stats,
+                        nullptr, nullptr, 16, &stats,
                         HierarchicalDataIterator::ReadType::SUBCOLUMNS_AND_SPARSE)
                         .ok());
 
@@ -392,7 +392,7 @@ TEST(HierarchicalDataIteratorTest, DescendantJsonNullKeepsObjectVisible) {
     OlapReaderStatistics stats;
     ASSERT_TRUE(HierarchicalDataIterator::create(
                         &iterator, 0, PathInData("s"), nullptr,
-                        make_two_row_jsonb_sparse_stream("s.child"), nullptr, nullptr, &stats,
+                        make_two_row_jsonb_sparse_stream("s.child"), nullptr, nullptr, 16, &stats,
                         HierarchicalDataIterator::ReadType::SUBCOLUMNS_AND_SPARSE)
                         .ok());
 
@@ -429,8 +429,8 @@ TEST(HierarchicalDataIteratorTest, ConsecutiveBatchesClearRootAndSparseScratchCo
     ASSERT_TRUE(HierarchicalDataIterator::create(
                         &iterator, 0, PathInData(), nullptr,
                         make_three_row_sparse_stream(sparse_state),
-                        make_three_row_root_stream(root_state, R"({"root":1})"), nullptr, &stats,
-                        HierarchicalDataIterator::ReadType::SUBCOLUMNS_AND_SPARSE)
+                        make_three_row_root_stream(root_state, R"({"root":1})"), nullptr, 16,
+                        &stats, HierarchicalDataIterator::ReadType::SUBCOLUMNS_AND_SPARSE)
                         .ok());
 
     ColumnIteratorOptions options;
