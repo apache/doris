@@ -66,7 +66,9 @@ Status VariantStatsCaculator::calculate_variant_stats(const Block* block, size_t
 
             // Check if this is a sparse column or sub column
             // Treat both single sparse column and bucketized sparse columns (.b{i}) as sparse
-            if (column_path.find("__DORIS_VARIANT_SPARSE__") != std::string::npos) {
+            // A materialized user key containing the marker has a scalar column, not a Map.
+            if (variant_util::variant_binary_column_bucket(
+                        tablet_column.path_info_ptr()->get_relative_path(), SPARSE_COLUMN_PATH)) {
                 // This is a sparse column from variant column
                 // get variant_max_sparse_column_statistics_size from tablet_schema
                 size_t variant_max_sparse_column_statistics_size =
