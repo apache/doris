@@ -17,6 +17,7 @@
 # under the License.
 
 export SPARK_MASTER_HOST=doris--spark-iceberg
+SPARK_MASTER_URL="spark://doris--spark-iceberg:7077"
 
 # wait iceberg-rest start
 while ! curl -s --fail http://rest:8181/v1/config >/dev/null; do
@@ -39,9 +40,7 @@ for f in /opt/spark/bin/*; do
   ln -sf $f /usr/local/bin/$(basename $f)
 done
 
-
 start-master.sh -p 7077
-start-worker.sh spark://doris--spark-iceberg:7077
 start-history-server.sh
 
 # The creation of a Spark SQL client is time-consuming,
@@ -52,36 +51,45 @@ start-history-server.sh
 
 START_TIME1=$(date +%s)
 find /mnt/scripts/create_preinstalled_scripts/iceberg -name '*.sql' | sort | sed 's|^|source |' | sed 's|$|;|'> iceberg_total.sql
-spark-sql --master spark://doris--spark-iceberg:7077 --conf spark.sql.extensions=org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions -f iceberg_total.sql 
+spark-sql --master "${SPARK_MASTER_URL}" \
+          --conf spark.default.parallelism=8 \
+          --conf spark.sql.extensions=org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions \
+          -f iceberg_total.sql 
 END_TIME1=$(date +%s)
 EXECUTION_TIME1=$((END_TIME1 - START_TIME1))
 echo "Script iceberg total: {} executed in $EXECUTION_TIME1 seconds"
 
 START_TIME2=$(date +%s)
 find /mnt/scripts/create_preinstalled_scripts/paimon -name '*.sql' | sort | sed 's|^|source |' | sed 's|$|;|'> paimon_total.sql
-spark-sql  --master  spark://doris--spark-iceberg:7077 --conf spark.sql.extensions=org.apache.paimon.spark.extensions.PaimonSparkSessionExtensions -f paimon_total.sql
+spark-sql --master  "${SPARK_MASTER_URL}" \
+          --conf spark.default.parallelism=8 \
+          --conf spark.sql.extensions=org.apache.paimon.spark.extensions.PaimonSparkSessionExtensions \
+          -f paimon_total.sql
 END_TIME2=$(date +%s)
 EXECUTION_TIME2=$((END_TIME2 - START_TIME2))
 echo "Script paimon total: {} executed in $EXECUTION_TIME2 seconds"
 
 START_TIME3=$(date +%s)
 find /mnt/scripts/create_preinstalled_scripts/iceberg_load -name '*.sql' | sort | sed 's|^|source |' | sed 's|$|;|'> iceberg_load_total.sql
-spark-sql --master spark://doris--spark-iceberg:7077 --conf spark.sql.extensions=org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions -f iceberg_load_total.sql 
+spark-sql --master "${SPARK_MASTER_URL}" \
+          --conf spark.default.parallelism=8 \
+          --conf spark.sql.extensions=org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions \
+          -f iceberg_load_total.sql 
 END_TIME3=$(date +%s)
 EXECUTION_TIME3=$((END_TIME3 - START_TIME3))
 echo "Script iceberg load total: {} executed in $EXECUTION_TIME3 seconds"
 
 spark-sql \
-  --master spark://doris--spark-iceberg:7077 \
+  --master "${SPARK_MASTER_URL}" \
   --conf spark.sql.extensions=org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions \
   -e "CREATE DATABASE IF NOT EXISTS demo.default"
 
 start-thriftserver.sh \
-  --master spark://doris--spark-iceberg:7077 \
+  --master "${SPARK_MASTER_URL}" \
   --conf "spark.sql.extensions=${SPARK_THRIFT_EXTENSIONS}" \
   --conf spark.dynamicAllocation.enabled=false \
-  --conf spark.cores.max=8 \
-  --conf spark.executor.cores=4 \
+  --conf spark.cores.max=4 \
+  --conf spark.executor.cores=2 \
   --conf spark.executor.memory=1g \
   --conf spark.driver.memory=1g \
   --conf spark.sql.shuffle.partitions=16 \
