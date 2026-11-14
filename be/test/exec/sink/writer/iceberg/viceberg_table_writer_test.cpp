@@ -28,6 +28,7 @@
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type/data_type_timestamptz.h"
 #include "core/data_type/data_type_varbinary.h"
@@ -44,6 +45,8 @@
 namespace doris {
 
 namespace {
+using PartitionValues = std::vector<std::optional<std::string>>;
+
 class RecordingPartitionWriter : public IPartitionWriterBase {
 public:
     Status open(RuntimeState*, RuntimeProfile*, const RowDescriptor*) override {
@@ -168,9 +171,9 @@ TEST(VIcebergTableWriterTest, TimestampIdentityPreservesUtcCommitAndNull) {
         auto value = writer._get_iceberg_partition_value(TYPE_TIMESTAMPTZ, partition, row);
         IcebergPartitionData data({value});
         paths.push_back(writer._partition_to_path(data));
-        const std::vector<std::string> expected = {"2021-11-07 05:30:00.123456+00:00",
-                                                   "2021-11-07 06:30:00.123456+00:00", "null"};
-        EXPECT_EQ(std::vector<std::string>({expected[row]}), writer._partition_values(data));
+        const PartitionValues expected = {"2021-11-07 05:30:00.123456+00:00",
+                                          "2021-11-07 06:30:00.123456+00:00", std::nullopt};
+        EXPECT_EQ(PartitionValues({expected[row]}), writer._partition_values(data));
     }
     EXPECT_NE(paths[0], paths[1]);
     EXPECT_EQ("event_time=null", paths[2]);
@@ -179,7 +182,7 @@ TEST(VIcebergTableWriterTest, TimestampIdentityPreservesUtcCommitAndNull) {
             {{"event_time", "2021-11-07 01:30:00.123456-05:00"}});
     writer._init_static_partition_values();
     EXPECT_EQ(paths[1], writer._static_partition_path);
-    EXPECT_EQ(std::vector<std::string>({"2021-11-07 06:30:00.123456+00:00"}),
+    EXPECT_EQ(PartitionValues({"2021-11-07 06:30:00.123456+00:00"}),
               writer._static_partition_value_list);
 }
 
@@ -238,7 +241,7 @@ TEST(VIcebergTableWriterTest, StaticNullBinaryPartitionsKeepNullPathsAndCommitVa
         ASSERT_NO_THROW(writer._init_static_partition_values());
         EXPECT_TRUE(writer._is_full_static_partition);
         ASSERT_EQ("key=null", writer._static_partition_path);
-        EXPECT_EQ(std::vector<std::string>({"null"}), writer._static_partition_value_list);
+        EXPECT_EQ(PartitionValues({std::nullopt}), writer._static_partition_value_list);
         auto recording_writer = std::make_shared<RecordingPartitionWriter>();
         writer._partitions_to_writers["key=null"] = recording_writer;
         auto null_column = type->create_column();
@@ -260,7 +263,7 @@ TEST(VIcebergTableWriterTest, StaticNullBinaryPartitionsKeepNullPathsAndCommitVa
         EXPECT_FALSE(writer._is_full_static_partition);
         IcebergPartitionData hybrid({std::any(), Int32(7)});
         ASSERT_EQ("key=null/id=7", writer._partition_to_path(hybrid));
-        EXPECT_EQ(std::vector<std::string>({"null", "7"}), writer._partition_values(hybrid));
+        EXPECT_EQ(PartitionValues({std::nullopt, "7"}), writer._partition_values(hybrid));
         writer._partitions_to_writers[writer._partition_to_writer_key(hybrid)] = recording_writer;
         Block hybrid_block({ColumnWithTypeAndName(null_column->get_ptr(), type, "key"),
                             ColumnWithTypeAndName(id_column->get_ptr(), id_type, "id")});
@@ -273,7 +276,7 @@ TEST(VIcebergTableWriterTest, StaticNullBinaryPartitionsKeepNullPathsAndCommitVa
             writer._t_sink.iceberg_table_sink.__set_static_partition_values({{"key", "0x"}});
             ASSERT_NO_THROW(writer._init_static_partition_values());
             EXPECT_EQ("key=/id=7", writer._partition_to_path(hybrid));
-            EXPECT_EQ(std::vector<std::string>({"0x", "7"}), writer._partition_values(hybrid));
+            EXPECT_EQ(PartitionValues({"0x", "7"}), writer._partition_values(hybrid));
             writer._t_sink.iceberg_table_sink.__set_static_partition_values({{"key", "null"}});
             EXPECT_THROW(writer._init_static_partition_values(), Exception);
         }
@@ -306,7 +309,7 @@ TEST(VIcebergTableWriterTest, BinaryIdentityStaticAndDynamicRouting) {
     EXPECT_EQ(bytes, std::any_cast<std::string>(value));
     IcebergPartitionData data({value});
     EXPECT_EQ("key=3q0%3D", writer._partition_to_path(data));
-    EXPECT_EQ(std::vector<std::string>({"0xdead"}), writer._partition_values(data));
+    EXPECT_EQ(PartitionValues({"0xdead"}), writer._partition_values(data));
     IcebergPartitionData null_value({std::any()});
     IcebergPartitionData null_text({std::string("\x9e\xe9\x65", 3)});
     EXPECT_EQ(writer._partition_to_path(null_value), writer._partition_to_path(null_text));
@@ -315,7 +318,7 @@ TEST(VIcebergTableWriterTest, BinaryIdentityStaticAndDynamicRouting) {
     writer._init_static_partition_values();
     EXPECT_TRUE(writer._is_full_static_partition);
     EXPECT_EQ("key=3q0%3D", writer._static_partition_path);
-    EXPECT_EQ(std::vector<std::string>({"0xdead"}), writer._static_partition_value_list);
+    EXPECT_EQ(PartitionValues({"0xdead"}), writer._static_partition_value_list);
     // Add a dynamic field to exercise hybrid routing with the same static binary value.
     iceberg::PartitionField dynamic_field(2, 1001, "id", "identity");
     writer._iceberg_partition_columns.emplace_back(
@@ -325,7 +328,56 @@ TEST(VIcebergTableWriterTest, BinaryIdentityStaticAndDynamicRouting) {
     EXPECT_FALSE(writer._is_full_static_partition);
     IcebergPartitionData hybrid({std::any(), Int32(7)});
     EXPECT_EQ("key=3q0%3D/id=7", writer._partition_to_path(hybrid));
-    EXPECT_EQ(std::vector<std::string>({"0xdead", "7"}), writer._partition_values(hybrid));
+    EXPECT_EQ(PartitionValues({"0xdead", "7"}), writer._partition_values(hybrid));
+}
+
+TEST(VIcebergTableWriterTest, StringNullAndSqlNullKeepDistinctPartitionValues) {
+    std::vector<iceberg::NestedField> columns;
+    columns.emplace_back(true, 1, "p", std::make_unique<iceberg::StringType>(), std::nullopt);
+    auto schema = std::make_shared<iceberg::Schema>(std::move(columns));
+    auto spec = iceberg::PartitionSpecParser::from_json(
+            schema,
+            R"({"spec-id":0,"fields":[{"name":"p","transform":"identity","source-id":1,"field-id":1000}]})");
+    TIcebergTableSink sink;
+    TDataSink data_sink;
+    data_sink.__set_iceberg_table_sink(sink);
+    VExprContextSPtrs exprs;
+    VIcebergTableWriter writer(data_sink, exprs);
+    writer._schema = schema;
+    writer._iceberg_partition_columns.emplace_back(
+            spec->fields()[0], TYPE_STRING, 0, std::vector<size_t> {},
+            std::make_unique<IdentityPartitionColumnTransform>(std::make_shared<DataTypeString>()));
+
+    IcebergPartitionData literal_null({std::string("null")});
+    IcebergPartitionData sql_null({std::any()});
+    EXPECT_EQ("p=null", writer._partition_to_path(literal_null));
+    EXPECT_EQ(writer._partition_to_path(literal_null), writer._partition_to_path(sql_null));
+    EXPECT_NE(writer._partition_to_writer_key(literal_null),
+              writer._partition_to_writer_key(sql_null));
+    EXPECT_EQ(PartitionValues({"null"}), writer._partition_values(literal_null));
+    EXPECT_EQ(PartitionValues({std::nullopt}), writer._partition_values(sql_null));
+    EXPECT_EQ(PartitionValues({""}),
+              writer._partition_values(IcebergPartitionData({std::string()})));
+    EXPECT_EQ(PartitionValues({"ordinary"}),
+              writer._partition_values(IcebergPartitionData({std::string("ordinary")})));
+
+    writer._t_sink.iceberg_table_sink.__set_static_partition_values({{"p", "null"}});
+    writer._init_static_partition_values();
+    EXPECT_EQ(PartitionValues({"null"}), writer._static_partition_value_list);
+    writer._t_sink.iceberg_table_sink.__set_static_partition_null_keys({"p"});
+    writer._init_static_partition_values();
+    EXPECT_EQ(PartitionValues({std::nullopt}), writer._static_partition_value_list);
+
+    iceberg::PartitionField dynamic_field(2, 1001, "id", "identity");
+    writer._iceberg_partition_columns.emplace_back(
+            dynamic_field, TYPE_INT, 1, std::vector<size_t> {},
+            std::make_unique<IdentityPartitionColumnTransform>(std::make_shared<DataTypeInt32>()));
+    writer._init_static_partition_values();
+    IcebergPartitionData hybrid({std::any(), Int32(7)});
+    EXPECT_EQ(PartitionValues({std::nullopt, "7"}), writer._partition_values(hybrid));
+    writer._t_sink.iceberg_table_sink.__set_static_partition_null_keys({});
+    writer._init_static_partition_values();
+    EXPECT_EQ(PartitionValues({"null", "7"}), writer._partition_values(hybrid));
 }
 
 TEST(VIcebergTableWriterTest, OpenRejectsASinkWithoutTheTableFormOfTheDataLocation) {
@@ -440,7 +492,7 @@ TEST(VIcebergTableWriterTest, VoidPartitionFieldNeedsNoSourceColumn) {
 
     IcebergPartitionData partition({std::any(), Int32(7)});
     EXPECT_EQ("region=null/category=7", writer._partition_to_path(partition));
-    EXPECT_EQ(std::vector<std::string>({"null", "7"}), writer._partition_values(partition));
+    EXPECT_EQ(PartitionValues({std::nullopt, "7"}), writer._partition_values(partition));
     auto recording_writer = std::make_shared<RecordingPartitionWriter>();
     writer._partitions_to_writers[writer._partition_to_writer_key(partition)] = recording_writer;
     auto note = int_type->create_column();
@@ -530,7 +582,7 @@ TEST(VIcebergTableWriterTest, UuidStaticPartitionAcceptsCanonicalText) {
                     std::make_shared<DataTypeVarbinary>()));
     writer._init_static_partition_values();
     EXPECT_EQ("key=" + uuid, writer._static_partition_path);
-    EXPECT_EQ(std::vector<std::string>({"0x00112233445566778899aabbccddeeff"}),
+    EXPECT_EQ(PartitionValues({"0x00112233445566778899aabbccddeeff"}),
               writer._static_partition_value_list);
     writer._t_sink.iceberg_table_sink.static_partition_values["key"] = "invalid";
     EXPECT_THROW(writer._init_static_partition_values(), Exception);
