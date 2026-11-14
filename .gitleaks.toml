@@ -90,3 +90,7 @@ id = "private-key"
 [[rules.allowlists]]
 description = "Ignore test-only TLS private key used by MySQL docker-compose fixtures"
 paths = ['''^docker/thirdparties/docker-compose/mysql/certs/server\.key$''']
+
+[[rules.allowlists]]
+description = "Ignore the PKCS#8 form of the existing regression client TLS test key"
+paths = ['''^regression-test/ssl_default_certificate/client-key-pkcs8\.pem$''']
