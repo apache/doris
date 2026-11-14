@@ -42,6 +42,7 @@ import org.apache.doris.persist.meta.MetaReader;
 import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.QeService;
+import org.apache.doris.qe.QueryAuditPolicy;
 import org.apache.doris.qe.SimpleScheduler;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.service.ExecuteEnv;
@@ -158,6 +159,10 @@ public class DorisFE {
             // fe.conf/fe_custom.conf, so validate the loaded value here after both files are loaded
             // and merged, to reject a "V1" left over in the config files at startup.
             InvertedIndexStorageFormatValidator.rejectStartupV1(Config.inverted_index_storage_format);
+            // Loading the config files does not run the callbacks that reject what query_audit_always_on does not
+            // allow either, so such values are corrected here, before logging and the audit pipeline start with
+            // them. They are logged once logging is up.
+            List<QueryAuditPolicy.StartupOverride> queryAuditOverrides = QueryAuditPolicy.applyStartupOverrides();
 
             // The command line value overrides fe.conf, so this can only run once Config is loaded.
             resolveLocalResourceGroup(commandLine);
@@ -180,6 +185,7 @@ public class DorisFE {
                 Log4jConfig.foreground = true;
             }
             Log4jConfig.initLogging(dorisHomeDir + "/conf/");
+            QueryAuditPolicy.logStartup(queryAuditOverrides);
             LOG.info("effective local_resource_group={}, source={}",
                     Config.local_resource_group, effectiveLocalResourceGroupSource);
             // Add shutdown hook for graceful exit

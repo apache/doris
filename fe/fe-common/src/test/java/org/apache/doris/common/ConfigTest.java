@@ -142,6 +142,45 @@ public class ConfigTest {
         throw new IllegalStateException("config not found: " + key);
     }
 
+    // ADMIN SET FRONTEND CONFIG and /api/_set_config both change a config through setMutableConfig, and persist it
+    // only when that succeeds. With query_audit_always_on, a value weaker than the default must fail there.
+    @Test
+    public void testQueryAuditAlwaysOnRejectsWeakerAuditConfigs() throws ConfigException {
+        boolean alwaysOn = Config.query_audit_always_on;
+        int queueSize = Config.audit_event_log_queue_size;
+        int timeout = Config.query_audit_log_timeout_ms;
+        try {
+            Config.query_audit_always_on = true;
+            ConfigException error = Assertions.assertThrows(ConfigException.class,
+                    () -> ConfigBase.setMutableConfig("audit_event_log_queue_size", "0"));
+            Assertions.assertTrue(error.getMessage().contains("can't be set to '0' because query_audit_always_on "
+                    + "is enabled, the value must be at least 250000"), error.getMessage());
+            Assertions.assertEquals(queueSize, Config.audit_event_log_queue_size);
+            ConfigBase.setMutableConfig("audit_event_log_queue_size", "300000");
+            Assertions.assertEquals(300000, Config.audit_event_log_queue_size);
+
+            Assertions.assertThrows(ConfigException.class,
+                    () -> ConfigBase.setMutableConfig("query_audit_log_timeout_ms", "100000"));
+            Assertions.assertEquals(timeout, Config.query_audit_log_timeout_ms);
+            ConfigBase.setMutableConfig("query_audit_log_timeout_ms", "1000");
+            Assertions.assertEquals(1000, Config.query_audit_log_timeout_ms);
+
+            // The switch itself changes only on disk.
+            ConfigException notMutable = Assertions.assertThrows(ConfigException.class,
+                    () -> ConfigBase.setMutableConfig("query_audit_always_on", "false"));
+            Assertions.assertTrue(notMutable.getMessage().contains("is not mutable"), notMutable.getMessage());
+            Assertions.assertTrue(Config.query_audit_always_on);
+
+            Config.query_audit_always_on = false;
+            ConfigBase.setMutableConfig("audit_event_log_queue_size", "0");
+            Assertions.assertEquals(0, Config.audit_event_log_queue_size);
+        } finally {
+            Config.query_audit_always_on = alwaysOn;
+            Config.audit_event_log_queue_size = queueSize;
+            Config.query_audit_log_timeout_ms = timeout;
+        }
+    }
+
     @Test
     public void testOptionsConfigAcceptsItsOptionsOnly() throws ConfigException {
         String original = Config.mysql_caching_sha2_password_clients;
