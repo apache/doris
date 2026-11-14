@@ -55,6 +55,7 @@ class InstanceRecycler;
 class StorageVaultAccessor;
 class Checker;
 class SimpleThreadPool;
+class RecycleWorkerPool;
 class RecyclerMetricsContext;
 class TabletRecyclerMetricsContext;
 class SegmentRecyclerMetricsContext;
@@ -668,14 +669,14 @@ private:
             std::vector<std::pair<std::string, RelatedTxnOrJobAbortTask>>& keys_to_recheck);
 
     template <typename T>
-    void submit_batch_mark_rowsets_as_recycled_job(SimpleThreadPool& worker_pool,
+    void submit_batch_mark_rowsets_as_recycled_job(RecycleWorkerPool& worker_pool,
                                                    std::vector<std::string> rowset_keys_to_mark);
 
-    void submit_recycle_prepare_rowsets_job(SimpleThreadPool& worker_pool,
+    void submit_recycle_prepare_rowsets_job(RecycleWorkerPool& worker_pool,
                                             std::vector<std::string> rowset_keys_to_abort,
                                             std::atomic_long* num_recycled);
 
-    void submit_recycle_tmp_rowsets_job(SimpleThreadPool& worker_pool,
+    void submit_recycle_tmp_rowsets_job(RecycleWorkerPool& worker_pool,
                                         std::vector<std::string> rowset_keys_to_abort,
                                         std::atomic_long* num_recycled,
                                         RecyclerMetricsContext* metrics_context);
