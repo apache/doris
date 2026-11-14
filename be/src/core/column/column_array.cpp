@@ -126,9 +126,9 @@ ColumnArray::ColumnArray(MutableColumnPtr&& nested_column, MutableColumnPtr&& of
 }
 
 ColumnArray::ColumnArray(MutableColumnPtr&& nested_column) : data(std::move(nested_column)) {
-    data = data->convert_to_full_column_if_const();
-    check_empty_array_data_without_offsets(*data);
     static_cast<ColumnOffsets::Ptr&>(offsets) = ColumnOffsets::create();
+    check_const_only_in_top_level();
+    check_empty_array_data_without_offsets(*data);
 }
 
 ColumnArray::ColumnArray(SharedTag, ColumnPtr nested_column, ColumnPtr offsets_column) {

@@ -741,12 +741,6 @@ bool ColumnMap::has_enough_capacity(const IColumn& src) const {
            offsets_column->has_enough_capacity(*src_concrete.offsets_column);
 }
 
-ColumnPtr ColumnMap::convert_to_full_column_if_const() const {
-    return ColumnMap::create(keys_column->convert_to_full_column_if_const(),
-                             values_column->convert_to_full_column_if_const(),
-                             offsets_column->convert_to_full_column_if_const());
-}
-
 void ColumnMap::erase(size_t start, size_t length) {
     if (start >= size() || length == 0) {
         return;
