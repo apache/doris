@@ -78,6 +78,7 @@ private:
     void set_scan_ranges(RuntimeState* state,
                          const std::vector<TScanRangeParams>& scan_ranges) override;
     Status _init_profile() override;
+    bool _supports_topn_condition_cache() const override { return true; }
     Status _process_conjuncts(RuntimeState* state) override;
     Status _on_runtime_filter_update(const VExprContextSPtrs& new_conjuncts) override;
     bool _is_key_column(const std::string& col_name) override;

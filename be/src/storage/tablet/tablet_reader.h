@@ -223,6 +223,7 @@ public:
         std::shared_ptr<segment_v2::AnnTopNRuntime> ann_topn_runtime;
 
         uint64_t condition_cache_digest = 0;
+        bool condition_cache_write_enabled = true;
 
         // General LIMIT budget forwarded to SegmentIterator. -1 means no limit.
         int64_t general_read_limit = -1;

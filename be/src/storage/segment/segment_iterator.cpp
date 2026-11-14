@@ -200,7 +200,7 @@ void SegmentIterator::_init_row_bitmap_by_condition_cache() {
                 // Record rows filtered by condition cache hit
                 _opts.stats->condition_cache_filtered_rows +=
                         filtered_blocks * SegmentIterator::CONDITION_CACHE_OFFSET;
-            } else {
+            } else if (_should_write_condition_cache()) {
                 _condition_cache = std::make_shared<std::vector<bool>>(
                         num_rows / CONDITION_CACHE_OFFSET + 1, false);
             }
@@ -208,6 +208,22 @@ void SegmentIterator::_init_row_bitmap_by_condition_cache() {
     } else {
         _opts.condition_cache_digest = 0;
     }
+}
+
+void SegmentIterator::_write_condition_cache() {
+    if (!_should_write_condition_cache() ||
+        (_opts.read_limit > 0 && _rows_returned >= _opts.read_limit)) {
+        return;
+    }
+    DCHECK(_condition_cache);
+    auto* condition_cache = ConditionCache::instance();
+    ConditionCache::CacheKey cache_key(_opts.rowset_id, _segment->id(),
+                                       _opts.condition_cache_digest);
+    VLOG_DEBUG << "Condition cache insert, query id: " << print_id(_opts.runtime_state->query_id())
+               << ", rowset id: " << _opts.rowset_id.to_string()
+               << ", segment id: " << _segment->id()
+               << ", cache digest: " << _opts.condition_cache_digest;
+    condition_cache->insert(cache_key, std::move(_condition_cache));
 }
 
 // A fast range iterator for roaring bitmap. Output ranges use closed-open form, like [from, to).
@@ -3118,18 +3134,7 @@ Status SegmentIterator::next_batch(Block* block) {
                     block->replace_by_position(cid, type->create_column());
                 }
 
-                if (_opts.condition_cache_digest && !_find_condition_cache &&
-                    !(_opts.read_limit > 0 && _rows_returned >= _opts.read_limit)) {
-                    auto* condition_cache = ConditionCache::instance();
-                    ConditionCache::CacheKey cache_key(_opts.rowset_id, _segment->id(),
-                                                       _opts.condition_cache_digest);
-                    VLOG_DEBUG << "Condition cache insert, query id: "
-                               << print_id(_opts.runtime_state->query_id())
-                               << ", rowset id: " << _opts.rowset_id.to_string()
-                               << ", segment id: " << _segment->id()
-                               << ", cache digest: " << _opts.condition_cache_digest;
-                    condition_cache->insert(cache_key, std::move(_condition_cache));
-                }
+                _write_condition_cache();
                 return res;
             }
 
@@ -3336,10 +3341,9 @@ Status SegmentIterator::_next_batch_internal(Block* block) {
             if (!_output_ordinals.empty()) {
                 RETURN_IF_ERROR(_read_columns_by_rowids(
                         _output_ordinals, _block_rowids, _sel_rowid_idx.data(), _selected_size,
-                        &_current_columns, _opts.condition_cache_digest && !_find_condition_cache,
-                        false));
+                        &_current_columns, _should_write_condition_cache(), false));
             } else {
-                if (_opts.condition_cache_digest && !_find_condition_cache) {
+                if (_should_write_condition_cache()) {
                     auto& condition_cache = *_condition_cache;
                     for (size_t i = 0; i < _selected_size; ++i) {
                         auto rowid = _block_rowids[_sel_rowid_idx[i]];

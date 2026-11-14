@@ -204,6 +204,7 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     _read_options.enable_unique_key_merge_on_write =
             _read_context->enable_unique_key_merge_on_write;
     _read_options.topn_filter_source_node_ids = _read_context->topn_filter_source_node_ids;
+    _read_options.condition_cache_write_enabled = _read_context->condition_cache_write_enabled;
     _read_options.read_orderby_key_reverse = _read_context->read_orderby_key_reverse;
     _read_options.use_insert_order_when_same = _read_context->use_insert_order_when_same;
     _read_options.read_changelog = _read_context->read_changelog;

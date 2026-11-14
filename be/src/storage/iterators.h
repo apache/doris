@@ -174,6 +174,8 @@ public:
     CollectionStatisticsPtr collection_statistics;
 
     uint64_t condition_cache_digest = 0;
+    // A TopN scan may read the static predicate cache but cannot populate it.
+    bool condition_cache_write_enabled = true;
 };
 
 struct CompactionSampleInfo {
