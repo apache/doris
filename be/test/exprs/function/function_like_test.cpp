@@ -1911,4 +1911,48 @@ TEST(FunctionLikeTest, comprehensive_null_handling) {
             check_function_all_arg_comb<DataTypeUInt8, true>(func_name, input_types, data_set));
 }
 
+TEST(FunctionLikeTest, like_fast_path_batch_execute) {
+    auto check_batch = [](const std::vector<std::string>& values, const std::string& pattern,
+                          const std::vector<uint8_t>& expected) {
+        RuntimeState runtime_state(TQueryOptions {}, TQueryGlobals {});
+        auto string_type = std::make_shared<DataTypeString>();
+        auto result_type = std::make_shared<DataTypeUInt8>();
+        auto context = FunctionContext::create_context(&runtime_state, result_type,
+                                                       {string_type, string_type});
+
+        auto value_column = ColumnString::create();
+        for (const auto& value : values) {
+            value_column->insert_data(value.data(), value.size());
+        }
+        auto pattern_data = ColumnString::create();
+        pattern_data->insert_data(pattern.data(), pattern.size());
+        ColumnPtr pattern_column = ColumnConst::create(std::move(pattern_data), values.size());
+
+        FunctionLike function;
+        ASSERT_TRUE(function.open(context.get(), FunctionContext::FunctionStateScope::THREAD_LOCAL)
+                            .ok());
+
+        Block block;
+        block.insert({std::move(value_column), string_type, "value"});
+        block.insert({std::move(pattern_column), string_type, "pattern"});
+        block.insert({nullptr, result_type, "result"});
+        ASSERT_TRUE(function.execute_impl(context.get(), block, {0, 1}, 2, values.size()).ok());
+
+        const auto* result =
+                check_and_get_column<ColumnUInt8>(block.get_by_position(2).column.get());
+        ASSERT_NE(result, nullptr);
+        ASSERT_EQ(result->size(), expected.size());
+        for (size_t i = 0; i < expected.size(); ++i) {
+            EXPECT_EQ(result->get_element(i), expected[i])
+                    << "row " << i << " for pattern " << pattern;
+        }
+    };
+
+    check_batch({"a", "bc", ""}, "%", {1, 1, 1});
+    check_batch({"foo", "bar", "foobar"}, "foo", {1, 0, 0});
+    check_batch({"prefix_1", "prefix_2", "other"}, "prefix%", {1, 1, 0});
+    check_batch({"file.txt", "file.doc", "txt"}, "%.txt", {1, 0, 0});
+    check_batch({"hello world", "world", "nowhere"}, "%world%", {1, 1, 0});
+}
+
 } // namespace doris
