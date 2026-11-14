@@ -1950,7 +1950,7 @@ public class Config extends ConfigBase {
     /*---------------------- JOB CONFIG END------------------------*/
     /**
      * The number of async tasks that can be queued. @See TaskDisruptor
-     * if consumer is slow, the queue will be full, and the producer will be blocked.
+     * If consumers are slow and the queue is full, new tasks are rejected instead of waiting for capacity.
      */
     @ConfField
     public static int async_task_queen_size = 1024;
