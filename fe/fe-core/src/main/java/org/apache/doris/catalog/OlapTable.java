@@ -577,8 +577,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         indexNameToId.put(indexName, indexId);
     }
 
-    // rebuild the full schema of table
-    // the order of columns in fullSchema is meaningless
+    // Keep base columns first, then append index columns in a deterministic order.
     public void rebuildFullSchema() {
         fullSchema.clear();
         nameToColumn.clear();
@@ -586,7 +585,9 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
             fullSchema.add(baseColumn);
             nameToColumn.put(baseColumn.getName(), baseColumn);
         }
-        for (MaterializedIndexMeta indexMeta : getIndexIdToMeta().values()) {
+        // Fresh and Gson-restored metadata can have different map iteration orders.
+        // Group commit producers and consumers planned on different FEs need the same layout.
+        for (MaterializedIndexMeta indexMeta : new TreeMap<>(getIndexIdToMeta()).values()) {
             for (Column column : indexMeta.getSchema()) {
                 if (!nameToColumn.containsKey(column.getDefineName())) {
                     fullSchema.add(column);
@@ -1120,6 +1121,9 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
             }
         }
 
+        // Remapping IDs can change index order. Rebuild before publishing the table
+        // so its layout matches the schema reconstructed by Gson on other FEs.
+        rebuildFullSchema();
         return Status.OK;
     }
 
