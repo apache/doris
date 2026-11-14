@@ -52,6 +52,28 @@ export interface DagWaitTime {
     breakdown?: Record<string, number | null>;
 }
 
+/** One runtime filter's effectiveness, read from the operator's nested RuntimeFilterInfo counters. */
+export interface DagRuntimeFilter {
+    id: string;
+    inputRows?: number | null;
+    filterRows?: number | null;
+    alwaysTrueFilterRows?: number | null;
+}
+
+/** Numeric plan facts recovered from PlanInfo, kept apart from its free-form text. */
+export interface DagPlanFacts {
+    cardinality?: number;
+    avgRowSize?: number;
+    numNodes?: number;
+    partitionsSelected?: number;
+    partitionsTotal?: number;
+    tabletsSelected?: number;
+    tabletsTotal?: number;
+    pushAggOp?: string;
+    preAggregation?: string;
+    predicates?: string;
+}
+
 export interface ProfileDagNode {
     id: string;
     fragmentId: string;
@@ -74,6 +96,11 @@ export interface ProfileDagNode {
         waitTime?: DagWaitTime;
     };
     metrics?: Record<string, DagAggregateMetric | null>;
+    // Every counter the operator reported, including nested ones under a "parent/child" key.
+    // Diagnostic rules read these directly; `metrics` stays the small curated set the graph renders.
+    counters?: Record<string, DagAggregateMetric>;
+    planFacts?: DagPlanFacts;
+    runtimeFilters?: DagRuntimeFilter[];
     analysis?: {
         heat?: number | null;
         waitHeat?: number | null;

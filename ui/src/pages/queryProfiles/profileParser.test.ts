@@ -176,3 +176,81 @@ describe('MergedProfile parser', () => {
     expect(graph.unresolvedReferences).toHaveLength(0);
   });
 });
+
+describe('MergedProfile parser diagnostic inputs', () => {
+  const scanNode = () =>
+    parseProfileText(tpcdsQuery41MergedProfile).graph.nodes.find(
+      node => node.operatorType === 'OLAP_SCAN_OPERATOR' && node.fragmentId === 'fragment:2',
+    )!;
+
+  it('keeps the closing parenthesis of a parenthesised table name', () => {
+    // table_name=item(item) lost its ")" while the character class still allowed "(".
+    expect(scanNode().planInfo.table).toBe('item(item)');
+  });
+
+  it('exposes every counter, not only the four rendered metrics', () => {
+    const counters = scanNode().counters!;
+    expect(Object.keys(counters).length).toBeGreaterThan(4);
+    expect(counters.ScanRows.sum).toBe(18_000);
+    expect(counters.ScanBytes.max).toBe(146_289);
+  });
+
+  it('reads counters nested under a parent counter', () => {
+    const counters = scanNode().counters!;
+    expect(counters['RuntimeFilterInfo/RF0 FilterRows'].sum).toBe(10_491);
+    expect(counters['RuntimeFilterInfo/RF0 InputRows'].sum).toBe(34_439);
+    expect(counters['RuntimeFilterInfo/RF1 FilterRows'].sum).toBe(127);
+  });
+
+  it('groups nested runtime filter counters per filter', () => {
+    expect(scanNode().runtimeFilters).toEqual([
+      { id: 'RF0', alwaysTrueFilterRows: 0, filterRows: 10_491, inputRows: 34_439 },
+      { id: 'RF1', alwaysTrueFilterRows: 0, filterRows: 127, inputRows: 127 },
+    ]);
+  });
+
+  it('recovers numeric plan facts from PlanInfo free text', () => {
+    expect(scanNode().planFacts).toEqual({
+      cardinality: 18_000,
+      avgRowSize: 449.79193,
+      numNodes: 1,
+      partitionsSelected: 1,
+      partitionsTotal: 1,
+      tabletsSelected: 10,
+      tabletsTotal: 10,
+      pushAggOp: 'NONE',
+      preAggregation: 'ON',
+      predicates: '((i_manufact_id >= 748) AND (i_manufact_id <= 788))',
+    });
+  });
+
+  it('splits a PlanInfo line that carries two pairs', () => {
+    const graph = parseProfileText([
+      'MergedProfile:',
+      '  Fragment 0:',
+      '    Pipeline 0(instance_num=1):',
+      '      OLAP_SCAN_OPERATOR(id=0):',
+      '        - PlanInfo',
+      '           - TABLE: tpcds.store_sales(store_sales), PREAGGREGATION: OFF',
+      '           - partitions=3/120 (p1,p2,p3)',
+      '           - tablets=6/240, tabletList=1,2,3',
+      'DetailProfile(test):',
+    ].join('\n'));
+
+    const node = graph.graph.nodes[0];
+    expect(node.planInfo.table).toBe('tpcds.store_sales(store_sales)');
+    expect(node.planFacts).toMatchObject({
+      preAggregation: 'OFF',
+      partitionsSelected: 3,
+      partitionsTotal: 120,
+      tabletsSelected: 6,
+      tabletsTotal: 240,
+    });
+  });
+
+  it('omits planFacts and runtimeFilters when the operator reports neither', () => {
+    const node = parseProfileText(representativeProfile()).graph.nodes[0];
+    expect(node.planFacts).toBeUndefined();
+    expect(node.runtimeFilters).toBeUndefined();
+  });
+});
