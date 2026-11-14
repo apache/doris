@@ -34,6 +34,7 @@ import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 public class IcebergSysTableColumnValue implements ColumnValue {
     private static final String DEFAULT_TIME_ZONE = "Asia/Shanghai";
@@ -109,6 +110,11 @@ public class IcebergSysTableColumnValue implements ColumnValue {
     @Override
     public BigDecimal getDecimal() {
         return (BigDecimal) fieldData;
+    }
+
+    @Override
+    public UUID getUuid() {
+        return (UUID) fieldData;
     }
 
     @Override
