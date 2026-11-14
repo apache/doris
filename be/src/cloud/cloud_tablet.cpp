@@ -850,9 +850,6 @@ Result<std::unique_ptr<RowsetWriter>> CloudTablet::create_rowset_writer(
     context.partition_id = partition_id();
     context.enable_unique_key_merge_on_write = enable_unique_key_merge_on_write();
     context.encrypt_algorithm = tablet_meta()->encryption_algorithm();
-    if (context.write_changelog_opt().enable) {
-        context.write_changelog_opt().set_need_before(binlog_config().need_historical_value());
-    }
     context.inverted_index_storage_format = tablet_meta()->inverted_index_storage_format();
     context.persist_inverted_index_storage_format =
             tablet_meta()->has_inverted_index_storage_format();
@@ -895,7 +892,6 @@ Result<std::unique_ptr<RowsetWriter>> CloudTablet::create_transient_rowset_write
     context.is_transient_rowset_writer = true;
     if (rowset.rowset_meta() != nullptr && rowset.rowset_meta()->is_changelog()) {
         context.write_changelog_opt().enable = true;
-        context.write_changelog_opt().set_need_before(binlog_config().need_historical_value());
     }
     context.rowset_id = rowset.rowset_id();
     context.tablet_id = tablet_id();

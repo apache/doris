@@ -687,7 +687,7 @@ public class MaterializedViewHandler extends AlterHandler {
             }
         }
 
-        if (olapTable.getEnableLightSchemaChange()) {
+        if (olapTable.requiresColumnUniqueIds()) {
             int nextColUniqueId = Column.COLUMN_UNIQUE_ID_INIT_VALUE + 1;
             for (Column column : newMVColumns) {
                 column.setUniqueId(nextColUniqueId);
@@ -936,7 +936,7 @@ public class MaterializedViewHandler extends AlterHandler {
                 && rollupSchema.stream().noneMatch(Column::isTtlColumn)) {
             rollupSchema.add(new Column(olapTable.getTtlColumn()));
         }
-        if (olapTable.getEnableLightSchemaChange()) {
+        if (olapTable.requiresColumnUniqueIds()) {
             int nextColUniqueId = Column.COLUMN_UNIQUE_ID_INIT_VALUE + 1;
             for (Column column : rollupSchema) {
                 column.setUniqueId(nextColUniqueId);

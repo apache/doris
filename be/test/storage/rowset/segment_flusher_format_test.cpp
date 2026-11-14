@@ -3172,6 +3172,12 @@ protected:
             changelog_request.tablet_schema.columns.insert(
                     changelog_request.tablet_schema.columns.begin() + changelog_tso_idx,
                     std::move(before_v1));
+            // The golden schema assigned UIDs after inserting BEFORE columns. Assign
+            // this fresh fixture's final column order once, preserving the golden bytes.
+            auto& columns = changelog_request.tablet_schema.columns;
+            for (size_t cid = 0; cid < columns.size(); ++cid) {
+                columns[cid].__set_col_unique_id(static_cast<int32_t>(cid));
+            }
         }
 
         RuntimeProfile profile("SegmentFlusherTransformFormatTest");
@@ -3339,6 +3345,7 @@ protected:
         options.source.mow_context = std::move(source_mow_context);
         options.source.is_transient_rowset_writer = source_is_transient;
         options.source.source_write_type = DataWriteType::TYPE_DIRECT;
+        ASSERT_TRUE(testutil::resolve_test_changelog_layout(context).ok());
         for (int64_t segment_id = 0; segment_id < 2; ++segment_id) {
             auto lsn_ids = std::make_shared<std::vector<int64_t>>();
             for (int64_t row = 0; row < rows_per_segment; ++row) {

@@ -1109,11 +1109,7 @@ public abstract class RoutineLoadJob
             if (txnState == null) {
                 throw new UserException("txn does not exist: " + txnId);
             }
-            txnState.addTableIndexes(planner.getDestTable());
-            if (uniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS
-                    || uniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS) {
-                txnState.setSchemaForPartialUpdate((OlapTable) table);
-            }
+            txnState.registerWriteSchema(txnId, planner.getWriteSchemaSnapshot());
 
             return planParams;
         } finally {
@@ -2194,7 +2190,7 @@ public abstract class RoutineLoadJob
 
     public abstract void replayModifyProperties(AlterRoutineLoadJobOperationLog log);
 
-    public abstract NereidsRoutineLoadTaskInfo toNereidsRoutineLoadTaskInfo() throws UserException;
+    public abstract NereidsRoutineLoadTaskInfo toNereidsRoutineLoadTaskInfo(long txnId) throws UserException;
 
     // for ALTER ROUTINE LOAD
     protected void modifyCommonJobProperties(Map<String, String> jobProperties) throws UserException {

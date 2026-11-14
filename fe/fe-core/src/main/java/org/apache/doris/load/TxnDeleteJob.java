@@ -23,7 +23,6 @@ import org.apache.doris.thrift.TTabletCommitInfo;
 import org.apache.doris.transaction.SubTransactionState.SubTransactionType;
 import org.apache.doris.transaction.TabletCommitInfo;
 import org.apache.doris.transaction.TransactionEntry;
-import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
 
 import org.apache.logging.log4j.LogManager;
@@ -81,11 +80,4 @@ public class TxnDeleteJob extends DeleteJob {
         return timeout;
     }
 
-    @Override
-    protected void addTableIndexes(TransactionState state) {
-        LOG.info("txnId={}, indexIds={}", state.getTransactionId(), targetTbl.getIndexIdToMeta().keySet());
-        if (!state.getLoadedTblIndexes().containsKey(targetTbl.getId())) {
-            state.addTableIndexes(targetTbl);
-        }
-    }
 }

@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.trees.plans.commands.insert;
 
-import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.nereids.NereidsPlanner;
@@ -26,7 +25,6 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.transaction.SubTransactionState.SubTransactionType;
 import org.apache.doris.transaction.TransactionEntry;
-import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
 
 import org.apache.logging.log4j.LogManager;
@@ -98,15 +96,6 @@ public class OlapTxnInsertExecutor extends OlapInsertExecutor {
             throw new AnalysisException("The transaction is already timeout");
         }
         return timeout;
-    }
-
-    @Override
-    protected void addTableIndexes(TransactionState state) {
-        OlapTable olapTable = (OlapTable) table;
-        LOG.info("txnId={}, indexIds={}", txnId, olapTable.getIndexIdToMeta().keySet());
-        if (!state.getLoadedTblIndexes().containsKey(olapTable.getId())) {
-            state.addTableIndexes(olapTable);
-        }
     }
 
     private void cleanTransaction() {
