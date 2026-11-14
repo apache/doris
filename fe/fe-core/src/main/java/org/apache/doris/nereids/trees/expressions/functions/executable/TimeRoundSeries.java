@@ -29,8 +29,10 @@ import org.apache.doris.nereids.trees.expressions.literal.TimeStampNsLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TimestampTzLiteral;
 import org.apache.doris.qe.ConnectContext;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 
 /**
@@ -164,6 +166,10 @@ public class TimeRoundSeries {
      */
     private static LocalDateTime getDateCeilOrFloorForTimestampTz(DATE tag, LocalDateTime utcDate, int period,
             LocalDateTime utcOrigin, boolean getCeil) {
+        // BE rounds SECOND directly on the UTC timeline.
+        if (tag == DATE.SECOND) {
+            return getDateCeilOrFloor(tag, utcDate, period, utcOrigin, getCeil);
+        }
         // Get session timezone, default to UTC if not available
         String timeZone = "UTC";
         ConnectContext ctx = ConnectContext.get();
@@ -172,27 +178,13 @@ public class TimeRoundSeries {
         }
         ZoneId zoneId = ZoneId.of(timeZone);
 
-        // Get the ZonedDateTime for the date to determine its offset
-        ZonedDateTime zonedDate = utcDate.atZone(ZoneId.of("UTC")).withZoneSameInstant(zoneId);
+        ZonedDateTime zonedDate = utcDate.atZone(ZoneOffset.UTC).withZoneSameInstant(zoneId);
+        LocalDateTime localDate = zonedDate.toLocalDateTime();
 
-        // Use the date's offset to ensure consistent conversion for both date and origin
-        // This prevents historical timezone offset inconsistencies (e.g., Asia/Shanghai
-        // used +08:05:43 before 1900, then +08:00 after) from affecting the calculation
-        ZoneId fixedOffsetZone = ZoneId.ofOffset("UTC", zonedDate.getOffset());
-
-        // Convert UTC time to local time using the fixed offset from date
-        LocalDateTime localDate = utcDate.atZone(ZoneId.of("UTC")).withZoneSameInstant(fixedOffsetZone)
-                .toLocalDateTime();
-
-        // Handle origin: START_ORIGINAL_DAY is already in local time, don't convert it
-        // Only convert origin if it's a real UTC timestamp (from TimestampTzLiteral)
-        LocalDateTime localOrigin;
-        if (utcOrigin.equals(START_ORIGINAL_DAY)) {
-            localOrigin = START_ORIGINAL_DAY;
-        } else {
-            localOrigin = utcOrigin.atZone(ZoneId.of("UTC")).withZoneSameInstant(fixedOffsetZone)
-                    .toLocalDateTime();
-        }
+        // The implicit origin is already local. Explicit origins must use their own offset,
+        // since the origin and input can lie on opposite sides of a timezone transition.
+        LocalDateTime localOrigin = utcOrigin.equals(START_ORIGINAL_DAY) ? START_ORIGINAL_DAY
+                : utcOrigin.atZone(ZoneOffset.UTC).withZoneSameInstant(zoneId).toLocalDateTime();
 
         // Perform ceil/floor operation on local time
         LocalDateTime localResult = getDateCeilOrFloor(tag, localDate, period, localOrigin, getCeil);
@@ -201,11 +193,15 @@ public class TimeRoundSeries {
             return null;
         }
 
-        // Convert result back to UTC: treat localResult as being in the zoneId timezone
-        // and convert to UTC
-        LocalDateTime utcResult = localResult.atZone(zoneId).withZoneSameInstant(ZoneId.of("UTC"))
-                .toLocalDateTime();
-        return utcResult;
+        Instant resultInstant;
+        if ((tag == DATE.HOUR || tag == DATE.MINUTE)
+                && zoneId.getRules().getValidOffsets(localResult).contains(zonedDate.getOffset())) {
+            // Match BE: keep the input offset when rounding into a repeated hour/minute.
+            resultInstant = localResult.toInstant(zonedDate.getOffset());
+        } else {
+            resultInstant = DateTimeLiteral.convertLocalToInstantPreservingFraction(localResult, zoneId);
+        }
+        return LocalDateTime.ofInstant(resultInstant, ZoneOffset.UTC);
     }
 
     /**
