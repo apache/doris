@@ -105,7 +105,8 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
         String label = Joiner.on("-").join(routineLoadJob.getName(),
                 routineLoadJob.getId(), DebugUtil.printId(id), txnId);
         tRoutineLoadTask.setLabel(label);
-        tRoutineLoadTask.setAuthCode(routineLoadJob.getAuthCode());
+        // Required by older BE task readers; new BEs use the heartbeat token.
+        tRoutineLoadTask.setAuthCode(0);
         TKafkaLoadInfo tKafkaLoadInfo = new TKafkaLoadInfo();
         tKafkaLoadInfo.setTopic(routineLoadJob.getTopic());
         tKafkaLoadInfo.setBrokers(routineLoadJob.getBrokerList());
