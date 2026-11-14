@@ -32,6 +32,7 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
+import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
@@ -331,6 +332,80 @@ public class AnalyzeSubQueryTest extends TestWithFeService implements MemoPatter
                 + ") a"
                 + ") AS result";
         PlanChecker.from(connectContext).analyze(sql);
+    }
+
+    @Test
+    public void testCorrelatedExistsDerivedTableLimitZeroIsFolded() {
+        String sql = "SELECT id FROM T1 t1 WHERE EXISTS ("
+                + "SELECT * FROM (SELECT 1 FROM T2 t2 WHERE t2.id = t1.id LIMIT 0) t) ORDER BY id";
+        assertNoApplyOrLimit(PlanChecker.from(connectContext).analyze(sql).getPlan());
+    }
+
+    @Test
+    public void testCorrelatedNotExistsDerivedTableLimitZeroIsFolded() {
+        String sql = "SELECT id FROM T1 t1 WHERE NOT EXISTS ("
+                + "SELECT * FROM (SELECT 1 FROM T2 t2 WHERE t2.id = t1.id LIMIT 0) t) ORDER BY id";
+        assertNoApplyOrLimit(PlanChecker.from(connectContext).analyze(sql).getPlan());
+    }
+
+    @Test
+    public void testUncorrelatedExistsDerivedTableLimitZeroIsFolded() {
+        String sql = "SELECT id FROM T1 t1 WHERE EXISTS ("
+                + "SELECT * FROM (SELECT 1 FROM T2 LIMIT 0) t) ORDER BY id";
+        assertNoApplyOrLimit(PlanChecker.from(connectContext).analyze(sql).getPlan());
+    }
+
+    @Test
+    public void testUncorrelatedExistsDerivedTableLimitWithOffsetIsAccepted() {
+        String sql = "SELECT id FROM T1 t1 WHERE EXISTS ("
+                + "SELECT * FROM (SELECT 1 FROM T2 LIMIT 1 OFFSET 1) t) ORDER BY id";
+        Assertions.assertNotNull(PlanChecker.from(connectContext).analyze(sql).getPlan());
+    }
+
+    @Test
+    public void testCorrelatedExistsDerivedTableLimitWithOffsetRejected() {
+        String sql = "SELECT id FROM T1 t1 WHERE EXISTS ("
+                + "SELECT * FROM (SELECT 1 FROM T2 t2 WHERE t2.id = t1.id LIMIT 1 OFFSET 1) t) ORDER BY id";
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> PlanChecker.from(connectContext).analyze(sql));
+        Assertions.assertTrue(exception.getMessage().contains("LIMIT clause with offset > 0"));
+    }
+
+    @Test
+    public void testCorrelatedInDerivedTableLimitRejected() {
+        String sql = "SELECT id FROM T1 t1 WHERE t1.score IN ("
+                + "SELECT v FROM (SELECT t2.score v FROM T2 t2 WHERE t2.id = t1.id "
+                + "ORDER BY t2.score DESC LIMIT 1) t) ORDER BY id";
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> PlanChecker.from(connectContext).analyze(sql));
+        Assertions.assertTrue(exception.getMessage().contains("Unsupported correlated subquery with a LIMIT clause"));
+    }
+
+    @Test
+    public void testCorrelatedNotInDerivedTableLimitRejected() {
+        String sql = "SELECT id FROM T1 t1 WHERE t1.score NOT IN ("
+                + "SELECT v FROM (SELECT t2.score v FROM T2 t2 WHERE t2.id = t1.id "
+                + "ORDER BY t2.score DESC LIMIT 1) t) ORDER BY id";
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> PlanChecker.from(connectContext).analyze(sql));
+        Assertions.assertTrue(exception.getMessage().contains("Unsupported correlated subquery with a LIMIT clause"));
+    }
+
+    @Test
+    public void testCorrelatedExistsDerivedTablePositiveLimitIsEliminated() {
+        String sql = "SELECT id FROM T1 t1 WHERE EXISTS ("
+                + "SELECT * FROM (SELECT 1 FROM T2 t2 WHERE t2.id = t1.id LIMIT 1) t) ORDER BY id";
+        Plan analyzed = PlanChecker.from(connectContext).analyze(sql).getPlan();
+        Assertions.assertTrue(analyzed.anyMatch(p -> p instanceof LogicalApply));
+        Assertions.assertTrue(analyzed.anyMatch(p -> p instanceof LogicalLimit));
+
+        Plan rewritten = PlanChecker.from(connectContext).analyze(sql).rewrite().getPlan();
+        Assertions.assertFalse(rewritten.anyMatch(p -> p instanceof LogicalLimit));
+    }
+
+    private void assertNoApplyOrLimit(Plan plan) {
+        Assertions.assertFalse(plan.anyMatch(p -> p instanceof LogicalApply));
+        Assertions.assertFalse(plan.anyMatch(p -> p instanceof LogicalLimit));
     }
 
     private void checkScalarSubquerySlotNullable(String sql, boolean outputNullable) {
