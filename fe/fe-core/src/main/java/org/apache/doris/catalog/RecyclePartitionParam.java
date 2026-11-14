@@ -27,6 +27,7 @@ public class RecyclePartitionParam {
     public boolean isInMemory;
     public boolean isMutable = true;
     public TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat;
+    public String storagePolicy;
 
     public RecyclePartitionParam() {
         // do nothing.
