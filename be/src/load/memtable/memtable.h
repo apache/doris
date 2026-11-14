@@ -20,17 +20,17 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <cstring>
-#include <functional>
+#include <limits>
 #include <memory>
+#include <utility>
 #include <vector>
 
 #include "common/status.h"
-#include "core/arena.h"
 #include "core/block/block.h"
 #include "core/custom_allocator.h"
-#include "exprs/aggregate/aggregate_function.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/thread_context.h"
 #include "storage/partial_update_info.h"
@@ -131,19 +131,17 @@ private:
     DorisVector<uint8_t> _bits;
 };
 
+// Compares two rows of one mutable block by key. The block is an argument of every call instead of
+// being stored, so the comparator can never keep a pointer to a block that already went away.
 class RowInBlockComparator {
 public:
     RowInBlockComparator(std::shared_ptr<TabletSchema> tablet_schema)
-            : _tablet_schema(tablet_schema) {}
-    // call set_block before operator().
-    // only first time insert block to create _input_mutable_block,
-    // so can not Comparator of construct to set pblock
-    void set_block(MutableBlock* pblock) { _pblock = pblock; }
-    int operator()(const RowInBlock* left, const RowInBlock* right) const;
+            : _tablet_schema(std::move(tablet_schema)) {}
+    int operator()(const MutableBlock& block, const RowInBlock* left,
+                   const RowInBlock* right) const;
 
 private:
     std::shared_ptr<TabletSchema> _tablet_schema;
-    MutableBlock* _pblock = nullptr; //  corresponds to Memtable::_input_mutable_block
 };
 
 class MemTableStat {
@@ -171,25 +169,45 @@ public:
     std::atomic<int64_t> agg_times = 0;
 };
 
+// Common interface and block lifetime of a load memtable.
+//
+// The table model decides how inserted rows are tracked and merged, so each model is a separate
+// implementation: DupKeysMemTable keeps a compact row permutation, while AGG and UNIQUE tables
+// share the aggregation implementation through AggregatingMemTable. The model is selected once
+// per memtable by create(); the hooks below are called once per inserted batch or per to_block()
+// call, never per row, so the sorting and aggregation inner loops stay free of virtual dispatch.
 class MemTable {
 public:
-    MemTable(int64_t tablet_id, std::shared_ptr<TabletSchema> tablet_schema,
-             const std::vector<SlotDescriptor*>* slot_descs, TupleDescriptor* tuple_desc,
-             bool enable_unique_key_mow, PartialUpdateInfo* partial_update_info,
-             const std::shared_ptr<ResourceContext>& resource_ctx, bool need_lsn = false);
-    ~MemTable();
+    static std::shared_ptr<MemTable> create(int64_t tablet_id,
+                                            std::shared_ptr<TabletSchema> tablet_schema,
+                                            const std::vector<SlotDescriptor*>* slot_descs,
+                                            TupleDescriptor* tuple_desc, bool enable_unique_key_mow,
+                                            PartialUpdateInfo* partial_update_info,
+                                            const std::shared_ptr<ResourceContext>& resource_ctx,
+                                            bool need_lsn = false);
+
+    virtual ~MemTable();
 
     int64_t tablet_id() const { return _tablet_id; }
     size_t memory_usage() const { return _mem_tracker->consumption(); }
-    size_t get_flush_reserve_memory_size() const;
-    // insert tuple from (row_pos) to (row_pos+num_rows)
+    // Insert the rows named by `rows` from `block`.
+    //
+    // The caller must keep the memtable within MAX_MEMTABLE_ROWS rows: this batch has to fit, and
+    // insert() asserts that instead of reporting an error. MemTableWriter::write is the production
+    // caller and flushes the memtable before the limit is reached.
+    //
+    // Expected failures are reported through the returned Status. Allocation failures raised by a
+    // model hook are not all converted here, so this may still throw a doris::Exception: after such
+    // a failure the block can be ahead of its row tracking, and the only safe reaction is to catch
+    // it and discard the whole memtable. MemTableWriter::write is the production caller and does
+    // exactly that.
     Status insert(const Block* block, const TabletAddRowsPayload& rows);
 
-    void shrink_memtable_by_agg();
+    virtual void shrink_memtable_by_agg() {}
 
     bool need_flush() const;
 
-    bool need_agg() const;
+    virtual bool need_agg() const { return false; }
 
     Status to_block(std::unique_ptr<Block>* res);
 
@@ -211,49 +229,61 @@ public:
 
     int64_t raw_rows() { return _stat.raw_rows.load(); }
 
-private:
-    // for vectorized
-    template <bool has_skip_bitmap_col>
-    void _aggregate_two_row_in_block(MutableBlock& mutable_block, RowInBlock* new_row,
-                                     RowInBlock* row_in_skiplist);
+protected:
+    MemTable(int64_t tablet_id, std::shared_ptr<TabletSchema> tablet_schema,
+             const std::vector<SlotDescriptor*>* slot_descs, TupleDescriptor* tuple_desc,
+             PartialUpdateInfo* partial_update_info,
+             const std::shared_ptr<ResourceContext>& resource_ctx, bool need_lsn);
 
-    // Merge allocated LSN sidecar only when MemTable merges two RowInBlock objects.
-    // Table models that require complex merge semantics, such as AGG tables and unique key
-    // merge-on-read tables, do not support allocated LSN now and are rejected in insert().
-    void _merge_allocated_lsn(RowInBlock* src_row, RowInBlock* dst_row);
+    // Called once when the first batch creates the input/output blocks, before any row is
+    // appended. Derived models resolve their per-column state from _input_mutable_block here.
+    virtual Status _on_first_insertion() { return Status::OK(); }
+    // Reserve the row metadata of one batch before its columns are appended.
+    virtual void _reserve_rows(size_t num_rows, size_t cursor) = 0;
+    // Record the row metadata of a batch whose columns were appended successfully.
+    virtual void _append_row_metadata(size_t num_rows, size_t cursor,
+                                      const DorisVector<int64_t>& allocated_lsns) = 0;
+    // Sort the tracked rows and return how many adjacent rows share a key.
+    virtual size_t _sort() = 0;
+    virtual Status _put_into_output(Block& in_block) = 0;
+    virtual Status _to_block(std::unique_ptr<Block>* res) = 0;
+    // Flush threshold of this model, before the memory-pressure check.
+    virtual int64_t _flush_buffer_size() const;
 
-    void _append_output_allocated_lsn(RowInBlock* row);
+    // Rows are addressed by int32 positions inside a block, so a memtable never tracks more. The
+    // limit is a precondition of insert() rather than a runtime check: MemTableWriter::write
+    // flushes the memtable before it is reached.
+    static constexpr size_t MAX_MEMTABLE_ROWS =
+            static_cast<size_t>(std::numeric_limits<int32_t>::max());
 
-    void _aggregate_two_row_with_sequence_map(MutableBlock& mutable_block, RowInBlock* new_row,
-                                              RowInBlock* row_in_skiplist);
-
-    // Used to wrapped by to_block to do exception handle logic
-    Status _to_block(std::unique_ptr<Block>* res);
+    // Grow amortized while never exceeding the row limit. Called before the batch columns are
+    // appended so a failed reservation leaves the block and its row tracking untouched.
+    template <typename T>
+    static void reserve_for_append(DorisVector<T>& rows, size_t append_size, size_t max_size) {
+        DORIS_CHECK(append_size <= max_size && rows.size() <= max_size - append_size);
+        const auto required_size = rows.size() + append_size;
+        if (required_size > rows.capacity()) {
+            rows.reserve(
+                    std::min(max_size, rows.capacity() + std::max(rows.capacity(), append_size)));
+        }
+    }
 
     int64_t _adaptive_write_buffer_size() const;
 
-private:
+    void _init_columns_offset_by_slot_descs(const std::vector<SlotDescriptor*>* slot_descs,
+                                            const TupleDescriptor* tuple_desc,
+                                            PartialUpdateInfo* partial_update_info);
+
     std::atomic<MemType> _mem_type;
     int64_t _tablet_id;
-    bool _enable_unique_key_mow = false;
     bool _is_flush_success = false;
-    UniqueKeyUpdateModePB _partial_update_mode {UniqueKeyUpdateModePB::UPSERT};
-    const KeysType _keys_type;
     std::shared_ptr<TabletSchema> _tablet_schema;
-
-    std::shared_ptr<RowInBlockComparator> _vec_row_comparator;
 
     std::shared_ptr<ResourceContext> _resource_ctx;
 
     std::shared_ptr<MemTracker> _mem_tracker;
-    // Only the rows will be inserted into block can allocate memory from _arena.
-    // In this way, we can make MemTable::memory_usage() to be more accurate, and eventually
-    // reduce the number of segment files that are generated by current load
-    Arena _arena;
     int64_t _load_mem_limit = -1;
 
-    void _init_columns_offset_by_slot_descs(const std::vector<SlotDescriptor*>* slot_descs,
-                                            const TupleDescriptor* tuple_desc);
     std::vector<int> _column_offset;
     int32_t _row_lsn_col_pos = -1;
 
@@ -268,48 +298,9 @@ private:
     AllocatedLsnVectorSharedPtr _output_allocated_lsns = std::make_shared<std::vector<int64_t>>();
     bool _need_lsn = false;
     size_t _last_sorted_pos = 0;
-    size_t _last_agg_pos = 0;
-
-    //return number of same keys
-    size_t _sort();
-    Status _sort_by_cluster_keys();
-    void _sort_one_column(DorisVector<std::shared_ptr<RowInBlock>>& row_in_blocks, Tie& tie,
-                          std::function<int(RowInBlock*, RowInBlock*)> cmp);
-    template <bool is_final>
-    void _finalize_one_row(RowInBlock* row, MutableBlock& mutable_block, int row_pos);
-    void _init_row_for_agg(RowInBlock* row, MutableBlock& mutable_block);
-    void _clear_row_agg(RowInBlock* row);
-
-    template <bool is_final, bool has_skip_bitmap_col = false>
-    void _aggregate();
-
-    template <bool is_final>
-    void _aggregate_for_flexible_partial_update_without_seq_col(
-            MutableBlock& mutable_block,
-            DorisVector<std::shared_ptr<RowInBlock>>& temp_row_in_blocks);
-
-    template <bool is_final>
-    void _aggregate_for_flexible_partial_update_with_seq_col(
-            MutableBlock& mutable_block,
-            DorisVector<std::shared_ptr<RowInBlock>>& temp_row_in_blocks);
-
-    Status _put_into_output(Block& in_block);
-    bool _is_first_insertion;
-
-    void _init_agg_functions(const Block* block);
-    std::vector<AggregateFunctionPtr> _agg_functions;
-    std::vector<size_t> _offsets_of_aggregate_states;
-    size_t _total_size_of_aggregate_states;
-    std::unique_ptr<DorisVector<std::shared_ptr<RowInBlock>>> _row_in_blocks;
 
     size_t _num_columns;
-    int32_t _seq_col_idx_in_block {-1};
-    int32_t _skip_bitmap_col_idx {-1};
-    int32_t _delete_sign_col_idx {-1};
-    int32_t _delete_sign_col_unique_id {-1};
-    int32_t _seq_col_unique_id {-1};
-
-    bool _is_partial_update_and_auto_inc = false;
+    bool _is_first_insertion;
 }; // class MemTable
 
 } // namespace doris
