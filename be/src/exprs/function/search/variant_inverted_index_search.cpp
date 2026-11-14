@@ -120,6 +120,17 @@ FieldReaderResolver::FieldReaderResolver(
     }
 }
 
+std::string FieldReaderResolver::physical_field_path(const std::string& field_name) const {
+    const auto it = _field_binding_map.find(field_name);
+    // Index lookup keeps the logical key, but NestedGroup traversal needs the physical path.
+    // For example, doc.items.tags.name may read v.payload.items.tags.name after pushdown.
+    if (it != _field_binding_map.end() && it->second->__isset.parent_field_name &&
+        it->second->__isset.subcolumn_path) {
+        return it->second->parent_field_name + "." + it->second->subcolumn_path;
+    }
+    return field_name;
+}
+
 Status FieldReaderResolver::resolve(const std::string& field_name,
                                     InvertedIndexQueryType query_type,
                                     FieldReaderBinding* binding) {

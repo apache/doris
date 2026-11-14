@@ -31,6 +31,7 @@ import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.SearchExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.SourceDependentExpression;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Abs;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.AssertTrue;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateTrunc;
@@ -118,7 +119,7 @@ public class InferPredicateByReplaceTest {
                 new SearchExpression("a:apple", SearchDslParser.parseDsl("a:apple"), ImmutableList.of(a)))
                 .flatMap(search -> {
                     Expression or = new Or(search, new EqualTo(a, new StringLiteral("pear")));
-                    return Stream.of(or,
+                    return Stream.of(search, or,
                             new EqualTo(search, BooleanLiteral.TRUE),
                             new EqualTo(or, BooleanLiteral.TRUE),
                             new GreaterThan(new Cast(or, IntegerType.INSTANCE), new IntegerLiteral(0)),
@@ -127,6 +128,22 @@ public class InferPredicateByReplaceTest {
                             new Like(new Cast(or, StringType.INSTANCE), new StringLiteral("%true%")));
                 })
                 .map(predicate -> Arguments.of(predicate, a, b));
+    }
+
+    @Test
+    public void testNonInferableTraitDoesNotRequireConcreteTypeChecks() {
+        SlotReference a = new SlotReference("a", StringType.INSTANCE);
+        SlotReference b = new SlotReference("b", StringType.INSTANCE);
+        Expression predicate = new NonInferableLike(a, new StringLiteral("apple%"));
+        Set<Expression> inputs = new LinkedHashSet<>(ImmutableList.of(new EqualTo(a, b), predicate));
+        Assertions.assertEquals(inputs, PredicateInferUtils.inferPredicate(inputs));
+        Assertions.assertEquals(inputs, PredicateInferUtils.inferAllPredicate(inputs));
+    }
+
+    private static class NonInferableLike extends Like implements SourceDependentExpression {
+        NonInferableLike(Expression left, Expression right) {
+            super(left, right);
+        }
     }
 
     @Test

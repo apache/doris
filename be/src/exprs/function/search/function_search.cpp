@@ -70,8 +70,9 @@ namespace query_v2 = segment_v2::inverted_index::query_v2;
 
 // Serializes the whole TSearchParam, so every field of the DSL takes part in the signature, and
 // adds the limit on the terms PREFIX, WILDCARD and REGEXP clauses expand to.
-std::string FunctionSearch::dsl_cache_signature(const TSearchParam& search_param,
-                                                const IndexQueryContext* context) {
+std::string FunctionSearch::dsl_cache_signature(
+        const TSearchParam& search_param, const IndexQueryContext* context,
+        const std::unordered_map<std::string, IndexFieldNameAndTypePair>& fields) {
     ThriftSerializer ser(false, 1024);
     TSearchParam copy = search_param;
     std::string sig;
@@ -84,6 +85,20 @@ std::string FunctionSearch::dsl_cache_signature(const TSearchParam& search_param
     sig += "|max_expansions=";
     sig += std::to_string(
             index_query::max_expansions(context != nullptr ? context->runtime_state : nullptr));
+    // Aliases survive project pushdown: label:hello can search either v.city or v.country.
+    // Bind the cache to the storage fields, independently of unordered_map iteration order.
+    std::vector<std::pair<std::string, std::string>> bindings;
+    bindings.reserve(fields.size());
+    for (const auto& [logical_name, storage_field] : fields) {
+        bindings.emplace_back(logical_name, storage_field.first);
+    }
+    std::ranges::sort(bindings);
+    sig += "|storage_bindings=" + std::to_string(bindings.size()) + ":";
+    for (const auto& [logical_name, storage_name] : bindings) {
+        // Length prefixes keep embedded separators in field names unambiguous.
+        sig += std::to_string(logical_name.size()) + ":" + logical_name;
+        sig += std::to_string(storage_name.size()) + ":" + storage_name;
+    }
     return sig;
 }
 
@@ -461,7 +476,8 @@ Status FunctionSearch::_evaluate_search_param(
     bool cache_usable = false;
     if (dsl_cache) {
         seg_prefix = extract_segment_prefix(iterators);
-        dsl_sig = dsl_cache_signature(search_param, index_query_context.get());
+        dsl_sig =
+                dsl_cache_signature(search_param, index_query_context.get(), data_type_with_names);
         if (!seg_prefix.empty() && !dsl_sig.empty()) {
             cache_usable = true;
             bool dsl_hit = false;

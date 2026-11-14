@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.SourceDependentExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.EmptyRelation;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
@@ -76,30 +77,21 @@ public class PushDownFilterThroughSetOperation extends OneRewriteRuleFactory {
                 //   "half of A intersect half of B" instead of "half of (A intersect B)").
                 boolean canPushVolatileExpr = setOperation instanceof LogicalUnion
                         && setOperation.getQualifier() == Qualifier.ALL;
-                Set<Expression> pushableConjuncts;
-                Set<Expression> keptAboveConjuncts;
-                boolean allConjunctsPushable;
-                if (canPushVolatileExpr) {
-                    pushableConjuncts = origFilter.getConjuncts();
-                    keptAboveConjuncts = ImmutableSet.of();
-                    allConjunctsPushable = true;
-                } else {
-                    pushableConjuncts = new LinkedHashSet<>();
-                    Set<Expression> kept = new LinkedHashSet<>();
-                    for (Expression c : origFilter.getConjuncts()) {
-                        if (c.containsVolatileOrNoneMovableExpression()) {
-                            kept.add(c);
-                        } else {
-                            pushableConjuncts.add(c);
-                        }
+                Set<Expression> pushableConjuncts = new LinkedHashSet<>();
+                Set<Expression> keptAboveConjuncts = new LinkedHashSet<>();
+                for (Expression conjunct : origFilter.getConjuncts()) {
+                    // Equal values in different branches may use different indexes or analyzers.
+                    if (conjunct.containsType(SourceDependentExpression.class)
+                            || (!canPushVolatileExpr && conjunct.containsVolatileOrNoneMovableExpression())) {
+                        keptAboveConjuncts.add(conjunct);
+                    } else {
+                        pushableConjuncts.add(conjunct);
                     }
-                    keptAboveConjuncts = kept;
-                    if (pushableConjuncts.isEmpty()) {
-                        return null;
-                    }
-                    allConjunctsPushable = false;
                 }
-                LogicalFilter<LogicalSetOperation> filter = allConjunctsPushable
+                if (pushableConjuncts.isEmpty()) {
+                    return null;
+                }
+                LogicalFilter<LogicalSetOperation> filter = keptAboveConjuncts.isEmpty()
                         ? origFilter
                         : new LogicalFilter<>(ImmutableSet.copyOf(pushableConjuncts), setOperation);
 
