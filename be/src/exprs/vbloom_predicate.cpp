@@ -18,7 +18,13 @@
 #include "exprs/vbloom_predicate.h"
 
 #include <cstddef>
+#include <map>
+#include <mutex>
 #include <utility>
+
+#ifdef BE_TEST
+#include <atomic>
+#endif
 
 #include "common/status.h"
 #include "core/block/block.h"
@@ -27,6 +33,7 @@
 #include "core/column/column.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_vector.h"
+#include "core/custom_allocator.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/types.h"
@@ -44,6 +51,19 @@ class TExprNode;
 namespace doris {
 
 class VExprContext;
+
+struct VBloomPredicate::DigestCache {
+    struct Entry {
+        std::once_flag initialized;
+        uint64_t digest = 0;
+    };
+
+    std::mutex mutex;
+    DorisMap<std::pair<BloomFilterAdaptor::DataVersion, uint64_t>, std::shared_ptr<Entry>> entries;
+#ifdef BE_TEST
+    std::atomic<size_t> computations = 0;
+#endif
+};
 
 VBloomPredicate::VBloomPredicate(const TExprNode& node) : VExpr(node), _filter(nullptr) {}
 
@@ -199,17 +219,48 @@ const std::string& VBloomPredicate::expr_name() const {
 
 void VBloomPredicate::set_filter(std::shared_ptr<BloomFilterFuncBase> filter) {
     _filter = filter;
+    // A replacement RF starts a new snapshot. Existing scanner clones must retain both their
+    // old payload and its cached digests, e.g. when another recursive-CTE stage installs a filter.
+    _digest_cache = std::make_shared<DigestCache>();
 }
 
 uint64_t VBloomPredicate::get_digest(uint64_t seed) const {
     seed = _children[0]->get_digest(seed);
     if (seed) {
-        char* data;
-        int len;
-        _filter->get_data(&data, &len);
-        return HashUtil::hash64(data, len, seed);
+        // Scanner/split clones repeatedly hash the same Bloom, which can be 64 MiB. Include
+        // its shared payload token and generation: assign/merge or writes through light_copy
+        // aliases can change the bytes without calling set_filter(). The child-derived seed
+        // still preserves the uncached digest after file-local slot rebinding.
+        const auto key = std::make_pair(_filter->get_data_version(), seed);
+        std::shared_ptr<DigestCache::Entry> entry;
+        {
+            std::lock_guard lock(_digest_cache->mutex);
+            auto it = _digest_cache->entries.find(key);
+            if (it == _digest_cache->entries.end()) {
+                it = _digest_cache->entries.emplace(key, std::make_shared<DigestCache::Entry>())
+                             .first;
+            }
+            entry = it->second;
+        }
+        // Hash outside the map lock; concurrent clones with the same seed share one computation.
+        std::call_once(entry->initialized, [&] {
+            char* data;
+            int len;
+            _filter->get_data(&data, &len);
+            entry->digest = HashUtil::hash64(data, len, seed);
+#ifdef BE_TEST
+            ++_digest_cache->computations;
+#endif
+        });
+        return entry->digest;
     }
     return 0;
 }
+
+#ifdef BE_TEST
+size_t VBloomPredicate::TEST_digest_computations() const {
+    return _digest_cache->computations.load();
+}
+#endif
 
 } // namespace doris
