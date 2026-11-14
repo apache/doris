@@ -264,6 +264,10 @@ private:
         // Types of the delete block columns: the delete file's own key types, or the comparison
         // types of a converted filter.
         std::vector<DataTypePtr> delete_key_types;
+        // Physical timestamp precision loss survives decoding and split-cache reuse. A NULL-only
+        // key still compares exactly, regardless of the precision of its non-NULL carrier.
+        std::vector<bool> delete_key_has_lossy_timestamp_precision;
+        std::vector<bool> delete_key_has_non_null_values;
         Block delete_block;
         std::shared_ptr<const EqualityDeleteHashIndex> hash_index;
         // Split-cache key of this filter, extended by the comparison types for converted copies.

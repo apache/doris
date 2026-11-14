@@ -562,6 +562,10 @@ void ParquetReader::_fill_column_definition(const ParquetColumnSchema& column_sc
     field->type = column_schema.type != nullptr && !column_schema.type->is_nullable()
                           ? make_nullable(column_schema.type)
                           : column_schema.type;
+    const auto& descriptor = column_schema.type_descriptor;
+    field->has_lossy_timestamp_precision = descriptor.is_timestamp &&
+                                           descriptor.timestamp_is_adjusted_to_utc &&
+                                           descriptor.time_unit == ParquetTimeUnit::NANOS;
     field->children.clear();
     field->children.reserve(column_schema.children.size());
     for (const auto& child : column_schema.children) {

@@ -2080,6 +2080,8 @@ Status IcebergTableReader::_append_equality_delete_predicates(format::FileScanRe
     for (const auto& filter : _equality_delete_filters) {
         DCHECK_EQ(filter.field_ids.size(), filter.key_types.size());
         DCHECK_EQ(filter.field_ids.size(), filter.delete_key_types.size());
+        DCHECK_EQ(filter.field_ids.size(), filter.delete_key_has_lossy_timestamp_precision.size());
+        DCHECK_EQ(filter.field_ids.size(), filter.delete_key_has_non_null_values.size());
         // A delete file without rows deletes nothing, but EqualityDeletePredicate evaluates its
         // keys before it looks at the delete set, so the strict comparison casts would still run:
         // a DATE key 1000-01-01 compared with an empty TIMESTAMP_NS delete file fails the scan
@@ -2103,6 +2105,17 @@ Status IcebergTableReader::_append_equality_delete_predicates(format::FileScanRe
                         filter, idx, data_path, request, &key_expr, &comparison_type));
                 has_missing_key = true;
             } else {
+                // A present UTC nanosecond key can already have lost its remainder in the delete
+                // block: 100ns and 200ns both become 0us. Reject either lossy side before applying
+                // equality, while NULL-only tombstones remain safe because only NULLs can match.
+                if (filter.delete_key_has_non_null_values[idx] &&
+                    (filter.delete_key_has_lossy_timestamp_precision[idx] ||
+                     data_path.back()->has_lossy_timestamp_precision)) {
+                    return Status::NotSupported(
+                            "Iceberg equality delete field id {} in data file {} cannot compare "
+                            "nanosecond timestamp keys without losing precision",
+                            filter.field_ids[idx], _data_file_path());
+                }
                 const auto* root = data_path.front();
                 const auto field_column_id = format::LocalColumnId(root->file_local_id());
                 // A hidden key, like the missing key's ancestor above and the delete file's keys,
@@ -2194,6 +2207,9 @@ Status IcebergTableReader::_build_converted_equality_delete_filter(
     result->field_ids = filter.field_ids;
     result->field_names = filter.field_names;
     result->key_types = filter.key_types;
+    result->delete_key_has_lossy_timestamp_precision =
+            filter.delete_key_has_lossy_timestamp_precision;
+    result->delete_key_has_non_null_values = filter.delete_key_has_non_null_values;
     Block delete_block = filter.delete_block;
     RowDescriptor row_desc;
     for (size_t index = 0; index < comparison_types.size(); ++index) {
@@ -2420,6 +2436,8 @@ Status IcebergTableReader::_resolve_equality_delete_fields(
         result->field_names.push_back(field->name);
         result->key_types.push_back(key_type);
         result->delete_key_types.push_back(delete_file_type);
+        result->delete_key_has_lossy_timestamp_precision.push_back(
+                field->has_lossy_timestamp_precision);
     }
     return Status::OK();
 }
@@ -2508,6 +2526,9 @@ Status IcebergTableReader::_load_equality_delete_file(const TIcebergDeleteFileDe
     }
     RETURN_IF_ERROR(reader->close());
     result->delete_block = mutable_delete_block.to_block();
+    for (const auto& key : result->delete_block) {
+        result->delete_key_has_non_null_values.push_back(!key.column->only_null());
+    }
     result->hash_index = EqualityDeletePredicate::build_hash_index(result->delete_block);
     return Status::OK();
 }
