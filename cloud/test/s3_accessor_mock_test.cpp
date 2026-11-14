@@ -34,6 +34,7 @@
 #include "cpp/obj-client/s3_obj_storage_client.h"
 #include "cpp/sync_point.h"
 #include "cpp/test/container_credentials_test_util.h"
+#include "meta-service/meta_service_helper.h"
 #include "recycler/s3_accessor.h"
 
 using namespace doris;
@@ -158,6 +159,60 @@ TEST_F(S3AccessorMockTest, container_provider_is_unusable_without_any_uri) {
     ASSERT_NE(std::dynamic_pointer_cast<Aws::Auth::GeneralHTTPCredentialsProvider>(provider),
               nullptr);
     EXPECT_EQ(as_valid_http_provider(provider), nullptr);
+}
+
+TEST(S3AccessorLocationTest, location_is_the_configured_location) {
+    auto location = [](std::string endpoint, std::string bucket, std::string prefix) {
+        return S3Accessor(S3Conf {.endpoint = std::move(endpoint),
+                                  .bucket = std::move(bucket),
+                                  .prefix = std::move(prefix)})
+                .location();
+    };
+    EXPECT_EQ(location("endpoint", "bucket", "a/b"), location("endpoint", "bucket", "a/b"));
+    // Prefixes with repeated '/' hold different objects although their normalized uri is the same
+    EXPECT_NE(location("endpoint", "bucket", "a/b"), location("endpoint", "bucket", "a//b"));
+    EXPECT_NE(location("endpoint", "bucket", "a/b"), location("endpoint", "bucket2", "a/b"));
+    EXPECT_NE(location("endpoint", "bucket", "a/b"), location("endpoint2", "bucket", "a/b"));
+}
+
+TEST(S3AccessorLocationTest, location_includes_the_credential_identity) {
+    auto accessor = [](std::string ak, std::string sk, std::string role_arn) {
+        return std::make_unique<S3Accessor>(S3Conf {.ak = std::move(ak),
+                                                    .sk = std::move(sk),
+                                                    .endpoint = "endpoint",
+                                                    .bucket = "bucket",
+                                                    .prefix = "/a/b/",
+                                                    .role_arn = std::move(role_arn)});
+    };
+    const std::string ak1 = "AKIAIOSFODNN7EXAMPLE";
+    const std::string ak2 = "AKIAI44QH8DHBEXAMPLE";
+    auto base = accessor(ak1, "sk1", "");
+    // An S3-compatible gateway may map one bucket name to the buckets of different tenants by the
+    // credentials, so another identity is listed again
+    EXPECT_NE(base->location(), accessor(ak2, "sk1", "")->location());
+    EXPECT_NE(base->location(), accessor(ak1, "sk1", "role")->location());
+    // The secret key is not part of the location, it identifies no namespace of its own
+    EXPECT_EQ(base->location(), accessor(ak1, "sk2", "")->location());
+    EXPECT_EQ(base->location().find("sk1"), std::string::npos);
+    // The ak is hidden as in logs
+    EXPECT_EQ(base->location().find(ak1), std::string::npos);
+    EXPECT_NE(base->location().find(hide_access_key(ak1)), std::string::npos);
+    // The root ignores the credentials
+    EXPECT_EQ(base->root(), accessor(ak2, "sk2", "role")->root());
+    EXPECT_EQ(base->root(), (StorageRoot {.container = "bucket", .prefix = "a/b"}));
+}
+
+TEST(S3AccessorLocationTest, root_ignores_endpoint_aliases) {
+    auto accessor = [](std::string endpoint, std::string prefix) {
+        return std::make_unique<S3Accessor>(S3Conf {
+                .endpoint = std::move(endpoint), .bucket = "bucket", .prefix = std::move(prefix)});
+    };
+    // Different locations, which are listed separately, may be the same bucket: they share a root
+    auto http = accessor("http://s3.example.com", "a/b");
+    auto https = accessor("https://s3.example.com", "a//b/");
+    EXPECT_NE(http->location(), https->location());
+    EXPECT_EQ(http->root(), https->root());
+    EXPECT_NE(http->root(), accessor("http://s3.example.com", "a/c")->root());
 }
 
 } // namespace doris::cloud

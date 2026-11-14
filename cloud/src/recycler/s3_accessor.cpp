@@ -56,6 +56,7 @@
 #include "cpp/sync_point.h"
 #include "cpp/token_bucket_rate_limiter.h"
 #include "cpp/util.h"
+#include "meta-service/meta_service_helper.h"
 #include "recycler/storage_vault_accessor.h"
 #include "recycler/sync_executor.h"
 
@@ -314,8 +315,23 @@ std::optional<S3Conf> S3Conf::from_obj_store_info(const ObjectStoreInfoPB& obj_i
     return s3_conf;
 }
 
+namespace {
+
+// Endpoint, bucket and prefix as configured, plus the credential identity: gateways such as Ceph
+// RGW resolve one bucket name per tenant. The ak is hidden as in logs, the sk is never part of it.
+// '\n' never occurs in an endpoint or a bucket name, so different confs never collide.
+std::string s3_location(const S3Conf& conf) {
+    return fmt::format("{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}", conf.endpoint, conf.bucket, conf.prefix,
+                       static_cast<int>(conf.provider), hide_access_key(conf.ak), conf.role_arn,
+                       conf.external_id, static_cast<int>(conf.cred_provider_type));
+}
+
+} // namespace
+
 S3Accessor::S3Accessor(S3Conf conf)
-        : StorageVaultAccessor(AccessorType::S3), conf_(std::move(conf)) {}
+        : StorageVaultAccessor(AccessorType::S3, s3_location(conf),
+                               storage_root(conf.bucket, conf.prefix)),
+          conf_(std::move(conf)) {}
 
 S3Accessor::~S3Accessor() = default;
 
