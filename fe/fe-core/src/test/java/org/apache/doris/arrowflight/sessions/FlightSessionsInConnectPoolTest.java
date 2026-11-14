@@ -182,8 +182,8 @@ public class FlightSessionsInConnectPoolTest {
                 () -> sessions.openSession(ALICE_AUTH));
 
         Assertions.assertEquals(FlightStatusCode.RESOURCE_EXHAUSTED, refused.status().code());
-        Assertions.assertEquals("Reach limit of connections. Total: 10, User: 100, Current: 1, Arrow Flight SQL: 1"
-                + " (current: 1)", refused.status().description());
+        Assertions.assertEquals("Reach limit of connections. Total: 10, User: 100, Current: 1, User current: 1,"
+                + " Arrow Flight SQL: 1 (current: 1)", refused.status().description());
         Assertions.assertEquals(1, scheduler.getConnectionNum());
         Assertions.assertSame(scheduler.getContextWithPeerIdentity(first), sessions.getConnectContext(first));
     }
