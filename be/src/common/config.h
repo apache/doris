@@ -2049,6 +2049,25 @@ DECLARE_mBool(enable_check_tablet_delete_bitmap_score);
 // ATTN: this config is only for test
 DECLARE_mBool(enable_prune_delete_sign_when_base_compaction);
 
+// Grace window (in seconds) before a delete-sign tombstone can be physically
+// pruned during base/full compaction for MOW tables that have a sequence column.
+// A delete at sequence S must suppress every later out-of-order (lower-seq)
+// write of the same key. Pruning the tombstone physically drops the sequence
+// value S that makes this suppression possible (see BaseTablet::lookup_row_key),
+// so a late write with seq < S can no longer be compared and resurrects the
+// deleted key -- a correctness bug on a single copy, and additionally a
+// permanent replica divergence when replicas prune at different times. A
+// tombstone is only pruned when the newest input rowset of the compaction is
+// older than this window, i.e. any late lower-seq write (bounded by this window)
+// has already arrived and been applied.
+//   >0 : keep tombstones at least this many seconds (recommended >= max
+//        expected out-of-order lateness of the sequence column)
+//    0 : disable the grace window, prune immediately (legacy behavior)
+//   <0 : never prune delete-sign tombstones for sequence-column tables
+// Only affects tables with a sequence column; non-sequence MOW tables are
+// unaffected (version order already makes immediate pruning safe).
+DECLARE_mInt64(mow_sequence_delete_sign_grace_seconds);
+
 DECLARE_mBool(enable_mow_verbose_log);
 
 DECLARE_mInt32(tablet_sched_delay_time_ms);
