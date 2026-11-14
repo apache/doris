@@ -60,10 +60,6 @@ public class JoinEstimation {
                 || connectContext.getSessionVariable().isEnableLowConfidenceEqJoinRemainingConditionDecay();
     }
 
-    private static void normalizeColumnStatistics(Statistics outputStats, Statistics inputStats) {
-        outputStats.normalizeColumnStatistics(inputStats.getRowCount(), false);
-    }
-
     private static EqualPredicate normalizeEqualPredJoinCondition(EqualPredicate equal, Statistics rightStats) {
         boolean changeOrder = equal.left().getInputSlots().stream()
                 .anyMatch(slot -> rightStats.findColumnStatistics(slot) != null);
@@ -351,8 +347,7 @@ public class JoinEstimation {
                         .putColumnStatistics(rightStats.columnStatistics())
                         .build();
             }
-            normalizeColumnStatistics(result,
-                    join.getJoinType().isLeftSemiOrAntiJoin() ? leftStats : rightStats);
+            result.enforceValid();
             return result;
         }
         double rowCount = Double.POSITIVE_INFINITY;
@@ -398,7 +393,7 @@ public class JoinEstimation {
             }
             builder.setRowCount(outputRowCount);
             Statistics outputStats = builder.build();
-            outputStats.normalizeColumnStatistics();
+            outputStats.enforceValid();
             return outputStats;*/
             StatisticsBuilder builder;
             if (join.getJoinType().isLeftSemiOrAntiJoin()) {
@@ -410,8 +405,7 @@ public class JoinEstimation {
                 builder.setRowCount(rowCount);
             }
             Statistics outputStats = builder.build();
-            normalizeColumnStatistics(outputStats,
-                    join.getJoinType().isLeftSemiOrAntiJoin() ? leftStats : rightStats);
+            outputStats.enforceValid();
             return outputStats;
         }
     }
@@ -433,8 +427,7 @@ public class JoinEstimation {
                         .putColumnStatistics(rightStats.columnStatistics())
                         .build();
             }
-            normalizeColumnStatistics(result,
-                    join.getJoinType().isAsofLeftInnerJoin() ? leftStats : rightStats);
+            result.enforceValid();
             return result;
         }
         double rowCount = Double.POSITIVE_INFINITY;
@@ -461,8 +454,7 @@ public class JoinEstimation {
             }
             builder.setRowCount(rowCount);
             Statistics outputStats = builder.build();
-            normalizeColumnStatistics(outputStats,
-                    join.getJoinType().isAsofLeftInnerJoin() ? leftStats : rightStats);
+            outputStats.enforceValid();
             return outputStats;
         }
     }
