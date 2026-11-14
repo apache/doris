@@ -454,9 +454,10 @@ TEST(MetaServiceTest, GetInstanceIdTest) {
         TxnErrorCode* c0 = try_any_cast<TxnErrorCode*>(args[0]);
         *c0 = TxnErrorCode::TXN_OK;
     });
+    // instance is registered, but the node is not
     instance_id =
             get_instance_id(ms->resource_mgr(), "1:ALBJLH4Q-check-invalid:m-n3qdpyal27rh8iprxx");
-    ASSERT_EQ(instance_id, "ALBJLH4Q-check-invalid");
+    ASSERT_EQ(instance_id, "");
     config::enable_check_instance_id = false;
 
     sp->clear_all_call_backs();
@@ -1464,6 +1465,113 @@ TEST(MetaServiceTest, GetClusterTest) {
         meta_service->get_cluster(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
                                   &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+}
+
+// Write an instance with one registered node into kv and the resource manager.
+static void register_instance_node(MetaServiceProxy* meta_service, const std::string& instance_id,
+                                   const std::string& cloud_unique_id) {
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto* cluster = instance.add_clusters();
+    cluster->set_cluster_name(instance_id + "_cluster");
+    cluster->set_cluster_id(instance_id + "_cluster_id");
+    cluster->set_type(ClusterPB::COMPUTE);
+    auto* node = cluster->add_nodes();
+    node->set_cloud_unique_id(cloud_unique_id);
+    node->set_ip("127.0.0.1");
+    node->set_heartbeat_port(9050);
+
+    std::string key;
+    instance_key({instance_id}, &key);
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+    txn->put(key, instance.SerializeAsString());
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    meta_service->resource_mgr()->refresh_instance(instance_id, instance);
+}
+
+TEST(MetaServiceTest, GetInstanceIdKvErrorTest) {
+    extern std::string get_instance_id(const std::shared_ptr<ResourceManager>& rc_mgr,
+                                       const std::string& cloud_unique_id);
+    auto meta_service = get_meta_service(false);
+    bool enable_check_instance_id = config::enable_check_instance_id;
+    config::enable_check_instance_id = true;
+    auto sp = SyncPoint::get_instance();
+    DORIS_CLOUD_DEFER {
+        config::enable_check_instance_id = enable_check_instance_id;
+        sp->clear_all_call_backs();
+        sp->disable_processing();
+    };
+    const std::string instance_id = "kv_error_instance";
+    const std::string cloud_unique_id = "1:" + instance_id + ":be";
+    register_instance_node(meta_service.get(), instance_id, cloud_unique_id);
+    // Take the degraded path, as for a registered node not in the cache yet.
+    sp->set_call_back("get_instance_id_err", [](auto&& args) {
+        *try_any_cast<std::string*>(args[0]) = "can't find node from cache";
+    });
+    sp->enable_processing();
+    ASSERT_EQ(get_instance_id(meta_service->resource_mgr(), cloud_unique_id), instance_id);
+
+    // A failed instance read is rejected rather than trusted.
+    sp->set_call_back("is_instance_id_registered", [](auto&& args) {
+        *try_any_cast<TxnErrorCode*>(args[0]) = TxnErrorCode::TXN_TOO_OLD;
+    });
+    ASSERT_EQ(get_instance_id(meta_service->resource_mgr(), cloud_unique_id), "");
+}
+
+TEST(MetaServiceTest, GetClusterForgedCloudUniqueIdTest) {
+    auto meta_service = get_meta_service(false);
+    bool enable_check_instance_id = config::enable_check_instance_id;
+    config::enable_check_instance_id = true;
+    DORIS_CLOUD_DEFER {
+        config::enable_check_instance_id = enable_check_instance_id;
+    };
+    auto register_node = [&](const std::string& instance_id, const std::string& cloud_unique_id) {
+        register_instance_node(meta_service.get(), instance_id, cloud_unique_id);
+    };
+    const std::string instance_a = "forged_cuid_instance_a";
+    const std::string node_a = "1:" + instance_a + ":registered_node";
+    const std::string instance_b = "forged_cuid_instance_b";
+    const std::string node_b = "1:" + instance_b + ":registered_node";
+    register_node(instance_a, node_a);
+    register_node(instance_b, node_b);
+
+    auto get_cluster = [&](const std::string& cloud_unique_id, const std::string& req_instance_id) {
+        brpc::Controller cntl;
+        GetClusterRequest req;
+        req.set_cloud_unique_id(cloud_unique_id);
+        if (!req_instance_id.empty()) {
+            req.set_instance_id(req_instance_id);
+        }
+        GetClusterResponse res;
+        meta_service->get_cluster(&cntl, &req, &res, nullptr);
+        return res;
+    };
+
+    // registered cloud_unique_id, with or without its own instance_id
+    for (const auto& req_instance_id : {std::string(), instance_b}) {
+        auto res = get_cluster(node_b, req_instance_id);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+        ASSERT_EQ(res.cluster(0).nodes(0).cloud_unique_id(), node_b);
+    }
+    // forged third segment must not leak the registered cloud_unique_id
+    {
+        auto res = get_cluster("1:" + instance_b + ":forged", "");
+        EXPECT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+        EXPECT_EQ(res.cluster_size(), 0);
+    }
+    // unresolvable cloud_unique_id with a request supplied instance_id
+    {
+        auto res = get_cluster("not_registered", instance_b);
+        EXPECT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+        EXPECT_EQ(res.cluster_size(), 0);
+    }
+    // cloud_unique_id of instance a with instance_id of instance b
+    {
+        auto res = get_cluster(node_a, instance_b);
+        EXPECT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+        EXPECT_EQ(res.cluster_size(), 0);
     }
 }
 
