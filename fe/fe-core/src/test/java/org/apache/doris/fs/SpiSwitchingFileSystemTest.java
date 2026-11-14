@@ -17,6 +17,7 @@
 
 package org.apache.doris.fs;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.storage.StorageAdapter;
 import org.apache.doris.datasource.storage.StorageTypeId;
@@ -27,6 +28,7 @@ import org.apache.doris.filesystem.FileIterator;
 import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.filesystem.Location;
 import org.apache.doris.filesystem.properties.FileSystemProperties;
+import org.apache.doris.filesystem.properties.S3CompatibleFileSystemProperties;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -108,6 +110,34 @@ public class SpiSwitchingFileSystemTest {
         SpiSwitchingFileSystem spiFs = new SpiSwitchingFileSystem(mockDelegate);
         FileSystem result = spiFs.forPath("s3://bucket/key");
         Assertions.assertSame(mockDelegate, result, "Test-delegate constructor must return the injected delegate");
+    }
+
+    @Test
+    public void testHeadPolicyChangesReuseOneDelegateAndCloseItOnce() throws IOException {
+        StorageAdapter adapter = Mockito.mock(StorageAdapter.class);
+        FileSystemProperties properties = Mockito.mock(S3CompatibleFileSystemProperties.class);
+        Mockito.when(adapter.getSpiProperties()).thenReturn(properties);
+        boolean oldSkipList = Config.s3_skip_list_for_deterministic_path;
+        int oldMaxPaths = Config.s3_head_request_max_paths;
+        try (MockedStatic<LocationPath> paths = Mockito.mockStatic(LocationPath.class, Mockito.CALLS_REAL_METHODS);
+                MockedStatic<FileSystemFactory> factory = Mockito.mockStatic(FileSystemFactory.class)) {
+            paths.when(() -> LocationPath.ofAdapters(Mockito.anyString(), Mockito.anyMap()))
+                    .thenAnswer(inv -> LocationPath.ofDirect(inv.getArgument(0), "s3", "s3://bucket", adapter));
+            factory.when(() -> FileSystemFactory.getFileSystem(properties)).thenReturn(mockDelegate);
+            try (SpiSwitchingFileSystem fs = new SpiSwitchingFileSystem(Collections.emptyMap())) {
+                for (int maxPaths : new int[] {100, 200, 0, -1}) {
+                    Config.s3_skip_list_for_deterministic_path = maxPaths > 0;
+                    Config.s3_head_request_max_paths = maxPaths;
+                    Assertions.assertSame(mockDelegate, fs.forPath("s3://bucket/file.csv"));
+                }
+                factory.verify(() -> FileSystemFactory.getFileSystem(properties), Mockito.times(1));
+                Mockito.verify(mockDelegate, Mockito.never()).close();
+            }
+            Mockito.verify(mockDelegate).close();
+        } finally {
+            Config.s3_skip_list_for_deterministic_path = oldSkipList;
+            Config.s3_head_request_max_paths = oldMaxPaths;
+        }
     }
 
     // -----------------------------------------------------------------------
