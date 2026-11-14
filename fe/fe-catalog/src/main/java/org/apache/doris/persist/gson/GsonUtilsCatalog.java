@@ -69,6 +69,7 @@ import org.apache.doris.catalog.AnyElementType;
 import org.apache.doris.catalog.AnyStructType;
 import org.apache.doris.catalog.AnyType;
 import org.apache.doris.catalog.ArrayType;
+import org.apache.doris.catalog.FileType;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.ScalarFunction;
@@ -108,6 +109,7 @@ public class GsonUtilsCatalog {
             .registerSubtype(ArrayType.class, ArrayType.class.getSimpleName())
             .registerSubtype(MapType.class, MapType.class.getSimpleName())
             .registerSubtype(StructType.class, StructType.class.getSimpleName())
+            .registerSubtype(FileType.class, FileType.class.getSimpleName())
             .registerSubtype(AggStateType.class, AggStateType.class.getSimpleName())
             .registerSubtype(AnyElementType.class, AnyElementType.class.getSimpleName())
             .registerSubtype(AnyStructType.class, AnyStructType.class.getSimpleName())

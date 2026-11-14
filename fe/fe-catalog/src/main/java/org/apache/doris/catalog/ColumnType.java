@@ -362,7 +362,7 @@ public abstract class ColumnType {
 
     public static void write(DataOutput out, Type type) throws IOException {
         Preconditions.checkArgument(type.isScalarType() || type.isAggStateType()
-                        || type.isArrayType() || type.isMapType() || type.isStructType(),
+                        || type.isArrayType() || type.isMapType() || type.isStructType() || type.isFileType(),
                 "not support serialize this type " + type.toSql());
         Text.writeString(out, GsonUtilsCatalog.GSON.toJson(type));
     }

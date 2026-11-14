@@ -83,6 +83,7 @@ import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.EsResource;
 import org.apache.doris.catalog.EsTable;
+import org.apache.doris.catalog.FileType;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionGenTable;
 import org.apache.doris.catalog.HMSResource;
@@ -243,6 +244,7 @@ public class GsonUtils {
             .registerSubtype(ArrayType.class, ArrayType.class.getSimpleName())
             .registerSubtype(MapType.class, MapType.class.getSimpleName())
             .registerSubtype(StructType.class, StructType.class.getSimpleName())
+            .registerSubtype(FileType.class, FileType.class.getSimpleName())
             .registerSubtype(AggStateType.class, AggStateType.class.getSimpleName())
             .registerSubtype(AnyElementType.class, AnyElementType.class.getSimpleName())
             .registerSubtype(AnyStructType.class, AnyStructType.class.getSimpleName())

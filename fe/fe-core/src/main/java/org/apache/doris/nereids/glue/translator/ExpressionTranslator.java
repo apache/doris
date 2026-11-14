@@ -107,6 +107,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ToFile;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdaf;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdf;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdtf;
@@ -781,6 +782,12 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                 searchExpression.getQsPlan(), slotChildren, fieldIndexes,
                 searchExpression.nullable());
         return searchPredicate;
+    }
+
+    @Override
+    public Expr visitToFile(ToFile toFile, PlanTranslatorContext context) {
+        context.getOrRegisterS3Resource(toFile.getResourceName());
+        return visitScalarFunction(toFile, context);
     }
 
     @Override

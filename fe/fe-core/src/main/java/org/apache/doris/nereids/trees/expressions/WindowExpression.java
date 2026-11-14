@@ -19,8 +19,10 @@ package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.UnaryNode;
+import org.apache.doris.nereids.trees.expressions.typecoercion.TypeCheckResult;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -271,6 +273,13 @@ public class WindowExpression extends Expression {
     @Override
     public DataType getDataType() throws UnboundException {
         return function.getDataType();
+    }
+
+    @Override
+    protected TypeCheckResult checkInputDataTypesInternal() {
+        partitionKeys.forEach(key -> ExpressionUtils.checkFileKey(key, "window PARTITION BY"));
+        orderKeys.forEach(key -> ExpressionUtils.checkFileKey(key.child(), "window ORDER BY"));
+        return TypeCheckResult.SUCCESS;
     }
 
     public boolean isSkew() {

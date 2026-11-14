@@ -30,6 +30,8 @@ namespace doris {
 // NOLINTNEXTLINE(readability-function-size): keep the exhaustive mapping together for auditability.
 constexpr FieldType primitive_type_to_storage_field_type(PrimitiveType type) {
     switch (type) {
+    case PrimitiveType::TYPE_FILE:
+        break;
     case PrimitiveType::INVALID_TYPE:
         return FieldType::OLAP_FIELD_TYPE_UNKNOWN;
     case PrimitiveType::TYPE_NULL:
