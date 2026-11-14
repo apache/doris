@@ -20,6 +20,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -44,10 +45,14 @@ Status validate_iceberg_deletion_vector_read_range(int64_t offset, int64_t size,
 Status validate_paimon_deletion_vector_read_range(int64_t offset, int64_t length,
                                                   size_t& bytes_read);
 
+Status validate_delta_deletion_vector_read_range(int64_t offset, int32_t size_in_bytes,
+                                                 size_t& bytes_read);
+
 struct DeleteFileDesc {
     enum class Format {
         PAIMON,
         ICEBERG,
+        DELTA,
     };
 
     std::string key = "";
@@ -58,6 +63,8 @@ struct DeleteFileDesc {
     int64_t file_size = -1;
     int64_t modification_time = 0;
     Format format = Format::PAIMON;
+    std::optional<std::string> inline_data = std::nullopt;
+    std::optional<uint64_t> expected_cardinality = std::nullopt;
 };
 
 class DeletionVectorReader {
