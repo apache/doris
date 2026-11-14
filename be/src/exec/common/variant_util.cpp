@@ -85,6 +85,7 @@
 #include "storage/rowset/beta_rowset.h"
 #include "storage/rowset/rowset.h"
 #include "storage/rowset/rowset_fwd.h"
+#include "storage/segment/segment.h"
 #include "storage/segment/segment_loader.h"
 #include "storage/segment/variant/nested_group_path.h"
 #include "storage/segment/variant/variant_column_reader.h"
@@ -101,6 +102,31 @@
 namespace doris::variant_util {
 
 namespace {
+
+bool same_variant_template(const TabletColumn& lhs, const TabletColumn& rhs) {
+    return lhs.name() == rhs.name() && lhs.pattern_type() == rhs.pattern_type() &&
+           DataTypeFactory::instance().create_data_type(lhs)->equals(
+                   *DataTypeFactory::instance().create_data_type(rhs));
+}
+
+bool same_variant_templates(const TabletColumn& lhs, const TabletColumn& rhs) {
+    return std::ranges::equal(lhs.get_sub_columns(), rhs.get_sub_columns(),
+                              [](const auto& left, const auto& right) {
+                                  return same_variant_template(*left, *right);
+                              });
+}
+
+bool column_templates_changed(const std::vector<RowsetSharedPtr>& inputs,
+                              const TabletColumn& target) {
+    return std::ranges::any_of(inputs, [&](const auto& input) {
+        const auto& schema = *input->tablet_schema();
+        if (!schema.has_column_unique_id(target.unique_id())) {
+            return false; // A root added after this segment contributes only its default value.
+        }
+        const auto& source = schema.column_by_uid(target.unique_id());
+        return source.is_variant_type() && !same_variant_templates(source, target);
+    });
+}
 
 PathInData make_full_subcolumn_path(const TabletColumnPtr& parent_column, std::string_view path) {
     if (!path.empty()) {
@@ -791,6 +817,52 @@ Status VariantCompactionUtil::aggregate_path_to_stats(
     return Status::OK();
 }
 
+bool variant_uses_sparse_budget(const TabletColumn& column) {
+    // Today zero means unlimited materialization, not a ban on sparse storage: compaction
+    // may retain old sparse paths hidden by truncated statistics, and still appends sparse
+    // columns. When zero means "sparse disabled", use this policy to omit those output
+    // columns and materialize every old sparse-only path (the N->0 subpaths builder already
+    // plans the enumerable ones). With truncated input statistics, N->0 cannot enumerate
+    // hidden paths and must instead use the per-column full-root fallback used for appended
+    // globs, even without a template change. Physical input truncation must still be recorded
+    // independently of this policy; a zero-budget input can contain old sparse data today.
+    return column.variant_max_subcolumns_count() > 0;
+}
+
+bool variant_path_type_matches(const TabletSchema& schema, const TabletColumn& column,
+                               const DataTypePtr& stored_type, const DataTypePtr& read_type) {
+    // A VARIANT storage type can represent a hierarchical or sparse read, not a changed
+    // physical leaf. For example, inventors.name makes inventors hierarchical while its
+    // ARRAY<STRING> leaf index remains usable on a table that has never had an ALTER.
+    // Only concrete old leaf types (e.g. STRING before an INT template) need this gate.
+    if (!column.is_extracted_column() || stored_type == nullptr ||
+        remove_nullable(stored_type)->get_primitive_type() == PrimitiveType::TYPE_VARIANT ||
+        remove_nullable(read_type)->get_primitive_type() == PrimitiveType::TYPE_VARIANT) {
+        return true;
+    }
+    if (schema.has_column_unique_id(column.parent_unique_id())) {
+        const auto& parent = schema.column_by_uid(column.parent_unique_id());
+        // NG indexes can use flattened element types for ARRAY reads; DOC/NG cannot ALTER.
+        if (parent.variant_enable_doc_mode() || parent.variant_enable_nested_group()) {
+            return true;
+        }
+    }
+    return remove_nullable(stored_type)->equals(*remove_nullable(read_type));
+}
+
+bool variant_index_type_matches(segment_v2::Segment& segment, const TabletColumn& column,
+                                const StorageReadOptions& read_options) {
+    if (!column.is_extracted_column()) {
+        return true;
+    }
+    const auto cast_type = read_options.target_cast_type_for_variants.find(column.name());
+    const auto read_type = cast_type != read_options.target_cast_type_for_variants.end()
+                                   ? cast_type->second
+                                   : DataTypeFactory::instance().create_data_type(column);
+    const auto stored_type = segment.get_data_type_of(column, read_type, read_options);
+    return variant_path_type_matches(*segment.tablet_schema(), column, stored_type, read_type);
+}
+
 Status VariantCompactionUtil::aggregate_variant_extended_info(
         const RowsetSharedPtr& rs,
         std::unordered_map<int32_t, VariantExtendedInfo>* uid_to_variant_extended_info) {
@@ -835,6 +907,16 @@ Status VariantCompactionUtil::aggregate_variant_extended_info(
                 for (const auto& [path, size] : source_stats->subcolumns_non_null_size) {
                     extended_info.path_to_none_null_values[path] += size;
                 }
+            }
+
+            // A new wildcard may match paths absent from the capped sparse statistics.
+            // Keep the source template list so an already-existing wildcard does not fall back.
+            // This is physical input state, not variant_uses_sparse_budget(*column): a prior
+            // N->0 compaction can retain hidden sparse paths despite its unlimited budget.
+            if (variant_column_reader->is_exceeded_sparse_column_limit() &&
+                (extended_info.truncated_sparse_columns.empty() ||
+                 extended_info.truncated_sparse_columns.back() != column)) {
+                extended_info.truncated_sparse_columns.push_back(column);
             }
 
             //2. agg path -> schema
@@ -884,9 +966,33 @@ void VariantCompactionUtil::get_subpaths(int32_t max_subcolumns_count,
     }
 }
 
+bool VariantCompactionUtil::variant_templates_changed(const std::vector<RowsetSharedPtr>& inputs,
+                                                      const TabletSchema& target) {
+    for (const auto& rowset : inputs) {
+        for (const auto& column : rowset->tablet_schema()->columns()) {
+            if (!column->is_variant_type() || !target.has_column_unique_id(column->unique_id())) {
+                continue;
+            }
+            const auto& target_column = target.column_by_uid(column->unique_id());
+            if (!target_column.is_variant_type()) {
+                continue;
+            }
+            // Adding a template can cast old values to NULL; budget changes preserve counts.
+            if (!same_variant_templates(*column, target_column)) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 Status VariantCompactionUtil::check_path_stats(const std::vector<RowsetSharedPtr>& intputs,
                                                RowsetSharedPtr output, BaseTabletSPtr tablet) {
     if (output->tablet_schema()->num_variant_columns() == 0) {
+        return Status::OK();
+    }
+    // A template cast can turn an old a="x" into INT NULL, changing path counts.
+    if (variant_templates_changed(intputs, *output->tablet_schema())) {
         return Status::OK();
     }
     for (const auto& rowset : intputs) {
@@ -1062,6 +1168,10 @@ void VariantCompactionUtil::get_compaction_subcolumns_from_subpaths(
     const auto& parent_indexes = target->inverted_indexs(parent_column->unique_id());
     // append subcolumns
     for (const auto& subpath : sorted_subpaths) {
+        // A newly typed sparse path is also in sub_path_set to remove its old sparse copy.
+        if (paths_set_info.typed_path_set.contains(std::string(subpath))) {
+            continue;
+        }
         auto column_name = parent_column->name_lower_case() + "." + subpath.to_string();
         auto column_path = make_full_subcolumn_path(parent_column,
                                                     std::string_view(subpath.data, subpath.size));
@@ -1152,6 +1262,63 @@ void VariantCompactionUtil::get_compaction_subcolumns_from_data_types(
     append_empty_key_subcolumn_from_stats(paths_set_info, parent_column, output_schema);
 }
 
+// Return false only when a new wildcard may match paths hidden by an input's sparse-stat cap.
+// Literal templates can be read directly from sparse even when their names were not recorded.
+bool VariantCompactionUtil::collect_compaction_template_paths(
+        const TabletSchema& target, const TabletColumn& column, const VariantExtendedInfo& info,
+        std::unordered_set<std::string>& typed_paths) {
+    if (column.get_sub_columns().empty()) {
+        return true;
+    }
+    std::unordered_set<std::string> candidates;
+    // Unlike variant_uses_sparse_budget(column), truncation describes old physical data.
+    // If zero disables sparse, a zero-budget target must fall back on this input even without
+    // appended templates; see that helper's migration note. Today only new globs require it.
+    for (const auto& source : info.truncated_sparse_columns) {
+        for (const auto& entry : column.get_sub_columns()) {
+            const bool existed = std::ranges::any_of(
+                    source->get_sub_columns(),
+                    [&](const auto& old) { return same_variant_template(*old, *entry); });
+            if (existed) {
+                continue;
+            }
+            // fnmatch recognizes *, ?, brackets and backslash escapes. A literal GLOB such
+            // as "a" is enumerable by name; "a*" requires complete statistics.
+            if (entry->pattern_type() == PatternTypePB::MATCH_NAME_GLOB &&
+                entry->name().find_first_of("*?[\\") != std::string::npos) {
+                return false;
+            }
+            candidates.insert(entry->name());
+        }
+    }
+    for (const auto& [path, _] : info.path_to_none_null_values) {
+        candidates.insert(path);
+    }
+    for (const auto& [path, _] : info.path_to_data_types) {
+        if (!path.empty() && !path.get_is_typed() && !path.has_nested_part()) {
+            candidates.insert(path.get_path());
+        }
+    }
+    candidates.insert(info.sparse_paths.begin(), info.sparse_paths.end());
+    candidates.insert(info.typed_paths.begin(), info.typed_paths.end());
+    std::unordered_set<std::string> nested_paths;
+    for (const auto& path : info.nested_paths) {
+        nested_paths.insert(path.get_path());
+    }
+    for (const auto& path : candidates) {
+        // An array-of-object leaf keeps master's nested-column handling even if a template
+        // matches its textual name, e.g. [{"a":1}] with template a INT.
+        if (nested_paths.contains(path) || typed_paths.contains(path)) {
+            continue;
+        }
+        TabletSchema::SubColumnInfo sub_column_info;
+        if (generate_sub_column_info(target, column.unique_id(), path, &sub_column_info)) {
+            typed_paths.insert(path);
+        }
+    }
+    return true;
+}
+
 // Build the temporary schema for compaction.
 // NestedGroup roots are special: the root VARIANT column owns the NG tree and the streaming NG
 // writer handles NG children, while regular non-NG paths beside the arrays are materialized as
@@ -1193,6 +1360,21 @@ Status VariantCompactionUtil::get_extended_compaction_schema(
         const VariantExtendedInfo& extended_info = info_it == uid_to_variant_extended_info.end()
                                                            ? empty_extended_info
                                                            : info_it->second;
+        const bool changed_templates = !column->variant_enable_doc_mode() &&
+                                       !ng_root_uids.contains(column->unique_id()) &&
+                                       !column->variant_enable_typed_paths_to_sparse() &&
+                                       column_templates_changed(rowsets, *column);
+        std::unordered_set<std::string> matched_paths;
+        // Only an ordinary root with changed templates may gain template-matched destinations.
+        // In particular, unchanged typed-paths-to-sparse roots retain master's budget selection.
+        if (changed_templates &&
+            !collect_compaction_template_paths(*target, *column, extended_info, matched_paths)) {
+            // Hidden sparse paths may match an appended glob. This root alone is re-shredded:
+            // no extracted columns or paths entry may remain; other roots stay extended.
+            continue;
+        }
+        auto typed_paths = extended_info.typed_paths;
+        typed_paths.insert(matched_paths.begin(), matched_paths.end());
         auto& paths_set_info = uid_to_paths_set_info[column->unique_id()];
         const bool use_nested_group_compaction_schema = ng_root_uids.contains(column->unique_id());
 
@@ -1223,9 +1405,9 @@ Status VariantCompactionUtil::get_extended_compaction_schema(
             continue;
         }
 
-        // 1. append typed columns
-        RETURN_IF_ERROR(get_compaction_typed_columns(target, extended_info.typed_paths, column,
-                                                     output_schema, paths_set_info));
+        // 1. append old and newly matched typed columns, each exactly once.
+        RETURN_IF_ERROR(get_compaction_typed_columns(target, typed_paths, column, output_schema,
+                                                     paths_set_info));
 
         // 2. append nested columns
         RETURN_IF_ERROR(get_compaction_nested_columns(extended_info.nested_paths,
@@ -1233,11 +1415,28 @@ Status VariantCompactionUtil::get_extended_compaction_schema(
                                                       output_schema, paths_set_info));
 
         // 3. get the subpaths
-        get_subpaths(column->variant_max_subcolumns_count(), extended_info.path_to_none_null_values,
-                     paths_set_info);
+        if (matched_paths.empty()) {
+            get_subpaths(column->variant_max_subcolumns_count(),
+                         extended_info.path_to_none_null_values, paths_set_info);
+        } else {
+            auto dynamic_stats = extended_info.path_to_none_null_values;
+            for (const auto& path : matched_paths) {
+                dynamic_stats.erase(path);
+            }
+            get_subpaths(column->variant_max_subcolumns_count(), dynamic_stats, paths_set_info);
+            // A hit typed in a newer input may still be hidden in an old input's sparse stats.
+            // Remove only this changed root's template hits from sparse output, never every
+            // root's typed paths (which would bypass typed-paths-to-sparse budgets).
+            paths_set_info.sub_path_set.insert(matched_paths.begin(), matched_paths.end());
+        }
 
         // 4. append subcolumns
-        if (column->variant_max_subcolumns_count() > 0 || !column->get_sub_columns().empty()) {
+        // The sole exception to master's unchanged-template plan is count=0 WITH sparse input:
+        // after N->0 an old sparse-only path may have no type entry. Build its destination too,
+        // or sparse merge drops the value. An unaltered count=0 root never writes sparse paths
+        // and therefore keeps master's data-types-only plan.
+        if (variant_uses_sparse_budget(*column) || !column->get_sub_columns().empty() ||
+            !extended_info.sparse_paths.empty()) {
             get_compaction_subcolumns_from_subpaths(paths_set_info, column, target,
                                                     extended_info.path_to_data_types,
                                                     extended_info.sparse_paths, output_schema);
@@ -1251,6 +1450,8 @@ Status VariantCompactionUtil::get_extended_compaction_schema(
         }
 
         // append sparse column(s)
+        // Master appends even an empty sparse column at count=0. When zero disables sparse,
+        // gate this output layout with variant_uses_sparse_budget(); preserve it for now.
         // If variant uses bucketized sparse columns, append one sparse bucket column per bucket.
         // Otherwise, append the single sparse column.
         int bucket_num = std::max(1, column->variant_sparse_hash_shard_count());

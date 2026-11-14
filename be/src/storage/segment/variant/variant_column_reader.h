@@ -362,7 +362,7 @@ private:
                             const StorageReadOptions* opt, ColumnReaderCache* column_reader_cache,
                             PathToBinaryColumnCache* binary_column_cache_ptr);
 
-    static bool _need_read_flat_leaves(const StorageReadOptions* opts);
+    bool _need_read_flat_leaves(const StorageReadOptions* opts) const;
     bool _can_use_nested_group_read_path() const;
     // Only root-path reads need the extra merge; child-path reads are already served by the
     // specific iterator selected in the plan.

@@ -59,6 +59,8 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletBinlogConfig;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
+import org.apache.doris.catalog.VariantPropertyChangePolicy;
+import org.apache.doris.catalog.VariantTemplateIndexBinder;
 import org.apache.doris.catalog.info.ColumnPosition;
 import org.apache.doris.catalog.info.IndexType;
 import org.apache.doris.cloud.qe.ComputeGroupException;
@@ -1008,7 +1010,20 @@ public class SchemaChangeHandler extends AlterHandler {
             if (col.getName().equalsIgnoreCase(newColName)) {
                 modColIndex = i;
                 found = true;
-                if (!col.equals(modColumn)) {
+                boolean variantPropertyChange = false;
+                if (col.getType().isVariantType() && modColumn.getType().isVariantType()) {
+                    VariantPropertyChangePolicy.checkColumnLevel(col, modColumn);
+                    variantPropertyChange = VariantPropertyChangePolicy.hasPropertyChange(col, modColumn);
+                }
+                if (variantPropertyChange) {
+                    VariantPropertyChangePolicy.checkPropertyChangeIsolated(col, modColumn, columnPos != null);
+                    if (VariantPropertyChangePolicy.templatesChanged(col, modColumn) && olapTable.storeRowColumn()) {
+                        throw new DdlException("Can not change variant schema templates on a row-store table");
+                    }
+                    VariantTemplateIndexBinder.validateIndexes(modColumn, olapTable.getIndexes(),
+                            olapTable.getInvertedIndexFileStorageFormat());
+                }
+                if (!col.equals(modColumn) || variantPropertyChange) {
                     typeChanged = true;
                     // TODO:the case where columnPos is not empty has not been considered
                     if (columnPos == null && col.getDataType() == PrimitiveType.VARCHAR
@@ -3363,19 +3378,22 @@ public class SchemaChangeHandler extends AlterHandler {
                 indexDef.checkColumn(column, olapTable.getKeysType(),
                         olapTable.getEnableUniqueKeyMergeOnWrite(),
                         olapTable.getInvertedIndexFileStorageFormat());
-                if (!InvertedIndexUtil.getInvertedIndexFieldPattern(indexDef.getProperties()).isEmpty()) {
-                    throw new DdlException("Can not create index with field pattern");
+                // checkColumn fills defaults such as gram-family support_phrase=false after
+                // CreateIndexOp#validate materializes alterIndex. Sync before template validation
+                // so the binder and BE see the same effective properties.
+                indexDef.applyPropertiesTo(alterIndex);
+                if (column.getType().isVariantType() && indexDef.getIndexType() == IndexType.INVERTED) {
+                    List<Index> candidateIndexes = new ArrayList<>(newIndexes);
+                    candidateIndexes.add(alterIndex);
+                    VariantTemplateIndexBinder.validateIndexes(column, candidateIndexes,
+                            olapTable.getInvertedIndexFileStorageFormat());
+                } else if (!InvertedIndexUtil.getInvertedIndexFieldPattern(indexDef.getProperties()).isEmpty()) {
+                    throw new DdlException("column: " + column.getName() + " cannot have field pattern in index.");
                 }
             } else {
                 throw new DdlException("index column does not exist in table. invalid column: " + col);
             }
         }
-
-        // CreateIndexOp#validate materializes the IndexDefinition into alterIndex before
-        // checkColumn runs, so the property defaults that are only filled in during checkColumn
-        // (currently the gram family's support_phrase=false) have to be written back here, or the
-        // index that is persisted and shipped to BE would lose them.
-        indexDef.applyPropertiesTo(alterIndex);
 
         // the column name in CreateIndexClause is not check case sensitivity,
         // when send index description to BE, there maybe cannot find column by name,
@@ -3399,7 +3417,9 @@ public class SchemaChangeHandler extends AlterHandler {
             }
             Set<String> existedIdxColSet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
             existedIdxColSet.addAll(index.getColumns());
-            if (index.getIndexType() == indexDef.getIndexType() && newColset.equals(existedIdxColSet)) {
+            if (index.getIndexType() == indexDef.getIndexType() && newColset.equals(existedIdxColSet)
+                    && index.getInvertedIndexFieldPattern().equals(
+                            InvertedIndexUtil.getInvertedIndexFieldPattern(indexDef.getProperties()))) {
                 if (newColset.size() == 1
                         && olapTable.getInvertedIndexFileStorageFormat()
                         .compareTo(TInvertedIndexFileStorageFormat.V2) >= 0) {
@@ -3469,10 +3489,6 @@ public class SchemaChangeHandler extends AlterHandler {
                 return true;
             }
             throw new DdlException("index " + indexName + " does not exist");
-        }
-
-        if (!InvertedIndexUtil.getInvertedIndexFieldPattern(found.getProperties()).isEmpty()) {
-            throw new DdlException("Can not drop index with field pattern");
         }
 
         Iterator<Index> itr = indexes.iterator();

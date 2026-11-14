@@ -1,0 +1,98 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+suite("test_variant_light_alter_linked_sc", "p0,nonConcurrent") {
+    def compareWithControl = { String tag, String cols, String where = "" ->
+        // Compare independent extraction from the whole row, not another subpath read.
+        def inconsistent = ['p'].collect { path ->
+            "NOT (CAST(v['${path}'] AS STRING) <=> get_json_string(CAST(v AS STRING), '\$.${path}'))"
+        }.join(' OR ')
+        "order_qt_${tag}_whole_path_invariant"("SELECT id FROM variant_light_alter_linked_sc WHERE ${inconsistent}")
+        def query = { String table, String projection -> "SELECT ${projection} FROM ${table} ${where}" }
+        "order_qt_${tag}"(query("variant_light_alter_linked_sc", cols))
+        "order_qt_${tag}_control"(query("variant_light_alter_linked_sc_control", cols))
+        def normalized = cols.split(", ").toList().withIndex().collect { col, i -> "CAST(${col} AS STRING) AS c${i}" }.join(", ")
+        def actual = query("variant_light_alter_linked_sc", normalized), expected = query("variant_light_alter_linked_sc_control", normalized)
+        "order_qt_${tag}_difference"("""SELECT 'altered_only', delta.* FROM (${actual} EXCEPT ${expected}) delta
+            UNION ALL SELECT 'control_only', delta.* FROM (${expected} EXCEPT ${actual}) delta""")
+    }
+    def alterAndWait = { String change ->
+        sql "ALTER TABLE variant_light_alter_linked_sc ${change}"
+        waitForSchemaChangeDone {
+            sql "SHOW ALTER TABLE COLUMN WHERE TableName='variant_light_alter_linked_sc' ORDER BY CreateTime DESC LIMIT 1"
+            time 60
+        }
+    }
+    def linkedSchemas = {
+        def policies = []
+        if (!isCloudMode()) { // Cloud's header API intentionally omits rs_metas.
+            def hosts = [:], ports = [:]
+            getBackendIpHttpPort(hosts, ports)
+            sql_return_maparray("SHOW TABLETS FROM variant_light_alter_linked_sc").each { tablet ->
+                def meta = null
+                httpTest {
+                    endpoint "${hosts["${tablet.BackendId}"]}:${ports["${tablet.BackendId}"]}"
+                    uri "/api/meta/header/${tablet.TabletId}?byte_to_base64=true"
+                    op "get"
+                    check { code, body ->
+                        assertEquals(200, code as int)
+                        meta = parseJson(body.toString())
+                    }
+                }
+                meta.rs_metas.findAll { (it.num_rows as long) > 0 }.each { rowset ->
+                    policies.add([rowset.start_version as long, rowset.end_version as long,
+                                  rowset.tablet_schema])
+                }
+            }
+        }
+        policies.sort { a, b -> a[0] <=> b[0] }
+    }
+    def rows = [
+        """(1,0,0,0,1,parse_to_variant('{"p":"x7","a":1}'))""",
+        """(2,0,0,0,2,parse_to_variant('{"p":"001","a":2}'))""",
+        """(3,0,0,0,3,parse_to_variant('{"a":3,"b":3,"p":5}'))""",
+        """(4,0,0,0,4,parse_to_variant('{"a":4,"b":4}'))""",
+        """(5,0,0,0,5,parse_to_variant('{"a":5,"b":5}'))""",
+        """(6,0,0,0,6,parse_to_variant('{"p":7,"a":6}'))"""
+    ]
+    sql "DROP TABLE IF EXISTS variant_light_alter_linked_sc"
+    sql """CREATE TABLE variant_light_alter_linked_sc (id INT, k2 INT, k3 INT, n INT, v VARIANT<PROPERTIES('variant_max_subcolumns_count'='2')>)
+        DUPLICATE KEY(id,k2,k3) DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES("replication_num"="1", "disable_auto_compaction"="true", "short_key"="3")"""
+    sql "DROP TABLE IF EXISTS variant_light_alter_linked_sc_control"
+    sql """CREATE TABLE variant_light_alter_linked_sc_control (id INT, k2 INT, k3 INT, k4 INT, n INT, v VARIANT<MATCH_NAME 'p':INT, PROPERTIES('variant_max_subcolumns_count'='2')>)
+        DUPLICATE KEY(id,k2,k3,k4) DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES("replication_num"="1", "disable_auto_compaction"="true", "short_key"="3")"""
+    // Old segments contain both dynamic p and rare p behind the small dynamic budget.
+    sql "INSERT INTO variant_light_alter_linked_sc VALUES ${rows.take(2).collect { it.replaceFirst('0,0,0,', '0,0,') }.join(', ')}"
+    sql "INSERT INTO variant_light_alter_linked_sc VALUES ${rows[2..4].collect { it.replaceFirst('0,0,0,', '0,0,') }.join(', ')}"
+    def inputSchemas = linkedSchemas()
+    alterAndWait("MODIFY COLUMN v VARIANT<MATCH_NAME 'p':INT, PROPERTIES('variant_max_subcolumns_count'='2')>")
+    alterAndWait("ADD COLUMN k4 INT KEY DEFAULT '0' AFTER k3")
+    def outputSchemas = linkedSchemas()
+    logger.info("linked input schemas=${inputSchemas}; output schemas=${outputSchemas}")
+    order_qt_linked_schema_invariant "SELECT 1 WHERE ${inputSchemas != outputSchemas}"
+
+    sql "INSERT INTO variant_light_alter_linked_sc VALUES ${rows[5]}"
+    order_qt_mixed "SELECT id, k4, v['p'], CAST(v['p'] AS INT), v FROM variant_light_alter_linked_sc"
+    sql "INSERT INTO variant_light_alter_linked_sc_control VALUES ${rows.join(', ')}"
+    trigger_and_wait_compaction("variant_light_alter_linked_sc", "full")
+    compareWithControl("compacted", "id, k4, v['p'], CAST(v['p'] AS INT), v")
+    compareWithControl("eq", "id", "WHERE v['p'] = 5")
+    compareWithControl("range", "id", "WHERE v['p'] > 3")
+    compareWithControl("null", "id", "WHERE v['p'] IS NULL")
+}
