@@ -913,6 +913,8 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
     private MySqlSourceConfig generateMySqlConfig(
             Map<String, String> cdcConfig, String jobId, int subtaskId) {
         MySqlSourceConfigFactory configFactory = new MySqlSourceConfigFactory();
+        // Stream snapshot rows instead of buffering the entire split in Connector/J.
+        configFactory.fetchSize(Integer.MIN_VALUE);
         ConnectionUrl cu =
                 ConnectionUrl.getConnectionUrlInstance(
                         cdcConfig.get(DataSourceConfigKeys.JDBC_URL), null);
