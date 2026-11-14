@@ -18,6 +18,8 @@
 package org.apache.doris.connector.spi.procedure;
 
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 
@@ -31,7 +33,7 @@ import java.util.Set;
  * rewrite writes. This is the planning analogue of {@link ConnectorProcedureResult}: the connector owns which
  * files to touch and how to group them (size ranges, delete ratios, minimum inputs, per-partition grouping —
  * all of it connector-defined); the engine only orchestrates the distributed reads/writes. No live SDK object
- * crosses the seam — only neutral {@code String} paths and primitive counts.</p>
+ * crosses the seam — only neutral paths, primitive counts and resolved session settings.</p>
  */
 public class ConnectorRewriteGroup {
 
@@ -39,6 +41,7 @@ public class ConnectorRewriteGroup {
     private final int dataFileCount;
     private final long totalSizeBytes;
     private final int deleteFileCount;
+    private final Map<String, String> sessionVariableOverrides;
 
     /**
      * @param dataFilePaths  the RAW file paths of this group's data files (what the connector scan matches a
@@ -50,11 +53,23 @@ public class ConnectorRewriteGroup {
      */
     public ConnectorRewriteGroup(Set<String> dataFilePaths, int dataFileCount, long totalSizeBytes,
             int deleteFileCount) {
+        this(dataFilePaths, dataFileCount, totalSizeBytes, deleteFileCount, Collections.emptyMap());
+    }
+
+    /**
+     * Creates a group with connector-resolved session variables for its private write task. Values carry
+     * the validated procedure settings, including defaults; the engine must not resolve them again from
+     * the original procedure arguments or modify the caller's session.
+     */
+    public ConnectorRewriteGroup(Set<String> dataFilePaths, int dataFileCount, long totalSizeBytes,
+            int deleteFileCount, Map<String, String> sessionVariableOverrides) {
         this.dataFilePaths = Collections.unmodifiableSet(
                 Objects.requireNonNull(dataFilePaths, "dataFilePaths is null"));
         this.dataFileCount = dataFileCount;
         this.totalSizeBytes = totalSizeBytes;
         this.deleteFileCount = deleteFileCount;
+        this.sessionVariableOverrides = Collections.unmodifiableMap(new HashMap<>(
+                Objects.requireNonNull(sessionVariableOverrides, "sessionVariableOverrides is null")));
     }
 
     /** The raw data-file paths in this group, used to scope the per-group rewrite scan. */
@@ -75,6 +90,11 @@ public class ConnectorRewriteGroup {
     /** The number of delete files attached to this group. */
     public int getDeleteFileCount() {
         return deleteFileCount;
+    }
+
+    /** Session variables to apply only to this group's cloned session, before planning its write. */
+    public Map<String, String> getSessionVariableOverrides() {
+        return sessionVariableOverrides;
     }
 
     @Override

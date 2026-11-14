@@ -17,8 +17,12 @@
 
 package org.apache.doris.nereids.trees.plans.commands.execute;
 
+import org.apache.doris.analysis.SetType;
+import org.apache.doris.analysis.SetVar;
 import org.apache.doris.analysis.StatementBase;
+import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Status;
 import org.apache.doris.connector.spi.handle.ConnectorTransaction;
 import org.apache.doris.connector.spi.procedure.ConnectorRewriteGroup;
@@ -49,6 +53,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
@@ -251,9 +256,13 @@ public class ConnectorRewriteGroupTask implements TransientTaskExecutor {
         );
     }
 
-    private ConnectContext buildConnectContext() {
+    ConnectContext buildConnectContext() throws DdlException {
         ConnectContext taskContext = new ConnectContext();
         taskContext.setSessionVariable(VariableMgr.cloneSessionVariable(connectContext.getSessionVariable()));
+        for (Map.Entry<String, String> override : group.getSessionVariableOverrides().entrySet()) {
+            VariableMgr.setVar(taskContext.getSessionVariable(),
+                    new SetVar(SetType.SESSION, override.getKey(), new StringLiteral(override.getValue())));
+        }
         taskContext.setEnv(Env.getCurrentEnv());
         taskContext.setDatabase(connectContext.getDatabase());
         taskContext.setCurrentUserIdentity(connectContext.getCurrentUserIdentity());
