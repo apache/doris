@@ -79,6 +79,8 @@ public:
 
     Status close(Status) override;
 
+    Status close(Status close_status, std::optional<int64_t> delete_only_rows);
+
     void defer_file_cleanup_until_outer_close() { _defer_file_cleanup_until_outer_close = true; }
 
     void finish_deferred_file_cleanup(Status outer_status);

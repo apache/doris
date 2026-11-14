@@ -253,6 +253,10 @@ Status VIcebergDeleteSink::write(RuntimeState* state, Block& block) {
 }
 
 Status VIcebergDeleteSink::close(Status close_status) {
+    return close(std::move(close_status), std::nullopt);
+}
+
+Status VIcebergDeleteSink::close(Status close_status, std::optional<int64_t> delete_only_rows) {
     SCOPED_TIMER(_close_timer);
 
     if (!close_status.ok()) {
@@ -277,6 +281,12 @@ Status VIcebergDeleteSink::close(Status close_status) {
     if (!write_status.ok()) {
         _cleanup_created_files();
         return write_status;
+    }
+
+    // MERGE supplies its sink-wide action count, including zero for UPDATE-only input. Ordinary
+    // DELETE leaves it unset. Attach it to one item so multiple files do not multiply the count.
+    if (delete_only_rows.has_value() && !_commit_data_list.empty()) {
+        _commit_data_list.front().__set_delete_only_rows(*delete_only_rows);
     }
 
     // Update counters

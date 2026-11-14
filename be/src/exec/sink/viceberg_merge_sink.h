@@ -88,6 +88,7 @@ private:
     size_t _row_count = 0;
     size_t _insert_row_count = 0;
     size_t _delete_row_count = 0;
+    size_t _delete_only_row_count = 0;
 
     RuntimeProfile::Counter* _written_rows_counter = nullptr;
     RuntimeProfile::Counter* _insert_rows_counter = nullptr;
