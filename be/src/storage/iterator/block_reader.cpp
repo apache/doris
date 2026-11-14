@@ -30,6 +30,7 @@
 
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "cloud/config.h"
+#include "common/cast_set.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/exception.h"
@@ -39,10 +40,11 @@
 #include "core/column/column_string.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_number.h"
-#include "exprs/aggregate/aggregate_function_reader.h"
 #include "runtime/runtime_state.h"
 #include "storage/changelog.h"
+#include "storage/iterator/agg_key_block_iterator.h"
 #include "storage/iterator/changelog_block_reader_utils.h"
+#include "storage/iterator/heap_merge_iterator.h"
 #include "storage/iterator/vcollect_iterator.h"
 #include "storage/olap_common.h"
 #include "storage/olap_define.h"
@@ -62,11 +64,16 @@ using namespace ErrorCode;
 
 static constexpr int32_t BLOCK_SIZE_CHECK_INTERVAL_ROWS = 64;
 
-BlockReader::~BlockReader() {
-    for (int i = 0; i < _agg_functions.size(); ++i) {
-        _agg_functions[i]->destroy(_agg_places[i]);
-        delete[] _agg_places[i];
+BlockReader::BlockReader() = default;
+
+BlockReader::~BlockReader() = default;
+
+void BlockReader::update_profile(RuntimeProfile* profile) {
+    if (_agg_key_iter != nullptr) {
+        _agg_key_iter->update_profile(profile);
+        return;
     }
+    _vcollect_iter.update_profile(profile);
 }
 
 Status BlockReader::next_block_with_aggregation(Block* block, bool* eof) {
@@ -428,6 +435,7 @@ Status BlockReader::_detail_change_next_block(Block* block, bool* eof) {
 }
 
 bool BlockReader::_rowsets_not_mono_asc_disjoint(const ReaderParams& read_params) {
+    SCOPED_RAW_TIMER(&_stats.block_reader_vcollect_iter_init_timer_ns);
     std::string pre_rs_last_key;
     bool pre_rs_key_bounds_truncated {false};
     const std::vector<RowSetSplits>& rs_splits = read_params.rs_splits;
@@ -467,10 +475,8 @@ Status BlockReader::_init_collect_iter(const ReaderParams& read_params) {
                      << ", version:" << read_params.version;
         return res;
     }
-    // check if rowsets are noneoverlapping
     {
         SCOPED_RAW_TIMER(&_stats.block_reader_vcollect_iter_init_timer_ns);
-        _is_rowsets_overlapping = _rowsets_not_mono_asc_disjoint(read_params);
         const bool is_min_delta_stream =
                 read_params.changelog_scan_type == TChangelogScanType::MIN_DELTA;
         const bool force_merge = read_params.read_orderby_key || is_min_delta_stream;
@@ -518,48 +524,91 @@ Status BlockReader::_init_collect_iter(const ReaderParams& read_params) {
     return Status::OK();
 }
 
-Status BlockReader::_init_agg_state(const ReaderParams& read_params) {
-    if (_eof) {
-        return Status::OK();
+bool BlockReader::_merges_agg_key_rows(bool map_changelog_columns) const {
+    // Rowsets with no segments that overlap on keys and keys that ascend from one rowset to the
+    // next hold every key once: they have nothing to fold and are read as they are, like DUP_KEYS.
+    return !map_changelog_columns && !_direct_mode &&
+           _tablet_schema->keys_type() == KeysType::AGG_KEYS && _is_rowsets_overlapping;
+}
+
+Status BlockReader::_init_agg_key_iter(const ReaderParams& read_params) {
+    auto res = _capture_rs_readers(read_params);
+    if (!res.ok()) {
+        LOG(WARNING) << "fail to init reader when _capture_rs_readers. res:" << res
+                     << ", tablet_id:" << read_params.tablet->tablet_id()
+                     << ", schema_hash:" << read_params.tablet->schema_hash()
+                     << ", reader_type:" << int(read_params.reader_type)
+                     << ", version:" << read_params.version;
+        return res;
     }
+    // Only duplicate and merge-on-write tables have a changelog, and the scanner pushes a LIMIT or
+    // a key TopN down only into the reads that do not merge: the rows are merged by the whole key.
+    DORIS_CHECK(!_reader_context.read_changelog);
+    DORIS_CHECK(!read_params.read_orderby_key);
+    DORIS_CHECK(_reader_context.general_read_limit <= 0);
 
-    auto stored_block = _next_row.block->create_same_struct_block(batch_max_rows());
-    _stored_data_columns = std::move(*stored_block).mutate_columns();
-
-    _stored_has_null_tag.resize(_stored_data_columns.size());
-    _stored_has_variable_length_tag.resize(_stored_data_columns.size());
-
-    for (auto idx : _agg_columns_idx) {
-        const auto& column = *_read_schema->column(idx);
-        AggregateFunctionPtr function = column.get_aggregate_function(
-                AGG_READER_SUFFIX, read_params.get_be_exec_version(), _read_schema->data_type(idx));
-
-        // Every aggregate value column must resolve its reader aggregate function.
-        if (!function) {
-            return Status::InternalError(
-                    "Failed to init reader when init agg state: "
-                    "tablet_id: {}, schema_hash: {}, reader_type: {}, version: {}",
-                    read_params.tablet->tablet_id(), read_params.tablet->schema_hash(),
-                    int(read_params.reader_type), read_params.version.to_string());
+    // The children of the merge, in (rowset version, segment) order.
+    std::vector<RowwiseIteratorUPtr> children;
+    RuntimeState* runtime_state = read_params.runtime_state;
+    {
+        SCOPED_RAW_TIMER(&_stats.block_reader_rs_readers_init_timer_ns);
+        int64_t previous_start_version = -1;
+        for (const auto& rs_split : read_params.rs_splits) {
+            if (runtime_state != nullptr && runtime_state->is_cancelled()) {
+                return runtime_state->cancel_reason();
+            }
+            const RowsetReaderSharedPtr& rs_reader = rs_split.rs_reader;
+            RETURN_IF_ERROR(rs_reader->init(&_reader_context, rs_split));
+            // The merge puts the rows of one key in the order of its children, the newer first,
+            // so the rowsets must come in version order.
+            DORIS_CHECK_GE(rs_reader->rowset()->start_version(), previous_start_version);
+            previous_start_version = rs_reader->rowset()->start_version();
+            RETURN_IF_ERROR(rs_reader->get_merge_children(&_reader_context, &children));
+            _merge_rs_readers.push_back(rs_reader);
         }
-        const auto* column_ptr = _stored_data_columns[idx].get();
-        const IColumn* columns[] = {column_ptr};
-        function->check_input_columns_type(columns);
-        function->check_result_column_type(*column_ptr);
-        _agg_functions.push_back(function);
-        // create aggregate data
-        AggregateDataPtr place = new char[function->size_of_data()];
-        SAFE_CREATE(function->create(place), {
-            _agg_functions.pop_back();
-            delete[] place;
-        });
-        _agg_places.push_back(place);
-
-        // calculate `_has_variable_length_tag` tag. like string, array, map
-        _stored_has_variable_length_tag[idx] = _stored_data_columns[idx]->is_variable_length();
     }
 
-    return Status::OK();
+    // The key columns lead the read Blocks: the merge orders the rows by them, and the fold
+    // groups the rows by them.
+    std::vector<uint32_t> key_ordinals;
+    for (uint32_t ordinal = 0; ordinal < _read_schema->num_key_columns(); ++ordinal) {
+        DORIS_CHECK(_read_schema->column(ordinal)->is_key());
+        key_ordinals.push_back(ordinal);
+    }
+    RowwiseIteratorUPtr input;
+    RETURN_IF_ERROR(_init_agg_key_merge(std::move(children), key_ordinals, runtime_state, &input));
+    _agg_key_iter = std::make_unique<AggKeyBlockIterator>(
+            std::move(input), std::move(key_ordinals), batch_max_rows(),
+            preferred_block_size_bytes(), _read_schema, read_params.get_be_exec_version(),
+            &_merged_rows);
+    Status st = _agg_key_iter->init();
+    if (!st.ok()) {
+        st.prepend(fmt::format(
+                "Failed to init reader when init agg state: tablet_id: {}, schema_hash: {}, "
+                "reader_type: {}, version: {}: ",
+                read_params.tablet->tablet_id(), read_params.tablet->schema_hash(),
+                int(read_params.reader_type), read_params.version.to_string()));
+    }
+    return st;
+}
+
+Status BlockReader::_init_agg_key_merge(std::vector<RowwiseIteratorUPtr> children,
+                                        const std::vector<uint32_t>& key_ordinals,
+                                        RuntimeState* runtime_state, RowwiseIteratorUPtr* input) {
+    SCOPED_RAW_TIMER(&_stats.block_reader_build_heap_init_timer_ns);
+    // By the key, the rows of a key newest first: the fold copies the REPLACE values of a key's
+    // first row.
+    MergeDecision decision;
+    for (uint32_t ordinal : key_ordinals) {
+        decision.keys.emplace_back(static_cast<int>(ordinal), /*direction=*/1,
+                                   /*nulls_direction=*/-1);
+    }
+    *input = std::make_unique<VHeapMergeIterator>(std::move(children), _read_schema, decision);
+    StorageReadOptions opts(_stats);
+    opts.block_row_max = cast_set<uint32_t>(batch_max_rows());
+    opts.preferred_block_size_bytes = preferred_block_size_bytes();
+    opts.runtime_state = runtime_state;
+    return (*input)->init(opts);
 }
 
 Status BlockReader::init(const ReaderParams& read_params) {
@@ -588,17 +637,10 @@ Status BlockReader::init(const ReaderParams& read_params) {
         _min_delta_value_compare_unsupported = false;
     }
 
-    // Every merge and caller Block has the exact read-schema layout. Cache only
-    // the non-key columns of AGG tables that go through the aggregate machinery.
-    const auto num_block_columns = static_cast<uint32_t>(_read_schema->num_block_columns());
-    const bool is_agg_keys = _tablet->keys_type() == AGG_KEYS;
-    for (uint32_t ordinal = 0; ordinal < num_block_columns; ++ordinal) {
-        if (is_agg_keys && !_read_schema->column(ordinal)->is_key()) {
-            _agg_columns_idx.emplace_back(ordinal);
-        }
-    }
-
-    auto status = _init_collect_iter(read_params);
+    // Reads that fold AGG_KEYS keys use a VHeapMergeIterator, the others VCollectIterator.
+    _is_rowsets_overlapping = _rowsets_not_mono_asc_disjoint(read_params);
+    const bool merge_rows = _merges_agg_key_rows(map_changelog_columns);
+    auto status = merge_rows ? _init_agg_key_iter(read_params) : _init_collect_iter(read_params);
     if (!status.ok()) [[unlikely]] {
         if (!config::is_cloud_mode()) {
             static_cast<Tablet*>(_tablet.get())->report_error(status);
@@ -638,8 +680,8 @@ Status BlockReader::init(const ReaderParams& read_params) {
         }
         break;
     case KeysType::AGG_KEYS:
-        _next_block_func = &BlockReader::_agg_key_next_block;
-        RETURN_IF_ERROR(_init_agg_state(read_params));
+        _next_block_func =
+                merge_rows ? &BlockReader::_agg_key_next_block : &BlockReader::_direct_next_block;
         break;
     default:
         DCHECK(false) << "No next row function for type:" << _tablet_schema->keys_type();
@@ -741,60 +783,7 @@ void BlockReader::_compare_sequence_map_and_replace(MutableColumns& columns) {
 }
 
 Status BlockReader::_agg_key_next_block(Block* block, bool* eof) {
-    if (UNLIKELY(_eof)) {
-        *eof = true;
-        return Status::OK();
-    }
-
-    auto target_block_row = 0;
-    auto merged_row = 0;
-    auto target_columns_guard = block->mutate_columns_scoped();
-    auto& target_columns = target_columns_guard.mutable_columns();
-    RETURN_IF_ERROR(_insert_data_normal(target_columns));
-    target_block_row++;
-    _append_agg_data(target_columns);
-
-    while (true) {
-        auto res = _vcollect_iter.next(&_next_row);
-        if (UNLIKELY(res.is<END_OF_FILE>())) {
-            _eof = true;
-            *eof = true;
-            break;
-        }
-        if (UNLIKELY(!res.ok())) {
-            LOG(WARNING) << "next failed: " << res;
-            return res;
-        }
-
-        if (!_next_row.is_same) {
-            if (target_block_row == batch_max_rows()) {
-                break;
-            }
-            // Byte-budget check at group boundary: _next_row is the first row of the new group
-            // and is still pending (not yet inserted), so stopping here is safe.
-            if (target_block_row % BLOCK_SIZE_CHECK_INTERVAL_ROWS == 0 &&
-                _reached_byte_budget(target_columns)) {
-                break;
-            }
-
-            _agg_data_counters.push_back(_last_agg_data_counter);
-            _last_agg_data_counter = 0;
-
-            RETURN_IF_ERROR(_insert_data_normal(target_columns));
-            target_block_row++;
-        } else {
-            merged_row++;
-        }
-
-        _append_agg_data(target_columns);
-    }
-
-    _agg_data_counters.push_back(_last_agg_data_counter);
-    _last_agg_data_counter = 0;
-    _update_agg_data(target_columns);
-
-    _merged_rows += merged_row;
-    return Status::OK();
+    return _agg_key_iter->next_block(block, eof);
 }
 
 Status BlockReader::_unique_key_next_block(Block* block, bool* eof) {
@@ -839,117 +828,12 @@ Status BlockReader::_insert_data_normal(MutableColumns& columns) {
     auto block = _next_row.block.get();
 
     RETURN_IF_CATCH_EXCEPTION({
-        size_t aggregate_index = 0;
         for (size_t ordinal = 0; ordinal < columns.size(); ++ordinal) {
-            if (aggregate_index < _agg_columns_idx.size() &&
-                ordinal == _agg_columns_idx[aggregate_index]) {
-                ++aggregate_index;
-                continue;
-            }
             columns[ordinal]->insert_from(*block->get_by_position(ordinal).column,
                                           _next_row.row_pos);
         }
     });
     return Status::OK();
-}
-
-void BlockReader::_append_agg_data(MutableColumns& columns) {
-    _stored_row_ref.push_back(_next_row);
-    _last_agg_data_counter++;
-
-    // execute aggregate when accumulated `batch_max_rows()` rows or some ref invalid soon
-    // `_stored_data_columns` is sized to `batch_max_rows()`,
-    // this flush keeps the number of rows in `_stored_row_ref` within `batch_max_rows()`.
-    bool is_last = (_next_row.block->rows() == _next_row.row_pos + 1);
-    if (is_last || _stored_row_ref.size() == batch_max_rows()) {
-        _update_agg_data(columns);
-    }
-}
-
-void BlockReader::_update_agg_data(MutableColumns& columns) {
-    // copy data to stored block
-    size_t copy_size = _copy_agg_data();
-
-    // calculate has_null_tag
-    for (auto idx : _agg_columns_idx) {
-        _stored_has_null_tag[idx] = _stored_data_columns[idx]->has_null(0, copy_size);
-    }
-
-    // calculate aggregate and insert
-    int counter_sum = 0;
-    for (int counter : _agg_data_counters) {
-        _update_agg_value(columns, counter_sum, counter_sum + counter - 1);
-        counter_sum += counter;
-    }
-
-    // some key still has value at next block, so do not insert
-    if (_last_agg_data_counter) {
-        _update_agg_value(columns, counter_sum, counter_sum + _last_agg_data_counter - 1, false);
-        _last_agg_data_counter = 0;
-    }
-
-    _agg_data_counters.clear();
-}
-
-size_t BlockReader::_copy_agg_data() {
-    size_t copy_size = _stored_row_ref.size();
-
-    for (size_t i = 0; i < copy_size; i++) {
-        auto& ref = _stored_row_ref[i];
-        _temp_ref_map[ref.block.get()].emplace_back(ref.row_pos, i);
-    }
-
-    for (auto idx : _agg_columns_idx) {
-        auto& dst_column = _stored_data_columns[idx];
-        if (_stored_has_variable_length_tag[idx]) {
-            //variable length type should replace ordered
-            dst_column->clear();
-            for (size_t i = 0; i < copy_size; i++) {
-                auto& ref = _stored_row_ref[i];
-                dst_column->insert_from(*ref.block->get_by_position(idx).column, ref.row_pos);
-            }
-        } else {
-            for (auto& it : _temp_ref_map) {
-                if (!it.second.empty()) {
-                    auto& src_column = *it.first->get_by_position(idx).column;
-                    for (auto& pos : it.second) {
-                        dst_column->replace_column_data(src_column, pos.first, pos.second);
-                    }
-                }
-            }
-        }
-    }
-
-    for (auto& it : _temp_ref_map) {
-        it.second.clear();
-    }
-    _stored_row_ref.clear();
-
-    return copy_size;
-}
-
-void BlockReader::_update_agg_value(MutableColumns& columns, int begin, int end, bool is_close) {
-    for (int i = 0; i < _agg_columns_idx.size(); i++) {
-        auto idx = _agg_columns_idx[i];
-
-        AggregateFunctionPtr function = _agg_functions[i];
-        AggregateDataPtr place = _agg_places[i];
-        auto* column_ptr = _stored_data_columns[idx].get();
-
-        if (begin <= end) {
-            function->add_batch_range(begin, end, place, const_cast<const IColumn**>(&column_ptr),
-                                      _arena, _stored_has_null_tag[idx]);
-        }
-
-        if (is_close) {
-            function->insert_result_into(place, *columns[idx]);
-            // reset aggregate data
-            function->reset(place);
-        }
-    }
-    if (is_close) {
-        _arena.clear();
-    }
 }
 
 } // namespace doris

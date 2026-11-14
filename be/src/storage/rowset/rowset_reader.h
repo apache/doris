@@ -57,6 +57,12 @@ public:
     virtual Status get_segment_iterators(RowsetReaderContext* read_context,
                                          std::vector<RowwiseIteratorUPtr>* out_iters,
                                          bool use_cache = false) = 0;
+    // The children of a merge that read this rowset in key order: each segment when the segments
+    // overlap on keys, otherwise one iterator that reads the segments one after another.
+    virtual Status get_merge_children(RowsetReaderContext* read_context,
+                                      std::vector<RowwiseIteratorUPtr>* children) {
+        return Status::NotSupported("get_merge_children is not supported by this rowset reader");
+    }
     virtual void reset_read_options() = 0;
 
     virtual Status next_batch(Block* block) = 0;

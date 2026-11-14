@@ -316,6 +316,25 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     return Status::OK();
 }
 
+Status BetaRowsetReader::get_merge_children(RowsetReaderContext* read_context,
+                                            std::vector<RowwiseIteratorUPtr>* children) {
+    std::vector<RowwiseIteratorUPtr> segments;
+    RETURN_IF_ERROR(get_segment_iterators(read_context, &segments));
+    // Segments that overlap on keys are merged with the other children, each on its own.
+    if (segments.size() <= 1 || _rowset->rowset_meta()->is_segments_overlapping()) {
+        for (auto& segment : segments) {
+            children->push_back(std::move(segment));
+        }
+        return Status::OK();
+    }
+    // Segments whose keys ascend from one to the next are read one after another, as one child,
+    // with the read options the segment iterators were built with.
+    auto rowset_iter = new_union_iterator(std::move(segments), read_context->read_schema);
+    RETURN_IF_ERROR(rowset_iter->init(_read_options));
+    children->push_back(std::move(rowset_iter));
+    return Status::OK();
+}
+
 Status BetaRowsetReader::init(RowsetReaderContext* read_context, const RowSetSplits& rs_splits) {
     _read_context = read_context;
     _read_context->rowset_id = _rowset->rowset_id();
