@@ -33,6 +33,7 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.QueryAdmissionController;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.StmtExecutor;
@@ -239,6 +240,12 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
 
     private ExecutedQuery executeQueryStatement(String peerIdentity, ConnectContext connectContext, String query,
             final FlightDescriptor descriptor) {
+        // Do not close the Flight server here: clients still need to retrieve results
+        // of previously admitted statements using DoGet on an existing ticket.
+        if (!QueryAdmissionController.INSTANCE.tryAcquire()) {
+            throw CallStatus.UNAVAILABLE.withDescription("FE is shutting down; reconnect to another FE")
+                    .toRuntimeException();
+        }
         try {
             Preconditions.checkState(null != connectContext);
             Preconditions.checkState(!query.isEmpty());
@@ -348,11 +355,15 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
             String errMsg = "get flight info statement failed, " + e.getMessage() + ", " + Util.getRootCauseMessage(e)
                     + ", error code: " + connectContext.getState().getErrorCode() + ", error msg: "
                     + connectContext.getState().getErrorMessage();
+            // No ticket was issued. For example, SHOW before another statement can cache
+            // a local result before finishStatement rejects it; nobody can retrieve it.
+            connectContext.getFlightSqlChannel().reset();
             connectContext.cancelFlightSqlDeferredExecutors(new Status(TStatusCode.CANCELLED, errMsg));
             LOG.error(errMsg, e);
             throw queryFailure(connectContext.getState(), errMsg, e);
         } finally {
             connectContext.setCommand(MysqlCommand.COM_SLEEP);
+            QueryAdmissionController.INSTANCE.release();
         }
     }
 
@@ -894,16 +905,23 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
     @Override
     public void closeSession(CloseSessionRequest request, final CallContext context,
             final StreamListener<CloseSessionResult> listener) {
+        // Teardown must cancel active commands without taking their command lock,
+        // but remains pending shutdown work until its reply has been delivered.
+        QueryAdmissionController.INSTANCE.acquireContinuation();
         try {
-            flightSessionsManager.closeConnectContext(context.peerIdentity());
-        } catch (final Throwable e) {
-            LOG.warn("closeSession failed", e);
-            listener.onError(
-                    CallStatus.INTERNAL.withDescription("closeSession failed").withCause(e).toRuntimeException());
-            return;
+            try {
+                flightSessionsManager.closeConnectContext(context.peerIdentity());
+            } catch (final Throwable e) {
+                LOG.warn("closeSession failed", e);
+                listener.onError(
+                        CallStatus.INTERNAL.withDescription("closeSession failed").withCause(e).toRuntimeException());
+                return;
+            }
+            listener.onNext(new CloseSessionResult(CloseSessionResult.Status.CLOSED));
+            listener.onCompleted();
+        } finally {
+            QueryAdmissionController.INSTANCE.release();
         }
-        listener.onNext(new CloseSessionResult(CloseSessionResult.Status.CLOSED));
-        listener.onCompleted();
     }
 
     @FunctionalInterface
