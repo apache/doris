@@ -168,7 +168,7 @@ public class FlightSqlSchemaHelper {
      */
     public void setParameterForGetTables(CommandGetTables command) {
         includeSchema = command.getIncludeSchema();
-        catalogFilterPattern = command.hasCatalog() ? command.getCatalog() : "internal";
+        catalogFilterPattern = command.hasCatalog() ? command.getCatalog() : null;
         dbSchemaFilterPattern = command.hasDbSchemaFilterPattern() ? command.getDbSchemaFilterPattern() : null;
         tableNameFilterPattern = command.hasTableNameFilterPattern() ? command.getTableNameFilterPattern() : null;
         tableTypeFilter = command.getTableTypesList().isEmpty() ? null
@@ -199,7 +199,7 @@ public class FlightSqlSchemaHelper {
      * Set in the Schemas request object the parameter that user passed via CommandGetDbSchemas.
      */
     public void setParameterForGetDbSchemas(CommandGetDbSchemas command) {
-        catalogFilterPattern = command.hasCatalog() ? command.getCatalog() : "internal";
+        catalogFilterPattern = command.hasCatalog() ? command.getCatalog() : null;
         dbSchemaFilterPattern = command.hasDbSchemaFilterPattern() ? command.getDbSchemaFilterPattern() : null;
     }
 
@@ -207,7 +207,14 @@ public class FlightSqlSchemaHelper {
      * Call FrontendServiceImpl->getDbNames.
      */
     private TGetDbsResult getDbNames() throws TException {
+        // Flight SQL uses "" for objects without a catalog, but every Doris database has one.
+        // Do not pass "" to Thrift, where it would mean all catalogs, just like an omitted filter.
+        if ("".equals(catalogFilterPattern)) {
+            return new TGetDbsResult().setDbs(Collections.emptyList());
+        }
         TGetDbsParams getDbsParams = new TGetDbsParams();
+        // Discovery only needs names; avoid materializing every database across external catalogs.
+        getDbsParams.setIncludeDbIds(false);
         if (catalogFilterPattern != null) {
             getDbsParams.setCatalog(catalogFilterPattern);
         }
@@ -215,7 +222,8 @@ public class FlightSqlSchemaHelper {
             getDbsParams.setPattern(dbSchemaFilterPattern);
         }
         getDbsParams.setCurrentUserIdent(ctx.getCurrentUserIdentity().toThrift());
-        return impl.getDbNames(getDbsParams);
+        // Flight carries the catalog separately, so both filtering and output must use raw schema names.
+        return impl.getDbNames(getDbsParams, false);
     }
 
     /**

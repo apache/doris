@@ -2,6 +2,17 @@
 
 This file contains version of the third-party dependency libraries in the build-env image. The docker build-env image is apache/doris, and the tag is `build-env-${version}`
 
+## 20261106
+
+- Build the Flight SQL ADBC test driver from patched ADBC 24 source instead of the
+  release wheel. Each connection owns its remote information map, preventing
+  native concurrent-map crashes and vendor leakage between servers. FE checks
+  the driver's connection-info isolation capability before vendor discovery;
+  operator-supplied Flight drivers need the same patch. Deploy the rebuilt library
+  to FE and BE hosts and restart processes that loaded the old library.
+  Building `arrow_adbc` on Linux now requires Go 1.25 or newer
+  (the upstream module prefers Go 1.26.5). No Go runtime is required to load it.
+
 ## 20260921
 
 - Added: google-cloud-cpp 2.45.0 for OAuth2 authentication. Build static auth/common

@@ -502,6 +502,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     @Override
     public TGetDbsResult getDbNames(TGetDbsParams params) throws TException {
+        return getDbNames(params, true);
+    }
+
+    /** Lists authorized databases with either MySQL display names or raw schema names. */
+    public TGetDbsResult getDbNames(TGetDbsParams params, boolean useMysqlSchemaName) throws TException {
         if (LOG.isDebugEnabled()) {
             LOG.debug("get db request: {}", params);
         }
@@ -578,12 +583,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     return;
                 }
 
-                if (matcher != null && !matcher.match(getMysqlTableSchema(catalog.getName(), dbName))) {
+                String schemaName = useMysqlSchemaName ? getMysqlTableSchema(catalog.getName(), dbName) : dbName;
+                if (matcher != null && !matcher.match(schemaName)) {
                     return;
                 }
 
                 catalogNames.add(catalog.getName());
-                dbNames.add(getMysqlTableSchema(catalog.getName(), dbName));
+                dbNames.add(schemaName);
                 catalogIds.add(catalog.getId());
                 if (includeDbIds) {
                     dbIds.add(dbId);
