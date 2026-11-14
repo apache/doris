@@ -182,6 +182,30 @@ public class GrantResourcePrivilegeCommand extends Command implements ForwardWit
         return PrivPredicate.of(PrivBitSet.of(privs), CompoundPredicate.Operator.AND);
     }
 
+    /**
+     * For the privileges a ROLE carries on a resource, cloud cluster or stage, or storage vault: the
+     * grantor must hold grant_priv together with every one of them on that object, as for a direct grant.
+     */
+    static void checkGrantorHoldsResourcePrivileges(ConnectContext ctx, Collection<Privilege> privileges,
+            ResourcePattern resourcePattern) throws AnalysisException {
+        PrivPredicate predicate = getPrivPredicate(privileges);
+        if (!checkResourcePriv(ctx, resourcePattern, predicate)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ALL_ACCESS_DENIED_ERROR,
+                    predicate.getPrivs().toPrivilegeList());
+        }
+    }
+
+    /** The same for the privileges a ROLE carries on a workload group. */
+    static void checkGrantorHoldsWorkloadGroupPrivileges(ConnectContext ctx, Collection<Privilege> privileges,
+            WorkloadGroupPattern workloadGroupPattern) throws AnalysisException {
+        PrivPredicate predicate = getPrivPredicate(privileges);
+        if (!Env.getCurrentEnv().getAccessManager().checkWorkloadGroupPriv(ctx,
+                workloadGroupPattern.getworkloadGroupName(), predicate)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ALL_ACCESS_DENIED_ERROR,
+                    predicate.getPrivs().toPrivilegeList());
+        }
+    }
+
     private static boolean checkResourcePriv(ConnectContext ctx, ResourcePattern resourcePattern,
             PrivPredicate privPredicate) {
         if (resourcePattern.getPrivLevel() == Auth.PrivLevel.GLOBAL) {
@@ -190,9 +214,13 @@ public class GrantResourcePrivilegeCommand extends Command implements ForwardWit
 
         switch (resourcePattern.getResourceType()) {
             case GENERAL:
-            case STORAGE_VAULT:
                 return Env.getCurrentEnv().getAccessManager()
                     .checkResourcePriv(ctx, resourcePattern.getResourceName(), privPredicate);
+            case STORAGE_VAULT:
+                // A vault privilege is held in the storage-vault table (the one the vault's users are
+                // checked against), not in the general resource table this used to consult.
+                return Env.getCurrentEnv().getAccessManager()
+                    .checkStorageVaultPriv(ctx, resourcePattern.getResourceName(), privPredicate);
             case CLUSTER:
             case STAGE:
                 return Env.getCurrentEnv().getAccessManager()

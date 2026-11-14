@@ -28,8 +28,8 @@ import org.junit.jupiter.api.Test;
 
 /**
  * Only the full identity root@'%' is the system root user. An account created as root@'<host>' is an
- * ordinary account: a user with GRANT privilege manages it like any other account, and it has no more
- * say over root@'%' than any other non-root user.
+ * ordinary account: it is managed like any other account (its credentials by admin_priv, the rest by
+ * grant_priv), and it has no more say over root@'%' than any other non-root user.
  */
 public class SystemRootUserTest extends TestWithFeService {
 
@@ -41,6 +41,8 @@ public class SystemRootUserTest extends TestWithFeService {
         run("GRANT GRANT_PRIV ON *.*.* TO 'root'@'" + HOST + "'");
         run("CREATE USER 'grant_admin'@'%'");
         run("GRANT GRANT_PRIV ON *.*.* TO 'grant_admin'@'%'");
+        run("CREATE USER 'priv_admin'@'%'");
+        run("GRANT ADMIN_PRIV ON *.*.* TO 'priv_admin'@'%'");
     }
 
     @Override
@@ -75,17 +77,28 @@ public class SystemRootUserTest extends TestWithFeService {
     }
 
     @Test
-    public void testGrantUserCanSetPasswordForRootAtSpecificHost() throws Exception {
-        useUser("grant_admin");
+    public void testAdminUserCanSetPasswordForRootAtSpecificHost() throws Exception {
+        useUser("priv_admin");
         run("SET PASSWORD FOR 'root'@'" + HOST + "' = PASSWORD('Pwd_b2')");
         assertPassword(rootAtHost(), "Pwd_b2");
     }
 
     @Test
-    public void testGrantUserCanAlterRootAtSpecificHost() throws Exception {
-        useUser("grant_admin");
+    public void testAdminUserCanAlterRootAtSpecificHost() throws Exception {
+        useUser("priv_admin");
         run("ALTER USER 'root'@'" + HOST + "' IDENTIFIED BY 'Pwd_c3'");
         assertPassword(rootAtHost(), "Pwd_c3");
+    }
+
+    // An ordinary account's credentials are admin_priv's to change, root@'<host>' included: grant_priv
+    // manages its privileges and its lock, never what it authenticates with.
+    @Test
+    public void testGrantUserCannotChangeRootAtSpecificHostsCredentials() throws Exception {
+        useUser("grant_admin");
+        assertRejected("SET PASSWORD FOR 'root'@'" + HOST + "' = PASSWORD('Pwd_g7')", "ADMIN");
+        assertRejected("ALTER USER 'root'@'" + HOST + "' IDENTIFIED BY 'Pwd_g7'", "ADMIN");
+        run("ALTER USER 'root'@'" + HOST + "' ACCOUNT_LOCK");
+        run("ALTER USER 'root'@'" + HOST + "' ACCOUNT_UNLOCK");
     }
 
     @Test
