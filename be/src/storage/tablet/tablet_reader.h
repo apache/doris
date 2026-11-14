@@ -319,7 +319,6 @@ protected:
     // for agg query, we don't need to finalize when scan agg object data
     ReaderType _reader_type = ReaderType::READER_QUERY;
     bool _delete_sign_available = false;
-    bool _filter_delete = false;
     bool _direct_mode = false;
 
     uint64_t _merged_rows = 0;
