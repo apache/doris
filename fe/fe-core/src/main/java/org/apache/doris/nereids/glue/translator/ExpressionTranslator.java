@@ -657,9 +657,11 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         column.setType(((ArrayType) expr.getType()).getItemType());
         context.addExprIdColumnRefPair(arrayItemReference.getExprId(), column);
 
-        // the second column here will not be used; it's just a placeholder.
+        // the second column is not read as data (the comparator frame is positional),
+        // but it must keep its own name so references to it are not confused with the first.
         arrayItemReference = lambda.getLambdaArgument(1);
         ColumnRefExpr column2 = new ColumnRefExpr(column);
+        column2.setName(arrayItemReference.getName());
         column2.setColumnId(1);
         context.addExprIdColumnRefPair(arrayItemReference.getExprId(), column2);
 
