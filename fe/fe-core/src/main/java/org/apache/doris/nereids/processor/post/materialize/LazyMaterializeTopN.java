@@ -325,7 +325,7 @@ public class LazyMaterializeTopN extends PlanPostProcessor {
      * <p>Therefore every slot consumed by this TopN and by the operators below it (its own order keys, the
      * expressions of every descendant operator and the slots that are required materialized already) is
      * resolved through its identity alias chain. The only consumed slots that are not required are the ones
-     * {@link MaterializeProbeVisitor#isIndexLazyFilter} keeps lazy: {@link LazySlotPruning#visitPhysicalFilter}
+     * {@link MaterializeProbeVisitor#indexLazySlots} keeps lazy: {@link LazySlotPruning#visitPhysicalFilter}
      * drops those from the scan's lazy slots for the same reason, so the scan keeps producing them for the
      * predicate and nothing below the TopN can be starved. Project expressions are handled by
      * {@link #collectProjectExprInputSlots}, which knows that a transparent {@code Alias(Slot)} output may
@@ -363,9 +363,8 @@ public class LazyMaterializeTopN extends PlanPostProcessor {
             // transparent Alias(Slot) lazy because that alias output may still be fetched later.
             consumedSlots.addAll(plan.getInputSlots());
         }
-        if (plan instanceof PhysicalFilter
-                && MaterializeProbeVisitor.isIndexLazyFilter((PhysicalFilter<?>) plan)) {
-            indexLazySlots.addAll(plan.getInputSlots());
+        if (plan instanceof PhysicalFilter) {
+            indexLazySlots.addAll(MaterializeProbeVisitor.indexLazySlots((PhysicalFilter<?>) plan));
         }
         if (plan instanceof PhysicalGenerate) {
             // PhysicalGenerate.getExpressions() exposes the generators only, while the lateral conjuncts
