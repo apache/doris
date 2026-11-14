@@ -464,6 +464,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.RegexpExtract
 import org.apache.doris.nereids.trees.expressions.functions.scalar.RegexpExtractAll;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.RegexpExtractAllArray;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.RegexpExtractOrNull;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.RegexpPosition;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.RegexpReplace;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.RegexpReplaceOne;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Repeat;
@@ -2258,6 +2259,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitRegexpExtractOrNull(RegexpExtractOrNull regexpExtractOrNull, C context) {
         return visitScalarFunction(regexpExtractOrNull, context);
+    }
+
+    default R visitRegexpPosition(RegexpPosition regexpPosition, C context) {
+        return visitScalarFunction(regexpPosition, context);
     }
 
     default R visitRegexpReplace(RegexpReplace regexpReplace, C context) {
