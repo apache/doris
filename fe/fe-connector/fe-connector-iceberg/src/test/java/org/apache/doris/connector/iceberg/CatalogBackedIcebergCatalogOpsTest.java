@@ -408,20 +408,41 @@ public class CatalogBackedIcebergCatalogOpsTest {
     }
 
     // ---------------------------------------------------------------------
-    // namespace construction — dotted split + external-catalog-name append
+    // namespace construction — rooted direct children and unrooted dotted names
     // ---------------------------------------------------------------------
 
     @Test
-    public void listTableNamesSplitsDottedDbAndAppendsExternalCatalogName() {
-        // WHY: legacy getNamespace splits the db name on '.' (omit empties / trim) and appends the
-        // external-catalog-name at the end. "a.b" + cat -> Namespace.of(a, b, cat). MUTATION: treating
-        // "a.b" as a single level, or prepending the catalog name -> red.
+    public void listTableNamesKeepsRootedDirectChildInOneLevel() {
         FakeIcebergCatalog catalog = new FakeIcebergCatalog();
 
         ops(catalog, false, false, true, Optional.of("cat")).listTableNames("a.b");
 
-        Assertions.assertEquals(Namespace.of("a", "b", "cat"), catalog.lastListTablesNs,
-                "dotted db name must split into levels with external-catalog-name appended last");
+        Assertions.assertEquals(Namespace.of("cat", "a.b"), catalog.lastListTablesNs,
+                "a rooted direct child must resolve to the namespace returned by discovery");
+    }
+
+    @Test
+    public void rootedViewOperationsUseTheDiscoveredNamespaceWithEitherViewFacet() {
+        for (boolean nested : Arrays.asList(false, true)) {
+            for (boolean separateViewFacet : Arrays.asList(false, true)) {
+                FakeIcebergViewCatalog views = new FakeIcebergViewCatalog();
+                FakeIcebergCatalog catalog = separateViewFacet ? new FakeIcebergCatalog() : views;
+                Namespace ns = Namespace.of("root", "db");
+                catalog.childNamespaces.put(Namespace.of("root"), Collections.singletonList(ns));
+                views.viewsByNs.put(ns, new ArrayList<>(Collections.singletonList("v")));
+                FakeIcebergViewCatalog.StubView view = new FakeIcebergViewCatalog.StubView(null);
+                views.loadableViews.put(TableIdentifier.of(ns, "v"), view);
+                CatalogBackedIcebergCatalogOps ops = new CatalogBackedIcebergCatalogOps(catalog,
+                        separateViewFacet ? views : null, true, nested, true, Optional.of("root"));
+                String db = nested ? "root.db" : "db";
+                Assertions.assertEquals(Collections.singletonList(db), ops.listDatabaseNames());
+                Assertions.assertEquals(Collections.singletonList("v"), ops.listViewNames(db));
+                Assertions.assertTrue(ops.viewExists(db, "v"));
+                Assertions.assertSame(view, ops.loadView(db, "v"));
+                ops.dropView(db, "v");
+                Assertions.assertFalse(ops.viewExists(db, "v"));
+            }
+        }
     }
 
     @Test

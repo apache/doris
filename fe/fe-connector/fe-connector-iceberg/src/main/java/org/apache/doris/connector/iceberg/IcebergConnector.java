@@ -663,7 +663,7 @@ public class IcebergConnector implements Connector {
      * gating mirrored from legacy {@code IcebergMetadataOps} (a single per-catalog ops that carried this for ALL
      * of metadata/scan/write/procedure): nested-namespace recursion is REST-only and flag-gated; view filtering
      * is REST-flag-gated; a configured {@code external_catalog.name} roots namespaces (REST 3-level
-     * {@code <db>.<table>} living under {@code [<db>, <cat>]}). ALL FOUR call sites (getMetadata + the three
+     * {@code <db>.<table>} living under {@code [<cat>, <db>]}). ALL FOUR call sites (getMetadata + the three
      * provider getters) share this so they resolve namespaces identically — in particular {@code loadTable} (the
      * only seam method scan/write/procedure use) must honour {@code external_catalog.name} or 3-level REST
      * catalogs resolve to the wrong namespace.
