@@ -128,6 +128,12 @@ suite("test_binary_for_digest", "p0,external,mysql,external_docker,external_dock
                 "xxHash64 mismatch for row ${xxhash64_result[i][0]}: VarBinary=${xxhash64_result[i][1]}, VARCHAR=${xxhash64_result[i][2]}")
         }
 
+        def xxhash128_result = sql """select id, xxhash_128(vb), xxhash_128(vc) from ${test_table} order by id"""
+        for (int i = 0; i < xxhash128_result.size(); i++) {
+            assertTrue(xxhash128_result[i][1] == xxhash128_result[i][2],
+                "xxHash32 mismatch for row ${xxhash128_result[i][0]}: VarBinary=${xxhash128_result[i][1]}, VARCHAR=${xxhash128_result[i][2]}")
+        }
+
         def variadic_xxhash32_result = sql """select id, xxhash_32(vb, vb), xxhash_32(vc, vc) from ${test_table} order by id"""
         for (int i = 0; i < variadic_xxhash32_result.size(); i++) {
             assertTrue(variadic_xxhash32_result[i][1] != null && variadic_xxhash32_result[i][2] != null,
@@ -138,6 +144,12 @@ suite("test_binary_for_digest", "p0,external,mysql,external_docker,external_dock
         for (int i = 0; i < variadic_xxhash64_result.size(); i++) {
             assertTrue(variadic_xxhash64_result[i][1] != null && variadic_xxhash64_result[i][2] != null,
                 "Variadic xxHash64 should work with mixed VarBinary and VARCHAR arguments for row ${variadic_xxhash64_result[i][0]}")
+        }
+
+        def variadic_xxhash128_result = sql """select id, xxhash_128(vb, vb), xxhash_128(vc, vc) from ${test_table} order by id"""
+        for (int i = 0; i < variadic_xxhash128_result.size(); i++) {
+            assertTrue(variadic_xxhash128_result[i][1] != null && variadic_xxhash128_result[i][2] != null,
+                "Variadic xxHash64 should work with mixed VarBinary and VARCHAR arguments for row ${variadic_xxhash128_result[i][0]}")
         }
 
         connect("root", "123456", "jdbc:mysql://${externalEnvIp}:${mysql_port}?useSSL=false") {
