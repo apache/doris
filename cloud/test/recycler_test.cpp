@@ -152,14 +152,11 @@ int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     auto s3_producer_pool = std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism);
     s3_producer_pool->start();
-    auto recycle_tablet_pool = std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism);
-    recycle_tablet_pool->start();
     auto group_recycle_function_pool =
             std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism);
     group_recycle_function_pool->start();
-    thread_group =
-            RecyclerThreadPoolGroup(std::move(s3_producer_pool), std::move(recycle_tablet_pool),
-                                    std::move(group_recycle_function_pool));
+    thread_group = RecyclerThreadPoolGroup(std::move(s3_producer_pool),
+                                           std::move(group_recycle_function_pool));
     return RUN_ALL_TESTS();
 }
 
@@ -9788,15 +9785,11 @@ TEST(RecyclerTest, concurrent_recycle_txn_label_test) {
     auto recycle_txn_label_s3_producer_pool =
             std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism);
     recycle_txn_label_s3_producer_pool->start();
-    auto recycle_txn_label_recycle_tablet_pool =
-            std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism);
-    recycle_txn_label_recycle_tablet_pool->start();
     auto recycle_txn_label_group_recycle_function_pool =
             std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism);
     recycle_txn_label_group_recycle_function_pool->start();
     recycle_txn_label_thread_group =
             RecyclerThreadPoolGroup(std::move(recycle_txn_label_s3_producer_pool),
-                                    std::move(recycle_txn_label_recycle_tablet_pool),
                                     std::move(recycle_txn_label_group_recycle_function_pool));
 
     auto mem_txn_kv = std::make_shared<MemTxnKv>();
@@ -9831,15 +9824,11 @@ TEST(RecyclerTest, concurrent_recycle_txn_label_failure_test) {
     auto recycle_txn_label_s3_producer_pool =
             std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism);
     recycle_txn_label_s3_producer_pool->start();
-    auto recycle_txn_label_recycle_tablet_pool =
-            std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism);
-    recycle_txn_label_recycle_tablet_pool->start();
     auto recycle_txn_label_group_recycle_function_pool =
             std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism);
     recycle_txn_label_group_recycle_function_pool->start();
     recycle_txn_label_thread_group =
             RecyclerThreadPoolGroup(std::move(recycle_txn_label_s3_producer_pool),
-                                    std::move(recycle_txn_label_recycle_tablet_pool),
                                     std::move(recycle_txn_label_group_recycle_function_pool));
 
     auto mem_txn_kv = std::make_shared<MemTxnKv>();
@@ -9891,15 +9880,11 @@ TEST(RecyclerTest, concurrent_recycle_txn_label_conflict_test) {
     auto recycle_txn_label_s3_producer_pool =
             std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism);
     recycle_txn_label_s3_producer_pool->start();
-    auto recycle_txn_label_recycle_tablet_pool =
-            std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism);
-    recycle_txn_label_recycle_tablet_pool->start();
     auto recycle_txn_label_group_recycle_function_pool =
             std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism);
     recycle_txn_label_group_recycle_function_pool->start();
     recycle_txn_label_thread_group =
             RecyclerThreadPoolGroup(std::move(recycle_txn_label_s3_producer_pool),
-                                    std::move(recycle_txn_label_recycle_tablet_pool),
                                     std::move(recycle_txn_label_group_recycle_function_pool));
 
     auto mem_txn_kv = std::make_shared<MemTxnKv>();
@@ -10068,15 +10053,11 @@ TEST(RecyclerTest, recycle_txn_label_propagate_delete_error_test) {
     auto recycle_txn_label_s3_producer_pool =
             std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism);
     recycle_txn_label_s3_producer_pool->start();
-    auto recycle_txn_label_recycle_tablet_pool =
-            std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism);
-    recycle_txn_label_recycle_tablet_pool->start();
     auto recycle_txn_label_group_recycle_function_pool =
             std::make_shared<SimpleThreadPool>(config::recycle_pool_parallelism);
     recycle_txn_label_group_recycle_function_pool->start();
     recycle_txn_label_thread_group =
             RecyclerThreadPoolGroup(std::move(recycle_txn_label_s3_producer_pool),
-                                    std::move(recycle_txn_label_recycle_tablet_pool),
                                     std::move(recycle_txn_label_group_recycle_function_pool));
 
     auto mem_txn_kv = std::make_shared<MemTxnKv>();
@@ -11313,8 +11294,6 @@ TEST(RecyclerTest, recycle_tablet_with_delete_file_partial_failure) {
     // successful tablet KV deletion does not use range remove across the failed tablet.
     std::atomic<int> delete_directory_call_count {0};
     const std::string failed_tablet_path = tablet_path_prefix(tablet_id + 2);
-    sp->set_call_back("SyncExecutor::Task::bypass_cancel",
-                      [](auto&& args) { *try_any_cast<bool*>(args[0]) = true; });
     sp->set_call_back("MockAccessor::delete_prefix",
                       [&delete_directory_call_count, &failed_tablet_path](auto&& args) {
                           auto* path_prefix = try_any_cast<const std::string*>(args[0]);
@@ -11479,8 +11458,6 @@ TEST(RecyclerTest, recycle_tablet_with_lazy_txn_partial_failure) {
               0);
 
     std::atomic<int> lazy_txn_not_finished_count {0};
-    sp->set_call_back("SyncExecutor::Task::bypass_cancel",
-                      [](auto&& args) { *try_any_cast<bool*>(args[0]) = true; });
     sp->set_call_back("check_lazy_txn_finished::txn_not_finished",
                       [&lazy_txn_not_finished_count](auto&&) { ++lazy_txn_not_finished_count; });
     sp->enable_processing();
