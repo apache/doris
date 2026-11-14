@@ -39,6 +39,7 @@
 #include "common/encryption_util.h"
 #include "common/logging.h"
 #include "common/network_util.h"
+#include "common/thread_name.h"
 #include "common/version_metrics.h"
 #include "meta-service/meta_server.h"
 #include "meta-store/mem_txn_kv.h"
@@ -312,6 +313,7 @@ int main(int argc, char** argv) {
         LOG(INFO) << msg;
         std::cerr << msg << std::endl;
         auto periodiccally_log = [&]() {
+            set_current_thread_name("recycler_periodically_log");
             while (periodiccally_log_thread_run) {
                 std::unique_lock<std::mutex> lck {periodiccally_log_thread_lock};
                 periodiccally_log_thread_cv.wait_for(lck,
@@ -320,7 +322,6 @@ int main(int argc, char** argv) {
             }
         };
         periodiccally_log_thread = std::thread {periodiccally_log};
-        pthread_setname_np(periodiccally_log_thread.native_handle(), "recycler_periodically_log");
     }
 
     if (!meta_brpc_starter->start()) {

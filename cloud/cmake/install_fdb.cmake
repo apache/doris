@@ -25,9 +25,10 @@
 #   FDB_CONFIG_${version}_API_VERSION        - FDB API version (e.g., 710)
 #
 # Supported combinations:
-#   - version: 7_1_23, 7_1_57
+#   - version: 7_1_23, 7_1_57, 7_3_69
 #   - arch: AMD64, AARCH64
-#   - os: UBUNTU, CENTOS (all uppercase)
+#   - os: UBUNTU, CENTOS, MACOS (all uppercase)
+#   - MACOS supports versions 7_1_57 and 7_3_69
 # ============================================================================
 
 # Version 7.1.23 Configuration
@@ -79,27 +80,50 @@ set(FDB_CONFIG_7_3_69_AMD64_CENTOS_FILE "fdb_lib_7_3_69.tar.xz")
 set(FDB_CONFIG_7_3_69_AMD64_CENTOS_MD5 "5454db8a8aaa4bcc580c1a40d1171f61")
 set(FDB_CONFIG_7_3_69_AMD64_CENTOS_URL "https://doris-build.oss-cn-beijing.aliyuncs.com/thirdparty/fdb/amd64/")
 
+# macOS packages contain both the client headers and the native shared library.
+# Extract their payloads without running the installer or installing a server.
+set(FDB_CONFIG_7_1_57_AARCH64_MACOS_FILE "FoundationDB-7.1.57_arm64.pkg")
+set(FDB_CONFIG_7_1_57_AARCH64_MACOS_MD5 "420f7622df89b7535b5e85ca9e4243ae")
+set(FDB_CONFIG_7_1_57_AARCH64_MACOS_URL "https://github.com/apple/foundationdb/releases/download/7.1.57/")
+
+set(FDB_CONFIG_7_1_57_AMD64_MACOS_FILE "FoundationDB-7.1.57_x86_64.pkg")
+set(FDB_CONFIG_7_1_57_AMD64_MACOS_MD5 "d7b9b19e05594e0d724b0339532e1a38")
+set(FDB_CONFIG_7_1_57_AMD64_MACOS_URL "https://github.com/apple/foundationdb/releases/download/7.1.57/")
+
+set(FDB_CONFIG_7_3_69_AARCH64_MACOS_FILE "FoundationDB-7.3.69_arm64.pkg")
+set(FDB_CONFIG_7_3_69_AARCH64_MACOS_MD5 "a43b333f0047b79450809eb8a25368eb")
+set(FDB_CONFIG_7_3_69_AARCH64_MACOS_URL "https://github.com/apple/foundationdb/releases/download/7.3.69/")
+
+set(FDB_CONFIG_7_3_69_AMD64_MACOS_FILE "FoundationDB-7.3.69_x86_64.pkg")
+set(FDB_CONFIG_7_3_69_AMD64_MACOS_MD5 "e930af17a92beca777b08ca26272fa41")
+set(FDB_CONFIG_7_3_69_AMD64_MACOS_URL "https://github.com/apple/foundationdb/releases/download/7.3.69/")
+
 # ============================================================================
-# Detect OS (run once)
+# Detect OS
 # ============================================================================
 
-if (NOT DEFINED FDB_OS_DETECTED)
+if (APPLE)
+    set(FDB_OS_RELEASE "MACOS")
+    set(FDB_LIBRARY_NAME "libfdb_c.dylib")
+else()
+    set(OS_RELEASE_CONTENT "")
     file(GLOB RELEASE_FILE_LIST LIST_DIRECTORIES false "/etc/*release*")
-    execute_process(COMMAND "cat" ${RELEASE_FILE_LIST}
-                    RESULT_VARIABLE CAT_RET_CODE
-                    OUTPUT_VARIABLE CAT_RET_CONTENT)
-    string(TOUPPER "${CAT_RET_CONTENT}" CAT_RET_CONTENT)
+    # An empty list must not invoke cat, which would wait for standard input.
+    foreach (RELEASE_FILE IN LISTS RELEASE_FILE_LIST)
+        file(READ "${RELEASE_FILE}" RELEASE_FILE_CONTENT)
+        string(APPEND OS_RELEASE_CONTENT "${RELEASE_FILE_CONTENT}\n")
+    endforeach()
+    string(TOUPPER "${OS_RELEASE_CONTENT}" OS_RELEASE_CONTENT)
 
-    if ("${CAT_RET_CONTENT}" MATCHES "UBUNTU")
-        set(FDB_OS_RELEASE "UBUNTU" CACHE INTERNAL "Detected OS for FDB")
+    if ("${OS_RELEASE_CONTENT}" MATCHES "UBUNTU")
+        set(FDB_OS_RELEASE "UBUNTU")
     else()
         # If it is not ubuntu, it is regarded as centos by default
-        set(FDB_OS_RELEASE "CENTOS" CACHE INTERNAL "Detected OS for FDB")
+        set(FDB_OS_RELEASE "CENTOS")
     endif()
-
-    set(FDB_OS_DETECTED TRUE CACHE INTERNAL "OS detection flag")
-    message(STATUS "Detected OS: ${FDB_OS_RELEASE}")
+    set(FDB_LIBRARY_NAME "libfdb_c.so")
 endif()
+message(STATUS "Detected OS: ${FDB_OS_RELEASE}")
 
 # ============================================================================
 # Function: Download and Setup FDB Library
@@ -111,7 +135,7 @@ endif()
 #
 # Exports:
 #   FDB_INSTALL_DIR_${version} - Installation directory for this version
-#   FDB_LIB_SO_${version}      - Path to libfdb_c.so for this version
+#   FDB_LIB_SO_${version}      - Path to the shared client library for this version
 # ============================================================================
 
 function(download_and_setup_fdb version)
@@ -165,13 +189,13 @@ function(download_and_setup_fdb version)
     # Set version-specific installation directory
     string(REPLACE "_" "." version_dotted ${version})
     set(install_dir "${THIRDPARTY_DIR}/lib/fdb/${version_dotted}")
-    set(lib_so "${install_dir}/lib64/libfdb_c.so")
+    set(lib_so "${install_dir}/lib64/${FDB_LIBRARY_NAME}")
 
     # Download FDB library if not exists
     if (NOT EXISTS "${THIRDPARTY_SRC}/${fdb_lib}")
         message(STATUS "Downloading FDB library from ${fdb_url}")
         file(MAKE_DIRECTORY ${THIRDPARTY_SRC})
-        execute_process(COMMAND curl --retry 10 --retry-delay 2 --retry-max-time 30 ${fdb_url}
+        execute_process(COMMAND curl --fail --location --retry 10 --retry-delay 2 --retry-max-time 30 ${fdb_url}
                                 -o ${THIRDPARTY_SRC}/${fdb_lib} -k
                         RESULTS_VARIABLE download_ret)
         if (NOT ${download_ret} STREQUAL "0")
@@ -180,17 +204,29 @@ function(download_and_setup_fdb version)
         endif ()
     endif ()
 
-    if (NOT EXISTS ${install_dir}/include/foundationdb)
-        execute_process(COMMAND "md5sum" "${THIRDPARTY_SRC}/${fdb_lib}"
-                        RESULT_VARIABLE md5sum_ret_code
-                        OUTPUT_VARIABLE md5sum_content)
-        if (NOT "${md5sum_content}" MATCHES "${fdb_md5}")
+    if (NOT EXISTS "${install_dir}/include/foundationdb" OR NOT EXISTS "${lib_so}")
+        file(MD5 "${THIRDPARTY_SRC}/${fdb_lib}" md5sum_content)
+        if (NOT "${md5sum_content}" STREQUAL "${fdb_md5}")
             execute_process(COMMAND "rm" "-rf" "${THIRDPARTY_SRC}/${fdb_lib}")
             message(FATAL_ERROR "${THIRDPARTY_SRC}/${fdb_lib} md5sum check failed, remove it")
         endif ()
 
-        make_directory(${install_dir})
-        execute_process(COMMAND tar xf ${THIRDPARTY_SRC}/${fdb_lib} -C ${install_dir})
+        file(MAKE_DIRECTORY "${install_dir}")
+        if (APPLE)
+            set(package_dir "${install_dir}/package")
+            file(REMOVE_RECURSE "${package_dir}")
+            execute_process(COMMAND pkgutil --expand-full "${THIRDPARTY_SRC}/${fdb_lib}" "${package_dir}"
+                            RESULT_VARIABLE extract_ret)
+            if (NOT "${extract_ret}" STREQUAL "0")
+                message(FATAL_ERROR "Failed to extract FDB package ${THIRDPARTY_SRC}/${fdb_lib}")
+            endif()
+            set(client_dir "${package_dir}/FoundationDB-clients.pkg/Payload/usr/local")
+            file(COPY "${client_dir}/include/foundationdb" DESTINATION "${install_dir}/include")
+            file(COPY "${client_dir}/lib/${FDB_LIBRARY_NAME}" DESTINATION "${install_dir}/lib64")
+            file(REMOVE_RECURSE "${package_dir}")
+        else()
+            execute_process(COMMAND tar xf "${THIRDPARTY_SRC}/${fdb_lib}" -C "${install_dir}")
+        endif()
     endif ()
 
     # Export version-specific API version to parent scope
@@ -216,7 +252,7 @@ endfunction()
 #
 # Exports:
 #   FDB_INSTALL_DIR - Installation directory for default version
-#   FDB_LIB_SO      - Path to libfdb_c.so for default version
+#   FDB_LIB_SO      - Path to the shared client library for default version
 # ============================================================================
 
 function(setup_default_fdb version)
@@ -235,10 +271,10 @@ function(setup_default_fdb version)
     set(FDB_LIB_SO "${FDB_LIB_SO_${version}}" PARENT_SCOPE)
 
     # Install the default FDB library
-    execute_process(COMMAND "rm" "-rf" "${THIRDPARTY_DIR}/include/foundationdb")
-    execute_process(COMMAND "rm" "-rf" "${THIRDPARTY_DIR}/lib64/libfdb_c.so")
-    execute_process(COMMAND "cp" "-r" "${FDB_INSTALL_DIR}/include/foundationdb" "${THIRDPARTY_DIR}/include/foundationdb")
-    execute_process(COMMAND "cp" "${FDB_INSTALL_DIR}/lib64/libfdb_c.so" "${THIRDPARTY_DIR}/lib64/libfdb_c.so")
+    file(REMOVE_RECURSE "${THIRDPARTY_DIR}/include/foundationdb")
+    file(REMOVE "${THIRDPARTY_DIR}/lib64/${FDB_LIBRARY_NAME}")
+    file(COPY "${FDB_INSTALL_DIR}/include/foundationdb" DESTINATION "${THIRDPARTY_DIR}/include")
+    file(COPY "${FDB_LIB_SO}" DESTINATION "${THIRDPARTY_DIR}/lib64")
 
     # Set FDB API version for the default version
     set(api_version_var "FDB_CONFIG_${version}_API_VERSION")
@@ -253,7 +289,7 @@ endfunction()
 
 function(install_fdb_library target_dir)
     install(FILES
-        ${THIRDPARTY_DIR}/lib/libfdb_c.so
+        ${THIRDPARTY_DIR}/lib/${FDB_LIBRARY_NAME}
         PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE
         GROUP_READ GROUP_WRITE GROUP_EXECUTE
         WORLD_READ WORLD_EXECUTE

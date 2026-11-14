@@ -21,6 +21,7 @@
 
 #include "common/config.h"
 #include "common/stopwatch.h"
+#include "common/thread_name.h"
 #include "common/util.h"
 #include "meta-store/keys.h"
 #include "mock_accessor.h"
@@ -69,7 +70,7 @@ void SnapshotChainCompactor::stop() {
 }
 
 void SnapshotChainCompactor::compaction_loop() {
-    pthread_setname_np(pthread_self(), "SNAP_COMPACTOR");
+    set_current_thread_name("SNAP_COMPACTOR");
     while (!stopped()) {
         // fetch instance to check
         InstanceInfoPB instance;

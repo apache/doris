@@ -40,6 +40,7 @@
 #include "common/defer.h"
 #include "common/http_helper.h"
 #include "common/logging.h"
+#include "common/thread_name.h"
 #include "common/util.h"
 #include "cpp/token_bucket_rate_limiter.h"
 #include "meta-service/meta_service_http.h"
@@ -527,12 +528,12 @@ void recycle_copy_jobs(const std::shared_ptr<TxnKv>& txn_kv, const std::string& 
         return;
     }
     std::thread worker([recycler = std::move(recycler), instance_id] {
+        set_current_thread_name("recycler_worker");
         LOG(INFO) << "manually trigger recycle_copy_jobs on instance " << instance_id;
         recycler->recycle_copy_jobs();
         std::lock_guard lock(s_worker_mtx);
         s_worker.erase(instance_id);
     });
-    pthread_setname_np(worker.native_handle(), "recycler_worker");
     worker.detach();
 }
 

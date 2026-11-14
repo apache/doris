@@ -91,11 +91,7 @@ set(TEST_DIR "${CMAKE_SOURCE_DIR}/test/")
 set(OUTPUT_DIR "${BASE_DIR}/output")
 set(THIRDPARTY_SRC "$ENV{DORIS_THIRDPARTY}/src")
 
-if (APPLE)
-    set(MAKE_TEST "ON")
-else()
-    option(MAKE_TEST "ON for make unit test or OFF for not" OFF)
-endif()
+option(MAKE_TEST "ON for make unit test or OFF for not" OFF)
 message(STATUS "make test: ${MAKE_TEST}")
 
 if (OS_MACOSX)
@@ -124,7 +120,14 @@ if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     endif()
 endif()
 
-set(CMAKE_SKIP_RPATH TRUE)
+if (APPLE)
+    # The macOS FDB client uses @rpath/libfdb_c.dylib as its install name.
+    set(CMAKE_SKIP_RPATH FALSE)
+    set(CMAKE_BUILD_RPATH "${THIRDPARTY_DIR}/lib;@loader_path")
+    set(CMAKE_INSTALL_RPATH "@loader_path")
+else()
+    set(CMAKE_SKIP_RPATH TRUE)
+endif()
 
 # Compile generated source if necessary
 message(STATUS "build gensrc if necessary")
@@ -201,7 +204,7 @@ endif ()
 
 if (COMPILER_CLANG)
     add_compile_options (-fcolor-diagnostics)
-    if(MAKE_TEST STREQUAL "OFF")
+    if (NOT MAKE_TEST)
         add_compile_options(-Qunused-arguments)
     endif()
 endif ()
@@ -299,8 +302,10 @@ if (ENABLE_HDFS_STORAGE_VAULT)
     endif()
 endif()
 
-set(WL_START_GROUP "-Wl,--start-group")
-set(WL_END_GROUP "-Wl,--end-group")
+if (NOT OS_MACOSX)
+    set(WL_START_GROUP "-Wl,--start-group")
+    set(WL_END_GROUP "-Wl,--end-group")
+endif()
 
 # Set Doris libraries
 if ((ARCH_AMD64 OR ARCH_AARCH64) AND OS_LINUX)
@@ -347,23 +352,27 @@ set(DORIS_DEPENDENCIES
 message(STATUS "DORIS_DEPENDENCIES is ${DORIS_DEPENDENCIES}")
 
 # Add all external dependencies. They should come after the project's libs.
-# static link gcc's lib
 set(DORIS_LINK_LIBS
     CommonCPP
     ${DORIS_DEPENDENCIES}
-    -static-libstdc++
-    -static-libgcc
     -lresolv
 )
+
+if (NOT OS_MACOSX)
+    list(APPEND DORIS_LINK_LIBS -static-libstdc++ -static-libgcc)
+    if (NOT (USE_LIBCPP AND COMPILER_CLANG))
+        list(APPEND DORIS_LINK_LIBS -lstdc++fs)
+    endif()
+endif()
 
 if (ENABLE_HDFS_STORAGE_VAULT)
     set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS}
         -L${DORIS_JAVA_HOME}/lib/server
         -ljvm)
-endif()
-
-if (NOT (USE_LIBCPP AND COMPILER_CLANG))
-    set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} -lstdc++fs)
+    if (OS_MACOSX)
+        list(APPEND CMAKE_BUILD_RPATH "${DORIS_JAVA_HOME}/lib/server")
+        list(APPEND CMAKE_INSTALL_RPATH "${DORIS_JAVA_HOME}/lib/server")
+    endif()
 endif()
 
 if (USE_JEMALLOC)
@@ -403,9 +412,25 @@ else()
     message(FATAL_ERROR "Unknown build type: ${CMAKE_BUILD_TYPE}")
 endif()
 
-set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS}
-    -lrt -l:libbfd.a -liberty -lc -lm -ldl -pthread
-)
+if (NOT OS_MACOSX)
+    set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS}
+        -lrt -l:libbfd.a -liberty -lc -lm -ldl -pthread
+    )
+else()
+    list(APPEND DORIS_LINK_LIBS
+        -liconv
+        "-framework CoreFoundation"
+        "-framework Foundation"
+        "-framework CoreGraphics"
+        "-framework CoreText"
+        "-framework SystemConfiguration"
+        "-framework Security"
+    )
+    # brpc probes this optional tcmalloc entry point in builds using other allocators.
+    if (USE_JEMALLOC OR (NOT CMAKE_BUILD_TYPE STREQUAL "DEBUG" AND NOT CMAKE_BUILD_TYPE STREQUAL "RELEASE"))
+        list(APPEND DORIS_LINK_LIBS "-Wl,-U,_MallocExtension_ReleaseFreeMemory")
+    endif()
+endif()
 
 if(BUILD_CHECK_META STREQUAL "ON")
     set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} -lmysqlclient)
@@ -419,9 +444,15 @@ if (ENABLE_CLANG_COVERAGE AND ENABLE_CLANG_COVERAGE STREQUAL ON AND COMPILER_CLA
     SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fprofile-instr-generate -fcoverage-mapping")
 endif ()
 
-if (${MAKE_TEST} STREQUAL "ON")
-    SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DUNIT_TEST -fprofile-arcs -ftest-coverage -fno-access-control -DGTEST_USE_OWN_TR1_TUPLE=0")
-    SET(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fprofile-arcs -ftest-coverage -lgcov")
+if (MAKE_TEST)
+    SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DUNIT_TEST -fno-access-control -DGTEST_USE_OWN_TR1_TUPLE=0")
+    if (COMPILER_GCC)
+        SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fprofile-arcs -ftest-coverage")
+        SET(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fprofile-arcs -ftest-coverage")
+        if (NOT OS_MACOSX)
+            SET(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -lgcov")
+        endif()
+    endif()
     add_definitions(-DBE_TEST)
 endif ()
 
@@ -480,13 +511,13 @@ set (TEST_LINK_LIBS ${DORIS_LINK_LIBS}
     ${WL_END_GROUP}
 )
 
-if (${MAKE_TEST} STREQUAL "ON")
+if (MAKE_TEST)
     add_subdirectory(${TEST_DIR})
 endif ()
 
 add_subdirectory(${COMMON_SRC_DIR}/cpp ${BUILD_DIR}/src/common_cpp)
 
-if (${MAKE_TEST} STREQUAL "OFF")
+if (NOT MAKE_TEST)
     add_executable(doris_cloud src/main.cpp)
 
     # This permits libraries loaded by dlopen to link to the symbols in the program.
@@ -531,7 +562,7 @@ install(FILES
     DESTINATION ${OUTPUT_DIR}/conf)
 
 install(FILES
-    ${THIRDPARTY_DIR}/lib/libfdb_c.so
+    ${THIRDPARTY_DIR}/lib/${FDB_LIBRARY_NAME}
     PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE
     GROUP_READ GROUP_WRITE GROUP_EXECUTE
     WORLD_READ WORLD_EXECUTE
@@ -544,7 +575,7 @@ foreach(version ${FDB_VERSIONS})
 
     string(REPLACE "." "_" version_underscored ${version})
     install(FILES
-        ${FDB_INSTALL_DIR_${version_underscored}}/lib64/libfdb_c.so
+        ${FDB_LIB_SO_${version_underscored}}
         PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE
         GROUP_READ GROUP_WRITE GROUP_EXECUTE
         WORLD_READ WORLD_EXECUTE

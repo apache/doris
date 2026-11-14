@@ -115,6 +115,9 @@ add_executable(stopwatch_test stopwatch_test.cpp)
 
 add_executable(util_test util_test.cpp)
 
+add_executable(thread_name_test thread_name_test.cpp)
+target_link_libraries(thread_name_test gtest_main gtest)
+
 add_executable(network_util_test network_util_test.cpp)
 
 add_executable(cloud_server_starter_factory_test cloud_server_starter_factory_test.cpp)
@@ -294,7 +297,7 @@ install(FILES
     DESTINATION ${BUILD_DIR}/test)
 
 install(FILES
-    ${THIRDPARTY_DIR}/lib/libfdb_c.so
+    ${THIRDPARTY_DIR}/lib/${FDB_LIBRARY_NAME}
     PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE
     GROUP_READ GROUP_WRITE GROUP_EXECUTE
     WORLD_READ WORLD_EXECUTE

@@ -22,6 +22,7 @@
 #include "common/config.h"
 #include "common/defer.h"
 #include "common/stopwatch.h"
+#include "common/thread_name.h"
 #include "common/util.h"
 #include "meta-store/keys.h"
 #include "mock_accessor.h"
@@ -70,7 +71,7 @@ void SnapshotDataMigrator::stop() {
 }
 
 void SnapshotDataMigrator::migration_loop() {
-    pthread_setname_np(pthread_self(), "SNAP_MIGRATOR");
+    set_current_thread_name("SNAP_MIGRATOR");
     while (!stopped()) {
         // fetch instance to check
         InstanceInfoPB instance;
