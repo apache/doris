@@ -100,18 +100,22 @@ public class MTMVRelation implements GsonPostProcessable {
                 + '}';
     }
 
-    public void compatible(CatalogMgr catalogMgr) throws Exception {
-        compatible(catalogMgr, baseTables);
-        compatible(catalogMgr, baseViews);
-        compatible(catalogMgr, baseTablesOneLevel);
+    public boolean compatible(CatalogMgr catalogMgr) throws Exception {
+        boolean changed = false;
+        changed |= compatible(catalogMgr, baseTables);
+        changed |= compatible(catalogMgr, baseViews);
+        changed |= compatible(catalogMgr, baseTablesOneLevel);
+        return changed;
     }
 
-    private void compatible(CatalogMgr catalogMgr, Set<BaseTableInfo> infos) throws Exception {
+    private boolean compatible(CatalogMgr catalogMgr, Set<BaseTableInfo> infos) throws Exception {
         if (CollectionUtils.isEmpty(infos)) {
-            return;
+            return false;
         }
+        boolean changed = false;
         for (BaseTableInfo baseTableInfo : infos) {
-            baseTableInfo.compatible(catalogMgr);
+            changed |= baseTableInfo.compatible(catalogMgr);
         }
+        return changed;
     }
 }
