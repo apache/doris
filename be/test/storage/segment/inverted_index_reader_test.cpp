@@ -24,10 +24,13 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <chrono>
+#include <condition_variable>
 #include <cstring>
 #include <initializer_list>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <roaring/roaring.hh>
 #include <string>
 #include <thread>
@@ -65,6 +68,54 @@ class FixedCollectionStatistics final : public CollectionStatistics {
 public:
     float get_or_calculate_idf(const std::wstring&, const std::wstring&) override { return 1.0F; }
     float get_or_calculate_avg_dl(const std::wstring&) override { return 3.0F; }
+};
+
+// Holds the leader of a shared index query before it computes, until the test releases it, and
+// counts the queries that lead or join a run.
+class IndexFlightGate {
+public:
+    static void leader(void* opaque) noexcept {
+        auto& gate = *static_cast<IndexFlightGate*>(opaque);
+        std::unique_lock lock(gate._mutex);
+        ++gate._leaders;
+        gate._cv.notify_all();
+        gate._cv.wait(lock, [&] { return gate._released; });
+    }
+
+    static void follower(void* opaque) noexcept {
+        auto& gate = *static_cast<IndexFlightGate*>(opaque);
+        std::lock_guard lock(gate._mutex);
+        ++gate._followers;
+        gate._cv.notify_all();
+    }
+
+    void observe(InvertedIndexReader* reader) {
+        reader->set_single_flight_leader_before_compute_observer_for_test(&leader, this);
+        reader->set_single_flight_follower_joined_observer_for_test(&follower, this);
+    }
+
+    bool wait_for(size_t leaders, size_t followers) {
+        std::unique_lock lock(_mutex);
+        return _cv.wait_for(lock, std::chrono::seconds(10),
+                            [&] { return _leaders == leaders && _followers == followers; });
+    }
+
+    void release() {
+        std::lock_guard lock(_mutex);
+        _released = true;
+        _cv.notify_all();
+    }
+
+    // Read only after every query has returned.
+    size_t leaders() const { return _leaders; }
+    size_t followers() const { return _followers; }
+
+private:
+    std::mutex _mutex;
+    std::condition_variable _cv;
+    size_t _leaders = 0;
+    size_t _followers = 0;
+    bool _released = false;
 };
 
 class InvertedIndexReaderTest : public testing::Test {
@@ -3073,10 +3124,12 @@ public:
         EXPECT_EQ(run.rows, (std::vector<uint32_t> {4}));
     }
 
-    void test_fulltext_independent_queries() {
+    // Concurrent identical queries, as from the scanners a segment is split into, each lead or
+    // join one shared run unless the result cache answers them, and all get the same rows.
+    void test_fulltext_concurrent_queries_share_runs() {
         TabletIndex idx_meta;
         const std::string prefix = write_english_index(
-                "test_independent_queries", &idx_meta, 0,
+                "test_concurrent_queries", &idx_meta, 0,
                 {Slice("apple banana"), Slice("cherry"), Slice("apple"), Slice("banana")}, 0);
         auto reader = FullTextIndexReader::create_shared(&idx_meta, open_v2_file(prefix));
         std::atomic<int> flight_calls {0};
@@ -3088,8 +3141,10 @@ public:
         reader->set_single_flight_follower_joined_observer_for_test(count_flight, &flight_calls);
         for (const bool cache_enabled : {false, true}) {
             constexpr size_t kQueries = 3;
+            flight_calls = 0;
             std::array<std::vector<uint32_t>, kQueries> rows;
             std::array<uint8_t, kQueries> ok {};
+            std::array<int64_t, kQueries> cache_hits {};
             const auto run = [&](size_t i) {
                 SCOPED_INIT_THREAD_CONTEXT();
                 OlapReaderStatistics stats;
@@ -3108,6 +3163,7 @@ public:
                                       InvertedIndexQueryType::MATCH_ANY_QUERY, bitmap)
                                 .ok();
                 rows[i] = std::vector<uint32_t>(bitmap->begin(), bitmap->end());
+                cache_hits[i] = stats.inverted_index_query_cache_hit;
             };
             std::vector<std::thread> threads;
             for (size_t i = 0; i < kQueries; ++i) {
@@ -3116,12 +3172,104 @@ public:
             for (auto& thread : threads) {
                 thread.join();
             }
-            EXPECT_EQ(flight_calls.load(), 0);
+            int64_t answered_by_cache = 0;
             for (size_t i = 0; i < kQueries; ++i) {
                 EXPECT_TRUE(ok[i]);
                 EXPECT_EQ(rows[i], (std::vector<uint32_t> {0, 2}));
+                answered_by_cache += cache_hits[i];
             }
+            // Each query leads or joins a run exactly once, or the cache answers it.
+            EXPECT_EQ(flight_calls.load() + answered_by_cache, static_cast<int64_t>(kQueries));
+            EXPECT_TRUE(cache_enabled || answered_by_cache == 0);
         }
+        reader->set_single_flight_leader_before_compute_observer_for_test(nullptr, nullptr);
+        reader->set_single_flight_follower_joined_observer_for_test(nullptr, nullptr);
+    }
+
+    // A follower takes the leader's rows instead of running the query itself.
+    void test_fulltext_identical_queries_share_one_run() {
+        TabletIndex idx_meta;
+        const std::string prefix = write_english_index(
+                "test_shared_text_run", &idx_meta, 0,
+                {Slice("apple banana"), Slice("cherry"), Slice("apple"), Slice("banana")}, 0);
+        auto reader = FullTextIndexReader::create_shared(&idx_meta, open_v2_file(prefix));
+        IndexFlightGate gate;
+        gate.observe(reader.get());
+        std::array<std::shared_ptr<roaring::Roaring>, 2> bitmaps;
+        std::array<Status, 2> statuses;
+        const auto run = [&](size_t i) {
+            SCOPED_INIT_THREAD_CONTEXT();
+            OlapReaderStatistics stats;
+            RuntimeState runtime_state;
+            TQueryOptions query_options;
+            query_options.enable_inverted_index_query_cache = false;
+            runtime_state.set_query_options(query_options);
+            io::IOContext io_ctx;
+            auto context = std::make_shared<IndexQueryContext>();
+            context->io_ctx = &io_ctx;
+            context->stats = &stats;
+            context->runtime_state = &runtime_state;
+            bitmaps[i] = std::make_shared<roaring::Roaring>();
+            statuses[i] = reader->query(context, "1", Field::create_field<TYPE_STRING>("apple"),
+                                        InvertedIndexQueryType::MATCH_ANY_QUERY, bitmaps[i]);
+        };
+        std::thread leader(run, 0);
+        EXPECT_TRUE(gate.wait_for(1, 0));
+        std::thread follower(run, 1);
+        EXPECT_TRUE(gate.wait_for(1, 1));
+        gate.release();
+        leader.join();
+        follower.join();
+        for (size_t i = 0; i < 2; ++i) {
+            ASSERT_TRUE(statuses[i].ok()) << statuses[i];
+            EXPECT_EQ(std::vector<uint32_t>(bitmaps[i]->begin(), bitmaps[i]->end()),
+                      (std::vector<uint32_t> {0, 2}));
+        }
+        EXPECT_EQ(bitmaps[0], bitmaps[1]);
+        reader->set_single_flight_leader_before_compute_observer_for_test(nullptr, nullptr);
+        reader->set_single_flight_follower_joined_observer_for_test(nullptr, nullptr);
+    }
+
+    // BKD queries are shared the same way.
+    void test_bkd_identical_queries_share_one_run() {
+        std::vector<int32_t> values = {42, 100, 42, 200, 300};
+        TabletIndex idx_meta;
+        std::string index_path_prefix;
+        prepare_bkd_index("test_shared_bkd_run", 0, values, &idx_meta, &index_path_prefix);
+        auto reader = BkdIndexReader::create_shared(&idx_meta, open_v2_file(index_path_prefix));
+        IndexFlightGate gate;
+        gate.observe(reader.get());
+        std::array<std::shared_ptr<roaring::Roaring>, 2> bitmaps;
+        std::array<Status, 2> statuses;
+        const auto run = [&](size_t i) {
+            SCOPED_INIT_THREAD_CONTEXT();
+            OlapReaderStatistics stats;
+            RuntimeState runtime_state;
+            TQueryOptions query_options;
+            query_options.enable_inverted_index_query_cache = false;
+            runtime_state.set_query_options(query_options);
+            io::IOContext io_ctx;
+            auto context = std::make_shared<IndexQueryContext>();
+            context->io_ctx = &io_ctx;
+            context->stats = &stats;
+            context->runtime_state = &runtime_state;
+            bitmaps[i] = std::make_shared<roaring::Roaring>();
+            statuses[i] = reader->query(context, "0", Field::create_field<TYPE_INT>(100),
+                                        InvertedIndexQueryType::GREATER_THAN_QUERY, bitmaps[i]);
+        };
+        std::thread leader(run, 0);
+        EXPECT_TRUE(gate.wait_for(1, 0));
+        std::thread follower(run, 1);
+        EXPECT_TRUE(gate.wait_for(1, 1));
+        gate.release();
+        leader.join();
+        follower.join();
+        for (size_t i = 0; i < 2; ++i) {
+            ASSERT_TRUE(statuses[i].ok()) << statuses[i];
+            EXPECT_EQ(std::vector<uint32_t>(bitmaps[i]->begin(), bitmaps[i]->end()),
+                      (std::vector<uint32_t> {3, 4}));
+        }
+        EXPECT_EQ(bitmaps[0], bitmaps[1]);
         reader->set_single_flight_leader_before_compute_observer_for_test(nullptr, nullptr);
         reader->set_single_flight_follower_joined_observer_for_test(nullptr, nullptr);
     }
@@ -4976,8 +5124,16 @@ TEST_F(InvertedIndexReaderTest, FulltextCountOnlyFastPathWithNulls) {
     test_fulltext_count_only_fastpath_with_nulls();
 }
 
-TEST_F(InvertedIndexReaderTest, FulltextIndependentQueries) {
-    test_fulltext_independent_queries();
+TEST_F(InvertedIndexReaderTest, FulltextConcurrentQueriesShareRuns) {
+    test_fulltext_concurrent_queries_share_runs();
+}
+
+TEST_F(InvertedIndexReaderTest, FulltextIdenticalQueriesShareOneRun) {
+    test_fulltext_identical_queries_share_one_run();
+}
+
+TEST_F(InvertedIndexReaderTest, BkdIdenticalQueriesShareOneRun) {
+    test_bkd_identical_queries_share_one_run();
 }
 
 TEST_F(InvertedIndexReaderTest, FulltextScoringBypassesTheResultCache) {

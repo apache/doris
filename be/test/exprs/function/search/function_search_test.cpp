@@ -40,12 +40,16 @@
 #include <gtest/gtest.h>
 
 #include <chrono>
+#include <condition_variable>
+#include <future>
 #include <initializer_list>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <roaring/roaring.hh>
 #include <string>
+#include <thread>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -65,6 +69,7 @@
 #include "io/fs/local_file_system.h"
 #include "runtime/exec_env.h"
 #include "runtime/index_policy/index_policy_mgr.h"
+#include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/runtime_state.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_iterator.h"
@@ -4499,6 +4504,228 @@ TEST_F(FunctionSearchTest, SearchTopKAboveCollectorCapacityPreservesAllMatches) 
     ASSERT_NE(nullptr, result.get_data_bitmap());
     EXPECT_TRUE(*result.get_data_bitmap() == matches);
     EXPECT_EQ(15000, fixture.context->collection_similarity->_bm25_scores.size());
+}
+
+// Holds the first leader of a shared SEARCH run before it computes, until the test releases it,
+// and counts the evaluations that lead or join a run. Released from the start, it only counts.
+class SearchFlightGate {
+public:
+    static void leader(void* opaque) noexcept {
+        auto& gate = *static_cast<SearchFlightGate*>(opaque);
+        std::unique_lock lock(gate._mutex);
+        ++gate._leaders;
+        gate._cv.notify_all();
+        if (gate._leaders == 1) {
+            gate._cv.wait(lock, [&] { return gate._released; });
+        }
+    }
+
+    static void follower(void* opaque) noexcept {
+        auto& gate = *static_cast<SearchFlightGate*>(opaque);
+        std::lock_guard lock(gate._mutex);
+        ++gate._followers;
+        gate._cv.notify_all();
+    }
+
+    void install() {
+        FunctionSearch::set_single_flight_observers_for_test(&leader, &follower, this);
+    }
+
+    bool wait_for(size_t leaders, size_t followers) {
+        std::unique_lock lock(_mutex);
+        return _cv.wait_for(lock, std::chrono::seconds(10),
+                            [&] { return _leaders == leaders && _followers == followers; });
+    }
+
+    void release() {
+        std::lock_guard lock(_mutex);
+        _released = true;
+        _cv.notify_all();
+    }
+
+    // Read only after every evaluation has returned.
+    size_t leaders() const { return _leaders; }
+    size_t followers() const { return _followers; }
+
+private:
+    std::mutex _mutex;
+    std::condition_variable _cv;
+    size_t _leaders = 0;
+    size_t _followers = 0;
+    bool _released = false;
+};
+
+// body:*lpha over one SNII segment whose index answers rows {0, 2}, evaluated the way each
+// scanner of a split segment evaluates it. Only one evaluation computes at a time in these tests,
+// since the recording reader is not thread-safe: a leader is held before it computes.
+class SearchFlightTest : public FunctionSearchTest {
+protected:
+    void TearDown() override {
+        FunctionSearch::set_single_flight_observers_for_test(nullptr, nullptr, nullptr);
+        FunctionSearchTest::TearDown();
+    }
+
+    void SetUp() override {
+        FunctionSearchTest::SetUp();
+        _reader->fake_source->add("alpha", {0, 2});
+        _reader->fake_source->add("beta", {1});
+        _iterator.add_reader(segment_v2::InvertedIndexReaderType::FULLTEXT, _reader);
+        _data_type_with_names.emplace(
+                "body", IndexFieldNameAndTypePair {"body", std::make_shared<DataTypeString>()});
+        _iterators["body"] = &_iterator;
+        TSearchFieldBinding field_binding;
+        field_binding.field_name = "body";
+        field_binding.index_properties = _index_meta.properties();
+        field_binding.__isset.index_properties = true;
+        _search_param.original_dsl = "body:*lpha";
+        _search_param.root = make_leaf_clause("WILDCARD", "*lpha");
+        _search_param.field_bindings = {field_binding};
+    }
+
+    // A query whose scanners run the SEARCH.
+    static std::unique_ptr<RuntimeState> make_query(int64_t id) {
+        TUniqueId query_id;
+        query_id.__set_hi(id);
+        query_id.__set_lo(id);
+        return std::make_unique<RuntimeState>(
+                query_id, 0, TQueryOptions(), TQueryGlobals(), ExecEnv::GetInstance(),
+                MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER,
+                                                 "search_flight_test"));
+    }
+
+    // Runs the SEARCH, or `root` in its place, as one scanner of `query` does, with the result
+    // cache off.
+    Status run(const FunctionSearch& function, RuntimeState* query,
+               InvertedIndexResultBitmap* result, bool scoring = false,
+               std::optional<TSearchClause> root = std::nullopt) {
+        auto context = std::make_shared<IndexQueryContext>();
+        context->runtime_state = query;
+        if (scoring) {
+            context->collection_statistics = std::make_shared<CollectionStatistics>();
+            context->collection_similarity = std::make_shared<CollectionSimilarity>();
+        }
+        TSearchParam search_param = _search_param;
+        if (root.has_value()) {
+            search_param.original_dsl = "body:" + root->value;
+            search_param.root = *root;
+        }
+        return function.evaluate_inverted_index_with_search_param(
+                search_param, _data_type_with_names, _iterators, 4, *result,
+                /*enable_cache=*/false, nullptr, {}, context);
+    }
+
+    TabletIndex _index_meta = make_test_inverted_index(
+            32, {{INVERTED_INDEX_PARSER_KEY, INVERTED_INDEX_PARSER_STANDARD}});
+    std::shared_ptr<RejectingCluceneIndexFileReader> _index_file_reader =
+            std::make_shared<RejectingCluceneIndexFileReader>(InvertedIndexStorageFormatPB::SNII,
+                                                              "/tmp/search_flight_idx");
+    std::shared_ptr<RecordingNativeInvertedIndexReader> _reader =
+            std::make_shared<RecordingNativeInvertedIndexReader>(&_index_meta, _index_file_reader);
+    segment_v2::InvertedIndexIterator _iterator;
+    std::unordered_map<std::string, IndexFieldNameAndTypePair> _data_type_with_names;
+    std::unordered_map<std::string, IndexIterator*> _iterators;
+    TSearchParam _search_param;
+};
+
+// The scanners a segment is split into each evaluate the SEARCH over the whole segment at once.
+// Those of one query share one run, and each takes its own copy of the rows.
+TEST_F(SearchFlightTest, ScannersOfOneQueryShareOneRun) {
+    auto query = make_query(1);
+    SearchFlightGate gate;
+    gate.install();
+    InvertedIndexResultBitmap leader_result;
+    InvertedIndexResultBitmap follower_result;
+    Status leader_status;
+    Status follower_status;
+    std::thread leader([&] { leader_status = run(*function_search, query.get(), &leader_result); });
+    EXPECT_TRUE(gate.wait_for(1, 0));
+    std::thread follower(
+            [&] { follower_status = run(*function_search, query.get(), &follower_result); });
+    EXPECT_TRUE(gate.wait_for(1, 1));
+    gate.release();
+    leader.join();
+    follower.join();
+
+    ASSERT_TRUE(leader_status.ok()) << leader_status;
+    ASSERT_TRUE(follower_status.ok()) << follower_status;
+    expect_bitmap_eq(*leader_result.get_data_bitmap(), {0, 2});
+    expect_bitmap_eq(*follower_result.get_data_bitmap(), {0, 2});
+    EXPECT_EQ(1, _reader->open_source_calls);
+    EXPECT_EQ(std::vector<std::string> {""}, _reader->fake_source->expanded);
+    // SQL composition mutates the rows it is handed, so the follower's are its own.
+    follower_result.get_data_bitmap()->add(3);
+    expect_bitmap_eq(*leader_result.get_data_bitmap(), {0, 2});
+}
+
+// A different search over the same segment never joins the run in progress: it leads its own and
+// completes while the first search is held before it computes.
+TEST_F(SearchFlightTest, DifferentSearchesRunSeparately) {
+    auto query = make_query(1);
+    SearchFlightGate gate;
+    gate.install();
+
+    InvertedIndexResultBitmap first_result;
+    Status first_status;
+    std::thread first([&] { first_status = run(*function_search, query.get(), &first_result); });
+    EXPECT_TRUE(gate.wait_for(1, 0));
+    InvertedIndexResultBitmap second_result;
+    auto second = std::async(std::launch::async, [&] {
+        return run(*function_search, query.get(), &second_result, /*scoring=*/false,
+                   make_leaf_clause("WILDCARD", "bet*"));
+    });
+    const bool second_done = second.wait_for(std::chrono::seconds(10)) == std::future_status::ready;
+    gate.release();
+    first.join();
+    const Status second_status = second.get();
+
+    EXPECT_TRUE(second_done);
+    ASSERT_TRUE(first_status.ok()) << first_status;
+    ASSERT_TRUE(second_status.ok()) << second_status;
+    expect_bitmap_eq(*first_result.get_data_bitmap(), {0, 2});
+    expect_bitmap_eq(*second_result.get_data_bitmap(), {1});
+    EXPECT_EQ(2U, gate.leaders());
+    EXPECT_EQ(0U, gate.followers());
+    EXPECT_EQ(2, _reader->open_source_calls);
+}
+
+// A leader that ends without rows, here on an error its expansion raises, publishes none; the
+// follower then runs the SEARCH itself instead of waiting on rows that never come.
+TEST_F(SearchFlightTest, AFollowerRunsItselfWhenTheLeaderFails) {
+    _reader->fake_source->expand_status = Status::InternalError("the expansion failed");
+    auto query = make_query(1);
+    SearchFlightGate gate;
+    gate.install();
+    InvertedIndexResultBitmap leader_result;
+    InvertedIndexResultBitmap follower_result;
+    Status leader_status;
+    Status follower_status;
+    std::thread leader([&] { leader_status = run(*function_search, query.get(), &leader_result); });
+    EXPECT_TRUE(gate.wait_for(1, 0));
+    std::thread follower(
+            [&] { follower_status = run(*function_search, query.get(), &follower_result); });
+    EXPECT_TRUE(gate.wait_for(1, 1));
+    gate.release();
+    leader.join();
+    follower.join();
+
+    EXPECT_FALSE(leader_status.ok());
+    EXPECT_FALSE(follower_status.ok());
+    EXPECT_EQ((std::vector<std::string> {"", ""}), _reader->fake_source->expanded);
+}
+
+// A scoring run records the scores of its own scanner, so it runs alone.
+TEST_F(SearchFlightTest, ScoringRunsRunAlone) {
+    auto query = make_query(1);
+    SearchFlightGate counter;
+    counter.release();
+    counter.install();
+
+    InvertedIndexResultBitmap scored;
+    auto status = run(*function_search, query.get(), &scored, /*scoring=*/true);
+    ASSERT_TRUE(status.ok()) << status;
+    expect_bitmap_eq(*scored.get_data_bitmap(), {0, 2});
+    EXPECT_EQ(0U, counter.leaders());
+    EXPECT_EQ(0U, counter.followers());
 }
 
 } // namespace doris
