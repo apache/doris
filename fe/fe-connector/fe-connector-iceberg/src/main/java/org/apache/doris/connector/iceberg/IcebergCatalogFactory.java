@@ -39,6 +39,8 @@ import org.apache.iceberg.aws.AwsClientProperties;
 import org.apache.iceberg.aws.AwsProperties;
 import org.apache.iceberg.aws.HttpClientProperties;
 import org.apache.iceberg.aws.s3.S3FileIOProperties;
+import org.apache.iceberg.io.NativeGcsResolvingFileIO;
+import org.apache.iceberg.rest.auth.AuthProperties;
 import org.apache.iceberg.rest.auth.OAuth2Properties;
 
 import java.io.File;
@@ -113,6 +115,8 @@ public final class IcebergCatalogFactory {
     private static final String REST_SIGV4_ENABLED_KEY = "rest.sigv4-enabled";
     private static final String REST_SIGNING_REGION_KEY = "rest.signing-region";
     private static final String SECURITY_TYPE_OAUTH2 = "oauth2";
+    private static final String SECURITY_TYPE_GOOGLE = "google";
+    private static final String REST_GOOGLE_USER_PROJECT_HEADER = "header.x-goog-user-project";
 
     // GLUE.
     private static final String GLUE_CREDENTIALS_PROVIDER_KEY = "client.credentials-provider";
@@ -455,6 +459,18 @@ public final class IcebergCatalogFactory {
         }
         chosenS3.ifPresent(storage -> storage.toBackendProperties().ifPresent(backend -> {
             Optional<GcsAuth> auth = GcsAuthResolver.resolve(backend.toMap());
+            // Keep explicit FileIO choices. The plugin bundles iceberg-gcp, so upstream ResolvingFileIO
+            // routes gs to GCSFileIO whenever that class is loadable - independently of which GCS
+            // credential mode is configured - and drops the fs.gs.* / fs.s3a.* configuration Doris
+            // builds for GCS. Native ADC / COMPUTE_ENGINE bindings always get the pin (they emit the
+            // S3FileIO dialect below). HMAC and anonymous bindings get it only on REST, the one flavor
+            // whose SDK default is ResolvingFileIO; hms / hadoop / jdbc default to HadoopFileIO and glue
+            // to S3FileIO, and HMS emits no S3FileIO options, so the pin would send its s3/s3a paths to
+            // an unconfigured S3FileIO.
+            auth.filter(gcsAuth -> gcsAuth.getNativeCredential().isPresent()
+                            || IcebergCatalogProperties.TYPE_REST.equals(flavor))
+                    .ifPresent(ignored -> opts.putIfAbsent(CatalogProperties.FILE_IO_IMPL,
+                            NativeGcsResolvingFileIO.class.getName()));
             if (auth.filter(GcsAuth::isAnonymous).isPresent()) {
                 // Glue and REST metadata can require AWS authentication even when GCS objects are public.
                 opts.put(S3FileIOProperties.CLIENT_FACTORY, AnonymousS3FileIOAwsClientFactory.class.getName());
@@ -480,10 +496,8 @@ public final class IcebergCatalogFactory {
                 opts.put(GcpCredential.CREDENTIAL_PROVIDER_TYPE, credential.getCredentialProviderType().name());
                 putIfNotBlank(opts, GcpCredential.IMPERSONATION_SERVICE_ACCOUNT,
                         credential.getImpersonationServiceAccount());
-                // Keep explicit FileIO choices. By default, S3 aliases use the GCP client factory,
-                // while gs/HDFS paths use HadoopFileIO with the native fs.gs.* configuration
-                // (the plugin does not bundle iceberg-gcp's GCSFileIO).
-                opts.putIfAbsent(CatalogProperties.FILE_IO_IMPL, "org.apache.iceberg.io.ResolvingFileIO");
+                // S3 aliases use the GCP client factory; gs/HDFS stay on HadoopFileIO (pinned above)
+                // with the native fs.gs.* configuration emitted here.
                 opts.put(S3FileIOProperties.CLIENT_FACTORY, GcpS3FileIOAwsClientFactory.class.getName());
             });
         }));
@@ -570,8 +584,18 @@ public final class IcebergCatalogFactory {
         // Timeouts: legacy fields default non-blank, so they are effectively always emitted.
         opts.put(REST_CONNECTION_TIMEOUT_MS_KEY, rest.getConnectionTimeoutMs());
         opts.put(REST_SOCKET_TIMEOUT_MS_KEY, rest.getSocketTimeoutMs());
+        putIfNotBlank(opts, CatalogProperties.FILE_IO_IMPL, rest.getIoImpl());
+        putIfNotBlank(opts, REST_GOOGLE_USER_PROJECT_HEADER, rest.getGoogleUserProject());
         appendRestOAuth2Properties(opts, rest);
+        appendRestGoogleProperties(opts, rest);
         appendRestSigningProperties(opts, rest, props, chosenS3);
+    }
+
+    private static void appendRestGoogleProperties(Map<String, String> opts, IcebergRestMetaStoreProperties rest) {
+        if (!SECURITY_TYPE_GOOGLE.equalsIgnoreCase(rest.getSecurityType())) {
+            return;
+        }
+        opts.put(AuthProperties.AUTH_TYPE, AuthProperties.AUTH_MANAGER_IMPL_GOOGLE);
     }
 
     private static void appendRestOAuth2Properties(Map<String, String> opts, IcebergRestMetaStoreProperties rest) {

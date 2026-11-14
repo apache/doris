@@ -83,6 +83,8 @@ under the License.
     <suppress files="org[\\/]apache[\\/]iceberg[\\/]SchemaAwareDataTableScan\.java" checks="[a-zA-Z0-9]*"/>
     <!-- Iceberg package access is required to build a StaticDataTask for REST catalog labels; other checks apply. -->
     <suppress files="org[\\/]apache[\\/]iceberg[\\/]IcebergLabelsDataTask\.java" checks="ImportControl"/>
+    <!-- Iceberg package access is required to override ResolvingFileIO.implFromLocation; other checks apply. -->
+    <suppress files="org[\\/]apache[\\/]iceberg[\\/]io[\\/]NativeGcsResolvingFileIO\.java" checks="ImportControl"/>
 
     <!-- ignore gensrc/thrift/ExternalTableSchema.thrift -->
     <suppress files=".*thrift/schema/external/.*" checks=".*"/>
