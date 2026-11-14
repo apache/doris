@@ -18,18 +18,22 @@
 suite("test_external_catalog_credential_masking", "p0,nonConcurrent") {
     String credentialCatalog = "audit_iceberg_credential_masking"
     String tokenCatalog = "audit_iceberg_token_masking"
+    String jdbcCatalog = "audit_iceberg_jdbc_password_masking"
     // Low-entropy placeholders keep this negative masking test distinct from real credentials.
     String accessKey = "aaaaaaaaaaaaaaaaaaaa"
     String secretKey = "bbbbbbbbbbbbbbbbbbbb"
     String oauthCredential = "cccccccccccccccccccc"
     String oauthToken = "dddddddddddddddddddd"
+    String jdbcPassword = "eeeeeeeeeeeeeeeeeeee"
+    String alteredJdbcPassword = "ffffffffffffffffffff"
 
-    def waitForAuditStatement = { String catalogName ->
+    // The audit log files CREATE CATALOG under stmt_type OTHER and ALTER CATALOG under ALTER.
+    def waitForAuditStatement = { String catalogName, String statement = "create catalog", String stmtType = "OTHER" ->
         String query = """
             select stmt
             from __internal_schema.audit_log
-            where stmt_type = 'OTHER'
-              and lower(stmt) like '%create catalog ${catalogName}%'
+            where stmt_type = '${stmtType}'
+              and lower(stmt) like '%${statement} ${catalogName}%'
               and instr(stmt, '*XXX') > 0
             order by time asc
             limit 1
@@ -51,6 +55,7 @@ suite("test_external_catalog_credential_masking", "p0,nonConcurrent") {
         try {
             sql """drop catalog if exists ${credentialCatalog}"""
             sql """drop catalog if exists ${tokenCatalog}"""
+            sql """drop catalog if exists ${jdbcCatalog}"""
             sql """truncate table __internal_schema.audit_log"""
 
             sql """
@@ -76,6 +81,38 @@ suite("test_external_catalog_credential_masking", "p0,nonConcurrent") {
                     'iceberg.rest.oauth2.token' = '${oauthToken}'
                 )
             """
+            // iceberg.jdbc.password is on no list fe-core keeps: only the iceberg connector knows it, and
+            // declares it on its security surface. The catalog is never initialized, so nothing connects.
+            sql """
+                create catalog ${jdbcCatalog} properties (
+                    'type' = 'iceberg',
+                    'iceberg.catalog.type' = 'jdbc',
+                    'uri' = 'jdbc:mysql://127.0.0.1:1/iceberg',
+                    'iceberg.jdbc.catalog_name' = 'audit_masking',
+                    'iceberg.jdbc.user' = 'iceberg',
+                    'iceberg.jdbc.password' = '${jdbcPassword}',
+                    'warehouse' = 's3://audit-masking/warehouse',
+                    's3.access_key' = '${accessKey}',
+                    's3.secret_key' = '${secretKey}',
+                    's3.endpoint' = 'http://127.0.0.1:1',
+                    's3.region' = 'us-east-1'
+                )
+            """
+            String shownJdbc = sql("show create catalog ${jdbcCatalog}")[0][1].toString()
+            assertFalse(shownJdbc.contains(jdbcPassword))
+            assertTrue(shownJdbc.contains('"iceberg.jdbc.password" = "*XXX"'))
+            assertTrue(shownJdbc.contains('"iceberg.jdbc.user" = "iceberg"'))
+
+            // ALTER CATALOG sets the same secrets, so its statement text must be masked in the audit log too.
+            sql """
+                alter catalog ${jdbcCatalog} set properties (
+                    'iceberg.jdbc.password' = '${alteredJdbcPassword}',
+                    's3.secret_key' = '${secretKey}'
+                )
+            """
+            shownJdbc = sql("show create catalog ${jdbcCatalog}")[0][1].toString()
+            assertFalse(shownJdbc.contains(alteredJdbcPassword))
+            assertTrue(shownJdbc.contains('"iceberg.jdbc.password" = "*XXX"'))
             sql """call flush_audit_log()"""
 
             // Audit statements are independently persisted after parsing, so they must use the
@@ -91,9 +128,20 @@ suite("test_external_catalog_credential_masking", "p0,nonConcurrent") {
             String tokenStmt = waitForAuditStatement(tokenCatalog)
             assertFalse(tokenStmt.contains(oauthToken))
             assertTrue(tokenStmt.contains('"iceberg.rest.oauth2.token" = "*XXX"'))
+
+            String jdbcCreateStmt = waitForAuditStatement(jdbcCatalog)
+            assertFalse(jdbcCreateStmt.contains(jdbcPassword))
+            assertTrue(jdbcCreateStmt.contains('"iceberg.jdbc.password" = "*XXX"'))
+
+            String jdbcAlterStmt = waitForAuditStatement(jdbcCatalog, "alter catalog", "ALTER")
+            assertFalse(jdbcAlterStmt.contains(alteredJdbcPassword))
+            assertFalse(jdbcAlterStmt.contains(secretKey))
+            assertTrue(jdbcAlterStmt.contains('"iceberg.jdbc.password" = "*XXX"'))
+            assertTrue(jdbcAlterStmt.contains('"s3.secret_key" = "*XXX"'))
         } finally {
             sql """drop catalog if exists ${credentialCatalog}"""
             sql """drop catalog if exists ${tokenCatalog}"""
+            sql """drop catalog if exists ${jdbcCatalog}"""
         }
     })
 }

@@ -42,4 +42,14 @@ public class HiveConnectorProviderSecuritySurfaceTest {
         Assertions.assertTrue(surface.jdbcDriverUrlKeys().isEmpty());
         Assertions.assertNull(surface.jdbcDriverUrlFlavorKey());
     }
+
+    @Test
+    public void declaresNoKeytabPathAsASecret() {
+        // The secrets come from the metastore's sensitive properties; the keytabs are named by path, and
+        // masking hadoop.kerberos.keytab by name would also hide it in every storage vault and resource.
+        ConnectorSecuritySurface surface = new HiveConnectorProvider().securitySurface();
+        Assertions.assertFalse(surface.sensitiveKeys().contains("hive.metastore.client.keytab"));
+        Assertions.assertFalse(surface.sensitiveKeys().contains("hadoop.kerberos.keytab"));
+        Assertions.assertTrue(surface.sensitiveKeyPrefixes().isEmpty());
+    }
 }

@@ -23,8 +23,10 @@ import org.apache.doris.foundation.property.ParamRules;
 import org.apache.doris.foundation.security.JdbcDriverUrlSecurity;
 
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.UnaryOperator;
 
 /**
@@ -302,6 +304,19 @@ public final class JdbcCatalogProperties {
                 && !value.equalsIgnoreCase("true") && !value.equalsIgnoreCase("false")) {
             throw new IllegalArgumentException(key + " must be true or false");
         }
+    }
+
+    /**
+     * The names of the properties marked {@code sensitive}, each in both spellings a catalog may use: as
+     * declared and with {@link #JDBC_PROPERTIES_PREFIX}.
+     */
+    public static Set<String> sensitiveKeys() {
+        Set<String> keys = new HashSet<>();
+        for (String key : ConnectorPropertiesUtils.getSensitiveKeys(JdbcCatalogProperties.class)) {
+            keys.add(key);
+            keys.add(JDBC_PROPERTIES_PREFIX + key);
+        }
+        return keys;
     }
 
     /**

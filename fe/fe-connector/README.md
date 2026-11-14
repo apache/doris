@@ -319,9 +319,19 @@ Rules for `of(map)`:
   condition *holds*, so the lambda states the failure case — the opposite of
   Guava's `checkArgument`. Reversing it compiles cleanly and inverts the check.
 - **Mark secrets `sensitive = true`** and implement `toString()` as
-  `ConnectorPropertiesUtils.toMaskedString(this)`. That covers logs only; the
-  `SHOW CREATE CATALOG` masking is a separate, hand-maintained list in fe-core
-  (`DatasourcePrintableMap.SENSITIVE_KEY`).
+  `ConnectorPropertiesUtils.toMaskedString(this)`. That covers logs only. For
+  `SHOW CREATE CATALOG`, the audit log and the other places that print catalog
+  properties, also declare the keys in `ConnectorProvider#securitySurface()`:
+  pass `ConnectorPropertiesUtils.getSensitiveKeys(<properties class>)` (or the
+  metastore dispatcher's `MetaStoreProviders.sensitivePropertyKeys()`) to
+  `withSensitiveKeys(...)`, so the same mark drives both. A namespace passed
+  through to a client unenumerated (Trino's `trino.*`, Fluss's lake options)
+  is declared with `withSensitiveKeyPrefix(prefix, markers...)`. The engine
+  adds both to its masking list (`DatasourcePrintableMap`) when it registers
+  the provider. Storage credentials (`s3.secret_key`, ...) are already on that
+  list. A path is not a secret: don't mark a keytab or certificate *path*
+  `sensitive`, since the list is matched by key name across every catalog,
+  resource and storage vault.
 - **Never pass the raw map into anything that can reach user-visible output.**
   It holds the credentials. `ConnectorTableSchema`'s table properties are the
   trap: `SHOW CREATE TABLE` renders them unmasked, and the only thing keeping
