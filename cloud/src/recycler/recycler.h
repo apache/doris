@@ -24,7 +24,6 @@
 #include <condition_variable>
 #include <cstddef>
 #include <cstdint>
-#include <deque>
 #include <functional>
 #include <map>
 #include <memory>
@@ -107,6 +106,12 @@ private:
 
     void check_recycle_tasks();
 
+    // Caller must hold mtx_. Keep at most one pending entry per instance, at its earliest deadline.
+    void enqueue_instance_locked(InstanceInfoPB instance, int64_t not_before_ms);
+
+    // Wait for the earliest due entry without holding a worker idle for a particular instance.
+    bool dequeue_due_instance(InstanceInfoPB* instance);
+
 private:
     friend class RecyclerServiceImpl;
 
@@ -118,8 +123,9 @@ private:
     std::mutex mtx_;
     // notify recycle workers
     std::condition_variable pending_instance_cond_;
-    std::deque<InstanceInfoPB> pending_instance_queue_;
-    std::unordered_set<std::string> pending_instance_set_;
+    using PendingInstanceQueue = std::multimap<int64_t, InstanceInfoPB>;
+    PendingInstanceQueue pending_instance_queue_;
+    std::unordered_map<std::string, PendingInstanceQueue::iterator> pending_instance_map_;
     std::unordered_map<std::string, std::shared_ptr<InstanceRecycler>> recycling_instance_map_;
     // notify instance scanner and lease thread
     std::condition_variable notifier_;

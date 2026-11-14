@@ -348,13 +348,12 @@ void RecyclerServiceImpl::recycle_instance(::google::protobuf::RpcController* co
     }
     {
         std::lock_guard lock(recycler_->mtx_);
+        auto enqueue_now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                      std::chrono::system_clock::now().time_since_epoch())
+                                      .count();
         for (auto& i : instances) {
-            auto [_, success] = recycler_->pending_instance_set_.insert(i.instance_id());
-            // skip instance already in pending queue
-            if (success) {
-                // TODO(plat1ko): Support high priority
-                recycler_->pending_instance_queue_.push_back(std::move(i));
-            }
+            // TODO(plat1ko): Support high priority
+            recycler_->enqueue_instance_locked(std::move(i), enqueue_now_ms);
         }
         recycler_->pending_instance_cond_.notify_all();
     }

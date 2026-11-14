@@ -22,6 +22,7 @@
 #include <cstdint>
 
 #include "common/util.h"
+#include "cpp/sync_point.h"
 #include "meta-service/meta_service_schema.h"
 #include "meta-store/keys.h"
 #include "meta-store/txn_kv.h"
@@ -74,7 +75,10 @@ int get_all_instances(TxnKv* txn_kv, std::vector<InstanceInfoPB>& res) {
 
 int prepare_instance_recycle_job(TxnKv* txn_kv, std::string_view key,
                                  const std::string& instance_id, const std::string& ip_port,
-                                 int64_t interval_ms) {
+                                 int64_t interval_ms, int64_t* retry_at_ms) {
+    if (retry_at_ms != nullptr) {
+        *retry_at_ms = 0;
+    }
     std::string val;
     std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv->create_txn(&txn);
@@ -89,6 +93,7 @@ int prepare_instance_recycle_job(TxnKv* txn_kv, std::string_view key,
     }
     using namespace std::chrono;
     auto now = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+    TEST_SYNC_POINT_CALLBACK("prepare_instance_recycle_job::now_ms", &now);
     JobRecyclePB job_info;
 
     auto is_expired = [&]() {
@@ -109,6 +114,9 @@ int prepare_instance_recycle_job(TxnKv* txn_kv, std::string_view key,
 
         bool finish_expired = now - job_info.last_ctime_ms() > interval_ms;
         if (!finish_expired) {
+            if (retry_at_ms != nullptr) {
+                *retry_at_ms = job_info.last_ctime_ms() + interval_ms + 1;
+            }
             LOG(INFO) << "the time since last finished job is too short. host="
                       << job_info.ip_port() << " ctime=" << job_info.last_ctime_ms()
                       << " instance=" << instance_id;

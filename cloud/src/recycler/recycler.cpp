@@ -321,6 +321,21 @@ Recycler::~Recycler() {
     }
 }
 
+void Recycler::enqueue_instance_locked(InstanceInfoPB instance, int64_t not_before_ms) {
+    std::string instance_id = instance.instance_id();
+    auto it = pending_instance_map_.find(instance_id);
+    if (it != pending_instance_map_.end()) {
+        if (not_before_ms >= it->second->first) {
+            return;
+        }
+        pending_instance_queue_.erase(it->second);
+        it->second = pending_instance_queue_.emplace(not_before_ms, std::move(instance));
+    } else {
+        auto queued = pending_instance_queue_.emplace(not_before_ms, std::move(instance));
+        pending_instance_map_.emplace(std::move(instance_id), queued);
+    }
+}
+
 void Recycler::instance_scanner_callback() {
     // sleep 60 seconds before scheduling for the launch procedure to complete:
     // some bad hdfs connection may cause some log to stdout stderr
@@ -340,13 +355,11 @@ void Recycler::instance_scanner_callback() {
             if (!instances.empty()) {
                 // enqueue instances
                 std::lock_guard lock(mtx_);
+                auto enqueue_now_ms =
+                        duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
                 for (auto& instance : instances) {
                     if (filter_out_instance(instance.instance_id())) continue;
-                    auto [_, success] = pending_instance_set_.insert(instance.instance_id());
-                    // skip instance already in pending queue
-                    if (success) {
-                        pending_instance_queue_.push_back(std::move(instance));
-                    }
+                    enqueue_instance_locked(std::move(instance), enqueue_now_ms);
                 }
                 pending_instance_cond_.notify_all();
             }
@@ -361,21 +374,38 @@ void Recycler::instance_scanner_callback() {
     }
 }
 
+bool Recycler::dequeue_due_instance(InstanceInfoPB* instance) {
+    std::unique_lock lock(mtx_);
+    while (true) {
+        if (stopped()) {
+            return false;
+        }
+        if (pending_instance_queue_.empty()) {
+            pending_instance_cond_.wait(lock);
+            continue;
+        }
+        auto it = pending_instance_queue_.begin();
+        auto now_ms = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+        if (it->first > now_ms) {
+            TEST_SYNC_POINT_CALLBACK("Recycler::recycle_callback::before_wait_until");
+            pending_instance_cond_.wait_until(lock,
+                                              system_clock::time_point(milliseconds(it->first)));
+            continue;
+        }
+        *instance = std::move(it->second);
+        pending_instance_map_.erase(instance->instance_id());
+        pending_instance_queue_.erase(it);
+        return true;
+    }
+}
+
 void Recycler::recycle_callback() {
     while (!stopped()) {
         InstanceInfoPB instance;
-        {
-            std::unique_lock lock(mtx_);
-            pending_instance_cond_.wait(
-                    lock, [&]() { return !pending_instance_queue_.empty() || stopped(); });
-            if (stopped()) {
-                return;
-            }
-            instance = std::move(pending_instance_queue_.front());
-            pending_instance_queue_.pop_front();
-            pending_instance_set_.erase(instance.instance_id());
+        if (!dequeue_due_instance(&instance)) {
+            return;
         }
-        auto& instance_id = instance.instance_id();
+        const auto& instance_id = instance.instance_id();
         {
             std::lock_guard lock(mtx_);
             // skip instance in recycling
@@ -396,8 +426,22 @@ void Recycler::recycle_callback() {
         }
         std::string recycle_job_key;
         job_recycle_key({instance_id}, &recycle_job_key);
-        int ret = prepare_instance_recycle_job(txn_kv_.get(), recycle_job_key, instance_id,
-                                               ip_port_, config::recycle_interval_seconds * 1000);
+        int64_t retry_at_ms = 0;
+        int ret =
+                prepare_instance_recycle_job(txn_kv_.get(), recycle_job_key, instance_id, ip_port_,
+                                             config::recycle_interval_seconds * 1000, &retry_at_ms);
+        if (ret == 1 && retry_at_ms > 0) {
+            LOG(INFO) << "recycle job not yet due, instance_id=" << instance_id
+                      << " retry_at_ms=" << retry_at_ms;
+            {
+                std::lock_guard lock(mtx_);
+                if (!stopped()) {
+                    enqueue_instance_locked(std::move(instance), retry_at_ms);
+                }
+            }
+            pending_instance_cond_.notify_all();
+            continue;
+        }
         if (ret != 0) { // Prepare failed
             LOG(WARNING) << "failed to prepare recycle_job, instance_id=" << instance_id
                          << " ret=" << ret;
@@ -406,7 +450,9 @@ void Recycler::recycle_callback() {
             std::lock_guard lock(mtx_);
             recycling_instance_map_.emplace(instance_id, instance_recycler);
         }
-        if (stopped()) return;
+        if (stopped()) {
+            return;
+        }
         LOG_WARNING("begin to recycle instance").tag("instance_id", instance_id);
         auto ctime_ms = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
         g_bvar_recycler_instance_recycle_start_ts.put({instance_id}, ctime_ms);
@@ -551,15 +597,15 @@ int Recycler::start(brpc::Server* server) {
 }
 
 void Recycler::stop() {
-    stopped_ = true;
-    notifier_.notify_all();
-    pending_instance_cond_.notify_all();
     {
         std::lock_guard lock(mtx_);
+        stopped_ = true;
         for (auto& [_, recycler] : recycling_instance_map_) {
             recycler->stop();
         }
     }
+    notifier_.notify_all();
+    pending_instance_cond_.notify_all();
     for (auto& w : workers_) {
         if (w.joinable()) w.join();
     }
