@@ -3703,6 +3703,7 @@ public class SessionVariable implements Serializable, Writable {
 
     @VarAttrDef.VarAttr(
             name = DEFAULT_VARIANT_MAX_SUBCOLUMNS_COUNT,
+            flag = VarAttrDef.INVISIBLE,
             needForward = true,
             checker = "checkDefaultVariantMaxSubcolumnsCount",
             fuzzy = true
@@ -3711,13 +3712,16 @@ public class SessionVariable implements Serializable, Writable {
 
     @VarAttrDef.VarAttr(
             name = DEFAULT_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE,
+            flag = VarAttrDef.INVISIBLE,
             needForward = true,
+            checker = "checkDefaultVariantSettable",
             fuzzy = true
     )
     public boolean defaultEnableTypedPathsToSparse = false;
 
     @VarAttrDef.VarAttr(
             name = DEFAULT_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE,
+            flag = VarAttrDef.INVISIBLE,
             needForward = true,
             checker = "checkDefaultVariantMaxSparseColumnStatisticsSize",
             fuzzy = true
@@ -3734,7 +3738,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VarAttrDef.VarAttr(
             name = DEFAULT_VARIANT_SPARSE_HASH_SHARD_COUNT,
+            flag = VarAttrDef.INVISIBLE,
             needForward = true,
+            checker = "checkDefaultVariantSettable",
             fuzzy = true
     )
     public int defaultVariantSparseHashShardCount = 0;
@@ -3746,28 +3752,36 @@ public class SessionVariable implements Serializable, Writable {
 
     @VarAttrDef.VarAttr(
             name = DEFAULT_VARIANT_ENABLE_DOC_MODE,
+            flag = VarAttrDef.INVISIBLE,
             needForward = true,
+            checker = "checkDefaultVariantSettable",
             fuzzy = true
     )
     public boolean defaultVariantEnableDocMode = false;
 
     @VarAttrDef.VarAttr(
             name = DEFAULT_VARIANT_DOC_MATERIALIZATION_MIN_ROWS,
+            flag = VarAttrDef.INVISIBLE,
             needForward = true,
+            checker = "checkDefaultVariantSettable",
             fuzzy = true
     )
     public long defaultVariantDocMaterializationMinRows = 0L;
 
     @VarAttrDef.VarAttr(
             name = DEFAULT_VARIANT_DOC_HASH_SHARD_COUNT,
+            flag = VarAttrDef.INVISIBLE,
             needForward = true,
+            checker = "checkDefaultVariantSettable",
             fuzzy = true
     )
     public int defaultVariantDocHashShardCount = 64;
 
     @VarAttrDef.VarAttr(
             name = DEFAULT_VARIANT_ENABLE_NESTED_GROUP,
+            flag = VarAttrDef.INVISIBLE,
             needForward = true,
+            checker = "checkDefaultVariantSettable",
             fuzzy = true
     )
     public boolean defaultVariantEnableNestedGroup = false;
@@ -6843,7 +6857,17 @@ public class SessionVariable implements Serializable, Writable {
         }
     }
 
+    // The default_variant_* variables only drive the tests, which run with debug points enabled. Users state VARIANT
+    // properties in the column definition, so a DDL text creates the same column in every session.
+    public void checkDefaultVariantSettable(String value) {
+        if (!Config.enable_debug_points) {
+            throw new UnsupportedOperationException("default_variant_* session variables are only for testing, "
+                    + "set the property in the VARIANT column definition");
+        }
+    }
+
     public void checkDefaultVariantMaxSubcolumnsCount(String variantMaxSubcolumnsCount) {
+        checkDefaultVariantSettable(variantMaxSubcolumnsCount);
         int value = Integer.valueOf(variantMaxSubcolumnsCount);
         if (value < 0 || value > 100000) {
             throw new UnsupportedOperationException(
@@ -6852,6 +6876,7 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public void checkDefaultVariantMaxSparseColumnStatisticsSize(String variantMaxSparseColumnStatisticsSize) {
+        checkDefaultVariantSettable(variantMaxSparseColumnStatisticsSize);
         int value = Integer.valueOf(variantMaxSparseColumnStatisticsSize);
         if (value < 1 || value > 50000) {
             throw new UnsupportedOperationException("variant max sparse column statistics size is: "

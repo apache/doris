@@ -18,6 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.qe.SessionVariable;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -192,7 +193,10 @@ public class TypeTest {
         VariantType variantType = new VariantType(new ArrayList<>(), 0, false, 10000, 0,
                 false, 0L, 64, true);
 
-        Assertions.assertTrue(variantType.toSql().contains("\"variant_enable_nested_group\" = \"true\""));
+        // Only the nested group property: the others are cleared for nested group and some, such as a statistics
+        // size of 0, would not parse.
+        Assertions.assertEquals("variant<PROPERTIES (\"variant_enable_nested_group\" = \"true\")>",
+                variantType.toSql());
     }
 
     @Test
@@ -208,6 +212,20 @@ public class TypeTest {
         org.apache.doris.nereids.types.VariantType reparsed = (org.apache.doris.nereids.types.VariantType)
                 new NereidsParser().parseDataType("variant<" + parsed.getPredefinedFields().get(0).toSql() + ">");
         Assertions.assertEquals(comment, reparsed.getPredefinedFields().get(0).getComment());
+    }
+
+    @Test
+    public void testVariantTakesBuiltInDefaults() {
+        // Without debug points, and without a session, the properties a DDL leaves out take the built-in values
+        // of the default_variant_* session variables.
+        org.apache.doris.nereids.types.VariantType parsed = (org.apache.doris.nereids.types.VariantType)
+                new NereidsParser().parseDataType("variant");
+        SessionVariable builtIn = new SessionVariable();
+        Assertions.assertEquals(builtIn.defaultVariantMaxSubcolumnsCount, parsed.getVariantMaxSubcolumnsCount());
+        Assertions.assertEquals(builtIn.defaultVariantMaxSparseColumnStatisticsSize,
+                parsed.getVariantMaxSparseColumnStatisticsSize());
+        Assertions.assertEquals(builtIn.defaultVariantEnableDocMode, parsed.getEnableVariantDocMode());
+        Assertions.assertEquals(builtIn.defaultVariantEnableNestedGroup, parsed.getEnableNestedGroup());
     }
 
     @Test

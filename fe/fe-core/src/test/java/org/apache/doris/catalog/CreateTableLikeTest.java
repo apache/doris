@@ -19,6 +19,7 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.ExprToSqlVisitor;
 import org.apache.doris.analysis.ToSqlParams;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.FeConstants;
@@ -158,6 +159,44 @@ public class CreateTableLikeTest extends TestWithFeService {
                     .getTableNullable("generated_deferred_failure"));
         } finally {
             original.setSqlMode(originalSqlMode);
+        }
+    }
+
+    @Test
+    public void testVariantTypeIgnoresSessionDefaults() throws Exception {
+        SessionVariable sessionVariable = connectContext.getSessionVariable();
+        boolean originalEnableDebugPoints = Config.enable_debug_points;
+        boolean originalDocMode = sessionVariable.defaultVariantEnableDocMode;
+        boolean originalNestedGroup = sessionVariable.defaultVariantEnableNestedGroup;
+        try {
+            Config.enable_debug_points = false;
+            createTable("CREATE TABLE test.variant_like_src (id INT, "
+                    + "v VARIANT<'a.b':INT, PROPERTIES(\"variant_max_subcolumns_count\"=\"3\")>, "
+                    + "z VARIANT<PROPERTIES(\"variant_max_subcolumns_count\"=\"0\")>, "
+                    + "d VARIANT<PROPERTIES(\"variant_enable_doc_mode\"=\"true\")>, "
+                    + "n VARIANT<PROPERTIES(\"variant_enable_nested_group\"=\"true\")>) "
+                    + "DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES(\"replication_num\"=\"1\")");
+            Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
+            Table source = db.getTableOrDdlException("variant_like_src");
+            String sourceDdl = getCreateTableStmt(source);
+            // CREATE TABLE LIKE parses the DDL of the source, which prints neither a disabled doc mode nor a
+            // disabled nested group. Without debug points the session variables do not fill them in.
+            for (boolean docMode : new boolean[] {true, false}) {
+                sessionVariable.defaultVariantEnableDocMode = docMode;
+                sessionVariable.defaultVariantEnableNestedGroup = !docMode;
+                String targetName = docMode ? "variant_like_doc_mode" : "variant_like_nested_group";
+                createTableLike("CREATE TABLE test." + targetName + " LIKE test.variant_like_src");
+                Table target = db.getTableOrDdlException(targetName);
+                for (String columnName : new String[] {"v", "z", "d", "n"}) {
+                    Assertions.assertEquals(source.getColumn(columnName).getType(),
+                            target.getColumn(columnName).getType());
+                }
+                Assertions.assertEquals(sourceDdl.replace("variant_like_src", targetName), getCreateTableStmt(target));
+            }
+        } finally {
+            Config.enable_debug_points = originalEnableDebugPoints;
+            sessionVariable.defaultVariantEnableDocMode = originalDocMode;
+            sessionVariable.defaultVariantEnableNestedGroup = originalNestedGroup;
         }
     }
 
