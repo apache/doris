@@ -488,6 +488,12 @@ RowDescriptor::RowDescriptor(const DescriptorTbl& desc_tbl,
 
 RowDescriptor::RowDescriptor(TupleDescriptor* tuple_desc) : _tuple_desc_map(1, tuple_desc) {}
 
+RowDescriptor::RowDescriptor(const RowDescriptor& lhs, const RowDescriptor& rhs)
+        : _tuple_desc_map(lhs._tuple_desc_map) {
+    _tuple_desc_map.insert(_tuple_desc_map.end(), rhs._tuple_desc_map.begin(),
+                           rhs._tuple_desc_map.end());
+}
+
 int RowDescriptor::num_slots() const {
     int count = 0;
     for (const auto* tuple_desc : _tuple_desc_map) {
