@@ -27,6 +27,8 @@ suite("test_pythonudf_always_nullable") {
         RETURNS INT 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "evaluate",
             "always_nullable" = "true",
             "runtime_version" = "${runtime_version}"
@@ -52,6 +54,8 @@ def evaluate(x):
         RETURNS INT 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "evaluate",
             "always_nullable" = "false",
             "runtime_version" = "${runtime_version}"
@@ -75,6 +79,8 @@ def evaluate(x):
         RETURNS INT 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "evaluate",
             "always_nullable" = "false",
             "runtime_version" = "${runtime_version}"
@@ -152,6 +158,8 @@ def evaluate(x):
         RETURNS STRING 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "evaluate",
             "always_nullable" = "true",
             "runtime_version" = "${runtime_version}"

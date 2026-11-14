@@ -79,7 +79,7 @@ class CacheExpressionTest {
                     "file:///udf.jar", "F", "", "", "", false, 360, slot);
             Expression pythonUdf = new PythonUdf("f", 2, "db", Function.BinaryType.PYTHON_UDF, signature,
                     Function.NullableMode.DEPEND_ON_ARGUMENT, volatility, identity,
-                    "", "f", "", "", "", false, 360, "3.12", "", slot);
+                    "", "f", "", "", "", false, 360, "3.12", "", 1, -1, slot);
             Assertions.assertEquals(volatility == FunctionVolatility.IMMUTABLE, javaUdf.isDeterministic());
             Assertions.assertTrue(uncacheable(javaUdf));
             Assertions.assertTrue(uncacheable(pythonUdf));

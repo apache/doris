@@ -32,6 +32,8 @@ suite("test_pythonudf_module_advanced") {
         RETURNS DOUBLE 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "file" = "file://${zipPath}",
             "symbol" = "python_udf_module_test.main.safe_ltv",
             "runtime_version" = "${runtime_version}",

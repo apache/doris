@@ -67,6 +67,8 @@ suite("test_pythonudf_timestamp_ns") {
         RETURNS TIMESTAMP_NS
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "evaluate",
             "runtime_version" = "${runtimeVersion}",
             "always_nullable" = "true"
@@ -82,6 +84,8 @@ def evaluate(value):
         RETURNS ARRAY<TIMESTAMP_NS>
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "evaluate",
             "runtime_version" = "${runtimeVersion}",
             "always_nullable" = "true"
@@ -97,6 +101,8 @@ def evaluate(value):
         RETURNS MAP<STRING, TIMESTAMP_NS>
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "evaluate",
             "runtime_version" = "${runtimeVersion}",
             "always_nullable" = "true"
@@ -112,6 +118,8 @@ def evaluate(value):
         RETURNS STRUCT<ts:TIMESTAMP_NS>
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "evaluate",
             "runtime_version" = "${runtimeVersion}",
             "always_nullable" = "true"

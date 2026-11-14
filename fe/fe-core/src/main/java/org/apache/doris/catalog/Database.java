@@ -102,6 +102,8 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
     // user define function
     @SerializedName(value = "name2Function")
     private ConcurrentMap<String, ImmutableList<Function>> name2Function = Maps.newConcurrentMap();
+    // Bound to Env's index while this database belongs to the active catalog.
+    private transient ConcurrentMap<Long, Function> id2Function;
     // user define encryptKey for current db
     @SerializedName(value = "dbEncryptKey")
     private DatabaseEncryptKey dbEncryptKey;
@@ -827,7 +829,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
         try {
             for (Function function : functions) {
                 function.checkWritable();
-                if (FunctionUtil.addFunctionImpl(function, ifNotExists, false, name2Function)) {
+                if (FunctionUtil.addFunctionImpl(function, ifNotExists, false, name2Function, id2Function)) {
                     addedFunctions.add(function);
                 }
             }
@@ -839,7 +841,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
                 FunctionUtil.dropFromNereids(this.getFullName(), getFunctionSearchDesc(function));
             }
             for (int i = addedFunctions.size() - 1; i >= 0; i--) {
-                FunctionUtil.removeFunctionImpl(addedFunctions.get(i), true, name2Function);
+                FunctionUtil.removeFunctionImpl(addedFunctions.get(i), true, name2Function, id2Function);
             }
             throw e;
         }
@@ -858,7 +860,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
 
     public synchronized void replayAddFunction(Function function) {
         try {
-            FunctionUtil.addFunctionImpl(function, false, true, name2Function);
+            FunctionUtil.addFunctionImpl(function, false, true, name2Function, id2Function);
             FunctionUtil.translateToNereids(this.getFullName(), function);
         } catch (UserException e) {
             throw new RuntimeException(e);
@@ -905,7 +907,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
     }
 
     public synchronized void dropFunctionImpl(FunctionSearchDesc function, boolean ifExists) throws UserException {
-        if (FunctionUtil.dropFunctionImpl(function, ifExists, name2Function)) {
+        if (FunctionUtil.dropFunctionImpl(function, ifExists, name2Function, id2Function)) {
             Env.getCurrentEnv().getEditLog().logDropFunction(function);
             FunctionUtil.dropFromNereids(this.getFullName(), function);
             LOG.info("finished to drop function {}", function.getName().getFunction());
@@ -916,7 +918,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
         try {
             // Set ifExists to true to avoid throw exception if function is not found.
             // It should not happen but the reason is unknown, so add warn log for debug.
-            if (!FunctionUtil.dropFunctionImpl(functionSearchDesc, true, name2Function)) {
+            if (!FunctionUtil.dropFunctionImpl(functionSearchDesc, true, name2Function, id2Function)) {
                 LOG.warn("failed to find function to drop: {} when replay, skip",
                         functionSearchDesc.getName().getFunction());
             }
@@ -933,6 +935,24 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
 
     public synchronized List<Function> getFunctions() {
         return FunctionUtil.getFunctions(name2Function);
+    }
+
+    synchronized void registerFunctionsById(ConcurrentMap<Long, Function> functionsById) {
+        id2Function = functionsById;
+        for (Function function : getFunctions()) {
+            id2Function.put(function.getId(), function);
+        }
+    }
+
+    public synchronized void unregisterFunctionsById() {
+        // FORCE DROP may have already detached this database.
+        if (id2Function == null) {
+            return;
+        }
+        for (Function function : getFunctions()) {
+            id2Function.remove(function.getId(), function);
+        }
+        id2Function = null;
     }
 
     public synchronized void addEncryptKey(EncryptKey encryptKey, boolean ifNotExists) throws UserException {

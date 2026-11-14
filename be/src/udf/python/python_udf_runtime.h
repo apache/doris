@@ -19,10 +19,14 @@
 
 #include <boost/process.hpp>
 #include <chrono>
+#include <memory>
 
+#include "common/status.h"
 #include "udf/python/python_env.h"
 
 namespace doris {
+
+struct UserFunctionCacheEntry;
 
 static const char* UNIX_SOCKET_PREFIX = "grpc+unix://";
 // Use /tmp directory for Unix socket to avoid path length limit (max 107 chars)
@@ -54,6 +58,8 @@ using ProcessPtr = std::shared_ptr<PythonUDFProcess>;
 
 class PythonUDFProcess {
 public:
+    static Status create(const PythonVersion& version, ProcessPtr* process);
+
     PythonUDFProcess(boost::process::child child, boost::process::ipstream output_stream)
             : _is_shutdown(false),
               _child_pid(child.id()),
@@ -89,6 +95,10 @@ public:
 
     pid_t get_child_pid() const { return _child_pid; }
 
+    void set_package_cache_entry(std::shared_ptr<UserFunctionCacheEntry> entry) {
+        _package_cache_entry = std::move(entry);
+    }
+
     bool operator==(const PythonUDFProcess& other) const { return _child_pid == other._child_pid; }
 
     bool operator!=(const PythonUDFProcess& other) const { return !(*this == other); }
@@ -104,6 +114,8 @@ public:
 private:
     constexpr static size_t MAX_ACCUMULATED_LOG_SIZE = 65536;
 
+    // Keep package files available for lazy imports until this process is destroyed.
+    std::shared_ptr<UserFunctionCacheEntry> _package_cache_entry;
     bool _is_shutdown {false};
     pid_t _child_pid;
     std::string _uri;

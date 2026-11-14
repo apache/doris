@@ -110,6 +110,8 @@ suite("test_nereids_show_functions") {
             RETURNS INT
             PROPERTIES (
                 "type" = "PYTHON_UDF",
+                "pool_size" = "1",
+                "auto_suspend" = "0",
                 "symbol" = "evaluate",
                 "runtime_version" = "${runtime_version}"
             )
@@ -135,6 +137,8 @@ suite("test_nereids_show_functions") {
             "file"="file://${pyudfPath}",
             "symbol"="int_test.evaluate",
             "type"="PYTHON_UDF",
+            "pool_size"="1",
+            "auto_suspend"="0",
             "always_nullable" = "true",
             "runtime_version" = "${runtime_version}"
         );
@@ -158,6 +162,8 @@ suite("test_nereids_show_functions") {
             "file"="file://${pyudfPath}",
             "symbol"="sum_int.SumInt",
             "type"="PYTHON_UDF",
+            "pool_size"="1",
+            "auto_suspend"="0",
             "always_nullable" = "true",
             "runtime_version" = "${runtime_version}"
         );
@@ -181,6 +187,8 @@ suite("test_nereids_show_functions") {
             "file" = "file://${pyudtfPath}",
             "symbol" = "pyudtf_module.basic_udtf.split_string_udtf",
             "type" = "PYTHON_UDF",
+            "pool_size" = "1",
+            "auto_suspend" = "0",
             "runtime_version" = "${runtime_version}"
         );
     """

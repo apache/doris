@@ -32,6 +32,8 @@ suite("test_pythonudtf_io_patterns_inline") {
         RETURNS ARRAY<STRUCT<input:INT, doubled:INT>>
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "one_to_one",
             "runtime_version" = "${runtime_version}"
         )
@@ -76,6 +78,8 @@ def one_to_one(value):
         RETURNS ARRAY<INT>
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "one_to_many",
             "runtime_version" = "${runtime_version}"
         )
@@ -121,6 +125,8 @@ def one_to_many(n):
         RETURNS ARRAY<INT>
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "one_to_zero",
             "runtime_version" = "${runtime_version}"
         )
@@ -166,6 +172,8 @@ def one_to_zero(value):
         RETURNS ARRAY<STRING>
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "one_to_variable",
             "runtime_version" = "${runtime_version}"
         )
@@ -222,6 +230,8 @@ def one_to_variable(text):
         RETURNS ARRAY<STRUCT<value:INT, category:STRING>>
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "aggregate_pattern",
             "runtime_version" = "${runtime_version}"
         )
@@ -274,6 +284,8 @@ def aggregate_pattern(value):
         RETURNS ARRAY<STRUCT<row_id:INT, col_id:INT>>
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "explosive",
             "runtime_version" = "${runtime_version}"
         )
@@ -321,6 +333,8 @@ def explosive(all_rows, all_cols):
         RETURNS ARRAY<STRUCT<value:INT, type:STRING>>
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "conditional",
             "runtime_version" = "${runtime_version}"
         )
@@ -375,6 +389,8 @@ def conditional(value):
         RETURNS ARRAY<STRUCT<char:STRING, pos:INT>>
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "all_or_nothing",
             "runtime_version" = "${runtime_version}"
         )
@@ -428,6 +444,8 @@ def all_or_nothing(text, min_length):
         RETURNS ARRAY<INT>
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "empty_input",
             "runtime_version" = "${runtime_version}"
         )
@@ -468,6 +486,8 @@ def empty_input(value):
         RETURNS ARRAY<STRUCT<original:INT, factor:INT, result:INT>>
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "batch_process",
             "runtime_version" = "${runtime_version}"
         )

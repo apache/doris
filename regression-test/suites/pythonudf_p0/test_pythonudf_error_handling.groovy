@@ -27,6 +27,8 @@ suite("test_pythonudf_error_handling") {
         RETURNS DOUBLE 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "evaluate",
             "always_nullable" = "true",
             "runtime_version" = "${runtime_version}"
@@ -52,6 +54,8 @@ def evaluate(a, b):
         RETURNS STRING 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "evaluate",
             "always_nullable" = "true",
             "runtime_version" = "${runtime_version}"
@@ -77,6 +81,8 @@ def evaluate(s, index):
         RETURNS INT 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "evaluate",
             "always_nullable" = "true",
             "runtime_version" = "${runtime_version}"
@@ -103,6 +109,8 @@ def evaluate(s):
         RETURNS INT 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "evaluate",
             "always_nullable" = "true",
             "runtime_version" = "${runtime_version}"
@@ -163,6 +171,8 @@ def evaluate(arr, index):
         RETURNS INT 
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "evaluate",
             "always_nullable" = "true",
             "runtime_version" = "${runtime_version}"
@@ -186,6 +196,8 @@ def evaluate(s):
         RETURNS INT
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "module_only",
             "runtime_version" = "${runtime_version}"
         )
@@ -204,6 +216,8 @@ def evaluate(s):
         RETURNS INT
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = ".evaluate",
             "runtime_version" = "${runtime_version}"
         )
@@ -224,6 +238,8 @@ def evaluate(x):
         RETURNS INT
         PROPERTIES (
             "type" = "PYTHON_UDF",
+            "auto_suspend" = "0",
+            "pool_size" = "1",
             "symbol" = "nonexistent_func",
             "runtime_version" = "${runtime_version}",
             "always_nullable" = "true"
