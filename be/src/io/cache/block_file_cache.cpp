@@ -239,6 +239,12 @@ BlockFileCache::BlockFileCache(const std::string& cache_base_path,
                                                                     "file_cache_gc_evict_bytes");
     _gc_evict_count_metrics = std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
                                                                     "file_cache_gc_evict_count");
+    _evict_scanned_entries_metrics = std::make_shared<bvar::Adder<size_t>>(
+            _cache_base_path.c_str(), "file_cache_evict_scanned_entries");
+    _evict_rotated_in_use_metrics = std::make_shared<bvar::Adder<size_t>>(
+            _cache_base_path.c_str(), "file_cache_evict_rotated_in_use");
+    _evict_scan_truncated_metrics = std::make_shared<bvar::Adder<size_t>>(
+            _cache_base_path.c_str(), "file_cache_evict_scan_truncated");
 
     _evict_by_time_metrics_matrix[FileCacheType::DISPOSABLE][FileCacheType::NORMAL] =
             std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
@@ -394,6 +400,8 @@ BlockFileCache::BlockFileCache(const std::string& cache_base_path,
     _probe_latency_us = std::make_shared<bvar::LatencyRecorder>();
     _storage_sync_remove_latency_us = std::make_shared<bvar::LatencyRecorder>(
             _cache_base_path.c_str(), "file_cache_storage_sync_remove_latency_us");
+    _evict_scan_entries_per_reserve = std::make_shared<bvar::LatencyRecorder>(
+            _cache_base_path.c_str(), "file_cache_evict_scan_entries_per_reserve");
     _storage_retry_sync_remove_latency_us = std::make_shared<bvar::LatencyRecorder>(
             _cache_base_path.c_str(), "file_cache_storage_retry_sync_remove_latency_us");
     _storage_async_remove_latency_us = std::make_shared<bvar::LatencyRecorder>(
@@ -1527,11 +1535,18 @@ void BlockFileCache::find_evict_candidates(LRUQueue& queue, size_t size, size_t 
                                            size_t& removed_size,
                                            std::vector<FileBlockCell*>& to_evict,
                                            std::lock_guard<std::mutex>& cache_lock,
-                                           size_t& cur_removed_size, bool evict_in_advance) {
+                                           size_t& cur_removed_size, bool evict_in_advance,
+                                           EvictScanBudget& budget) {
+    // Every scan starts at the head of the queue, so in-use entries left there would be examined
+    // again by each later reservation, all under the cache lock. Bounding the scan and rotating
+    // in-use entries keeps the lock hold short when much of the cache is in use.
+    std::vector<FileBlockCell*> in_use;
     for (const auto& [entry_key, entry_offset, entry_size] : queue) {
-        if (!is_overflow(removed_size, size, cur_cache_size, evict_in_advance)) {
+        if (!is_overflow(removed_size, size, cur_cache_size, evict_in_advance) ||
+            budget.exhausted()) {
             break;
         }
+        ++budget.scanned;
         auto* cell = get_cell(entry_key, entry_offset, cache_lock);
 
         DCHECK(cell) << "Cache became inconsistent. key: " << entry_key.to_string()
@@ -1548,8 +1563,46 @@ void BlockFileCache::find_evict_candidates(LRUQueue& queue, size_t size, size_t 
             to_evict.push_back(cell);
             removed_size += cell_size;
             cur_removed_size += cell_size;
+        } else {
+            in_use.push_back(cell);
         }
     }
+    rotate_in_use_to_end(queue, in_use, cache_lock);
+}
+
+void BlockFileCache::record_evict_scan(const EvictScanBudget& budget, bool reserved) {
+    // Most reservations fit without evicting anything; leaving them out keeps the distribution
+    // about the reservations that had to scan.
+    if (budget.scanned == 0) {
+        return;
+    }
+    *_evict_scanned_entries_metrics << budget.scanned;
+    *_evict_scan_entries_per_reserve << static_cast<int64_t>(budget.scanned);
+    if (!reserved && budget.exhausted()) {
+        *_evict_scan_truncated_metrics << 1;
+    }
+}
+
+void BlockFileCache::rotate_in_use_to_end(LRUQueue& queue,
+                                          const std::vector<FileBlockCell*>& in_use,
+                                          std::lock_guard<std::mutex>& cache_lock) {
+    // Called after the scan: moving an entry while iterating would bring it back to the scan.
+    // A rotated entry is in use right now, so the move counts as an access, as in use_cell().
+    // Updating atime keeps each queue ordered by access time, which the time-interval scan
+    // relies on when it stops at the first hot entry. Without it, [A cold in use, B cold, C hot]
+    // would become [C, A] after evicting B, and once A is released no time-interval scan would
+    // reach it past C.
+    for (auto* cell : in_use) {
+        // A cell taken out of the queue is never reached by a queue scan.
+        DCHECK(cell->queue_iterator);
+        const auto& file_block = cell->file_block;
+        queue.move_to_end(*cell->queue_iterator, cache_lock);
+        _lru_recorder->record_queue_event(file_block->cache_type(), CacheLRULogType::MOVETOBACK,
+                                          file_block->_key.hash, file_block->_key.offset,
+                                          cell->size());
+        cell->update_atime();
+    }
+    *_evict_rotated_in_use_metrics << in_use.size();
 }
 
 // 1. if async load file cache not finish
@@ -1597,6 +1650,7 @@ bool BlockFileCache::try_reserve(const UInt128Wrapper& hash, const CacheContext&
 
     std::vector<LRUQueue::Iterator> ghost;
     std::vector<FileBlockCell*> to_evict;
+    EvictScanBudget budget(config::file_cache_evict_max_scan_entries);
 
     size_t max_size = queue.get_max_size();
     auto is_overflow = [&] {
@@ -1610,9 +1664,10 @@ bool BlockFileCache::try_reserve(const UInt128Wrapper& hash, const CacheContext&
 
     /// Select the cache from the LRU queue held by query for expulsion.
     for (auto iter = query_context->queue().begin(); iter != query_context->queue().end(); iter++) {
-        if (!is_overflow()) {
+        if (!is_overflow() || budget.exhausted()) {
             break;
         }
+        ++budget.scanned;
 
         auto* cell = get_cell(iter->hash, iter->offset, cache_lock);
 
@@ -1652,9 +1707,11 @@ bool BlockFileCache::try_reserve(const UInt128Wrapper& hash, const CacheContext&
     std::for_each(to_evict.begin(), to_evict.end(), remove_file_block_if);
 
     if (is_overflow() &&
-        !try_reserve_from_other_queue(context.cache_type, size, cur_time, cache_lock)) {
+        !try_reserve_from_other_queue(context.cache_type, size, cur_time, cache_lock, budget)) {
+        record_evict_scan(budget, false);
         return false;
     }
+    record_evict_scan(budget, true);
     query_context->reserve(hash, offset, size, cache_lock);
     return true;
 }
@@ -1786,17 +1843,21 @@ void BlockFileCache::reset_range(const UInt128Wrapper& hash, size_t offset, size
 
 bool BlockFileCache::try_reserve_from_other_queue_by_time_interval(
         FileCacheType cur_type, std::vector<FileCacheType> other_cache_types, size_t size,
-        int64_t cur_time, std::lock_guard<std::mutex>& cache_lock, bool evict_in_advance) {
+        int64_t cur_time, std::lock_guard<std::mutex>& cache_lock, EvictScanBudget& budget,
+        bool evict_in_advance) {
     size_t removed_size = 0;
     size_t cur_cache_size = _cur_cache_size;
     std::vector<FileBlockCell*> to_evict;
     for (FileCacheType cache_type : other_cache_types) {
         auto& queue = get_queue(cache_type);
         size_t remove_size_per_type = 0;
+        std::vector<FileBlockCell*> in_use;
         for (const auto& [entry_key, entry_offset, entry_size] : queue) {
-            if (!is_overflow(removed_size, size, cur_cache_size, evict_in_advance)) {
+            if (!is_overflow(removed_size, size, cur_cache_size, evict_in_advance) ||
+                budget.exhausted()) {
                 break;
             }
+            ++budget.scanned;
             auto* cell = get_cell(entry_key, entry_offset, cache_lock);
             DCHECK(cell) << "Cache became inconsistent. UInt128Wrapper: " << entry_key.to_string()
                          << ", offset: " << entry_offset;
@@ -1815,8 +1876,11 @@ bool BlockFileCache::try_reserve_from_other_queue_by_time_interval(
                 to_evict.push_back(cell);
                 removed_size += cell_size;
                 remove_size_per_type += cell_size;
+            } else {
+                in_use.push_back(cell);
             }
         }
+        rotate_in_use_to_end(queue, in_use, cache_lock);
         *(_evict_by_time_metrics_matrix[cache_type][cur_type]) << remove_size_per_type;
     }
     bool is_sync_removal = !evict_in_advance;
@@ -1844,7 +1908,7 @@ bool BlockFileCache::is_overflow(size_t removed_size, size_t need_size, size_t c
 
 bool BlockFileCache::try_reserve_from_other_queue_by_size(
         FileCacheType cur_type, std::vector<FileCacheType> other_cache_types, size_t size,
-        std::lock_guard<std::mutex>& cache_lock, bool evict_in_advance) {
+        std::lock_guard<std::mutex>& cache_lock, EvictScanBudget& budget, bool evict_in_advance) {
     size_t removed_size = 0;
     size_t cur_cache_size = _cur_cache_size;
     std::vector<FileBlockCell*> to_evict;
@@ -1861,7 +1925,7 @@ bool BlockFileCache::try_reserve_from_other_queue_by_size(
         }
         size_t cur_removed_size = 0;
         find_evict_candidates(queue, size, cur_cache_size, removed_size, to_evict, cache_lock,
-                              cur_removed_size, evict_in_advance);
+                              cur_removed_size, evict_in_advance, budget);
         *(_evict_by_size_metrics_matrix[cache_type][cur_type]) << cur_removed_size;
     }
     bool is_sync_removal = !evict_in_advance;
@@ -1874,11 +1938,12 @@ bool BlockFileCache::try_reserve_from_other_queue_by_size(
 bool BlockFileCache::try_reserve_from_other_queue(FileCacheType cur_cache_type, size_t size,
                                                   int64_t cur_time,
                                                   std::lock_guard<std::mutex>& cache_lock,
-                                                  bool evict_in_advance) {
+                                                  EvictScanBudget& budget, bool evict_in_advance) {
     // currently, TTL cache is not considered as a candidate
     auto other_cache_types = get_other_cache_type_without_ttl(cur_cache_type);
     bool reserve_success = try_reserve_from_other_queue_by_time_interval(
-            cur_cache_type, other_cache_types, size, cur_time, cache_lock, evict_in_advance);
+            cur_cache_type, other_cache_types, size, cur_time, cache_lock, budget,
+            evict_in_advance);
     if (reserve_success || !config::file_cache_enable_evict_from_other_queue_by_size) {
         return reserve_success;
     }
@@ -1892,7 +1957,7 @@ bool BlockFileCache::try_reserve_from_other_queue(FileCacheType cur_cache_type, 
         return false;
     }
     return try_reserve_from_other_queue_by_size(cur_cache_type, other_cache_types, size, cache_lock,
-                                                evict_in_advance);
+                                                budget, evict_in_advance);
 }
 
 bool BlockFileCache::try_reserve_for_lru(const UInt128Wrapper& hash,
@@ -1901,7 +1966,8 @@ bool BlockFileCache::try_reserve_for_lru(const UInt128Wrapper& hash,
                                          std::lock_guard<std::mutex>& cache_lock,
                                          bool evict_in_advance) {
     int64_t cur_time = steady_clock_seconds();
-    if (!try_reserve_from_other_queue(context.cache_type, size, cur_time, cache_lock,
+    EvictScanBudget budget(config::file_cache_evict_max_scan_entries);
+    if (!try_reserve_from_other_queue(context.cache_type, size, cur_time, cache_lock, budget,
                                       evict_in_advance)) {
         auto& queue = get_queue(context.cache_type);
         size_t removed_size = 0;
@@ -1910,7 +1976,7 @@ bool BlockFileCache::try_reserve_for_lru(const UInt128Wrapper& hash,
         std::vector<FileBlockCell*> to_evict;
         size_t cur_removed_size = 0;
         find_evict_candidates(queue, size, cur_cache_size, removed_size, to_evict, cache_lock,
-                              cur_removed_size, evict_in_advance);
+                              cur_removed_size, evict_in_advance, budget);
         bool is_sync_removal = !evict_in_advance;
         std::string reason = std::string("try_reserve for cache type ") +
                              cache_type_to_string(context.cache_type) +
@@ -1919,9 +1985,11 @@ bool BlockFileCache::try_reserve_for_lru(const UInt128Wrapper& hash,
         *(_evict_by_self_lru_metrics_matrix[context.cache_type]) << cur_removed_size;
 
         if (is_overflow(removed_size, size, cur_cache_size, evict_in_advance)) {
+            record_evict_scan(budget, false);
             return false;
         }
     }
+    record_evict_scan(budget, true);
 
     if (query_context) {
         query_context->reserve(hash, offset, size, cache_lock);
