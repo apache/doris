@@ -23,6 +23,7 @@
 #include <parquet/api/reader.h>
 #include <parquet/api/writer.h>
 #include <parquet/arrow/writer.h>
+#include <parquet/encryption/encryption.h>
 
 #include <algorithm>
 #include <array>
@@ -88,6 +89,7 @@
 #include "runtime/runtime_state.h"
 #include "storage/segment/condition_cache.h"
 #include "testutil/mock/mock_query_context.h"
+#include "testutil/scoped_temp_dir.h"
 #include "util/debug_points.h"
 #include "util/defer_op.h"
 #include "util/hash_util.hpp"
@@ -392,9 +394,10 @@ schema::external::TSchema external_schema(int64_t schema_id,
     return schema;
 }
 
-void write_iceberg_equality_delete_parquet_file(const std::string& file_path, int32_t field_id,
-                                                int32_t value,
-                                                const std::string& field_name = "id") {
+void write_iceberg_equality_delete_parquet_file(
+        const std::string& file_path, int32_t field_id, int32_t value,
+        const std::string& field_name = "id",
+        std::shared_ptr<::parquet::FileEncryptionProperties> encryption = nullptr) {
     const auto metadata =
             arrow::key_value_metadata({"PARQUET:field_id"}, {std::to_string(field_id)});
     auto schema = arrow::schema({
@@ -407,6 +410,9 @@ void write_iceberg_equality_delete_parquet_file(const std::string& file_path, in
     std::shared_ptr<arrow::io::FileOutputStream> out = *file_result;
 
     ::parquet::WriterProperties::Builder builder;
+    if (encryption != nullptr) {
+        builder.encryption(encryption);
+    }
     builder.version(::parquet::ParquetVersion::PARQUET_2_6);
     builder.data_page_version(::parquet::ParquetDataPageVersion::V2);
     builder.compression(::parquet::Compression::UNCOMPRESSED);
@@ -574,9 +580,10 @@ void write_iceberg_null_equality_delete_parquet_file(const std::string& file_pat
                                                       builder.build()));
 }
 
-void write_single_int_parquet_file(const std::string& file_path, const std::string& field_name,
-                                   const std::vector<int32_t>& values,
-                                   std::optional<int32_t> field_id) {
+void write_single_int_parquet_file(
+        const std::string& file_path, const std::string& field_name,
+        const std::vector<int32_t>& values, std::optional<int32_t> field_id,
+        std::shared_ptr<::parquet::FileEncryptionProperties> encryption = nullptr) {
     auto field = arrow::field(field_name, arrow::int32(), false);
     if (field_id.has_value()) {
         field = field->WithMetadata(
@@ -589,6 +596,9 @@ void write_single_int_parquet_file(const std::string& file_path, const std::stri
     std::shared_ptr<arrow::io::FileOutputStream> out = *file_result;
 
     ::parquet::WriterProperties::Builder builder;
+    if (encryption != nullptr) {
+        builder.encryption(encryption);
+    }
     builder.version(::parquet::ParquetVersion::PARQUET_2_6);
     builder.data_page_version(::parquet::ParquetDataPageVersion::V2);
     builder.compression(::parquet::Compression::UNCOMPRESSED);
@@ -1327,9 +1337,10 @@ void write_iceberg_row_lineage_parquet_file(
                                                       builder.build()));
 }
 
-void write_position_delete_parquet_file(const std::string& file_path,
-                                        const std::vector<std::string>& data_file_paths,
-                                        const std::vector<int64_t>& positions) {
+void write_position_delete_parquet_file(
+        const std::string& file_path, const std::vector<std::string>& data_file_paths,
+        const std::vector<int64_t>& positions,
+        std::shared_ptr<::parquet::FileEncryptionProperties> encryption = nullptr) {
     auto schema = arrow::schema({
             arrow::field("file_path", arrow::utf8(), false),
             arrow::field("pos", arrow::int64(), false),
@@ -1342,6 +1353,9 @@ void write_position_delete_parquet_file(const std::string& file_path,
     std::shared_ptr<arrow::io::FileOutputStream> out = *file_result;
 
     ::parquet::WriterProperties::Builder builder;
+    if (encryption != nullptr) {
+        builder.encryption(encryption);
+    }
     builder.version(::parquet::ParquetVersion::PARQUET_2_6);
     builder.data_page_version(::parquet::ParquetDataPageVersion::V2);
     builder.compression(::parquet::Compression::UNCOMPRESSED);
@@ -9023,6 +9037,273 @@ TEST(IcebergTableReaderTest, DeleteParquetFactoryReusesScannerCounters) {
     }
     std::filesystem::remove(file_path);
 }
+
+#if __has_include(<parquet/encryption/encryption_internal.h>)
+TFileEncryptionInfo synthetic_delete_key(char value) {
+    TFileEncryptionInfo info;
+    info.__set_version(1);
+    info.__set_key(std::string(16, value));
+    info.__set_aad_prefix(std::string("synthetic-file-aad-") + value);
+    return info;
+}
+
+std::shared_ptr<::parquet::FileEncryptionProperties> delete_writer_encryption(
+        const TFileEncryptionInfo& info) {
+    ::parquet::FileEncryptionProperties::Builder builder {
+            ::arrow::util::SecureString(std::string(info.key))};
+    return builder.aad_prefix(info.aad_prefix)->disable_aad_prefix_storage()->build();
+}
+
+Status scan_delete_encryption_split(iceberg::IcebergTableReader* reader,
+                                    const SplitReadOptions& split,
+                                    const std::vector<ColumnDefinition>& columns,
+                                    std::vector<int32_t>* rows) {
+    RETURN_IF_ERROR(reader->prepare_split(split));
+    bool eos = false;
+    while (!eos) {
+        auto block = build_table_block(columns);
+        RETURN_IF_ERROR(reader->get_block(&block, &eos));
+        for (size_t row = 0; row < block.rows(); ++row) {
+            rows->push_back((*block.get_by_position(0).column)[row].get<TYPE_INT>());
+        }
+    }
+    return Status::OK();
+}
+
+void expect_delete_split_rejection(iceberg::IcebergTableReader* reader,
+                                   const SplitReadOptions& split,
+                                   const std::vector<ColumnDefinition>& columns) {
+    std::vector<int32_t> ignored;
+    const auto status = scan_delete_encryption_split(reader, split, columns, &ignored);
+    EXPECT_FALSE(status.ok());
+    for (char key : {'d', 'p', 'e'}) {
+        EXPECT_EQ(status.to_string().find(synthetic_delete_key(key).key), std::string::npos);
+    }
+    // Match scanner recovery: a failed concrete reader must be discarded before another split.
+    ASSERT_TRUE(reader->abort_split().ok());
+}
+
+void verify_delete_key_rejections(iceberg::IcebergTableReader* reader,
+                                  const SplitReadOptions& split,
+                                  const std::vector<ColumnDefinition>& columns,
+                                  bool position_encrypted, bool equality_encrypted) {
+    const auto data_key = synthetic_delete_key('d');
+    // Warm decoded-delete caches must not authorize a later split with another key.
+    for (int index : {0, 1}) {
+        if (!(index == 0 ? position_encrypted : equality_encrypted)) {
+            continue;
+        }
+        for (int failure : {0, 1, 2}) {
+            auto bad = split;
+            auto& descriptor =
+                    bad.current_range.table_format_params.iceberg_params.delete_files[index];
+            if (failure == 0) {
+                descriptor.encryption_info.__set_key(data_key.key);
+            } else if (failure == 1) {
+                descriptor.__isset.encryption_info = false;
+            } else {
+                descriptor.encryption_info.__set_aad_prefix("incorrect-file-aad");
+            }
+            expect_delete_split_rejection(reader, bad, columns);
+        }
+    }
+    if (split.current_range.table_format_params.iceberg_params.__isset.encryption_info) {
+        for (int failure : {0, 1, 2}) {
+            auto bad = split;
+            auto& descriptor = bad.current_range.table_format_params.iceberg_params;
+            if (failure == 0) {
+                descriptor.encryption_info.__set_key(synthetic_delete_key('p').key);
+            } else if (failure == 1) {
+                descriptor.__isset.encryption_info = false;
+            } else {
+                descriptor.encryption_info.__set_aad_prefix("incorrect-data-aad");
+            }
+            expect_delete_split_rejection(reader, bad, columns);
+        }
+    }
+}
+
+void verify_encrypted_delete_combination(const std::filesystem::path& directory,
+                                         bool data_encrypted, bool position_encrypted,
+                                         bool equality_encrypted) {
+    const auto data_key = synthetic_delete_key('d');
+    const auto position_key = synthetic_delete_key('p');
+    const auto equality_key = synthetic_delete_key('e');
+    const std::string suffix = std::to_string(data_encrypted) + std::to_string(position_encrypted) +
+                               std::to_string(equality_encrypted);
+    const auto data_path = (directory / ("data-" + suffix + ".parquet")).string();
+    const auto position_path = (directory / ("position-" + suffix + ".parquet")).string();
+    const auto equality_path = (directory / ("equality-" + suffix + ".parquet")).string();
+    write_single_int_parquet_file(data_path, "id", {1, 2, 3, 4, 5, 6, 7, 8}, 1,
+                                  data_encrypted ? delete_writer_encryption(data_key) : nullptr);
+    write_position_delete_parquet_file(
+            position_path, {data_path, data_path}, {1, 6},
+            position_encrypted ? delete_writer_encryption(position_key) : nullptr);
+    write_iceberg_equality_delete_parquet_file(
+            equality_path, 1, 5, "id",
+            equality_encrypted ? delete_writer_encryption(equality_key) : nullptr);
+    auto position = make_iceberg_position_delete_file(position_path);
+    auto equality = make_iceberg_equality_delete_file(equality_path, {1});
+    if (position_encrypted) {
+        position.__set_encryption_info(position_key);
+    }
+    if (equality_encrypted) {
+        equality.__set_encryption_info(equality_key);
+    }
+    auto split = build_split_options(data_path);
+    split.current_range.__set_table_format_params(
+            make_iceberg_table_format_desc(data_path, {position, equality}, 3));
+    if (data_encrypted) {
+        split.current_range.table_format_params.iceberg_params.__set_encryption_info(data_key);
+    }
+    auto params = make_local_parquet_scan_params();
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    RuntimeProfile profile("encrypted_delete_scan");
+    io::FileReaderStats io_stats;
+    io::FileCacheStatistics cache_stats;
+    auto io_ctx = make_io_context(&io_stats, &cache_stats);
+    const std::vector<ColumnDefinition> columns {
+            make_table_column(1, "id", std::make_shared<DataTypeInt32>())};
+    ShardedKVCache cache(1);
+    split.cache = &cache;
+    iceberg::IcebergTableReader reader;
+    init_iceberg_reader(&reader, columns, &params, io_ctx, &state, &profile);
+    for (int repeat = 0; repeat < 2; ++repeat) {
+        std::vector<int32_t> rows;
+        auto status = scan_delete_encryption_split(&reader, split, columns, &rows);
+        ASSERT_TRUE(status.ok()) << suffix << ": " << status;
+        EXPECT_EQ(rows, (std::vector<int32_t> {1, 3, 4, 6, 8}));
+    }
+    verify_delete_key_rejections(&reader, split, columns, position_encrypted, equality_encrypted);
+    std::vector<int32_t> retry_rows;
+    const auto retry = scan_delete_encryption_split(&reader, split, columns, &retry_rows);
+    ASSERT_TRUE(retry.ok()) << retry;
+    EXPECT_EQ(retry_rows, (std::vector<int32_t> {1, 3, 4, 6, 8}));
+    ASSERT_TRUE(reader.close().ok());
+}
+
+TEST(IcebergEncryptionTest, DataPositionAndEqualityDeletesUseIndependentKeysAcrossSplits) {
+    test::ScopedTempDirectory directory("iceberg-encrypted-deletes");
+    for (bool data : {false, true}) {
+        for (bool position : {false, true}) {
+            for (bool equality : {false, true}) {
+                verify_encrypted_delete_combination(directory.path(), data, position, equality);
+            }
+        }
+    }
+}
+
+TEST(IcebergEncryptionTest, ConvertedEqualityDeletesDoNotShareDecryptedCacheEntries) {
+    test::ScopedTempDirectory directory("iceberg-encrypted-converted-deletes");
+    const auto data_path = (directory.path() / "data.parquet").string();
+    write_nullable_int64_parquet_file(data_path, 1, "id", {1, 2, 3, 4, 5, 6, 7, 8});
+    std::vector<TIcebergDeleteFileDesc> deletes;
+    for (int index : {0, 1}) {
+        const auto key = synthetic_delete_key(index == 0 ? 'e' : 'f');
+        const auto path =
+                (directory.path() / ("equality-" + std::to_string(index) + ".parquet")).string();
+        write_iceberg_equality_delete_parquet_file(path, 1, index == 0 ? 2 : 5, "id",
+                                                   delete_writer_encryption(key));
+        auto descriptor = make_iceberg_equality_delete_file(path, {1});
+        descriptor.__set_encryption_info(key);
+        deletes.push_back(std::move(descriptor));
+    }
+    auto params = make_local_parquet_scan_params();
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    RuntimeProfile profile("encrypted_converted_delete_scan");
+    io::FileReaderStats io_stats;
+    io::FileCacheStatistics cache_stats;
+    auto io_ctx = make_io_context(&io_stats, &cache_stats);
+    const std::vector<ColumnDefinition> columns {
+            make_table_column(1, "id", std::make_shared<DataTypeInt64>())};
+    ShardedKVCache cache(1);
+    auto split = build_split_options(data_path);
+    split.cache = &cache;
+    split.current_range.__set_table_format_params(
+            make_iceberg_table_format_desc(data_path, deletes, 3));
+    iceberg::IcebergTableReader reader;
+    init_iceberg_reader(&reader, columns, &params, io_ctx, &state, &profile);
+    for (int repeat = 0; repeat < 2; ++repeat) {
+        ASSERT_TRUE(reader.prepare_split(split).ok());
+        std::vector<int64_t> rows;
+        bool eof = false;
+        while (!eof) {
+            auto block = build_table_block(columns);
+            const auto status = reader.get_block(&block, &eof);
+            ASSERT_TRUE(status.ok()) << status;
+            for (size_t row = 0; row < block.rows(); ++row) {
+                rows.push_back((*block.get_by_position(0).column)[row].get<TYPE_BIGINT>());
+            }
+        }
+        EXPECT_EQ(rows, (std::vector<int64_t> {1, 3, 4, 6, 7, 8}));
+    }
+    ASSERT_TRUE(reader.close().ok());
+}
+
+TEST(IcebergEncryptionTest, UnsupportedEncryptedDeletesFailBeforeFileIo) {
+    auto params = make_local_parquet_scan_params();
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    RuntimeProfile profile("unsupported_encrypted_delete");
+    io::FileReaderStats io_stats;
+    io::FileCacheStatistics cache_stats;
+    auto io_ctx = make_io_context(&io_stats, &cache_stats);
+    const std::vector<ColumnDefinition> columns {
+            make_table_column(1, "id", std::make_shared<DataTypeInt32>())};
+    iceberg::IcebergTableReader reader;
+    init_iceberg_reader(&reader, columns, &params, io_ctx, &state, &profile);
+    auto delete_file = make_iceberg_position_delete_file("missing-delete.orc");
+    delete_file.__set_file_format(TFileFormatType::FORMAT_ORC);
+    delete_file.__set_encryption_info(synthetic_delete_key('p'));
+    IcebergDeleteFileIOContext delete_io_ctx(&state);
+    std::unique_ptr<FileReader> file_reader;
+    auto status =
+            reader._create_delete_file_reader(delete_file, params, &delete_io_ctx, &file_reader);
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("UNSUPPORTED_FILE_FORMAT"), std::string::npos);
+    EXPECT_EQ(file_reader, nullptr);
+    delete_file.__set_content(3);
+    auto desc = make_iceberg_table_format_desc("missing-data.parquet", {delete_file}, 3);
+    DeleteFileDesc parsed;
+    bool has_delete = false;
+    status = reader._parse_deletion_vector_file(desc, &parsed, &has_delete);
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("UNSUPPORTED_FILE_FORMAT"), std::string::npos);
+    ASSERT_TRUE(reader.close().ok());
+}
+
+TEST(IcebergEncryptionTest, EncryptedAggregatesCannotUseTableLevelRowCounts) {
+    auto params = make_local_parquet_scan_params();
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    RuntimeProfile profile("encrypted_delete_metadata_count");
+    io::FileReaderStats io_stats;
+    io::FileCacheStatistics cache_stats;
+    auto io_ctx = make_io_context(&io_stats, &cache_stats);
+    const std::vector<ColumnDefinition> columns {
+            make_table_column(1, "id", std::make_shared<DataTypeInt32>())};
+    for (bool encrypted_data : {false, true}) {
+        iceberg::IcebergTableReader reader;
+        init_iceberg_reader(&reader, columns, &params, io_ctx, &state, &profile);
+        reader._push_down_agg_type = TPushAggOp::type::COUNT;
+        reader._push_down_count_columns = std::vector<GlobalIndex>();
+        SplitReadOptions split;
+        split.current_range.__set_path("missing-encrypted-data.parquet");
+        split.current_range.__set_file_size(100);
+        auto position = make_iceberg_position_delete_file("missing-position-delete.parquet");
+        auto desc = make_iceberg_table_format_desc("missing-encrypted-data.parquet", {position}, 3);
+        if (encrypted_data) {
+            desc.iceberg_params.__set_encryption_info(synthetic_delete_key('d'));
+        } else {
+            desc.iceberg_params.delete_files[0].__set_encryption_info(synthetic_delete_key('p'));
+        }
+        split.current_range.__set_table_format_params(desc);
+        set_table_level_row_count(&split, 8);
+        const auto status = reader.prepare_split(split);
+        EXPECT_FALSE(status.ok());
+        EXPECT_NE(status.to_string().find("AGGREGATE_UNAVAILABLE"), std::string::npos);
+        ASSERT_TRUE(reader.close().ok());
+    }
+}
+#endif
 
 } // namespace
 } // namespace doris::format

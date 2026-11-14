@@ -75,6 +75,12 @@ protected:
     // Iceberg UUID uses the same 16-byte STRING/VARBINARY carrier in data, defaults and deletes.
     bool preserve_binary_uuid() const override { return true; }
 
+    const TFileEncryptionInfo* file_encryption_info() const override {
+        return _iceberg_params.has_value() && _iceberg_params->__isset.encryption_info
+                       ? &_iceberg_params->encryption_info
+                       : nullptr;
+    }
+
     Status validate_file_mapping(const format::TableColumnMapper& mapper) const override;
 
     // Iceberg's Parquet reader resolves a data file that carries no field ids at all through the
@@ -266,7 +272,8 @@ private:
         std::vector<DataTypePtr> delete_key_types;
         Block delete_block;
         std::shared_ptr<const EqualityDeleteHashIndex> hash_index;
-        // Split-cache key of this filter, extended by the comparison types for converted copies.
+        // Empty for encrypted filters: neither the original nor converted plaintext may be cached.
+        // Other filters extend this split-cache key with the comparison types for converted copies.
         std::string cache_key;
     };
     std::vector<EqualityDeleteFilter> _equality_delete_filters;
