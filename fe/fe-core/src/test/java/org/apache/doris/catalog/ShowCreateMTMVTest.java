@@ -250,6 +250,28 @@ public class ShowCreateMTMVTest extends SqlTestBase {
         }
     }
 
+    // SHOW CREATE quotes the MV name, so the DDL re-executes for a reserved word or a name with '-'
+    @Test
+    public void testShowCreateQuotesMVName() throws Exception {
+        Database db = Env.getCurrentEnv().getInternalCatalog().getDbOrAnalysisException("test");
+        for (String name : new String[] {"select", "mv-show-quoted-name"}) {
+            createMvByNereids("create materialized view `" + name + "` "
+                    + "BUILD DEFERRED REFRESH COMPLETE ON MANUAL\n"
+                    + "DISTRIBUTED BY RANDOM BUCKETS 1\n"
+                    + "PROPERTIES ('replication_num' = '1')\n"
+                    + "as select * from test.show_create_ivm_base;");
+
+            MTMV mtmv = (MTMV) db.getTableOrAnalysisException(name);
+            String ddl = Env.getMTMVDdl(mtmv);
+
+            Assertions.assertTrue(ddl.startsWith("CREATE MATERIALIZED VIEW `" + name + "`\n"),
+                    "SHOW CREATE should quote the MV name, but got:\n" + ddl);
+            createMvByNereids(ddl.replace("`" + name + "`", "`" + name + "_copy`"));
+            Assertions.assertNotNull(db.getTableNullable(name + "_copy"),
+                    "The DDL from SHOW CREATE should re-create the MV:\n" + ddl);
+        }
+    }
+
     // TC-4-8: SHOW CREATE roundtrip - re-create IVM MV from DDL and verify identical output
     @Test
     public void testShowCreateIvmRoundtrip() throws Exception {

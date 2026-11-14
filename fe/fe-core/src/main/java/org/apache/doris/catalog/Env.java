@@ -3924,7 +3924,8 @@ public class Env {
         try {
             boolean isIvm = mtmv.isIvm();
             StringBuilder sb = new StringBuilder("CREATE MATERIALIZED VIEW ");
-            sb.append(mtmv.getName());
+            // quote the name so that the DDL re-executes for names such as `select` or `mv-1`
+            sb.append(SqlUtils.getIdentSql(mtmv.getName()));
             addColNameAndComment(mtmv, sb, isIvm);
             sb.append("\n");
             sb.append(mtmv.getRefreshInfo());
