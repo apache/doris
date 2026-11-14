@@ -24,6 +24,7 @@
 #include <string.h>
 #include <zlib.h>
 
+#include <array>
 #include <cstdint>
 #include <limits>
 #include <vector>
@@ -91,7 +92,7 @@ uint32_t crc32c_reference(const T& value, uint32_t seed) {
 // Helper: compute zlib crc32 for a value of type T
 template <typename T>
 uint32_t zlib_crc32_reference(const T& value, uint32_t seed) {
-    return HashUtil::zlib_crc_hash(&value, sizeof(T), seed);
+    return static_cast<uint32_t>(crc32_z(seed, reinterpret_cast<const Bytef*>(&value), sizeof(T)));
 }
 
 /*
@@ -467,12 +468,73 @@ TEST(ZlibCRC32Fixed, SequentialInt32) {
 // ==================== Large 16-byte type fallback test ====================
 
 TEST(ZlibCRC32Fixed, LargeTypeFallback) {
-    // __int128 is 16 bytes, should hit the fallback path to zlib crc32()
+    // The 16-byte fallback must remain zlib-compatible.
     __int128 value = static_cast<__int128>(0x0102030405060708ULL) << 64 | 0x090A0B0C0D0E0F10ULL;
     uint32_t seed = 0;
     uint32_t fixed_result = HashUtil::zlib_crc32_fixed(value, seed);
-    uint32_t ref_result = HashUtil::zlib_crc_hash(&value, sizeof(value), seed);
+    uint32_t ref_result = zlib_crc32_reference(value, seed);
     EXPECT_EQ(fixed_result, ref_result);
+}
+
+TEST(ZlibCRC32Strings, EmptyAndNullBuffers) {
+    const uint8_t byte = 0;
+    for (uint32_t seed : {0U, 1U, 0xFFFFFFFFU, 0xDEADBEEFU}) {
+        EXPECT_EQ(seed, HashUtil::zlib_crc_hash(&byte, 0, seed));
+        for (size_t length : {size_t(0), size_t(1), size_t(255), size_t(256), size_t(4097),
+                              std::numeric_limits<size_t>::max()}) {
+            EXPECT_EQ(0U, HashUtil::zlib_crc_hash(nullptr, length, seed));
+        }
+    }
+}
+
+TEST(ZlibCRC32Strings, KnownChecksum) {
+    constexpr char input[] = "123456789";
+    EXPECT_EQ(0xCBF43926U, HashUtil::zlib_crc_hash(input, sizeof(input) - 1, 0));
+}
+
+TEST(ZlibCRC32Strings, AllByteValues) {
+    for (uint32_t value = 0; value < 256; ++value) {
+        auto byte = static_cast<uint8_t>(value);
+        for (uint32_t seed : {0U, 1U, 0xFFFFFFFFU, 0xDEADBEEFU}) {
+            EXPECT_EQ(static_cast<uint32_t>(crc32_z(seed, &byte, 1)),
+                      HashUtil::zlib_crc_hash(&byte, 1, seed));
+        }
+    }
+}
+
+TEST(ZlibCRC32Strings, LengthsSeedsAndAlignment) {
+    for (size_t length = 1; length <= 513; ++length) {
+        for (size_t offset = 0; offset < 8; ++offset) {
+            // The input ends at the allocation boundary so ASAN catches oversized tail loads.
+            std::vector<uint8_t> buffer(length + offset);
+            for (size_t i = 0; i < buffer.size(); ++i) {
+                buffer[i] = static_cast<uint8_t>(i * 37 + length * 13);
+            }
+            const auto* data = buffer.data() + offset;
+            for (uint32_t seed : {0U, 1U, 0xFFFFFFFFU, 0xDEADBEEFU}) {
+                EXPECT_EQ(static_cast<uint32_t>(crc32_z(seed, data, length)),
+                          HashUtil::zlib_crc_hash(data, length, seed))
+                        << "length=" << length << " offset=" << offset << " seed=" << seed;
+            }
+        }
+    }
+}
+
+TEST(ZlibCRC32Strings, IncrementalChaining) {
+    std::array<uint8_t, 8192> data {};
+    for (size_t i = 0; i < data.size(); ++i) {
+        data[i] = static_cast<uint8_t>(i * 37 + 11);
+    }
+    for (uint32_t seed : {0U, 1U, 0xFFFFFFFFU, 0xDEADBEEFU}) {
+        uint32_t hash = seed;
+        size_t offset = 0;
+        for (size_t length : {0, 1, 2, 4, 7, 8, 9, 255, 256, 257, 4097}) {
+            hash = HashUtil::zlib_crc_hash(data.data() + offset, length, hash);
+            offset += length;
+            EXPECT_EQ(static_cast<uint32_t>(crc32_z(seed, data.data(), offset)), hash)
+                    << "offset=" << offset << " seed=" << seed;
+        }
+    }
 }
 
 } // namespace doris

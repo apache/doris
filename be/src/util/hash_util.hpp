@@ -28,6 +28,10 @@
 #include <bit>
 #include <functional>
 
+#if defined(__aarch64__) && defined(__ARM_FEATURE_CRC32)
+#include <arm_acle.h>
+#endif
+
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "exec/common/endian.h"
 #include "util/cpu_info.h"
@@ -37,11 +41,10 @@
 
 namespace doris {
 namespace detail {
-// Slicing-by-4 table: t[0] is the standard byte-at-a-time table,
-// t[1..3] are extended tables for parallel 4-byte processing.
-struct CRC32SliceBy4Table {
-    uint32_t t[4][256] {};
-    constexpr CRC32SliceBy4Table() {
+// t[0] is the byte-at-a-time table; t[1..7] allow slicing-by-4 and slicing-by-8.
+struct CRC32Table {
+    uint32_t t[8][256] {};
+    constexpr CRC32Table() {
         // t[0]: standard CRC32 lookup table
         for (uint32_t i = 0; i < 256; i++) {
             uint32_t c = i;
@@ -50,10 +53,10 @@ struct CRC32SliceBy4Table {
             }
             t[0][i] = c;
         }
-        // t[1..3]: each entry is one additional CRC byte-step applied to t[k-1]
+        // Each extended table applies one more CRC byte-step to the preceding table.
         for (uint32_t i = 0; i < 256; i++) {
             uint32_t c = t[0][i];
-            for (int k = 1; k < 4; k++) {
+            for (int k = 1; k < 8; k++) {
                 c = t[0][c & 0xFF] ^ (c >> 8);
                 t[k][i] = c;
             }
@@ -65,11 +68,63 @@ struct CRC32SliceBy4Table {
 // Utility class to compute hash values.
 class HashUtil {
 private:
-    static inline constexpr detail::CRC32SliceBy4Table CRC32_TABLE {};
+    static inline constexpr detail::CRC32Table CRC32_TABLE {};
+
+    static uint32_t crc32_update_4(const uint8_t* data, uint32_t crc) {
+        uint32_t word = LittleEndian::Load32(data) ^ crc;
+        return CRC32_TABLE.t[3][word & 0xFF] ^ CRC32_TABLE.t[2][(word >> 8) & 0xFF] ^
+               CRC32_TABLE.t[1][(word >> 16) & 0xFF] ^ CRC32_TABLE.t[0][word >> 24];
+    }
 
 public:
-    static uint32_t zlib_crc_hash(const void* data, uint32_t bytes, uint32_t hash) {
-        return (uint32_t)crc32(hash, (const unsigned char*)data, bytes);
+    static uint32_t zlib_crc_hash(const void* data, size_t bytes, uint32_t hash) {
+        // zlib resets the checksum for a null buffer. Keep its braided path for long inputs.
+        if (data == nullptr || bytes >= 256) {
+            return static_cast<uint32_t>(crc32_z(hash, static_cast<const Bytef*>(data), bytes));
+        }
+
+        const auto* p = static_cast<const uint8_t*>(data);
+        uint32_t crc = hash ^ 0xFFFFFFFFU;
+#if defined(__aarch64__) && defined(__ARM_FEATURE_CRC32)
+        while (bytes >= 8) {
+            crc = __crc32d(crc, LittleEndian::Load64(p));
+            p += 8;
+            bytes -= 8;
+        }
+        if (bytes >= 4) {
+            crc = __crc32w(crc, LittleEndian::Load32(p));
+            p += 4;
+            bytes -= 4;
+        }
+        if (bytes >= 2) {
+            crc = __crc32h(crc, LittleEndian::Load16(p));
+            p += 2;
+            bytes -= 2;
+        }
+        if (bytes != 0) {
+            crc = __crc32b(crc, *p);
+        }
+#else
+        while (bytes >= 8) {
+            uint64_t word = LittleEndian::Load64(p) ^ crc;
+            crc = CRC32_TABLE.t[7][word & 0xFF] ^ CRC32_TABLE.t[6][(word >> 8) & 0xFF] ^
+                  CRC32_TABLE.t[5][(word >> 16) & 0xFF] ^ CRC32_TABLE.t[4][(word >> 24) & 0xFF] ^
+                  CRC32_TABLE.t[3][(word >> 32) & 0xFF] ^ CRC32_TABLE.t[2][(word >> 40) & 0xFF] ^
+                  CRC32_TABLE.t[1][(word >> 48) & 0xFF] ^ CRC32_TABLE.t[0][word >> 56];
+            p += 8;
+            bytes -= 8;
+        }
+        if (bytes >= 4) {
+            crc = crc32_update_4(p, crc);
+            p += 4;
+            bytes -= 4;
+        }
+        while (bytes != 0) {
+            crc = CRC32_TABLE.t[0][(crc ^ *p++) & 0xFF] ^ (crc >> 8);
+            --bytes;
+        }
+#endif
+        return crc ^ 0xFFFFFFFFU;
     }
 
     // Inline CRC32 (zlib-compatible, standard CRC32 polynomial) for fixed-size types.
@@ -96,18 +151,12 @@ public:
             // 4 bytes: one Slicing-by-4 step — 4 independent lookups in parallel
             // LittleEndian::Load32 handles unaligned load + byte-swap on big-endian,
             // ensuring byte[0] is always at LSB for correct CRC byte processing order.
-            uint32_t word = LittleEndian::Load32(p) ^ crc;
-            crc = CRC32_TABLE.t[3][(word)&0xFF] ^ CRC32_TABLE.t[2][(word >> 8) & 0xFF] ^
-                  CRC32_TABLE.t[1][(word >> 16) & 0xFF] ^ CRC32_TABLE.t[0][(word >> 24) & 0xFF];
+            crc = crc32_update_4(p, crc);
         } else if constexpr (sizeof(T) == 8) {
             // 8 bytes: two Slicing-by-4 steps
-            uint32_t word = LittleEndian::Load32(p) ^ crc;
-            crc = CRC32_TABLE.t[3][(word)&0xFF] ^ CRC32_TABLE.t[2][(word >> 8) & 0xFF] ^
-                  CRC32_TABLE.t[1][(word >> 16) & 0xFF] ^ CRC32_TABLE.t[0][(word >> 24) & 0xFF];
+            crc = crc32_update_4(p, crc);
 
-            word = LittleEndian::Load32(p + 4) ^ crc;
-            crc = CRC32_TABLE.t[3][(word)&0xFF] ^ CRC32_TABLE.t[2][(word >> 8) & 0xFF] ^
-                  CRC32_TABLE.t[1][(word >> 16) & 0xFF] ^ CRC32_TABLE.t[0][(word >> 24) & 0xFF];
+            crc = crc32_update_4(p + 4, crc);
         } else {
             // Fallback to zlib for larger/unusual types
             return (uint32_t)crc32(hash, (const unsigned char*)&value, sizeof(T));
