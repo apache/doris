@@ -1644,6 +1644,11 @@ message CreateInstanceResponse {
     optional MetaServiceResponseStatus status = 1;
 }
 
+message BootstrapInstanceRequest {
+    optional string instance_id = 1;
+    optional ClusterPB initial_fe_cluster = 2;
+}
+
 message AlterInstanceRequest {
     enum Operation {
         UNKNOWN                     = 0;
@@ -1669,6 +1674,7 @@ message AlterInstanceRequest {
     optional string name = 3;
     optional string request_ip = 4;
     map<string, string> properties = 5; // key is the Name of SnapshotProperty value.
+    optional string cloud_unique_id = 6; // For auth
 }
 
 message AlterInstanceResponse {
@@ -2519,6 +2525,7 @@ service MetaService {
     rpc alter_storage_vault(AlterObjStoreInfoRequest) returns (AlterObjStoreInfoResponse);
     rpc update_ak_sk(UpdateAkSkRequest) returns (UpdateAkSkResponse);
     rpc create_instance(CreateInstanceRequest) returns (CreateInstanceResponse);
+    rpc bootstrap_instance(BootstrapInstanceRequest) returns (CreateInstanceResponse);
     rpc alter_instance(AlterInstanceRequest) returns (AlterInstanceResponse);
     rpc get_instance(GetInstanceRequest) returns (GetInstanceResponse);
     rpc alter_cluster(AlterClusterRequest) returns (AlterClusterResponse);

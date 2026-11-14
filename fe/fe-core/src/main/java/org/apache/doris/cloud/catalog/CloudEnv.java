@@ -52,6 +52,7 @@ import org.apache.doris.nereids.trees.plans.commands.CancelWarmUpJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateStageCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropStageCommand;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.rpc.RpcException;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.system.SystemInfoService.HostInfo;
 import org.apache.doris.task.AgentBatchTask;
@@ -268,22 +269,31 @@ public class CloudEnv extends Env {
         return local.orElse(null);
     }
 
-    private void tryAddMyselfToMS() {
+    private boolean bootstrapInstance() throws IOException {
+        Cloud.MetaServiceResponseStatus status;
         try {
-            try {
-                getCloudSystemInfoService().tryCreateInstance(getCloudInstanceId(),
-                        getCloudInstanceId(), false);
-            } catch (Exception e) {
-                return;
-            }
-            addFrontend(FrontendNodeType.MASTER, selfNode.getHost(), selfNode.getPort());
-        } catch (DdlException e) {
-            LOG.warn("get ddl exception ", e);
+            status = getCloudSystemInfoService().bootstrapInstance(getCloudInstanceId(),
+                    selfNode.getHost(), selfNode.getPort());
+        } catch (RpcException e) {
+            LOG.warn("Failed to contact Meta Service for instance bootstrap", e);
+            return false;
+        }
+        switch (status.getCode()) {
+            case OK:
+            case ALREADY_EXISTED:
+                // The startup loop verifies that this FE is registered, including after a lost response.
+                return true;
+            case INVALID_ARGUMENT:
+                throw new IOException("Instance bootstrap rejected: " + status.getMsg());
+            default:
+                LOG.warn("Instance bootstrap returned {}, will retry", status.getCode());
+                return false;
         }
     }
 
     protected void getClusterIdAndRole() throws IOException {
         NodeInfoPB.NodeType type = NodeInfoPB.NodeType.UNKNOWN;
+        boolean bootstrapSubmitted = false;
         // cloud mode
         while (true) {
             Cloud.NodeInfoPB nodeInfoPB = null;
@@ -296,8 +306,8 @@ public class CloudEnv extends Env {
             if (nodeInfoPB == null) {
                 LOG.warn("failed to get local fe's type, sleep {} s, try again.",
                         Config.resource_not_ready_sleep_seconds);
-                if (isStartFromEmpty()) {
-                    tryAddMyselfToMS();
+                if (isStartFromEmpty() && !bootstrapSubmitted && Config.cluster_id != -1) {
+                    bootstrapSubmitted = bootstrapInstance();
                 }
                 try {
                     Thread.sleep(Config.resource_not_ready_sleep_seconds * 1000);

@@ -2362,6 +2362,68 @@ void MetaServiceImpl::create_instance(google::protobuf::RpcController* controlle
                                       const CreateInstanceRequest* request,
                                       CreateInstanceResponse* response,
                                       ::google::protobuf::Closure* done) {
+    create_instance_impl(controller, request, response, done, nullptr);
+}
+
+void MetaServiceImpl::bootstrap_instance(google::protobuf::RpcController* controller,
+                                         const BootstrapInstanceRequest* request,
+                                         CreateInstanceResponse* response,
+                                         ::google::protobuf::Closure* done) {
+    brpc::ClosureGuard done_guard(done);
+    CreateInstanceRequest create_request;
+    create_request.set_instance_id(request->instance_id());
+    create_request.set_name(request->instance_id());
+    create_instance_impl(controller, &create_request, response, nullptr,
+                         &request->initial_fe_cluster());
+}
+
+static bool add_initial_fe_cluster(ResourceManager& resource_mgr, const ClusterPB& cluster,
+                                   InstanceInfoPB& instance, std::string& msg) {
+    const auto& instance_id = instance.instance_id();
+    if (cluster.type() != ClusterPB::SQL || cluster.cluster_id().empty() ||
+        cluster.nodes_size() != 1 || cluster.nodes(0).node_type() != NodeInfoPB::FE_MASTER) {
+        msg = "initial_fe_cluster must be a SQL cluster with one FE master";
+        return false;
+    }
+    const auto& node = cluster.nodes(0);
+    if ((node.ip().empty() && node.host().empty()) || node.edit_log_port() <= 0 ||
+        node.edit_log_port() > 65535 || node.cloud_unique_id().empty()) {
+        msg = "initial FE requires an address, a valid edit log port and a cloud_unique_id";
+        return false;
+    }
+    if (!resource_mgr.check_cluster_params_valid(cluster, &msg, true, true, instance_id)) {
+        return false;
+    }
+    std::vector<NodeInfo> nodes;
+    resource_mgr.get_node(node.cloud_unique_id(), &nodes);
+    if (std::any_of(nodes.begin(), nodes.end(), [&](const auto& registered) {
+            return registered.instance_id != instance_id;
+        })) {
+        msg = "initial FE cloud_unique_id belongs to another instance";
+        return false;
+    }
+    for (const auto& existing : instance.clusters()) {
+        if (existing.cluster_id() == cluster.cluster_id() ||
+            existing.cluster_name() == cluster.cluster_name()) {
+            msg = "initial FE cluster id or name already exists";
+            return false;
+        }
+    }
+    const auto now = duration_cast<seconds>(system_clock::now().time_since_epoch()).count();
+    auto* initial_cluster = instance.add_clusters();
+    initial_cluster->CopyFrom(cluster);
+    initial_cluster->set_ctime(now);
+    initial_cluster->set_mtime(now);
+    initial_cluster->mutable_nodes(0)->set_ctime(now);
+    initial_cluster->mutable_nodes(0)->set_mtime(now);
+    return true;
+}
+
+void MetaServiceImpl::create_instance_impl(google::protobuf::RpcController* controller,
+                                           const CreateInstanceRequest* request,
+                                           CreateInstanceResponse* response,
+                                           ::google::protobuf::Closure* done,
+                                           const ClusterPB* initial_fe_cluster) {
     TEST_SYNC_POINT_CALLBACK("create_instance_sk_request",
                              const_cast<CreateInstanceRequest**>(&request));
     RPC_PREPROCESS(create_instance, get, put);
@@ -2433,6 +2495,43 @@ void MetaServiceImpl::create_instance(google::protobuf::RpcController* controlle
         LOG(WARNING) << msg << " err=" << err;
         return;
     }
+    InstanceKeyInfo key_info {instance_id};
+    std::string key;
+    std::string val;
+    instance_key(key_info, &key);
+    err = txn->get(key, &val);
+    if (err == TxnErrorCode::TXN_OK && initial_fe_cluster != nullptr) {
+        // HTTP provisioning may create the instance and vault before the first FE starts.
+        if (!instance.ParseFromString(val)) {
+            code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+            msg = "failed to parse InstanceInfoPB";
+            return;
+        }
+        if (instance.status() == InstanceInfoPB::DELETED) {
+            code = MetaServiceCode::CLUSTER_NOT_FOUND;
+            msg = "instance status has been set delete, plz check it";
+            return;
+        }
+        if (std::any_of(instance.clusters().begin(), instance.clusters().end(),
+                        [](const auto& cluster) { return cluster.type() == ClusterPB::SQL; })) {
+            code = MetaServiceCode::ALREADY_EXISTED;
+            msg = "initial FE cluster already existed";
+            return;
+        }
+    } else if (err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+        code = err == TxnErrorCode::TXN_OK ? MetaServiceCode::ALREADY_EXISTED
+                                           : cast_as<ErrCategory::READ>(err);
+        msg = err == TxnErrorCode::TXN_OK ? "instance already existed" : "failed to check instance";
+        LOG(WARNING) << msg << ", instance_id=" << instance_id << " err=" << err;
+        return;
+    }
+
+    if (initial_fe_cluster != nullptr &&
+        !add_initial_fe_cluster(*resource_mgr_, *initial_fe_cluster, instance, msg)) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        return;
+    }
+
     if (request->has_vault()) {
         auto& param = const_cast<StorageVaultPB&>(request->vault());
         param.set_name(BUILT_IN_STORAGE_VAULT_NAME.data());
@@ -2441,10 +2540,7 @@ void MetaServiceImpl::create_instance(google::protobuf::RpcController* controlle
         }
     }
 
-    InstanceKeyInfo key_info {request->instance_id()};
-    std::string key;
-    std::string val = instance.SerializeAsString();
-    instance_key(key_info, &key);
+    val = instance.SerializeAsString();
     if (val.empty()) {
         code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
         msg = "failed to serialize";
@@ -2458,20 +2554,6 @@ void MetaServiceImpl::create_instance(google::protobuf::RpcController* controlle
 
     LOG(INFO) << "xxx instance json=" << proto_to_json(instance);
 
-    // Check existence before proceeding
-    err = txn->get(key, &val);
-    if (err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
-        std::stringstream ss;
-        ss << (err == TxnErrorCode::TXN_OK ? "instance already existed"
-                                           : "internal error failed to check instance")
-           << ", instance_id=" << request->instance_id() << ", err=" << err;
-        code = err == TxnErrorCode::TXN_OK ? MetaServiceCode::ALREADY_EXISTED
-                                           : cast_as<ErrCategory::READ>(err);
-        msg = ss.str();
-        LOG(WARNING) << msg << " err=" << err;
-        return;
-    }
-
     txn->atomic_add(system_meta_service_instance_update_key(), 1);
     txn->put(key, val);
     LOG(INFO) << "put instance_id=" << request->instance_id() << " instance_key=" << hex(key);
@@ -2480,10 +2562,13 @@ void MetaServiceImpl::create_instance(google::protobuf::RpcController* controlle
         code = cast_as<ErrCategory::COMMIT>(err);
         msg = fmt::format("failed to commit kv txn, err={}", err);
         LOG(WARNING) << msg;
+    } else if (initial_fe_cluster != nullptr) {
+        resource_mgr_->refresh_instance(instance_id, instance);
     }
 
+    const bool include_self = err != TxnErrorCode::TXN_OK || initial_fe_cluster == nullptr;
     async_notify_refresh_instance(
-            txn_kv_, request->instance_id(), /*include_self=*/true,
+            txn_kv_, request->instance_id(), include_self,
             [instance_id = request->instance_id()](const KVStats& stats) {
                 if (config::use_detailed_metrics && !instance_id.empty()) {
                     g_bvar_rpc_kv_create_instance_get_bytes.put({instance_id}, stats.get_bytes);

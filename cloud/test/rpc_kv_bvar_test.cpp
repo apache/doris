@@ -42,6 +42,7 @@
 #include "meta-store/txn_kv_error.h"
 #include "mock_resource_manager.h"
 #include "rate-limiter/rate_limiter.h"
+#include "scoped_legacy_instance_rpc.h"
 
 int main(int argc, char** argv) {
     const std::string conf_file = "doris_cloud.conf";
@@ -1965,6 +1966,7 @@ TEST(RpcKvBvarTest, AlterObjStoreInfo) {
 
 // update_ak_sk
 TEST(RpcKvBvarTest, UpdateAkSk) {
+    ScopedLegacyInstanceRpc legacy_instance_rpc;
     auto syncpoint_guard = setup_notify_refresh_syncpoint();
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
@@ -2034,6 +2036,7 @@ TEST(RpcKvBvarTest, UpdateAkSk) {
 
 // create_instance
 TEST(RpcKvBvarTest, CreateInstance) {
+    ScopedLegacyInstanceRpc legacy_instance_rpc;
     auto syncpoint_guard = setup_notify_refresh_syncpoint();
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
@@ -2086,6 +2089,7 @@ TEST(RpcKvBvarTest, CreateInstance) {
 
 // get_instance
 TEST(RpcKvBvarTest, GetInstance) {
+    ScopedLegacyInstanceRpc legacy_instance_rpc;
     auto syncpoint_guard = setup_notify_refresh_syncpoint();
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
@@ -2216,6 +2220,7 @@ TEST(RpcKvBvarTest, GetCluster) {
 
 // create_stage
 TEST(RpcKvBvarTest, CreateStage) {
+    ScopedLegacyInstanceRpc legacy_instance_rpc;
     auto syncpoint_guard = setup_notify_refresh_syncpoint();
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
@@ -2311,6 +2316,7 @@ TEST(RpcKvBvarTest, CreateStage) {
 
 // get_stage
 TEST(RpcKvBvarTest, GetStage) {
+    ScopedLegacyInstanceRpc legacy_instance_rpc;
     auto syncpoint_guard = setup_notify_refresh_syncpoint();
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
@@ -2416,6 +2422,7 @@ TEST(RpcKvBvarTest, GetStage) {
 
 // get_iam
 TEST(RpcKvBvarTest, GetIam) {
+    ScopedLegacyInstanceRpc legacy_instance_rpc;
     auto syncpoint_guard = setup_notify_refresh_syncpoint();
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
@@ -2546,6 +2553,7 @@ TEST(RpcKvBvarTest, AlterIam) {
 
 // alter_ram_user
 TEST(RpcKvBvarTest, AlterRamUser) {
+    ScopedLegacyInstanceRpc legacy_instance_rpc;
     auto syncpoint_guard = setup_notify_refresh_syncpoint();
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
@@ -2963,6 +2971,7 @@ TEST(RpcKvBvarTest, FilterCopyFiles) {
 
 // get_cluster_status
 TEST(RpcKvBvarTest, GetClusterStatus) {
+    ScopedLegacyInstanceRpc legacy_instance_rpc;
     auto syncpoint_guard = setup_notify_refresh_syncpoint();
     auto meta_service = get_meta_service();
     auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
