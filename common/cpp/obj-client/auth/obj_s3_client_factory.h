@@ -32,7 +32,7 @@ class S3Client;
 
 namespace doris {
 
-// Neutral inputs shared by BE's S3ClientConf and Cloud's S3Conf. Provider-native
+// Inputs shared by the BE and Cloud S3 client builders. Provider-native
 // authentication is selected before construction because AWS credentials providers
 // cannot be replaced safely on an already constructed client.
 struct S3ClientBuildContext {

@@ -17,7 +17,7 @@
 
 #include "io/fs/s3_file_writer.h"
 
-#include <aws/s3/model/CompletedPart.h>
+#include <aws/core/http/URI.h>
 #include <bvar/recorder.h>
 #include <bvar/reducer.h>
 #include <bvar/window.h>
@@ -40,6 +40,8 @@
 #include "io/fs/path.h"
 #include "io/fs/s3_file_bufferpool.h"
 #include "io/fs/s3_file_system.h"
+#include "io/obj_storage/obj_client_holder.h"
+#include "io/obj_storage/obj_storage_config.h"
 #include "runtime/exec_env.h"
 #include "util/debug_points.h"
 #include "util/s3_util.h"
@@ -455,10 +457,6 @@ Status check_after_upload(ObjStorageClient* client, const ObjStorageResponse& up
 }
 
 Status S3FileWriter::_complete() {
-    const auto& client = _obj_client->get();
-    if (nullptr == client) {
-        return Status::InternalError<false>("invalid obj storage client");
-    }
     if (_failed) {
         _wait_until_finish("early quit");
         return _st;
@@ -468,7 +466,8 @@ Status S3FileWriter::_complete() {
         _wait_until_finish("PutObject");
         return _st;
     }
-    // Wait multipart load and finish.
+    // Complete the upload with the client observed before waiting for its parts.
+    const auto client = _obj_client->get();
     _wait_until_finish("Complete");
     TEST_SYNC_POINT_CALLBACK("S3FileWriter::_complete:1",
                              std::make_pair(&_failed, &_completed_parts));
@@ -503,6 +502,9 @@ Status S3FileWriter::_complete() {
     LOG(INFO) << "complete_multipart_upload " << _obj_storage_path_opts.path.native()
               << " size=" << _bytes_appended << " number_parts=" << _completed_parts.size()
               << " s3_write_buffer_size=" << config::s3_write_buffer_size;
+    if (!client) {
+        return Status::InternalError<false>("invalid obj storage client");
+    }
     auto resp =
             client->complete_multipart_upload(_obj_storage_path_opts, _upload_id, _completed_parts);
     if (resp.status.code != ErrorCode::OK) {

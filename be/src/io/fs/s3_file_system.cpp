@@ -23,14 +23,12 @@
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 // IWYU pragma: no_include <bits/chrono.h>
-#include <aws/core/utils/threading/Executor.h>
-#include <aws/s3/S3Client.h>
-
 #include <chrono> // IWYU pragma: keep
 #include <filesystem>
 #include <fstream> // IWYU pragma: keep
 #include <future>
 #include <memory>
+#include <variant>
 
 #include "common/config.h"
 #include "common/logging.h"
@@ -45,9 +43,10 @@
 #include "io/fs/remote_file_system.h"
 #include "io/fs/s3_file_reader.h"
 #include "io/fs/s3_file_writer.h"
+#include "io/obj_storage/obj_client_factory.h"
+#include "io/obj_storage/obj_storage_uri.h"
 #include "runtime/exec_env.h"
 #include "runtime/thread_context.h"
-#include "util/s3_uri.h"
 #include "util/s3_util.h"
 
 namespace doris::io {
@@ -64,118 +63,44 @@ constexpr int LEN_OF_OSS_PRIVATE_SUFFIX = 9; // length of "-internal"
 
 Result<std::string> get_key(const Path& full_path) {
     // FIXME(plat1ko): Check bucket in full path and support relative path
-    S3URI uri(full_path.native());
-    RETURN_IF_ERROR_RESULT(uri.parse());
-    return uri.get_key();
+    auto uri = ObjStorageUri::parse_s3(full_path.native());
+    if (!uri.has_value()) {
+        return ResultError(std::move(uri).error());
+    }
+    return std::move(uri.value().key);
+}
+
+// Removes the first and last '/'.
+std::string normalize_prefix(std::string prefix) {
+    if (prefix.empty()) {
+        return prefix;
+    }
+    size_t start = prefix.find_first_not_of('/');
+    if (start == std::string::npos) {
+        return "";
+    }
+    size_t end = prefix.find_last_not_of('/');
+    return prefix.substr(start, end - start + 1);
 }
 
 } // namespace
-
-ObjClientHolder::ObjClientHolder(S3ClientConf conf) : _conf(std::move(conf)) {}
-
-ObjClientHolder::~ObjClientHolder() = default;
-
-Status ObjClientHolder::init() {
-    _client = DORIS_TRY(S3ClientFactory::instance().create(_conf));
-    return Status::OK();
-}
-
-Status ObjClientHolder::reset(const S3ClientConf& conf) {
-    S3ClientConf reset_conf;
-    {
-        std::shared_lock lock(_mtx);
-        reset_conf = _conf;
-        reset_conf.provider = conf.provider;
-        reset_conf.ak = conf.ak;
-        reset_conf.sk = conf.sk;
-        reset_conf.token = conf.token;
-        reset_conf.bucket = conf.bucket;
-        reset_conf.connect_timeout_ms = conf.connect_timeout_ms;
-        reset_conf.max_connections = conf.max_connections;
-        reset_conf.request_timeout_ms = conf.request_timeout_ms;
-        reset_conf.use_virtual_addressing = conf.use_virtual_addressing;
-        reset_conf.is_internal_bucket = conf.is_internal_bucket;
-
-        reset_conf.role_arn = conf.role_arn;
-        reset_conf.external_id = conf.external_id;
-        reset_conf.cred_provider_type = conf.cred_provider_type;
-        reset_conf.credential = conf.credential;
-
-        // Compare full-field equality of the merged conf, not get_hash(): the hash is
-        // an XOR of crc32s and distinct configurations can collide, which would skip a
-        // required client rebuild (e.g. a credential update).
-        if (reset_conf == _conf) {
-            return Status::OK(); // Same conf
-        }
-    }
-
-    auto client = DORIS_TRY(S3ClientFactory::instance().create(reset_conf));
-
-    LOG(WARNING) << "reset s3 client with new conf: " << conf.to_string();
-
-    {
-        std::lock_guard lock(_mtx);
-        _client = std::move(client);
-        _conf = std::move(reset_conf);
-    }
-
-    return Status::OK();
-}
-
-Result<int64_t> ObjClientHolder::object_file_size(const std::string& bucket,
-                                                  const std::string& key) const {
-    auto client = get();
-    if (!client) {
-        return ResultError(Status::InvalidArgument("init s3 client error"));
-    }
-
-    auto resp = client->head_object({
-            .bucket = bucket,
-            .key = key,
-    });
-
-    if (resp.resp.status.code != ErrorCode::OK) {
-        return ResultError(std::move(Status(resp.resp.status.code, std::move(resp.resp.status.msg))
-                                             .append(fmt::format("failed to head s3 file {}",
-                                                                 full_s3_path(bucket, key)))));
-    }
-
-    return resp.file_size;
-}
-
-std::string ObjClientHolder::full_s3_path(std::string_view bucket, std::string_view key) const {
-    return fmt::format("{}/{}/{}", _conf.endpoint, bucket, key);
-}
 
 std::string S3FileSystem::full_s3_path(std::string_view key) const {
     return _client->full_s3_path(_bucket, key);
 }
 
-Result<std::shared_ptr<S3FileSystem>> S3FileSystem::create(S3Conf s3_conf, std::string id) {
-    std::shared_ptr<S3FileSystem> fs(new S3FileSystem(std::move(s3_conf), std::move(id)));
+Result<std::shared_ptr<S3FileSystem>> S3FileSystem::create(ObjStorageConfig config,
+                                                           std::string id) {
+    std::shared_ptr<S3FileSystem> fs(new S3FileSystem(std::move(config), std::move(id)));
     RETURN_IF_ERROR_RESULT(fs->init());
     return fs;
 }
 
-S3FileSystem::S3FileSystem(S3Conf s3_conf, std::string id)
-        : RemoteFileSystem(s3_conf.prefix, std::move(id), FileSystemType::S3),
-          _bucket(std::move(s3_conf.bucket)),
-          _prefix(std::move(s3_conf.prefix)),
-          _client(std::make_shared<ObjClientHolder>(std::move(s3_conf.client_conf))) {
-    // FIXME(plat1ko): Normalize prefix
-    // remove the first and last '/'
-    if (!_prefix.empty()) {
-        size_t start = _prefix.find_first_not_of('/');
-        if (start == std::string::npos) {
-            _prefix = "";
-        } else {
-            size_t end = _prefix.find_last_not_of('/');
-            if (start > 0 || end < _prefix.size() - 1) {
-                _prefix = _prefix.substr(start, end - start + 1);
-            }
-        }
-    }
-}
+S3FileSystem::S3FileSystem(ObjStorageConfig config, std::string id)
+        : RemoteFileSystem(config.prefix, std::move(id), FileSystemType::S3),
+          _bucket(std::move(config.bucket)),
+          _prefix(normalize_prefix(std::move(config.prefix))),
+          _client(std::make_shared<ObjClientHolder>(std::move(config.client))) {}
 
 Status S3FileSystem::init() {
     return _client->init();
@@ -431,7 +356,7 @@ Status S3FileSystem::download_impl(const Path& remote_file, const Path& local_fi
     if (resp.status.code != ErrorCode::OK) {
         return {resp.status.code, std::move(resp.status.msg)};
     }
-    Aws::OFStream local_file_s;
+    std::ofstream local_file_s;
     local_file_s.open(local_file, std::ios::out | std::ios::binary);
     if (local_file_s.good()) {
         local_file_s << StringViewStream(buf.get(), size).rdbuf();
@@ -450,13 +375,20 @@ std::string S3FileSystem::generate_presigned_url(const Path& path, int64_t expir
     std::string key =
             _prefix.empty() ? path.native() : fmt::format("{}/{}", _prefix, path.native());
     std::shared_ptr<ObjStorageClient> client;
-    if (is_public_endpoint &&
-        _client->s3_client_conf().endpoint.ends_with(OSS_PRIVATE_ENDPOINT_SUFFIX)) {
-        auto new_s3_conf = _client->s3_client_conf();
-        new_s3_conf.endpoint.erase(
-                _client->s3_client_conf().endpoint.size() - OSS_PRIVATE_ENDPOINT_SUFFIX.size(),
-                LEN_OF_OSS_PRIVATE_SUFFIX);
-        auto client_result = S3ClientFactory::instance().create(new_s3_conf);
+    // Read the conf and the client from one snapshot so a concurrent reset cannot pair the
+    // endpoint of one generation with the client of another.
+    auto state = _client->state();
+    if (is_public_endpoint && state->config.endpoint().ends_with(OSS_PRIVATE_ENDPOINT_SUFFIX)) {
+        // The suffix selects the public address. Keep the configured backend for signing.
+        auto public_config = state->config;
+        std::visit(
+                [](auto& backend) {
+                    auto& endpoint = backend.endpoint;
+                    endpoint.erase(endpoint.size() - OSS_PRIVATE_ENDPOINT_SUFFIX.size(),
+                                   LEN_OF_OSS_PRIVATE_SUFFIX);
+                },
+                public_config.backend);
+        auto client_result = ObjClientFactory::instance().get_or_create(public_config);
         if (!client_result) {
             LOG(WARNING) << "failed to create S3 client for presigned URL: "
                          << client_result.error();
@@ -464,7 +396,7 @@ std::string S3FileSystem::generate_presigned_url(const Path& path, int64_t expir
         }
         client = std::move(client_result).value();
     } else {
-        client = _client->get();
+        client = state->client;
     }
     return client->generate_presigned_url({.bucket = _bucket, .key = key, .prefix = ""},
                                           expiration_secs);

@@ -42,15 +42,19 @@
 #include <random>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <system_error>
 #include <thread>
 #include <type_traits>
 #include <unordered_map>
+#include <variant>
 
 #include "common/config.h"
 #include "common/status.h"
 #include "cpp/obj-client/s3_obj_storage_client.h"
 #include "cpp/sync_point.h"
+#include "io/cache/block_file_cache_factory.h"
+#include "io/cache/file_cache_common.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
@@ -58,10 +62,13 @@
 #include "io/fs/s3_file_bufferpool.h"
 #include "io/fs/s3_file_system.h"
 #include "io/io_common.h"
+#include "io/obj_storage/obj_storage_config.h"
 #include "runtime/exec_env.h"
 #include "storage/index/index_file_writer.h"
 #include "storage/index/index_writer.h"
 #include "testutil/mock/obj_storage_client_test_stub.h"
+#include "testutil/obj_storage_test_util.h"
+#include "util/defer_op.h"
 #include "util/slice.h"
 #include "util/threadpool.h"
 #include "util/uuid_generator.h"
@@ -279,6 +286,19 @@ static auto test_mock_callbacks = std::array {
 class S3FileWriterTest : public testing::Test {
 public:
     static void SetUpTestSuite() {
+        auto* env = ExecEnv::GetInstance();
+        _previous_cache_factory = env->file_cache_factory();
+        // Standalone runs have no cache factory, and earlier fixtures can leave an empty one.
+        if (_previous_cache_factory == nullptr ||
+            _previous_cache_factory->get_cache_instance_size() == 0) {
+            _test_cache_factory = std::make_unique<io::FileCacheFactory>();
+            auto settings = io::get_file_cache_settings(16 * 1024 * 1024, 0);
+            settings.storage = "memory";
+            auto st = _test_cache_factory->create_file_cache("memory", settings);
+            ASSERT_TRUE(st.ok()) << st;
+            env->set_file_cache_factory(_test_cache_factory.get());
+        }
+
         auto sp = SyncPoint::get_instance();
         sp->enable_processing();
         config::file_cache_enter_disk_resource_limit_mode_percent = 99;
@@ -287,13 +307,9 @@ public:
                           sp->set_call_back(mockcallback.point_name, mockcallback.callback);
                       });
         std::string cur_path = std::filesystem::current_path();
-        S3Conf s3_conf;
-        s3_conf.client_conf.ak = "fake_ak";
-        s3_conf.client_conf.sk = "fake_sk";
-        s3_conf.client_conf.endpoint = "fake_s3_endpoint";
-        s3_conf.client_conf.region = "fake_s3_region";
-        s3_conf.bucket = "fake_s3_bucket";
-        s3_conf.prefix = "s3_file_writer_test";
+        io::ObjStorageConfig s3_conf = io::make_test_s3_storage_config(
+                "fake_s3_bucket", "s3_file_writer_test", "fake_s3_endpoint", "fake_s3_region",
+                "fake_ak", "fake_sk");
         LOG_INFO("s3 conf is {}", s3_conf.to_string());
         auto res = io::S3FileSystem::create(std::move(s3_conf), io::FileSystem::TMP_FS_ID);
         ASSERT_TRUE(res.has_value()) << res.error();
@@ -304,7 +320,7 @@ public:
                               .set_min_threads(5)
                               .set_max_threads(10)
                               .build(&_pool);
-        ExecEnv::GetInstance()->_s3_file_upload_thread_pool = std::move(_pool);
+        env->_s3_file_upload_thread_pool = std::move(_pool);
     }
 
     static void TearDownTestSuite() {
@@ -314,8 +330,17 @@ public:
                           sp->clear_call_back(mockcallback.point_name);
                       });
         sp->disable_processing();
-        ExecEnv::GetInstance()->_s3_file_upload_thread_pool.reset();
+        auto* env = ExecEnv::GetInstance();
+        env->_s3_file_upload_thread_pool.reset();
+        // Release the fixture's S3 client while the AWS SDK is still running.
+        s3_fs.reset();
+        env->set_file_cache_factory(_previous_cache_factory);
+        _test_cache_factory.reset();
     }
+
+private:
+    inline static io::FileCacheFactory* _previous_cache_factory = nullptr;
+    inline static std::unique_ptr<io::FileCacheFactory> _test_cache_factory;
 };
 
 TEST_F(S3FileWriterTest, DisableFileCacheWriteFromS3FileWriter) {
@@ -1184,7 +1209,11 @@ public:
         std::string final_obj;
         final_obj.reserve(uploaded_bytes);
         for (const auto& part : completed_parts) {
-            final_obj.append(parts.at(_part_key(opts.path.native(), part.part_num)));
+            const auto it = parts.find(_part_key(opts.path.native(), part.part_num));
+            if (it == parts.end()) {
+                return {.status = {TStatusCode::IO_ERROR, "multipart part not found"}};
+            }
+            final_obj.append(it->second);
         }
         complete[opts.path.native()] = final_obj;
         objects[opts.path.native()] = final_obj;
@@ -1328,9 +1357,9 @@ create_s3_client(const std::string& path) {
     auto st = s3_fs->create_file(path, &file_writer, &opts);
     EXPECT_TRUE(st.ok()) << st;
     std::shared_ptr<S3FileWriter> s3_file_writer(static_cast<S3FileWriter*>(file_writer.release()));
-    auto holder = std::make_shared<ObjClientHolder>(S3ClientConf {});
+    auto holder = std::make_shared<ObjClientHolder>(ObjClientConfig {});
     auto mock_client = std::make_shared<SimpleMockObjStorageClient>();
-    holder->_client = mock_client;
+    holder->set_client_for_test(mock_client);
     s3_file_writer->_obj_client = holder;
     return {mock_client, s3_file_writer};
 }
@@ -1413,6 +1442,86 @@ std::string generate_test_string(char magic_char, size_t size) {
 std::string get_s3_path(std::string_view path) {
     return std::string("s3://") + s3_fs->bucket() + "/" + s3_fs->prefix() + "/" + std::string(path);
 };
+
+class S3FileWriterRefreshTest : public S3FileWriterTest {
+protected:
+    void SetUp() override {
+        _enable_file_cache = config::enable_file_cache;
+        config::enable_file_cache = false;
+        auto* sp = SyncPoint::get_instance();
+        sp->enable_processing();
+        sp->clear_all_call_backs();
+    }
+
+    void TearDown() override {
+        auto* sp = SyncPoint::get_instance();
+        sp->clear_all_call_backs();
+        sp->disable_processing();
+        config::enable_file_cache = _enable_file_cache;
+    }
+
+private:
+    bool _enable_file_cache = false;
+};
+
+// Parts have finished when the sync point runs, but the writer has not issued Complete yet.
+TEST_F(S3FileWriterRefreshTest, multipart_completion_client_after_refresh) {
+    const auto storage = make_test_s3_storage_config("bucket", "", "multipart-refresh.example.com",
+                                                     "us-east-1", "access", "old-key");
+    auto check_refresh = [](const char* scenario, const ObjStorageConfig& initial,
+                            const ObjStorageConfig& update) {
+        SCOPED_TRACE(scenario);
+        auto fs_result = S3FileSystem::create(initial, "multipart-refresh");
+        ASSERT_TRUE(fs_result.has_value()) << fs_result.error();
+        auto fs = *fs_result;
+        auto holder = fs->client_holder();
+        auto original = std::make_shared<SimpleMockObjStorageClient>();
+        auto refreshed = std::make_shared<SimpleMockObjStorageClient>();
+        holder->set_client_for_test(original);
+        FileWriterPtr writer;
+        ASSERT_TRUE(fs->create_file("s3://bucket/refresh", &writer).ok());
+
+        SyncPoint::CallbackGuard guard;
+        SyncPoint::get_instance()->set_call_back(
+                "S3FileWriter::_complete:1",
+                [&](auto&&) {
+                    auto status = holder->reset(update.client);
+                    ASSERT_TRUE(status.ok()) << status;
+                    ASSERT_NE(holder->get(), original);
+                    holder->set_client_for_test(refreshed);
+                },
+                &guard);
+
+        ASSERT_TRUE(
+                writer->append(generate_test_string('r', 2 * config::s3_write_buffer_size)).ok());
+        auto st = writer->close();
+        // Only the original client has the uploaded parts.
+        EXPECT_TRUE(st.ok()) << st;
+        EXPECT_EQ(holder->get(), refreshed);
+        EXPECT_EQ(original->complete_multipart_count, 1);
+        EXPECT_EQ(refreshed->complete_multipart_count, 0);
+    };
+
+    auto oss = storage;
+    std::get<S3ClientConfig>(oss.client.backend).vendor = ObjStorageProvider::OSS;
+    check_refresh("AWS to OSS refresh", storage, oss);
+#ifdef USE_AZURE
+    LegacyAzureClientFields legacy;
+    legacy.region = "us-east-1";
+    auto azure = storage;
+    azure.client.backend = AzureClientConfig {.endpoint = "multipart-refresh-azure.example.com",
+                                              .account = "account",
+                                              .container = storage.bucket,
+                                              .auth = AzureSharedKeyConfig {"YWNjb3VudC1rZXk="},
+                                              .legacy = std::move(legacy)};
+    check_refresh("resource refreshed to Azure", storage, azure);
+
+    auto moved = azure;
+    moved.bucket = "other-container";
+    std::get<AzureClientConfig>(moved.client.backend).container = moved.bucket;
+    check_refresh("Azure container change", azure, moved);
+#endif
+}
 
 // put object
 // create_multi_parts_upload + upload_part + complete_parts
@@ -1531,9 +1640,9 @@ TEST_F(S3FileWriterTest, test_empty_file) {
     io::FileWriterPtr file_writer;
     auto st = s3_fs->create_file("test_empty_file.idx", &file_writer, &opts);
     ASSERT_TRUE(st.ok()) << st;
-    auto holder = std::make_shared<ObjClientHolder>(S3ClientConf {});
+    auto holder = std::make_shared<ObjClientHolder>(ObjClientConfig {});
     auto mock_client = std::make_shared<SimpleMockObjStorageClient>();
-    holder->_client = mock_client;
+    holder->set_client_for_test(mock_client);
     dynamic_cast<io::S3FileWriter*>(file_writer.get())->_obj_client = holder;
     auto* s3_writer = file_writer.get();
     const auto file_path = s3_writer->path().native();

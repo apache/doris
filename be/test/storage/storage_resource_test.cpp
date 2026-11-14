@@ -22,22 +22,13 @@
 #include "io/fs/s3_file_system.h"
 #include "storage/rowset/rowset_meta.h"
 #include "storage/storage_policy.h"
+#include "testutil/obj_storage_test_util.h"
 
 namespace doris {
 
 TEST(StorageResourceTest, RemotePath) {
-    S3Conf s3_conf {.bucket = "bucket",
-                    .prefix = "prefix",
-                    .client_conf = {
-                            .endpoint = "endpoint",
-                            .region = "region",
-                            .ak = "ak",
-                            .sk = "sk",
-                            .token = "",
-                            .bucket = "",
-                            .role_arn = "",
-                            .external_id = "",
-                    }};
+    io::ObjStorageConfig s3_conf =
+            io::make_test_s3_storage_config("bucket", "prefix", "endpoint", "region", "ak", "sk");
     auto res = io::S3FileSystem::create(std::move(s3_conf), io::FileSystem::TMP_FS_ID);
     ASSERT_TRUE(res.has_value()) << res.error();
 

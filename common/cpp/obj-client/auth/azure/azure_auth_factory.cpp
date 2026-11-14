@@ -15,27 +15,38 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "azure_auth_factory.h"
+#include "cpp/obj-client/auth/azure/azure_auth_factory.h"
 
 #include <azure/storage/common/storage_credential.hpp>
+#include <utility>
+#include <variant>
 
 namespace doris {
+namespace {
 
-AzureClientBuildResult AzureAuthFactory::create(
-        std::string_view container_url, const AzureCredentialOptions& credential,
-        Azure::Storage::Blobs::BlobClientOptions client_options) {
-    if (credential.type != AzureCredentialType::SHARED_KEY) {
-        return {.error = "unsupported Azure credential type"};
-    }
-
-    auto shared_key = std::make_shared<Azure::Storage::StorageSharedKeyCredential>(
-            credential.account_name, credential.account_key);
+AzureClientBuildResult build(std::string_view container_url, std::string_view account,
+                             const AzureSharedKeyConfig& shared_key,
+                             Azure::Storage::Blobs::BlobClientOptions client_options) {
+    auto credential = std::make_shared<Azure::Storage::StorageSharedKeyCredential>(
+            std::string(account), shared_key.account_key);
     auto client = std::make_shared<Azure::Storage::Blobs::BlobContainerClient>(
-            std::string(container_url), shared_key, std::move(client_options));
+            std::string(container_url), credential, std::move(client_options));
     return {
             .container_client = std::move(client),
-            .shared_key_credential = std::move(shared_key),
+            .shared_key_credential = std::move(credential),
     };
+}
+
+} // namespace
+
+AzureClientBuildResult AzureAuthFactory::create(
+        std::string_view container_url, std::string_view account, const AzureAuthConfig& auth,
+        Azure::Storage::Blobs::BlobClientOptions client_options) {
+    return std::visit(
+            [&](const auto& method) {
+                return build(container_url, account, method, std::move(client_options));
+            },
+            auth);
 }
 
 } // namespace doris

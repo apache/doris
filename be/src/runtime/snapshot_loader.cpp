@@ -48,6 +48,8 @@
 #include "io/fs/remote_file_system.h"
 #include "io/fs/s3_file_system.h"
 #include "io/hdfs_builder.h"
+#include "io/obj_storage/obj_storage_config_resolver.h"
+#include "io/obj_storage/obj_storage_uri.h"
 #include "runtime/cluster_info.h"
 #include "runtime/exec_env.h"
 #include "service/http/http_client.h"
@@ -57,7 +59,6 @@
 #include "storage/tablet/tablet.h"
 #include "storage/tablet/tablet_manager.h"
 #include "util/client_cache.h"
-#include "util/s3_uri.h"
 #include "util/s3_util.h"
 #include "util/thrift_rpc_helper.h"
 
@@ -757,12 +758,10 @@ BaseSnapshotLoader::BaseSnapshotLoader(ExecEnv* env, int64_t job_id, int64_t tas
 
 Status BaseSnapshotLoader::init(TStorageBackendType::type type, const std::string& location) {
     if (TStorageBackendType::type::S3 == type || TStorageBackendType::type::AZURE == type) {
-        S3Conf s3_conf;
-        S3URI s3_uri(location);
-        RETURN_IF_ERROR(s3_uri.parse());
-        RETURN_IF_ERROR(S3ClientFactory::convert_properties_to_s3_conf(_prop, s3_uri, &s3_conf));
+        auto uri = DORIS_TRY(io::ObjStorageUri::parse_s3(location));
+        auto config = DORIS_TRY(io::ObjStorageConfigResolver::from_properties(_prop, uri));
         _remote_fs =
-                DORIS_TRY(io::S3FileSystem::create(std::move(s3_conf), io::FileSystem::TMP_FS_ID));
+                DORIS_TRY(io::S3FileSystem::create(std::move(config), io::FileSystem::TMP_FS_ID));
     } else if (TStorageBackendType::type::HDFS == type) {
         THdfsParams hdfs_params = parse_properties(_prop);
         _remote_fs = DORIS_TRY(io::HdfsFileSystem::create(hdfs_params, hdfs_params.fs_name,

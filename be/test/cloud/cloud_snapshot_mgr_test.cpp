@@ -25,21 +25,16 @@
 #include "cloud/cloud_storage_engine.h"
 #include "io/fs/remote_file_system.h"
 #include "io/fs/s3_file_system.h"
+#include "testutil/obj_storage_test_util.h"
 #include "util/s3_util.h"
 
 namespace doris {
 using namespace cloud;
 using namespace std::chrono;
 
-S3Conf create_test_s3_conf() {
-    S3Conf s3_conf;
-    s3_conf.bucket = "test-bucket";
-    s3_conf.prefix = "test-prefix";
-    s3_conf.client_conf.endpoint = "test-endpoint";
-    s3_conf.client_conf.region = "test-region";
-    s3_conf.client_conf.ak = "test-ak";
-    s3_conf.client_conf.sk = "test-sk";
-    return s3_conf;
+io::ObjStorageConfig create_test_s3_conf() {
+    return io::make_test_s3_storage_config("test-bucket", "test-prefix", "test-endpoint",
+                                           "test-region", "test-ak", "test-sk");
 }
 
 class CloudSnapshotMgrTest : public testing::Test {
