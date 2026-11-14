@@ -25,10 +25,12 @@
 #include <cctype>
 #include <charconv>
 #include <chrono>
+#include <initializer_list>
 #include <numeric>
 #include <queue>
 #include <regex>
 #include <string>
+#include <string_view>
 #include <tuple>
 #include <unordered_set>
 
@@ -88,7 +90,6 @@ static int encrypt_ak_sk_helper(const std::string plain_ak, const std::string pl
                                 MetaServiceCode& code, std::string& msg) {
     std::string key;
     int64_t key_id;
-    LOG_INFO("enter encrypt_ak_sk_helper, plain_ak {}", hide_access_key(plain_ak));
     int ret = get_newest_encryption_key_for_ak_sk(&key_id, &key);
     TEST_SYNC_POINT_CALLBACK("encrypt_ak_sk:get_encryption_key", &ret, &key, &key_id);
     if (ret != 0) {
@@ -425,17 +426,36 @@ static int alter_instance_obj_store_info_by_id(InstanceInfoPB& instance,
     return -1;
 }
 
+static std::string invalid_field_names(
+        std::initializer_list<std::pair<bool, std::string_view>> fields) {
+    std::string names;
+    for (const auto& [invalid, name] : fields) {
+        if (invalid) {
+            if (!names.empty()) {
+                names += ", ";
+            }
+            names += name;
+        }
+    }
+    return names;
+}
+
+static std::string empty_ram_user_fields(const RamUserPB& ram_user) {
+    return invalid_field_names({{ram_user.user_id().empty(), "user_id"},
+                                {ram_user.ak().empty(), "ak"},
+                                {ram_user.sk().empty(), "sk"}});
+}
+
 // Helper function to update AK/SK for a single instance
 // Returns 0 on success, -1 on error
 static int update_instance_ak_sk(InstanceInfoPB& instance, const UpdateAkSkRequest* request,
-                                 uint64_t time, MetaServiceCode& code, std::string& msg,
-                                 std::stringstream& update_record) {
+                                 uint64_t time, MetaServiceCode& code, std::string& msg) {
     // Update ram_user if has ram_user
     if (request->has_ram_user()) {
-        if (request->ram_user().user_id().empty() || request->ram_user().ak().empty() ||
-            request->ram_user().sk().empty()) {
+        const auto& ram_user = request->ram_user();
+        if (auto fields = empty_ram_user_fields(ram_user); !fields.empty()) {
             code = MetaServiceCode::INVALID_ARGUMENT;
-            msg = "ram user info err " + proto_to_json(*request);
+            msg = "ram_user fields must not be empty: " + fields;
             return -1;
         }
         if (!instance.has_ram_user()) {
@@ -443,7 +463,6 @@ static int update_instance_ak_sk(InstanceInfoPB& instance, const UpdateAkSkReque
             msg = "instance doesn't have ram user info";
             return -1;
         }
-        auto& ram_user = request->ram_user();
         EncryptionInfoPB encryption_info;
         AkSkPair cipher_ak_sk_pair;
         if (encrypt_ak_sk_helper(ram_user.ak(), ram_user.sk(), &encryption_info, &cipher_ak_sk_pair,
@@ -457,9 +476,7 @@ static int update_instance_ak_sk(InstanceInfoPB& instance, const UpdateAkSkReque
             msg = "ram user_id err";
             return -1;
         }
-        std::string old_ak = instance_ram_user.ak();
-        std::string old_sk = instance_ram_user.sk();
-        if (old_ak == ak && old_sk == sk) {
+        if (instance_ram_user.ak() == ak && instance_ram_user.sk() == sk) {
             code = MetaServiceCode::INVALID_ARGUMENT;
             msg = "ak sk eq original, please check it";
             return -1;
@@ -467,19 +484,18 @@ static int update_instance_ak_sk(InstanceInfoPB& instance, const UpdateAkSkReque
         instance_ram_user.set_ak(std::move(cipher_ak_sk_pair.first));
         instance_ram_user.set_sk(std::move(cipher_ak_sk_pair.second));
         instance_ram_user.mutable_encryption_info()->CopyFrom(encryption_info);
-        update_record << "update ram_user's ak sk, instance_id: " << instance.instance_id()
-                      << " user_id: " << ram_user.user_id() << " old:  cipher ak: " << old_ak
-                      << " cipher sk: " << old_sk << " new: cipher ak: " << ak
-                      << " cipher sk: " << sk << "; ";
     }
 
     // Update internal_bucket_user
     bool has_found_alter_obj_info = false;
-    for (auto& alter_bucket_user : request->internal_bucket_user()) {
-        if (!alter_bucket_user.has_ak() || !alter_bucket_user.has_sk() ||
-            !alter_bucket_user.has_user_id()) {
+    for (int i = 0; i < request->internal_bucket_user_size(); ++i) {
+        const auto& alter_bucket_user = request->internal_bucket_user(i);
+        auto missing = invalid_field_names({{!alter_bucket_user.has_user_id(), "user_id"},
+                                            {!alter_bucket_user.has_ak(), "ak"},
+                                            {!alter_bucket_user.has_sk(), "sk"}});
+        if (!missing.empty()) {
             code = MetaServiceCode::INVALID_ARGUMENT;
-            msg = "s3 bucket info err " + proto_to_json(*request);
+            msg = fmt::format("internal_bucket_user[{}] is missing: {}", i, missing);
             return -1;
         }
         std::string user_id = alter_bucket_user.user_id();
@@ -493,16 +509,16 @@ static int update_instance_ak_sk(InstanceInfoPB& instance, const UpdateAkSkReque
         auto& obj_info =
                 const_cast<std::decay_t<decltype(instance.obj_info())>&>(instance.obj_info());
         for (auto& it : obj_info) {
-            std::string old_ak = it.ak();
-            std::string old_sk = it.sk();
             if (!it.has_user_id()) {
                 has_found_alter_obj_info = true;
                 // For compatibility, obj_info without a user_id only allow
                 // single internal_bucket_user to modify it.
                 if (request->internal_bucket_user_size() != 1) {
                     code = MetaServiceCode::INVALID_ARGUMENT;
-                    msg = "fail to update old instance's obj_info, s3 obj info err " +
-                          proto_to_json(*request);
+                    msg = fmt::format(
+                            "updating obj_info without user_id requires exactly one "
+                            "internal_bucket_user, got {}",
+                            request->internal_bucket_user_size());
                     return -1;
                 }
                 if (has_obj_credential(it) && (ak.empty() || sk.empty())) {
@@ -522,11 +538,6 @@ static int update_instance_ak_sk(InstanceInfoPB& instance, const UpdateAkSkReque
                 it.set_sk(sk);
                 it.clear_credential();
                 it.mutable_encryption_info()->CopyFrom(encryption_info);
-                update_record << "update obj_info's ak sk without user_id, instance_id: "
-                              << instance.instance_id() << " obj_info_id: " << it.id()
-                              << " new user_id: " << user_id << " old:  cipher ak: " << old_ak
-                              << " cipher sk: " << old_sk << " new:  cipher ak: " << ak
-                              << " cipher sk: " << sk << "; ";
                 continue;
             }
             if (it.user_id() == user_id) {
@@ -547,10 +558,6 @@ static int update_instance_ak_sk(InstanceInfoPB& instance, const UpdateAkSkReque
                 it.set_sk(sk);
                 it.clear_credential();
                 it.mutable_encryption_info()->CopyFrom(encryption_info);
-                update_record << "update obj_info's ak sk, instance_id: " << instance.instance_id()
-                              << " obj_info_id: " << it.id() << " user_id: " << user_id
-                              << " old:  cipher ak: " << old_ak << " cipher sk: " << old_sk
-                              << " new:  cipher ak: " << ak << " cipher sk: " << sk << "; ";
             }
         }
     }
@@ -583,7 +590,7 @@ void MetaServiceImpl::get_obj_store_info(google::protobuf::RpcController* contro
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "empty instance_id";
-        LOG(INFO) << msg << ", cloud_unique_id=" << cloud_unique_id;
+        LOG(INFO) << msg;
         return;
     }
     RPC_RATE_LIMIT(get_obj_store_info)
@@ -812,11 +819,16 @@ static void create_object_info_with_encrypt(const InstanceInfoPB& instance, Obje
             return;
         }
     } else if (obj->has_role_arn()) {
-        if (obj->role_arn().empty() || !obj->has_provider() ||
-            obj->provider() != ObjectStoreInfoPB::S3 || bucket.empty() || endpoint.empty() ||
-            region.empty()) {
+        auto invalid = invalid_field_names(
+                {{obj->role_arn().empty(), "role_arn"},
+                 {!obj->has_provider() || obj->provider() != ObjectStoreInfoPB::S3,
+                  "provider (must be S3)"},
+                 {bucket.empty(), "bucket"},
+                 {endpoint.empty(), "endpoint"},
+                 {region.empty(), "region"}});
+        if (!invalid.empty()) {
             code = MetaServiceCode::INVALID_ARGUMENT;
-            msg = "s3 conf info err with role_arn or cred provider, please check it";
+            msg = "invalid object storage fields: " + invalid;
             return;
         }
         if (!obj->has_cred_provider_type()) {
@@ -824,10 +836,16 @@ static void create_object_info_with_encrypt(const InstanceInfoPB& instance, Obje
         }
     } else {
         // ATTN: prefix may be empty
-        if (plain_ak.empty() || plain_sk.empty() || bucket.empty() || endpoint.empty() ||
-            region.empty() || !obj->has_provider() || external_endpoint.empty()) {
+        auto invalid = invalid_field_names({{plain_ak.empty(), "ak"},
+                                            {plain_sk.empty(), "sk"},
+                                            {bucket.empty(), "bucket"},
+                                            {endpoint.empty(), "endpoint"},
+                                            {region.empty(), "region"},
+                                            {!obj->has_provider(), "provider"},
+                                            {external_endpoint.empty(), "external_endpoint"}});
+        if (!invalid.empty()) {
             code = MetaServiceCode::INVALID_ARGUMENT;
-            msg = "s3 conf info err, please check it";
+            msg = "missing or empty object storage fields: " + invalid;
             return;
         }
 
@@ -1332,18 +1350,17 @@ static int extract_object_storage_info(const AlterObjStoreInfoRequest* request,
                                        AkSkPair& cipher_ak_sk_pair) {
     if (!request->has_obj() && (!request->has_vault() || !request->vault().has_obj_info())) {
         code = MetaServiceCode::INVALID_ARGUMENT;
-        msg = "s3 obj info err " + proto_to_json(*request);
+        msg = "obj or vault.obj_info is required";
         return -1;
     }
 
     const auto& obj = request->has_obj() ? request->obj() : request->vault().obj_info();
 
-    //  obj size > 1k, refuse
-    if (obj.ByteSizeLong() > 1024) {
+    if (const auto size = obj.ByteSizeLong(); size > 1024) {
         code = MetaServiceCode::INVALID_ARGUMENT;
-        msg = "s3 obj info greater than 1k " + proto_to_json(*request);
+        msg = fmt::format("object storage configuration exceeds 1024 bytes, got {}", size);
         return -1;
-    };
+    }
 
     auto& [ak, sk, bucket, prefix, endpoint, external_endpoint, region, use_path_style, role_arn,
            external_id] = obj_desc;
@@ -1362,9 +1379,11 @@ static int extract_object_storage_info(const AlterObjStoreInfoRequest* request,
              use_credential_provider(obj)) ||
             native_obj_add;
     if (!obj.has_role_arn() && !use_credential_provider_for_add) {
-        if (!obj.has_ak() || !obj.has_sk()) {
+        auto missing = invalid_field_names({{!obj.has_ak(), "ak"}, {!obj.has_sk(), "sk"}});
+        if (!missing.empty()) {
             code = MetaServiceCode::INVALID_ARGUMENT;
-            msg = "s3 obj info err " + proto_to_json(*request);
+            msg = fmt::format("{} is missing: {}", request->has_obj() ? "obj" : "vault.obj_info",
+                              missing);
             LOG(INFO) << msg;
             return -1;
         }
@@ -1471,23 +1490,22 @@ void MetaServiceImpl::alter_storage_vault(google::protobuf::RpcController* contr
         // It should at least has one hdfs info or obj info inside storage vault
         if ((!request->has_vault())) {
             code = MetaServiceCode::INVALID_ARGUMENT;
-            msg = "storage vault is set " + proto_to_json(*request);
+            msg = "storage vault is required";
             return;
         }
         break;
     }
     case AlterObjStoreInfoRequest::ADD_HDFS_INFO:
-    case AlterObjStoreInfoRequest::DROP_HDFS_INFO: {
-        if (!request->has_vault() || !request->vault().has_name()) {
+    case AlterObjStoreInfoRequest::DROP_HDFS_INFO:
+    case AlterObjStoreInfoRequest::SET_DEFAULT_VAULT: {
+        if (!request->has_vault()) {
             code = MetaServiceCode::INVALID_ARGUMENT;
-            msg = "hdfs info is not found " + proto_to_json(*request);
+            msg = "vault is required";
             return;
         }
-    } break;
-    case AlterObjStoreInfoRequest::SET_DEFAULT_VAULT: {
-        if (!request->has_vault() || !request->vault().has_name()) {
+        if (!request->vault().has_name()) {
             code = MetaServiceCode::INVALID_ARGUMENT;
-            msg = "hdfs info is not found " + proto_to_json(*request);
+            msg = "vault.name is required";
             return;
         }
         break;
@@ -1500,13 +1518,13 @@ void MetaServiceImpl::alter_storage_vault(google::protobuf::RpcController* contr
         break;
     case AlterObjStoreInfoRequest::UNKNOWN: {
         code = MetaServiceCode::INVALID_ARGUMENT;
-        msg = "Unknown alter info " + proto_to_json(*request);
+        msg = "unknown alter operation";
         return;
     } break;
     default:
         code = MetaServiceCode::INVALID_ARGUMENT;
-        msg = "Unknown alter obj store info, request info " + proto_to_json(*request);
-        LOG_WARNING("Unknown alter obj store info, request info {}", request->DebugString());
+        msg = fmt::format("unknown alter operation, op={}", static_cast<int>(request->op()));
+        LOG(WARNING) << msg;
         return;
     }
 
@@ -1523,7 +1541,7 @@ void MetaServiceImpl::alter_storage_vault(google::protobuf::RpcController* contr
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "empty instance_id";
-        LOG(INFO) << msg << ", cloud_unique_id=" << cloud_unique_id;
+        LOG(INFO) << msg;
         return;
     }
     RPC_RATE_LIMIT(alter_obj_store_info)
@@ -1583,7 +1601,7 @@ void MetaServiceImpl::alter_storage_vault(google::protobuf::RpcController* contr
         auto& obj = request->has_obj() ? request->obj() : request->vault().obj_info();
         if (!obj.has_provider()) {
             code = MetaServiceCode::INVALID_ARGUMENT;
-            msg = "s3 conf lease provider info";
+            msg = "object storage provider is required";
             return;
         }
         if (instance.obj_info().size() >= 10) {
@@ -1592,10 +1610,15 @@ void MetaServiceImpl::alter_storage_vault(google::protobuf::RpcController* contr
             return;
         }
         // ATTN: prefix may be empty
-        if (((ak.empty() || sk.empty()) && !use_credential_provider(obj)) || bucket.empty() ||
-            endpoint.empty() || region.empty()) {
+        const bool requires_ak_sk = !use_credential_provider(obj);
+        auto invalid = invalid_field_names({{requires_ak_sk && ak.empty(), "ak"},
+                                            {requires_ak_sk && sk.empty(), "sk"},
+                                            {bucket.empty(), "bucket"},
+                                            {endpoint.empty(), "endpoint"},
+                                            {region.empty(), "region"}});
+        if (!invalid.empty()) {
             code = MetaServiceCode::INVALID_ARGUMENT;
-            msg = "s3 conf info err, please check it";
+            msg = "missing or empty vault object storage fields: " + invalid;
             return;
         }
 
@@ -1752,7 +1775,7 @@ void MetaServiceImpl::alter_storage_vault(google::protobuf::RpcController* contr
     }
 
     LOG(INFO) << "instance " << instance_id << " has " << instance.obj_info().size()
-              << " s3 history info, and instance = " << proto_to_json(instance);
+              << " s3 history entries";
 
     val = instance.SerializeAsString();
     if (val.empty()) {
@@ -1907,13 +1930,13 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
     } break;
     case AlterObjStoreInfoRequest::UNKNOWN: {
         code = MetaServiceCode::INVALID_ARGUMENT;
-        msg = "Unknown alter info " + proto_to_json(*request);
+        msg = "unknown alter operation";
         return;
     } break;
     default:
         code = MetaServiceCode::INVALID_ARGUMENT;
-        msg = "Unknown alter obj store info, request info " + proto_to_json(*request);
-        LOG_WARNING("Unknown alter obj store info, request info {}", request->DebugString());
+        msg = fmt::format("unknown alter operation, op={}", static_cast<int>(request->op()));
+        LOG(WARNING) << msg;
         return;
     }
 
@@ -1930,7 +1953,7 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "empty instance_id";
-        LOG(INFO) << msg << ", cloud_unique_id=" << cloud_unique_id;
+        LOG(INFO) << msg;
         return;
     }
     RPC_RATE_LIMIT(alter_obj_store_info)
@@ -2002,7 +2025,7 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
         auto& obj = request->has_obj() ? request->obj() : request->vault().obj_info();
         if (!obj.has_provider()) {
             code = MetaServiceCode::INVALID_ARGUMENT;
-            msg = "s3 conf lease provider info";
+            msg = "object storage provider is required";
             return;
         }
         if (instance.obj_info().size() >= 10) {
@@ -2010,11 +2033,16 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
             msg = "this instance history has greater than 10 objs, please new another instance";
             return;
         }
-        // ATTN: prefix may be empty
-        if (((ak.empty() || sk.empty()) && role_arn.empty() && !has_obj_credential(obj)) ||
-            bucket.empty() || endpoint.empty() || region.empty() || prefix.empty()) {
+        const bool requires_ak_sk = role_arn.empty() && !has_obj_credential(obj);
+        auto invalid = invalid_field_names({{requires_ak_sk && ak.empty(), "ak"},
+                                            {requires_ak_sk && sk.empty(), "sk"},
+                                            {bucket.empty(), "bucket"},
+                                            {endpoint.empty(), "endpoint"},
+                                            {region.empty(), "region"},
+                                            {prefix.empty(), "prefix"}});
+        if (!invalid.empty()) {
             code = MetaServiceCode::INVALID_ARGUMENT;
-            msg = "s3 conf info err, please check it";
+            msg = "missing or empty object storage fields: " + invalid;
             return;
         }
 
@@ -2052,7 +2080,7 @@ void MetaServiceImpl::alter_obj_store_info(google::protobuf::RpcController* cont
     }
 
     LOG(INFO) << "instance " << instance_id << " has " << instance.obj_info().size()
-              << " s3 history info, and instance = " << proto_to_json(instance);
+              << " s3 history entries";
 
     val = instance.SerializeAsString();
     if (val.empty()) {
@@ -2227,16 +2255,10 @@ void MetaServiceImpl::update_ak_sk(google::protobuf::RpcController* controller,
     uint64_t time =
             std::chrono::duration_cast<std::chrono::seconds>(now_time.time_since_epoch()).count();
 
-    std::stringstream update_record;
-
     // Update instance using helper function
-    if (update_instance_ak_sk(instance, request, time, code, msg, update_record) != 0) {
+    if (update_instance_ak_sk(instance, request, time, code, msg) != 0) {
         return;
     }
-
-    LOG(INFO) << "instance " << instance_id << " has " << instance.obj_info().size()
-              << " s3 history info, and " << instance.resource_ids_size() << " vaults "
-              << "instance = " << proto_to_json(instance);
 
     val = instance.SerializeAsString();
     if (val.empty()) {
@@ -2258,7 +2280,7 @@ void MetaServiceImpl::update_ak_sk(google::protobuf::RpcController* controller,
         return;
     }
 
-    LOG(INFO) << update_record.str();
+    LOG(INFO) << "updated credentials for instance_id=" << instance_id;
     async_notify_refresh_instance(txn_kv_, instance_id, true);
 
     // Cascade update to derived instances using separate transactions
@@ -2321,11 +2343,10 @@ void MetaServiceImpl::update_ak_sk(google::protobuf::RpcController* controller,
         }
 
         // Update the cascade instance using helper function
-        std::stringstream cascade_update_record;
         MetaServiceCode cascade_code = MetaServiceCode::OK;
         std::string cascade_msg;
-        if (update_instance_ak_sk(cascade_instance, request, time, cascade_code, cascade_msg,
-                                  cascade_update_record) != 0) {
+        if (update_instance_ak_sk(cascade_instance, request, time, cascade_code, cascade_msg) !=
+            0) {
             code = cascade_code;
             msg = fmt::format("failed to update derived instance, instance_id={}, msg={}",
                               cascade_id, cascade_msg);
@@ -2353,8 +2374,7 @@ void MetaServiceImpl::update_ak_sk(google::protobuf::RpcController* controller,
         }
 
         async_notify_refresh_instance(txn_kv_, cascade_id, true);
-        LOG(INFO) << "cascade update for instance_id=" << cascade_id << " "
-                  << cascade_update_record.str();
+        LOG(INFO) << "updated credentials for derived instance_id=" << cascade_id;
     }
 }
 
@@ -2367,13 +2387,9 @@ void MetaServiceImpl::create_instance(google::protobuf::RpcController* controlle
     RPC_PREPROCESS(create_instance, get, put);
     TEST_SYNC_POINT_RETURN_WITH_VOID("create_instance_sk_request_return");
     if (request->has_ram_user()) {
-        auto& ram_user = request->ram_user();
-        std::string ram_user_id = ram_user.has_user_id() ? ram_user.user_id() : "";
-        std::string ram_user_ak = ram_user.has_ak() ? ram_user.ak() : "";
-        std::string ram_user_sk = ram_user.has_sk() ? ram_user.sk() : "";
-        if (ram_user_id.empty() || ram_user_ak.empty() || ram_user_sk.empty()) {
+        if (auto fields = empty_ram_user_fields(request->ram_user()); !fields.empty()) {
             code = MetaServiceCode::INVALID_ARGUMENT;
-            msg = "ram user info err, please check it";
+            msg = "ram_user fields must not be empty: " + fields;
             return;
         }
     }
@@ -2456,7 +2472,7 @@ void MetaServiceImpl::create_instance(google::protobuf::RpcController* controlle
         obj_info.set_ak(hide_access_key(obj_info.ak()));
     }
 
-    LOG(INFO) << "xxx instance json=" << proto_to_json(instance);
+    LOG(INFO) << "create instance_id=" << instance_id;
 
     // Check existence before proceeding
     err = txn->get(key, &val);
@@ -2691,7 +2707,7 @@ static std::pair<MetaServiceCode, std::string> drop_single_instance(const std::s
         LOG(ERROR) << msg;
         return {MetaServiceCode::PROTOBUF_SERIALIZE_ERR, std::move(msg)};
     }
-    LOG(INFO) << "drop instance_id=" << instance_id << " json=" << proto_to_json(*instance);
+    LOG(INFO) << "drop instance_id=" << instance_id;
 
     if (instance->has_source_instance_id() && instance->has_source_snapshot_id() &&
         !instance->source_instance_id().empty() && !instance->source_snapshot_id().empty()) {
@@ -2786,7 +2802,7 @@ static std::pair<MetaServiceCode, std::string> drop_instance_chain(
         return {MetaServiceCode::PROTOBUF_SERIALIZE_ERR, std::move(msg)};
     }
     LOG(INFO) << "drop instance_id=" << tail_instance_id << " and " << predecessors.size()
-              << " predecessor instances, json=" << proto_to_json(*tail_instance);
+              << " predecessor instances";
     return {MetaServiceCode::OK, std::move(serialized)};
 }
 
@@ -2846,7 +2862,8 @@ void MetaServiceImpl::alter_instance(google::protobuf::RpcController* controller
     StopWatch sw;
     auto ctrl = static_cast<brpc::Controller*>(controller);
     LOG(INFO) << __PRETTY_FUNCTION__ << " rpc from " << ctrl->remote_side()
-              << " request=" << request->ShortDebugString();
+              << " instance_id=" << request->instance_id()
+              << " op=" << AlterInstanceRequest_Operation_Name(request->op());
     brpc::ClosureGuard closure_guard(done);
     MetaServiceCode code = MetaServiceCode::OK;
     std::string msg = "OK";
@@ -2913,8 +2930,7 @@ void MetaServiceImpl::alter_instance(google::protobuf::RpcController* controller
                 LOG(ERROR) << msg;
                 return std::make_pair(MetaServiceCode::PROTOBUF_SERIALIZE_ERR, msg);
             }
-            LOG(INFO) << "put instance_id=" << request->instance_id()
-                      << "rename instance json=" << proto_to_json(*instance);
+            LOG(INFO) << "rename instance_id=" << request->instance_id() << " name=" << name;
             return std::make_pair(MetaServiceCode::OK, ret);
         });
     } break;
@@ -2939,8 +2955,7 @@ void MetaServiceImpl::alter_instance(google::protobuf::RpcController* controller
                 LOG(ERROR) << msg;
                 return std::make_pair(MetaServiceCode::PROTOBUF_SERIALIZE_ERR, msg);
             }
-            LOG(INFO) << "put instance_id=" << request->instance_id()
-                      << "instance enable sse json=" << proto_to_json(*instance);
+            LOG(INFO) << "enable sse for instance_id=" << request->instance_id();
             return std::make_pair(MetaServiceCode::OK, ret);
         });
     } break;
@@ -2965,8 +2980,7 @@ void MetaServiceImpl::alter_instance(google::protobuf::RpcController* controller
                 LOG(ERROR) << msg;
                 return std::make_pair(MetaServiceCode::PROTOBUF_SERIALIZE_ERR, msg);
             }
-            LOG(INFO) << "put instance_id=" << request->instance_id()
-                      << "instance disable sse json=" << proto_to_json(*instance);
+            LOG(INFO) << "disable sse for instance_id=" << request->instance_id();
             return std::make_pair(MetaServiceCode::OK, ret);
         });
     } break;
@@ -2999,8 +3013,7 @@ void MetaServiceImpl::alter_instance(google::protobuf::RpcController* controller
                 LOG(WARNING) << msg;
                 return std::make_pair(MetaServiceCode::PROTOBUF_SERIALIZE_ERR, msg);
             }
-            LOG(INFO) << "put instance_id=" << request->instance_id()
-                      << "set instance overdue json=" << proto_to_json(*instance);
+            LOG(INFO) << "set overdue for instance_id=" << request->instance_id();
             return std::make_pair(MetaServiceCode::OK, ret);
         });
     } break;
@@ -3029,8 +3042,7 @@ void MetaServiceImpl::alter_instance(google::protobuf::RpcController* controller
                 LOG(WARNING) << msg;
                 return std::make_pair(MetaServiceCode::PROTOBUF_SERIALIZE_ERR, msg);
             }
-            LOG(INFO) << "put instance_id=" << request->instance_id()
-                      << "set instance normal json=" << proto_to_json(*instance);
+            LOG(INFO) << "set normal for instance_id=" << request->instance_id();
             return std::make_pair(MetaServiceCode::OK, ret);
         });
     } break;
@@ -3100,7 +3112,9 @@ void MetaServiceImpl::alter_instance(google::protobuf::RpcController* controller
                 return std::make_pair(MetaServiceCode::PROTOBUF_SERIALIZE_ERR, msg);
             }
             LOG(INFO) << "put instance_id=" << request->instance_id()
-                      << "set instance snapshot property json=" << proto_to_json(*instance);
+                      << " snapshot_switch_status=" << instance->snapshot_switch_status()
+                      << " max_reserved_snapshot=" << instance->max_reserved_snapshot()
+                      << " snapshot_interval_seconds=" << instance->snapshot_interval_seconds();
             return std::make_pair(MetaServiceCode::OK, ret);
         });
     } break;
@@ -3133,7 +3147,7 @@ void MetaServiceImpl::get_instance(google::protobuf::RpcController* controller,
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "empty instance_id";
-        LOG(INFO) << msg << ", cloud_unique_id=" << cloud_unique_id;
+        LOG(INFO) << msg;
         return;
     }
     RPC_RATE_LIMIT(get_instance);
@@ -3371,9 +3385,11 @@ void handle_decommission_node(const std::string& instance_id, const AlterCluster
         std::vector<NodeInfo> to_del;
         for (auto& node : to_add) {
             node.node_info.set_status(NodeStatusPB::NODE_STATUS_DECOMMISSIONING);
-            LOG(INFO) << "decomission node, "
-                      << "size: " << to_add.size() << " " << node.node_info.DebugString() << " "
-                      << node.cluster_id << " " << node.cluster_name;
+            LOG(INFO) << "decommission node, instance_id=" << instance_id
+                      << " cluster_id=" << node.cluster_id << " cluster_name=" << node.cluster_name
+                      << " node_host=" << node.node_info.host()
+                      << " node_ip=" << node.node_info.ip()
+                      << " heartbeat_port=" << node.node_info.heartbeat_port();
         }
         msg = resource_mgr->modify_nodes(instance_id, to_add, to_del);
     }
@@ -3435,9 +3451,11 @@ void handle_notify_decommissioned(const std::string& instance_id,
         std::vector<NodeInfo> to_del;
         for (auto& node : to_add) {
             node.node_info.set_status(NodeStatusPB::NODE_STATUS_DECOMMISSIONED);
-            LOG(INFO) << "notify node decomissioned, "
-                      << " size: " << to_add.size() << " " << node.node_info.DebugString() << " "
-                      << node.cluster_id << " " << node.cluster_name;
+            LOG(INFO) << "notify node decommissioned, instance_id=" << instance_id
+                      << " cluster_id=" << node.cluster_id << " cluster_name=" << node.cluster_name
+                      << " node_host=" << node.node_info.host()
+                      << " node_ip=" << node.node_info.ip()
+                      << " heartbeat_port=" << node.node_info.heartbeat_port();
         }
         msg = resource_mgr->modify_nodes(instance_id, to_add, to_del);
     }
@@ -3464,15 +3482,16 @@ void handle_rename_cluster(const std::string& instance_id, const ClusterInfo& cl
                 if (it != cluster_names.end()) {
                     code = MetaServiceCode::INVALID_ARGUMENT;
                     ss << "failed to rename cluster, a cluster with the same name already exists "
-                          "in this instance "
-                       << proto_to_json(c);
+                          "in this instance, instance_id="
+                       << instance_id << ", cluster_name=" << cluster.cluster.cluster_name();
                     msg = ss.str();
                     return msg;
                 }
                 if (c.cluster_name() == cluster.cluster.cluster_name()) {
                     code = MetaServiceCode::INVALID_ARGUMENT;
-                    ss << "failed to rename cluster, name eq original name, original cluster is "
-                       << proto_to_json(c);
+                    ss << "failed to rename cluster, name equals original name, instance_id="
+                       << instance_id << ", cluster_id=" << c.cluster_id()
+                       << ", cluster_name=" << c.cluster_name();
                     msg = ss.str();
                     return msg;
                 }
@@ -3676,9 +3695,9 @@ void MetaServiceImpl::alter_cluster(google::protobuf::RpcController* controller,
             auto [code1, get_msg] = resource_mgr_->get_instance(nullptr, id, &instance);
             { TEST_SYNC_POINT_CALLBACK("is_instance_id_registered", &code1); }
             if (code1 == TxnErrorCode::TXN_KEY_NOT_FOUND) {
-                msg = "use degrade cloud_unique_id, but instance_id is not registered, "
-                      "cloud_unique_id=" +
-                      cloud_unique_id;
+                msg = "use degraded format cloud_unique_id, but instance is not registered, "
+                      "instance_id=" +
+                      id;
                 LOG(WARNING) << msg;
                 code = MetaServiceCode::INVALID_ARGUMENT;
                 return;
@@ -3687,8 +3706,8 @@ void MetaServiceImpl::alter_cluster(google::protobuf::RpcController* controller,
                 msg = "instance status has been set delete, plz check it, recycle_state=" +
                       InstanceRecycleState_Name(instance.recycle_state());
                 LOG(WARNING) << "use degraded format cloud_unique_id, but check instance failed, "
-                                "cloud_unique_id="
-                             << cloud_unique_id << " code=" << code1 << " info=" << get_msg
+                                "instance_id="
+                             << id << " code=" << code1 << " info=" << get_msg
                              << " status=" << instance.status() << " recycle_state="
                              << InstanceRecycleState_Name(instance.recycle_state());
                 LOG(WARNING) << msg;
@@ -3700,7 +3719,7 @@ void MetaServiceImpl::alter_cluster(google::protobuf::RpcController* controller,
         if (instance_id.empty()) {
             code = MetaServiceCode::INVALID_ARGUMENT;
             msg = "empty instance_id";
-            LOG(INFO) << msg << ", cloud_unique_id=" << cloud_unique_id;
+            LOG(INFO) << msg;
             return;
         }
     }
@@ -3818,12 +3837,13 @@ void MetaServiceImpl::get_cluster(google::protobuf::RpcController* controller,
             instance_id = request->instance_id();
             // FIXME(gavin): this mechanism benifits debugging and
             //               administration, is it dangerous?
-            LOG(WARNING) << "failed to get instance_id with cloud_unique_id=" << cloud_unique_id
-                         << " use the given instance_id=" << instance_id << " instead";
+            LOG(WARNING)
+                    << "failed to resolve instance from cloud_unique_id, using given instance_id="
+                    << instance_id;
         } else {
             code = MetaServiceCode::INVALID_ARGUMENT;
             msg = "empty instance_id";
-            LOG(INFO) << msg << ", cloud_unique_id=" << cloud_unique_id;
+            LOG(INFO) << msg;
             return;
         }
     }
@@ -3845,7 +3865,7 @@ void MetaServiceImpl::get_cluster(google::protobuf::RpcController* controller,
 
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
-        msg = "failed to get instance_id with cloud_unique_id=" + cloud_unique_id;
+        msg = "failed to get instance_id from cloud_unique_id";
         return;
     }
 
@@ -3922,8 +3942,7 @@ void MetaServiceImpl::get_cluster(google::protobuf::RpcController* controller,
             }
 
             txn->put(key, val);
-            LOG(INFO) << "put instance_id=" << instance_id << " instance_key=" << hex(key)
-                      << " json=" << proto_to_json(instance);
+            LOG(INFO) << "put instance_id=" << instance_id << " instance_key=" << hex(key);
             err = txn->commit();
             if (err != TxnErrorCode::TXN_OK) {
                 code = cast_as<ErrCategory::COMMIT>(err);
@@ -3934,9 +3953,7 @@ void MetaServiceImpl::get_cluster(google::protobuf::RpcController* controller,
     }
 
     if (response->cluster().empty()) {
-        ss << "fail to get cluster with " << request->ShortDebugString();
-        msg = ss.str();
-        std::replace(msg.begin(), msg.end(), '\n', ' ');
+        msg = fmt::format("cluster not found in instance {}", instance_id);
         code = MetaServiceCode::CLUSTER_NOT_FOUND;
     }
 } // get_cluster
@@ -3958,7 +3975,7 @@ void MetaServiceImpl::create_stage(::google::protobuf::RpcController* controller
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "empty instance_id";
-        LOG(INFO) << msg << ", cloud_unique_id=" << cloud_unique_id;
+        LOG(INFO) << msg;
         return;
     }
     RPC_RATE_LIMIT(create_stage)
@@ -4042,8 +4059,8 @@ void MetaServiceImpl::create_stage(::google::protobuf::RpcController* controller
         if (stage.type() == StagePB::INTERNAL) {
             // check all internal stage format is right
             if (s.type() == StagePB::INTERNAL && s.mysql_user_id_size() == 0) {
-                LOG(WARNING) << "impossible, internal stage must have at least one id instance="
-                             << proto_to_json(instance);
+                LOG(WARNING) << "internal stage is missing a MySQL user ID, instance_id="
+                             << instance_id << ", stage_id=" << s.stage_id();
             }
 
             if (s.type() == StagePB::INTERNAL &&
@@ -4121,7 +4138,7 @@ void MetaServiceImpl::create_stage(::google::protobuf::RpcController* controller
     txn->atomic_add(system_meta_service_instance_update_key(), 1);
     txn->put(key, val);
     LOG(INFO) << "put instance_id=" << instance_id << " instance_key=" << hex(key)
-              << " json=" << proto_to_json(instance);
+              << " stage_id=" << stage.stage_id();
     err = txn->commit();
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::COMMIT>(err);
@@ -4147,7 +4164,7 @@ void MetaServiceImpl::get_stage(google::protobuf::RpcController* controller,
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "empty instance_id";
-        LOG(INFO) << msg << ", cloud_unique_id=" << cloud_unique_id;
+        LOG(INFO) << msg;
         return;
     }
     RPC_RATE_LIMIT(get_stage)
@@ -4365,8 +4382,7 @@ void MetaServiceImpl::get_stage(google::protobuf::RpcController* controller,
         }
     }
 
-    ss << "stage not found with " << proto_to_json(*request);
-    msg = ss.str();
+    msg = "stage not found";
     code = MetaServiceCode::STAGE_NOT_FOUND;
 }
 
@@ -4375,7 +4391,8 @@ void MetaServiceImpl::drop_stage(google::protobuf::RpcController* controller,
                                  ::google::protobuf::Closure* done) {
     StopWatch sw;
     auto ctrl = static_cast<brpc::Controller*>(controller);
-    LOG(INFO) << "rpc from " << ctrl->remote_side() << " request=" << request->DebugString();
+    LOG(INFO) << "begin drop_stage remote_caller=" << ctrl->remote_side()
+              << " stage_name=" << request->stage_name();
     brpc::ClosureGuard closure_guard(done);
     int ret = 0;
     MetaServiceCode code = MetaServiceCode::OK;
@@ -4404,7 +4421,7 @@ void MetaServiceImpl::drop_stage(google::protobuf::RpcController* controller,
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "empty instance_id";
-        LOG(INFO) << msg << ", cloud_unique_id=" << cloud_unique_id;
+        LOG(INFO) << msg;
         return;
     }
     RPC_RATE_LIMIT(drop_stage)
@@ -4473,8 +4490,7 @@ void MetaServiceImpl::drop_stage(google::protobuf::RpcController* controller,
         }
     }
     if (idx == -1) {
-        ss << "stage not found with " << proto_to_json(*request);
-        msg = ss.str();
+        msg = "stage not found";
         code = MetaServiceCode::STAGE_NOT_FOUND;
         return;
     }
@@ -4489,7 +4505,7 @@ void MetaServiceImpl::drop_stage(google::protobuf::RpcController* controller,
     }
     txn->put(key, val);
     LOG(INFO) << "put instance_id=" << instance_id << " instance_key=" << hex(key)
-              << " json=" << proto_to_json(instance);
+              << " stage_id=" << stage.stage_id();
 
     std::string key1;
     std::string val1;
@@ -4533,7 +4549,7 @@ void MetaServiceImpl::get_iam(google::protobuf::RpcController* controller,
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "empty instance_id";
-        LOG(INFO) << msg << ", cloud_unique_id=" << cloud_unique_id;
+        LOG(INFO) << msg;
         return;
     }
     RPC_RATE_LIMIT(get_iam)
@@ -4715,10 +4731,14 @@ void MetaServiceImpl::alter_ram_user(google::protobuf::RpcController* controller
         msg = "empty instance_id";
         return;
     }
-    if (!request->has_ram_user() || request->ram_user().user_id().empty() ||
-        request->ram_user().ak().empty() || request->ram_user().sk().empty()) {
+    if (!request->has_ram_user()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
-        msg = "ram user info err " + proto_to_json(*request);
+        msg = "ram_user is required";
+        return;
+    }
+    if (auto fields = empty_ram_user_fields(request->ram_user()); !fields.empty()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "ram_user fields must not be empty: " + fields;
         return;
     }
     auto& ram_user = request->ram_user();
@@ -4803,7 +4823,7 @@ void MetaServiceImpl::begin_copy(google::protobuf::RpcController* controller,
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "empty instance_id";
-        LOG(INFO) << msg << ", cloud_unique_id=" << cloud_unique_id;
+        LOG(INFO) << msg;
         return;
     }
     RPC_RATE_LIMIT(begin_copy)
@@ -4919,7 +4939,7 @@ void MetaServiceImpl::finish_copy(google::protobuf::RpcController* controller,
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "empty instance_id";
-        LOG(INFO) << msg << ", cloud_unique_id=" << cloud_unique_id;
+        LOG(INFO) << msg;
         return;
     }
     RPC_RATE_LIMIT(finish_copy)
@@ -5023,7 +5043,7 @@ void MetaServiceImpl::get_copy_job(google::protobuf::RpcController* controller,
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "empty instance_id";
-        LOG(INFO) << msg << ", cloud_unique_id=" << cloud_unique_id;
+        LOG(INFO) << msg;
         return;
     }
 
@@ -5074,7 +5094,7 @@ void MetaServiceImpl::get_copy_files(google::protobuf::RpcController* controller
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "empty instance_id";
-        LOG(INFO) << msg << ", cloud_unique_id=" << cloud_unique_id;
+        LOG(INFO) << msg;
         return;
     }
     RPC_RATE_LIMIT(get_copy_files)
@@ -5137,7 +5157,7 @@ void MetaServiceImpl::filter_copy_files(google::protobuf::RpcController* control
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "empty instance_id";
-        LOG(INFO) << msg << ", cloud_unique_id=" << cloud_unique_id;
+        LOG(INFO) << msg;
         return;
     }
     RPC_RATE_LIMIT(filter_copy_files)
@@ -5198,7 +5218,7 @@ void MetaServiceImpl::get_cluster_status(google::protobuf::RpcController* contro
                       [&](const auto& it) {
                           std::string instance_id = get_instance_id(resource_mgr_, it);
                           if (instance_id.empty()) {
-                              LOG(INFO) << "cant get instance_id from cloud_unique_id : " << it;
+                              LOG(INFO) << "failed to get instance_id from cloud_unique_id";
                               return;
                           }
                           instance_ids.emplace_back(instance_id);

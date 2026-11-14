@@ -19,11 +19,14 @@
 
 #include <brpc/controller.h>
 #include <fmt/core.h>
+#include <fmt/ranges.h>
 #include <gen_cpp/cloud.pb.h>
 #include <openssl/md5.h>
 
+#include <algorithm>
 #include <iomanip>
 #include <memory>
+#include <sstream>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -128,7 +131,7 @@ inline void process_ak_sk_pattern(std::string& str, const std::string& pattern, 
 
         str.replace(value_start, value_end - value_start, key_value);
 
-        pos = value_end + (key_value.length() - key_value.length());
+        pos = value_start + key_value.size() + 1;
     }
 };
 
@@ -162,6 +165,96 @@ inline std::string hide_ak(std::string debug_string) {
     return debug_string;
 }
 
+inline constexpr char kMaskedCloudUniqueId[] = "***MASKED***";
+
+inline void mask_cluster_cloud_unique_ids(ClusterPB& cluster) {
+    for (auto& node : *cluster.mutable_nodes()) {
+        if (node.has_cloud_unique_id()) {
+            node.set_cloud_unique_id(kMaskedCloudUniqueId);
+        }
+    }
+    auto& properties = *cluster.mutable_properties();
+    for (const char* key :
+         {"cloud_unique_id", "cloud_unique_ids", "cloudUniqueId", "cloudUniqueIds"}) {
+        if (auto it = properties.find(key); it != properties.end()) {
+            it->second = kMaskedCloudUniqueId;
+        }
+    }
+}
+
+// Keep identifiers used to correlate RPC logs without dumping the message.
+template <class Message>
+std::string rpc_log_ids(const Message& message) {
+    if constexpr (std::is_same_v<Message, GetTabletRequest>) {
+        return fmt::format(" tablet_id={}", message.tablet_id());
+    } else if constexpr (std::is_same_v<Message, GetRowsetRequest>) {
+        return fmt::format(" tablet_id={} start_version={} end_version={}",
+                           message.idx().tablet_id(), message.start_version(),
+                           message.end_version());
+    } else if constexpr (std::is_same_v<Message, GetVersionRequest>) {
+        if (message.batch_mode()) {
+            return fmt::format(" db_ids=[{}] table_ids=[{}] partition_ids=[{}]",
+                               fmt::join(message.db_ids(), ","),
+                               fmt::join(message.table_ids(), ","),
+                               fmt::join(message.partition_ids(), ","));
+        }
+        return fmt::format(" db_id={} table_id={} partition_id={}", message.db_id(),
+                           message.table_id(), message.partition_id());
+    }
+
+    std::ostringstream log;
+    if constexpr (requires { message.has_instance_id(); }) {
+        if (message.has_instance_id()) {
+            log << " instance_id=" << message.instance_id();
+        }
+    }
+    if constexpr (requires { message.has_db_id(); }) {
+        if (message.has_db_id()) {
+            log << " db_id=" << message.db_id();
+        }
+    }
+    if constexpr (requires { message.has_table_id(); }) {
+        if (message.has_table_id()) {
+            log << " table_id=" << message.table_id();
+        }
+    }
+    if constexpr (requires { message.has_tablet_id(); }) {
+        if (message.has_tablet_id()) {
+            log << " tablet_id=" << message.tablet_id();
+        }
+    }
+    if constexpr (requires { message.has_txn_id(); }) {
+        if (message.has_txn_id()) {
+            log << " txn_id=" << message.txn_id();
+        }
+    }
+    if constexpr (requires { message.has_cluster_id(); }) {
+        if (message.has_cluster_id()) {
+            log << " cluster_id=" << message.cluster_id();
+        }
+    }
+    if constexpr (requires { message.has_job_id(); }) {
+        if (message.has_job_id()) {
+            log << " job_id=" << message.job_id();
+        }
+    }
+    if constexpr (requires { message.has_snapshot_id(); }) {
+        if (message.has_snapshot_id()) {
+            log << " snapshot_id=" << message.snapshot_id();
+        }
+    }
+    if constexpr (requires { message.has_stage_id(); }) {
+        if (message.has_stage_id()) {
+            log << " stage_id=" << message.stage_id();
+        }
+    }
+    return log.str();
+}
+
+template <class Request>
+inline constexpr bool is_credential_update_request =
+        std::is_same_v<Request, UpdateAkSkRequest> || std::is_same_v<Request, AlterRamUserRequest>;
+
 template <class Request, class Response>
 void begin_rpc(std::string_view func_name, brpc::Controller* ctrl, const Request* req,
                Response* res) {
@@ -190,8 +283,7 @@ void begin_rpc(std::string_view func_name, brpc::Controller* ctrl, const Request
                          std::is_same_v<Request, GetRowsetRequest> ||
                          std::is_same_v<Request, GetTabletRequest>) {
         VLOG_DEBUG << "begin " << func_name << " remote_caller=" << ctrl->remote_side()
-                   << " original_client_ip=" << req->request_ip()
-                   << " request=" << req->ShortDebugString();
+                   << " original_client_ip=" << req->request_ip() << rpc_log_ids(*req);
     } else if constexpr (std::is_same_v<Request, RemoveDeleteBitmapRequest>) {
         LOG(INFO) << "begin " << func_name << " remote_caller=" << ctrl->remote_side()
                   << " original_client_ip=" << req->request_ip()
@@ -202,18 +294,37 @@ void begin_rpc(std::string_view func_name, brpc::Controller* ctrl, const Request
                   << " lock_id=" << req->lock_id() << " initiator=" << req->initiator()
                   << " expiration=" << req->expiration()
                   << " require_compaction_stats=" << req->require_compaction_stats();
+    } else if constexpr (std::is_same_v<Request, AlterClusterRequest>) {
+        LOG(INFO) << "begin " << func_name << " remote_caller=" << ctrl->remote_side()
+                  << " original_client_ip=" << req->request_ip()
+                  << " instance_id=" << req->instance_id() << " op=" << req->op()
+                  << " cluster_id=" << req->cluster().cluster_id()
+                  << " cluster_name=" << req->cluster().cluster_name()
+                  << " node_count=" << req->cluster().nodes_size();
+    } else if constexpr (std::is_same_v<Request, CommitTxnRequest>) {
+        LOG(INFO) << "begin " << func_name << " remote_caller=" << ctrl->remote_side()
+                  << " original_client_ip=" << req->request_ip() << " db_id=" << req->db_id()
+                  << " txn_id=" << req->txn_id() << " is_2pc=" << req->is_2pc()
+                  << " sub_txn_count=" << req->sub_txn_infos_size();
+    } else if constexpr (is_credential_update_request<Request>) {
+        LOG(INFO) << "begin " << func_name << " instance_id=" << req->instance_id();
     } else if constexpr (std::is_same_v<Request, CreateInstanceRequest> ||
                          std::is_same_v<Request, CreateStageRequest> ||
                          std::is_same_v<Request, AlterObjStoreInfoRequest>) {
-        std::string debug_string = encryt_sk(req->ShortDebugString());
+        Request request_for_log = *req;
+        if constexpr (requires { request_for_log.has_cloud_unique_id(); }) {
+            if (request_for_log.has_cloud_unique_id()) {
+                request_for_log.set_cloud_unique_id(kMaskedCloudUniqueId);
+            }
+        }
+        std::string debug_string = encryt_sk(request_for_log.ShortDebugString());
         debug_string = hide_ak(debug_string);
         TEST_SYNC_POINT_CALLBACK("sk_begin_rpc", &debug_string);
         LOG(INFO) << "begin " << func_name << " remote_caller=" << ctrl->remote_side()
                   << " original_client_ip=" << req->request_ip() << " request=" << debug_string;
     } else {
         LOG(INFO) << "begin " << func_name << " remote_caller=" << ctrl->remote_side()
-                  << " original_client_ip=" << req->request_ip()
-                  << " request=" << req->ShortDebugString();
+                  << " original_client_ip=" << req->request_ip() << rpc_log_ids(*req);
     }
 }
 
@@ -222,28 +333,29 @@ void finish_rpc(std::string_view func_name, brpc::Controller* ctrl, const Reques
                 Response* res) {
     if constexpr (std::is_same_v<Response, CommitTxnResponse>) {
         LOG(INFO) << "finish " << func_name << " remote_caller=" << ctrl->remote_side()
-                  << " original_client_ip=" << req->request_ip()
-                  << " response=" << res->ShortDebugString();
-    } else if constexpr (std::is_same_v<Response, GetRowsetResponse>) {
+                  << " original_client_ip=" << req->request_ip() << " db_id=" << req->db_id()
+                  << " txn_id=" << req->txn_id() << " status=" << res->status().ShortDebugString()
+                  << " txn_status=" << res->txn_info().status() << " table_ids=["
+                  << fmt::format("{}", fmt::join(res->table_ids(), ",")) << "]"
+                  << " partition_ids=[" << fmt::format("{}", fmt::join(res->partition_ids(), ","))
+                  << "] versions=[" << fmt::format("{}", fmt::join(res->versions(), ",")) << "]"
+                  << " lazy_commit=" << res->is_lazy_commit()
+                  << " lazy_commit_incomplete=" << res->is_lazy_commit_incomplete()
+                  << " tso_fence=" << res->tso_fence();
+    } else if constexpr (std::is_same_v<Response, GetRowsetResponse> ||
+                         std::is_same_v<Response, GetVersionResponse> ||
+                         std::is_same_v<Response, GetTabletResponse>) {
         LOG_IF(INFO, res->status().code() != MetaServiceCode::OK)
                 << "finish " << func_name << " remote_caller=" << ctrl->remote_side()
-                << " original_client_ip=" << req->request_ip()
-                << " request=" << req->ShortDebugString()
+                << " original_client_ip=" << req->request_ip() << rpc_log_ids(*req)
                 << " status=" << res->status().ShortDebugString();
     } else if constexpr (std::is_same_v<Response, GetTabletStatsResponse>) {
         LOG_IF(INFO, res->status().code() != MetaServiceCode::OK)
                 << "finish " << func_name << " remote_caller=" << ctrl->remote_side()
                 << " original_client_ip=" << req->request_ip()
-                << " request=" << req->ShortDebugString()
+                << " requested_tablets=" << req->tablet_idx_size()
                 << " status=" << res->status().ShortDebugString()
                 << " num_tablets: " << res->tablet_stats().size();
-    } else if constexpr (std::is_same_v<Response, GetVersionResponse> ||
-                         std::is_same_v<Response, GetTabletResponse>) {
-        LOG_IF(INFO, res->status().code() != MetaServiceCode::OK)
-                << "finish " << func_name << " remote_caller=" << ctrl->remote_side()
-                << " request=" << req->ShortDebugString()
-                << " original_client_ip=" << req->request_ip()
-                << " response=" << res->ShortDebugString();
     } else if constexpr (std::is_same_v<Response, GetDeleteBitmapResponse>) {
         LOG(INFO) << "finish " << func_name << " remote_caller=" << ctrl->remote_side()
                   << " original_client_ip=" << req->request_ip()
@@ -259,7 +371,15 @@ void finish_rpc(std::string_view func_name, brpc::Controller* ctrl, const Reques
                          std::is_same_v<Response, GetInstanceResponse> ||
                          std::is_same_v<Response, BeginSnapshotResponse> ||
                          std::is_same_v<Response, CloneInstanceResponse>) {
-        std::string debug_string = encryt_sk(res->DebugString());
+        Response response_for_log = *res;
+        if constexpr (std::is_same_v<Response, GetInstanceResponse>) {
+            if (response_for_log.has_instance()) {
+                for (auto& cluster : *response_for_log.mutable_instance()->mutable_clusters()) {
+                    mask_cluster_cloud_unique_ids(cluster);
+                }
+            }
+        }
+        std::string debug_string = encryt_sk(response_for_log.DebugString());
         debug_string = hide_ak(debug_string);
         TEST_SYNC_POINT_CALLBACK("sk_finish_rpc", &debug_string);
         LOG(INFO) << "finish " << func_name << " remote_caller=" << ctrl->remote_side()
@@ -267,7 +387,8 @@ void finish_rpc(std::string_view func_name, brpc::Controller* ctrl, const Reques
     } else {
         LOG(INFO) << "finish " << func_name << " remote_caller=" << ctrl->remote_side()
                   << " original_client_ip=" << req->request_ip()
-                  << " response=" << res->ShortDebugString();
+                  << " status=" << res->status().ShortDebugString() << rpc_log_ids(*req)
+                  << rpc_log_ids(*res);
     }
 }
 

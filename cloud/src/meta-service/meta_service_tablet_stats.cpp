@@ -335,7 +335,7 @@ MetaServiceResponseStatus parse_fix_tablet_stats_param(
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         msg = "empty instance_id";
-        LOG(INFO) << msg << ", cloud_unique_id=" << cloud_unique_id_str;
+        LOG(INFO) << msg;
         st.set_code(code);
         st.set_msg(msg);
         return st;
