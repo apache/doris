@@ -1903,6 +1903,10 @@ DECLARE_mInt32(thrift_client_open_num_tries);
 
 // Default HTTP scheme used by S3Client when the endpoint has no scheme.
 DECLARE_String(s3_client_http_scheme);
+// Startup settings: retain at most this many SDK clients across queries (0 disables).
+DECLARE_Int32(s3_client_cache_capacity);
+// Idle retention; periodic CacheManager sweeps may add a sweep interval of delay.
+DECLARE_Int32(s3_client_cache_stale_sweep_time_sec);
 
 DECLARE_mBool(ignore_schema_change_check);
 

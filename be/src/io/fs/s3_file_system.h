@@ -19,6 +19,7 @@
 
 #include <filesystem>
 #include <memory>
+#include <mutex>
 #include <shared_mutex>
 #include <string>
 #include <utility>
@@ -29,6 +30,10 @@
 #include "io/fs/path.h"
 #include "io/fs/remote_file_system.h"
 #include "util/s3_util.h"
+
+namespace doris {
+class S3ClientScope;
+}
 
 namespace Aws::S3 {
 class S3Client;
@@ -46,7 +51,7 @@ public:
     explicit ObjClientHolder(S3ClientConf conf);
     ~ObjClientHolder();
 
-    Status init();
+    Status init(S3ClientScope* scope = nullptr);
 
     // Update s3 conf and reset client if `conf` is different. This method is threadsafe.
     Status reset(const S3ClientConf& conf);
@@ -61,9 +66,14 @@ public:
     // For error msg
     std::string full_s3_path(std::string_view bucket, std::string_view key) const;
 
-    const S3ClientConf& s3_client_conf() { return _conf; }
+    S3ClientConf s3_client_conf() const {
+        std::shared_lock lock(_mtx);
+        return _conf;
+    }
 
 private:
+    // Serialize updates while allowing get() to use the old client during construction.
+    std::mutex _reset_mtx;
     mutable std::shared_mutex _mtx;
     std::shared_ptr<ObjStorageClient> _client;
     S3ClientConf _conf;

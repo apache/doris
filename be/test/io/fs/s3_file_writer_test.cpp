@@ -37,6 +37,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <functional>
+#include <future>
 #include <memory>
 #include <mutex>
 #include <random>
@@ -55,10 +56,12 @@
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
+#include "io/fs/packed_file_manager.h"
 #include "io/fs/s3_file_bufferpool.h"
 #include "io/fs/s3_file_system.h"
 #include "io/io_common.h"
 #include "runtime/exec_env.h"
+#include "runtime/thread_context.h"
 #include "storage/index/index_file_writer.h"
 #include "storage/index/index_writer.h"
 #include "testutil/mock/obj_storage_client_test_stub.h"
@@ -315,8 +318,147 @@ public:
                       });
         sp->disable_processing();
         ExecEnv::GetInstance()->_s3_file_upload_thread_pool.reset();
+        // The static filesystem owns a factory client. Release it after uploads
+        // drain, before the factory's AWS SDK shutdown at process exit.
+        s3_fs.reset();
+        mock_client.reset();
+    }
+
+protected:
+    enum class ShutdownQueue { CLOSE, UPLOAD, FILE_SYSTEM };
+
+    struct ShutdownPools {
+        explicit ShutdownPools(ExecEnv* exec_env)
+                : env(exec_env),
+                  saved_upload_pool(std::move(env->_s3_file_upload_thread_pool)),
+                  saved_close_pool(std::move(env->_non_block_close_thread_pool)),
+                  saved_filesystem_pool(std::move(env->_s3_file_system_thread_pool)),
+                  saved_lazy_pool(std::move(env->_lazy_release_obj_pool)),
+                  saved_manager(env->_packed_file_manager) {
+            DORIS_CHECK(ThreadPoolBuilder("shutdown_upload")
+                                .set_min_threads(1)
+                                .set_max_threads(1)
+                                .build(&env->_s3_file_upload_thread_pool)
+                                .ok());
+            DORIS_CHECK(ThreadPoolBuilder("shutdown_close")
+                                .set_min_threads(1)
+                                .set_max_threads(1)
+                                .build(&env->_non_block_close_thread_pool)
+                                .ok());
+            DORIS_CHECK(ThreadPoolBuilder("shutdown_filesystem")
+                                .set_min_threads(1)
+                                .set_max_threads(1)
+                                .build(&env->_s3_file_system_thread_pool)
+                                .ok());
+            env->_packed_file_manager = &manager;
+        }
+
+        ~ShutdownPools() {
+            env->_s3_file_system_thread_pool->wait();
+            env->_non_block_close_thread_pool->wait();
+            env->_s3_file_upload_thread_pool->wait();
+            manager.release_resources();
+            env->_packed_file_manager = saved_manager;
+            env->_s3_file_upload_thread_pool = std::move(saved_upload_pool);
+            env->_non_block_close_thread_pool = std::move(saved_close_pool);
+            env->_s3_file_system_thread_pool = std::move(saved_filesystem_pool);
+            env->_lazy_release_obj_pool = std::move(saved_lazy_pool);
+        }
+
+        ExecEnv* env;
+        std::unique_ptr<ThreadPool> saved_upload_pool;
+        std::unique_ptr<ThreadPool> saved_close_pool;
+        std::unique_ptr<ThreadPool> saved_filesystem_pool;
+        std::unique_ptr<ThreadPool> saved_lazy_pool;
+        PackedFileManager* saved_manager;
+        PackedFileManager manager;
+    };
+
+    void check_shutdown_with_queued_writer(ShutdownQueue queue) {
+        auto* env = ExecEnv::GetInstance();
+        mock_client = std::make_shared<MockS3Client>();
+        auto* sp = SyncPoint::get_instance();
+        std::promise<void> started;
+        std::promise<void> release;
+        auto released = release.get_future().share();
+        std::once_flag release_once;
+        auto unblock = [&] { std::call_once(release_once, [&] { release.set_value(); }); };
+        const std::string data(queue == ShutdownQueue::UPLOAD ? config::s3_write_buffer_size : 32,
+                               'q');
+        ShutdownPools pools(env);
+        auto& manager = pools.manager;
+        // Release the blocked worker before ShutdownPools drains/restores the
+        // environment, including when an assertion returns from this helper.
+        Defer unblock_on_exit {[&] {
+            unblock();
+            sp->clear_call_back("ExecEnv::_shutdown_object_storage:before_wait");
+        }};
+
+        manager._file_systems["shutdown"] = s3_fs;
+        auto& context = manager._current_packed_files["shutdown"];
+        ASSERT_TRUE(manager.create_new_packed_file_context("shutdown", context).ok());
+        auto* writer = context->writer.get();
+        auto* blocked_pool = env->s3_file_upload_thread_pool();
+        if (queue == ShutdownQueue::CLOSE) {
+            blocked_pool = env->non_block_close_thread_pool();
+        } else if (queue == ShutdownQueue::FILE_SYSTEM) {
+            blocked_pool = env->s3_file_system_thread_pool();
+        }
+        ASSERT_TRUE(blocked_pool
+                            ->submit_func([&] {
+                                SCOPED_INIT_THREAD_CONTEXT();
+                                started.set_value();
+                                released.wait();
+                            })
+                            .ok());
+        started.get_future().wait();
+
+        if (queue == ShutdownQueue::FILE_SYSTEM) {
+            ASSERT_TRUE(blocked_pool
+                                ->submit_func([&, writer] {
+                                    SCOPED_INIT_THREAD_CONTEXT();
+                                    EXPECT_TRUE(writer->append(Slice(data)).ok());
+                                    EXPECT_TRUE(writer->close(true).ok());
+                                })
+                                .ok());
+        } else {
+            ASSERT_TRUE(writer->append(Slice(data)).ok());
+            if (queue == ShutdownQueue::CLOSE) {
+                ASSERT_TRUE(writer->close(true).ok());
+            }
+        }
+        ASSERT_EQ(blocked_pool->get_queue_size(), 1);
+
+        // The single worker stays blocked until shutdown reaches its drain step.
+        // Thus the real writer callback is still queued when teardown begins.
+        sp->set_call_back("ExecEnv::_shutdown_object_storage:before_wait", [&](auto&& args) {
+            if (try_any_cast<ThreadPool*>(args[0]) == blocked_pool) {
+                EXPECT_EQ(blocked_pool->get_queue_size(), 1);
+                unblock();
+            }
+        });
+        env->_shutdown_object_storage();
+
+        EXPECT_EQ(env->_packed_file_manager, nullptr);
+        EXPECT_TRUE(manager._current_packed_files.empty());
+        EXPECT_TRUE(manager._file_systems.empty());
+        ASSERT_EQ(mock_client->contents().size(), 1);
+        EXPECT_EQ(mock_client->contents().at(1), data);
+        EXPECT_FALSE(blocked_pool->submit_func([] {}).ok());
     }
 };
+
+TEST_F(S3FileWriterTest, ShutdownDrainsQueuedAsyncClose) {
+    check_shutdown_with_queued_writer(ShutdownQueue::CLOSE);
+}
+
+TEST_F(S3FileWriterTest, ShutdownDrainsQueuedUpload) {
+    check_shutdown_with_queued_writer(ShutdownQueue::UPLOAD);
+}
+
+TEST_F(S3FileWriterTest, ShutdownDrainsQueuedFileSystemUpload) {
+    check_shutdown_with_queued_writer(ShutdownQueue::FILE_SYSTEM);
+}
 
 TEST_F(S3FileWriterTest, DisableFileCacheWriteFromS3FileWriter) {
     bool upload_called = false;

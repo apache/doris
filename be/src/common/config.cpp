@@ -1922,6 +1922,12 @@ DEFINE_Validator(s3_client_http_scheme, [](const std::string& config) -> bool {
     return config == "http" || config == "https";
 });
 
+// Bound cross-query SDK client retention by object count and idle seconds.
+DEFINE_Int32(s3_client_cache_capacity, "64");
+DEFINE_Validator(s3_client_cache_capacity, [](int32_t value) { return value >= 0; });
+DEFINE_Int32(s3_client_cache_stale_sweep_time_sec, "300");
+DEFINE_Validator(s3_client_cache_stale_sweep_time_sec, [](int32_t value) { return value > 0; });
+
 DEFINE_mBool(ignore_schema_change_check, "false");
 
 // The min thread num for BufferedReaderPrefetchThreadPool

@@ -244,7 +244,7 @@ Result<io::FileReaderSPtr> FileFactory::_create_file_reader_internal(
         RETURN_IF_ERROR_RESULT(S3ClientFactory::convert_properties_to_s3_conf(
                 system_properties.properties, s3_uri, &s3_conf));
         auto client_holder = std::make_shared<io::ObjClientHolder>(s3_conf.client_conf);
-        RETURN_IF_ERROR_RESULT(client_holder->init());
+        RETURN_IF_ERROR_RESULT(client_holder->init(system_properties.s3_client_scope.get()));
         auto options = with_storage_in_cache_key(reader_options, s3_conf.client_conf.endpoint);
         return io::S3FileReader::create(std::move(client_holder), s3_conf.bucket, s3_uri.get_key(),
                                         file_description.file_size, profile)
