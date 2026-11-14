@@ -33,6 +33,7 @@
 #include "storage/rowset/rowset.h"
 #include "storage/rowset/rowset_writer_context.h"
 #include "storage/schema_change/column_mapping.h"
+#include "storage/sparse_flush_output.h"
 #include "storage/tablet/tablet_fwd.h"
 #include "storage/tablet/tablet_schema.h"
 
@@ -139,6 +140,17 @@ public:
     virtual Status flush_memtable(Block* block, int32_t segment_id, int64_t* flush_size) {
         return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>(
                 "RowsetWriter not support flush_memtable");
+    }
+
+    // MemTable-only entry point. Sparse attachments are intentionally consumed only by the
+    // Vertical writer chain; other RowsetWriter implementations reject them explicitly.
+    virtual Status flush_memtable(const MemTableFlushOutput& output, int32_t segment_id,
+                                  int64_t* flush_size) {
+        if (output.sparse_attachment) {
+            return Status::NotSupported(
+                    "RowsetWriter does not support Vertical sparse flush output");
+        }
+        return flush_memtable(output.block.get(), segment_id, flush_size);
     }
 
     virtual Status flush_single_block(const Block* block) {
