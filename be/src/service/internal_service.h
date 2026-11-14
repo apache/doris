@@ -20,6 +20,7 @@
 #include <brpc/closure_guard.h>
 #include <gen_cpp/internal_service.pb.h>
 
+#include <functional>
 #include <string>
 
 #include "common/status.h"
@@ -209,6 +210,11 @@ public:
                            PTabletKeyLookupResponse* response,
                            google::protobuf::Closure* done) override;
 
+    void tablet_fetch_data_batch(google::protobuf::RpcController* controller,
+                                 const PTabletKeyLookupBatchRequest* request,
+                                 PTabletKeyLookupBatchResponse* response,
+                                 google::protobuf::Closure* done) override;
+
     void test_jdbc_connection(google::protobuf::RpcController* controller,
                               const PJdbcTestConnectionRequest* request,
                               PJdbcTestConnectionResult* result,
@@ -269,6 +275,15 @@ private:
 
     Status _tablet_fetch_data(const PTabletKeyLookupRequest* request,
                               PTabletKeyLookupResponse* response);
+
+    static Status _validate_tablet_fetch_data_batch(const PTabletKeyLookupBatchRequest& request);
+
+    static void _execute_tablet_fetch_data_batch(
+            const PTabletKeyLookupBatchRequest& request, PTabletKeyLookupBatchResponse* response,
+            int64_t start_ns,
+            const std::function<Status(const PTabletKeyLookupRequest*, PTabletKeyLookupResponse*)>&
+                    lookup,
+            const std::function<bool()>& is_cancelled, const std::function<int64_t()>& nano_time);
 
 protected:
     ExecEnv* _exec_env = nullptr;

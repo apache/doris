@@ -40,15 +40,26 @@ public class BackendServiceClient {
     private final PBackendServiceGrpc.PBackendServiceFutureStub stub;
     private final PBackendServiceGrpc.PBackendServiceBlockingStub blockingStub;
     private final ManagedChannel channel;
+    private final boolean retryEnabled;
     private final long execPlanTimeout;
 
     public BackendServiceClient(TNetworkAddress address, String resolvedIp, Executor executor) {
         this.address = address;
+        retryEnabled = Config.grpc_backend_client_enable_retry;
         channel = CHANNEL_PROVIDER.createChannel(address, resolvedIp, executor);
         stub = PBackendServiceGrpc.newFutureStub(channel);
         blockingStub = PBackendServiceGrpc.newBlockingStub(channel);
         // execPlanTimeout should be greater than future.get timeout, otherwise future will throw ExecutionException
         execPlanTimeout = Config.remote_fragment_exec_timeout_ms + 5000;
+    }
+
+    boolean isRetryEnabled() {
+        return retryEnabled;
+    }
+
+    void shutdownGracefully() {
+        // Configuration changes must allow RPCs already using this channel to finish.
+        channel.shutdown();
     }
 
     // Is the underlying channel in a normal state? (That means the RPC call will not fail immediately)
@@ -88,9 +99,15 @@ public class BackendServiceClient {
         return stub.fetchData(request);
     }
 
-    public Future<InternalService.PTabletKeyLookupResponse> fetchTabletDataAsync(
+    public ListenableFuture<InternalService.PTabletKeyLookupResponse> fetchTabletDataAsync(
             InternalService.PTabletKeyLookupRequest request) {
+        // PointQueryExecutor owns the unary timeout and cancels this future on expiry.
         return stub.tabletFetchData(request);
+    }
+
+    public ListenableFuture<InternalService.PTabletKeyLookupBatchResponse> fetchTabletDataBatchAsync(
+            InternalService.PTabletKeyLookupBatchRequest request, long timeoutMs) {
+        return stub.withDeadlineAfter(timeoutMs, TimeUnit.MILLISECONDS).tabletFetchDataBatch(request);
     }
 
     public InternalService.PFetchDataResult fetchDataSync(InternalService.PFetchDataRequest request) {

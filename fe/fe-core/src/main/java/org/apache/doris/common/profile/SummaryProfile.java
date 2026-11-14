@@ -322,11 +322,13 @@ public class SummaryProfile {
             .put(TAG, 1)
             .build();
 
+    private final boolean enabled;
+
     public boolean parsedByConnectionProcess = false;
     @SerializedName(value = "summaryProfile")
-    private RuntimeProfile summaryProfile = new RuntimeProfile(SUMMARY_PROFILE_NAME);
+    private RuntimeProfile summaryProfile;
     @SerializedName(value = "executionSummaryProfile")
-    private RuntimeProfile executionSummaryProfile = new RuntimeProfile(EXECUTION_SUMMARY_PROFILE_NAME);
+    private RuntimeProfile executionSummaryProfile;
     @SerializedName(value = "parseSqlStartTime")
     private long parseSqlStartTime = -1;
     @SerializedName(value = "parseSqlFinishTime")
@@ -619,9 +621,7 @@ public class SummaryProfile {
     }
 
     public SummaryProfile(boolean isEnable) {
-        if (isEnable) {
-            init();
-        }
+        enabled = isEnable;
     }
 
     public static SummaryProfile read(DataInput input) throws IOException {
@@ -639,7 +639,17 @@ public class SummaryProfile {
         return null;
     }
 
-    private void init() {
+    // Timing fields are used even with profiling disabled; allocate the profile trees
+    // only when a caller actually reads or updates them.
+    private synchronized void init() {
+        if (summaryProfile != null) {
+            return;
+        }
+        summaryProfile = new RuntimeProfile(SUMMARY_PROFILE_NAME);
+        executionSummaryProfile = new RuntimeProfile(EXECUTION_SUMMARY_PROFILE_NAME);
+        if (!enabled) {
+            return;
+        }
         for (String key : SUMMARY_KEYS) {
             summaryProfile.addInfoString(key, "N/A");
         }
@@ -650,6 +660,7 @@ public class SummaryProfile {
 
     // For UT usage
     public void fuzzyInit() {
+        init();
         for (String key : SUMMARY_KEYS) {
             String randomId = String.valueOf(TimeUtils.getStartTimeMs());
             summaryProfile.addInfoString(key, randomId);
@@ -661,27 +672,33 @@ public class SummaryProfile {
     }
 
     public String getProfileId() {
+        init();
         return this.summaryProfile.getInfoString(PROFILE_ID);
     }
 
     public RuntimeProfile getSummary() {
+        init();
         return summaryProfile;
     }
 
     public void setProfileCompletionState(String profileCompletionState) {
+        init();
         summaryProfile.addInfoString(PROFILE_COMPLETION_STATE, profileCompletionState);
     }
 
     public RuntimeProfile getExecutionSummary() {
+        init();
         return executionSummaryProfile;
     }
 
     public void prettyPrint(SafeStringBuilder builder) {
+        init();
         summaryProfile.prettyPrint(builder, "");
         executionSummaryProfile.prettyPrint(builder, "");
     }
 
     public Map<String, String> getAsInfoStings() {
+        init();
         Map<String, String> infoStrings = Maps.newHashMap();
         for (String header : SummaryProfile.SUMMARY_CAPTIONS) {
             infoStrings.put(header, summaryProfile.getInfoString(header));
@@ -690,6 +707,7 @@ public class SummaryProfile {
     }
 
     public void update(Map<String, String> summaryInfo) {
+        init();
         updateSummaryProfile(summaryInfo);
         updateExecutionSummaryProfile();
     }
@@ -703,6 +721,7 @@ public class SummaryProfile {
     }
 
     public synchronized void recordQueryAttempt(TUniqueId queryId, boolean failed) {
+        init();
         String id = DebugUtil.printId(queryId);
         QueryAttempt attempt = queryRetryDetails.get(id);
         if (attempt == null) {
@@ -742,12 +761,14 @@ public class SummaryProfile {
     }
 
     public void clearExecutionDetails() {
+        init();
         resetFields(ResetScope.EXECUTION);
         executionSummaryProfile.addInfoString(SCHEDULE_TIME_PER_BE, "{}");
         updateExecutionSummaryProfile();
     }
 
     public void clearPlanDetails() {
+        init();
         resetFields(ResetScope.PLAN);
         for (String key : ImmutableList.of(FILESYSTEM_OPT_TIME, FILESYSTEM_OPT_RENAME_FILE_CNT,
                 FILESYSTEM_OPT_RENAME_DIR_CNT, FILESYSTEM_OPT_DELETE_FILE_CNT, FILESYSTEM_OPT_DELETE_DIR_CNT,
@@ -774,6 +795,7 @@ public class SummaryProfile {
     // This method is used to display the final data status when the overall query ends.
     // This can avoid recalculating some strings and so on every time during the update process.
     public void queryFinished() {
+        init();
         if (assignedWeightPerBackend != null) {
             Map<String, Long> m = assignedWeightPerBackend.entrySet().stream()
                     .sorted(Map.Entry.comparingByValue())
@@ -896,6 +918,7 @@ public class SummaryProfile {
     }
 
     public void setTransactionSummary() {
+        init();
         executionSummaryProfile.addInfoString(TRANSACTION_COMMIT_TIME,
                 getPrettyTime(transactionCommitEndTime, transactionCommitBeginTime, TUnit.TIME_MS));
 
@@ -1509,10 +1532,12 @@ public class SummaryProfile {
     }
 
     public void setSystemMessage(String msg) {
+        init();
         executionSummaryProfile.addInfoString(SYSTEM_MESSAGE, msg);
     }
 
     public void setExecutedByFrontend(boolean executedByFrontend) {
+        init();
         executionSummaryProfile.addInfoString(EXECUTED_BY_FRONTEND, String.valueOf(executedByFrontend));
     }
 
@@ -1586,6 +1611,7 @@ public class SummaryProfile {
     }
 
     public void write(DataOutput output) throws IOException {
+        init();
         Text.writeString(output, GsonUtils.GSON.toJson(this));
     }
 

@@ -28,10 +28,12 @@ import org.mockito.Mockito;
 import org.xnio.StreamConnection;
 import org.xnio.conduits.ConduitStreamSinkChannel;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 
 public class MysqlChannelTest {
+    private static final int MAX_PACKET = MysqlChannel.MAX_PHYSICAL_PACKET_LENGTH;
 
     StreamConnection streamConnection = Mockito.mock(StreamConnection.class);
 
@@ -87,4 +89,102 @@ public class MysqlChannelTest {
         buf.flip();
         mysqlChannel.sendOnePacket(buf);
     }
+
+    @Test
+    public void testByteArrayPacketsMatchWireFraming() throws IOException {
+        RecordingChannel bytes = new RecordingChannel();
+        RecordingChannel buffers = new RecordingChannel();
+        bytes.sequenceId = buffers.sequenceId = 254;
+        for (int size : new int[] {0, 1, 7, 8, 9, MAX_PACKET, MAX_PACKET + 1}) {
+            byte[] packet = new byte[size];
+            if (size > 0) {
+                packet[size - 1] = 42;
+            }
+            bytes.sendOnePacket(packet);
+            buffers.sendOnePacket(ByteBuffer.wrap(packet));
+            bytes.flush();
+            buffers.flush();
+            Assertions.assertArrayEquals(buffers.output.toByteArray(), bytes.output.toByteArray());
+            Assertions.assertEquals(buffers.sequenceId, bytes.sequenceId);
+            bytes.output.reset();
+            buffers.output.reset();
+        }
+    }
+
+    @Test
+    public void testByteArrayFlushBoundaryPreservesWireBytes() throws IOException {
+        byte[] bufferedPrefix = {11, 12, 13, 14};
+        byte[] secondPacket = {91, 92, 93};
+        for (int size : new int[] {
+                RecordingChannel.SEND_BUFFER_CAPACITY - MysqlChannel.PACKET_HEADER_LEN,
+                RecordingChannel.SEND_BUFFER_CAPACITY,
+                RecordingChannel.SEND_BUFFER_CAPACITY + 1}) {
+            byte[] firstPacket = new byte[size];
+            for (int i = 0; i < size; i++) {
+                firstPacket[i] = (byte) (i + 1);
+            }
+            RecordingChannel bytes = new RecordingChannel();
+            RecordingChannel buffers = new RecordingChannel();
+            bytes.sequenceId = buffers.sequenceId = 255;
+            bytes.sendBuffer.put(bufferedPrefix);
+            buffers.sendBuffer.put(bufferedPrefix);
+
+            bytes.sendOnePacket(firstPacket);
+            bytes.sendOnePacket(secondPacket);
+            buffers.sendOnePacket(ByteBuffer.wrap(firstPacket));
+            buffers.sendOnePacket(ByteBuffer.wrap(secondPacket));
+            bytes.flush();
+            buffers.flush();
+
+            ByteArrayOutputStream expected = new ByteArrayOutputStream();
+            expected.write(bufferedPrefix, 0, bufferedPrefix.length);
+            expected.write(firstPacket.length & 0xFF);
+            expected.write((firstPacket.length >>> 8) & 0xFF);
+            expected.write((firstPacket.length >>> 16) & 0xFF);
+            expected.write(255);
+            expected.write(firstPacket, 0, firstPacket.length);
+            expected.write(secondPacket.length & 0xFF);
+            expected.write((secondPacket.length >>> 8) & 0xFF);
+            expected.write((secondPacket.length >>> 16) & 0xFF);
+            expected.write(0);
+            expected.write(secondPacket, 0, secondPacket.length);
+
+            Assertions.assertArrayEquals(expected.toByteArray(), bytes.output.toByteArray());
+            Assertions.assertArrayEquals(buffers.output.toByteArray(), bytes.output.toByteArray());
+            Assertions.assertEquals(1, bytes.sequenceId);
+            Assertions.assertEquals(buffers.sequenceId, bytes.sequenceId);
+        }
+    }
+
+    @Test
+    public void testByteArrayPreservesProxyAndHandshake() throws IOException {
+        byte[] packet = {1, 2, 3};
+        ProxyMysqlChannel proxy = new ProxyMysqlChannel();
+        proxy.sendOnePacket(packet);
+        Assertions.assertEquals(ByteBuffer.wrap(packet), proxy.getProxyResultBufferList().get(0));
+        new DummyMysqlChannel().sendOnePacket(packet);
+        RecordingChannel channel = new RecordingChannel();
+        channel.isSslHandshaking = true;
+        channel.sendOnePacket(packet);
+        channel.flush();
+        Assertions.assertArrayEquals(packet, channel.output.toByteArray());
+        Assertions.assertEquals(0, channel.sequenceId);
+    }
+
+    private static class RecordingChannel extends MysqlChannel {
+        private static final int SEND_BUFFER_CAPACITY = 8;
+        private final ByteArrayOutputStream output = new ByteArrayOutputStream();
+
+        RecordingChannel() {
+            sendBuffer = ByteBuffer.allocate(SEND_BUFFER_CAPACITY);
+        }
+
+        @Override
+        protected void realNetSend(ByteBuffer buffer) {
+            while (buffer.hasRemaining()) {
+                output.write(buffer.get());
+            }
+        }
+    }
+
 }

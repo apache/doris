@@ -18,6 +18,7 @@
 package org.apache.doris.common.profile;
 
 import org.apache.doris.common.Config;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -35,6 +36,7 @@ import org.mockito.Mockito;
 
 import java.lang.reflect.Field;
 import java.util.Arrays;
+import java.util.Collections;
 
 public class SummaryProfileTest {
 
@@ -379,4 +381,25 @@ public class SummaryProfileTest {
         }
     }
 
+    @Test
+    public void testDisabledProfileDefersTreesButKeepsTimingAndUpdates() {
+        SummaryProfile profile = new SummaryProfile(false);
+        profile.setQueryBeginTime(50);
+        profile.setQueryPlanFinishTime(100);
+        Assertions.assertNull(Deencapsulation.getField(profile, "summaryProfile"));
+        Assertions.assertNull(Deencapsulation.getField(profile, "executionSummaryProfile"));
+        profile.update(Collections.singletonMap(SummaryProfile.PROFILE_ID, "point-query"));
+        Assertions.assertEquals("point-query", profile.getProfileId());
+        Assertions.assertSame(profile.getSummary(), profile.getSummary());
+        Assertions.assertNotNull(profile.getExecutionSummary());
+    }
+
+    @Test
+    public void testEnabledProfileRetainsInitialKeys() {
+        SummaryProfile profile = new SummaryProfile(true);
+        Assertions.assertEquals("N/A", profile.getProfileId());
+        profile.setExecutedByFrontend(true);
+        Assertions.assertEquals("true",
+                profile.getExecutionSummary().getInfoString(SummaryProfile.EXECUTED_BY_FRONTEND));
+    }
 }

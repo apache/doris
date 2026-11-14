@@ -509,9 +509,13 @@ Status PointQueryExecutor::_lookup_row_key() {
         RETURN_IF_ERROR(std::dynamic_pointer_cast<CloudTablet>(_tablet)->sync_rowsets(options));
     }
     std::vector<RowsetSharedPtr> specified_rowsets;
+    int64_t visible_version;
     {
         std::shared_lock rlock(_tablet->get_header_lock());
         specified_rowsets = _tablet->get_rowset_by_ids(nullptr);
+        // Publication merges delete bitmaps before adding the replacement rowset.
+        // Bound deletions to the version captured with these rowsets.
+        visible_version = _tablet->max_version_unlocked();
     }
     io::IOContext io_ctx;
     io_ctx.reader_type = ReaderType::READER_QUERY;
@@ -534,7 +538,7 @@ Status PointQueryExecutor::_lookup_row_key() {
         auto rowset_ptr = std::make_unique<RowsetSharedPtr>();
         st = (_tablet->lookup_row_key(
                 _row_read_ctxs[i]._primary_key, nullptr, false, specified_rowsets, &location,
-                INT32_MAX /*rethink?*/, segment_caches, rowset_ptr.get(), false, nullptr,
+                visible_version, segment_caches, rowset_ptr.get(), false, nullptr,
                 &_profile_metrics.read_stats, nullptr, &io_ctx, &_row_read_ctxs[i]._segment));
         if (st.is<ErrorCode::KEY_NOT_FOUND>()) {
             continue;

@@ -1315,7 +1315,7 @@ public class ConnectContext {
     }
 
     // kill operation with no protect by timeout.
-    private void killByTimeout(boolean killConnection) {
+    private void killByTimeout(boolean killConnection, StmtExecutor executorRef) {
         if (killConnection) {
             LOG.warn("kill wait timeout connection, connection type: {}, connectionId: {}, remote: {}, "
                             + "wait timeout: {}",
@@ -1324,7 +1324,6 @@ public class ConnectContext {
         }
         // Now, cancel running query.
         // cancelQuery by time out
-        StmtExecutor executorRef = executor;
         if (executorRef != null) {
             LOG.warn("kill time out query, remote: {}, at the same time kill connection is {},"
                             + " connection type: {}, connectionId: {}",
@@ -1343,11 +1342,13 @@ public class ConnectContext {
     }
 
     public void checkTimeout(long now) {
-        if (startTime <= 0) {
+        long checkedStartTime = startTime;
+        StmtExecutor checkedExecutor = executor;
+        if (checkedStartTime <= 0) {
             return;
         }
 
-        long delta = now - startTime;
+        long delta = now - checkedStartTime;
         boolean killFlag = false;
         boolean killConnection = false;
         if (command == MysqlCommand.COM_SLEEP) {
@@ -1373,8 +1374,10 @@ public class ConnectContext {
             }
         }
 
-        if (killFlag) {
-            killByTimeout(killConnection);
+        if (killFlag && startTime == checkedStartTime) {
+            if (!killConnection || command == MysqlCommand.COM_SLEEP) {
+                killByTimeout(killConnection, checkedExecutor);
+            }
         }
     }
 

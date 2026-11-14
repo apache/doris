@@ -112,6 +112,9 @@ suite("test_point_query_partition") {
         qe_point_select stmt
         stmt.setInt(1, 1000)
         qe_point_select stmt
+        // Reuse the statement after partition pruning returns no tablet.
+        stmt.setInt(1, 1)
+        qe_point_select stmt
     }
 
     sql "DROP TABLE IF EXISTS regression_test_serving_p0.customer";

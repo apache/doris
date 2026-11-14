@@ -200,6 +200,7 @@ public class ExecuteCommand extends Command {
             Preconditions.checkState(executedStatementContext.isShortCircuitQuery());
             // Publish the exact context used by this execution so its topology generation stays
             // bound to the cached partition pruner in the same planner scan node.
+            shortCircuitQueryContext.enablePreparedPointQueryBindings();
             preparedStmtCtx.shortCircuitQueryContext = Optional.of(shortCircuitQueryContext);
         }
     }

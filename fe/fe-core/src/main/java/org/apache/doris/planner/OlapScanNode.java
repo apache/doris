@@ -1140,10 +1140,15 @@ public class OlapScanNode extends ScanNode {
 
     // Only called when Coordinator exec in high performance point query
     public List<TScanRangeLocations> lazyEvaluateRangeLocations() throws UserException {
+        return lazyEvaluateRangeLocations(olapTable.getBaseSchemaKeyColumns());
+    }
+
+    // A prepared point-query context can supply its validated schema snapshot, never a cached route.
+    public List<TScanRangeLocations> lazyEvaluateRangeLocations(List<Column> keyColumns) throws UserException {
         // Lazy evaluation
         selectedIndexId = olapTable.getBaseIndexId();
         // Only key columns
-        computeColumnsFilter(olapTable.getBaseSchemaKeyColumns(), olapTable.getPartitionInfo());
+        computeColumnsFilter(keyColumns, olapTable.getPartitionInfo());
         computePartitionInfo();
         scanBackendIds.clear();
         selectionHint = null;
