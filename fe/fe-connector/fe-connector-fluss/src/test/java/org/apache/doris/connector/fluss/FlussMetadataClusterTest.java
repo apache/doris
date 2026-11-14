@@ -99,6 +99,7 @@ public class FlussMetadataClusterTest {
         Map<String, String> catalogProperties = new HashMap<>();
         catalogProperties.put(FlussCatalogProperties.BOOTSTRAP_SERVERS,
                 FLUSS_CLUSTER.getBootstrapServers());
+        catalogProperties.put(FlussPartitionListCache.TTL_PROPERTY, "600");
         connector = new FlussConnectorProvider().create(catalogProperties, new ConnectorContext() {
             @Override
             public String getCatalogName() {
@@ -265,6 +266,27 @@ public class FlussMetadataClusterTest {
                 .orElseThrow(AssertionError::new);
         Assertions.assertEquals(Collections.emptyList(),
                 metadata.listPartitions(null, logHandle, Optional.empty()));
+    }
+
+    @Test
+    public void newStatementSeesPartitionsCreatedAfterAnEarlierPruningList() throws Exception {
+        ConnectorMetadata earlier = metadata();
+        ConnectorTableHandle handle = earlier.getTableHandle(null, db, "pk_table")
+                .orElseThrow(AssertionError::new);
+        Assertions.assertEquals(2, earlier.listPartitions(null, handle, Optional.empty()).size());
+
+        admin.createPartition(TablePath.of(db, "pk_table"),
+                new PartitionSpec(Collections.singletonMap("dt", "2026_08_04")), true).get();
+
+        Assertions.assertEquals(2, earlier.listPartitions(null, handle, Optional.empty()).size());
+        ConnectorMetadata nextStatement = metadata();
+        List<ConnectorPartitionInfo> partitions = nextStatement.listPartitions(null, handle, Optional.empty());
+        List<String> names = new ArrayList<>();
+        for (ConnectorPartitionInfo partition : partitions) {
+            names.add(partition.getPartitionName());
+        }
+        Collections.sort(names);
+        Assertions.assertEquals(Arrays.asList("dt=2026_08_02", "dt=2026_08_03", "dt=2026_08_04"), names);
     }
 
     @Test

@@ -24,6 +24,7 @@
 #include <array>
 #include <cstring>
 #include <limits>
+#include <utility>
 
 #include "common/config.h"
 #include "core/column/column_string.h"
@@ -602,6 +603,48 @@ Status DataTypeStringSerDeBase<ColumnType>::write_column_to_iceberg_arrow(
     return Status::OK();
 }
 
+// Appends values [start, end) of a string array with one copy when they lie back to back in its data buffer:
+// the array is not a slice, its offsets rise and stay inside the buffer, and every null is empty, which is how
+// writers lay nulls out. Returns false having appended nothing otherwise, and the caller copies value by value,
+// which also reports bad input precisely.
+template <typename ColumnType>
+static bool insert_contiguous_binary(ColumnType& column, const arrow::BinaryArray& array,
+                                     int64_t start, int64_t end, const uint8_t* data,
+                                     size_t data_size) {
+    if constexpr (std::is_same_v<ColumnType, ColumnString> ||
+                  std::is_same_v<ColumnType, ColumnString64>) {
+        if (array.offset() != 0) {
+            return false;
+        }
+        if (start >= end) {
+            return true;
+        }
+        const int32_t* offsets = array.raw_value_offsets();
+        // Python UDF Arrow buffers can start at an unaligned byte (for example, base + 1).
+        // Both the checks below and the bulk column insertion dereference typed offsets;
+        // keep such input on the fallback path, which reads offsets with unaligned_load.
+        if (reinterpret_cast<uintptr_t>(offsets) % alignof(int32_t) != 0) {
+            return false;
+        }
+        if (offsets[start] < 0 || std::cmp_greater(offsets[end], data_size)) {
+            return false;
+        }
+        const bool has_nulls = array.null_count() > 0;
+        for (int64_t i = start; i < end; ++i) {
+            if (offsets[i + 1] < offsets[i] ||
+                (has_nulls && array.IsNull(i) && offsets[i + 1] != offsets[i])) {
+                return false;
+            }
+        }
+        column.insert_many_continuous_binary_data(
+                reinterpret_cast<const char*>(data),
+                reinterpret_cast<const uint32_t*>(offsets + start), end - start);
+        return true;
+    } else {
+        return false;
+    }
+}
+
 template <typename ColumnType>
 Status DataTypeStringSerDeBase<ColumnType>::read_column_from_arrow(
         IColumn& column, const arrow::Array* arrow_array, int64_t start, int64_t end,
@@ -617,7 +660,10 @@ Status DataTypeStringSerDeBase<ColumnType>::read_column_from_arrow(
         const size_t buffer_size = buffer ? static_cast<size_t>(buffer->size()) : 0;
         const uint8_t* offsets_data = concrete_array->value_offsets()->data();
         const size_t offset_size = sizeof(int32_t);
-
+        if (insert_contiguous_binary(assert_cast<ColumnType&>(column), *concrete_array, start, end,
+                                     buffer ? buffer->data() : nullptr, buffer_size)) {
+            return Status::OK();
+        }
         for (auto offset_i = start; offset_i < end; ++offset_i) {
             if (!concrete_array->IsNull(offset_i)) {
                 auto start_offset = unaligned_load<int32_t>(offsets_data + offset_i * offset_size);
@@ -643,7 +689,6 @@ Status DataTypeStringSerDeBase<ColumnType>::read_column_from_arrow(
                                            static_cast<size_t>(concrete_array->byte_width()));
         }
         uint32_t width = concrete_array->byte_width();
-
         for (auto offset_i = start; offset_i < end; ++offset_i) {
             if (!concrete_array->IsNull(offset_i)) {
                 const auto* raw_data = concrete_array->GetValue(offset_i);

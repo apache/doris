@@ -176,6 +176,16 @@ public final class FlussCatalogProperties {
             description = "guard rail: log-tail rows one union-read scan may hold across all buckets")
     private long maxTotalTailRows = DEFAULT_MAX_TOTAL_TAIL_ROWS;
 
+    // ALTER validates this holder before journaling: parsing only when rebuilding the connector
+    // would persist malformed TTLs and make every later metadata read fail.
+    @ConnectorProperty(names = {FlussTableInfoCache.TTL_PROPERTY}, required = false,
+            description = "table and lake metadata cache TTL in seconds; nonpositive disables caching")
+    private long metadataCacheTtlSec = FlussTableInfoCache.DEFAULT_TTL_SEC;
+
+    @ConnectorProperty(names = {FlussPartitionListCache.TTL_PROPERTY}, required = false,
+            description = "statement-scoped partition-list cache TTL in seconds; nonpositive disables caching")
+    private long partitionCacheTtlSec = FlussPartitionListCache.DEFAULT_TTL_SEC;
+
     @ConnectorProperty(names = {ENABLE_MAPPING_VARBINARY}, required = false,
             description = "deprecated; fluss BINARY/BYTES always map to Doris VARBINARY")
     private boolean enableMappingVarbinary;
@@ -326,6 +336,8 @@ public final class FlussCatalogProperties {
     private static boolean isDorisOnly(String key) {
         return UNION_READ_MODE.equals(key) || UNION_READ_MAX_TAIL_ROWS.equals(key)
                 || UNION_READ_MAX_TOTAL_TAIL_ROWS.equals(key)
+                || FlussTableInfoCache.TTL_PROPERTY.equals(key)
+                || FlussPartitionListCache.TTL_PROPERTY.equals(key)
                 || key.startsWith(LAKE_OPTION_PREFIX);
     }
 
@@ -374,6 +386,14 @@ public final class FlussCatalogProperties {
      * #getMaxTailRows()}. */
     public long getMaxTotalTailRows() {
         return maxTotalTailRows;
+    }
+
+    public long getMetadataCacheTtlSec() {
+        return metadataCacheTtlSec;
+    }
+
+    public long getPartitionCacheTtlSec() {
+        return partitionCacheTtlSec;
     }
 
     /** The type-mapping switches this catalog declares; both default to off. */

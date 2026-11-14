@@ -22,6 +22,7 @@
 #include <arrow/array/builder_decimal.h>
 #include <arrow/array/builder_nested.h>
 #include <arrow/array/builder_primitive.h>
+#include <arrow/array/util.h>
 #include <arrow/extension/parquet_variant.h>
 #include <arrow/extension_type.h>
 #include <arrow/io/memory.h>
@@ -49,6 +50,7 @@
 #include <iostream>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <string>
 #include <tuple>
 #include <utility>
@@ -1594,6 +1596,137 @@ TEST(DataTypeSerDeArrowTest, TimeStampNsArrowRoundTrip) {
                                          target_block.get());
     ASSERT_TRUE(status.ok()) << status;
     CommonDataTypeSerdeTest::compare_two_blocks(source_block, target_block);
+}
+
+// Contiguous strings use one copy; null slots spanning bytes take the value-by-value path.
+// The zero-offset array contract remains validated.
+TEST(DataTypeSerDeArrowTest, StringArrowImportKeepsRowsOnEveryPath) {
+    const auto type = make_nullable(std::make_shared<DataTypeString>());
+    const auto serde = type->get_serde();
+    auto expect_rows = [](const IColumn& column,
+                          const std::vector<std::optional<std::string>>& rows) {
+        const auto& nullable = assert_cast<const ColumnNullable&>(column);
+        ASSERT_EQ(rows.size(), nullable.size());
+        for (size_t i = 0; i < rows.size(); ++i) {
+            EXPECT_EQ(!rows[i].has_value(), nullable.is_null_at(i)) << "row " << i;
+            if (rows[i].has_value()) {
+                EXPECT_EQ(*rows[i], nullable.get_nested_column().get_data_at(i).to_string())
+                        << "row " << i;
+            }
+        }
+    };
+
+    arrow::StringBuilder builder;
+    ASSERT_TRUE(builder.Append("a").ok());
+    ASSERT_TRUE(builder.AppendNull().ok());
+    ASSERT_TRUE(builder.Append("").ok());
+    ASSERT_TRUE(builder.Append("hello").ok());
+    ASSERT_TRUE(builder.AppendNull().ok());
+    ASSERT_TRUE(builder.Append("xyz").ok());
+    std::shared_ptr<arrow::Array> array;
+    ASSERT_TRUE(builder.Finish(&array).ok());
+
+    // The whole array, then a range of it appended behind rows already in the column.
+    auto column = type->create_column();
+    ASSERT_TRUE(
+            serde->read_column_from_arrow(*column, array.get(), 0, 6, cctz::utc_time_zone()).ok());
+    expect_rows(*column, {"a", std::nullopt, "", "hello", std::nullopt, "xyz"});
+    ASSERT_TRUE(
+            serde->read_column_from_arrow(*column, array.get(), 3, 6, cctz::utc_time_zone()).ok());
+    expect_rows(*column, {"a", std::nullopt, "", "hello", std::nullopt, "xyz", "hello",
+                          std::nullopt, "xyz"});
+
+    // The generic Arrow importer requires zero-offset arrays; the converter owns slice handling.
+    auto sliced = array->Slice(3, 3);
+    auto sliced_column = type->create_column();
+    EXPECT_THROW(static_cast<void>(serde->read_column_from_arrow(*sliced_column, sliced.get(), 0, 3,
+                                                                 cctz::utc_time_zone())),
+                 doris::Exception);
+
+    // A null whose slot still spans bytes ("bbb") must read as an empty nested value, not as "bbb".
+    std::shared_ptr<arrow::Buffer> offsets = arrow::Buffer::FromString(std::string(
+            reinterpret_cast<const char*>(std::array<int32_t, 4> {0, 1, 4, 6}.data()), 16));
+    std::shared_ptr<arrow::Buffer> data = arrow::Buffer::FromString("abbbcc");
+    std::shared_ptr<arrow::Buffer> validity = arrow::Buffer::FromString(std::string(1, '\x05'));
+    auto with_bytes_in_null = std::make_shared<arrow::StringArray>(3, offsets, data, validity, 1);
+    auto null_bytes_column = type->create_column();
+    ASSERT_TRUE(serde->read_column_from_arrow(*null_bytes_column, with_bytes_in_null.get(), 0, 3,
+                                              cctz::utc_time_zone())
+                        .ok());
+    expect_rows(*null_bytes_column, {"a", std::nullopt, "cc"});
+    EXPECT_EQ("", assert_cast<const ColumnNullable&>(*null_bytes_column)
+                          .get_nested_column()
+                          .get_data_at(1)
+                          .to_string());
+}
+
+TEST(DataTypeSerDeArrowTest, StringArrowImportAcceptsUnalignedOffsets) {
+    const auto type = make_nullable(std::make_shared<DataTypeString>());
+    const auto serde = type->get_serde();
+    const std::array<int32_t, 5> offsets {0, 2, 2, 2, 5};
+    alignas(int32_t) std::array<uint8_t, sizeof(offsets) + 1> storage {};
+    // Python UDF Arrow buffers can start between aligned addresses, even without an array slice.
+    auto* unaligned = storage.data() + 1;
+    ASSERT_NE(0, reinterpret_cast<uintptr_t>(unaligned) % alignof(int32_t));
+    memcpy(unaligned, offsets.data(), sizeof(offsets));
+    const auto offset_buffer = arrow::Buffer::Wrap(unaligned, sizeof(offsets));
+    const auto data = arrow::Buffer::FromString("abcde");
+    const auto validity = arrow::Buffer::FromString(std::string(1, '\x0b'));
+    for (const auto& arrow_type : {arrow::utf8(), arrow::binary()}) {
+        const auto array = arrow::MakeArray(
+                arrow::ArrayData::Make(arrow_type, 4, {validity, offset_buffer, data}, 1));
+        auto column = type->create_column();
+        for (const auto start : {0, 1}) {
+            ASSERT_TRUE(serde->read_column_from_arrow(*column, array.get(), start, 4,
+                                                      cctz::utc_time_zone())
+                                .ok());
+        }
+        const auto& nullable = assert_cast<const ColumnNullable&>(*column);
+        const auto& strings = nullable.get_nested_column();
+        ASSERT_EQ(7, nullable.size());
+        const std::vector<std::optional<std::string>> expected {
+                "ab", "", std::nullopt, "cde", "", std::nullopt, "cde"};
+        for (size_t i = 0; i < expected.size(); ++i) {
+            EXPECT_EQ(!expected[i].has_value(), nullable.is_null_at(i));
+            EXPECT_EQ(expected[i].value_or(""), strings.get_data_at(i).to_string());
+        }
+    }
+}
+
+// A naive Arrow timestamp is decoded in UTC by calendar arithmetic; the result must equal what the time
+// zone conversion gives, including before the epoch and at the DATETIMEV2 upper bound.
+TEST(DataTypeSerDeArrowTest, NaiveTimestampArrowImportMatchesUtcConversion) {
+    const auto type = std::make_shared<DataTypeDateTimeV2>(6);
+    const auto serde = type->get_serde();
+    const std::vector<int64_t> micros {
+            -876544, 0, 951782400123456, -2208988800000001, 1791793420000000, 253402300799999999};
+    arrow::TimestampBuilder builder(arrow::timestamp(arrow::TimeUnit::MICRO),
+                                    arrow::default_memory_pool());
+    for (int64_t value : micros) {
+        ASSERT_TRUE(builder.Append(value).ok());
+    }
+    std::shared_ptr<arrow::Array> array;
+    ASSERT_TRUE(builder.Finish(&array).ok());
+
+    cctz::time_zone shanghai;
+    ASSERT_TRUE(cctz::load_time_zone("Asia/Shanghai", &shanghai));
+    auto column = type->create_column();
+    ASSERT_TRUE(
+            serde->read_column_from_arrow(*column, array.get(), 0, array->length(), shanghai).ok());
+    const auto& values = assert_cast<const ColumnDateTimeV2&>(*column).get_data();
+    ASSERT_EQ(micros.size(), values.size());
+    for (size_t i = 0; i < micros.size(); ++i) {
+        int64_t seconds = micros[i] / 1000000;
+        int64_t fraction = micros[i] % 1000000;
+        if (fraction < 0) {
+            --seconds;
+            fraction += 1000000;
+        }
+        DateV2Value<DateTimeV2ValueType> expected;
+        expected.from_unixtime(seconds, cctz::utc_time_zone());
+        expected.set_microsecond(static_cast<uint64_t>(fraction));
+        EXPECT_EQ(expected.to_date_int_val(), values[i].to_date_int_val()) << "value " << micros[i];
+    }
 }
 
 TEST(DataTypeSerDeArrowTest, TimeStampNsArrowUnitConversion) {

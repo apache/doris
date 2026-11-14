@@ -24,11 +24,13 @@ import org.apache.doris.jni.toolkit.vec.NestedProjection;
 
 import org.apache.fluss.client.Connection;
 import org.apache.fluss.client.FlussConnection;
+import org.apache.fluss.client.table.FlussTable;
 import org.apache.fluss.client.table.Table;
 import org.apache.fluss.client.table.scanner.batch.BatchScanner;
 import org.apache.fluss.config.ConfigOptions;
 import org.apache.fluss.config.Configuration;
 import org.apache.fluss.metadata.TableBucket;
+import org.apache.fluss.metadata.TableInfo;
 import org.apache.fluss.metadata.TablePath;
 import org.apache.fluss.row.InternalRow;
 import org.apache.fluss.rpc.protocol.FetchLogReadPreference;
@@ -41,11 +43,14 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TimeZone;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.function.Supplier;
 
 /**
  * Reads one fluss scan range — one bucket of one partition, bounded by log offsets.
@@ -206,10 +211,11 @@ public class FlussJniScanner extends JniScanner {
         // the context classloader around this call and restores the caller's on the way out. A borrowed
         // connection was opened under it too, by whichever range opened it first.
         try {
-            lease = FlussConnectionPool.INSTANCE.borrow(clientConfig());
+            Configuration config = clientConfig();
+            lease = FlussConnectionPool.INSTANCE.borrow(config);
             openedConnection = lease.opened();
             connection = lease.connection();
-            table = connection.getTable(TablePath.of(required(DB_NAME), required(TABLE_NAME)));
+            table = openTable(config.toMap());
 
             RowType rowType = table.getTableInfo().getRowType();
             int[] projection = projectionOf(rowType);
@@ -239,6 +245,44 @@ public class FlussJniScanner extends JniScanner {
                     + params.get(DB_NAME) + "." + params.get(TABLE_NAME)
                     + " bucket " + params.get(BUCKET_ID), e);
         }
+    }
+
+    /**
+     * The table, built from the info {@link FlussTableInfoCache} keeps for it rather than asked of the
+     * cluster by every range. Nonpositive TTLs or incomplete planned identities require live metadata.
+     */
+    private Table openTable(Map<String, String> config) throws Exception {
+        TablePath tablePath = TablePath.of(required(DB_NAME), required(TABLE_NAME));
+        long ttlNanos = TimeUnit.SECONDS.toNanos(Long.parseLong(params.getOrDefault(
+                FlussTableInfoCache.TTL_PROPERTY, String.valueOf(FlussTableInfoCache.DEFAULT_TTL_SEC))));
+        if (ttlNanos <= 0 || !params.containsKey("fluss.table_id") || !params.containsKey("fluss.schema_id")) {
+            // Without both planned identities, stale metadata cannot be distinguished from a replacement table.
+            return validatePlannedIdentity(connection.getTable(tablePath));
+        }
+        Supplier<TableInfo> load = () -> connection.getAdmin().getTableInfo(tablePath).join();
+        TableInfo info = FlussTableInfoCache.INSTANCE.get(config, tablePath, ttlNanos, load);
+        if (!info.getRowType().getFieldNames().containsAll(Arrays.asList(fields))
+                || !matchesPlannedIdentity(info)) {
+            // Planned against a newer schema than the kept one: a column was added or renamed since.
+            info = FlussTableInfoCache.INSTANCE.reload(config, tablePath, ttlNanos, load);
+        }
+        return validatePlannedIdentity(new FlussTable((FlussConnection) connection, tablePath, info));
+    }
+
+    private Table validatePlannedIdentity(Table openedTable) throws Exception {
+        if (!matchesPlannedIdentity(openedTable.getTableInfo())) {
+            // A reused table name or changed field type cannot be decoded with the old planned schema.
+            openedTable.close();
+            throw new IllegalStateException("Fluss table identity or schema changed after planning; refresh and retry");
+        }
+        return openedTable;
+    }
+
+    private boolean matchesPlannedIdentity(TableInfo info) {
+        return (!params.containsKey("fluss.table_id")
+                    || info.getTableId() == Long.parseLong(params.get("fluss.table_id")))
+                && (!params.containsKey("fluss.schema_id")
+                    || info.getSchemaId() == Integer.parseInt(params.get("fluss.schema_id")));
     }
 
     /**
