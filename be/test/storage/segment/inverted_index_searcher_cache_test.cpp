@@ -21,6 +21,7 @@
 #include <atomic>
 // IWYU pragma: no_include <bits/chrono.h>
 #include <chrono> // IWYU pragma: keep
+#include <future>
 #include <memory>
 #include <string>
 #include <thread>
@@ -32,6 +33,7 @@
 #include "storage/index/inverted/clucene/searcher_cache_value.h"
 #include "storage/index/inverted/common/inverted_index_cache.h"
 #include "storage/index/inverted/common/inverted_index_desc.h"
+#include "storage/index/inverted/common/norm_length_sums.h"
 #include "storage/index/inverted/inverted_index_reader.h"
 #include "storage/olap_common.h"
 #include "util/lru_cache.h"
@@ -320,10 +322,10 @@ TEST_F(InvertedIndexSearcherCacheTest, remove_element_only_in_table) {
     delete index_searcher_cache;
 }
 
-// The non-NULL norm length sum of a field is computed once per cached searcher, kept apart from
-// the other fields' sums, and not kept when computing it fails.
-TEST(CluceneSearcherCacheValueTest, NonNullNormLengthSumIsComputedOncePerField) {
-    CluceneSearcherCacheValue value(FulltextIndexSearcherPtr(nullptr), 0, 0);
+// The non-NULL norm length sum of a field is computed once per cached index reader, kept apart
+// from the other fields' sums, and not kept when computing it fails.
+TEST(NormLengthSumsTest, NonNullNormLengthSumIsComputedOncePerField) {
+    NormLengthSums value;
     int computed = 0;
     auto compute = [&computed](uint64_t sum) {
         return [&computed, sum](uint64_t* out) {
@@ -353,8 +355,8 @@ TEST(CluceneSearcherCacheValueTest, NonNullNormLengthSumIsComputedOncePerField) 
 
 // The norm length sum of a set of hidden rows is computed once per field and set, and a few sets
 // per field are kept, the oldest given up first.
-TEST(CluceneSearcherCacheValueTest, HiddenNormLengthSumIsComputedOncePerRowSet) {
-    CluceneSearcherCacheValue value(FulltextIndexSearcherPtr(nullptr), 0, 0);
+TEST(NormLengthSumsTest, HiddenNormLengthSumIsComputedOncePerRowSet) {
+    NormLengthSums value;
     int computed = 0;
     auto compute = [&computed](uint64_t sum) {
         return [&computed, sum](uint64_t* out) {
@@ -391,6 +393,85 @@ TEST(CluceneSearcherCacheValueTest, HiddenNormLengthSumIsComputedOncePerRowSet) 
     ASSERT_TRUE(value.hidden_norm_length_sum(L"a", rows, compute(6), &sum).ok());
     EXPECT_EQ(sum, 6);
     EXPECT_EQ(computed, 7);
+}
+
+// Queries that need a sum being computed wait for it instead of reading the same norms, while a
+// query of another set of rows goes on. When computing a sum fails, a waiting query computes it.
+TEST(NormLengthSumsTest, ConcurrentQueriesComputeASumOnce) {
+    NormLengthSums value;
+    const std::vector<uint32_t> rows {1, 5, 9};
+    const std::vector<uint32_t> other_rows {2};
+    std::atomic<int> computed = 0;
+    std::promise<void> release;
+    std::shared_future<void> released = release.get_future().share();
+    std::promise<void> started;
+    auto blocking_compute = [&](uint64_t* out) {
+        ++computed;
+        started.set_value();
+        released.wait();
+        *out = 7;
+        return Status::OK();
+    };
+    auto compute = [&computed](uint64_t* out) {
+        ++computed;
+        *out = 8;
+        return Status::OK();
+    };
+
+    uint64_t first_sum = 0;
+    std::thread first([&] {
+        EXPECT_TRUE(value.hidden_norm_length_sum(L"a", rows, blocking_compute, &first_sum).ok());
+    });
+    started.get_future().wait();
+    std::vector<uint64_t> waiter_sums(4, 0);
+    std::vector<std::thread> waiters;
+    for (auto& sum : waiter_sums) {
+        waiters.emplace_back([&value, &rows, &compute, &sum] {
+            EXPECT_TRUE(value.hidden_norm_length_sum(L"a", rows, compute, &sum).ok());
+        });
+    }
+    // Another set of rows is computed while the first one is.
+    auto other = std::async(std::launch::async, [&] {
+        uint64_t sum = 0;
+        EXPECT_TRUE(value.hidden_norm_length_sum(L"a", other_rows, compute, &sum).ok());
+        return sum;
+    });
+    ASSERT_EQ(other.wait_for(std::chrono::seconds(10)), std::future_status::ready);
+    EXPECT_EQ(other.get(), 8);
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    release.set_value();
+    first.join();
+    for (auto& waiter : waiters) {
+        waiter.join();
+    }
+    EXPECT_EQ(first_sum, 7);
+    for (const uint64_t sum : waiter_sums) {
+        EXPECT_EQ(sum, 7);
+    }
+    EXPECT_EQ(computed, 2);
+
+    std::promise<void> fail_release;
+    std::shared_future<void> fail_released = fail_release.get_future().share();
+    std::promise<void> fail_started;
+    auto failing_compute = [&](uint64_t*) {
+        fail_started.set_value();
+        fail_released.wait();
+        return Status::Corruption("bad norms");
+    };
+    std::thread failing([&] {
+        uint64_t sum = 0;
+        EXPECT_FALSE(value.non_null_norm_length_sum(L"a", failing_compute, &sum).ok());
+    });
+    fail_started.get_future().wait();
+    uint64_t retried_sum = 0;
+    std::thread retrying(
+            [&] { EXPECT_TRUE(value.non_null_norm_length_sum(L"a", compute, &retried_sum).ok()); });
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    fail_release.set_value();
+    failing.join();
+    retrying.join();
+    EXPECT_EQ(retried_sum, 8);
+    EXPECT_EQ(computed, 3);
 }
 
 } // namespace doris::segment_v2

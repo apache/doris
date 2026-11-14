@@ -28,6 +28,7 @@
 #include <gtest/gtest.h>
 
 #include <cstring>
+#include <fstream>
 #include <map>
 #include <memory>
 #include <string>
@@ -44,6 +45,7 @@
 #include "storage/index/inverted/common/inverted_index_desc.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/tablet/tablet_schema_helper.h"
+#include "util/debug_points.h"
 #include "util/slice.h"
 
 using namespace lucene::index;
@@ -1054,6 +1056,82 @@ TEST_F(DorisCompoundReaderTest, InitializeThenClearIoCtxForCacheSafety) {
     _CLLDELETE(sub_input);
     _CLLDELETE(cloned);
 
+    reader.close();
+}
+
+// A sub-file stream without an I/O context of its own, such as the one a CLucene reader reads a
+// field's norms through, reads with the context scoped to the reading thread. The base stream that
+// every sub-file shares drops it after each read, even a read that fails, so no query's pointers
+// stay behind on a cached reader.
+TEST_F(DorisCompoundReaderTest, ScopedIoContextReachesStreamsWithoutTheirOwn) {
+    const std::string path = kTestDir + "/scoped_io_ctx.idx";
+    constexpr int32_t kLength = 64 * 1024;
+    constexpr int32_t kRead = 8192;
+    {
+        std::ofstream file(path, std::ios::binary);
+        const std::string bytes(kLength, 'x');
+        file.write(bytes.data(), kLength);
+    }
+    lucene::store::IndexInput* base = nullptr;
+    CLuceneError err;
+    ASSERT_TRUE(DorisFSDirectory::FSIndexInput::open(io::global_local_filesystem(), path.c_str(),
+                                                     base, err, 4096));
+    EntriesType entries;
+    auto entry = std::make_unique<ReaderFileEntry>();
+    entry->file_name = "data";
+    entry->offset = 0;
+    entry->length = kLength;
+    entries.emplace("data", std::move(entry));
+    DorisCompoundReader reader(base, entries, 4096, nullptr);
+    auto base_stats = [&reader]() {
+        return static_cast<const io::IOContext*>(reader.getDorisIndexInput()->getIoContext())
+                ->file_cache_stats;
+    };
+
+    std::unique_ptr<lucene::store::IndexInput> input;
+    ASSERT_TRUE(reader.openInput("data", input, err, 4096));
+    std::unique_ptr<lucene::store::IndexInput> own_context_input;
+    ASSERT_TRUE(reader.openInput("data", own_context_input, err, 4096));
+    io::FileCacheStatistics own_stats;
+    io::IOContext own_ctx;
+    own_ctx.file_cache_stats = &own_stats;
+    own_context_input->setIoContext(&own_ctx);
+
+    io::FileCacheStatistics stats;
+    io::IOContext io_ctx;
+    io_ctx.file_cache_stats = &stats;
+    // Reads larger than the buffer go straight to the base stream.
+    std::vector<uint8_t> buffer(kRead);
+    input->readBytes(buffer.data(), kRead);
+    EXPECT_EQ(stats.inverted_index_read_bytes, 0);
+    {
+        DorisCompoundReader::ScopedIOContext scope(&io_ctx);
+        input->readBytes(buffer.data(), kRead);
+        EXPECT_EQ(stats.inverted_index_read_bytes, kRead);
+        EXPECT_EQ(base_stats(), nullptr);
+        // A stream with a context of its own keeps reading with it.
+        own_context_input->readBytes(buffer.data(), kRead);
+        EXPECT_EQ(own_stats.inverted_index_read_bytes, kRead);
+        EXPECT_EQ(stats.inverted_index_read_bytes, kRead);
+    }
+    input->readBytes(buffer.data(), kRead);
+    EXPECT_EQ(stats.inverted_index_read_bytes, kRead);
+
+    const bool enable_debug_points = config::enable_debug_points;
+    config::enable_debug_points = true;
+    DebugPoints::instance()->add(
+            "DorisFSDirectory::FSIndexInput::readInternal_reader_read_at_error");
+    {
+        DorisCompoundReader::ScopedIOContext scope(&io_ctx);
+        EXPECT_THROW(input->readBytes(buffer.data(), kRead), CLuceneError);
+    }
+    DebugPoints::instance()->remove(
+            "DorisFSDirectory::FSIndexInput::readInternal_reader_read_at_error");
+    config::enable_debug_points = enable_debug_points;
+    EXPECT_EQ(base_stats(), nullptr);
+
+    input->close();
+    own_context_input->close();
     reader.close();
 }
 

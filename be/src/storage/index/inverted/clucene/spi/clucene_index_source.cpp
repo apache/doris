@@ -42,6 +42,7 @@
 #include <boost/locale/encoding_utf.hpp>
 
 #include "storage/index/index_common_impl.h"
+#include "storage/index/index_compound_reader.h"
 #include "storage/index/inverted/clucene/spi/clucene_postings_cursor.h"
 #include "storage/index/inverted/clucene/term_iterator.h"
 #include "storage/index/inverted/common/string_helper.h"
@@ -258,6 +259,9 @@ std::vector<CluceneIndexSource::ReaderPartition> CluceneIndexSource::_norm_parti
 void CluceneIndexSource::_read_norms(const ReaderPartition& partition,
                                      DorisVector<uint8_t>* norms) const {
     norms->assign(partition.end - partition.begin, 0);
+    // The reader reads the norms through a stream it shares with every query of the cached
+    // searcher, which cannot hold this query's I/O context; the read takes it for its duration.
+    DorisCompoundReader::ScopedIOContext io_context_scope(_io_ctx);
     partition.reader->norms(_field.c_str(), norms->data());
 }
 
