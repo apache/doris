@@ -38,3 +38,52 @@ true
 
 -- !sparse_len_positive --
 true
+
+-- !hll_binary_table_roundtrip --
+3
+
+-- !hll_binary_table_roundtrip2 --
+beijing	3
+hebei	1
+jiangsu	1
+shanghai	2
+shanxi	1
+
+-- !hll_binary_table_card --
+0
+
+-- !hll_binary_const_roundtrip --
+1
+
+-- !hll_binary_const_empty --
+0
+
+-- !hll_binary_const_null --
+0
+
+-- !hll_binary_to_null --
+\N
+
+-- !hll_binary_invalid_empty --
+true
+
+-- !hll_binary_invalid_type --
+true
+
+-- !hll_binary_invalid_truncated --
+true
+
+-- !hll_binary_valid_not_null --
+false
+
+-- !hll_binary_equals_base64 --
+true
+true
+true
+true
+true
+true
+true
+true
+true
+
