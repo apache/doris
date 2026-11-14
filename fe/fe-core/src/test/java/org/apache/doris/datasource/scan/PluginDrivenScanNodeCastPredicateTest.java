@@ -48,6 +48,10 @@ import java.util.Optional;
  * scan. branch-4.x fixed the same row loss inside its Paimon predicate converter (#67933); master enforces
  * it in {@code buildRemainingFilter}, which had no direct test.</p>
  *
+ * <p>A column cast to a string is kept in Doris for every connector, including one that accepts CASTs:
+ * {@code CAST(id AS VARCHAR) >= '100'} would reach it as {@code id >= 100} and prune a file holding only
+ * {@code 15}, although {@code '15' >= '100'}.</p>
+ *
  * <p>The conjuncts come from planning real queries, so the shapes are the ones Nereids produces. The
  * filter is then built through the real private method on a {@code CALLS_REAL_METHODS} node with only the
  * connector metadata injected.</p>
@@ -128,6 +132,54 @@ public class PluginDrivenScanNodeCastPredicateTest extends TestWithFeService {
         // The same conjunct is pushed once the connector accepts CASTs, so the rule above is the switch.
         Assertions.assertTrue(filter.isPresent());
         Assertions.assertNull(Deencapsulation.getField(node, "filteredToOriginalIndex"));
+    }
+
+    /**
+     * A column cast to a string stays in Doris even for a connector that accepts CASTs, such as Iceberg.
+     * Stripped, {@code CAST(id AS VARCHAR) >= '100'} would reach the connector as {@code id >= 100} and
+     * prune a file holding only {@code 15}, although {@code '15' >= '100'}. The converter strips nested
+     * CASTs too, so a chain through a non-string type is held back the same way.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"cast(id as varchar) >= '100'", "cast(id as string) < '200'",
+            "cast(id as varchar) >= '100' and cast(id as varchar) < '200'",
+            "cast(id as varchar) >= '15' or id = 1", "cast(amount as string) > '9'",
+            "cast(cast(id as bigint) as varchar) >= '100'", "cast(cast(code as int) as varchar) >= '100'"})
+    public void columnCastToStringStaysInDorisWhenTheConnectorAcceptsCasts(String predicate)
+            throws Exception {
+        List<Expr> conjuncts = planConjuncts(predicate);
+        Assertions.assertTrue(conjuncts.stream().anyMatch(PluginDrivenScanNode::containsColumnCastToString),
+                predicate);
+        List<Expr> before = Expr.cloneList(conjuncts);
+
+        PluginDrivenScanNode node = nodeWith(conjuncts, true);
+        Optional<ConnectorExpression> filter = Deencapsulation.invoke(node, "buildRemainingFilter");
+
+        Assertions.assertFalse(filter.isPresent(), predicate);
+        Assertions.assertEquals(Collections.emptyList(),
+                Deencapsulation.getField(node, "filteredToOriginalIndex"), predicate);
+        Assertions.assertEquals(before, conjuncts, predicate);
+    }
+
+    /**
+     * Only a cast of a column to a string through a non-string value changes the order the connector
+     * compares in. A string column compared with a cast constant ({@code code > date '2023-03-07'}), a
+     * string column cast to another type, or a chain of string casts over a string column keeps being
+     * pushed.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"code > date '2023-03-07'", "cast(code as int) = 5", "cast(id as bigint) > 5",
+            "cast(cast(code as varchar(10)) as string) > '5'"})
+    public void otherCastsArePushedWhenTheConnectorAcceptsCasts(String predicate) throws Exception {
+        List<Expr> conjuncts = planConjuncts(predicate);
+        Assertions.assertFalse(conjuncts.stream().anyMatch(PluginDrivenScanNode::containsColumnCastToString),
+                predicate);
+
+        PluginDrivenScanNode node = nodeWith(conjuncts, true);
+        Optional<ConnectorExpression> filter = Deencapsulation.invoke(node, "buildRemainingFilter");
+
+        Assertions.assertTrue(filter.isPresent(), predicate);
+        Assertions.assertNull(Deencapsulation.getField(node, "filteredToOriginalIndex"), predicate);
     }
 
     private List<Expr> planConjuncts(String predicate) throws Exception {
