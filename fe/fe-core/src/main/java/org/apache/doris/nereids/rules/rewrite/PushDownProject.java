@@ -22,12 +22,15 @@ import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.pattern.MatchingContext;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.PreferPushDownProject;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
@@ -36,6 +39,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
+import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ArrayListMultimap;
@@ -386,12 +390,24 @@ public class PushDownProject implements RewriteRuleFactory, NormalizeToSlot {
                 return Optional.of((E) existPushdown);
             }
 
-            Expression newExpression = expression.rewriteDownShortCircuit(e -> {
+            // Lambda-local expressions cannot be evaluated in a child project outside their scope.
+            Expression newExpression = expression.rewriteDownShortCircuitDown(e -> {
                 if (e instanceof PreferPushDownProject) {
                     List<Plan> children = plan.children();
                     for (int i = 0; i < children.size(); i++) {
                         Plan child = children.get(i);
                         if (child.getOutputSet().containsAll(e.getInputSlots())) {
+                            if (plan instanceof LogicalJoin) {
+                                LogicalJoin<?, ?> join = (LogicalJoin<?, ?>) plan;
+                                boolean nullableSide = i == 0
+                                        ? join.getJoinType().isLeftSideNullable()
+                                        : join.getJoinType().isRightSideNullable();
+                                // A precomputed result is null-extended by the join. It must agree
+                                // with evaluating the original expression on null-extended inputs.
+                                if (nullableSide && !isNullOnNullInput(e)) {
+                                    continue;
+                                }
+                            }
                             Alias alias = new Alias(statementContext.getNextExprId(), e);
                             Slot slot = alias.toSlot();
                             childToPushDownProjects.put(child, alias);
@@ -400,7 +416,7 @@ public class PushDownProject implements RewriteRuleFactory, NormalizeToSlot {
                     }
                 }
                 return e;
-            });
+            }, e -> !(e instanceof Lambda), true);
 
             if (newExpression != expression) {
                 oldExprToNewExpr.put(expression, newExpression);
@@ -408,6 +424,17 @@ public class PushDownProject implements RewriteRuleFactory, NormalizeToSlot {
             } else {
                 return Optional.empty();
             }
+        }
+
+        private boolean isNullOnNullInput(Expression expression) {
+            Map<Expression, Expression> nullInputs = new LinkedHashMap<>();
+            for (Slot slot : expression.getInputSlots()) {
+                nullInputs.put(slot, new NullLiteral(slot.getDataType()));
+            }
+            Expression nullInputExpression = ExpressionUtils.replace(expression, nullInputs);
+            // Use FE-only, context-independent folding: this proof must not require a BE RPC
+            // or depend on session variables. An expression that cannot be folded stays above.
+            return FoldConstantRuleOnFE.evaluateWithoutContext(nullInputExpression).isNullLiteral();
         }
 
         public List<Plan> buildNewChildren() {
