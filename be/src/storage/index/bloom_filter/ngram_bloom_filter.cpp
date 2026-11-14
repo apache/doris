@@ -25,7 +25,7 @@
 
 namespace doris::segment_v2 {
 NGramBloomFilter::NGramBloomFilter(size_t size)
-        : _size(size),
+        : _filter_size(size),
           words((size + sizeof(UnderType) - 1) / sizeof(UnderType)),
           filter(words, 0) {}
 
@@ -34,12 +34,12 @@ Status NGramBloomFilter::init(const char* buf, size_t size, HashStrategyPB strat
     if (size == 0) {
         return Status::InvalidArgument(absl::Substitute("invalid size:$0", size));
     }
-    DCHECK(_size == size);
+    DCHECK(_filter_size == size);
 
     if (strategy != CITY_HASH_64) {
         return Status::InvalidArgument(absl::Substitute("invalid strategy:$0", strategy));
     }
-    words = (_size + sizeof(UnderType) - 1) / sizeof(UnderType);
+    words = (_filter_size + sizeof(UnderType) - 1) / sizeof(UnderType);
     filter.reserve(words);
     const auto* from = reinterpret_cast<const UnderType*>(buf);
     for (size_t i = 0; i < words; ++i) {
@@ -54,7 +54,7 @@ void NGramBloomFilter::add_bytes(const char* data, size_t len) {
     size_t hash2 = util_hash::CityHash64WithSeed(data, len, SEED_GEN);
 
     for (size_t i = 0; i < HASH_FUNCTIONS; ++i) {
-        size_t pos = (hash1 + i * hash2 + i * i) % (8 * _size);
+        size_t pos = (hash1 + i * hash2 + i * i) % (8 * _filter_size);
         filter[pos / (8 * sizeof(UnderType))] |= (1ULL << (pos % (8 * sizeof(UnderType))));
     }
 }
