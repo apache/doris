@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.TimeStampNsLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TimestampTzLiteral;
 import org.apache.doris.nereids.types.DateTimeV2Type;
@@ -146,6 +147,56 @@ class CastMonotonicityTest {
         Assertions.assertTrue(timestampTzCast.isMonotonic(
                 timestampNs("2024-03-10 02:00:00.000000000"),
                 timestampNs("2024-03-10 02:01:00.000000000")));
+    }
+
+    @Test
+    void testDateTimeV2ToTimeStampTzRejectsSpringGap() {
+        Cast timestampTzCast = new Cast(
+                new SlotReference("dt", DateTimeV2Type.of(6)), TimeStampTzType.of(6));
+        setTimeZone("America/New_York");
+
+        // The endpoint results are in order. The result for 02:40:00.9 is outside their range.
+        Assertions.assertFalse(timestampTzCast.isMonotonic(
+                new DateTimeV2Literal("2024-03-10 02:30:00.000000"),
+                new DateTimeV2Literal("2024-03-10 03:00:00.100000")));
+        Assertions.assertFalse(timestampTzCast.isMonotonic(
+                new DateTimeV2Literal("2024-03-10 02:30:00.000000"),
+                new DateTimeV2Literal("2024-03-10 03:00:00.000000")));
+        Assertions.assertFalse(timestampTzCast.isMonotonic(
+                new DateTimeV2Literal("2024-03-10 02:30:00.900000"),
+                new DateTimeV2Literal("2024-03-10 02:31:00.100000")));
+    }
+
+    @Test
+    void testDateTimeV2ToTimeStampTzOutsideSpringGapIsMonotonic() {
+        Cast timestampTzCast = new Cast(
+                new SlotReference("dt", DateTimeV2Type.of(6)), TimeStampTzType.of(6));
+        setTimeZone("America/New_York");
+
+        Assertions.assertTrue(timestampTzCast.isMonotonic(
+                new DateTimeV2Literal("2024-03-10 01:30:00.000000"),
+                new DateTimeV2Literal("2024-03-10 02:00:00.000000")));
+        Assertions.assertTrue(timestampTzCast.isMonotonic(
+                new DateTimeV2Literal("2024-03-10 03:00:00.000000"),
+                new DateTimeV2Literal("2024-03-10 04:00:00.000000")));
+        Assertions.assertTrue(timestampTzCast.isMonotonic(
+                new DateTimeV2Literal("2024-11-03 01:00:00.000000"),
+                new DateTimeV2Literal("2024-11-03 02:00:00.000000")));
+    }
+
+    @Test
+    void testDateTimeV2ToTimeStampTzWithUnboundedRange() {
+        Cast timestampTzCast = new Cast(
+                new SlotReference("dt", DateTimeV2Type.of(6)), TimeStampTzType.of(6));
+        DateTimeV2Literal endpoint = new DateTimeV2Literal("2024-03-10 03:00:00.000000");
+        setTimeZone("America/New_York");
+
+        Assertions.assertFalse(timestampTzCast.isMonotonic(null, endpoint));
+        Assertions.assertFalse(timestampTzCast.isMonotonic(endpoint, null));
+
+        setTimeZone("+00:00");
+        Assertions.assertTrue(timestampTzCast.isMonotonic(null, endpoint));
+        Assertions.assertTrue(timestampTzCast.isMonotonic(endpoint, null));
     }
 
     private TimestampTzLiteral timestampTz(String value) {
