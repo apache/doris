@@ -57,6 +57,24 @@ std::string regexp_enumeration_prefix(std::string_view pattern) {
     return smallest;
 }
 
+// The longest run of a glob without '*' or '?', such as "cde" for "*ab?cde*". Every term the glob
+// matches holds it as consecutive bytes: the matcher consumes a literal run one character at a time
+// against consecutive text characters, and a valid UTF-8 run cannot match starting inside another
+// character.
+std::string_view longest_literal_run(std::string_view pattern) {
+    std::string_view longest;
+    size_t start = 0;
+    for (size_t i = 0; i <= pattern.size(); ++i) {
+        if (i == pattern.size() || pattern[i] == '*' || pattern[i] == '?') {
+            if (i - start > longest.size()) {
+                longest = pattern.substr(start, i - start);
+            }
+            start = i + 1;
+        }
+    }
+    return longest;
+}
+
 int on_match(unsigned int /*id*/, unsigned long long /*from*/, unsigned long long /*to*/,
              unsigned int /*flags*/, void* context) {
     *static_cast<bool*>(context) = true;
@@ -91,6 +109,14 @@ Status TermPattern::create(TermPatternKind kind, std::string_view pattern, TermP
                     "wildcard pattern is not valid UTF-8");
         }
         out->_enumeration_prefix = pattern.substr(0, pattern.find_first_of("*?"));
+        // A glob that starts with '*' or '?' enumerates the whole dictionary: "*cache*" visits
+        // about two million terms of a 6M-row TextBench segment to keep three of them. The literal
+        // run lets a format drop the others with a substring search before it decodes, converts or
+        // matches them. A glob with a prefix already stops where the prefix ends, and CLucene
+        // checks the prefix only after this text, so it keeps none.
+        if (out->_enumeration_prefix.empty()) {
+            out->_text = longest_literal_run(pattern);
+        }
         return Status::OK();
     }
     if (is_hyperscan_regexp_expensive(pattern)) {

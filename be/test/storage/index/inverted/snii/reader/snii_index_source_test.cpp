@@ -19,6 +19,8 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
+#include <iterator>
 #include <memory>
 #include <span>
 #include <string>
@@ -180,6 +182,22 @@ TEST_F(SniiIndexSourceTest, ExpandsTermsInDictionaryOrder) {
     EXPECT_EQ(expand(TermPatternKind::kContains, "ar", 0),
               (std::vector<std::string> {"sparse_left", "sparse_right"}));
     EXPECT_TRUE(expand(TermPatternKind::kPrefix, "zzz", 0).empty());
+}
+
+// A glob from the start of the dictionary skips the terms without its longest literal run before it
+// reads their entries, and still expands to every term it matches, in dictionary order.
+TEST_F(SniiIndexSourceTest, AGlobFromTheStartExpandsToEveryTermItMatches) {
+    using index_query::TermPatternKind;
+    const std::vector<std::string> dictionary = expand(TermPatternKind::kWildcard, "*", 0);
+    ASSERT_FALSE(dictionary.empty());
+    for (const std::string& glob :
+         std::vector<std::string> {"*rde*", "*ar?e_*", "?rder", "*e*", "*_left", "*a*a*", "*zz*"}) {
+        index_query::WildcardMatcher matcher(glob);
+        std::vector<std::string> expected;
+        std::ranges::copy_if(dictionary, std::back_inserter(expected),
+                             [&](const std::string& term) { return matcher(term); });
+        EXPECT_EQ(expand(TermPatternKind::kWildcard, glob, 0), expected) << glob;
+    }
 }
 
 TEST_F(SniiIndexSourceTest, ScoredPostingsCarryFrequenciesAndPositions) {
