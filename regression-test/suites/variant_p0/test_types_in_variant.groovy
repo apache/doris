@@ -41,7 +41,7 @@ suite("regression_test_variant_types", "var_view,nonConcurrent") {
     sql """
         create table ${table_name} (
             id int,
-            var variant<properties("variant_max_subcolumns_count" = "0")>
+            var variant<properties("variant_max_subcolumns_count" = "2048")>
         ) engine = olap
         duplicate key (id)
         distributed by hash(id) buckets 1
@@ -95,7 +95,7 @@ suite("regression_test_variant_types", "var_view,nonConcurrent") {
     sql """
         create table ${table_name} (
             id int,
-            var variant<properties("variant_max_subcolumns_count" = "0")>
+            var variant<properties("variant_max_subcolumns_count" = "2048")>
         ) engine = olap
         duplicate key (id)
         distributed by hash(id) buckets 1

@@ -99,7 +99,7 @@ suite("regression_test_variant_desc", "p0"){
         sql """desc ${table_name}"""
         sql "truncate table sparse_columns"
 
-        sql """set default_variant_max_subcolumns_count = 0"""
+        sql """set default_variant_max_subcolumns_count = 2048"""
         // no sparse columns
         table_name = "no_sparse_columns"
         create_table.call(table_name, "4")

@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <gen_cpp/olap_file.pb.h>
+
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -49,6 +51,8 @@ struct VariantShredderOptions {
     // Zero retains all dynamic paths, matching variant_max_subcolumns_count semantics.
     size_t max_subcolumns_count = 0;
     bool typed_paths_to_sparse = false;
+    // What max_subcolumns_count == 0 means: every dynamic path (V1) or none (V2).
+    VariantSerializeTypePB serialize_type = VariantSerializeTypePB::VARIANT_SERIALIZE_V1;
     uint32_t sparse_bucket_count = 1;
     size_t max_sparse_column_statistics_size =
             BeConsts::DEFAULT_VARIANT_MAX_SPARSE_COLUMN_STATS_SIZE;
