@@ -2897,13 +2897,26 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return str;
     }
 
+    /**
+     * Resolve [ctl.]db for a command that only works on the internal catalog.
+     */
+    private String getInternalDbName(MultipartIdentifierContext ctx) {
+        List<String> nameParts = visitMultipartIdentifier(ctx);
+        if (nameParts.size() == 1) {
+            return nameParts.get(0);
+        } else if (nameParts.size() == 2) {
+            if (!InternalCatalog.INTERNAL_CATALOG_NAME.equalsIgnoreCase(nameParts.get(0))) {
+                throw new ParseException("The execution of this command is restricted to the internal catalog only.");
+            }
+            return nameParts.get(1);
+        } else {
+            throw new AnalysisException("nameParts in analyze database should be [ctl.]db");
+        }
+    }
+
     @Override
     public LogicalPlan visitShowEncryptKeys(ShowEncryptKeysContext ctx) {
-        String dbName = null;
-        if (ctx.database != null) {
-            List<String> nameParts = visitMultipartIdentifier(ctx.database);
-            dbName = nameParts.get(0); // only one entry possible
-        }
+        String dbName = ctx.database != null ? getInternalDbName(ctx.database) : null;
 
         String likeString = null;
         if (ctx.LIKE() != null) {
@@ -6766,11 +6779,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public LogicalPlan visitShowSmallFiles(ShowSmallFilesContext ctx) {
-        String dbName = null;
-        if (ctx.database != null) {
-            List<String> nameParts = visitMultipartIdentifier(ctx.database);
-            dbName = nameParts.get(0); // only one entry possible
-        }
+        String dbName = ctx.database != null ? getInternalDbName(ctx.database) : null;
         return new ShowSmallFilesCommand(dbName);
     }
 
@@ -7355,11 +7364,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public LogicalPlan visitShowDynamicPartition(ShowDynamicPartitionContext ctx) {
-        String dbName = null;
-        if (ctx.database != null) {
-            List<String> nameParts = visitMultipartIdentifier(ctx.database);
-            dbName = nameParts.get(0); // only one entry possible
-        }
+        String dbName = ctx.database != null ? getInternalDbName(ctx.database) : null;
         return new ShowDynamicPartitionCommand(dbName);
     }
 
@@ -7675,7 +7680,19 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public LogicalPlan visitShowColumns(ShowColumnsContext ctx) {
         boolean isFull = ctx.FULL() != null;
         List<String> nameParts = visitMultipartIdentifier(ctx.tableName);
-        String databaseName = ctx.database != null ? ctx.database.getText() : null;
+        String ctlName = null;
+        String databaseName = null;
+        if (ctx.database != null) {
+            List<String> dbParts = visitMultipartIdentifier(ctx.database);
+            if (dbParts.size() == 1) {
+                databaseName = dbParts.get(0);
+            } else if (dbParts.size() == 2) {
+                ctlName = dbParts.get(0);
+                databaseName = dbParts.get(1);
+            } else {
+                throw new AnalysisException("nameParts in analyze database should be [ctl.]db");
+            }
+        }
         String likePattern = null;
         Expression expr = null;
         if (ctx.wildWhere() != null) {
@@ -7686,7 +7703,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             }
         }
 
-        return new ShowColumnsCommand(isFull, new TableNameInfo(nameParts), databaseName, likePattern, expr);
+        TableNameInfo tableNameInfo = new TableNameInfo(nameParts);
+        if (ctlName != null) {
+            tableNameInfo.setCtl(ctlName);
+        }
+        return new ShowColumnsCommand(isFull, tableNameInfo, databaseName, likePattern, expr);
     }
 
     @Override
@@ -7754,11 +7775,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public LogicalPlan visitShowDelete(ShowDeleteContext ctx) {
-        String dbName = null;
-        if (ctx.database != null) {
-            List<String> nameParts = visitMultipartIdentifier(ctx.database);
-            dbName = nameParts.get(0); // only one entry possible
-        }
+        String dbName = ctx.database != null ? getInternalDbName(ctx.database) : null;
         return new ShowDeleteCommand(dbName);
     }
 

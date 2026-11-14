@@ -97,6 +97,10 @@ public class ShowColumnsCommand extends ShowCommand {
         this.whereClause = whereClause;
     }
 
+    String getDbName() {
+        return databaseName;
+    }
+
     /**
      * SHOW COLUMNS validate.
      */

@@ -53,6 +53,10 @@ public class ShowDeleteCommand extends ShowCommand {
         this.dbName = dbName;
     }
 
+    String getDbName() {
+        return dbName;
+    }
+
     @Override
     public ShowResultSet doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
         if (Strings.isNullOrEmpty(dbName)) {
