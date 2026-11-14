@@ -721,6 +721,10 @@ extern mBvarStatus<int64_t> g_bvar_recycler_instance_next_ts;
 extern mBvarStatus<int64_t> g_bvar_recycler_instance_recycle_start_ts;
 extern mBvarStatus<int64_t> g_bvar_recycler_instance_recycle_end_ts;
 extern mBvarStatus<int64_t> g_bvar_recycler_instance_recycle_last_success_ts;
+extern mBvarInt64Adder g_bvar_obj_delete_group_throttled;
+extern mBvarInt64Adder g_bvar_obj_delete_group_deleted_keys;
+extern mBvarInt64Adder g_bvar_obj_delete_group_acquire_wait_us;
+extern mBvarStatus<int64_t> g_bvar_obj_delete_group_rate;
 
 extern mBvarIntAdder g_bvar_recycler_vault_recycle_task_status;
 extern mBvarStatus<int64_t> g_bvar_recycler_instance_last_round_recycled_num;

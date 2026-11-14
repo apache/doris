@@ -44,15 +44,19 @@ public:
     // returns 0 for success otherwise error
     int init();
 
-    int delete_prefix(const std::string& path_prefix, int64_t expiration_time = 0) override;
+    // `task_name` of the delete functions is ignored, HDFS deletions are not paced.
 
-    int delete_directory(const std::string& dir_path) override;
+    int delete_prefix(const std::string& path_prefix, int64_t expiration_time = 0,
+                      std::string_view task_name = {}) override;
 
-    int delete_all(int64_t expiration_time = 0) override;
+    int delete_directory(const std::string& dir_path, std::string_view task_name = {}) override;
 
-    int delete_files(const std::vector<std::string>& paths) override;
+    int delete_all(int64_t expiration_time = 0, std::string_view task_name = {}) override;
 
-    int delete_file(const std::string& path) override;
+    int delete_files(const std::vector<std::string>& paths,
+                     std::string_view task_name = {}) override;
+
+    int delete_file(const std::string& path, std::string_view task_name = {}) override;
 
     int list_directory(const std::string& dir_path, std::unique_ptr<ListIterator>* res) override;
 

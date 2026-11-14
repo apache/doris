@@ -443,25 +443,32 @@ ObjStorageResponse S3ObjStorageClient::delete_objects(const ObjStoragePath& opts
                     static_cast<int>(delete_outcome.GetError().GetResponseCode()),
                     delete_outcome.GetError().GetMessage(),
                     delete_outcome.GetError().GetRequestId());
+            const int http_code = static_cast<int>(delete_outcome.GetError().GetResponseCode());
             return ObjStorageResponse {
                     .status = s3fs_error(delete_outcome.GetError(),
                                          fmt::format("failed to delete dir {}", opts.key)),
-                    .http_code = static_cast<int>(delete_outcome.GetError().GetResponseCode()),
-                    .request_id = delete_outcome.GetError().GetRequestId()};
+                    .http_code = http_code,
+                    .request_id = delete_outcome.GetError().GetRequestId(),
+                    .throttled = obj_storage_throttled_http_code(http_code)};
         }
-        if (!delete_outcome.GetResult().GetErrors().empty()) {
-            const auto& error = delete_outcome.GetResult().GetErrors().front();
+        if (const auto& errors = delete_outcome.GetResult().GetErrors(); !errors.empty()) {
+            const auto& error = errors.front();
             LOG(WARNING) << fmt::format(
                     "failed to delete object in batch, endpoint: {}, bucket: {}, key: {}, error "
                     "code: {}, error: {}, request_id: {}",
                     _config.endpoint, opts.bucket, error.GetKey(), error.GetCode(),
                     error.GetMessage(), delete_outcome.GetResult().GetRequestId());
+            // The keys failed with the error codes of HTTP 503 are throttled.
+            bool throttled = std::ranges::any_of(errors, [](const auto& e) {
+                return e.GetCode() == "SlowDown" || e.GetCode() == "ServiceUnavailable";
+            });
             return ObjStorageResponse {
                     .status = {ObjStorageStatus::INTERNAL_ERROR,
-                               fmt::format("failed to delete object {}: {}, request_id={}",
-                                           error.GetKey(), error.GetMessage(),
+                               fmt::format("failed to delete object {}: {} {}, request_id={}",
+                                           error.GetKey(), error.GetCode(), error.GetMessage(),
                                            delete_outcome.GetResult().GetRequestId())},
-                    .request_id = delete_outcome.GetResult().GetRequestId()};
+                    .request_id = delete_outcome.GetResult().GetRequestId(),
+                    .throttled = throttled};
         }
     }
     return ObjStorageResponse::OK();
@@ -481,11 +488,13 @@ ObjStorageResponse S3ObjStorageClient::delete_object(const ObjStoragePath& opts)
     if (outcome.IsSuccess()) {
         return ObjStorageResponse::OK();
     }
+    const int http_code = static_cast<int>(outcome.GetError().GetResponseCode());
     ObjStorageResponse response {
             .status = s3fs_error(outcome.GetError(),
                                  fmt::format("failed to delete object {}", opts.key)),
-            .http_code = static_cast<int>(outcome.GetError().GetResponseCode()),
-            .request_id = outcome.GetError().GetRequestId()};
+            .http_code = http_code,
+            .request_id = outcome.GetError().GetRequestId(),
+            .throttled = obj_storage_throttled_http_code(http_code)};
     if (response.status.code == ObjStorageStatus::NOT_FOUND) {
         return response;
     }

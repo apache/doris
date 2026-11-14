@@ -47,7 +47,8 @@ add_executable(recycler_test
     table_stream_checker_test.cpp
     snapshot_data_size_calculator_test.cpp
     recycle_versioned_keys_test.cpp
-    recycler_batch_delete_test.cpp)
+    recycler_batch_delete_test.cpp
+    obj_delete_group_test.cpp)
 
 add_executable(mem_txn_kv_test mem_txn_kv_test.cpp)
 

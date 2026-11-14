@@ -34,7 +34,9 @@
 #endif
 #include <execution>
 #include <memory>
+#include <mutex>
 #include <utility>
+#include <vector>
 
 #include "common/config.h"
 #include "common/encryption_util.h"
@@ -56,6 +58,7 @@
 #include "cpp/sync_point.h"
 #include "cpp/token_bucket_rate_limiter.h"
 #include "cpp/util.h"
+#include "recycler/obj_delete_group.h"
 #include "recycler/storage_vault_accessor.h"
 #include "recycler/sync_executor.h"
 
@@ -166,6 +169,11 @@ private:
     std::shared_ptr<SimpleThreadPool> pool_;
     std::unique_ptr<SyncExecutor<ObjStorageResponse>> executor_;
 };
+
+// Max number of keys per delete request of ObjDeleteGroup
+size_t obj_delete_group_batch_size() {
+    return static_cast<size_t>(config::obj_delete_group_batch_size);
+}
 
 } // namespace
 
@@ -346,7 +354,8 @@ int S3Accessor::create(S3Conf conf, std::shared_ptr<S3Accessor>* accessor) {
 static std::shared_ptr<SimpleThreadPool> worker_pool;
 
 ObjStorageRecursiveDeleteOptions S3Accessor::make_recursive_delete_options(
-        int64_t expiration_time, std::shared_ptr<SimpleThreadPool> pool) {
+        int64_t expiration_time, std::shared_ptr<SimpleThreadPool> pool,
+        std::shared_ptr<ObjDeleteGroup> group) {
     const auto configured_max_tasks = config::recycler_max_tasks_per_batch;
     size_t max_tasks_per_batch = 1000;
     if (configured_max_tasks > 0) {
@@ -355,12 +364,31 @@ ObjStorageRecursiveDeleteOptions S3Accessor::make_recursive_delete_options(
         LOG(WARNING) << "recycler_max_tasks_per_batch=" << configured_max_tasks
                      << " is not positive, using default 1000";
     }
+    const size_t max_delete_batch = group != nullptr ? obj_delete_group_batch_size() : 0;
     ObjStorageRecursiveDeleteOptions options {
             .expiration_time = expiration_time,
             .max_tasks_per_batch = max_tasks_per_batch,
             .executor = std::make_shared<RecyclerObjStorageDeleteExecutor>(std::move(pool)),
+            .max_delete_batch = max_delete_batch,
+            .group = std::move(group),
     };
     return options;
+}
+
+std::shared_ptr<ObjDeleteGroup> S3Accessor::delete_group(std::string_view task_name) const {
+    if (!config::enable_recycler_obj_delete_group) {
+        return nullptr;
+    }
+    std::lock_guard lock(delete_groups_mtx_);
+    auto it = delete_groups_.find(task_name);
+    if (it == delete_groups_.end()) {
+        it = delete_groups_
+                     .emplace(task_name, std::make_shared<ObjDeleteGroup>(fmt::format(
+                                                 "{}/{}#{}", conf_.bucket, conf_.prefix,
+                                                 task_name.empty() ? "default" : task_name)))
+                     .first;
+    }
+    return it->second;
 }
 
 AwsCredentialResult S3Accessor::create_aws_credentials_provider(const S3Conf& s3_conf) {
@@ -453,7 +481,8 @@ int S3Accessor::init() {
                                              (long)aws_config.maxConnections);
 
         set_s3_client_default_http_scheme(aws_config, config::s3_client_http_scheme);
-        // Recycler should fail fast on S3 SlowDown instead of retrying and blocking worker threads.
+        // Recycler should fail fast on S3 throttling (503 SlowDown and 429) instead of retrying and
+        // blocking worker threads, the recycler handles it (see `enable_recycler_obj_delete_group`).
         aws_config.retryStrategy = std::make_shared<S3CustomRetryStrategy>(
                 config::max_s3_client_retry, /*retry_slow_down=*/false);
 
@@ -497,18 +526,21 @@ int S3Accessor::init() {
     }
 }
 
-int S3Accessor::delete_prefix_impl(const std::string& path_prefix, int64_t expiration_time) {
+int S3Accessor::delete_prefix_impl(const std::string& path_prefix, int64_t expiration_time,
+                                   std::string_view task_name) {
     LOG_INFO("delete prefix").tag("uri", to_uri(path_prefix));
     ObjStoragePath delete_path {
             .bucket = conf_.bucket,
             .prefix = get_key(path_prefix),
     };
     return delete_objects_recursively(obj_client_, delete_path,
-                                      make_recursive_delete_options(expiration_time, worker_pool))
+                                      make_recursive_delete_options(expiration_time, worker_pool,
+                                                                    delete_group(task_name)))
             .status.code;
 }
 
-int S3Accessor::delete_prefix(const std::string& path_prefix, int64_t expiration_time) {
+int S3Accessor::delete_prefix(const std::string& path_prefix, int64_t expiration_time,
+                              std::string_view task_name) {
     auto norm_path_prefix = path_prefix;
     strip_leading(norm_path_prefix, "/");
     if (norm_path_prefix.empty()) {
@@ -516,10 +548,10 @@ int S3Accessor::delete_prefix(const std::string& path_prefix, int64_t expiration
         return -1;
     }
 
-    return delete_prefix_impl(norm_path_prefix, expiration_time);
+    return delete_prefix_impl(norm_path_prefix, expiration_time, task_name);
 }
 
-int S3Accessor::delete_directory(const std::string& dir_path) {
+int S3Accessor::delete_directory(const std::string& dir_path, std::string_view task_name) {
     auto norm_dir_path = dir_path;
     strip_leading(norm_dir_path, "/");
     if (norm_dir_path.empty()) {
@@ -527,14 +559,15 @@ int S3Accessor::delete_directory(const std::string& dir_path) {
         return -1;
     }
 
-    return delete_prefix_impl(!norm_dir_path.ends_with('/') ? norm_dir_path + '/' : norm_dir_path);
+    return delete_prefix_impl(!norm_dir_path.ends_with('/') ? norm_dir_path + '/' : norm_dir_path,
+                              0, task_name);
 }
 
-int S3Accessor::delete_all(int64_t expiration_time) {
-    return delete_prefix_impl("", expiration_time);
+int S3Accessor::delete_all(int64_t expiration_time, std::string_view task_name) {
+    return delete_prefix_impl("", expiration_time, task_name);
 }
 
-int S3Accessor::delete_files(const std::vector<std::string>& paths) {
+int S3Accessor::delete_files(const std::vector<std::string>& paths, std::string_view task_name) {
     if (paths.empty()) {
         return 0;
     }
@@ -546,13 +579,34 @@ int S3Accessor::delete_files(const std::vector<std::string>& paths) {
         keys.emplace_back(get_key(path));
     }
 
-    return obj_client_->delete_objects({.bucket = conf_.bucket}, std::move(keys)).status.code;
+    auto group = delete_group(task_name);
+    if (group == nullptr) {
+        return obj_client_->delete_objects({.bucket = conf_.bucket}, std::move(keys)).status.code;
+    }
+    const size_t batch_size =
+            std::min(obj_delete_group_batch_size(), obj_client_->capabilities().max_delete_batch);
+    for (size_t begin = 0; begin < keys.size(); begin += batch_size) {
+        std::vector<std::string> batch(
+                std::make_move_iterator(keys.begin() + begin),
+                std::make_move_iterator(keys.begin() + std::min(begin + batch_size, keys.size())));
+        // Copy the keys into each request, the request may be retried.
+        auto response = group->execute(batch.size(), [&]() {
+            return obj_client_->delete_objects({.bucket = conf_.bucket}, batch);
+        });
+        if (!response.ok()) {
+            return response.status.code;
+        }
+    }
+    return 0;
 }
 
-int S3Accessor::delete_file(const std::string& path) {
+int S3Accessor::delete_file(const std::string& path, std::string_view task_name) {
     LOG_INFO("delete file").tag("uri", to_uri(path));
-    int ret =
-            obj_client_->delete_object({.bucket = conf_.bucket, .key = get_key(path)}).status.code;
+    auto delete_object = [&]() {
+        return obj_client_->delete_object({.bucket = conf_.bucket, .key = get_key(path)});
+    };
+    auto group = delete_group(task_name);
+    int ret = (group == nullptr ? delete_object() : group->execute(1, delete_object)).status.code;
     static_assert(ObjStorageStatus::OK == 0);
     if (ret == ObjStorageStatus::OK || ret == ObjStorageStatus::NOT_FOUND) {
         return 0;

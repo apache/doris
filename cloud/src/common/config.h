@@ -111,6 +111,36 @@ CONF_mStrings(recycle_whitelist, ""); // Comma seprated list
 CONF_mStrings(recycle_blacklist, ""); // Comma seprated list
 // IO worker thread pool concurrency: object list, delete
 CONF_mInt32(instance_recycler_worker_pool_size, "32");
+// Whether the recycler paces object deletions with ObjDeleteGroup: deletions are grouped by storage
+// vault prefix and recycle task, each group adapts its delete rate to the throttling of its own
+// requests. It is read on each deletion. The S3 SDK of the recycler never retries 503 SlowDown and
+// 429 whether it is enabled or not, so the throttling is returned to the recycler at once: a group
+// retries it and decreases its rate, without groups the deletion fails and is recycled again in a
+// later round. It is disabled by default since the rate of a group is bounded by
+// `obj_delete_group_max_keys_per_second`, which may slow down the recycling where the object
+// storage does not throttle the deletions.
+CONF_mBool(enable_recycler_obj_delete_group, "false");
+// ObjDeleteGroup: max number of keys per delete request, capped by the provider's max batch
+CONF_mInt32(obj_delete_group_batch_size, "100");
+CONF_Validator(obj_delete_group_batch_size, [](int32_t config) -> bool { return config > 0; });
+// ObjDeleteGroup: the upper bound of the adaptive delete rate of a group, in keys per second. A
+// request costs the keys it deletes. It is at least 100, the lower bound of the rate.
+CONF_mInt32(obj_delete_group_max_keys_per_second, "6400");
+CONF_Validator(obj_delete_group_max_keys_per_second,
+               [](int32_t config) -> bool { return config >= 100; });
+// ObjDeleteGroup: multiply the delete rate by this factor after throttling, in (0, 1)
+CONF_mDouble(obj_delete_group_rate_decrease_factor, "0.75");
+CONF_Validator(obj_delete_group_rate_decrease_factor,
+               [](double config) -> bool { return config > 0 && config < 1; });
+// ObjDeleteGroup: the rate added by each additive increase, in keys per second
+CONF_mInt32(obj_delete_group_rate_increase_step, "200");
+CONF_Validator(obj_delete_group_rate_increase_step,
+               [](int32_t config) -> bool { return config > 0; });
+// ObjDeleteGroup: max number of admitted but unfinished delete requests of a group, including the
+// ones queued in a thread pool
+CONF_mInt32(obj_delete_group_max_inflight_requests, "16");
+CONF_Validator(obj_delete_group_max_inflight_requests,
+               [](int32_t config) -> bool { return config > 0; });
 // Max number of delete tasks per batch when recycling objects.
 // Each task deletes up to 1000 files. Controls memory usage during large-scale deletion.
 CONF_Int32(recycler_max_tasks_per_batch, "1000");

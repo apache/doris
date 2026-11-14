@@ -98,6 +98,9 @@ struct ObjStorageResponse {
     ObjStorageStatus status {ObjStorageStatus::OK, ""};
     int http_code {200};
     std::string request_id {};
+    // Whether the object storage asks the caller to reduce its request rate. Only provider clients
+    // set it from provider responses, a response rejected by local admission control never sets it.
+    bool throttled {false};
     static ObjStorageResponse OK() {
         // clang-format off
         return {
@@ -121,6 +124,10 @@ struct ObjStorageResponse {
 // Convert a provider HTTP response code into the object-storage status domain. A non-positive
 // response code means that no HTTP response was received.
 ObjStorageStatus obj_storage_status_from_http_code(int http_code, std::string message);
+
+// Whether a provider HTTP response code asks the caller to reduce its request rate, e.g. S3 503
+// SlowDown and Azure 503 ServerBusy.
+bool obj_storage_throttled_http_code(int http_code);
 
 struct ObjStorageUploadResult {
     ObjStorageResponse resp = ObjStorageResponse::OK();
@@ -152,6 +159,12 @@ struct ObjStorageCapabilities {
 
 using ObjStorageDeleteTask = std::function<ObjStorageResponse()>;
 
+class ObjStorageDeleteGroup {
+public:
+    virtual ~ObjStorageDeleteGroup() = default;
+    virtual ObjStorageResponse execute(size_t num_keys, const ObjStorageDeleteTask& task) = 0;
+};
+
 // Implementations must enqueue tasks immediately and remain reusable after wait() completes.
 // Recycler implements this in cloud/src/recycler/s3_accessor.cpp; BE uses the synchronous fallback.
 class ObjStorageDeleteExecutor {
@@ -165,6 +178,9 @@ struct ObjStorageRecursiveDeleteOptions {
     int64_t expiration_time = 0;
     size_t max_tasks_per_batch = 1;
     std::shared_ptr<ObjStorageDeleteExecutor> executor {};
+    // Max number of keys per delete request, 0 means the max delete batch of the client.
+    size_t max_delete_batch = 0;
+    std::shared_ptr<ObjStorageDeleteGroup> group {};
 };
 
 class ObjStorageListIterator;

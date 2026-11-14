@@ -19,9 +19,11 @@
 #include <gtest/gtest.h>
 
 #include <atomic>
+#include <chrono>
 #include <memory>
 #include <mutex>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -29,6 +31,8 @@
 #include "common/simple_thread_pool.h"
 #include "cpp/obj-client/obj_storage_client.h"
 #include "cpp/obj-client/rate_limited_obj_storage_client.h"
+#include "cpp/sync_point.h"
+#include "recycler/obj_delete_group.h"
 #include "recycler/s3_accessor.h"
 
 namespace doris {
@@ -89,6 +93,11 @@ public:
         if (fail_delete_after_.load() >= 0 && call >= fail_delete_after_.load()) {
             return {.status = {TStatusCode::INTERNAL_ERROR, "simulated delete failure"}};
         }
+        if (call < throttled_delete_calls_.load()) {
+            return {.status = {TStatusCode::INTERNAL_ERROR, "simulated SlowDown"},
+                    .http_code = 503,
+                    .throttled = true};
+        }
         std::lock_guard lock(deleted_keys_mutex_);
         deleted_keys_.insert(deleted_keys_.end(), keys.begin(), keys.end());
         return ObjStorageResponse::OK();
@@ -112,6 +121,8 @@ public:
     int list_calls() const { return list_calls_.load(); }
     const std::vector<std::string>& deleted_keys() const { return deleted_keys_; }
     void fail_delete() { fail_delete_after_ = 0; }
+    // The first `num_calls` delete calls are throttled.
+    void throttle_delete(int num_calls) { throttled_delete_calls_ = num_calls; }
 
 private:
     static ObjStorageResponse not_supported() {
@@ -128,6 +139,7 @@ private:
     std::atomic<int> list_calls_ {0};
     std::atomic<int> delete_calls_ {0};
     std::atomic<int> fail_delete_after_ {-1};
+    std::atomic<int> throttled_delete_calls_ {0};
     std::mutex deleted_keys_mutex_;
     std::vector<std::string> deleted_keys_;
 };
@@ -171,6 +183,8 @@ private:
 
 class TestS3Accessor final : public cloud::S3Accessor {
 public:
+    using cloud::S3Accessor::S3Accessor;
+    using cloud::S3Accessor::delete_group;
     using cloud::S3Accessor::make_recursive_delete_options;
 };
 
@@ -184,6 +198,18 @@ public:
 
 private:
     int32_t original_;
+};
+
+class ScopedEnableObjDeleteGroup {
+public:
+    explicit ScopedEnableObjDeleteGroup(bool value)
+            : original_(cloud::config::enable_recycler_obj_delete_group) {
+        cloud::config::enable_recycler_obj_delete_group = value;
+    }
+    ~ScopedEnableObjDeleteGroup() { cloud::config::enable_recycler_obj_delete_group = original_; }
+
+private:
+    bool original_;
 };
 
 class CapturingLogSink final : public google::LogSink {
@@ -207,6 +233,23 @@ public:
 private:
     mutable std::mutex mutex_;
     std::vector<std::string> messages_;
+};
+
+// Sets the backoff before each throttling retry of the delete groups
+class ScopedThrottlingRetryBackoff {
+public:
+    explicit ScopedThrottlingRetryBackoff(std::chrono::milliseconds backoff) {
+        auto* sp = SyncPoint::get_instance();
+        sp->set_call_back("ObjDeleteGroup::retry_backoff_if_throttled", [backoff](auto&& args) {
+            *try_any_cast<std::chrono::milliseconds*>(args[0]) = backoff;
+        });
+        sp->enable_processing();
+    }
+    ~ScopedThrottlingRetryBackoff() {
+        auto* sp = SyncPoint::get_instance();
+        sp->clear_call_back("ObjDeleteGroup::retry_backoff_if_throttled");
+        sp->disable_processing();
+    }
 };
 
 class ScopedLogSink final {
@@ -421,6 +464,118 @@ TEST(RecyclerBatchDeleteTest, PropagatesListAndDeleteFailures) {
     EXPECT_TRUE(logs.contains("delete objects under bucket/list_failure finished, ret="));
     EXPECT_TRUE(logs.contains("delete objects under bucket/delete_failure finished, ret="));
     EXPECT_TRUE(logs.contains("total_batches=1, num_deleted=3, error_count=1"));
+}
+
+TEST(RecyclerBatchDeleteTest, DeleteGroupStopsListingAfterTaskBatchFailure) {
+    ScopedMaxTasksPerBatch max_tasks_per_batch(3);
+    auto pool = std::make_shared<cloud::SimpleThreadPool>(1, "group_delete_failure_test");
+    ASSERT_EQ(pool->start(), 0);
+
+    auto provider_client = std::make_shared<MockObjStorageClient>(make_objects(100), 1);
+    provider_client->fail_delete();
+    auto group = std::make_shared<cloud::ObjDeleteGroup>("group_delete_failure_test");
+    auto response = delete_objects_recursively(
+            provider_client, {.bucket = "bucket", .prefix = "test_key_"},
+            TestS3Accessor::make_recursive_delete_options(0, pool, group));
+
+    EXPECT_FALSE(response.ok());
+    EXPECT_EQ(response.status.msg, "object storage batch deletion did not finish");
+    EXPECT_EQ(provider_client->delete_calls(), 1);
+    // Queued tasks are skipped after the failure, and the next task batch is not listed.
+    EXPECT_EQ(provider_client->list_calls(), 3);
+    EXPECT_EQ(pool->stop(), 0);
+}
+
+TEST(RecyclerBatchDeleteTest, ThrottledDeleteGroupRetriesInWorkerThread) {
+    ScopedThrottlingRetryBackoff retry_backoff(std::chrono::milliseconds(1000));
+    // Both groups share the only thread of the pool
+    auto pool = std::make_shared<cloud::SimpleThreadPool>(1, "throttled_group_delete_test");
+    ASSERT_EQ(pool->start(), 0);
+
+    auto throttled_client = std::make_shared<MockObjStorageClient>(make_objects(1), 1);
+    throttled_client->throttle_delete(1);
+    auto throttled_group = std::make_shared<cloud::ObjDeleteGroup>("throttled_group");
+    ObjStorageResponse throttled_response;
+    std::thread throttled_deleter([&]() {
+        throttled_response = delete_objects_recursively(
+                throttled_client, {.bucket = "bucket", .prefix = "test_key_"},
+                TestS3Accessor::make_recursive_delete_options(0, pool, throttled_group));
+    });
+    while (throttled_client->delete_calls() == 0) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+
+    auto other_client = std::make_shared<MockObjStorageClient>(make_objects(1), 1);
+    auto other_group = std::make_shared<cloud::ObjDeleteGroup>("other_group");
+    auto other_response = delete_objects_recursively(
+            other_client, {.bucket = "bucket", .prefix = "test_key_"},
+            TestS3Accessor::make_recursive_delete_options(0, pool, other_group));
+    // The throttled task completes its backoff and retry on the only worker before the other
+    // group's task can run.
+    const int throttled_delete_calls = throttled_client->delete_calls();
+    throttled_deleter.join();
+
+    EXPECT_TRUE(other_response.ok());
+    EXPECT_EQ(throttled_delete_calls, 2);
+    EXPECT_TRUE(throttled_response.ok());
+    EXPECT_EQ(throttled_client->delete_calls(), 2);
+    EXPECT_EQ(throttled_client->deleted_keys().size(), 1);
+    EXPECT_EQ(pool->stop(), 0);
+}
+
+TEST(RecyclerBatchDeleteTest, ThrottledDeleteGroupTaskIsRetriedAtMostOnce) {
+    ScopedThrottlingRetryBackoff retry_backoff(std::chrono::milliseconds(0));
+    auto pool = std::make_shared<cloud::SimpleThreadPool>(2, "throttled_group_retry_test");
+    ASSERT_EQ(pool->start(), 0);
+
+    auto provider_client = std::make_shared<MockObjStorageClient>(make_objects(3), 1);
+    // The first request is throttled, and its retry succeeds.
+    provider_client->throttle_delete(1);
+    auto response = delete_objects_recursively(
+            provider_client, {.bucket = "bucket", .prefix = "test_key_"},
+            TestS3Accessor::make_recursive_delete_options(
+                    0, pool, std::make_shared<cloud::ObjDeleteGroup>("throttled_retry_group")));
+    EXPECT_TRUE(response.ok());
+    EXPECT_EQ(provider_client->delete_calls(), 4);
+    EXPECT_EQ(provider_client->deleted_keys().size(), 3);
+
+    auto always_throttled_client = std::make_shared<MockObjStorageClient>(make_objects(1), 1);
+    always_throttled_client->throttle_delete(100);
+    response = delete_objects_recursively(
+            always_throttled_client, {.bucket = "bucket", .prefix = "test_key_"},
+            TestS3Accessor::make_recursive_delete_options(
+                    0, pool, std::make_shared<cloud::ObjDeleteGroup>("always_throttled_group")));
+    EXPECT_FALSE(response.ok());
+    EXPECT_EQ(response.status.msg, "object storage batch deletion did not finish");
+    // 1 request and 1 retry
+    EXPECT_EQ(always_throttled_client->delete_calls(), 2);
+    EXPECT_TRUE(always_throttled_client->deleted_keys().empty());
+    EXPECT_EQ(pool->stop(), 0);
+}
+
+TEST(RecyclerBatchDeleteTest, DeleteGroupsLiveWithAccessor) {
+    cloud::S3Conf conf;
+    conf.bucket = "bucket";
+    conf.prefix = "prefix";
+    {
+        ScopedEnableObjDeleteGroup enable_obj_delete_group(false);
+        EXPECT_EQ(TestS3Accessor(conf).delete_group("task"), nullptr);
+    }
+
+    ScopedEnableObjDeleteGroup enable_obj_delete_group(true);
+    std::weak_ptr<cloud::ObjDeleteGroup> task_group;
+    {
+        TestS3Accessor accessor(conf);
+        auto group = accessor.delete_group("task");
+        EXPECT_EQ(group->name(), "bucket/prefix#task");
+        EXPECT_EQ(accessor.delete_group("task"), group);
+        EXPECT_NE(accessor.delete_group("other_task"), group);
+        EXPECT_EQ(accessor.delete_group("")->name(), "bucket/prefix#default");
+        // The next recycle round creates its own accessors, whose groups start over.
+        EXPECT_NE(TestS3Accessor(conf).delete_group("task"), group);
+        task_group = group;
+    }
+    EXPECT_TRUE(task_group.expired());
 }
 
 } // namespace

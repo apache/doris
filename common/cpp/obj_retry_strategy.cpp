@@ -46,8 +46,10 @@ bool S3CustomRetryStrategy::ShouldRetry(const Aws::Client::AWSError<Aws::Client:
         return false;
     }
 
-    if (!_retry_slow_down && error.GetExceptionName() == "SlowDown" &&
-        error.GetResponseCode() == Aws::Http::HttpResponseCode::SERVICE_UNAVAILABLE) {
+    if (!_retry_slow_down &&
+        ((error.GetExceptionName() == "SlowDown" &&
+          error.GetResponseCode() == Aws::Http::HttpResponseCode::SERVICE_UNAVAILABLE) ||
+         error.GetResponseCode() == Aws::Http::HttpResponseCode::TOO_MANY_REQUESTS)) {
         return false;
     }
 

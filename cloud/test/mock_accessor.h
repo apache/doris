@@ -61,15 +61,17 @@ public:
 
     ~MockAccessor() override;
 
-    int delete_prefix(const std::string& path_prefix, int64_t expiration_time = 0) override;
+    int delete_prefix(const std::string& path_prefix, int64_t expiration_time = 0,
+                      std::string_view task_name = {}) override;
 
-    int delete_directory(const std::string& dir_path) override;
+    int delete_directory(const std::string& dir_path, std::string_view task_name = {}) override;
 
-    int delete_all(int64_t expiration_time = 0) override;
+    int delete_all(int64_t expiration_time = 0, std::string_view task_name = {}) override;
 
-    int delete_files(const std::vector<std::string>& paths) override;
+    int delete_files(const std::vector<std::string>& paths,
+                     std::string_view task_name = {}) override;
 
-    int delete_file(const std::string& path) override;
+    int delete_file(const std::string& path, std::string_view task_name = {}) override;
 
     int list_directory(const std::string& dir_path, std::unique_ptr<ListIterator>* res) override;
 
@@ -122,7 +124,8 @@ inline int MockAccessor::delete_prefix_impl(const std::string& path_prefix) {
     return 0;
 }
 
-inline int MockAccessor::delete_prefix(const std::string& path_prefix, int64_t expiration_time) {
+inline int MockAccessor::delete_prefix(const std::string& path_prefix, int64_t expiration_time,
+                                       std::string_view /*task_name*/) {
     auto norm_path_prefix = path_prefix;
     strip_leading(norm_path_prefix, "/");
     if (norm_path_prefix.empty()) {
@@ -133,7 +136,8 @@ inline int MockAccessor::delete_prefix(const std::string& path_prefix, int64_t e
     return delete_prefix_impl(norm_path_prefix);
 }
 
-inline int MockAccessor::delete_directory(const std::string& dir_path) {
+inline int MockAccessor::delete_directory(const std::string& dir_path,
+                                          std::string_view /*task_name*/) {
     auto norm_dir_path = dir_path;
     strip_leading(norm_dir_path, "/");
     if (norm_dir_path.empty()) {
@@ -144,13 +148,14 @@ inline int MockAccessor::delete_directory(const std::string& dir_path) {
     return delete_prefix_impl(!norm_dir_path.ends_with('/') ? norm_dir_path + '/' : norm_dir_path);
 }
 
-inline int MockAccessor::delete_all(int64_t expiration_time) {
+inline int MockAccessor::delete_all(int64_t expiration_time, std::string_view /*task_name*/) {
     std::lock_guard lock(mtx_);
     objects_.clear();
     return 0;
 }
 
-inline int MockAccessor::delete_files(const std::vector<std::string>& paths) {
+inline int MockAccessor::delete_files(const std::vector<std::string>& paths,
+                                      std::string_view /*task_name*/) {
     TEST_SYNC_POINT_RETURN_WITH_VALUE("MockAccessor::delete_files", (int)0, &paths);
 
     for (auto&& path : paths) {
@@ -159,7 +164,7 @@ inline int MockAccessor::delete_files(const std::vector<std::string>& paths) {
     return 0;
 }
 
-inline int MockAccessor::delete_file(const std::string& path) {
+inline int MockAccessor::delete_file(const std::string& path, std::string_view /*task_name*/) {
     LOG(INFO) << "delete object path=" << path;
     std::lock_guard lock(mtx_);
     objects_.erase(path);
