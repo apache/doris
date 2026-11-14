@@ -36,6 +36,7 @@
 #include "core/data_type_serde/bson_value_view.h"
 #include "core/data_type_serde/complex_type_deserialize_util.h"
 #include "core/data_type_serde/orc_serde_utils.h"
+#include "core/data_type_serde/simdjson_read_context.h"
 #include "core/string_ref.h"
 #include "exprs/function/function_helpers.h"
 #include "storage/field_type.h"
@@ -844,6 +845,27 @@ Status DataTypeArraySerDe::decode_bson_value(IColumn& column, const BsonValueVie
     }
     target.get_offsets().push_back(data.size());
     committed = true;
+    return Status::OK();
+}
+
+Status DataTypeArraySerDe::deserialize_one_cell_from_simdjson(
+        IColumn& column, simdjson::ondemand::value& input, const FormatOptions& options,
+        SimdJsonReadContext& context, const std::string& column_name) const {
+    if (input.type().value() != simdjson::ondemand::json_type::array) {
+        return Status::DataQualityError("Json value isn't array, but the column `{}` is array.",
+                                        column_name);
+    }
+    auto& target = assert_cast<ColumnArray&>(column);
+    auto& data = target.get_data();
+
+    size_t field_count = 0;
+    for (simdjson::ondemand::value element : input.get_array()) {
+        RETURN_IF_ERROR(nested_serde->deserialize_one_cell_from_simdjson(
+                data, element, options, context, column_name + ".element"));
+        ++field_count;
+    }
+    auto& offsets = target.get_offsets();
+    offsets.push_back(offsets.back() + field_count);
     return Status::OK();
 }
 

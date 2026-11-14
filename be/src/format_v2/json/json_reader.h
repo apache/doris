@@ -28,6 +28,7 @@
 
 #include "core/custom_allocator.h"
 #include "core/data_type_serde/data_type_serde.h"
+#include "core/data_type_serde/simdjson_read_context.h"
 #include "exprs/json_functions.h"
 #include "format_v2/file_reader.h"
 #include "gen_cpp/PlanNodes_types.h"
@@ -227,7 +228,7 @@ private:
     std::string _padding_buffer;
     size_t _original_doc_size = 0;
     size_t _padded_size = 1024 * 1024 * 8 + simdjson::SIMDJSON_PADDING;
-    std::unordered_map<std::string_view, std::string_view> _cached_string_values;
+    SimdJsonReadContext _simdjson_context;
 };
 
 } // namespace doris::format::json

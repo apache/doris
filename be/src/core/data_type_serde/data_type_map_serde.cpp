@@ -33,7 +33,9 @@
 #include "core/data_type_serde/arrow_validation.h"
 #include "core/data_type_serde/complex_type_deserialize_util.h"
 #include "core/data_type_serde/orc_serde_utils.h"
+#include "core/data_type_serde/simdjson_read_context.h"
 #include "core/string_ref.h"
+#include "util/defer_op.h"
 #include "util/jsonb_document.h"
 #include "util/jsonb_writer.h"
 #include "util/simd/bits.h"
@@ -910,6 +912,45 @@ Status DataTypeMapSerDe::read_column_from_orc(IColumn& column,
         return Status::OK();
     }
     return decode_map_orc_values(key_serde, value_serde, column, view);
+}
+
+Status DataTypeMapSerDe::deserialize_one_cell_from_simdjson(IColumn& column,
+                                                            simdjson::ondemand::value& input,
+                                                            const FormatOptions& options,
+                                                            SimdJsonReadContext& context,
+                                                            const std::string& column_name) const {
+    if (input.type().value() != simdjson::ondemand::json_type::object) {
+        return Status::DataQualityError("Json value isn't object, but the column `{}` is map.",
+                                        column_name);
+    }
+    auto& target = assert_cast<ColumnMap&>(column);
+    auto keys_owner = target.get_keys_ptr()->assert_mutable();
+    auto values_owner = target.get_values_ptr()->assert_mutable();
+    auto& keys = *keys_owner;
+    auto& values = *values_owner;
+
+    size_t field_count = 0;
+    for (simdjson::ondemand::field field : input.get_object()) {
+        const auto key = context.decoded_key(field);
+        Slice slice {key.data(), key.size()};
+        // Object keys are decoded strings, not JSON tokens; preserve the reader's text conversion.
+        if (keys.is_nullable()) {
+            auto& nullable = assert_cast<ColumnNullable&>(keys);
+            auto& nested_key = nullable.get_nested_column();
+            nullable.get_null_map_data().push_back(0);
+            RETURN_IF_ERROR(key_serde->get_nested_serdes()[0]->deserialize_one_cell_from_json(
+                    nested_key, slice, options));
+        } else {
+            RETURN_IF_ERROR(key_serde->deserialize_one_cell_from_json(keys, slice, options));
+        }
+        auto value = field.value();
+        RETURN_IF_ERROR(value_serde->deserialize_one_cell_from_simdjson(
+                values, value, options, context, column_name + ".value"));
+        ++field_count;
+    }
+    auto& offsets = target.get_offsets();
+    offsets.push_back(offsets.back() + field_count);
+    return Status::OK();
 }
 
 } // namespace doris

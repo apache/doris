@@ -38,6 +38,7 @@
 #include "core/data_type_serde/data_type_string_serde.h"
 #include "core/data_type_serde/decoded_column_view.h"
 #include "core/data_type_serde/orc_serde_utils.h"
+#include "core/data_type_serde/simdjson_read_context.h"
 #include "exprs/function/cast/cast_base.h"
 #include "format/transformer/vcsv_transformer.h"
 #include "util/defer_op.h"
@@ -730,6 +731,21 @@ Status DataTypeNullableSerDe::decode_bson_value(IColumn& column, const BsonValue
     }
     target.get_null_map_data().push_back(0);
     committed = true;
+    return Status::OK();
+}
+
+Status DataTypeNullableSerDe::deserialize_one_cell_from_simdjson(
+        IColumn& column, simdjson::ondemand::value& input, const FormatOptions& options,
+        SimdJsonReadContext& context, const std::string& column_name) const {
+    auto& target = assert_cast<ColumnNullable&>(column);
+    if (input.type().value() == simdjson::ondemand::json_type::null) {
+        target.insert_default();
+        return Status::OK();
+    }
+
+    RETURN_IF_ERROR(nested_serde->deserialize_one_cell_from_simdjson(
+            target.get_nested_column(), input, options, context, column_name));
+    target.get_null_map_data().push_back(0);
     return Status::OK();
 }
 
