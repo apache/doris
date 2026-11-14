@@ -21,16 +21,22 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.arrowflight.auth2.FlightAuthResult;
 import org.apache.doris.arrowflight.protocol.FlightProtocolAdapter;
 import org.apache.doris.arrowflight.results.FlightSqlChannel;
+import org.apache.doris.arrowflight.results.FlightSqlEndpointsLocation;
 import org.apache.doris.arrowflight.sessions.FlightSessionsManager;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.TokenManager;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.IncrWindowNotReadyException;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectPoolTestSupport;
 import org.apache.doris.qe.ConnectScheduler;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -43,6 +49,7 @@ import org.apache.arrow.flight.CloseSessionResult;
 import org.apache.arrow.flight.ErrorFlightMetadata;
 import org.apache.arrow.flight.FlightConstants;
 import org.apache.arrow.flight.FlightDescriptor;
+import org.apache.arrow.flight.FlightInfo;
 import org.apache.arrow.flight.FlightProducer.CallContext;
 import org.apache.arrow.flight.FlightProducer.StreamListener;
 import org.apache.arrow.flight.FlightRuntimeException;
@@ -59,6 +66,7 @@ import org.apache.arrow.flight.sql.FlightSqlUtils;
 import org.apache.arrow.flight.sql.impl.FlightSql.ActionCreatePreparedStatementRequest;
 import org.apache.arrow.flight.sql.impl.FlightSql.ActionCreatePreparedStatementResult;
 import org.apache.arrow.flight.sql.impl.FlightSql.CommandStatementQuery;
+import org.apache.arrow.flight.sql.impl.FlightSql.TicketStatementQuery;
 import org.apache.arrow.vector.ipc.ReadChannel;
 import org.apache.arrow.vector.ipc.message.MessageSerializer;
 import org.apache.arrow.vector.types.pojo.Schema;
@@ -67,6 +75,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedConstruction;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.io.ByteArrayInputStream;
@@ -82,6 +91,55 @@ import java.util.stream.Collectors;
 public class DorisFlightSqlProducerTest {
 
     private boolean prevRunningUnitTest;
+
+    @Test
+    public void testFlightTicketsAreAlwaysSigned() throws Exception {
+        ConnectContext ctx = ConnectContext.forFlight("token");
+        FlightSessionsManager sessions = Mockito.mock(FlightSessionsManager.class);
+        Mockito.when(sessions.getConnectContext("token")).thenReturn(ctx);
+        CallContext callContext = Mockito.mock(CallContext.class);
+        Mockito.when(callContext.peerIdentity()).thenReturn("token");
+        Env env = Mockito.mock(Env.class);
+        TokenManager tokens = Mockito.mock(TokenManager.class);
+        Mockito.when(env.getTokenManager()).thenReturn(tokens);
+        Mockito.when(env.getClusterId()).thenReturn(42);
+        Mockito.when(tokens.acquireSigningToken()).thenReturn("flight-test-token");
+        TUniqueId id = new TUniqueId(1, 2);
+        String unsigned = DebugUtil.printId(id) + "&127.0.0.1&8060&c2VsZWN0IDE=";
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class);
+                MockedConstruction<FlightSqlConnectProcessor> mockedProcessor = Mockito.mockConstruction(
+                        FlightSqlConnectProcessor.class, (processor, context) -> {
+                            Mockito.doAnswer(invocation -> {
+                                FlightProtocolAdapter.of(ctx).beforeQuery(ctx);
+                                ctx.addFlightSqlEndpointsLocation(new FlightSqlEndpointsLocation(id,
+                                        new TNetworkAddress("127.0.0.1", 8050),
+                                        new TNetworkAddress("127.0.0.1", 8060), new ArrayList<>()));
+                                return null;
+                            }).when(processor).handleQuery(Mockito.anyString());
+                            Mockito.when(processor.getArrowSchema()).thenReturn(new Schema(ImmutableList.of()));
+                        });
+                DorisFlightSqlProducer producer = new DorisFlightSqlProducer(
+                        Location.forGrpcInsecure("127.0.0.1", 9090), sessions)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            FlightInfo info = producer.getFlightInfoStatement(
+                    CommandStatementQuery.newBuilder().setQuery("select 1").build(), callContext,
+                    FlightDescriptor.command(new byte[0]));
+            String handle = Any.parseFrom(info.getEndpoints().get(0).getTicket().getBytes())
+                    .unpack(TicketStatementQuery.class).getStatementHandle().toStringUtf8();
+            Assertions.assertTrue(handle.startsWith(unsigned + "&v1&42&"));
+            Assertions.assertEquals(9, handle.split("&", -1).length);
+            Mockito.verify(tokens).acquireSigningToken();
+
+            // Missing signing credentials must fail the request, never issue an unsigned ticket.
+            Mockito.when(tokens.acquireSigningToken()).thenReturn("");
+            Assertions.assertThrows(FlightRuntimeException.class,
+                    () -> producer.getFlightInfoStatement(
+                            CommandStatementQuery.newBuilder().setQuery("select 1").build(), callContext,
+                            FlightDescriptor.command(new byte[0])));
+        } finally {
+            ctx.getFlightSqlChannel().close();
+        }
+    }
 
     @Test
     public void testWindowNotReadyHasRetryableFlightStatusAndStableBusinessCode() {

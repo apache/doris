@@ -610,7 +610,7 @@ Status GroupCommitTable::_finish_group_commit_load(int64_t db_id, int64_t table_
         TLoadTxnCommitRequest request;
         // deprecated and should be removed in 3.1, use token instead
         request.__set_auth_code(0);
-        request.__set_token(_exec_env->cluster_info()->curr_auth_token);
+        request.__set_token(_exec_env->cluster_info()->current_auth_token());
         request.__set_db_id(db_id);
         request.__set_table_id(table_id);
         request.__set_txnId(txn_id);
@@ -663,7 +663,7 @@ Status GroupCommitTable::_finish_group_commit_load(int64_t db_id, int64_t table_
         TLoadTxnRollbackRequest request;
         // deprecated and should be removed in 3.1, use token instead
         request.__set_auth_code(0);
-        request.__set_token(_exec_env->cluster_info()->curr_auth_token);
+        request.__set_token(_exec_env->cluster_info()->current_auth_token());
         request.__set_db_id(db_id);
         request.__set_txnId(txn_id);
         request.__set_reason(status.to_string());

@@ -33,6 +33,9 @@ import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
 import org.apache.thrift.transport.TTransportException;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -50,25 +53,62 @@ public class TokenManager {
 
     private  int thriftTimeoutMs = 300 * 1000;
     private  EvictingQueue<String> tokenQueue;
-    private  String latestToken;
+    private volatile String latestToken;
+    // Protected by this; retain an immutable copy across follower-to-master promotion.
+    private List<String> lastAcquiredAuthTokens = List.of();
     private  ScheduledExecutorService tokenGenerator;
 
     public TokenManager() {
     }
 
-    public void start() {
-        this.tokenQueue = EvictingQueue.create(Config.token_queue_size);
-        // init one token to avoid async issue.
-        this.addNewToken(generateNewToken());
+    public synchronized void start() {
+        int tokenQueueSize = Config.token_queue_size;
+        // Retain signing keys for at least two rotation periods after their last use.
+        if (tokenQueueSize < 4) {
+            LOG.warn("token_queue_size is {}, using the minimum capacity of 4", tokenQueueSize);
+            tokenQueueSize = 4;
+        }
+        // Promotion calls start() again on the same TokenManager.
+        if (this.tokenGenerator != null) {
+            this.tokenGenerator.shutdownNow();
+        }
+        // Preserve the entire cached queue even if this FE has a smaller configured capacity.
+        this.tokenQueue = EvictingQueue.create(Math.max(tokenQueueSize, lastAcquiredAuthTokens.size()));
+        for (String token : lastAcquiredAuthTokens) {
+            this.addNewToken(token);
+        }
+        // An uncached follower needs two initial tokens; an old master may have supplied only one.
+        // A complete cached queue is restored unchanged, preserving both signing and current keys.
+        while (this.tokenQueue.size() < 2) {
+            this.addNewToken(generateNewToken());
+        }
         this.tokenGenerator = Executors.newScheduledThreadPool(1,
                 new CustomThreadFactory("token-generator"));
-        this.tokenGenerator.scheduleAtFixedRate(() -> this.addNewToken(generateNewToken()), 0,
+        EvictingQueue<String> queue = this.tokenQueue;
+        // Publish the initial queue before the first scheduled rotation.
+        this.tokenGenerator.scheduleAtFixedRate(() -> rotateToken(queue),
+                Config.token_generate_period_hour,
                 Config.token_generate_period_hour, TimeUnit.HOURS);
     }
 
-    private void addNewToken(String token) {
+    private synchronized void rotateToken(EvictingQueue<String> queue) {
+        // An old task may already be waiting for this lock when promotion stops its executor.
+        // It must not rotate the newly initialized queue before its first heartbeat.
+        if (queue != tokenQueue) {
+            return;
+        }
+        addNewToken(generateNewToken());
+    }
+
+    private synchronized void addNewToken(String token) {
         tokenQueue.offer(token);
         latestToken = token;
+    }
+
+    // Called by the master's heartbeat sender. Oldest first, newest last; copy under the
+    // rotation lock so both heartbeat fields can be populated from the same generation.
+    public synchronized List<String> getAuthTokens() {
+        return new ArrayList<>(tokenQueue);
     }
 
     private String generateNewToken() {
@@ -80,7 +120,7 @@ public class TokenManager {
             return latestToken;
         } else {
             try {
-                return acquireTokenFromMaster();
+                return acquireTokenFromMaster().getToken();
             } catch (TException e) {
                 LOG.warn("acquire token error", e);
                 throw new UserException("Acquire token from master failed", e);
@@ -88,7 +128,56 @@ public class TokenManager {
         }
     }
 
-    private String acquireTokenFromMaster() throws TException {
+    public String acquireSigningToken() throws UserException {
+        List<String> tokens = acquireAuthTokens();
+        // Sign with the second newest token so BEs have time to receive it through heartbeats.
+        // An old master returns only its current token during rolling upgrades.
+        return tokens.get(Math.max(0, tokens.size() - 2));
+    }
+
+    public List<String> acquireAuthTokens() throws UserException {
+        EvictingQueue<String> queue;
+        synchronized (this) {
+            if (Env.getCurrentEnv().isMaster() || FeConstants.runningUnitTest) {
+                return getAuthTokens();
+            }
+            queue = tokenQueue;
+        }
+        try {
+            TMySqlLoadAcquireTokenResult result = acquireTokenFromMaster();
+            List<String> tokens;
+            if (result.isSetAuthTokens()) {
+                tokens = result.getAuthTokens();
+            } else {
+                // An old master supplies only its current token during rolling upgrades.
+                tokens = Collections.singletonList(result.getToken());
+            }
+            // A present but empty queue or key is an error, not a legacy response.
+            if (tokens.isEmpty()) {
+                throw new UserException("Auth tokens are not available from master");
+            }
+            for (String token : tokens) {
+                if (token == null || token.isEmpty()) {
+                    throw new UserException("Auth tokens are not available from master");
+                }
+            }
+            tokens = List.copyOf(tokens);
+            synchronized (this) {
+                // A successful RPC may return after promotion rebuilt the queue. Use that
+                // queue instead of issuing tickets with keys absent from the new heartbeats.
+                if (queue != tokenQueue) {
+                    return getAuthTokens();
+                }
+                lastAcquiredAuthTokens = tokens;
+                return tokens;
+            }
+        } catch (TException e) {
+            LOG.warn("acquire auth tokens error", e);
+            throw new UserException("Acquire auth tokens from master failed", e);
+        }
+    }
+
+    private TMySqlLoadAcquireTokenResult acquireTokenFromMaster() throws TException {
         TNetworkAddress thriftAddress = getMasterAddress();
         FrontendService.Client client = getClient(thriftAddress);
 
@@ -103,7 +192,7 @@ public class TokenManager {
             if (result.getStatus().getStatusCode() != TStatusCode.OK) {
                 throw new TException("get acquire token failed.");
             }
-            return result.getToken();
+            return result;
         } catch (TTransportException e) {
             boolean ok = ClientPool.frontendPool.reopenOrClear(thriftAddress, client, thriftTimeoutMs);
             if (!ok) {
@@ -117,7 +206,7 @@ public class TokenManager {
                     throw new TException("acquire token from master failed. " + result.getStatus());
                 }
                 isReturnToPool = true;
-                return result.getToken();
+                return result;
             }
         } finally {
             if (isReturnToPool) {
@@ -134,7 +223,9 @@ public class TokenManager {
      */
     public boolean checkAuthToken(String token) throws UserException {
         if (Env.getCurrentEnv().isMaster() || FeConstants.runningUnitTest) {
-            return tokenQueue.contains(token);
+            synchronized (this) {
+                return tokenQueue.contains(token);
+            }
         } else {
             try {
                 return checkTokenFromMaster(token);

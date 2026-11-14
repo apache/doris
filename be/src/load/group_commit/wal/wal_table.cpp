@@ -182,7 +182,7 @@ Status WalTable::_try_abort_txn(int64_t db_id, std::string& label) {
     // this is a fake, fe not check it now
     // should be removed in 3.1, use token instead
     request.__set_auth_code(0);
-    request.__set_token(_exec_env->cluster_info()->curr_auth_token);
+    request.__set_token(_exec_env->cluster_info()->current_auth_token());
     request.__set_db_id(db_id);
     request.__set_label(label);
     request.__set_reason("relay wal with label " + label);
@@ -263,7 +263,7 @@ Status WalTable::_handle_stream_load(int64_t wal_id, const std::string& wal,
     ctx->wal_id = wal_id;
     ctx->label = label;
     ctx->need_commit_self = false;
-    ctx->auth.token = _exec_env->cluster_info()->curr_auth_token;
+    ctx->auth.token = _exec_env->cluster_info()->current_auth_token();
     ctx->auth.user = "admin";
     ctx->group_commit = false;
     ctx->load_type = TLoadType::MANUL_LOAD;
