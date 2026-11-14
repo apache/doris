@@ -115,6 +115,14 @@ public class MaterializedIndex extends MetaObject implements GsonPostProcessable
         this.isChangelog = isChangelog;
     }
 
+    /**
+     * Local data identity, replaced on every tablet-set mutation (including same-ID restore).
+     * Writes, compaction and TTL do not replace this immutable topology snapshot.
+     */
+    public Object getDataEpoch() {
+        return tablets;
+    }
+
     public List<Tablet> getTablets() {
         // Volatile read: returns the current immutable snapshot; callers iterate without locking.
         return Collections.unmodifiableList(tablets);

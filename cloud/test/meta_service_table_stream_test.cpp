@@ -1041,17 +1041,37 @@ TEST_F(MetaServiceTableStreamTest, CommitUpdatesLatestOffsetAndIsIdempotent) {
     ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
 
     int64_t txn_id = begin_target_transaction("consume-existing-offset");
-    CommitTxnResponse response =
-            consume_partition(txn_id, 2001, TABLE_STREAM_OFFSET_CONSUMED, 100, 120);
+    CommitTxnRequest request =
+            make_consume_request(txn_id, 2001, TABLE_STREAM_OFFSET_CONSUMED, 100, 120);
+    auto* update = request.mutable_table_stream_updates(0)->mutable_partition_updates(0);
+    update->set_base_row_count(50);
+    update->set_changelog_row_count(100);
+    CommitTxnResponse response = commit_transaction(request);
     ASSERT_EQ(response.status().code(), MetaServiceCode::OK) << response.status().msg();
     TableStreamOffsetPB offset = get_latest_offset(2001);
     EXPECT_EQ(offset.state(), TABLE_STREAM_OFFSET_CONSUMED);
     EXPECT_EQ(offset.offset_tso(), 120);
     EXPECT_GT(offset.last_consumption_time_ms(), 0);
+    EXPECT_EQ(offset.base_row_count(), 50);
+    EXPECT_EQ(offset.changelog_row_count(), 100);
+    auto read = get_read_state({2001});
+    ASSERT_EQ(read.status().code(), MetaServiceCode::OK);
+    EXPECT_EQ(read.bindings(0).partition_states(0).base_row_count(), 50);
+    EXPECT_EQ(read.bindings(0).partition_states(0).changelog_row_count(), 100);
 
-    response = consume_partition(txn_id, 2001, TABLE_STREAM_OFFSET_CONSUMED, 100, 120);
+    update->set_base_row_count(999);
+    update->set_changelog_row_count(999);
+    response = commit_transaction(request);
     ASSERT_EQ(response.status().code(), MetaServiceCode::OK) << response.status().msg();
     EXPECT_EQ(get_latest_offset(2001).offset_tso(), 120);
+    EXPECT_EQ(get_latest_offset(2001).base_row_count(), 50);
+    EXPECT_EQ(get_latest_offset(2001).changelog_row_count(), 100);
+    request = make_consume_request(begin_target_transaction("consume-unchanged-offset"), 2001,
+                                   TABLE_STREAM_OFFSET_CONSUMED, 120, 120);
+    request.mutable_table_stream_updates(0)->mutable_partition_updates(0)->set_base_row_count(999);
+    ASSERT_EQ(commit_transaction(request).status().code(), MetaServiceCode::OK);
+    EXPECT_EQ(get_latest_offset(2001).base_row_count(), 50);
+    EXPECT_EQ(get_latest_offset(2001).changelog_row_count(), 100);
 
     txn_id = begin_target_transaction("consume-unknown-offset");
     response = consume_partition(txn_id, 2002, TABLE_STREAM_OFFSET_UNKNOWN, 0, 140);
@@ -1326,6 +1346,9 @@ TEST_F(MetaServiceTableStreamTest, CommitRetryAfterMetaServiceRestartIsExactlyOn
     CommitTxnRequest request = make_consume_request(txn_id, kSourcePartitionId,
                                                     TABLE_STREAM_OFFSET_CONSUMED, 100, 120);
     request.set_commit_tso(999);
+    request.mutable_table_stream_updates(0)->mutable_partition_updates(0)->set_base_row_count(50);
+    request.mutable_table_stream_updates(0)->mutable_partition_updates(0)->set_changelog_row_count(
+            100);
 
     // The commit succeeds, but its response is lost before the caller observes it.
     const CommitTxnResponse lost_response = commit_transaction(request);
@@ -1338,6 +1361,8 @@ TEST_F(MetaServiceTableStreamTest, CommitRetryAfterMetaServiceRestartIsExactlyOn
     ASSERT_EQ(retry_response.status().code(), MetaServiceCode::OK) << retry_response.status().msg();
 
     EXPECT_EQ(get_latest_offset(kSourcePartitionId).offset_tso(), 120);
+    EXPECT_EQ(get_latest_offset(kSourcePartitionId).base_row_count(), 50);
+    EXPECT_EQ(get_latest_offset(kSourcePartitionId).changelog_row_count(), 100);
     ASSERT_EQ(service_->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
     std::string value;
     EXPECT_EQ(txn->get(meta_rowset_tmp_key({instance_id_, txn_id, kTargetTabletId}), &value),
@@ -1515,13 +1540,24 @@ TEST_F(MetaServiceTableStreamTest, ConcurrentOffsetCasAllowsOnlyOneCommit) {
     put_latest_partition_state(txn.get(), kPartitionId, 8, 130, 100);
     ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
 
-    const CommitTxnRequest first_request =
+    CommitTxnRequest first_request =
             make_consume_request(begin_target_transaction("concurrent-cas-first"), kPartitionId,
                                  TABLE_STREAM_OFFSET_CONSUMED, 100, 120);
-    const CommitTxnRequest second_request =
+    CommitTxnRequest second_request =
             make_consume_request(begin_target_transaction("concurrent-cas-second"), kPartitionId,
                                  TABLE_STREAM_OFFSET_CONSUMED, 100, 125);
 
+    first_request.mutable_table_stream_updates(0)->mutable_partition_updates(0)->set_base_row_count(
+            50);
+    first_request.mutable_table_stream_updates(0)
+            ->mutable_partition_updates(0)
+            ->set_changelog_row_count(100);
+    second_request.mutable_table_stream_updates(0)
+            ->mutable_partition_updates(0)
+            ->set_base_row_count(60);
+    second_request.mutable_table_stream_updates(0)
+            ->mutable_partition_updates(0)
+            ->set_changelog_row_count(120);
     auto [first_response, second_response] = commit_concurrently(first_request, second_request);
 
     const int successful_commits = (first_response.status().code() == MetaServiceCode::OK ? 1 : 0) +
@@ -1533,6 +1569,9 @@ TEST_F(MetaServiceTableStreamTest, ConcurrentOffsetCasAllowsOnlyOneCommit) {
     EXPECT_EQ(conflicted_commits, 1);
     const int64_t final_offset = get_latest_offset(kPartitionId).offset_tso();
     EXPECT_TRUE(final_offset == 120 || final_offset == 125);
+    EXPECT_EQ(get_latest_offset(kPartitionId).base_row_count(), final_offset == 120 ? 50 : 60);
+    EXPECT_EQ(get_latest_offset(kPartitionId).changelog_row_count(),
+              final_offset == 120 ? 100 : 120);
 }
 
 TEST_F(MetaServiceTableStreamTest, ConcurrentUnknownOffsetCasAllowsOnlyOneFirstConsumer) {
@@ -2119,13 +2158,27 @@ TEST_F(MetaServiceTableStreamTest, CommitWritesOffsetsForEachMultiVersionMode) {
                 mode_case.mode == MULTI_VERSION_READ_WRITE
                         ? TABLE_STREAM_OFFSET_INITIAL_SNAPSHOT_PENDING
                         : TABLE_STREAM_OFFSET_CONSUMED;
-        const CommitTxnResponse response = consume_partition(
+        // The first full consumption can keep its numeric TSO while changing offset state.
+        const int64_t next_tso = mode_case.mode == MULTI_VERSION_READ_WRITE ? 100 : 120;
+        CommitTxnRequest request = make_consume_request(
                 begin_target_transaction(fmt::format("consume-mode-{}", mode_case.label)),
-                partition_id, expected_state, 100, 120);
+                partition_id, expected_state, 100, next_tso);
+        auto* update = request.mutable_table_stream_updates(0)->mutable_partition_updates(0);
+        update->set_base_row_count(50);
+        update->set_changelog_row_count(100);
+        const CommitTxnResponse response = commit_transaction(request);
         EXPECT_EQ(response.status().code(),
                   mode_case.succeeds ? MetaServiceCode::OK : MetaServiceCode::INVALID_ARGUMENT)
                 << response.status().msg();
-        EXPECT_EQ(get_latest_offset(partition_id).offset_tso(), mode_case.succeeds ? 120 : 100);
+        EXPECT_EQ(get_latest_offset(partition_id).offset_tso(),
+                  mode_case.succeeds ? next_tso : 100);
+        if (mode_case.succeeds) {
+            EXPECT_EQ(get_latest_offset(partition_id).base_row_count(), 50);
+            EXPECT_EQ(get_latest_offset(partition_id).changelog_row_count(), 100);
+        } else {
+            EXPECT_FALSE(get_latest_offset(partition_id).has_base_row_count());
+            EXPECT_FALSE(get_latest_offset(partition_id).has_changelog_row_count());
+        }
 
         std::unique_ptr<Transaction> txn;
         ASSERT_EQ(service_->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
@@ -2142,7 +2195,9 @@ TEST_F(MetaServiceTableStreamTest, CommitWritesOffsetsForEachMultiVersionMode) {
             TableStreamOffsetPB versioned_offset;
             ASSERT_TRUE(versioned_offset.ParseFromString(value));
             EXPECT_EQ(versioned_offset.state(), TABLE_STREAM_OFFSET_CONSUMED);
-            EXPECT_EQ(versioned_offset.offset_tso(), 120);
+            EXPECT_EQ(versioned_offset.offset_tso(), next_tso);
+            EXPECT_EQ(versioned_offset.base_row_count(), 50);
+            EXPECT_EQ(versioned_offset.changelog_row_count(), 100);
         } else {
             EXPECT_EQ(versioned_err, TxnErrorCode::TXN_KEY_NOT_FOUND);
         }

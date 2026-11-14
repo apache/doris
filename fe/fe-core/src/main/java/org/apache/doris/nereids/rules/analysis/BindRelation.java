@@ -29,6 +29,7 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.NameSpaceContext;
 import org.apache.doris.catalog.OlapChangelogTableWrapper;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.OlapTableWrapper.PartitionScanState;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.SchemaTable;
 import org.apache.doris.catalog.SchemaTable.SchemaColumn;
@@ -265,8 +266,8 @@ public class BindRelation extends OneAnalysisRuleFactory {
                     cascadesContext.getStatementContext());
             table = new OlapChangelogTableWrapper((OlapTable) table,
                     CollectionUtils.isEmpty(partIds)
-                            ? makeUniformedTimestampRangeMap(originTable.getPartitionIds(), timestampRange)
-                            : makeUniformedTimestampRangeMap(partIds, timestampRange));
+                            ? makeUniformedTimestampScanStates(originTable.getPartitionIds(), timestampRange)
+                            : makeUniformedTimestampScanStates(partIds, timestampRange));
         } else if (unboundRelation.getScanParams() != null) {
             unboundRelation.getScanParams().validateOlapTable();
         }
@@ -679,8 +680,8 @@ public class BindRelation extends OneAnalysisRuleFactory {
                 CollectionUtils.isEmpty(partIds)
                 // targetTso is the exclusive upper bound; the right branch reads tso >= targetTso,
                 // seamlessly meeting the left branch's commit_tso < targetTso.
-                ? makeUniformedTimestampRangeMap(olapTable.getPartitionIds(), Pair.of(targetTso, null)) :
-                makeUniformedTimestampRangeMap(partIds, Pair.of(targetTso, null)));
+                ? makeUniformedTimestampScanStates(olapTable.getPartitionIds(), Pair.of(targetTso, null)) :
+                makeUniformedTimestampScanStates(partIds, Pair.of(targetTso, null)));
         RelationId changelogRelationId = cascadesContext.getStatementContext().getNextRelationId();
         LogicalOlapScan changelogScan = CollectionUtils.isEmpty(partIds)
                 ? new LogicalOlapScan(changelogRelationId, changelogTable, qualifier, tabletIds,
@@ -1173,8 +1174,11 @@ public class BindRelation extends OneAnalysisRuleFactory {
         return new LogicalProject<>(project, plan);
     }
 
-    private Map<Long, Pair<Long, Long>> makeUniformedTimestampRangeMap(List<Long> partIds,
+    private Map<Long, PartitionScanState> makeUniformedTimestampScanStates(List<Long> partIds,
                                                                        Pair<Long, Long> timestampRange) {
-        return partIds.stream().collect(Collectors.toMap(partId -> partId, partId -> timestampRange));
+        return partIds.stream().collect(Collectors.toMap(partId -> partId,
+                partId -> new PartitionScanState(timestampRange,
+                null,
+                null)));
     }
 }

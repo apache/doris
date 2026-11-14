@@ -37,6 +37,8 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.catalog.stream.BaseTableStream;
+import org.apache.doris.catalog.stream.OlapTableStream;
+import org.apache.doris.catalog.stream.OlapTableStreamUpdate;
 import org.apache.doris.catalog.stream.TableStreamUpdateInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -2440,7 +2442,7 @@ public class DatabaseTransactionMgr {
         }
         // update table stream offset if necessary
         if (!CollectionUtils.isEmpty(transactionState.getStreamUpdateInfos())) {
-            updateStreamOffset(transactionState, transactionState.getCommitTime());
+            updateStreamOffset(transactionState, transactionState.getCommitTime(), isReplay);
             updateIvmSequencePrefix(transactionState, db);
         }
     }
@@ -3276,10 +3278,13 @@ public class DatabaseTransactionMgr {
             Database db = env.getInternalCatalog().getDbOrMetaException(info.getDbId());
             TableIf tableIf = db.getTableOrMetaException(info.getStreamId());
             ((BaseTableStream) tableIf).unprotectedCheckStreamUpdate(info.getUpdate());
+            if (tableIf instanceof OlapTableStream) {
+                ((OlapTableStream) tableIf).unprotectedPrepareStreamUpdate((OlapTableStreamUpdate) info.getUpdate());
+            }
         }
     }
 
-    private void updateStreamOffset(TransactionState transactionState, Long ts) {
+    private void updateStreamOffset(TransactionState transactionState, Long ts, boolean isReplay) {
         for (TableStreamUpdateInfo info : transactionState.getStreamUpdateInfos()) {
             Database db = env.getInternalCatalog().getDbNullable(info.getDbId());
             if (db == null) {
@@ -3289,7 +3294,11 @@ public class DatabaseTransactionMgr {
             if (tableIf == null) {
                 continue;
             }
-            ((BaseTableStream) tableIf).unprotectedUpdateStreamUpdate(info.getUpdate(), ts);
+            if (tableIf instanceof OlapTableStream) {
+                ((OlapTableStream) tableIf).unprotectedUpdateStreamUpdate(info.getUpdate(), ts, isReplay);
+            } else {
+                ((BaseTableStream) tableIf).unprotectedUpdateStreamUpdate(info.getUpdate(), ts);
+            }
         }
     }
 

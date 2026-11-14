@@ -29,6 +29,9 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.catalog.stream.CloudOlapTableStreamUpdate;
+import org.apache.doris.catalog.stream.OlapTableStream.PartitionStreamState;
+import org.apache.doris.catalog.stream.OlapTableStreamUpdate;
+import org.apache.doris.catalog.stream.TableStreamManager;
 import org.apache.doris.catalog.stream.TableStreamUpdateInfo;
 import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.catalog.CloudPartition;
@@ -68,6 +71,9 @@ import org.apache.doris.cloud.proto.Cloud.RemoveDeleteBitmapUpdateLockRequest;
 import org.apache.doris.cloud.proto.Cloud.RemoveDeleteBitmapUpdateLockResponse;
 import org.apache.doris.cloud.proto.Cloud.SubTxnInfo;
 import org.apache.doris.cloud.proto.Cloud.TableStatsPB;
+import org.apache.doris.cloud.proto.Cloud.TableStreamIdentityPB;
+import org.apache.doris.cloud.proto.Cloud.TableStreamPartitionUpdatePB;
+import org.apache.doris.cloud.proto.Cloud.TableStreamUpdatePB;
 import org.apache.doris.cloud.proto.Cloud.TabletIndexPB;
 import org.apache.doris.cloud.proto.Cloud.TxnInfoPB;
 import org.apache.doris.cloud.proto.Cloud.TxnStatusPB;
@@ -832,9 +838,14 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         long callbackId = 0L;
         StopWatch stopWatch = new StopWatch();
         stopWatch.start();
+        List<TableStreamUpdateInfo> streamUpdates = prepareStreamUpdates(builder);
         try {
             txnState = commitTxn(builder, tableList, transactionId, is2PC, tabletCommitInfos, tabletIds);
             txnOperated = true;
+            TableStreamManager streamManager = Env.getCurrentEnv().getTableStreamManager();
+            for (TableStreamUpdateInfo update : streamUpdates) {
+                streamManager.recordCommittedStreamUpdate(update, txnState.getCommitTime());
+            }
             if (DebugPointUtil.isEnable("CloudGlobalTransactionMgr.commitTransaction.timeout")) {
                 throw new UserException(InternalErrorCode.DELETE_BITMAP_LOCK_ERR,
                         "test delete bitmap update lock timeout, transactionId:" + transactionId);
@@ -870,6 +881,29 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 commitCostTimeStatisticMap.get(transactionId).setCommitToMsCostTimeMs(costTime);
             }
         }
+    }
+
+    private static List<TableStreamUpdateInfo> prepareStreamUpdates(CommitTxnRequest.Builder builder) {
+        List<TableStreamUpdateInfo> pending = new ArrayList<>();
+        TableStreamManager manager = Env.getCurrentEnv().getTableStreamManager();
+        for (int i = 0; i < builder.getTableStreamUpdatesCount(); i++) {
+            TableStreamUpdatePB update = builder.getTableStreamUpdates(i);
+            Map<Long, Long> offsets = update.getPartitionUpdatesList().stream()
+                    .collect(Collectors.toMap(TableStreamPartitionUpdatePB::getPartitionId,
+                            TableStreamPartitionUpdatePB::getNextOffsetTso));
+            TableStreamIdentityPB identity = update.getIdentity();
+            OlapTableStreamUpdate next = manager.prepareStreamUpdate(
+                    identity.getStreamDbId(), identity.getStreamId(), offsets);
+            pending.add(new TableStreamUpdateInfo(identity.getStreamDbId(), identity.getStreamId(), next));
+            TableStreamUpdatePB.Builder serialized = update.toBuilder();
+            for (TableStreamPartitionUpdatePB.Builder partition : serialized.getPartitionUpdatesBuilderList()) {
+                PartitionStreamState state = next.getPartitionUpdates().get(partition.getPartitionId()).getNextState();
+                partition.setBaseRowCount(state.getBaseRowCount());
+                partition.setChangelogRowCount(state.getChangelogRowCount());
+            }
+            builder.setTableStreamUpdates(i, serialized);
+        }
+        return pending;
     }
 
     private TransactionState commitTxn(CommitTxnRequest.Builder builder, List<Table> tableList,

@@ -21,6 +21,7 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.stream.OlapTableStream.PartitionStreamState;
+import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.common.jmockit.Deencapsulation;
 
 import com.google.common.collect.Lists;
@@ -29,7 +30,10 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 
 /**
  * Which partitions a snapshot read answers with the table as of the stream offset, rather than with the table
@@ -93,6 +97,40 @@ public class OlapTableStreamSnapshotReadTest {
         Assertions.assertTrue(consumed.wrapper.answersWithTheCurrentTable(Lists.newArrayList(1L, 2L)));
     }
 
+    @Test
+    public void testEmptyAndUnknownPartitionsKeepDistinctReadMembership() {
+        Fixture fixture = fixture(KeysType.DUP_KEYS, Map.of(1L, 100L),
+                partition(1L, 100L, false), partition(2L, 200L, true));
+        // A local empty partition can have a baseline but no scan range. A nonempty newly
+        // added partition can have a scan range and no baseline.
+        Assertions.assertNull(fixture.wrapper.getOutputUpdate(1L));
+        Assertions.assertNull(fixture.wrapper.getOutputUpdate(2L).first);
+        Assertions.assertEquals(Set.of(2L), fixture.wrapper.getOutputUpdateMap().keySet());
+        Assertions.assertTrue(fixture.wrapper.getCloudReadStates().isEmpty());
+        Cloud.TableStreamPartitionReadStatePB empty = Cloud.TableStreamPartitionReadStatePB.newBuilder()
+                .setPartitionId(1L).setOffsetState(Cloud.TableStreamOffsetStatePB.TABLE_STREAM_OFFSET_CONSUMED)
+                .setOffsetTso(-1L).setEndTso(100L).setVisibleVersion(Partition.PARTITION_INIT_VERSION).build();
+        Cloud.TableStreamPartitionReadStatePB unknown = Cloud.TableStreamPartitionReadStatePB.newBuilder()
+                .setPartitionId(2L).setOffsetState(Cloud.TableStreamOffsetStatePB.TABLE_STREAM_OFFSET_UNKNOWN)
+                .setEndTso(200L).setVisibleVersion(2L).build();
+        Map<Long, Cloud.TableStreamPartitionReadStatePB> states = Map.of(1L, empty, 2L, unknown);
+        fixture.wrapper.installCloudReadStates(states);
+        Assertions.assertEquals(Set.of(1L, 2L), fixture.wrapper.getCloudReadStates().keySet());
+        Assertions.assertEquals(Set.of(2L), fixture.wrapper.getOutputUpdateMap().keySet());
+        Assertions.assertNull(fixture.wrapper.getOutputUpdate(1L));
+        Assertions.assertNull(fixture.wrapper.getOutputUpdate(2L).first);
+        Assertions.assertEquals(Map.of(1L, Partition.PARTITION_INIT_VERSION, 2L, 2L),
+                fixture.wrapper.getCloudVisibleVersions(List.of(1L, 2L)));
+        Assertions.assertEquals(List.of(2L), fixture.wrapper.filterIncrementalPartitionIds(fixture.wrapper.selectNonEmptyPartitionIds(
+                        List.of(1L, 2L), Optional.of(StreamReadMode.INCREMENTAL))));
+        fixture.wrapper.installCloudReadStates(states);
+        Assertions.assertThrows(IllegalStateException.class, () -> fixture.wrapper.installCloudReadStates(Map.of()));
+        Fixture noRead = fixture(KeysType.DUP_KEYS, Map.of(1L, 100L), partition(1L, 100L, true));
+        noRead.wrapper.installCloudReadStates(Map.of());
+        Assertions.assertTrue(noRead.wrapper.getOutputUpdateMap().isEmpty());
+        Assertions.assertTrue(noRead.wrapper.getCloudReadStates().isEmpty());
+    }
+
     private static Partition partition(long id, long tso, boolean hasData) {
         Partition partition = Mockito.mock(Partition.class);
         Mockito.when(partition.getId()).thenReturn(id);
@@ -126,7 +164,8 @@ public class OlapTableStreamSnapshotReadTest {
         // The offsets have to be in place before the wrapper is built: it reads them into the map the read of
         // a snapshot is built from.
         Map<Long, PartitionStreamState> partitionStates = new HashMap<>();
-        offsets.forEach((pid, offset) -> partitionStates.put(pid, new PartitionStreamState(offset, -1, null)));
+        offsets.forEach((pid, offset) -> partitionStates.put(pid, PartitionStreamState.restored(
+                offset, -1, null, -1L, -1L)));
         Deencapsulation.setField(stream, "partitionStates", partitionStates);
         return new Fixture(stream, new OlapTableStreamWrapper(stream, table,
                 Lists.newArrayList(byId.keySet())));

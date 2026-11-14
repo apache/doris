@@ -24,6 +24,8 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.stream.OlapTableStream.PartitionStreamState;
+import org.apache.doris.catalog.stream.OlapTableStreamUpdate.PartitionUpdate;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.rpc.CloudTableStreamReadStateHelper;
 import org.apache.doris.common.Config;
@@ -42,6 +44,7 @@ import org.apache.doris.thrift.TCell;
 import org.apache.doris.thrift.TRow;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -321,6 +324,41 @@ public class TableStreamManager extends MasterDaemon implements Writable, GsonPo
         } finally {
             stream.writeUnlock();
         }
+    }
+
+    /** The pending update owns the complete offset/count tuple before the Cloud commit RPC. */
+    public OlapTableStreamUpdate prepareStreamUpdate(long dbId, long streamId, Map<Long, Long> offsets) {
+        Map<Long, PartitionUpdate> partitions = Maps.newHashMapWithExpectedSize(offsets.size());
+        offsets.forEach((id, offset) ->
+                partitions.put(id, new PartitionUpdate(null, PartitionStreamState.initial().atOffset(offset))));
+        OlapTableStreamUpdate update = new OlapTableStreamUpdate(partitions);
+        OlapTableStream stream = findOlapTableStream(dbId, streamId);
+        if (stream != null) {
+            stream.unprotectedPrepareStreamUpdate(update);
+        }
+        return update;
+    }
+
+    /** Publish only the complete tuple accepted by the authoritative MS transaction. */
+    public void recordCommittedStreamUpdate(TableStreamUpdateInfo info, long timestamp) {
+        OlapTableStream stream = findOlapTableStream(info.getDbId(), info.getStreamId());
+        OlapTableStreamUpdate committed = ((OlapTableStreamUpdate) info.getUpdate()).committedAt(timestamp);
+        if (stream == null || committed.getPartitionUpdates().isEmpty()
+                || !stream.tryWriteLockIfExist(0, TimeUnit.MILLISECONDS)) {
+            return;
+        }
+        try {
+            committed.getPartitionUpdates().forEach((id, update) ->
+                    stream.unprotectedPublishPartitionState(id, update.getNextState()));
+        } finally {
+            stream.writeUnlock();
+        }
+    }
+
+    private OlapTableStream findOlapTableStream(long dbId, long streamId) {
+        Database db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
+        Table table = db == null ? null : db.getTableNullable(streamId);
+        return table instanceof OlapTableStream ? (OlapTableStream) table : null;
     }
 
     private Map<Long, Set<Long>> copyDbStreamMap() {

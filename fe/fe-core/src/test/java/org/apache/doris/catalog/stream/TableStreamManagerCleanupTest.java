@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.stream.OlapTableStream.PartitionStreamState;
+import org.apache.doris.catalog.stream.OlapTableStreamUpdate.PartitionUpdate;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
@@ -140,7 +141,7 @@ public class TableStreamManagerCleanupTest extends TestWithFeService {
         CountDownLatch allowUpdate = new CountDownLatch(1);
         CountDownLatch updateDone = new CountDownLatch(1);
         OlapTableStreamUpdate streamUpdate = new OlapTableStreamUpdate(
-                Collections.emptyMap(), Collections.singletonMap(removedPartitionId, 44L));
+                Map.of(removedPartitionId, new PartitionUpdate(null, PartitionStreamState.initial().atOffset(44L))));
         ExecutorService executor = Executors.newSingleThreadExecutor();
         Future<?> update = executor.submit(() -> {
             Assertions.assertTrue(allowUpdate.await(10, TimeUnit.SECONDS));
@@ -370,6 +371,84 @@ public class TableStreamManagerCleanupTest extends TestWithFeService {
         Assertions.assertEquals(context.stream.getId(), identity.getStreamId());
     }
 
+    @Test
+    public void testLocalBaselineCaptureProtectsSourcePartition() throws Exception {
+        StreamContext context = createStreamContext("baseline_source_lock");
+        OlapTable source = Mockito.spy(context.baseTable);
+        OlapTableStream stream = Mockito.spy(context.stream);
+        Mockito.doReturn(source).when(stream).getBaseTableNullable();
+        MonitoredReentrantReadWriteLock sourceLock = Deencapsulation.getField(source, "rwLock");
+        Mockito.doAnswer(invocation -> {
+            Assertions.assertTrue(sourceLock.getReadHoldCount() > 0,
+                    "partition lookup and capture must hold the source metadata lock");
+            return invocation.callRealMethod();
+        }).when(source).getPartition(Mockito.anyLong());
+        long partitionId = context.baseTable.getPartition("p1").getId();
+        updatePartitionOffset(stream, partitionId, 100L, 10L);
+        Assertions.assertEquals(100L, stream.getPartitionState(partitionId).getBaselineOffset());
+    }
+
+    @Test
+    public void testPendingCountsSkipSourceDdlAndCommitStillPublishesOffset() throws Exception {
+        StreamContext context = createStreamContext("baseline_source_ddl");
+        long partitionId = context.baseTable.getPartition("p2").getId();
+        CountDownLatch ddlLocked = new CountDownLatch(1);
+        CountDownLatch finishDdl = new CountDownLatch(1);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        Future<?> ddl = executor.submit(() -> {
+            context.baseTable.writeLock();
+            try {
+                ddlLocked.countDown();
+                Assertions.assertTrue(finishDdl.await(10, TimeUnit.SECONDS));
+                context.baseTable.dropPartitionAndReserveTablet("p2");
+            } finally {
+                context.baseTable.writeUnlock();
+            }
+            return null;
+        });
+        try {
+            Assertions.assertTrue(ddlLocked.await(5, TimeUnit.SECONDS));
+            Future<?> consumption = executor.submit(() -> updatePartitionOffset(
+                    context.stream, partitionId, 100L, 10L));
+            consumption.get(2, TimeUnit.SECONDS);
+            PartitionStreamState state = context.stream.getPartitionState(partitionId);
+            Assertions.assertEquals(100L, state.getOffset());
+            Assertions.assertEquals(-1L, state.getBaseRowCount());
+            Assertions.assertEquals(-1L, state.getChangelogRowCount());
+        } finally {
+            finishDdl.countDown();
+            executor.shutdown();
+            Assertions.assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS));
+        }
+        ddl.get();
+        Assertions.assertNull(context.baseTable.getPartition(partitionId));
+    }
+
+    @Test
+    public void testCloudPublicationDoesNotAcquireSourceMetadataLocks() throws Exception {
+        StreamContext context = createStreamContext("baseline_cloud_locks");
+        long id = context.baseTable.getPartition("p1").getId();
+        long dbId = context.stream.getDatabase().getId();
+        TableStreamManager manager = Env.getCurrentEnv().getTableStreamManager();
+        TableStreamUpdateInfo info = new TableStreamUpdateInfo(dbId, context.stream.getId(),
+                manager.prepareStreamUpdate(dbId, context.stream.getId(), Map.of(id, 100L)));
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        context.baseTable.writeLock();
+        context.stream.readLock();
+        try {
+            // A source writer and stream reader cannot make the post-commit callback wait.
+            executor.submit(() -> manager.recordCommittedStreamUpdate(info, 10L)).get(2, TimeUnit.SECONDS);
+            Assertions.assertNull(context.stream.getPartitionState(id));
+        } finally {
+            context.stream.readUnlock();
+            context.baseTable.writeUnlock();
+            executor.shutdown();
+            Assertions.assertTrue(executor.awaitTermination(5, TimeUnit.SECONDS));
+        }
+        manager.recordCommittedStreamUpdate(info, 10L);
+        Assertions.assertEquals(100L, context.stream.getPartitionState(id).getOffset());
+    }
+
     private StreamContext createStreamContext(String suffix) throws Exception {
         String tableName = "tbl_" + suffix;
         String streamName = "s_" + suffix;
@@ -394,8 +473,8 @@ public class TableStreamManagerCleanupTest extends TestWithFeService {
 
     private void setPartitionState(OlapTableStream stream, long keptPartitionId, long removedPartitionId) {
         Map<Long, PartitionStreamState> partitionStates = new HashMap<>();
-        partitionStates.put(keptPartitionId, new PartitionStreamState(11L, 111L, 1001L));
-        partitionStates.put(removedPartitionId, new PartitionStreamState(22L, 222L, 2002L));
+        partitionStates.put(keptPartitionId, PartitionStreamState.restored(11L, 111L, 1001L, -1L, -1L));
+        partitionStates.put(removedPartitionId, PartitionStreamState.restored(22L, 222L, 2002L, -1L, -1L));
         Deencapsulation.setField(stream, "partitionStates", partitionStates);
     }
 
@@ -421,8 +500,10 @@ public class TableStreamManagerCleanupTest extends TestWithFeService {
             OlapTableStream stream, long partitionId, long offset, long commitTimeMs) {
         stream.writeLock();
         try {
-            stream.unprotectedUpdateStreamUpdate(new OlapTableStreamUpdate(
-                    Collections.emptyMap(), Collections.singletonMap(partitionId, offset)), commitTimeMs);
+            OlapTableStreamUpdate update = new OlapTableStreamUpdate(
+                    Map.of(partitionId, new PartitionUpdate(null, PartitionStreamState.initial().atOffset(offset))));
+            stream.unprotectedPrepareStreamUpdate(update);
+            stream.unprotectedUpdateStreamUpdate(update, commitTimeMs);
         } finally {
             stream.writeUnlock();
         }

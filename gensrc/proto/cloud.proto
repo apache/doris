@@ -595,6 +595,9 @@ message TableStreamOffsetPB {
     optional TableStreamOffsetStatePB state = 2;
     optional int64 offset_tso = 3;
     optional int64 last_consumption_time_ms = 4;
+    // FE-sampled counts belonging to this consumption offset; -1 means unavailable.
+    optional int64 base_row_count = 5;
+    optional int64 changelog_row_count = 6;
 }
 
 message TableStreamPartitionSetPB {
@@ -607,6 +610,9 @@ message TableStreamPartitionUpdatePB {
     optional TableStreamOffsetStatePB expected_state = 2;
     optional int64 expected_offset_tso = 3;
     optional int64 next_offset_tso = 4;
+    // FE-sampled counts belonging to this consumption offset; -1 means unavailable.
+    optional int64 base_row_count = 5;
+    optional int64 changelog_row_count = 6;
 }
 
 message TableStreamUpdatePB {
@@ -1577,6 +1583,9 @@ message TableStreamPartitionReadStatePB {
     optional int64 end_tso = 4;
     optional int64 visible_version = 5;
     optional int64 last_consumption_time_ms = 6;
+    // FE-sampled counts belonging to this consumption offset; -1 means unavailable.
+    optional int64 base_row_count = 7;
+    optional int64 changelog_row_count = 8;
 }
 
 message TableStreamReadBindingResultPB {
