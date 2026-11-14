@@ -412,6 +412,7 @@ public class AnalysisManagerTest {
             envStatic.when(Env::getCurrentEnv).thenReturn(env);
             suStatic.when(() -> StatisticsUtil.convertIdToObjects(10001L, 20001L, 30001L))
                     .thenReturn(dbObjects);
+            manager.constructJob(job, tasks.values());
             manager.handleKillAnalyzeJob(new KillAnalyzeJobCommand(1));
         }
         MoreFieldsThread.removeConnectContext();
@@ -456,6 +457,7 @@ public class AnalysisManagerTest {
             envStatic.when(Env::getCurrentEnv).thenReturn(env);
             suStatic.when(() -> StatisticsUtil.convertIdToObjects(10001L, 20001L, 30001L))
                     .thenReturn(dbObjects);
+            manager.constructJob(job, tasks.values());
             manager.handleKillAnalyzeJob(new KillAnalyzeJobCommand(1));
         }
         MoreFieldsThread.removeConnectContext();

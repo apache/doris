@@ -20,17 +20,58 @@ package org.apache.doris.statistics.analysis;
 import org.apache.doris.analysis.TableSample;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.qe.AuditLogHelper;
+import org.apache.doris.qe.AutoCloseConnectContext;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.OriginStatement;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.statistics.model.ColumnStatistic;
 import org.apache.doris.statistics.repository.ColStatsData;
 import org.apache.doris.statistics.repository.ResultRow;
+import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedConstruction;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.util.List;
 
 public class BaseAnalysisTaskTest {
+
+    @Test
+    public void testRunInsertAlwaysReleasesExecutor() throws Exception {
+        for (boolean fail : new boolean[] {false, true}) {
+            OlapAnalysisTask task = new OlapAnalysisTask();
+            ConnectContext context = new ConnectContext();
+            try (MockedStatic<StatisticsUtil> stats = Mockito.mockStatic(StatisticsUtil.class);
+                    MockedStatic<AuditLogHelper> audit = Mockito.mockStatic(AuditLogHelper.class);
+                    MockedConstruction<StmtExecutor> executors = Mockito.mockConstruction(StmtExecutor.class,
+                            (executor, construction) -> {
+                                Mockito.when(executor.getContext()).thenReturn(context);
+                                Mockito.when(executor.getOriginStmt()).thenReturn(new OriginStatement("INSERT", 0));
+                                Mockito.doAnswer(call -> {
+                                    Assertions.assertSame(executor, task.stmtExecutor);
+                                    if (fail) {
+                                        throw new RuntimeException("insert failed");
+                                    }
+                                    return null;
+                                }).when(executor).execute();
+                            })) {
+                stats.when(() -> StatisticsUtil.buildConnectContext(false))
+                        .thenReturn(new AutoCloseConnectContext(context));
+                if (fail) {
+                    Assertions.assertThrows(RuntimeException.class, () -> task.runInsert("INSERT"));
+                } else {
+                    task.runInsert("INSERT");
+                }
+                Assertions.assertEquals(1, executors.constructed().size());
+                Assertions.assertNull(task.stmtExecutor);
+            }
+        }
+    }
 
     @Test
     public void testGetFunctions() {
