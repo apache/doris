@@ -1810,6 +1810,8 @@ public final class MetricRepo {
 
         visitor.visitCloudTableStats();
 
+        visitor.visitChangelogMonitor();
+
         visitor.visitWorkloadGroup();
 
         return visitor.finish();

@@ -50,6 +50,8 @@ public abstract class MetricVisitor {
 
     public abstract void visitCloudTableStats();
 
+    public abstract void visitChangelogMonitor();
+
     public abstract void visitWorkloadGroup();
 
     public String finish() {
