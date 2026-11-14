@@ -1,0 +1,129 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+#
+# Batch cherry-pick admission (Mergify-like batch mode).
+#
+# Operators drive this from a per-branch tracking Issue (labeled
+# `batch-queue/<branch>`, e.g. `batch-queue/branch-4.0`) by commenting:
+#   run batch            -> start a batch by sweeping eligible open PRs
+#   run batch #101 #102  -> start a batch from an explicit PR list
+#   rerun batch          -> re-assemble the same set at current heads + re-run CI
+#   cancel batch         -> abandon the active batch, release the lock
+# A cron job polls in-flight batches and, on green, admits + merges the members.
+name: Batch Cherry-Pick
+
+on:
+  issue_comment:
+    types: [created]
+  schedule:
+    - cron: '*/10 * * * *'   # poll in-flight batches every ~10 min
+
+permissions:
+  contents: write        # push integration branch / delete it
+  pull-requests: write   # create vehicle PR, merge member PRs
+  issues: write          # post/edit tracking-issue comments
+  statuses: write        # broadcast admission statuses to member head SHAs
+  checks: read
+
+# Serialize every run of this workflow (comment handlers + poller) to avoid two
+# handlers racing on the same batch state. Cheap: runs are short.
+concurrency:
+  group: doris-batch
+  cancel-in-progress: false
+
+env:
+  REPO_NAME: apache/doris
+  BRANCHES: 'branch-4.0,branch-4.1'   # release branches the poller scans
+  MAX_BATCH: '10'
+  REQUIRE_APPROVED: 'true'
+  MERGE_METHOD: 'squash'
+  BATCH_MAX_AGE_H: '12'
+
+jobs:
+  batch:
+    # schedule -> always; issue_comment -> only on a real Issue (not a PR),
+    # with a batch command, from a committer (OWNER/MEMBER/COLLABORATOR).
+    if: >-
+      ${{ github.event_name == 'schedule' ||
+      (github.event.issue && !github.event.issue.pull_request &&
+       (contains(github.event.comment.body, 'run batch') ||
+        contains(github.event.comment.body, 'rerun batch') ||
+        contains(github.event.comment.body, 'cancel batch')) &&
+       contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)) }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve mode
+        id: mode
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
+        run: |
+          set -euo pipefail
+          if [[ "${EVENT_NAME}" == "schedule" ]]; then
+            echo "mode=poll" | tee -a "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          body="$(echo "${COMMENT_BODY}" | xargs || true)"
+          # order matters: 'rerun batch' also contains 'run batch'
+          if grep -qiE '(^|[[:space:]])cancel batch([[:space:]]|$)' <<<"${body}"; then
+            echo "mode=cancel" | tee -a "$GITHUB_OUTPUT"
+          elif grep -qiE '(^|[[:space:]])rerun batch([[:space:]]|$)' <<<"${body}"; then
+            echo "mode=rerun" | tee -a "$GITHUB_OUTPUT"
+          elif grep -qiE '(^|[[:space:]])run batch' <<<"${body}"; then
+            echo "mode=run" | tee -a "$GITHUB_OUTPUT"
+          else
+            echo "mode=none" | tee -a "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout
+        if: ${{ steps.mode.outputs.mode != 'none' }}
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        if: ${{ steps.mode.outputs.mode != 'none' }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install dependencies
+        if: ${{ steps.mode.outputs.mode != 'none' }}
+        run: pip install PyGithub
+
+      - name: Run orchestrator
+        if: ${{ steps.mode.outputs.mode != 'none' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # If branch protection forbids bot merges into the release branch,
+          # set a PAT/App token secret and reference it here instead:
+          MERGE_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO_NAME: ${{ env.REPO_NAME }}
+          BRANCHES: ${{ env.BRANCHES }}
+          MAX_BATCH: ${{ env.MAX_BATCH }}
+          REQUIRE_APPROVED: ${{ env.REQUIRE_APPROVED }}
+          MERGE_METHOD: ${{ env.MERGE_METHOD }}
+          BATCH_MAX_AGE_H: ${{ env.BATCH_MAX_AGE_H }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
+        run: |
+          set -euo pipefail
+          MODE="${{ steps.mode.outputs.mode }}"
+          if [[ "${MODE}" == "poll" ]]; then
+            python tools/batch-cherry-pick.py poll
+          else
+            python tools/batch-cherry-pick.py "${MODE}" "${{ github.event.issue.number }}"
+          fi
