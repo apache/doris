@@ -241,6 +241,9 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
 
     @Override
     public void afterAborted(TransactionState txnState, boolean txnOperated, String txnStatusChangeReason) {
+        if (!txnOperated) {
+            return;
+        }
         // just to clean the callback
         Env.getCurrentGlobalTransactionMgr().getCallbackFactory().removeCallback(getId());
     }
