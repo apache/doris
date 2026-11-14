@@ -5495,6 +5495,29 @@ Status read_ids_after_key_equality_delete(const std::string& test_name,
     return Status::OK();
 }
 
+TEST(IcebergV2ReaderTest, UnknownEqualityKeyIgnoresPresentPhysicalValues) {
+    for (const bool delete_null : {false, true}) {
+        std::vector<std::vector<int32_t>> ids;
+        const auto status = read_ids_after_key_equality_delete(
+                delete_null ? "doris_unknown_eq_null" : "doris_unknown_eq_value",
+                {{.ids = {1, 2}, .keys = build_nullable_int64_array({10, 20})},
+                 {.ids = {3}, .keys = nullptr}},
+                build_nullable_int64_array(
+                        delete_null ? std::vector<std::optional<int64_t>> {std::nullopt}
+                                    : std::vector<std::optional<int64_t>> {10}),
+                external_schema_field("k", 1, {}, std::nullopt,
+                                      external_primitive_type(TPrimitiveType::NULL_TYPE), false,
+                                      true),
+                &ids);
+        ASSERT_TRUE(status.ok()) << status;
+        if (delete_null) {
+            EXPECT_EQ(ids, (std::vector<std::vector<int32_t>> {{}, {}}));
+        } else {
+            EXPECT_EQ(ids, (std::vector<std::vector<int32_t>> {{1, 2}, {3}}));
+        }
+    }
+}
+
 constexpr int64_t MICROS_PER_DAY = 86400LL * 1000 * 1000;
 constexpr int32_t DAYS_1000_01_01 = -354285;
 constexpr int32_t DAYS_1600_01_01 = -135140;

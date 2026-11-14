@@ -2141,6 +2141,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             return OptionalLong.empty();
         }
         validateBoundWriteGeneration(table, boundWriteMetadataIdentity);
+        IcebergSchemaUtils.validateNoUnknownForWrite(table.schema());
         Expression deleteExpr = predicate.isPresent()
                 ? wholeFileDeleteExpression(table, session, predicate.get())
                 : Expressions.alwaysTrue();
@@ -2182,6 +2183,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         // metadata delete (the row-level fallback then reports an exact affected-row count).
         Transaction transaction = IcebergConnectorTransaction.openTransaction(
                 table, context, null, false, boundWriteMetadataIdentity, refreshedSnapshotId);
+        IcebergSchemaUtils.validateNoUnknownForWrite(transaction.table().schema());
         DeleteFiles deleteFiles = transaction.newDelete().deleteFromRowFilter(deleteExpr);
         if (isCancelled.getAsBoolean()) {
             return OptionalLong.empty();
