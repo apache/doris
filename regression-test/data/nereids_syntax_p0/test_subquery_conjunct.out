@@ -52,3 +52,44 @@
 1	1
 2	1
 
+-- !select_ne_sum_gt --
+-2	-2
+-1	-1
+1	1
+2	1
+
+-- !select_in_sum --
+2	2
+3	2
+
+-- !select_in_sum_abs --
+1	1
+2	1
+2	2
+3	2
+
+-- !select_not_in_sum --
+-1	-1
+
+-- !select_not_in_sum_abs --
+1	1
+2	1
+2	2
+3	2
+
+-- !computed_grouped_scalar --
+-1	-1	2
+-2	-2	2
+1	1	2
+2	1	3
+2	2	3
+3	2	2
+
+-- !computed_grouped_scalar_empty_domain --
+-1	-1	\N
+-2	-2	\N
+1	1	\N
+2	1	\N
+2	2	\N
+3	2	\N
+
