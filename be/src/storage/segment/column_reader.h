@@ -70,6 +70,7 @@ class StorageReadOptions;
 
 namespace io {
 class FileReader;
+class ReadAheadRangeBuffer;
 } // namespace io
 struct Slice;
 struct StringRef;
@@ -88,11 +89,7 @@ class RowRanges;
 class ZoneMapIndexReader;
 class IndexIterator;
 class ColumnMetaAccessor;
-class ColumnReadAhead;
-class SegmentReadAhead;
-struct ColumnReadAheadContext;
-struct ColumnReadAheadRequest;
-struct ColumnReadAheadPlan;
+struct ColumnReadAheadHint;
 
 struct ColumnReaderOptions {
     // whether verify checksum when read page
@@ -149,7 +146,7 @@ public:
 
     // create a new column iterator. Client should delete returned iterator
     virtual Status new_iterator(ColumnIteratorUPtr* iterator, const TabletColumn* col,
-                                const StorageReadOptions*);
+                                const StorageReadOptions*, bool enable_read_ahead = false);
     Status new_iterator(ColumnIteratorUPtr* iterator, const TabletColumn* tablet_column);
     Status new_array_iterator(ColumnIteratorUPtr* iterator, const TabletColumn* tablet_column);
     Status new_struct_iterator(ColumnIteratorUPtr* iterator, const TabletColumn* tablet_column);
@@ -169,7 +166,8 @@ public:
     // read a page from file into a page handle
     Status read_page(const ColumnIteratorOptions& iter_opts, const PagePointer& pp,
                      PageHandle* handle, Slice* page_body, PageFooterPB* footer,
-                     BlockCompressionCodec* codec) const;
+                     BlockCompressionCodec* codec,
+                     io::ReadAheadRangeBuffer* read_ahead = nullptr) const;
 
     bool is_nullable() const { return _meta_is_nullable; }
 
@@ -401,11 +399,7 @@ public:
 
     virtual Status init_prefetcher(const SegmentPrefetchParams& params) { return Status::OK(); }
 
-    /// Appends data-page plans for scalar columns. Complex iterators keep the original read path.
-    virtual Status prepare_read_ahead(const ColumnReadAheadRequest& request,
-                                      std::vector<ColumnReadAheadPlan>* plans) {
-        return Status::OK();
-    }
+    virtual Status prepare_read_ahead(const ColumnReadAheadHint& hint) { return Status::OK(); }
 
     virtual void collect_prefetchers(
             std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
@@ -590,13 +584,21 @@ public:
     bool is_all_dict_encoding() const override { return _is_all_dict_encoding; }
 
     Status init_prefetcher(const SegmentPrefetchParams& params) override;
-    Status prepare_read_ahead(const ColumnReadAheadRequest& request,
-                              std::vector<ColumnReadAheadPlan>* plans) override;
     void collect_prefetchers(
             std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
             PrefetcherInitMethod init_method) override;
 
 protected:
+    struct PageReadContext {
+        io::ReadAheadRangeBuffer* buffer {nullptr};
+        bool retry_on_error {false};
+    };
+
+    // Called synchronously at every physical data-page load, including dictionary inspection
+    // during init() and page transitions inside a batch. No worker invokes these hooks.
+    virtual PageReadContext _before_page_read(int32_t page_index) { return {}; }
+    virtual void _after_page_read(int32_t page_index, const PagePointer& page) {}
+
     // Exposed to derived iterators (e.g. StringFileColumnIterator) so they can
     // query column metadata such as the storage field type.
     const std::shared_ptr<ColumnReader>& get_reader() const { return _reader; }
@@ -606,11 +608,6 @@ private:
     Status _load_next_page(bool* eos);
     Status _read_data_page(const OrdinalPageIndexIterator& iter);
     Status _read_dict_data();
-    // Materialize compressed data-page ranges from the ordinal index once. Later calls must keep
-    // the same window options and scan direction for this iterator.
-    Status _init_read_ahead(const ColumnReadAheadRequest& request);
-    // Run before PageIO so both buffered reads and Page Cache hits advance the scan window.
-    void _advance_read_ahead(int32_t page_index);
     void _trigger_prefetch_if_eligible(ordinal_t ord);
 
     std::shared_ptr<ColumnReader> _reader = nullptr;
@@ -642,9 +639,6 @@ private:
     bool _enable_prefetch {false};
     std::unique_ptr<SegmentPrefetcher> _prefetcher;
     std::shared_ptr<io::CachedRemoteFileReader> _cached_remote_file_reader {nullptr};
-    std::unique_ptr<ColumnReadAhead> _read_ahead;
-    // Set only for page-driven scans; owned by the enclosing SegmentIterator.
-    SegmentReadAhead* _read_ahead_segment {nullptr};
 };
 
 class EmptyFileColumnIterator final : public ColumnIterator {
@@ -657,7 +651,7 @@ public:
 // reading for string/binary column types. When the OFFSET path is detected in set_access_paths, it
 // sets only_read_offsets on the ColumnIteratorOptions so that the BinaryPlainPageDecoder skips
 // chars memcpy and only fills offsets.
-class StringFileColumnIterator final : public FileColumnIterator {
+class StringFileColumnIterator : public FileColumnIterator {
 public:
     explicit StringFileColumnIterator(std::shared_ptr<ColumnReader> reader);
     ~StringFileColumnIterator() override = default;
@@ -1111,7 +1105,8 @@ public:
                            bool* matched) const override;
 
     Status new_iterator(ColumnIteratorUPtr* iterator, const TabletColumn* /*col*/,
-                        const StorageReadOptions* /*opt*/) override {
+                        const StorageReadOptions* /*opt*/,
+                        bool /*enable_read_ahead*/ = false) override {
         *iterator = std::make_unique<ConstantColumnIterator>(_value);
         return Status::OK();
     }

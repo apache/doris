@@ -70,6 +70,7 @@
 #include "storage/rowset/rowset_reader_context.h"
 #include "storage/schema.h"
 #include "storage/segment/column_meta_accessor.h"
+#include "storage/segment/column_read_ahead_resources.h"
 #include "storage/segment/column_reader.h"
 #include "storage/segment/column_reader_cache.h"
 #include "storage/segment/common.h" // k_segment_magic
@@ -980,7 +981,13 @@ Status Segment::new_column_iterator(const TabletColumn& tablet_column,
         RETURN_IF_ERROR(variant_reader->new_iterator(
                 iter, &tablet_column, opt, _column_reader_cache.get(), sparse_column_cache_ptr));
     } else {
-        RETURN_IF_ERROR(reader->new_iterator(iter, &tablet_column, opt));
+        // Only this top-level scalar request can select the read-ahead subclass. Recursive child
+        // factories keep it disabled, including physical scalar leaves of extracted Variant paths.
+        const bool enable_read_ahead = ColumnReadAheadResources::enabled() &&
+                                       opt->io_ctx.reader_type == ReaderType::READER_QUERY &&
+                                       is_scalar_type(tablet_column.type()) &&
+                                       !tablet_column.is_extracted_column();
+        RETURN_IF_ERROR(reader->new_iterator(iter, &tablet_column, opt, enable_read_ahead));
         if (opt->all_access_paths.contains(unique_id) ||
             opt->predicate_access_paths.contains(unique_id)) {
             const auto& all_access_paths = opt->all_access_paths.contains(unique_id)

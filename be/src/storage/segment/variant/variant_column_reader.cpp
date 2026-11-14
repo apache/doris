@@ -1134,7 +1134,8 @@ Status VariantColumnReader::_maybe_wrap_root_merge_iterator(ColumnIteratorUPtr* 
 
 Status VariantColumnReader::new_iterator(ColumnIteratorUPtr* iterator,
                                          const TabletColumn* target_col,
-                                         const StorageReadOptions* opt) {
+                                         const StorageReadOptions* opt,
+                                         bool /*enable_read_ahead*/) {
     // return new_iterator(iterator, target_col, opt, nullptr);
     return Status::NotSupported("Not implemented");
 }
