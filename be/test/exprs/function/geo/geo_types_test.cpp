@@ -1925,6 +1925,47 @@ TEST_F(GeoTypesTest, polygon_contains) {
     }
 }
 
+// A point within 1e-6 (in lat/lng degrees) of an edge is on the boundary and not contained.
+// The same polygon is checked against all points, so later calls reuse the vertices it converted
+// for the first one.
+TEST_F(GeoTypesTest, polygon_contains_point_near_edge) {
+    const char* wkt =
+            "POLYGON ((10 10, 50 10, 50 50, 10 50, 10 10), (20 20, 40 20, 40 40, 20 40, 20 "
+            "20))";
+    GeoParseStatus status;
+    auto polygon(GeoShape::from_wkt(wkt, strlen(wkt), status));
+    EXPECT_EQ(GeoParseStatus::GEO_PARSE_OK, status);
+    ASSERT_NE(nullptr, polygon);
+
+    auto contains = [&](double x, double y) {
+        GeoPoint point;
+        EXPECT_EQ(GeoParseStatus::GEO_PARSE_OK, point.from_coord(x, y));
+        return polygon->contains(&point);
+    };
+    for (int i = 0; i < 2; ++i) {
+        EXPECT_TRUE(contains(15, 30));
+        EXPECT_FALSE(contains(25, 30));
+        // outer loop edge on lng 50 and its vertex
+        EXPECT_FALSE(contains(50 - 5e-7, 30));
+        EXPECT_TRUE(contains(50 - 2e-6, 30));
+        EXPECT_FALSE(contains(50 - 5e-7, 50 - 5e-7));
+        // hole edge on lng 20
+        EXPECT_FALSE(contains(20 - 5e-7, 30));
+        EXPECT_TRUE(contains(20 - 2e-6, 30));
+    }
+
+    // A polygon decoded from its encoding checks the edges the same way.
+    std::string buf;
+    polygon->encode_to(&buf);
+    auto decoded(GeoShape::from_encoded(buf.data(), buf.size()));
+    ASSERT_NE(nullptr, decoded);
+    GeoPoint point;
+    EXPECT_EQ(GeoParseStatus::GEO_PARSE_OK, point.from_coord(50 - 5e-7, 30));
+    EXPECT_FALSE(decoded->contains(&point));
+    EXPECT_EQ(GeoParseStatus::GEO_PARSE_OK, point.from_coord(50 - 2e-6, 30));
+    EXPECT_TRUE(decoded->contains(&point));
+}
+
 TEST_F(GeoTypesTest, polygon_parse_fail) {
     {
         const char* wkt = "POLYGON ((10 10, 50 10, 50 50, 10 50), (10 10 01))";
