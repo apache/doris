@@ -30,6 +30,7 @@
 #include "core/column/column.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_struct.h"
 #include "core/string_ref.h"
 #include "exprs/hybrid_set.h"
 #include "exprs/hybrid_set_min_max.h"
@@ -171,13 +172,23 @@ int single_slot_index(const VExprContextSPtr& ctx, Capability capability) {
 
 } // namespace
 
-const DictionaryEvalContext::SlotDictionary* DictionaryEvalContext::slot(int slot_index) const {
-    auto it = slots.find(slot_index);
+const DictionaryEvalContext::SlotDictionary* DictionaryEvalContext::slot(
+        const std::vector<int>& slot_index) const {
+    if (slot_index.size() != 1) {
+        // Dictionary pruning only applies to top-level columns, not nested STRUCT subfields.
+        return nullptr;
+    }
+    auto it = slots.find(slot_index[0]);
     return it == slots.end() ? nullptr : &it->second;
 }
 
-const BloomFilterEvalContext::SlotBloomFilter* BloomFilterEvalContext::slot(int slot_index) const {
-    auto it = slots.find(slot_index);
+const BloomFilterEvalContext::SlotBloomFilter* BloomFilterEvalContext::slot(
+        const std::vector<int>& slot_index) const {
+    if (slot_index.size() != 1) {
+        // Bloom-filter pruning only applies to top-level columns, not nested STRUCT subfields.
+        return nullptr;
+    }
+    auto it = slots.find(slot_index[0]);
     return it == slots.end() ? nullptr : &it->second;
 }
 
@@ -227,7 +238,7 @@ std::optional<SlotLiteral> extract_slot_and_literal(const VExprSPtrs& args) {
             return std::nullopt;
         }
         auto [literal_value, literal_type] = std::move(*literal);
-        return SlotLiteral {.slot_index = slot->column_id(),
+        return SlotLiteral {.slot_index = {slot->column_id()},
                             .slot_type = slot->data_type(),
                             .literal = std::move(literal_value),
                             .literal_type = std::move(literal_type),
@@ -240,7 +251,7 @@ std::optional<SlotLiteral> extract_slot_and_literal(const VExprSPtrs& args) {
             return std::nullopt;
         }
         auto [literal_value, literal_type] = std::move(*literal);
-        return SlotLiteral {.slot_index = slot->column_id(),
+        return SlotLiteral {.slot_index = {slot->column_id()},
                             .slot_type = slot->data_type(),
                             .literal = std::move(literal_value),
                             .literal_type = std::move(literal_type),
@@ -248,6 +259,45 @@ std::optional<SlotLiteral> extract_slot_and_literal(const VExprSPtrs& args) {
     }
 
     return std::nullopt;
+}
+
+std::optional<SlotLiteral> extract_struct_field_and_literal(const VExprSPtrs& args) {
+    if (args.size() != 2) {
+        return std::nullopt;
+    }
+    auto build = [&](const VExprSPtr& struct_side, const VExprSPtr& literal_side,
+                     bool literal_on_left) -> std::optional<SlotLiteral> {
+        auto probe = extract_metadata_probe(struct_side);
+        if (!probe.has_value() || probe->path.empty() ||
+            !std::all_of(probe->path.begin(), probe->path.end(), [](const MetadataPathElement& e) {
+                return e.kind == MetadataPathKind::STRUCT_FIELD;
+            })) {
+            return std::nullopt;
+        }
+        auto literal = field_from_literal_expr(literal_side);
+        if (!literal.has_value()) {
+            return std::nullopt;
+        }
+        std::vector<int> slot_index;
+        slot_index.reserve(probe->path.size() + 1);
+        slot_index.push_back(probe->slot_index);
+        for (const auto& elem : probe->path) {
+            if (elem.field_ordinal < 0) {
+                return std::nullopt;
+            }
+            slot_index.push_back(elem.field_ordinal);
+        }
+        auto [literal_value, literal_type] = std::move(*literal);
+        return SlotLiteral {.slot_index = std::move(slot_index),
+                            .slot_type = probe->value_type,
+                            .literal = std::move(literal_value),
+                            .literal_type = std::move(literal_type),
+                            .literal_on_left = literal_on_left};
+    };
+    if (auto result = build(args[0], args[1], /*literal_on_left=*/false)) {
+        return result;
+    }
+    return build(args[1], args[0], /*literal_on_left=*/true);
 }
 
 std::optional<SlotSlot> extract_slot_and_slot(const VExprSPtrs& args) {
@@ -259,9 +309,9 @@ std::optional<SlotSlot> extract_slot_and_slot(const VExprSPtrs& args) {
     if (left == nullptr || right == nullptr) {
         return std::nullopt;
     }
-    return SlotSlot {.left_slot_index = left->column_id(),
+    return SlotSlot {.left_slot_index = {left->column_id()},
                      .left_type = left->data_type(),
-                     .right_slot_index = right->column_id(),
+                     .right_slot_index = {right->column_id()},
                      .right_type = right->data_type()};
 }
 
@@ -302,7 +352,7 @@ std::optional<SlotLiteral> extract_array_contains_slot_and_literal(const VExprSP
         return std::nullopt;
     }
     auto [literal_value, literal_type] = std::move(*literal);
-    return SlotLiteral {.slot_index = probe->slot_index,
+    return SlotLiteral {.slot_index = {probe->slot_index},
                         .slot_type = element_type,
                         .literal = std::move(literal_value),
                         .literal_type = std::move(literal_type),
@@ -376,6 +426,11 @@ std::optional<MetadataProbe> extract_metadata_probe(const VExprSPtr& expr) {
         }
         if (is_string_type(selector_type->get_primitive_type())) {
             path_element.field_name = selector->first.get<TYPE_STRING>();
+            auto struct_type = std::dynamic_pointer_cast<const DataTypeStruct>(parent_type);
+            auto pos = struct_type == nullptr
+                               ? std::nullopt
+                               : struct_type->try_get_position_by_name(path_element.field_name);
+            path_element.field_ordinal = pos.has_value() ? static_cast<int>(*pos) : -1;
         } else {
             auto ordinal = struct_field_ordinal(selector->first);
             if (!ordinal.has_value()) {
@@ -469,7 +524,7 @@ std::optional<SlotLiteral> extract_bloom_filter_slot_and_literal(const VExprSPtr
             continue;
         }
         auto [literal_value, literal_type] = std::move(*literal);
-        return SlotLiteral {.slot_index = probe->slot_index,
+        return SlotLiteral {.slot_index = {probe->slot_index},
                             .slot_type = probe->value_type,
                             .literal = std::move(literal_value),
                             .literal_type = std::move(literal_type),
@@ -505,7 +560,7 @@ ZoneMapFilterResult eval_null_zonemap(const ZoneMapEvalContext& ctx, const VExpr
     DORIS_CHECK(arguments.size() == 1);
     auto slot = std::dynamic_pointer_cast<VSlotRef>(arguments[0]);
     DORIS_CHECK(slot != nullptr);
-    auto zone_map_ptr = ctx.zone_map(slot->column_id());
+    auto zone_map_ptr = ctx.zone_map({slot->column_id()});
     if (zone_map_ptr == nullptr) {
         return unsupported_zonemap_filter(ctx);
     }
@@ -538,11 +593,11 @@ ZoneMapFilterResult eval_in_zonemap(const ZoneMapEvalContext& ctx, const VExprSP
 
     // Re-check against the reader-schema type and the available zone map. Missing or unsupported
     // metadata must conservatively fall back to may-match.
-    auto slot_type = fetch_compatible_slot_type(ctx, slot->column_id(), slot->data_type());
+    auto slot_type = fetch_compatible_slot_type(ctx, {slot->column_id()}, slot->data_type());
     if (slot_type == nullptr) {
         return unsupported_zonemap_filter(ctx);
     }
-    auto zone_map_ptr = ctx.zone_map(slot->column_id());
+    auto zone_map_ptr = ctx.zone_map({slot->column_id()});
     if (zone_map_ptr == nullptr) {
         return unsupported_zonemap_filter(ctx);
     }
@@ -552,7 +607,7 @@ ZoneMapFilterResult eval_in_zonemap(const ZoneMapEvalContext& ctx, const VExprSP
         return ZoneMapFilterResult::kNoMatch;
     }
 
-    if (ctx.floating_nan_count_unknown(slot->column_id()) &&
+    if (ctx.floating_nan_count_unknown({slot->column_id()}) &&
         ((!is_not_in && values.contains_nan) || (is_not_in && !values.contains_nan))) {
         // Hidden Parquet NaNs can satisfy IN only when queried, and NOT IN only when omitted.
         return unsupported_zonemap_filter(ctx);
@@ -629,7 +684,7 @@ ZoneMapFilterResult eval_in_dictionary(const DictionaryEvalContext& ctx, const V
     }
     auto slot = std::dynamic_pointer_cast<VSlotRef>(slot_expr);
     DORIS_CHECK(slot != nullptr);
-    const auto* dictionary = ctx.slot(slot->column_id());
+    const auto* dictionary = ctx.slot({slot->column_id()});
     if (dictionary == nullptr || dictionary->data_type == nullptr) {
         return ZoneMapFilterResult::kUnsupported;
     }
@@ -671,7 +726,7 @@ ZoneMapFilterResult eval_in_bloom_filter(const BloomFilterEvalContext& ctx,
     }
     auto probe = extract_metadata_probe(slot_expr);
     DORIS_CHECK(probe.has_value());
-    const auto* slot_filter = ctx.slot(probe->slot_index);
+    const auto* slot_filter = ctx.slot({probe->slot_index});
     if (slot_filter == nullptr || slot_filter->data_type == nullptr ||
         slot_filter->bloom_filter == nullptr) {
         return ZoneMapFilterResult::kUnsupported;

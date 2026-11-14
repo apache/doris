@@ -163,6 +163,19 @@ ZoneMapEvalContext make_two_slot_context(segment_v2::ZoneMap left, segment_v2::Z
     return ctx;
 }
 
+// A ZoneMapEvalContext carrying a zone map for a nested STRUCT subfield, keyed by
+// its full slot path (column id followed by field ordinals).
+ZoneMapEvalContext make_nested_slot_context(const std::vector<int>& slot_index,
+                                            segment_v2::ZoneMap zone_map,
+                                            const DataTypePtr& data_type) {
+    ZoneMapEvalContext ctx;
+    ZoneMapEvalContext::SlotZoneMap slot_zone_map;
+    slot_zone_map.data_type = data_type;
+    slot_zone_map.zone_map = std::make_shared<segment_v2::ZoneMap>(std::move(zone_map));
+    ctx.nested_slots.emplace(slot_index, std::move(slot_zone_map));
+    return ctx;
+}
+
 DictionaryEvalContext make_dictionary_context(std::vector<Field> values,
                                               const DataTypePtr& data_type) {
     DictionaryEvalContext ctx;
@@ -346,6 +359,12 @@ public:
 private:
     std::string _expr_name;
 };
+
+VExprSPtr make_struct_field_accessor(const DataTypePtr& result_type, const VExprSPtr& base,
+                                     const std::string& field_name) {
+    return std::make_shared<MetadataAccessorExpr>("element_at", result_type, base,
+                                                  make_string_literal(field_name));
+}
 
 class MetadataBloomPredicateExpr final : public VExpr {
 public:
@@ -2432,6 +2451,98 @@ TEST(ExprZonemapFilterTest, ParquetSlotZoneMapMarksFloatingNanCountUnknown) {
     untyped_slot.set_data_type_from_parquet(nullptr);
     EXPECT_EQ(nullptr, untyped_slot.data_type);
     EXPECT_FALSE(untyped_slot.floating_nan_count_unknown);
+}
+
+// STRUCT subfield zone-map pruning (`struct.field OP literal`).
+
+TEST(ExprZonemapFilterTest, StructFieldExtractionParsesSubfieldPath) {
+    // struct<a INT>.a = 5  ->  slot_index = [0, 0], literal = 5, literal on the right.
+    auto leaf_type = int_type();
+    auto struct_type = std::make_shared<DataTypeStruct>(DataTypes {leaf_type}, Strings {"a"});
+    auto accessor = make_struct_field_accessor(leaf_type, make_slot(0, struct_type), "a");
+
+    auto sl = expr_zonemap::extract_struct_field_and_literal({accessor, make_int_literal(5)});
+    ASSERT_TRUE(sl.has_value());
+    EXPECT_EQ((std::vector<int> {0, 0}), sl->slot_index);
+    EXPECT_EQ(int_field(5), sl->literal);
+    EXPECT_FALSE(sl->literal_on_left);
+    ASSERT_NE(nullptr, sl->slot_type);
+    EXPECT_TRUE(expr_zonemap::data_types_compatible(sl->slot_type, leaf_type));
+
+    // Literal on the left is recorded so the evaluator can mirror the operator.
+    auto sl_left = expr_zonemap::extract_struct_field_and_literal({make_int_literal(7), accessor});
+    ASSERT_TRUE(sl_left.has_value());
+    EXPECT_EQ((std::vector<int> {0, 0}), sl_left->slot_index);
+    EXPECT_TRUE(sl_left->literal_on_left);
+
+    // A non-literal value side (struct.a = struct.b) is not a zonemap shape.
+    auto other_accessor = make_struct_field_accessor(leaf_type, make_slot(1, struct_type), "a");
+    EXPECT_FALSE(
+            expr_zonemap::extract_struct_field_and_literal({accessor, other_accessor}).has_value());
+
+    // Two-level nesting: struct<a struct<b INT>>.a.b = 5  ->  [0, 0, 0].
+    auto inner_struct = std::make_shared<DataTypeStruct>(DataTypes {leaf_type}, Strings {"b"});
+    auto outer_struct = std::make_shared<DataTypeStruct>(DataTypes {inner_struct}, Strings {"a"});
+    auto outer_accessor = make_struct_field_accessor(inner_struct, make_slot(0, outer_struct), "a");
+    auto nested_accessor = make_struct_field_accessor(leaf_type, outer_accessor, "b");
+    auto nested_sl =
+            expr_zonemap::extract_struct_field_and_literal({nested_accessor, make_int_literal(5)});
+    ASSERT_TRUE(nested_sl.has_value());
+    EXPECT_EQ((std::vector<int> {0, 0, 0}), nested_sl->slot_index);
+}
+
+TEST(ExprZonemapFilterTest, StructFieldZonemapPrunesDisjointRanges) {
+    auto leaf_type = int_type();
+    auto struct_type = std::make_shared<DataTypeStruct>(DataTypes {leaf_type}, Strings {"a"});
+    auto accessor = make_struct_field_accessor(leaf_type, make_slot(0, struct_type), "a");
+
+    // The subfield zone map, keyed by its nested slot path [0, 0].
+    auto ctx = make_nested_slot_context({0, 0}, make_int_zonemap(10, 20), leaf_type);
+
+    // The capability gate must admit the struct-field shape.
+    FunctionComparison<LessOp, NameLess> less;
+    EXPECT_TRUE(less.can_evaluate_zonemap_filter({accessor, make_int_literal(10)}));
+
+    // disjoint ranges are pruned on the nested slot by the same min/max rules.
+    EXPECT_EQ(ZoneMapFilterResult::kNoMatch,
+              less.evaluate_zonemap_filter(ctx, {accessor, make_int_literal(10)}));
+    FunctionComparison<GreaterOp, NameGreater> greater;
+    EXPECT_EQ(ZoneMapFilterResult::kNoMatch,
+              greater.evaluate_zonemap_filter(ctx, {accessor, make_int_literal(20)}));
+    FunctionComparison<EqualsOp, NameEquals> equals;
+    EXPECT_EQ(ZoneMapFilterResult::kNoMatch,
+              equals.evaluate_zonemap_filter(ctx, {accessor, make_int_literal(30)}));
+    EXPECT_EQ(ZoneMapFilterResult::kMayMatch,
+              equals.evaluate_zonemap_filter(ctx, {accessor, make_int_literal(15)}));
+
+    // Literal on the left is mirrored symmetrically.
+    EXPECT_EQ(ZoneMapFilterResult::kNoMatch,
+              less.evaluate_zonemap_filter(ctx, {make_int_literal(25), accessor}));
+    EXPECT_EQ(ZoneMapFilterResult::kMayMatch,
+              less.evaluate_zonemap_filter(ctx, {make_int_literal(15), accessor}));
+
+    // A missing nested zone map falls back to unsupported rather than pruning.
+    ZoneMapEvalContext missing;
+    EXPECT_EQ(ZoneMapFilterResult::kUnsupported,
+              equals.evaluate_zonemap_filter(missing, {accessor, make_int_literal(15)}));
+}
+
+TEST(ExprZonemapFilterTest, StructFieldZonemapPrunesNestedSubfield) {
+    // Two-level nesting reaches the zone map keyed by the full path [0, 0, 0].
+    auto leaf_type = int_type();
+    auto inner_struct = std::make_shared<DataTypeStruct>(DataTypes {leaf_type}, Strings {"b"});
+    auto outer_struct = std::make_shared<DataTypeStruct>(DataTypes {inner_struct}, Strings {"a"});
+    auto outer_accessor = make_struct_field_accessor(inner_struct, make_slot(0, outer_struct), "a");
+    auto nested_accessor = make_struct_field_accessor(leaf_type, outer_accessor, "b");
+
+    auto ctx = make_nested_slot_context({0, 0, 0}, make_int_zonemap(10, 20), leaf_type);
+
+    FunctionComparison<LessOp, NameLess> less;
+    EXPECT_TRUE(less.can_evaluate_zonemap_filter({nested_accessor, make_int_literal(5)}));
+    EXPECT_EQ(ZoneMapFilterResult::kNoMatch,
+              less.evaluate_zonemap_filter(ctx, {nested_accessor, make_int_literal(5)}));
+    EXPECT_EQ(ZoneMapFilterResult::kMayMatch,
+              less.evaluate_zonemap_filter(ctx, {nested_accessor, make_int_literal(15)}));
 }
 
 } // namespace doris
