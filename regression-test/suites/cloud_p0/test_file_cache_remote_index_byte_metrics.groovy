@@ -44,7 +44,7 @@ suite("test_file_cache_remote_index_byte_metrics", "docker") {
         'file_cache_exit_disk_resource_limit_mode_percent=98',
         'file_cache_enter_need_evict_cache_in_advance_percent=99',
         'file_cache_exit_need_evict_cache_in_advance_percent=98',
-        'JEMALLOC_CONF="percpu_arena:percpu,background_thread:true,metadata_thp:auto,muzzy_decay_ms:5000,dirty_decay_ms:5000,oversize_threshold:0,prof:false,prof_active:false,lg_prof_interval:-1,lg_extent_max_active_fit:8"',
+        'JEMALLOC_CONF="percpu_arena:percpu,background_thread:true,metadata_thp:auto,muzzy_decay_ms:5000,dirty_decay_ms:5000,oversize_threshold:67108864,prof:false,prof_active:false,lg_prof_interval:-1,lg_extent_max_active_fit:8"',
     ]
     options.extraHosts += [
         'host.docker.internal:host-gateway',
