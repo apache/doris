@@ -110,7 +110,7 @@ void MetaServerRegister::prepare_registry(ServiceRegistryPB* reg) {
     auto now = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
     std::string ip = get_local_ip(config::priority_networks);
     int32_t port = config::brpc_listen_port;
-    std::string id = ip + ":" + std::to_string(port);
+    std::string id = get_host_port(ip, port);
     ServiceRegistryPB::Item item;
     item.set_id(id);
     item.set_ip(ip);

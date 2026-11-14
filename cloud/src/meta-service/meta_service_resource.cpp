@@ -5320,7 +5320,7 @@ void notify_refresh_instance(std::shared_ptr<TxnKv> txn_kv, const std::string& i
     }
     std::string self_endpoint =
             config::hostname.empty() ? get_local_ip(config::priority_networks) : config::hostname;
-    self_endpoint = fmt::format("{}:{}", self_endpoint, config::brpc_listen_port);
+    self_endpoint = get_host_port(self_endpoint, config::brpc_listen_port);
     ServiceRegistryPB reg;
     reg.ParseFromString(val);
 
@@ -5337,9 +5337,9 @@ void notify_refresh_instance(std::shared_ptr<TxnKv> txn_kv, const std::string& i
         auto& e = reg.items(i);
         std::string endpoint;
         if (e.has_host()) {
-            endpoint = fmt::format("{}:{}", e.host(), e.port());
+            endpoint = get_host_port(e.host(), e.port());
         } else {
-            endpoint = fmt::format("{}:{}", e.ip(), e.port());
+            endpoint = get_host_port(e.ip(), e.port());
         }
         if (endpoint == self_endpoint && !include_self) continue;
 
