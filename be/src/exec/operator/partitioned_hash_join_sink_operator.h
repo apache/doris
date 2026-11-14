@@ -83,9 +83,16 @@ protected:
 
     Status _setup_internal_operator(RuntimeState* state);
 
+    // Whether the inner sink releases its probe in close().
+    // See `HashJoinBuildSinkOperatorX::sink_impl`.
+    bool _inner_releases_probe_on_close() const;
+
     friend class PartitionedHashJoinSinkOperatorX;
 
     bool _child_eos {false};
+    // The probe side is released in close(), after the inner sink is closed.
+    bool _release_probe_on_close {false};
+    std::shared_ptr<RuntimeFilterTimer> _release_probe_timer;
 
     std::unique_ptr<PartitionerBase> _partitioner;
 
