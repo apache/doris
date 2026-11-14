@@ -109,21 +109,20 @@ size_t clip_requested_range(const FileBlock::Range& range, size_t file_size) {
     return std::min(file_size - range.left, range.size());
 }
 
-ExpectedPeerFetch build_expected_peer_fetch(const std::vector<FileBlockSPtr>& blocks,
+ExpectedPeerFetch build_expected_peer_fetch(const std::vector<FileBlock::Range>& ranges,
                                             size_t file_size, PFetchPeerDataRequest* req) {
     ExpectedPeerFetch expected;
-    for (size_t block_idx = 0; block_idx < blocks.size(); ++block_idx) {
-        const auto& blk = blocks[block_idx];
+    for (size_t block_idx = 0; block_idx < ranges.size(); ++block_idx) {
+        const auto& range = ranges[block_idx];
         auto* cb = req->add_cache_req();
-        cb->set_block_offset(static_cast<int64_t>(blk->range().left));
-        cb->set_block_size(static_cast<int64_t>(blk->range().size()));
-        const size_t clipped_size = clip_requested_range(blk->range(), file_size);
+        cb->set_block_offset(static_cast<int64_t>(range.left));
+        cb->set_block_size(static_cast<int64_t>(range.size()));
+        const size_t clipped_size = clip_requested_range(range, file_size);
         if (clipped_size == 0) {
             continue;
         }
         expected.expected_block_indexes.push_back(block_idx);
-        expected.expected_ranges.emplace_back(blk->range().left,
-                                              blk->range().left + clipped_size - 1);
+        expected.expected_ranges.emplace_back(range.left, range.left + clipped_size - 1);
         expected.pending_ranges.emplace_back(expected.expected_ranges.back());
         expected.expected_bytes += clipped_size;
     }
@@ -206,7 +205,10 @@ PeerFileCacheReader::~PeerFileCacheReader() {
     peer_cache_being_read << -1;
 }
 
-Status PeerFileCacheReader::fetch_blocks(const std::vector<FileBlockSPtr>& blocks,
+// The size and complexity were already over the limits on master; this PR only changed the
+// parameter type from blocks to ranges.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity,readability-function-size)
+Status PeerFileCacheReader::fetch_blocks(const std::vector<FileBlock::Range>& ranges,
                                          PeerFetchResult* result, size_t file_size,
                                          const IOContext* ctx, bool request_fill, int64_t tablet_id,
                                          std::string resource_id) {
@@ -216,7 +218,7 @@ Status PeerFileCacheReader::fetch_blocks(const std::vector<FileBlockSPtr>& block
     }
     result->clear();
     VLOG_DEBUG << "enter PeerFileCacheReader::fetch_blocks";
-    if (blocks.empty()) {
+    if (ranges.empty()) {
         return Status::OK();
     }
     if (!_is_doris_table) {
@@ -242,7 +244,7 @@ Status PeerFileCacheReader::fetch_blocks(const std::vector<FileBlockSPtr>& block
     }
     // Always advertise attachment support. Older peers can still reply in protobuf mode.
     req.set_support_attachment(true);
-    auto expected = build_expected_peer_fetch(blocks, file_size, &req);
+    auto expected = build_expected_peer_fetch(ranges, file_size, &req);
     if (expected.expected_bytes == 0) {
         return Status::OK();
     }

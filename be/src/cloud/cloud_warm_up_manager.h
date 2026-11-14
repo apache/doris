@@ -152,6 +152,10 @@ public:
     void record_peer_all_miss(int64_t tablet_id);
     // Check if peer read is in cooldown for this tablet (all candidates repeatedly missed).
     bool is_peer_cooldown(int64_t tablet_id) const;
+    // Read-only check whether get_peer_candidates() would return candidates: the tablet has at
+    // least one candidate and is not in cooldown. Unlike get_peer_candidates(), it does not refresh
+    // candidate expiry, reset an expired cooldown or update any bvar.
+    bool has_peer_candidates(int64_t tablet_id) const;
 
     // ---- HTTP debug/admin API ----
     // Read-only snapshot of TabletPeerCandidates for a single tablet.
@@ -233,6 +237,9 @@ private:
     const Shard& get_shard(int64_t tablet_id) const {
         return _balanced_tablets_shards[get_shard_index(tablet_id)];
     }
+
+    // Whether `tpc` is inside an unexpired all-miss cooldown. Caller holds the shard lock.
+    static bool is_cooling_down(const TabletPeerCandidates& tpc);
 
     // Cleanup thread and its synchronization primitives
     std::thread _cleanup_thread;
