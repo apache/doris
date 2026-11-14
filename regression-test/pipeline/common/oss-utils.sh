@@ -100,7 +100,54 @@ function upload_file_to_oss() {
     fi
 }
 
+# Operator-provisioned ossutil v2 uses environment-only STS credentials. This path
+# neither installs tools nor writes credentials to ~/.ossutilconfig.
+function upload_preconfigured_doris_log() (
+    set +x
+    if [[ "${DORIS_CI_OSSUTIL:-}" != /* || ! -x "${DORIS_CI_OSSUTIL}" ||
+        -z "${OSS_ACCESS_KEY_ID:-}" || -z "${OSS_ACCESS_KEY_SECRET:-}" || -z "${OSS_SESSION_TOKEN:-}" ||
+        -z "${OSS_REGION:-}" || "${OSS_ENDPOINT:-}" != https://* ||
+        ! "${DORIS_CI_LOG_OSS_PREFIX:-}" =~ ^oss://[^/]+/.+ ||
+        "$1" != /* || ! -f "$1" ]]; then
+        echo "ERROR: preconfigured log upload requires an existing tool, STS, HTTPS endpoint, region, prefix and absolute file." >&2
+        return 1
+    fi
+    local version target
+    version=$("${DORIS_CI_OSSUTIL}" version) || return 1
+    if [[ "${version}" != *2.4.1* ]]; then
+        echo "ERROR: preconfigured log upload requires validated ossutil 2.4.1." >&2
+        return 1
+    fi
+    target="${DORIS_CI_LOG_OSS_PREFIX%/}/$(basename "$1")"
+    "${DORIS_CI_OSSUTIL}" --mode StsToken --config-file /dev/null --loglevel off \
+        --region "${OSS_REGION}" --endpoint "${OSS_ENDPOINT}" cp "$1" "${target}" || return 1
+    "${DORIS_CI_OSSUTIL}" --mode StsToken --config-file /dev/null --loglevel off \
+        --region "${OSS_REGION}" --endpoint "${OSS_ENDPOINT}" stat "${target}"
+)
+
 function upload_doris_log_to_oss() {
+    case "${DORIS_CI_ENV_MODE:-managed}" in
+        preconfigured)
+            case "${DORIS_CI_LOG_BACKEND:-oss}" in
+                artifact)
+                    if [[ "${DORIS_CI_LOG_DIR:-}" != /* || ! -d "${DORIS_CI_LOG_DIR}" ||
+                        "$1" != /* || ! -f "$1" ]]; then
+                        echo "ERROR: artifact log collection requires an existing absolute directory and file." >&2
+                        return 1
+                    fi
+                    local report_dir
+                    report_dir=$(mktemp -d "${DORIS_CI_LOG_DIR}/doris-log.XXXXXX") || return 1
+                    cp "$1" "${report_dir}/" || return 1
+                    echo "INFO: collected log artifact in ${report_dir}; remote publication is a separate step."
+                    return 0
+                    ;;
+                oss) upload_preconfigured_doris_log "$1"; return $? ;;
+                *) echo "ERROR: unknown DORIS_CI_LOG_BACKEND." >&2; return 1 ;;
+            esac
+            ;;
+        managed) ;;
+        *) echo "ERROR: unknown DORIS_CI_ENV_MODE." >&2; return 1 ;;
+    esac
     OSS_DIR="oss://opensource-pipeline/regression"
     OSS_URL_PREFIX="http://opensource-pipeline.oss-cn-hongkong.aliyuncs.com/regression"
     upload_file_to_oss "$1"
