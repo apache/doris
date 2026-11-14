@@ -143,7 +143,10 @@ struct SyncRowsetStats;
 class DeleteBitmapAggCache;
 
 // set to true when BE is shutting down
-inline bool k_doris_exit = false;
+inline std::atomic<bool> k_doris_exit {false};
+static_assert(std::atomic<bool>::is_always_lock_free);
+// A validated master heartbeat has prepared a response carrying is_shutdown=true.
+inline std::atomic<bool> k_shutdown_heartbeat_sent {false};
 // set to true after BE start ready
 inline bool k_is_server_ready = false;
 
@@ -397,6 +400,8 @@ public:
     DeltaWriterV2Pool* delta_writer_v2_pool() { return _delta_writer_v2_pool.get(); }
 
     void wait_for_all_tasks_done();
+
+    void wait_for_shutdown_heartbeat();
 
     void update_frontends(const std::vector<TFrontendInfo>& new_infos);
     std::vector<TFrontendInfo> get_frontends();

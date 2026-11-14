@@ -386,8 +386,7 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
                                        const QuerySource query_source,
                                        const TPipelineFragmentParamsList& parent) {
     if (params.txn_conf.need_txn) {
-        std::shared_ptr<StreamLoadContext> stream_load_ctx =
-                std::make_shared<StreamLoadContext>(_exec_env);
+        auto stream_load_ctx = StreamLoadContext::create_shared(_exec_env);
         stream_load_ctx->db = params.txn_conf.db;
         stream_load_ctx->db_id = params.txn_conf.db_id;
         stream_load_ctx->table = params.txn_conf.tbl;
@@ -413,9 +412,20 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
         RETURN_IF_ERROR(
                 _exec_env->new_load_stream_mgr()->put(stream_load_ctx->id, stream_load_ctx));
 
-        RETURN_IF_ERROR(
-                _exec_env->stream_load_executor()->execute_plan_fragment(stream_load_ctx, parent));
-        return Status::OK();
+        auto status =
+                _exec_env->stream_load_executor()->execute_plan_fragment(stream_load_ctx, parent);
+        // Query-context setup can fail before a fragment and its completion callback exist.
+        // In that case nobody removes the registered owner or wakes senders on the pipe.
+        if (!status.ok()) {
+            stream_load_ctx->status = status;
+            pipe->cancel(status.to_string());
+            // A later setup failure may already have run the completion callback and allowed
+            // a retry to register the same load ID. Only detach this attempt's context.
+            _exec_env->new_load_stream_mgr()->remove(stream_load_ctx->id, stream_load_ctx.get());
+            // The local owner keeps the context alive through removal. Its destructor rolls
+            // back the transaction before releasing the active-context shutdown reservation.
+        }
+        return status;
     } else {
         return exec_plan_fragment(params, query_source, empty_function, parent);
     }
