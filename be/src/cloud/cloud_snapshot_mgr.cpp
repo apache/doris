@@ -304,15 +304,18 @@ Status CloudSnapshotMgr::_rename_index_ids(TabletSchemaPB& schema_pb,
         return Status::OK();
     }
 
-    for (int i = 0; i < schema_pb.index_size(); ++i) {
-        TabletIndexPB* index_pb = schema_pb.mutable_index(i);
-        for (int32_t col_unique_id : index_pb->col_unique_id()) {
-            auto local_index = tablet_schema->get_index(col_unique_id, index_pb->index_type(),
-                                                        index_pb->index_suffix_name());
-            if (local_index) {
-                if (index_pb->index_id() != local_index->index_id()) {
-                    index_pb->set_index_id(local_index->index_id());
-                }
+    TabletSchemaPB target_schema_pb;
+    tablet_schema->to_schema_pb(&target_schema_pb);
+    for (auto& index_pb : *schema_pb.mutable_index()) {
+        TabletIndex source_index;
+        source_index.init_from_pb(index_pb);
+        for (const auto& target_index_pb : target_schema_pb.index()) {
+            TabletIndex target_index;
+            target_index.init_from_pb(target_index_pb);
+            // An exact index and a normalizer index can share column, type and suffix.
+            // Match their names and definitions instead of selecting the first index.
+            if (source_index.is_same_except_id(&target_index)) {
+                index_pb.set_index_id(target_index.index_id());
                 break;
             }
         }

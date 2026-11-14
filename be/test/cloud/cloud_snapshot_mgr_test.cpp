@@ -280,4 +280,42 @@ TEST_F(CloudSnapshotMgrTest, TestRenameIndexIds) {
     EXPECT_EQ(source_schema_pb.index(1).index_type(), IndexType::INVERTED);
 }
 
+TEST_F(CloudSnapshotMgrTest, RenameDualInvertedIndexesByDefinition) {
+    TabletSchemaPB source;
+    for (int i = 0; i < 2; ++i) {
+        auto* index = source.add_index();
+        index->set_index_id(1001 + i);
+        index->set_index_name(i == 0 ? "idx_c1" : "idx_c1_ci");
+        index->set_index_type(IndexType::INVERTED);
+        index->add_col_unique_id(1);
+        if (i == 1) {
+            (*index->mutable_properties())["normalizer"] = "lowercase_normalizer";
+        }
+    }
+    for (int scenario = 0; scenario < 4; ++scenario) {
+        SCOPED_TRACE(scenario);
+        auto target_pb = source;
+        target_pb.mutable_index(0)->set_index_id(2001);
+        target_pb.mutable_index(1)->set_index_id(2002);
+        if (scenario == 1) {
+            target_pb.mutable_index(1)->set_index_name("idx_c1_other");
+        } else if (scenario == 2) {
+            (*target_pb.mutable_index(1)->mutable_properties())["normalizer"] = "other_normalizer";
+        } else if (scenario == 3) {
+            target_pb.mutable_index(1)->set_index_suffix_name("other_path");
+        }
+        target_pb.mutable_index()->SwapElements(0, 1);
+        auto target = std::make_shared<TabletSchema>();
+        target->init_from_pb(target_pb);
+        auto converted = source;
+        ASSERT_TRUE(_snapshot_mgr->_rename_index_ids(converted, target).ok());
+        EXPECT_EQ(2001, converted.index(0).index_id());
+        EXPECT_EQ(scenario == 0 ? 2002 : 1002, converted.index(1).index_id());
+        EXPECT_NE(converted.index(0).index_id(), converted.index(1).index_id());
+    }
+    auto converted = source;
+    ASSERT_TRUE(_snapshot_mgr->_rename_index_ids(converted, nullptr).ok());
+    EXPECT_EQ(source.SerializeAsString(), converted.SerializeAsString());
+}
+
 } // namespace doris
