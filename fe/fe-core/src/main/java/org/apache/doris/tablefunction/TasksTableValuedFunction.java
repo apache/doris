@@ -96,7 +96,7 @@ public class TasksTableValuedFunction extends MetadataTableValuedFunction {
         metaScanRange.setMetadataType(TMetadataType.TASKS);
         TTasksMetadataParams taskParam = new TTasksMetadataParams();
         taskParam.setType(jobType.name());
-        taskParam.setCurrentUserIdent(ConnectContext.get().getCurrentUserIdentity().toThrift());
+        taskParam.setCurrentUserIdent(ConnectContext.get().getCurrentUserIdentityForRpc());
         metaScanRange.setTasksParams(taskParam);
         return metaScanRange;
     }

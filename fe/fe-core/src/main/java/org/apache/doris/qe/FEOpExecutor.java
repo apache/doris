@@ -193,7 +193,7 @@ public class FEOpExecutor {
         params.setDb(ctx.getDatabase());
         params.setUserIp(ctx.getRemoteIP());
         params.setStmtId(ctx.getStmtId());
-        params.setCurrentUserIdent(ctx.getCurrentUserIdentity().toThrift());
+        params.setCurrentUserIdent(ctx.getCurrentUserIdentityForRpc());
         params.setSessionId(ctx.getSessionId());
         params.setMoreResultExists(moreStmtExists);
 
