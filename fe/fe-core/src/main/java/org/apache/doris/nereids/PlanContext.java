@@ -38,6 +38,7 @@ public class PlanContext {
     private final Statistics planStats;
     private final int arity;
     private boolean isBroadcastJoin = false;
+    private boolean isBucketedAggFusion = false;
     private final boolean isStatsReliable;
 
     /**
@@ -75,6 +76,14 @@ public class PlanContext {
 
     public boolean isBroadcastJoin() {
         return isBroadcastJoin;
+    }
+
+    public void setBucketedAggFusion() {
+        isBucketedAggFusion = true;
+    }
+
+    public boolean isBucketedAggFusion() {
+        return isBucketedAggFusion;
     }
 
     public int arity() {

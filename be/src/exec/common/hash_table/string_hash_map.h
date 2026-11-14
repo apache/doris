@@ -68,7 +68,7 @@ struct StringHashMapCell<doris::StringRef, TMapped>
     using Base::Base;
     static constexpr bool need_zero_value_storage = false;
     // external
-    using Base::get_key;
+    const doris::StringRef& get_key() const { return this->value.first; } /// NOLINT
     // internal
     static const doris::StringRef& get_key(const value_type& value_) { return value_.first; }
 
@@ -150,6 +150,29 @@ public:
             func(v.get_second());
         }
     }
+
+    template <typename Func>
+    void for_each(Func&& func) {
+        if (this->m0.size()) {
+            func(this->m0.zero_value()->get_key(), this->m0.zero_value()->get_second());
+        }
+        for (auto& v : this->m1) {
+            func(v.get_key(), v.get_second());
+        }
+        for (auto& v : this->m2) {
+            func(v.get_key(), v.get_second());
+        }
+        for (auto& v : this->m3) {
+            func(v.get_key(), v.get_second());
+        }
+        for (auto& v : this->m4) {
+            func(v.get_key(), v.get_second());
+        }
+        for (auto& v : this->ms) {
+            func(v.get_key(), v.get_second());
+        }
+    }
+
     template <typename MappedType>
     char* get_null_key_data() {
         return nullptr;

@@ -1,0 +1,217 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.nereids.glue.translator;
+
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.LocalReplica;
+import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.Replica;
+import org.apache.doris.catalog.Tablet;
+import org.apache.doris.planner.BucketedAggregationNode;
+import org.apache.doris.planner.OlapScanNode;
+import org.apache.doris.planner.PlanFragment;
+import org.apache.doris.planner.PlanNode;
+import org.apache.doris.planner.Planner;
+import org.apache.doris.planner.ScanNode;
+import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.thrift.TScanRangeLocations;
+import org.apache.doris.utframe.TestWithFeService;
+
+import com.google.common.collect.Lists;
+import mockit.Invocation;
+import mockit.Mock;
+import mockit.MockUp;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
+
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+public class BucketedAggregateMultiBackendTest extends TestWithFeService {
+
+    @Override
+    protected int backendNum() {
+        return 2;
+    }
+
+    @Override
+    protected void runBeforeAll() throws Exception {
+        connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
+        createDatabase("bucketed_aggregate_multi_be_test");
+        createTable("CREATE TABLE bucketed_aggregate_multi_be_test.t ("
+                + "kint INT NOT NULL, kbint INT NOT NULL) "
+                + "DISTRIBUTED BY HASH(kint) BUCKETS 4 "
+                + "PROPERTIES('replication_num' = '1')");
+        // Every tablet has a replica on both backends, so the scan could be placed on either.
+        createTable("CREATE TABLE bucketed_aggregate_multi_be_test.t_two_replicas ("
+                + "kint INT NOT NULL, kbint INT NOT NULL) "
+                + "DISTRIBUTED BY HASH(kint) BUCKETS 4 "
+                + "PROPERTIES('replication_num' = '2')");
+    }
+
+    private void enableBucketedAggregation(SessionVariable sessionVariable) {
+        sessionVariable.aggPhase = 1;
+        sessionVariable.bucketedAggMinInputRows = 0;
+        sessionVariable.bucketedAggMaxGroupKeys = 0;
+        sessionVariable.bucketedAggHighCardThreshold = 1.0;
+        sessionVariable.enableBucketedHashAgg = true;
+        sessionVariable.enableSpill = false;
+        sessionVariable.enableForceSpill = false;
+    }
+
+    @Test
+    public void testBeNumberForTestCannotEnableBucketedAggOnMultipleBackends() throws Exception {
+        SessionVariable sessionVariable = connectContext.getSessionVariable();
+        enableBucketedAggregation(sessionVariable);
+        // Scan ranges still go to both real backends, so the test override must not
+        // enable the single-BE-only bucketed aggregation.
+        sessionVariable.setBeNumberForTest(1);
+
+        Planner planner = getSQLPlanner(
+                "SELECT kbint, sum(kint) FROM bucketed_aggregate_multi_be_test.t GROUP BY kbint");
+        Assertions.assertTrue(collectBucketedAggregationNodes(planner).isEmpty());
+    }
+
+    @Test
+    public void testFusedScanIsPinnedToTheBackendSeenBySingleBackendGate() throws Exception {
+        SessionVariable sessionVariable = connectContext.getSessionVariable();
+        enableBucketedAggregation(sessionVariable);
+        sessionVariable.setBeNumberForTest(-1);
+        String sql = "SELECT kbint, sum(kint) FROM bucketed_aggregate_multi_be_test.t_two_replicas"
+                + " GROUP BY kbint";
+
+        List<Long> backendIds = Env.getCurrentSystemInfo().getAllBackendIds(true);
+        Assertions.assertEquals(2, backendIds.size());
+        long pinnedBackendId = backendIds.get(0);
+
+        // Control: with two alive backends there is no fusion, and every tablet offers both
+        // replicas to the scan worker selection.
+        Planner regularPlanner = getSQLPlanner(sql);
+        Assertions.assertTrue(collectBucketedAggregationNodes(regularPlanner).isEmpty());
+        OlapScanNode regularScan = singleOlapScanNode(regularPlanner);
+        Assertions.assertEquals(-1, regularScan.getPinnedBackendId());
+        Assertions.assertFalse(regularScan.getScanRangeLocations(0).isEmpty());
+        for (TScanRangeLocations locations : regularScan.getScanRangeLocations(0)) {
+            Assertions.assertEquals(2, locations.getLocationsSize());
+        }
+
+        // The single-BE gate sees only one alive backend, but the second backend is alive
+        // (and offers replicas) by the time the scan range locations are built. Bucketed
+        // aggregation merges the groups of its fragment in memory, so the fused scan must
+        // still be placed on the backend the gate saw and nowhere else.
+        new MockUp<SystemInfoService>() {
+            @Mock
+            public List<Long> getAllBackendByCurrentCluster(boolean needAlive) {
+                return Lists.newArrayList(pinnedBackendId);
+            }
+        };
+        Planner fusedPlanner = getSQLPlanner(sql);
+        Assertions.assertFalse(collectBucketedAggregationNodes(fusedPlanner).isEmpty());
+        OlapScanNode fusedScan = singleOlapScanNode(fusedPlanner);
+        Assertions.assertEquals(pinnedBackendId, fusedScan.getPinnedBackendId());
+        Assertions.assertEquals(regularScan.getScanRangeLocations(0).size(),
+                fusedScan.getScanRangeLocations(0).size());
+        for (TScanRangeLocations locations : fusedScan.getScanRangeLocations(0)) {
+            Assertions.assertEquals(1, locations.getLocationsSize());
+            Assertions.assertEquals(pinnedBackendId, locations.getLocations().get(0).getBackendId());
+        }
+    }
+
+    @Test
+    public void testPinHoldsForTheBackendResolvedWhenTheLocationIsBuilt() throws Exception {
+        SessionVariable sessionVariable = connectContext.getSessionVariable();
+        enableBucketedAggregation(sessionVariable);
+        sessionVariable.setBeNumberForTest(-1);
+        String sql = "SELECT kbint, sum(kint) FROM bucketed_aggregate_multi_be_test.t_two_replicas"
+                + " GROUP BY kbint";
+
+        List<Long> backendIds = Env.getCurrentSystemInfo().getAllBackendIds(true);
+        Assertions.assertEquals(2, backendIds.size());
+        long pinnedBackendId = backendIds.get(0);
+        long recoveredBackendId = backendIds.get(1);
+
+        Map<Long, Long> replicaIdToBackendId = new HashMap<>();
+        OlapTable table = (OlapTable) Env.getCurrentInternalCatalog()
+                .getDbOrMetaException("bucketed_aggregate_multi_be_test")
+                .getTableOrMetaException("t_two_replicas");
+        for (Partition partition : table.getPartitions()) {
+            for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
+                for (Tablet tablet : index.getTablets()) {
+                    for (Replica replica : tablet.getReplicas()) {
+                        replicaIdToBackendId.put(replica.getId(), replica.getBackendIdWithoutException());
+                    }
+                }
+            }
+        }
+        Assertions.assertTrue(replicaIdToBackendId.containsValue(pinnedBackendId));
+
+        new MockUp<SystemInfoService>() {
+            @Mock
+            public List<Long> getAllBackendByCurrentCluster(boolean needAlive) {
+                return Lists.newArrayList(pinnedBackendId);
+            }
+        };
+        // A cloud replica picks its backend on every call, so once another backend is alive
+        // again the backend resolved for the published location can differ from what an
+        // earlier resolution of the same replica returned. Simulate it: the resolution used
+        // to build the location (getBackendId) lands on the recovered backend, every other
+        // one (getBackendIdWithoutException) still returns the replica's original backend.
+        new MockUp<Replica>() {
+            @Mock
+            public long getBackendIdWithoutException(Invocation invocation) {
+                Replica replica = invocation.getInvokedInstance();
+                return replicaIdToBackendId.getOrDefault(replica.getId(), pinnedBackendId);
+            }
+        };
+        new MockUp<LocalReplica>() {
+            @Mock
+            public long getBackendId() {
+                return recoveredBackendId;
+            }
+        };
+        // No location of the fused scan may be published on the recovered backend: the pin is
+        // checked against the backend the location is built with, and the query asks for a retry.
+        Exception exception = Assertions.assertThrows(Exception.class, () -> getSQLPlanner(sql));
+        Assertions.assertTrue(exception.getMessage().contains("is served by backend " + recoveredBackendId
+                + " instead of backend " + pinnedBackendId), exception.getMessage());
+        Assertions.assertTrue(exception.getMessage().contains("please retry"), exception.getMessage());
+    }
+
+    private OlapScanNode singleOlapScanNode(Planner planner) {
+        List<ScanNode> scanNodes = planner.getScanNodes();
+        Assertions.assertEquals(1, scanNodes.size());
+        Assertions.assertTrue(scanNodes.get(0) instanceof OlapScanNode);
+        return (OlapScanNode) scanNodes.get(0);
+    }
+
+    private List<BucketedAggregationNode> collectBucketedAggregationNodes(Planner planner) {
+        List<BucketedAggregationNode> nodes = Lists.newArrayList();
+        for (PlanFragment fragment : planner.getFragments()) {
+            PlanNode root = fragment.getPlanRoot();
+            if (root != null) {
+                root.collect(BucketedAggregationNode.class, nodes);
+            }
+        }
+        return nodes;
+    }
+}
