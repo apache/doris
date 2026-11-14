@@ -210,6 +210,13 @@ Status PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TPushR
         for (const auto& column_desc : request.columns_desc) {
             tablet_schema->append_column(TabletColumn(column_desc));
         }
+        // The columns above come from the FE's current schema, so the schema version must
+        // match them too. Otherwise the pushed rowset keeps the tablet's stale version and a
+        // later compaction may pick an older rowset schema that misses its columns (e.g. a
+        // key column added by a linked schema change), which aborts merge_dropped_columns.
+        if (request.__isset.schema_version) {
+            tablet_schema->set_schema_version(request.schema_version);
+        }
     }
     RowsetSharedPtr rowset_to_add;
     // writes
