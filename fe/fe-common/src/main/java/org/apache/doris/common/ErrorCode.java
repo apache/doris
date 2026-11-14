@@ -30,6 +30,12 @@ public enum ErrorCode {
             + "database '%s'"),
     ERR_ACCESS_DENIED_ERROR(1045, new byte[]{'2', '8', '0', '0', '0'}, "Access denied for user '%s' (using "
             + "password: %s)"),
+    ERR_ACCESS_DENIED_EMPTY_PASSWORD(1045, new byte[]{'2', '8', '0', '0', '0'},
+            "Access denied for user '%s' (using password: %s). Empty-password root and admin access is restricted "
+                    + "on new clusters. Log in as root from the FE host and run SET PASSWORD = PASSWORD('...'); "
+                    + "then enable admin with ALTER USER 'admin' IDENTIFIED BY '...' if needed. Deployment tools "
+                    + "can configure initial_root_password before initialization. For tests only, see "
+                    + "allow_empty_password_for_root_admin."),
     ERR_NO_DB_ERROR(1046, new byte[]{'3', 'D', '0', '0', '0'}, "No database selected"),
     ERR_UNKNOWN_COM_ERROR(1047, new byte[]{'0', '8', 'S', '0', '1'}, "Unknown command"),
     ERR_BAD_DB_ERROR(1049, new byte[]{'4', '2', '0', '0', '0'}, "Unknown database '%s'"),
@@ -1034,6 +1040,9 @@ public enum ErrorCode {
     ERR_INTERNAL_ERROR(1815, new byte[]{'H', 'Y', '0', '0', '0'}, "Internal error: %s"),
 
 
+    ERR_MUST_CHANGE_PASSWORD(1820, new byte[]{'H', 'Y', '0', '0', '0'},
+            "Set a nonempty root password before executing this statement: SET PASSWORD = PASSWORD('...') "
+                    + "or ALTER USER root IDENTIFIED BY '...'"),
     ERR_MUST_CHANGE_PASSWORD_LOGIN(1862, new byte[]{'H', 'Y', '0', '0', '0'}, "Your password has expired. To log in "
             + "you must change it using a client that supports expired passwords."),
     ERR_SECURE_TRANSPORT_REQUIRED(3159, new byte[] {'H', 'Y', '0', '0', '0'},

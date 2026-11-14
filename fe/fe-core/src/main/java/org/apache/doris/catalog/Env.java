@@ -1001,6 +1001,13 @@ public class Env {
         return auth;
     }
 
+    public void logBootstrapAuthenticationState() {
+        auth.logBootstrapAuthenticationState();
+        if (!isFirstTimeStartUp && !Strings.isNullOrEmpty(Config.initial_root_password)) {
+            LOG.info("initial_root_password is ignored on an initialized cluster and can be removed");
+        }
+    }
+
     public AccessControllerManager getAccessManager() {
         return accessManager;
     }
@@ -1383,6 +1390,11 @@ public class Env {
             // but if not, FE process will exit somehow.
             Storage storage = new Storage(this.imageDir);
             if (!roleFile.exists()) {
+                try {
+                    Auth.parseInitialRootPassword(Config.initial_root_password);
+                } catch (AnalysisException e) {
+                    throw new IOException("initial_root_password must be a two-stage SHA-1 hash", e);
+                }
                 // The very first time to start the first node of the cluster.
                 // It should became a Master node (Master node's role is also FOLLOWER, which means electable)
 
@@ -1804,8 +1816,10 @@ public class Env {
                 // if isFirstTimeStartUp is true, frontends must contains this Node.
                 Frontend self = frontends.get(nodeName);
                 Preconditions.checkNotNull(self);
+                self.setSecureInitialization();
                 // OP_ADD_FIRST_FRONTEND is emitted, so it can write to BDBJE even if canWrite is false
                 editLog.logAddFirstFrontend(self);
+                auth.setSecureInitialization();
 
                 initLowerCaseTableNames();
                 // Set initial root password if master FE first time launch.
@@ -5227,6 +5241,9 @@ public class Env {
     }
 
     public void replayAddFrontend(Frontend fe) {
+        if (fe.isSecureInitialization()) {
+            getAuth().setSecureInitialization();
+        }
         tryLock(true);
         try {
             Frontend existFe = checkFeExist(fe.getHost(), fe.getEditLogPort());

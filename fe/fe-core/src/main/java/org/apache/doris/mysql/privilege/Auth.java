@@ -163,6 +163,14 @@ public class Auth implements Writable {
         return passwdPolicyManager;
     }
 
+    public boolean isSecureInitialization() {
+        return userManager.isSecureInitialization();
+    }
+
+    public void setSecureInitialization() {
+        userManager.setSecureInitialization();
+    }
+
     public boolean doesRoleExist(String qualifiedRole) {
         return roleManager.getRole(qualifiedRole) != null;
     }
@@ -189,21 +197,20 @@ public class Auth implements Writable {
      * check password, if matched, save the userIdentity in matched entry.
      * the following auth checking should use userIdentity saved in currentUser.
      */
-    public void checkPassword(String remoteUser, String remoteHost, byte[] remotePasswd, byte[] randomString,
-            List<UserIdentity> currentUser) throws AuthenticationException {
-        if ((ROOT_USER.equals(remoteUser) || ADMIN_USER.equals(remoteUser)) && Config.skip_localhost_auth_check
-                && "127.0.0.1".equals(remoteHost)) {
+    public boolean checkPassword(String remoteUser, String remoteHost, byte[] remotePasswd, byte[] randomString,
+            List<UserIdentity> currentUser, AuthenticationProtocol protocol) throws AuthenticationException {
+        if (BootstrapAuthPolicy.isRecoveryLogin(remoteUser, remoteHost, protocol, isSecureInitialization())) {
             // in case user forget password.
             if (remoteUser.equals(ROOT_USER)) {
                 currentUser.add(UserIdentity.ROOT);
             } else {
                 currentUser.add(UserIdentity.ADMIN);
             }
-            return;
+            return false;
         }
         readLock();
         try {
-            userManager.checkPassword(remoteUser, remoteHost, remotePasswd, randomString, currentUser);
+            return userManager.checkPassword(remoteUser, remoteHost, remotePasswd, randomString, currentUser, protocol);
         } finally {
             readUnlock();
         }
@@ -286,11 +293,35 @@ public class Auth implements Writable {
         }
     }
 
-    public void checkPasswordForUserIdentity(UserIdentity userIdentity, byte[] remotePasswd, byte[] randomString,
-            List<UserIdentity> currentUser) throws AuthenticationException {
+    public boolean checkPasswordForUserIdentity(UserIdentity userIdentity, String remoteHost,
+            byte[] remotePasswd, byte[] randomString, List<UserIdentity> currentUser,
+            AuthenticationProtocol protocol) throws AuthenticationException {
         readLock();
         try {
-            userManager.checkPasswordForUserIdentity(userIdentity, remotePasswd, randomString, currentUser);
+            return userManager.checkPasswordForUserIdentity(userIdentity, remoteHost, remotePasswd,
+                    randomString, currentUser, protocol);
+        } finally {
+            readUnlock();
+        }
+    }
+
+    public boolean checkBootstrapAuthentication(UserIdentity identity, String remoteHost,
+            AuthenticationProtocol protocol) throws AuthenticationException {
+        if (!BootstrapAuthPolicy.isBuiltinUser(identity.getQualifiedUser())) {
+            return false;
+        }
+        if (BootstrapAuthPolicy.isRecoveryLogin(identity.getQualifiedUser(), remoteHost, protocol,
+                isSecureInitialization())) {
+            return false;
+        }
+        readLock();
+        try {
+            User user = userManager.getUserByUserIdentity(identity);
+            // Temporary identities supplied by external authentication have no local password.
+            if (user == null) {
+                return false;
+            }
+            return BootstrapAuthPolicy.check(user, isSecureInitialization(), remoteHost, protocol, false);
         } finally {
             readUnlock();
         }
@@ -1908,28 +1939,100 @@ public class Auth implements Writable {
         }
     }
 
-    public void setInitialRootPassword(String initialRootPassword) {
+    public static byte[] parseInitialRootPassword(String initialRootPassword) throws AnalysisException {
+        if (StringUtils.isEmpty(initialRootPassword)) {
+            return new byte[0];
+        }
+        try {
+            return MysqlPassword.checkPassword(initialRootPassword);
+        } catch (AnalysisException e) {
+            // The configured value can be plaintext. Never include it in errors or exception causes.
+            throw new AnalysisException("initial_root_password must be a two-stage SHA-1 hash");
+        }
+    }
+
+    public void setInitialRootPassword(String initialRootPassword) throws DdlException {
         // Skip set root password if `initial_root_password` set to empty string
         if (StringUtils.isEmpty(initialRootPassword)) {
             return;
         }
         byte[] scramble;
         try {
-            scramble = MysqlPassword.checkPassword(initialRootPassword);
+            scramble = parseInitialRootPassword(initialRootPassword);
         } catch (AnalysisException e) {
-            // Skip set root password if `initial_root_password` is not valid 2-staged SHA-1 encrypted
-            // Do not echo the configured value: this branch is reached precisely when it is not a
-            // 2-staged SHA-1 hash, which usually means a plaintext password was configured.
-            LOG.warn("initial_root_password is not valid 2-staged SHA-1 encrypted, ignore it");
-            return;
+            // Invalid input may be plaintext: preserve neither the value nor its original exception.
+            throw new DdlException("initial_root_password must be a two-stage SHA-1 hash");
         }
         UserIdentity rootUser = new UserIdentity(ROOT_USER, "%");
         rootUser.setIsAnalyzed();
+        setPasswordInternal(rootUser, scramble, null, false, false, false);
+    }
+
+    public boolean hasEmptyPassword(UserIdentity identity) {
+        readLock();
         try {
-            setPasswordInternal(rootUser, scramble, null, false, false, false);
-        } catch (DdlException e) {
-            LOG.warn("Fail to set initial root password, ignore it", e);
+            User user = Preconditions.checkNotNull(userManager.getUserByUserIdentity(identity),
+                    "Missing account: %s", identity);
+            return user.getPassword().getPassword().length == 0;
+        } finally {
+            readUnlock();
         }
+    }
+
+    public void afterPasswordChange(ConnectContext ctx, UserIdentity identity, byte[] password) {
+        if (!identity.equals(ctx.getCurrentUserIdentity())) {
+            return;
+        }
+        if (password != null && password.length != 0) {
+            ctx.setPasswordResetRequired(false);
+        }
+        if (!identity.equals(UserIdentity.ROOT) || !hasEmptyPassword(UserIdentity.ADMIN)) {
+            return;
+        }
+        String message = "admin has no password and the legacy empty-password login policy is enabled. ";
+        if (isSecureInitialization() && !Config.allow_empty_password_for_root_admin) {
+            message = "admin has no password and cannot log in with a password. ";
+            if (Config.skip_localhost_auth_check) {
+                message = "admin has no password; local recovery login is enabled. ";
+            }
+        }
+        ctx.getState().setOk(0, 0, message + "Run ALTER USER 'admin' IDENTIFIED BY '...' if you need it.");
+    }
+
+    public void logBootstrapAuthenticationState() {
+        if (Config.allow_empty_password_for_root_admin) {
+            logAuthenticationWarning("allow_empty_password_for_root_admin is enabled; intended only for tests");
+        }
+        if (Config.skip_localhost_auth_check) {
+            logAuthenticationWarning("skip_localhost_auth_check is enabled; "
+                    + "local root/admin password checks are skipped");
+        }
+        for (UserIdentity identity : List.of(UserIdentity.ROOT, UserIdentity.ADMIN)) {
+            if (!hasEmptyPassword(identity)) {
+                continue;
+            }
+            String name = identity.getQualifiedUser();
+            if (!isSecureInitialization() || Config.allow_empty_password_for_root_admin) {
+                logAuthenticationWarning("user '" + name + "' has an empty password and accepts password logins "
+                        + "from any host unless locked");
+                continue;
+            }
+            if (Config.skip_localhost_auth_check) {
+                logAuthenticationWarning("user '" + name + "' has an empty password; local MySQL recovery is enabled");
+                continue;
+            }
+            if (identity.equals(UserIdentity.ROOT)) {
+                logAuthenticationWarning("root has no password; only local MySQL bootstrap login is allowed "
+                        + "until one is set");
+                continue;
+            }
+            LOG.info("admin has no password and cannot authenticate with it; root can enable admin with ALTER USER");
+        }
+    }
+
+    private void logAuthenticationWarning(String message) {
+        LOG.warn("SECURITY WARNING: {}", message);
+        org.apache.doris.common.LogUtils.stdout("SECURITY WARNING: " + message);
     }
 
     public List<List<String>> getRoleInfo() {

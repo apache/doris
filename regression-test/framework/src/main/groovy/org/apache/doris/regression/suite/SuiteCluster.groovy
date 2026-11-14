@@ -48,6 +48,7 @@ class ClusterOptions {
     // don't add whitespace in feConfigs items,
     // for example, ' xx = yy ' is bad, should use 'xx=yy'
     List<String> feConfigs = [
+        'allow_empty_password_for_root_admin=true',
         'heartbeat_interval_second=5',
         'workload_group_check_interval_ms=1000',
     ]

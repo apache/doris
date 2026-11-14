@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.alter.AlterUserOpType;
 import org.apache.doris.analysis.StmtType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.UserException;
@@ -47,6 +48,26 @@ public class AlterUserCommand extends AlterCommand implements NeedAuditEncryptio
     public void doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
         validate();
         Env.getCurrentEnv().getAuth().alterUser(alterUserInfo);
+        if (alterUserInfo.getOpType() == AlterUserOpType.SET_PASSWORD) {
+            Env.getCurrentEnv().getAuth().afterPasswordChange(ctx, alterUserInfo.getUserIdent(),
+                    alterUserInfo.getPassword());
+        }
+    }
+
+    public AlterUserInfo getAlterUserInfo() {
+        return alterUserInfo;
+    }
+
+    @Override
+    public void afterForwardToMaster(ConnectContext ctx) {
+        if (ctx.getExecutor().getProxyStatusCode() != 0) {
+            return;
+        }
+        byte[] password = alterUserInfo.getPassword();
+        if (alterUserInfo.getUserIdent().equals(ctx.getCurrentUserIdentity())
+                && password != null && password.length != 0) {
+            ctx.setPasswordResetRequired(false);
+        }
     }
 
     public void validate() throws UserException {

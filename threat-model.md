@@ -274,6 +274,8 @@ Operational assumptions:
 
 | Knob | Default | Maintainer stance | Effect on model |
 |---|---|---|---|
+| `allow_empty_password_for_root_admin` (FE) | **off**, **not runtime-mutable** | Explicit test compatibility setting; edit the effective configuration and restart each FE | On: removes the empty-password restrictions of §4.8 (13); does not bypass a configured nonempty password |
+| `skip_localhost_auth_check` (FE MySQL) | **off**, **not runtime-mutable** | Explicit local password-recovery setting; remove it after recovery | On: local root/admin password verification is deliberately bypassed. New secure clusters exclude PROXY protocol connections from recovery; unmarked clusters retain their previous recovery behavior |
 | `enable_ssl` (FE MySQL/HTTP) | **off** | (Q7) Off **IS** supported production posture | §4.9 disclaims wire confidentiality unconditionally |
 | `enable_ssl` (Arrow Flight) | **off** | Same as above | Same |
 | `enable_java_udf` (FE) | **on** *(maintainer, M10)* | Intentional | §4.10 (4) "treat SUPER as RCE" is load-bearing in default |
@@ -606,6 +608,22 @@ provenance.
     should be filed against the §4.14 follow-up rather than closed as
     noise.
 
+13. **Restricted empty-password access for built-in accounts on securely
+    initialized clusters** *(code-verified)*. *Condition*: cluster metadata
+    carries the secure-initialization marker and
+    `allow_empty_password_for_root_admin=false`, with
+    `skip_localhost_auth_check=false`. Empty-password root is accepted only
+    over direct MySQL connections from `127.0.0.1` or IPv6 loopback, and the
+    authenticated client must set a nonempty password before normal SQL.
+    Empty-password admin cannot authenticate as a client. This policy does
+    not disable either identity for FE-internal JOB, MTMV, statistics or
+    other internal execution contexts. Unmarked, upgraded clusters retain
+    their previous authentication behavior. *Violation symptom*: a new
+    client session obtains unrestricted built-in-account access contrary to
+    these conditions. *Severity*: **security-critical**. Existing sessions
+    continue to follow their original session lifetime; this property is
+    not a session-revocation mechanism.
+
 **Resource properties** — *threshold*: **NONE**. Doris explicitly
 makes **no** quantitative or categorical resource guarantee on a
 post-auth single-user query *(maintainer, Q5)*. Operator must use
@@ -806,6 +824,17 @@ The operator MUST:
     config file and treat it as a temporary migration aid, not a
     resting state — it re-opens the §4.9 exposure and puts the
     cluster outside §4.8 (11).
+
+13. **Complete new-cluster account initialization before exposing client
+    access.** Set a hashed `initial_root_password` before the first start,
+    or connect locally as root and set its password. Enable admin with a
+    password only if client access to that account is needed; internal
+    background jobs do not need an admin password. Keep
+    `allow_empty_password_for_root_admin` restricted to test environments.
+    Use `skip_localhost_auth_check` only for local recovery and remove it
+    afterwards. Check both `fe.conf` and `fe_custom.conf` on every FE, and
+    restrict port forwards and proxies that can make untrusted clients
+    appear to originate from the FE host.
 
 ---
 

@@ -91,6 +91,15 @@ public class MysqlChannel implements BytesChannel {
 
     // mysql flag CLIENT_MULTI_STATEMENTS
     private boolean clientMultiStatements;
+    private boolean proxyProtocol;
+
+    public boolean hasProxyProtocol() {
+        return proxyProtocol;
+    }
+
+    public void setProxyProtocol() {
+        proxyProtocol = true;
+    }
 
     private ConnectContext context;
 

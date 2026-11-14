@@ -135,6 +135,10 @@ public class SetSessionVarOp extends SetVarOp {
         }
     }
 
+    public Expression getExpression() {
+        return expression;
+    }
+
     public void run(ConnectContext ctx) throws Exception {
         VariableMgr.setVar(ctx.getSessionVariable(), translateToLegacyVar(ctx));
     }

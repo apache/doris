@@ -277,6 +277,17 @@ public class ConnectContext {
     // it's default thread-safe
     private boolean isProxy = false;
 
+    // Set only by client authentication. Internal jobs construct unrestricted execution contexts.
+    private boolean passwordResetRequired;
+
+    public boolean isPasswordResetRequired() {
+        return passwordResetRequired;
+    }
+
+    public void setPasswordResetRequired(boolean passwordResetRequired) {
+        this.passwordResetRequired = passwordResetRequired;
+    }
+
     public void setUserQueryTimeout(int queryTimeout) {
         if (queryTimeout > 0) {
             sessionVariable.setQueryTimeoutS(queryTimeout);

@@ -36,6 +36,7 @@ import org.apache.doris.mysql.authenticate.ldap.LdapManager;
 import org.apache.doris.mysql.authenticate.password.ClearPassword;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.Auth;
+import org.apache.doris.mysql.privilege.AuthenticationProtocol;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.mysql.privilege.User;
 import org.apache.doris.nereids.exceptions.ParseException;
@@ -178,7 +179,8 @@ class UserAuthenticationBindingTest {
         Assertions.assertThrows(org.apache.doris.common.AuthenticationException.class,
                 () -> auth.checkPlainPassword("alice", "10.1.2.3", "external", null));
         Assertions.assertThrows(org.apache.doris.common.AuthenticationException.class,
-                () -> auth.checkPassword("alice", "10.1.2.3", new byte[0], new byte[20], null));
+                () -> auth.checkPassword("alice", "10.1.2.3", new byte[0], new byte[20], null,
+                        AuthenticationProtocol.MYSQL));
         Assertions.assertThrows(DdlException.class,
                 () -> auth.setPassword(user("alice").getUserIdentity(), MysqlPassword.makeScrambledPassword("new")));
         Assertions.assertThrows(FlightRuntimeException.class, () -> FlightAuthUtils.authenticateCredentials(
