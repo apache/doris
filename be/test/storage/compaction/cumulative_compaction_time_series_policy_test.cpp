@@ -647,6 +647,81 @@ TEST_F(TestTimeSeriesCumulativeCompactionPolicy, pick_empty_rowsets) {
     EXPECT_EQ(-1, last_delete_version.second);
 }
 
+// A level-2 selection must never skip a level-1 rowset that has not aged past the level-2 timeout
+// and keep appending later, eligible rowsets. The output version is built from the first and last
+// selected rowset, so such a selection would commit an output spanning a rowset that was never merged
+// and leave two active rowsets with overlapping version ranges (issue #68807).
+TEST_F(TestTimeSeriesCumulativeCompactionPolicy, pick_input_rowsets_level2_skips_recent_level1) {
+    _tablet_meta->set_time_series_compaction_level_threshold(2);
+    // A small goal makes Condition 4 (goal_size * 10) fire once enough level-1 bytes are collected, so
+    // the buggy selection is actually accepted rather than rejected for being too small.
+    _tablet_meta->set_time_series_compaction_goal_size_mbytes(1);
+
+    std::vector<RowsetMetaSharedPtr> rs_metas;
+
+    RowsetMetaSharedPtr base(new RowsetMeta());
+    init_rs_meta(base, 0, 1);
+    base->set_total_disk_size(1 * 1024);
+    base->set_compaction_level(2);
+    rs_metas.push_back(base);
+
+    // A level-1 rowset old enough to be level-2 eligible.
+    RowsetMetaSharedPtr old1(new RowsetMeta());
+    init_rs_meta(old1, 2, 30);
+    old1->set_total_disk_size(8 * 1024 * 1024);
+    old1->set_compaction_level(1);
+    old1->set_creation_time(time(nullptr) - 48 * 60 * 60);
+    rs_metas.push_back(old1);
+
+    // A fresh level-1 rowset: still inside MAX_LEVEL2_COMPACTION_TIMEOUT, so not yet eligible.
+    RowsetMetaSharedPtr fresh(new RowsetMeta());
+    init_rs_meta(fresh, 31, 100);
+    fresh->set_total_disk_size(8 * 1024 * 1024);
+    fresh->set_compaction_level(1);
+    fresh->set_creation_time(time(nullptr));
+    rs_metas.push_back(fresh);
+
+    // A later level-1 rowset that is again old enough. Condition 4 already fires on [0-1] + [2-30]
+    // (+ this rowset), so without the fix the selection stops past the fresh rowset and returns the
+    // non-contiguous [0-1], [2-30], [101-120].
+    RowsetMetaSharedPtr old2(new RowsetMeta());
+    init_rs_meta(old2, 101, 120);
+    old2->set_total_disk_size(8 * 1024 * 1024);
+    old2->set_compaction_level(1);
+    old2->set_creation_time(time(nullptr) - 48 * 60 * 60);
+    rs_metas.push_back(old2);
+
+    for (auto& rowset : rs_metas) {
+        static_cast<void>(_tablet_meta->add_rs_meta(rowset));
+    }
+
+    TabletSharedPtr _tablet(
+            new Tablet(_engine, _tablet_meta, nullptr, CUMULATIVE_TIME_SERIES_POLICY));
+    static_cast<void>(_tablet->init());
+    _tablet->calculate_cumulative_point();
+
+    auto candidate_rowsets = _tablet->pick_candidate_rowsets_to_cumulative_compaction();
+
+    std::vector<RowsetSharedPtr> input_rowsets;
+    Version last_delete_version {-1, -1};
+    size_t compaction_score = 0;
+    _tablet->_cumulative_compaction_policy->pick_input_rowsets(
+            _tablet.get(), candidate_rowsets, 10, 5, &input_rowsets, &last_delete_version,
+            &compaction_score, config::enable_delete_when_cumu_compaction);
+
+    // Whatever is selected must be version-continuous: no selected output may span the [31-100]
+    // rowset that was left out.
+    for (size_t i = 1; i < input_rowsets.size(); ++i) {
+        EXPECT_EQ(input_rowsets[i - 1]->end_version() + 1, input_rowsets[i]->start_version())
+                << "level-2 selection is not version-continuous at index " << i;
+    }
+    // The fresh rowset was skipped, so the later [101-120] one must not have been selected past it.
+    for (const auto& rowset : input_rowsets) {
+        EXPECT_NE(101, rowset->start_version())
+                << "selected a rowset past the skipped [31-100] level-1 rowset";
+    }
+}
+
 } // namespace doris
 
 // @brief Test Stub
