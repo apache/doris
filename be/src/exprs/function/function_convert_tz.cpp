@@ -21,7 +21,6 @@
 #include <cstdint>
 #include <memory>
 #include <string>
-#include <tuple>
 #include <utility>
 
 #include "common/status.h"
@@ -227,7 +226,7 @@ private:
         }
     }
 
-    static std::tuple<int64_t, int64_t, bool> unix_timestamp_for_convert_tz(
+    static std::pair<int64_t, int64_t> unix_timestamp_for_convert_tz(
             const DateValueType& ts_value, const cctz::time_zone& from_tz) {
         const auto civil_value = [&]() {
             if constexpr (PType == TYPE_TIMESTAMP_NS) {
@@ -236,28 +235,20 @@ private:
                 return ts_value;
             }
         }();
-        cctz::civil_second civil_time(civil_value.year(), civil_value.month(), civil_value.day(),
-                                      civil_value.hour(), civil_value.minute(),
-                                      civil_value.second());
-        const auto lookup = from_tz.lookup(civil_time);
-        const bool skipped = lookup.kind == cctz::time_zone::civil_lookup::SKIPPED;
-        const auto tp = skipped ? lookup.trans : lookup.pre;
-
-        // Skipped civil times map to the transition instant. Do not keep the
-        // input fractional part inside a local time interval that never existed.
-        return {tp.time_since_epoch().count(), skipped ? 0 : civil_value.microsecond(), skipped};
+        // Use the shared gap policy and keep the fraction. In New York,
+        // 2024-03-10 02:30:00.123 becomes 07:30:00.123 UTC.
+        std::pair<int64_t, int64_t> timestamp;
+        civil_value.unix_timestamp(&timestamp, from_tz);
+        return timestamp;
     }
 
     static bool convert_value(const DateValueType& source, const cctz::time_zone& from_tz,
                               const cctz::time_zone& to_tz, DateValueType* result) {
-        const auto [seconds, microseconds, skipped] =
-                unix_timestamp_for_convert_tz(source, from_tz);
-        const std::pair<int64_t, int64_t> timestamp {seconds, microseconds};
+        const auto timestamp = unix_timestamp_for_convert_tz(source, from_tz);
         if constexpr (PType == TYPE_TIMESTAMP_NS) {
             DateV2Value<DateTimeV2ValueType> converted;
             converted.from_unixtime(timestamp, to_tz);
-            const uint16_t remainder = skipped ? 0 : source.nanosecond_remainder();
-            return result->from_datetime(converted, remainder);
+            return result->from_datetime(converted, source.nanosecond_remainder());
         } else {
             result->from_unixtime(timestamp, to_tz);
             return result->is_valid_date();

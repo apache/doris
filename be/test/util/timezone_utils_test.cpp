@@ -29,6 +29,44 @@
 
 namespace doris {
 
+TEST(TimezoneUtilsTest, ConvertLocalToInstant) {
+    struct TestCase {
+        const char* timezone;
+        cctz::civil_second local;
+        cctz::civil_second utc;
+    };
+    const TestCase cases[] = {
+            {"UTC", cctz::civil_second(2024, 3, 10, 2, 30, 0),
+             cctz::civil_second(2024, 3, 10, 2, 30, 0)},
+            {"Etc/GMT-8", cctz::civil_second(2024, 3, 10, 2, 30, 0),
+             cctz::civil_second(2024, 3, 9, 18, 30, 0)},
+            {"America/New_York", cctz::civil_second(2024, 3, 10, 1, 59, 59),
+             cctz::civil_second(2024, 3, 10, 6, 59, 59)},
+            {"America/New_York", cctz::civil_second(2024, 3, 10, 2, 0, 0),
+             cctz::civil_second(2024, 3, 10, 7, 0, 0)},
+            {"America/New_York", cctz::civil_second(2024, 3, 10, 2, 30, 0),
+             cctz::civil_second(2024, 3, 10, 7, 30, 0)},
+            {"America/New_York", cctz::civil_second(2024, 3, 10, 2, 59, 59),
+             cctz::civil_second(2024, 3, 10, 7, 59, 59)},
+            {"America/New_York", cctz::civil_second(2024, 3, 10, 3, 0, 0),
+             cctz::civil_second(2024, 3, 10, 7, 0, 0)},
+            {"America/New_York", cctz::civil_second(2024, 11, 3, 1, 30, 0),
+             cctz::civil_second(2024, 11, 3, 5, 30, 0)},
+            {"Australia/Lord_Howe", cctz::civil_second(2024, 10, 6, 2, 15, 0),
+             cctz::civil_second(2024, 10, 5, 15, 45, 0)},
+            {"Pacific/Apia", cctz::civil_second(2011, 12, 30, 12, 0, 0),
+             cctz::civil_second(2011, 12, 30, 22, 0, 0)},
+    };
+    for (const auto& test_case : cases) {
+        SCOPED_TRACE(test_case.timezone);
+        SCOPED_TRACE(test_case.local);
+        cctz::time_zone timezone;
+        ASSERT_TRUE(cctz::load_time_zone(test_case.timezone, &timezone));
+        const auto instant = TimezoneUtils::convert_local_to_instant(test_case.local, timezone);
+        EXPECT_EQ(test_case.utc, cctz::convert(instant, cctz::utc_time_zone()));
+    }
+}
+
 TEST(TimezoneUtilsTest, ParseOffset) {
     const auto tp = cctz::civil_second(2011, 1, 1, 0, 0,
                                        0); // offset has no DST, every time point is acceptable

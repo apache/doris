@@ -466,7 +466,7 @@ class TemporalConversionTest {
             Assertions.assertEquals("2024-11-03 05:30:00.123456+00:00",
                     ((Literal) local.checkedCastTo(TimeStampTzType.of(6))).getStringValue());
             TimeStampNsLiteral gap = new TimeStampNsLiteral("2024-03-10 02:30:00.123456789");
-            Assertions.assertEquals("2024-03-10 07:00:00.123457+00:00",
+            Assertions.assertEquals("2024-03-10 07:30:00.123457+00:00",
                     ((Literal) gap.checkedCastTo(TimeStampTzType.of(6))).getStringValue());
             // Rounding into 02:00 selects the post-transition offset, not the overlap's earlier offset.
             TimeStampNsLiteral carry = new TimeStampNsLiteral("2024-11-03 01:59:59.999999999");
