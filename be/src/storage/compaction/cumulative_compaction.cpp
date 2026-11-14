@@ -238,7 +238,13 @@ Status CumulativeCompaction::pick_rowsets_to_compact() {
             int64_t interval_threshold = config::pick_rowset_to_compact_interval_sec * 1000;
             int64_t cumu_interval = now - last_cumu;
             int64_t base_interval = now - last_base;
-            if (cumu_interval > interval_threshold && base_interval > interval_threshold) {
+            // Not for a changelog tablet. It runs no base compaction, its policy moves the point
+            // and merges stale rowsets by itself, and its candidates start from version 0 rather
+            // than from the point, so the point set below can go backwards and fail the CHECK in
+            // set_cumulative_layer_point. E.g. a tablet compacted into the single rowset [0-5] has
+            // its point at 6, and would get 0 + 1 = 1 here a day after its last compaction.
+            if (!tablet()->is_changelog_tablet() && cumu_interval > interval_threshold &&
+                base_interval > interval_threshold) {
                 // before increasing cumulative point, we should make sure all rowsets are non-overlapping.
                 // if at least one rowset is overlapping, we should compact them first.
                 for (auto& rs : candidate_rowsets) {

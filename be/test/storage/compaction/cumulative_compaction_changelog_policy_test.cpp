@@ -28,6 +28,7 @@
 #include "runtime/cluster_info.h"
 #include "runtime/exec_env.h"
 #include "storage/changelog.h"
+#include "storage/compaction/cumulative_compaction.h"
 #include "storage/olap_common.h"
 #include "storage/rowset/rowset_meta.h"
 #include "storage/storage_engine.h"
@@ -440,6 +441,43 @@ TEST_F(TestChangelogCumulativeCompactionPolicy, pick_input_rowsets_l0_not_trigge
     // L0 score 5 < file count threshold 100, size below goal, time threshold not reached.
     EXPECT_EQ(0, picked);
     EXPECT_EQ(0, input_rowsets.size());
+}
+
+// When a tablet has had nothing to compact for pick_rowset_to_compact_interval_sec, cumulative
+// compaction moves the point to just after the start of the last candidate, or compacts every
+// candidate at once if one of them overlaps. A changelog tablet takes its candidates from version
+// 0, so here the point would go back from 2 to 1 and abort the BE. Its policy has a time trigger
+// of its own, so a changelog tablet skips that fallback and keeps its point.
+TEST_F(TestChangelogCumulativeCompactionPolicy, idle_tablet_keeps_cumulative_point) {
+    int8_t max_level = ChangelogCumulativeCompactionPolicy::kChangelogCompactionMaxLevel - 1;
+    RowsetMetaSharedPtr rowset(new RowsetMeta());
+    init_rs_meta(rowset, 0, 1, max_level);
+    ASSERT_TRUE(_tablet_meta->add_rs_meta(rowset).ok());
+
+    TabletSharedPtr tablet(new Tablet(_engine, _tablet_meta, nullptr));
+    ASSERT_TRUE(tablet->init().ok());
+    auto visible = std::make_shared<VersionWithTime>();
+    visible->version.store(1);
+    tablet->set_visible_version(visible);
+    // [0-1] is a compact-enough LMax rowset, so the point is just after it.
+    tablet->calculate_cumulative_point();
+    ASSERT_EQ(2, tablet->cumulative_layer_point());
+    int64_t long_ago = UnixMillis() - config::pick_rowset_to_compact_interval_sec * 1000 - 1000;
+    tablet->set_last_cumu_compaction_success_time(long_ago);
+    tablet->set_last_base_compaction_success_time(long_ago);
+
+    // An overlapping rowset (e.g. the output of a quick merge) would have every candidate
+    // compacted at once, a non-overlapping one would move the point back to 1.
+    for (bool overlapping : {true, false}) {
+        rowset->set_num_segments(overlapping ? 2 : 1);
+        rowset->set_segments_overlap(overlapping ? OVERLAPPING : NONOVERLAPPING);
+        ASSERT_EQ(overlapping, rowset->is_segments_overlapping());
+        CumulativeCompaction compaction(_engine, tablet);
+        EXPECT_TRUE(compaction.pick_rowsets_to_compact()
+                            .is<ErrorCode::CUMULATIVE_NO_SUITABLE_VERSION>());
+        EXPECT_TRUE(compaction._input_rowsets.empty());
+        EXPECT_EQ(2, tablet->cumulative_layer_point());
+    }
 }
 
 TEST_F(TestChangelogCumulativeCompactionPolicy, ttl_scan_honors_tablet_auto_compaction_switch) {
