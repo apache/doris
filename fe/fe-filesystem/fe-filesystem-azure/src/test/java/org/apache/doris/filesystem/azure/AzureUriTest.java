@@ -21,6 +21,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
+import java.util.List;
 
 class AzureUriTest {
 
@@ -128,6 +129,24 @@ class AzureUriTest {
                 "wasbs://mycontainer@myaccount.blob.core.windows.net/dir/with%20space/a%2Bb.csv");
         Assertions.assertEquals("dir/with space/a+b.csv", uri.key());
         Assertions.assertEquals("mycontainer", uri.container());
+    }
+
+    @Test
+    void parse_keepsLiteralPlusInKeyForEveryScheme() throws IOException {
+        for (String base : List.of("wasbs://mycontainer@myaccount.blob.core.windows.net/",
+                "abfss://mycontainer@myaccount.dfs.core.windows.net/",
+                "https://myaccount.blob.core.windows.net/mycontainer/",
+                "s3://mycontainer/")) {
+            Assertions.assertEquals("a+b/1/a.csv", AzureUri.parse(base + "a+b/1/a.csv").key(), base);
+            Assertions.assertEquals("a+b/1/a.csv", AzureUri.parse(base + "a%2Bb/1/a.csv").key(), base);
+            Assertions.assertEquals("a b/1/a.csv", AzureUri.parse(base + "a%20b/1/a.csv").key(), base);
+            Assertions.assertEquals("tz=+08:00/a.csv", AzureUri.parse(base + "tz=+08:00/a.csv").key(), base);
+        }
+    }
+
+    @Test
+    void parse_decodesKeyExactlyOnce() throws IOException {
+        Assertions.assertEquals("a%2Bb/1/a.csv", AzureUri.parse("s3://mycontainer/a%252Bb/1/a.csv").key());
     }
 
     @Test
