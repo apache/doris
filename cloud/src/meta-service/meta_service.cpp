@@ -2728,6 +2728,7 @@ void MetaServiceImpl::commit_rowset(::google::protobuf::RpcController* controlle
         msg = "no rowset meta";
         return;
     }
+    TEST_INJECTION_POINT("commit_rowset::before_get_instance_id:" + request->cloud_unique_id());
     instance_id = get_instance_id(resource_mgr_, request->cloud_unique_id());
     if (instance_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
