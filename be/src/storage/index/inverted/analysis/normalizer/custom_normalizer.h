@@ -17,57 +17,17 @@
 
 #pragma once
 
-#include "storage/index/inverted/analysis/char_filter/char_filter_factory.h"
 #include "storage/index/inverted/analysis/normalizer/custom_normalizer_config.h"
-#include "storage/index/inverted/analysis/token_filter/token_filter_factory.h"
-#include "storage/index/inverted/analysis/tokenizer/tokenizer_factory.h"
+#include "storage/index/inverted/analysis/text_analyzer.h"
 
 namespace doris::segment_v2::inverted_index {
 
-class CustomNormalizer;
-using CustomNormalizerPtr = std::shared_ptr<CustomNormalizer>;
-
-class CustomNormalizer : public Analyzer {
+class CustomNormalizer {
 public:
-    class Builder {
-    public:
-        Builder() = default;
-        ~Builder() = default;
-
-        void add_char_filter(const std::string& name, const Settings& params);
-        void add_token_filter(const std::string& name, const Settings& params);
-
-        CustomNormalizerPtr build();
-
-    private:
-        std::vector<CharFilterFactoryPtr> _char_filters;
-        std::vector<TokenFilterFactoryPtr> _token_filters;
-
-        friend class CustomNormalizer;
-    };
-
-    CustomNormalizer(Builder* builder);
-    ~CustomNormalizer() override = default;
-
-    bool isSDocOpt() override { return true; }
-
-    TokenStream* tokenStream(const TCHAR* fieldName, lucene::util::Reader* reader) override;
-    TokenStream* reusableTokenStream(const TCHAR* fieldName, lucene::util::Reader* reader) override;
-
-    TokenStream* tokenStream(const TCHAR* fieldName, const ReaderPtr& reader) override;
-    TokenStream* reusableTokenStream(const TCHAR* fieldName, const ReaderPtr& reader) override;
-
-    static CustomNormalizerPtr build_custom_normalizer(const CustomNormalizerConfigPtr& config);
-
-private:
-    ReaderPtr init_reader(ReaderPtr reader);
-    TokenStreamComponentsPtr create_components();
-
-    TokenizerFactoryPtr _keyword_tokenizer;
-    std::vector<CharFilterFactoryPtr> _char_filters;
-    std::vector<TokenFilterFactoryPtr> _token_filters;
-
-    TokenStreamComponentsPtr _reuse_token_stream;
+    // The chain of a normalizer configuration: its char filters, the keyword tokenizer and its
+    // token filters. Throws when a component is unknown or its settings are invalid, or when the
+    // configuration has neither a char filter nor a token filter.
+    static TextAnalyzerPtr build_custom_normalizer(const CustomNormalizerConfigPtr& config);
 };
 
 } // namespace doris::segment_v2::inverted_index

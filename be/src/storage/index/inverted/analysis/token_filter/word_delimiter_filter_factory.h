@@ -60,8 +60,8 @@ public:
         _flags = flags;
     }
 
-    TokenFilterPtr create(const TokenStreamPtr& in) override {
-        return std::make_shared<WordDelimiterFilter>(in, _char_type_table, _flags,
+    std::unique_ptr<TextTokenStream> create(std::unique_ptr<TextTokenStream> in) const override {
+        return std::make_unique<WordDelimiterFilter>(std::move(in), _char_type_table, _flags,
                                                      _protected_words);
     }
 

@@ -25,7 +25,7 @@
 #include "common/cast_set.h"
 #include "common/check.h"
 #include "common/exception.h"
-#include "storage/index/inverted/analysis/reader.h"
+#include "storage/index/inverted/clucene/lucene_reader.h"
 
 namespace doris::segment_v2::inverted_index {
 

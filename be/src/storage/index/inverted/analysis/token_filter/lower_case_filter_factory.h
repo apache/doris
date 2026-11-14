@@ -29,14 +29,10 @@ public:
 
     void initialize(const Settings& settings) override {}
 
-    TokenFilterPtr create(const TokenStreamPtr& in) override {
-        auto token_filter = std::make_shared<LowerCaseFilter>(in);
+    std::unique_ptr<TextTokenStream> create(std::unique_ptr<TextTokenStream> in) const override {
+        auto token_filter = std::make_unique<LowerCaseFilter>(std::move(in));
         token_filter->initialize();
         return token_filter;
-    }
-
-    PositionCapability position_capability() const override {
-        return PositionCapability::kAlwaysUnitIncrement;
     }
 };
 

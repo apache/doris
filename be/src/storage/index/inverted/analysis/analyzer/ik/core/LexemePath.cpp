@@ -94,7 +94,7 @@ bool LexemePath::addNotCrossLexeme(Lexeme& lexeme) {
 std::optional<Lexeme> LexemePath::removeTail() {
     auto tail = pollLast();
     if (!tail) {
-        return nullopt;
+        return std::nullopt;
     }
 
     if (isEmpty()) {

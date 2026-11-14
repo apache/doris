@@ -21,17 +21,19 @@ namespace doris::segment_v2::inverted_index {
 
 namespace {
 
-// Copies tokens into `batch` until it is full or `next_token` returns false, which latches
-// `exhausted`.
+// Puts tokens into `batch` until it is full or `next_token` returns false, which latches
+// `exhausted`; a term is copied unless it is `stable`, valid until the next reset().
 template <typename NextToken>
-bool fill_batch(TokenBatch& batch, bool& exhausted, NextToken&& next_token) {
+bool fill_batch(TokenBatch& batch, bool& exhausted, bool stable, NextToken&& next_token) {
     batch.clear();
     TokenRef token;
     while (!exhausted && batch.size() < TextTokenStream::kBatchTokens) {
-        if (next_token(token)) {
-            batch.push_copy(token.term(), token.position_increment);
-        } else {
+        if (!next_token(token)) {
             exhausted = true;
+        } else if (stable) {
+            batch.push(token.term(), token.position_increment);
+        } else {
+            batch.push_copy(token.term(), token.position_increment);
         }
     }
     return batch.size() != 0;
@@ -47,7 +49,8 @@ void PerTokenTokenizer::reset(std::string_view text) {
 }
 
 bool PerTokenTokenizer::next_batch(TokenBatch& batch) {
-    return fill_batch(batch, _exhausted, [this](TokenRef& token) { return next_token(token); });
+    return fill_batch(batch, _exhausted, _stable_terms,
+                      [this](TokenRef& token) { return next_token(token); });
 }
 
 void PerTokenFilter::reset(std::string_view text) {
@@ -62,7 +65,8 @@ void PerTokenFilter::reset(std::string_view text) {
 }
 
 bool PerTokenFilter::next_batch(TokenBatch& batch) {
-    return fill_batch(batch, _exhausted, [this](TokenRef& token) { return next_token(token); });
+    return fill_batch(batch, _exhausted, false,
+                      [this](TokenRef& token) { return next_token(token); });
 }
 
 size_t PerTokenFilter::reserved_bytes() const {
