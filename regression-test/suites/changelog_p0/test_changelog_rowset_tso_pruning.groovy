@@ -30,11 +30,18 @@ suite("test_changelog_rowset_tso_pruning", "nonConcurrent") {
         )
     """
 
-    // Read timestamps from FE so that the window uses the same clock and timezone
-    // as SQL parsing. Leave a whole second after each group of committed writes.
+    // TSO physical time is updated asynchronously and can lag behind NOW(). Wait
+    // for the next whole TSO second so prior writes precede the boundary and later
+    // writes cannot receive a TSO below it. Format on FE to keep its timezone.
     def nextBoundary = {
-        sleep(1200)
-        sql("SELECT DATE_FORMAT(NOW(), '%Y-%m-%d %H:%i:%s')")[0][0].toString()
+        long current = (sql "SELECT CURRENT_TSO_PHYSICAL_TIME FROM information_schema.tso_status")[0][0] as long
+        long boundarySecond = Math.floorDiv(current, 1000L) + 1L
+        String column = isCloudMode() ? "COMMITTED_TSO_PHYSICAL_TIME" : "CURRENT_TSO_PHYSICAL_TIME"
+        awaitUntil(60, 0.1) {
+            def value = (sql "SELECT ${column} FROM information_schema.tso_status")[0][0]
+            value != null && (value as long) >= boundarySecond * 1000L
+        }
+        sql("SELECT DATE_FORMAT(FROM_UNIXTIME(${boundarySecond}), '%Y-%m-%d %H:%i:%s')")[0][0].toString()
     }
     sql "INSERT INTO test_changelog_rowset_tso_pruning VALUES (1, 10), (2, 20), (3, 30)"
     def start = nextBoundary()
