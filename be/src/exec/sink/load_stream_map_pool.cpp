@@ -115,6 +115,11 @@ void LoadStreamMap::close_load(bool incremental) {
         if (streams->is_incremental() != incremental) {
             continue;
         }
+        // A disable-load backend intentionally has a stream group with no opened stream. It stays
+        // in the tablet location so its replica failure is counted, but must not receive CLOSE_LOAD.
+        if (!streams->is_open()) {
+            continue;
+        }
         std::vector<PTabletID> tablets_to_commit;
         const auto& tablets = _tablets_to_commit[dst_id];
         tablets_to_commit.reserve(tablets.size());

@@ -20,11 +20,13 @@ package org.apache.doris.planner;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.planner.OlapTableSink.AdaptiveBucketAssignment;
 import org.apache.doris.planner.OlapTableSink.AdaptiveIndexBucketAssignment;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.thrift.TNodeInfo;
 import org.apache.doris.thrift.TOlapTableIndexTablets;
 import org.apache.doris.thrift.TOlapTableLocationParam;
 import org.apache.doris.thrift.TOlapTablePartition;
@@ -45,6 +47,32 @@ import java.util.List;
 import java.util.Map;
 
 public class OlapTableSinkTest {
+    @Test
+    public void testCreateLoadNodeInfoMarksLoadDisabledBackend() {
+        Backend backend = Mockito.mock(Backend.class);
+        Mockito.when(backend.getId()).thenReturn(1L);
+        Mockito.when(backend.getHost()).thenReturn("127.0.0.1");
+        Mockito.when(backend.getBrpcPort()).thenReturn(8060);
+        Mockito.when(backend.isLoadAvailable()).thenReturn(false);
+
+        String oldDeployMode = Config.deploy_mode;
+        String oldCloudUniqueId = Config.cloud_unique_id;
+        try {
+            Config.deploy_mode = "";
+            Config.cloud_unique_id = "";
+            TNodeInfo nodeInfo = OlapTableSink.createLoadNodeInfo(backend);
+            Assertions.assertTrue(nodeInfo.isSetIsLoadAvailable());
+            Assertions.assertFalse(nodeInfo.isIsLoadAvailable());
+
+            Config.deploy_mode = "cloud";
+            TNodeInfo cloudNodeInfo = OlapTableSink.createLoadNodeInfo(backend);
+            Assertions.assertFalse(cloudNodeInfo.isSetIsLoadAvailable());
+        } finally {
+            Config.deploy_mode = oldDeployMode;
+            Config.cloud_unique_id = oldCloudUniqueId;
+        }
+    }
+
     @Test
     public void testRowTtlRejectsPartialUpdateModes() {
         OlapTable table = Mockito.mock(OlapTable.class);

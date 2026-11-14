@@ -313,6 +313,11 @@ Status VTabletWriterV2::_open_streams_to_backend(int64_t dst_id, LoadStreamStubs
     if (node_info == nullptr) {
         return Status::InternalError("Unknown node {} in tablet location", dst_id);
     }
+    // FE keeps every alive replica in the location. A backend disabled for load must consume the
+    // normal replica-failure allowance without receiving writer RPCs.
+    if (!node_info->is_load_available) {
+        return Status::OK();
+    }
     auto idle_timeout_ms = _state->execution_timeout() * 1000;
     std::vector<PTabletID>& tablets_for_schema = _indexes_from_node[node_info->id];
     DBUG_EXECUTE_IF("VTabletWriterV2._open_streams_to_backend.no_schema_when_open_streams",
@@ -423,7 +428,8 @@ Status VTabletWriterV2::_select_streams(int64_t tablet_id, int64_t partition_id,
         tablet.set_tablet_id(tablet_id);
         VLOG_DEBUG << fmt::format("_select_streams P{} I{} T{}", partition_id, index_id, tablet_id);
         _tablets_for_node[node_id].emplace(tablet_id, tablet);
-        auto stream = _load_stream_map->at(node_id)->select_one_stream();
+        auto stream_group = _load_stream_map->at(node_id);
+        auto stream = stream_group->select_one_stream();
         DBUG_EXECUTE_IF("VTabletWriterV2._open_streams.skip_two_backends", {
             LOG(INFO) << "[skip_two_backends](detail) tablet_id=" << tablet_id
                       << ", node_id=" << node_id
@@ -432,6 +438,8 @@ Status VTabletWriterV2::_select_streams(int64_t tablet_id, int64_t partition_id,
         if (stream == nullptr) {
             LOG(WARNING) << "skip writing tablet " << tablet_id << " to backend " << node_id
                          << ": stream is not open";
+            stream_group->add_failed_tablet(
+                    tablet_id, Status::InternalError("stream to backend {} is not open", node_id));
             failed_node_ids.push_back(node_id);
             continue;
         }

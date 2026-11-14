@@ -340,6 +340,8 @@ public:
     // for UT only
     void mark_open() { _open_success.store(true); }
 
+    bool is_open() const { return _open_success.load(); }
+
     std::shared_ptr<LoadStreamStub> select_one_stream() {
         if (!_open_success.load()) {
             return nullptr;
@@ -355,6 +357,10 @@ public:
     }
 
     Status close_load(const std::vector<PTabletID>& tablets_to_commit, int num_incremental_streams);
+
+    void add_failed_tablet(int64_t tablet_id, Status reason) {
+        _streams.front()->add_failed_tablet(tablet_id, std::move(reason));
+    }
 
     std::unordered_set<int64_t> success_tablets() {
         std::unordered_set<int64_t> s;

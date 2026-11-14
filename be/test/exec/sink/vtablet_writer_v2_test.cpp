@@ -414,6 +414,79 @@ TEST_F(TestVTabletWriterV2, fail_one) {
     ASSERT_EQ(tablet_commit_infos.size(), 5);
 }
 
+TEST_F(TestVTabletWriterV2, load_unavailable_replicas_use_configured_failure_allowance) {
+    UniqueId load_id;
+    auto load_stream_map = std::make_shared<LoadStreamMap>(load_id, src_id, 1, 1, nullptr);
+    add_stream(load_stream_map, 1001, {1}, {});
+    auto unavailable_streams_1 = load_stream_map->get_or_create(1002);
+    auto unavailable_streams_2 = load_stream_map->get_or_create(1003);
+    unavailable_streams_1->add_failed_tablet(
+            1, Status::InternalError("backend is not available for load"));
+    unavailable_streams_2->add_failed_tablet(
+            1, Status::InternalError("backend is not available for load"));
+
+    auto writer = create_vtablet_writer();
+    writer->_tablet_replica_info[1] = std::make_pair(3, 1);
+    std::vector<TTabletCommitInfo> commit_infos;
+    ASSERT_TRUE(writer->_create_commit_info(commit_infos, load_stream_map).ok());
+    ASSERT_EQ(commit_infos.size(), 1);
+    EXPECT_EQ(commit_infos[0].backendId, 1001);
+
+    load_stream_map->at(1001)->add_failed_tablet(1, Status::InternalError("late close failure"));
+    commit_infos.clear();
+    auto status = writer->_create_commit_info(commit_infos, load_stream_map);
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("late close failure"), std::string::npos);
+}
+
+TEST_F(TestVTabletWriterV2, load_unavailable_backend_does_not_open_stream) {
+    auto writer = create_vtablet_writer();
+    TNodeInfo node;
+    node.__set_id(1001);
+    node.__set_option(0);
+    node.__set_host("load-disabled-host");
+    node.__set_async_internal_port(8060);
+    node.__set_is_load_available(false);
+    TPaloNodesInfo thrift_nodes;
+    thrift_nodes.nodes = {node};
+    DorisNodesInfo nodes_info(thrift_nodes);
+    writer->_nodes_info = &nodes_info;
+
+    UniqueId load_id;
+    auto load_stream_map = std::make_shared<LoadStreamMap>(load_id, src_id, 1, 1, nullptr);
+    auto streams = load_stream_map->get_or_create(1001);
+
+    EXPECT_TRUE(writer->_open_streams_to_backend(1001, *streams).ok());
+    EXPECT_FALSE(streams->is_open());
+}
+
+TEST_F(TestVTabletWriterV2, stream_selection_counts_load_unavailable_backends) {
+    auto writer = create_vtablet_writer();
+    TOlapTableLocationParam thrift_location;
+    TTabletLocation tablet_location;
+    tablet_location.__set_tablet_id(1);
+    tablet_location.__set_node_ids({1001, 1002, 1003});
+    thrift_location.tablets.emplace_back(std::move(tablet_location));
+    OlapTableLocationParam location(thrift_location);
+    writer->_location = &location;
+
+    UniqueId load_id;
+    auto load_stream_map = std::make_shared<LoadStreamMap>(load_id, src_id, 1, 1, nullptr);
+    writer->_load_stream_map = load_stream_map;
+    constexpr int64_t INDEX_ID = 10;
+    prepare_open_streams(load_stream_map, 1001, INDEX_ID, create_int_tablet_schema());
+    load_stream_map->get_or_create(1002);
+    load_stream_map->get_or_create(1003);
+
+    std::vector<std::shared_ptr<LoadStreamStub>> selected_streams;
+    auto status = writer->_select_streams(1, 20, INDEX_ID, selected_streams);
+    EXPECT_FALSE(status.ok());
+    EXPECT_EQ(selected_streams.size(), 1);
+    EXPECT_TRUE(load_stream_map->at(1002)->failed_tablets().contains(1));
+    EXPECT_TRUE(load_stream_map->at(1003)->failed_tablets().contains(1));
+    EXPECT_NE(status.to_string().find("failed to write enough replicas"), std::string::npos);
+}
+
 TEST_F(TestVTabletWriterV2, commit_info_with_results_split_across_sources) {
     UniqueId load_id;
     auto first_source = std::make_shared<LoadStreamMap>(load_id, src_id, 1, 1, nullptr);
