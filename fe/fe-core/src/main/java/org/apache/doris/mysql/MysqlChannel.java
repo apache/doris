@@ -18,6 +18,7 @@
 package org.apache.doris.mysql;
 
 import org.apache.doris.common.ConnectionException;
+import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectProcessor;
@@ -231,13 +232,6 @@ public class MysqlChannel implements BytesChannel {
         if (!dstBuf.hasRemaining()) {
             return 0;
         }
-        if (remainingBuffer != null && remainingBuffer.hasRemaining()) {
-            int oldLen = dstBuf.position();
-            while (dstBuf.hasRemaining()) {
-                dstBuf.put(remainingBuffer.get());
-            }
-            return dstBuf.position() - oldLen;
-        }
         try {
             while (dstBuf.remaining() != 0) {
                 int ret = Channels.readBlocking(conn.getSourceChannel(), dstBuf, context.getNetReadTimeout(),
@@ -326,145 +320,111 @@ public class MysqlChannel implements BytesChannel {
     // NOTE: all of the following code is assumed that the channel is in block mode.
     // if in handshaking mode we return a packet with header otherwise without header.
     public ByteBuffer fetchOnePacket() throws IOException {
-        int readLen;
+        if (context.isKilled()) {
+            return null;
+        }
+        if (isSslHandshaking) {
+            return readSslPacket();
+        }
         ByteBuffer result = defaultBuffer;
         result.clear();
 
         while (true) {
-            int packetLen;
-            // one SSL packet may include multiple Mysql packets, we use remainingBuffer to store them.
-            if ((isSslMode || isSslHandshaking) && !remainingBuffer.hasRemaining()) {
-                if (remainingBuffer.position() != 0) {
-                    remainingBuffer.clear();
-                    remainingBuffer.flip();
-                }
-                sslHeaderByteBuffer.clear();
-                readLen = readAll(sslHeaderByteBuffer, true);
-                if (readLen != SSL_PACKET_HEADER_LEN) {
-                    // remote has close this channel
-                    if (LOG.isDebugEnabled()) {
-                        LOG.debug("Receive ssl packet header failed, remote may close the channel.");
-                    }
-                    return null;
-                }
-                // when handshaking and ssl mode, sslengine unwrap need a packet with header.
-                result.put(sslHeaderByteBuffer.array());
-                packetLen = packetLen(true);
-            } else {
-                headerByteBuffer.clear();
-                readLen = readAll(headerByteBuffer, true);
-                if (readLen != PACKET_HEADER_LEN) {
-                    // remote has close this channel
-                    if (LOG.isDebugEnabled()) {
-                        LOG.debug("Receive packet header failed, remote may close the channel.");
-                    }
-                    return null;
-                }
-                if (packetId() != sequenceId) {
-                    LOG.warn("receive packet sequence id[" + packetId() + "] want to get[" + sequenceId + "]");
-                    throw new IOException("Bad packet sequence.");
-                }
-                packetLen = packetLen(false);
-            }
-            result = expandPacket(result, packetLen);
-
-            // read one physical packet
-            // before read, set limit to make read only one packet
-            result.limit(result.position() + packetLen);
-            readLen = readAll(result, false);
-            if (isSslMode && remainingBuffer.position() == 0 && result.hasRemaining()) {
-                int available = result.limit();
-                if (available < PACKET_HEADER_LEN) {
-                    LOG.warn("SSL mode: invalid mysql packet header, available bytes: " + available);
-                    throw new IOException("Invalid mysql packet header.");
-                }
-                byte[] header = result.array();
-                int mysqlPacketLength = (header[0] & 0xFF) | ((header[1] & 0xFF) << 8) | ((header[2] & 0xFF) << 16);
-                if (mysqlPacketLength > MAX_PHYSICAL_PACKET_LENGTH) {
-                    LOG.warn("SSL mode: mysql packet length(" + mysqlPacketLength + ") is larger than max physical "
-                            + "packet length(" + MAX_PHYSICAL_PACKET_LENGTH + ")");
-                    throw new IOException("Mysql packet too large.");
-                }
-                int packetId = header[3] & 0xFF;
-                if (packetId != sequenceId) {
-                    LOG.warn("receive packet sequence id[" + packetId + "] want to get[" + sequenceId + "]");
-                    throw new IOException("Bad packet sequence.");
-                }
-                // remove mysql packet header
-                result.position(4);
-                result.compact();
-                // when encounter large sql query, one mysql packet will be packed as multiple ssl packets.
-                // we need to read all ssl packets to combine the complete mysql packet.
-                while (mysqlPacketLength > result.position()) {
-                    sslHeaderByteBuffer.clear();
-                    readLen = readAll(sslHeaderByteBuffer, true);
-                    if (readLen != SSL_PACKET_HEADER_LEN) {
-                        // remote has close this channel
-                        if (LOG.isDebugEnabled()) {
-                            LOG.debug("Receive ssl packet header failed, remote may close the channel.");
-                        }
-                        return null;
-                    }
-                    tempBuffer.clear();
-                    tempBuffer.put(sslHeaderByteBuffer.array());
-                    packetLen = packetLen(true);
-                    LOG.info("one ssl packet length is: " + packetLen);
-                    tempBuffer = expandPacket(tempBuffer, packetLen);
-                    result = expandPacket(result, tempBuffer.capacity());
-                    // read one physical packet
-                    // before read, set limit to make read only one packet
-                    tempBuffer.limit(tempBuffer.position() + packetLen);
-                    readLen = readAll(tempBuffer, false);
-                    result.put(tempBuffer);
-                    result.limit(result.position());
-                    LOG.info("result is pos: " + result.position() + ", limit: "
-                            + result.limit() + "capacity: " + result.capacity());
-                }
-                if (mysqlPacketLength < result.position()) {
-                    LOG.info("one SSL packet has multiple mysql packets.");
-                    LOG.info("mysql packet length is " + mysqlPacketLength + ", result is pos: "
-                            + result.position() + ", limit: " + result.limit() + "capacity: " + result.capacity());
-                    result.flip();
-                    result.position(mysqlPacketLength);
-                    remainingBuffer.clear();
-                    remainingBuffer.put(result);
-                    remainingBuffer.flip();
-                }
-                result.position(mysqlPacketLength);
-            }
-            if (readLen != packetLen) {
-                LOG.warn("Length of received packet content(" + readLen
-                        + ") is not equal with length in head.(" + packetLen + ")");
+            headerByteBuffer.clear();
+            if (readMysqlData(headerByteBuffer) != PACKET_HEADER_LEN) {
                 return null;
             }
-            if (!isSslHandshaking) {
-                accSequenceId();
-                wireSequenceId = sequenceId;
+            if (packetId() != sequenceId) {
+                LOG.warn("receive packet sequence id[" + packetId() + "] want to get[" + sequenceId + "]");
+                throw new IOException("Bad packet sequence.");
             }
+            int packetLen = packetLen(false);
+            result = expandPacket(result, packetLen);
+            if (readMysqlData(result) != packetLen) {
+                return null;
+            }
+            accSequenceId();
+            wireSequenceId = sequenceId;
             if (packetLen != MAX_PHYSICAL_PACKET_LENGTH) {
                 result.flip();
-                break;
+                return result;
             }
         }
-        return result;
+    }
+
+    // TLS records may split a MySQL header or body, or contain several MySQL packets.
+    private int readMysqlData(ByteBuffer dst) throws IOException {
+        if (!isSslMode) {
+            return readAll(dst, false);
+        }
+        int start = dst.position();
+        while (dst.hasRemaining()) {
+            if (!remainingBuffer.hasRemaining()) {
+                ByteBuffer record = readSslPacket();
+                if (record == null) {
+                    return dst.position() - start;
+                }
+                remainingBuffer = record;
+            }
+            int limit = remainingBuffer.limit();
+            remainingBuffer.limit(remainingBuffer.position() + Math.min(dst.remaining(), remainingBuffer.remaining()));
+            dst.put(remainingBuffer);
+            remainingBuffer.limit(limit);
+        }
+        return dst.position() - start;
+    }
+
+    // Handshake callers need the raw record, including its header; established TLS returns plaintext.
+    private ByteBuffer readSslPacket() throws IOException {
+        if (isSslMode && sslEngine.isInboundDone()) {
+            return null;
+        }
+        sslHeaderByteBuffer.clear();
+        if (readAll(sslHeaderByteBuffer, true) != SSL_PACKET_HEADER_LEN) {
+            return null;
+        }
+        int packetLen = packetLen(true);
+        int recordLength = SSL_PACKET_HEADER_LEN + packetLen;
+        if (tempBuffer.capacity() < recordLength) {
+            tempBuffer = ByteBuffer.allocate(recordLength);
+        }
+        tempBuffer.clear();
+        tempBuffer.put(sslHeaderByteBuffer.array());
+        tempBuffer.limit(recordLength);
+        if (readAll(tempBuffer, false) != packetLen) {
+            return null;
+        }
+        if (!isSslMode) {
+            tempBuffer.flip();
+        }
+        return tempBuffer;
     }
 
     @NotNull
-    private ByteBuffer expandPacket(ByteBuffer result, int packetLen) {
-        if ((result.capacity() - result.position()) < packetLen) {
-            // byte buffer is not enough, new one packet
-            ByteBuffer tmp;
-            if (packetLen < MAX_PHYSICAL_PACKET_LENGTH) {
-                // last packet, enough to this packet is OK.
-                tmp = ByteBuffer.allocate(packetLen + result.position());
-            } else {
-                // already have packet, to allocate two packet.
-                tmp = ByteBuffer.allocate(2 * packetLen + result.position());
+    private ByteBuffer expandPacket(ByteBuffer result, int packetLen) throws IOException {
+        long required = (long) result.position() + packetLen;
+        int maxPacketSize = context.getSessionVariable().getMaxAllowedPacket();
+        if (required > maxPacketSize) {
+            String message = ErrorCode.ERR_NET_PACKET_TOO_LARGE.formatErrorMsg();
+            int errorSequenceId = (sequenceId + 1) & 0xff;
+            reset();
+            setSequenceId(errorSequenceId);
+            context.getState().setError(ErrorCode.ERR_NET_PACKET_TOO_LARGE, message);
+            try {
+                MysqlProto.sendResponsePacket(context);
+            } finally {
+                context.setKilled();
+                close();
             }
+            throw new IOException(message);
+        }
+        if ((result.capacity() - result.position()) < packetLen) {
+            long capacity = packetLen < MAX_PHYSICAL_PACKET_LENGTH ? required : required + packetLen;
+            ByteBuffer tmp = ByteBuffer.allocate((int) Math.min(capacity, maxPacketSize));
             tmp.put(result.array(), 0, result.position());
             result = tmp;
         }
-        result.limit(result.position() + packetLen);
+        result.limit((int) required);
         return result;
     }
 
