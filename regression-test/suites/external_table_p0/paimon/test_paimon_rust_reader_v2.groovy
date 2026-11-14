@@ -53,6 +53,7 @@ suite("test_paimon_rust_reader_v2", "p0,external") {
 
         sql """drop catalog if exists ${catalogName}"""
         sql """create catalog if not exists ${catalogName} properties (
+            'paimon.allow-unsafe-writes' = 'true',
             "type" = "paimon",
             "paimon.catalog.type" = "filesystem",
             "warehouse" = "hdfs://${externalEnvIp}:${hdfsPort}/user/doris/paimon1"

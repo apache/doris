@@ -146,6 +146,7 @@ public class PaimonWritePlanProvider implements ConnectorWritePlanProvider {
         requireBeExecVersion(handle.getBeExecVersion());
         PaimonTableHandle tableHandle = (PaimonTableHandle) handle.getTableHandle();
         FileStoreTable table = resolveTable(tableHandle);
+        validateWriteSafety(table);
         WriteOperation operation = handle.getWriteOperation();
         if (operation == WriteOperation.INSERT || operation == WriteOperation.OVERWRITE) {
             validateWriteColumnsForMergeEngine(
@@ -486,6 +487,22 @@ public class PaimonWritePlanProvider implements ConnectorWritePlanProvider {
                     + handle.getDatabaseName() + "." + handle.getTableName());
         }
         return (FileStoreTable) table;
+    }
+
+    private void validateWriteSafety(FileStoreTable table) {
+        try {
+            // ResolvingFileIO may initialize the actual SDK FileIO. Keep that discovery inside
+            // the connector's authenticated, TCCL-pinned boundary just like table loading.
+            context.executeAuthenticated(() -> {
+                PaimonWriteSafety.validate(table, catalogProperties);
+                return null;
+            });
+        } catch (DorisConnectorException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new DorisConnectorException("Failed to check snapshot publication for Paimon table "
+                    + table.name(), e);
+        }
     }
 
     private PaimonConnectorTransaction currentTransaction(ConnectorSession session) {

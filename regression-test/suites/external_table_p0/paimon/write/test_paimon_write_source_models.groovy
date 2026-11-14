@@ -198,6 +198,7 @@ suite("test_paimon_write_source_models", "p0,external,paimon") {
     sql """drop catalog if exists ${catalogName}"""
     sql """
         create catalog ${catalogName} properties (
+            'paimon.allow-unsafe-writes' = 'true',
             'type' = 'paimon',
             'paimon.catalog.type' = 'filesystem',
             'warehouse' = 's3://warehouse/wh',

@@ -59,6 +59,13 @@ import java.util.Optional;
  */
 public class PaimonCatalogFactoryTest {
 
+    @Test
+    public void unsafeWriteOptInIsDorisOnly() {
+        Options options = PaimonCatalogFactory.buildCatalogOptions(PaimonCatalogProperties.of(props(
+                "warehouse", "/wh", PaimonCatalogProperties.ALLOW_UNSAFE_WRITES, "true")));
+        Assertions.assertFalse(options.toMap().containsKey("allow-unsafe-writes"));
+    }
+
     private static Map<String, String> props(String... kv) {
         Map<String, String> m = new HashMap<>();
         for (int i = 0; i < kv.length; i += 2) {
