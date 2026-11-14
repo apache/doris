@@ -437,6 +437,209 @@ static void get_table_version(MetaServiceProxy* meta_service, int64_t db_id, int
     version = resp.version();
 }
 
+// Exercise the RPC boundary with final temporary metadata: MoW may append rows after
+// commit_rowset, and a lazy commit must not expose additive counters before visibility.
+class ChangelogCommitStatsTest : public testing::Test {
+protected:
+    void SetUp() override {
+        _meta_service = get_meta_service(get_mem_txn_kv(), true);
+        BeginTxnRequest request;
+        request.set_cloud_unique_id("test_cloud_unique_id");
+        auto* info = request.mutable_txn_info();
+        info->set_db_id(DB_ID);
+        info->set_label("changelog_stats");
+        info->add_table_ids(TABLE_ID);
+        info->set_timeout_ms(360000);
+        BeginTxnResponse response;
+        brpc::Controller controller;
+        _meta_service->begin_txn(&controller, &request, &response, nullptr);
+        ASSERT_EQ(response.status().code(), MetaServiceCode::OK);
+        _txn_id = response.txn_id();
+        for (const auto& [tablet_id, index_id, partition_id, rows, changelog] : TABLETS) {
+            create_tablet_with_db_id(_meta_service.get(), DB_ID, TABLE_ID, index_id, partition_id,
+                                     tablet_id);
+        }
+    }
+
+    void write_rowsets(int64_t txn_id) {
+        for (const auto& [tablet_id, index_id, partition_id, rows, changelog] : TABLETS) {
+            auto rowset = create_rowset(txn_id, tablet_id, index_id, partition_id);
+            rowset.set_is_changelog(changelog);
+            rowset.set_num_rows(changelog ? 1 : rows);
+            CreateRowsetResponse response;
+            prepare_rowset(_meta_service.get(), rowset, response);
+            ASSERT_EQ(response.status().code(), MetaServiceCode::OK);
+            commit_rowset(_meta_service.get(), rowset, response);
+            ASSERT_EQ(response.status().code(), MetaServiceCode::OK);
+            if (changelog) {
+                rowset.set_num_rows(rows);
+                CreateRowsetRequest request;
+                request.mutable_rowset_meta()->CopyFrom(rowset);
+                response.Clear();
+                brpc::Controller controller;
+                _meta_service->update_tmp_rowset(&controller, &request, &response, nullptr);
+                ASSERT_EQ(response.status().code(), MetaServiceCode::OK);
+            }
+        }
+    }
+
+    CommitTxnRequest commit_request(bool lazy) const {
+        CommitTxnRequest request;
+        request.set_cloud_unique_id("test_cloud_unique_id");
+        request.set_db_id(DB_ID);
+        request.set_txn_id(_txn_id);
+        request.set_is_2pc(false);
+        request.set_enable_txn_lazy_commit(lazy);
+        request.add_base_tablet_ids(1001);
+        request.add_base_tablet_ids(1002);
+        return request;
+    }
+
+    void check_stats(const CommitTxnResponse& response, int multiplier, int64_t version) {
+        ASSERT_EQ(response.status().code(), MetaServiceCode::OK);
+        ASSERT_FALSE(response.is_lazy_commit_incomplete());
+        ASSERT_EQ(response.txn_info().status(), TxnStatusPB::TXN_STATUS_VISIBLE);
+        ASSERT_EQ(response.table_stats_size(), 1);
+        EXPECT_EQ(response.table_stats(0).updated_row_count(), 28 * multiplier);
+        ASSERT_EQ(response.changelog_stats_size(), 2);
+        const auto& first = response.changelog_stats(0);
+        EXPECT_EQ(first.table_id(), TABLE_ID);
+        EXPECT_EQ(first.partition_id(), 10);
+        EXPECT_EQ(first.index_id(), 200);
+        EXPECT_EQ(first.updated_row_count(), 20 * multiplier);
+        EXPECT_EQ(first.version(), version);
+        ASSERT_EQ(first.tablet_ids_size(), 2);
+        EXPECT_EQ(first.tablet_ids(0), 2001);
+        EXPECT_EQ(first.tablet_ids(1), 2002);
+        const auto& second = response.changelog_stats(1);
+        EXPECT_EQ(second.table_id(), TABLE_ID);
+        EXPECT_EQ(second.partition_id(), 20);
+        EXPECT_EQ(second.index_id(), 200);
+        EXPECT_EQ(second.updated_row_count(), 3 * multiplier);
+        EXPECT_EQ(second.version(), version);
+        ASSERT_EQ(second.tablet_ids_size(), 1);
+        EXPECT_EQ(second.tablet_ids(0), 2003);
+    }
+
+    CommitTxnResponse commit(const CommitTxnRequest& request) {
+        CommitTxnResponse response;
+        brpc::Controller controller;
+        _meta_service->commit_txn(&controller, &request, &response, nullptr);
+        return response;
+    }
+
+    static constexpr int64_t DB_ID = 300;
+    static constexpr int64_t TABLE_ID = 400;
+    // tablet, index, partition, final physical rows, changelog
+    static constexpr std::tuple<int64_t, int64_t, int64_t, int64_t, bool> TABLETS[] = {
+            {1001, 100, 10, 11, false}, {1002, 100, 20, 17, false}, {2001, 200, 10, 13, true},
+            {2002, 200, 10, 7, true},   {2003, 200, 20, 3, true},   {3001, 300, 10, 99, false}};
+    int64_t _txn_id;
+    std::unique_ptr<MetaServiceProxy> _meta_service;
+};
+
+TEST_F(ChangelogCommitStatsTest, ImmediateFinalRowsAndRetry) {
+    ASSERT_NO_FATAL_FAILURE(write_rowsets(_txn_id));
+    auto request = commit_request(false);
+    ASSERT_NO_FATAL_FAILURE(check_stats(commit(request), 1, 2));
+    auto retry = commit(request);
+    EXPECT_EQ(retry.status().code(), MetaServiceCode::OK);
+    EXPECT_EQ(retry.changelog_stats_size(), 0);
+}
+
+TEST_F(ChangelogCommitStatsTest, FailedImmediateOmitsRowsThenRetrySucceeds) {
+    ASSERT_NO_FATAL_FAILURE(write_rowsets(_txn_id));
+    auto* sp = SyncPoint::get_instance();
+    sp->set_call_back("commit_txn_immediately::before_commit", [&](auto&& args) {
+        *try_any_cast<TxnErrorCode*>(args[0]) = TxnErrorCode::TXN_CONFLICT;
+        *try_any_cast<MetaServiceCode*>(args[1]) = MetaServiceCode::KV_TXN_CONFLICT;
+        *try_any_cast<bool*>(args.back()) = true;
+    });
+    sp->enable_processing();
+    DORIS_CLOUD_DEFER {
+        sp->clear_all_call_backs();
+        sp->disable_processing();
+    };
+    auto request = commit_request(false);
+    auto failed = commit(request);
+    EXPECT_EQ(failed.status().code(), MetaServiceCode::KV_TXN_CONFLICT);
+    EXPECT_EQ(failed.changelog_stats_size(), 0);
+    sp->clear_all_call_backs();
+    sp->disable_processing();
+    ASSERT_NO_FATAL_FAILURE(check_stats(commit(request), 1, 2));
+}
+
+TEST_F(ChangelogCommitStatsTest, LazyFinalRowsAndRetry) {
+    ASSERT_NO_FATAL_FAILURE(write_rowsets(_txn_id));
+    auto* sp = SyncPoint::get_instance();
+    int32_t original_fuzzy_possibility = config::cloud_txn_lazy_commit_fuzzy_possibility;
+    config::cloud_txn_lazy_commit_fuzzy_possibility = 100;
+    sp->enable_processing();
+    DORIS_CLOUD_DEFER {
+        config::cloud_txn_lazy_commit_fuzzy_possibility = original_fuzzy_possibility;
+        sp->clear_all_call_backs();
+        sp->disable_processing();
+    };
+    auto request = commit_request(true);
+    auto response = commit(request);
+    ASSERT_TRUE(response.is_lazy_commit());
+    ASSERT_NO_FATAL_FAILURE(check_stats(response, 1, 2));
+    auto retry = commit(request);
+    EXPECT_EQ(retry.status().code(), MetaServiceCode::OK);
+    EXPECT_EQ(retry.changelog_stats_size(), 0);
+}
+
+TEST_F(ChangelogCommitStatsTest, IncompleteLazyOmitsRows) {
+    ASSERT_NO_FATAL_FAILURE(write_rowsets(_txn_id));
+    int32_t original_fuzzy_possibility = config::cloud_txn_lazy_commit_fuzzy_possibility;
+    config::cloud_txn_lazy_commit_fuzzy_possibility = 100;
+    auto* sp = SyncPoint::get_instance();
+    sp->set_call_back("convert_tmp_rowsets::before_commit", [&](auto&& args) {
+        *try_any_cast<MetaServiceCode*>(args[0]) = MetaServiceCode::UNDEFINED_ERR;
+        *try_any_cast<bool*>(args.back()) = true;
+    });
+    sp->enable_processing();
+    DORIS_CLOUD_DEFER {
+        config::cloud_txn_lazy_commit_fuzzy_possibility = original_fuzzy_possibility;
+        sp->clear_all_call_backs();
+        sp->disable_processing();
+    };
+    auto response = commit(commit_request(true));
+    ASSERT_EQ(response.status().code(), MetaServiceCode::OK);
+    ASSERT_TRUE(response.is_lazy_commit());
+    ASSERT_TRUE(response.is_lazy_commit_incomplete());
+    EXPECT_EQ(response.changelog_stats_size(), 0);
+}
+
+TEST_F(ChangelogCommitStatsTest, SubTransactionsAggregateFinalRows) {
+    ASSERT_NO_FATAL_FAILURE(write_rowsets(_txn_id));
+    BeginSubTxnRequest request;
+    request.set_cloud_unique_id("test_cloud_unique_id");
+    request.set_txn_id(_txn_id);
+    request.set_db_id(DB_ID);
+    request.set_sub_txn_num(0);
+    request.set_label("changelog_stats_sub");
+    request.add_table_ids(TABLE_ID);
+    BeginSubTxnResponse response;
+    brpc::Controller controller;
+    _meta_service->begin_sub_txn(&controller, &request, &response, nullptr);
+    ASSERT_EQ(response.status().code(), MetaServiceCode::OK);
+    ASSERT_NO_FATAL_FAILURE(write_rowsets(response.sub_txn_id()));
+    auto commit_req = commit_request(false);
+    commit_req.set_is_txn_load(true);
+    for (int64_t txn_id : {_txn_id, response.sub_txn_id()}) {
+        auto* sub_txn = commit_req.add_sub_txn_infos();
+        sub_txn->set_sub_txn_id(txn_id);
+        sub_txn->set_table_id(TABLE_ID);
+        sub_txn->add_base_tablet_ids(1001);
+        sub_txn->add_base_tablet_ids(1002);
+    }
+    ASSERT_NO_FATAL_FAILURE(check_stats(commit(commit_req), 2, 3));
+    auto retry = commit(commit_req);
+    EXPECT_EQ(retry.status().code(), MetaServiceCode::OK);
+    EXPECT_EQ(retry.changelog_stats_size(), 0);
+}
+
 TEST(TxnLazyCommitTest, CreateTabletWithDbIdTest) {
     auto txn_kv = get_mem_txn_kv();
     auto meta_service = get_meta_service(txn_kv, true);

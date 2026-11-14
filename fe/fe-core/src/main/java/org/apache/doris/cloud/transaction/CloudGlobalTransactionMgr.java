@@ -42,6 +42,7 @@ import org.apache.doris.cloud.proto.Cloud.BeginSubTxnRequest;
 import org.apache.doris.cloud.proto.Cloud.BeginSubTxnResponse;
 import org.apache.doris.cloud.proto.Cloud.BeginTxnRequest;
 import org.apache.doris.cloud.proto.Cloud.BeginTxnResponse;
+import org.apache.doris.cloud.proto.Cloud.ChangelogStatsPB;
 import org.apache.doris.cloud.proto.Cloud.CheckTxnConflictRequest;
 import org.apache.doris.cloud.proto.Cloud.CheckTxnConflictResponse;
 import org.apache.doris.cloud.proto.Cloud.CleanTxnLabelRequest;
@@ -557,6 +558,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         env.getAnalysisManager().updateUpdatedRows(updatedRows, dbId, reportedPartitions);
         // 2. update table and partition version
         Map<Long, List<Long>> tablePartitionMap = updateVersion(commitTxnResponse);
+        updateChangelogRowCounts(commitTxnResponse);
         // 3. notify partition first load
         env.getAnalysisManager().setNewPartitionLoaded(
                 tablePartitionMap.keySet().stream().collect(Collectors.toList()));
@@ -596,6 +598,41 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             // According to normal logic, no exceptions will be thrown,
             // but in order to avoid bugs affecting the original logic, all exceptions are caught
             LOG.warn("produceEvent failed, db {}, tables {} ", dbId, tableList, t);
+        }
+    }
+
+    void updateChangelogRowCounts(CommitTxnResponse response) {
+        // Lazy commit may return txn_info while its visibility task has not finished. Failed or
+        // incomplete responses must not make uncommitted changelog rows available to estimation.
+        if (response.getStatus().getCode() != MetaServiceCode.OK
+                || response.getTxnInfo().getStatus() != TxnStatusPB.TXN_STATUS_VISIBLE
+                || response.getIsLazyCommitIncomplete() || response.getChangelogStatsCount() == 0) {
+            return;
+        }
+        Database db = Env.getCurrentInternalCatalog().getDbNullable(response.getTxnInfo().getDbId());
+        if (db == null) {
+            return;
+        }
+        for (ChangelogStatsPB stats : response.getChangelogStatsList()) {
+            Table table = db.getTableNullable(stats.getTableId());
+            if (!(table instanceof OlapTable)) {
+                continue;
+            }
+            OlapTable olapTable = (OlapTable) table;
+            olapTable.writeLock();
+            try {
+                Partition partition = olapTable.getPartition(stats.getPartitionId());
+                MaterializedIndex index = partition == null ? null : partition.getIndex(stats.getIndexId());
+                // IDs alone do not identify a data lifecycle: restore can replace a tablet set
+                // while keeping the partition/index IDs. Reject the whole old aggregate in that case.
+                if (index == null || !index.isChangelog() || stats.getTabletIdsCount() == 0
+                        || stats.getTabletIdsList().stream().anyMatch(id -> index.getTablet(id) == null)) {
+                    continue;
+                }
+                index.addChangelogRows(stats.getVersion(), stats.getUpdatedRowCount());
+            } finally {
+                olapTable.writeUnlock();
+            }
         }
     }
 

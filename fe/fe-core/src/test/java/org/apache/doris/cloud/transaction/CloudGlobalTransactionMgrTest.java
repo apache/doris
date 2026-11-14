@@ -19,16 +19,19 @@ package org.apache.doris.cloud.transaction;
 
 import org.apache.doris.catalog.CatalogTestUtil;
 import org.apache.doris.catalog.ChangelogConfig;
+import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FakeEditLog;
 import org.apache.doris.catalog.FakeEnv;
 import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.LocalTablet;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.RandomDistributionInfo;
+import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.stream.CloudOlapTableStreamUpdate;
 import org.apache.doris.catalog.stream.TableStreamUpdateInfo;
@@ -899,6 +902,81 @@ public class CloudGlobalTransactionMgrTest {
 
             Assertions.assertEquals(1001, result);
         }
+    }
+
+    @Test
+    public void testChangelogCommitCountsAreSeparateAndIdempotent() throws Exception {
+        CloudPartition first = addCloudPartition(1000);
+        CloudPartition second = addCloudPartition(2000);
+        MaterializedIndex firstIndex = addChangelogIndex(first, 11, 101);
+        MaterializedIndex secondIndex = addChangelogIndex(second, 12, 102);
+        firstIndex.appendTablets(List.of(new LocalTablet(103)));
+        Cloud.ChangelogStatsPB firstStats = changelogStats(first, firstIndex, 3, 9);
+        CommitTxnResponse response = visibleRetry(List.of(first.getTableId(), second.getTableId())).toBuilder()
+                .addChangelogStats(firstStats).addChangelogStats(changelogStats(second, secondIndex, 3, 15)).build();
+        masterTransMgr.afterCommitTxnResp(response, null, List.of());
+        Assertions.assertEquals(9, firstIndex.getRowCount());
+        Assertions.assertEquals(15, secondIndex.getRowCount());
+        Assertions.assertFalse(firstIndex.getRowCountReported());
+        masterTransMgr.afterCommitTxnResp(response, null, List.of());
+        Assertions.assertEquals(9, firstIndex.getRowCount());
+        Assertions.assertEquals(15, secondIndex.getRowCount());
+        ((CloudGlobalTransactionMgr) masterTransMgr).updateChangelogRowCounts(response.toBuilder()
+                .clearChangelogStats().addChangelogStats(changelogStats(first, firstIndex, 5, 4)).build());
+        ((CloudGlobalTransactionMgr) masterTransMgr).updateChangelogRowCounts(response.toBuilder()
+                .clearChangelogStats().addChangelogStats(changelogStats(first, firstIndex, 4, 2)).build());
+        Assertions.assertEquals(15, firstIndex.getRowCount());
+        firstIndex.setReportedRowCount(1, true, 5);
+        masterTransMgr.afterCommitTxnResp(response, null, List.of());
+        Assertions.assertEquals(1, firstIndex.getRowCount());
+        // The changelog path never creates base-table analysis statistics.
+        Assertions.assertNull(masterEnv.getAnalysisManager().findTableStatsStatus(first.getTableId()));
+    }
+
+    @Test
+    public void testChangelogIgnoresIncompleteAndReplacedData() throws Exception {
+        CloudPartition partition = addCloudPartition(1000);
+        MaterializedIndex index = addChangelogIndex(partition, 11, 101);
+        CommitTxnResponse response = visibleRetry(List.of(partition.getTableId())).toBuilder()
+                .addChangelogStats(changelogStats(partition, index, 3, 8)).build();
+        CloudGlobalTransactionMgr manager = (CloudGlobalTransactionMgr) masterTransMgr;
+        manager.updateChangelogRowCounts(response.toBuilder().setIsLazyCommitIncomplete(true).build());
+        manager.updateChangelogRowCounts(response.toBuilder().setTxnInfo(response.getTxnInfo().toBuilder()
+                .setStatus(Cloud.TxnStatusPB.TXN_STATUS_COMMITTED)).build());
+        manager.updateChangelogRowCounts(response.toBuilder().setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
+                .setCode(MetaServiceCode.KV_TXN_CONFLICT)).build());
+        manager.updateChangelogRowCounts(response.toBuilder().clearChangelogStats()
+                .addChangelogStats(changelogStats(partition, index, 2, 0)).build());
+        Assertions.assertEquals(-1, index.getRowCount());
+        Assertions.assertFalse(index.getRowCountReported());
+        index.clearTabletsForRestore();
+        index.appendTablets(List.of(new LocalTablet(102)));
+        manager.updateChangelogRowCounts(response);
+        Assertions.assertEquals(-1, index.getRowCount());
+        MaterializedIndex replacement = addChangelogIndex(partition, 11, 103);
+        manager.updateChangelogRowCounts(response);
+        Assertions.assertEquals(-1, replacement.getRowCount());
+        getCloudTable(partition).getPartitionInfo().addPartition(partition.getId(),
+                new DataProperty(org.apache.doris.thrift.TStorageMedium.HDD),
+                ReplicaAllocation.DEFAULT_ALLOCATION, false, true);
+        getCloudTable(partition).dropPartitionAndReserveTablet(partition.getName());
+        manager.updateChangelogRowCounts(response);
+        Assertions.assertEquals(-1, replacement.getRowCount());
+    }
+
+    private MaterializedIndex addChangelogIndex(CloudPartition partition, long indexId, long tabletId) {
+        MaterializedIndex index = new MaterializedIndex(indexId, MaterializedIndex.IndexState.NORMAL);
+        index.setIsChangelog(true);
+        index.appendTablets(List.of(new LocalTablet(tabletId)));
+        partition.createRollupIndex(index);
+        return index;
+    }
+
+    private Cloud.ChangelogStatsPB changelogStats(CloudPartition partition, MaterializedIndex index,
+            long version, long rows) {
+        return Cloud.ChangelogStatsPB.newBuilder().setTableId(partition.getTableId())
+                .setPartitionId(partition.getId()).setIndexId(index.getId()).setVersion(version)
+                .addAllTabletIds(index.getTabletIdsInOrder()).setUpdatedRowCount(rows).build();
     }
 
     @Test

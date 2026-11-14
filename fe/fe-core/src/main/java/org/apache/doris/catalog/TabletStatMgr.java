@@ -25,6 +25,7 @@ import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.ThreadPoolManager;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.system.Backend;
@@ -162,7 +163,7 @@ public class TabletStatMgr extends MasterDaemon {
                 Long tableChangelogSize = 0L;
                 Long tableTotalChangelogSize = 0L;
 
-                if (!table.readLockIfExist()) {
+                if (!table.writeLockIfExist()) {
                     continue;
                 }
                 try {
@@ -192,6 +193,7 @@ public class TabletStatMgr extends MasterDaemon {
                                 : partition.getMaterializedIndices(IndexExtState.VISIBLE, true)) {
                             long indexRowCount = 0L;
                             boolean indexReported = true;
+                            boolean anyTabletReported = false;
                             List<Tablet> tablets = index.getTablets();
                             tabletCount += tablets.size();
                             for (Tablet tablet : tablets) {
@@ -211,7 +213,14 @@ public class TabletStatMgr extends MasterDaemon {
                                     // Replica with less row count is more accurate than the others
                                     // when replicas' version are identical. Because less row count
                                     // means this replica does more compaction than the others.
+                                    boolean replicaReported = replica.getVersion() == Partition.PARTITION_INIT_VERSION
+                                            && replica.getLastReportVersion() == Partition.PARTITION_INIT_VERSION
+                                            || replica.getLastReportVersion() > Partition.PARTITION_INIT_VERSION;
+                                    // An unreported changelog replica still has the default zero. Choosing it
+                                    // over a reported replica would erase a useful positive estimate.
                                     if (replica.checkVersionCatchUp(version, false)
+                                            && (!index.isChangelog() || replicaReported)
+                                            && replica.getRowCount() >= 0
                                             && replica.getRowCount() < tabletRowCount) {
                                         // 1. If replica version and reported replica version are all equal to
                                         // PARTITION_INIT_VERSION, set tabletReported to true, which indicates this
@@ -221,11 +230,7 @@ public class TabletStatMgr extends MasterDaemon {
                                         // the tablet are reported for the init version.
                                         // e.g. When replica version is 2, but last reported version is 1,
                                         // tabletReported would be false.
-                                        if (replica.getVersion() == Partition.PARTITION_INIT_VERSION
-                                                && replica.getLastReportVersion() == Partition.PARTITION_INIT_VERSION
-                                                || replica.getLastReportVersion() > Partition.PARTITION_INIT_VERSION) {
-                                            tabletReported = true;
-                                        }
+                                        tabletReported = replicaReported;
                                         tabletRowCount = replica.getRowCount();
                                     }
 
@@ -273,11 +278,22 @@ public class TabletStatMgr extends MasterDaemon {
                                 }
                                 // Only when all tablets of this index are reported, we set indexReported to true.
                                 indexReported = indexReported && tabletReported;
+                                anyTabletReported |= tabletReported;
 
                                 tableChangelogSize += tabletChangelogSize;
                             } // end for tablets
-                            index.setRowCountReported(indexReported);
-                            index.setRowCount(indexRowCount);
+                            // Suspend publication rather than only the daemon entry, so a report
+                            // already in flight cannot mask the immediate-count regression test.
+                            if (DebugPointUtil.isEnable("FE.TabletStatMgr.updateIndexRowCount.disabled")) {
+                                continue;
+                            }
+                            // No report is different from an empty report: keep immediate changelog
+                            // estimates until at least one tablet has supplied a valid retained count.
+                            if (!index.isChangelog() || anyTabletReported || indexReported) {
+                                index.setReportedRowCount(indexRowCount, indexReported, version);
+                            } else {
+                                index.setRowCountReported(false);
+                            }
                             LOG.debug("Table {} index {} all tablets reported[{}], row count {}",
                                     olapTable.getName(), olapTable.getIndexNameById(index.getId()),
                                     indexReported, indexRowCount);
@@ -296,7 +312,7 @@ public class TabletStatMgr extends MasterDaemon {
                         minTableSize = Pair.of("" + table.getId(), tableDataSize);
                     }
 
-                    // this is only one thread to update table statistics, readLock is enough
+                    // The write lock serializes retained counts with transaction visibility deltas.
                     olapTable.setStatistics(new OlapTable.Statistics(db.getName(), table.getName(),
                             tableDataSize, tableTotalReplicaDataSize,
                             tableRemoteDataSize, tableReplicaCount, tableRowCount, 0L, 0L,
@@ -309,7 +325,7 @@ public class TabletStatMgr extends MasterDaemon {
                                  table.getName(), db.getFullName());
                     }
                 } finally {
-                    table.readUnlock();
+                    table.writeUnlock();
                 }
                 totalTableSize += tableDataSize;
             }
