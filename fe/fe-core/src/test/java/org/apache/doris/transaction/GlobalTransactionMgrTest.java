@@ -22,11 +22,14 @@ import org.apache.doris.catalog.CatalogTestUtil;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FakeEditLog;
 import org.apache.doris.catalog.FakeEnv;
+import org.apache.doris.catalog.LocalReplica;
+import org.apache.doris.catalog.LocalTablet;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
+import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DuplicatedRequestException;
@@ -44,13 +47,22 @@ import org.apache.doris.load.routineload.RoutineLoadTaskInfo;
 import org.apache.doris.load.routineload.kafka.KafkaProgress;
 import org.apache.doris.load.routineload.kafka.KafkaRoutineLoadJob;
 import org.apache.doris.load.routineload.kafka.KafkaTaskInfo;
+import org.apache.doris.master.MasterImpl;
+import org.apache.doris.master.ReportHandler;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.rpc.RpcException;
+import org.apache.doris.system.Backend;
+import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.PublishVersionTask;
+import org.apache.doris.thrift.TBackend;
+import org.apache.doris.thrift.TFinishTaskRequest;
 import org.apache.doris.thrift.TKafkaRLTaskProgress;
 import org.apache.doris.thrift.TLoadSourceType;
 import org.apache.doris.thrift.TRLTaskTxnCommitAttachment;
+import org.apache.doris.thrift.TStatus;
+import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TTabletCommitInfo;
+import org.apache.doris.thrift.TTaskType;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.SubTransactionState.SubTransactionType;
 import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
@@ -446,6 +458,158 @@ public class GlobalTransactionMgrTest {
         // todo(ml): change to assert queue
         // Assert.assertEquals(0, routineLoadManager.getNeedScheduleTasksQueue().size());
         Assertions.assertEquals(RoutineLoadJob.JobState.PAUSED, routineLoadJob.getState());
+    }
+
+    @Test
+    public void testFinishTransactionWithPartialPublish() throws UserException {
+        checkFinishTransactionWithPartialPublish(false);
+    }
+
+    @Test
+    public void testPartialPublishStillChecksPreviousVersion() throws UserException {
+        checkFinishTransactionWithPartialPublish(true);
+    }
+
+    private void checkFinishTransactionWithPartialPublish(boolean previousVersionMissing) throws UserException {
+        FakeEnv.setEnv(masterEnv);
+        OlapTable table = (OlapTable) masterEnv.getInternalCatalog()
+                .getDbOrMetaException(CatalogTestUtil.testDbId1)
+                .getTableOrMetaException(CatalogTestUtil.testTableId1);
+        Partition partition = table.getPartition(CatalogTestUtil.testPartition1);
+        Tablet healthyTablet = partition.getIndex(CatalogTestUtil.testIndexId1)
+                .getTablet(CatalogTestUtil.testTabletId1);
+        Tablet missingTablet = new LocalTablet(10001L);
+        TabletMeta tabletMeta = Env.getCurrentInvertedIndex().getTabletMeta(healthyTablet.getId());
+        partition.getIndex(CatalogTestUtil.testIndexId1).addTablet(missingTablet, tabletMeta);
+        long[] backendIds = {CatalogTestUtil.testBackendId1, CatalogTestUtil.testBackendId2,
+                CatalogTestUtil.testBackendId3};
+        List<TabletCommitInfo> commitInfos = Lists.newArrayList();
+        for (long backendId : backendIds) {
+            missingTablet.addReplica(new LocalReplica(10000L + backendId, backendId, CatalogTestUtil.testStartVersion,
+                    0, 0L, 0L, 0L, Replica.ReplicaState.NORMAL, -1, 0));
+            commitInfos.add(new TabletCommitInfo(healthyTablet.getId(), backendId));
+            commitInfos.add(new TabletCommitInfo(missingTablet.getId(), backendId));
+        }
+        long transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
+                Lists.newArrayList(CatalogTestUtil.testTableId1), CatalogTestUtil.testTxnLabel1, transactionSource,
+                LoadJobSourceType.FRONTEND, Config.stream_load_default_timeout_second);
+        masterTransMgr.commitTransactionWithoutLock(CatalogTestUtil.testDbId1, Lists.newArrayList(table),
+                transactionId, commitInfos, null);
+        TransactionState transactionState = fakeEditLog.getTransaction(transactionId);
+        if (previousVersionMissing) {
+            healthyTablet.getReplicaByBackendId(backendIds[0])
+                    .updateVersionForRestore(CatalogTestUtil.testStartVersion - 1);
+        }
+        MasterImpl master = new MasterImpl();
+        Map<Long, Long> visibleVersions = Maps.newHashMap();
+        Map<Long, Set<Long>> backendPartitions = Maps.newHashMap();
+        try {
+            for (long backendId : backendIds) {
+                PublishVersionTask task = new PublishVersionTask(backendId, transactionId,
+                        CatalogTestUtil.testDbId1, Lists.newArrayList(), System.currentTimeMillis());
+                transactionState.addPublishVersionTask(backendId, task);
+                AgentTaskQueue.addTask(task);
+            }
+            for (int i = 0; i < backendIds.length; i++) {
+                Backend backend = Env.getCurrentSystemInfo().getBackend(backendIds[i]);
+                TFinishTaskRequest report = new TFinishTaskRequest(
+                        new TBackend(backend.getHost(), backend.getBePort(), backend.getHttpPort()),
+                        TTaskType.PUBLISH_VERSION, transactionId, new TStatus(TStatusCode.OK));
+                if (i == 0) {
+                    report.setTaskStatus(new TStatus(TStatusCode.INCOMPLETE));
+                    report.setSuccTablets(ImmutableMap.of(healthyTablet.getId(), 0L));
+                } else if (previousVersionMissing && i == 2) {
+                    // Only BE0's partial result and BE1 could form this tablet's quorum.
+                    report.setSuccTablets(ImmutableMap.of(missingTablet.getId(), 0L));
+                    report.setErrorTabletIds(Lists.newArrayList(healthyTablet.getId()));
+                } else {
+                    // Final reports from old BEs retain their existing behavior.
+                    report.setSuccTablets(ImmutableMap.of(healthyTablet.getId(), 0L, missingTablet.getId(), 0L));
+                }
+                Assertions.assertEquals(TStatusCode.OK, master.finishTask(report).getStatus().getStatusCode());
+                Assertions.assertEquals(0, transactionState.getPublishVersionTasks().get(backendIds[i]).get(0).getFailedTimes());
+                masterTransMgr.finishTransaction(CatalogTestUtil.testDbId1, transactionId,
+                        visibleVersions, backendPartitions);
+                Assertions.assertEquals(i < 2 || previousVersionMissing
+                                ? TransactionStatus.COMMITTED : TransactionStatus.VISIBLE,
+                        transactionState.getTransactionStatus());
+            }
+            Assertions.assertFalse(transactionState.getPublishVersionTasks().get(backendIds[0]).get(0).isFinished());
+            if (previousVersionMissing) {
+                Assertions.assertEquals(CatalogTestUtil.testStartVersion - 1,
+                        healthyTablet.getReplicaByBackendId(backendIds[0]).getVersion());
+                Assertions.assertEquals(CatalogTestUtil.testStartVersion, partition.getVisibleVersion());
+                return;
+            }
+            for (Replica replica : healthyTablet.getReplicas()) {
+                Assertions.assertEquals(CatalogTestUtil.testStartVersion + 1, replica.getVersion());
+                Assertions.assertEquals(-1, replica.getLastFailedVersion());
+            }
+            Replica missingReplica = missingTablet.getReplicaByBackendId(backendIds[0]);
+            Assertions.assertEquals(CatalogTestUtil.testStartVersion, missingReplica.getVersion());
+            Assertions.assertEquals(CatalogTestUtil.testStartVersion + 1, missingReplica.getLastFailedVersion());
+        } finally {
+            ((ReportHandler) Deencapsulation.getField(master, "reportHandler")).exit();
+            for (long backendId : backendIds) {
+                AgentTaskQueue.removeTask(backendId, TTaskType.PUBLISH_VERSION, transactionId);
+            }
+        }
+    }
+
+    @Test
+    public void testPartialPublishRequiresAllSubTransactions() throws UserException {
+        FakeEnv.setEnv(masterEnv);
+        OlapTable table = (OlapTable) masterEnv.getInternalCatalog()
+                .getDbOrMetaException(CatalogTestUtil.testDbId1)
+                .getTableOrMetaException(CatalogTestUtil.testTableId1);
+        long tabletId = CatalogTestUtil.testTabletId1;
+        long transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1,
+                Lists.newArrayList(table.getId()), CatalogTestUtil.testTxnLabel1, transactionSource,
+                LoadJobSourceType.FRONTEND, Config.stream_load_default_timeout_second);
+        TransactionState transactionState = fakeEditLog.getTransaction(transactionId);
+        List<SubTransactionState> subTransactions = generateSubTransactionStates(transactionState,
+                Lists.newArrayList(new SubTransactionInfo(table, tabletId, allBackends),
+                        new SubTransactionInfo(table, tabletId, allBackends)));
+        transactionState.setSubTxnIds(subTransactions.stream().map(SubTransactionState::getSubTransactionId)
+                .collect(Collectors.toList()));
+        masterTransMgr.commitTransactionWithoutLock(CatalogTestUtil.testDbId1, Lists.newArrayList(table),
+                transactionId, subTransactions, 300000);
+
+        for (long backendId : allBackends) {
+            for (int i = 0; i < subTransactions.size(); i++) {
+                long subTxnId = subTransactions.get(i).getSubTransactionId();
+                PublishVersionTask task = new PublishVersionTask(backendId, subTxnId,
+                        CatalogTestUtil.testDbId1, transactionState.getTableCommitInfoBySubTxnId(subTxnId)
+                                .generateTPartitionVersionInfos(), System.currentTimeMillis());
+                // Only BE2 has both versions; BE1's progress initially covers the first version.
+                if (i == 0 || backendId == CatalogTestUtil.testBackendId2) {
+                    task.setSuccTablets(ImmutableMap.of(tabletId, 0L));
+                }
+                task.setFinished(backendId != CatalogTestUtil.testBackendId1);
+                transactionState.addPublishVersionTask(backendId, task);
+            }
+        }
+        Map<Long, Long> visibleVersions = Maps.newHashMap();
+        Map<Long, Set<Long>> backendPartitions = Maps.newHashMap();
+        masterTransMgr.finishTransaction(CatalogTestUtil.testDbId1, transactionId,
+                visibleVersions, backendPartitions);
+        Assertions.assertEquals(TransactionStatus.COMMITTED, transactionState.getTransactionStatus());
+        Partition partition = table.getPartition(CatalogTestUtil.testPartition1);
+        Assertions.assertEquals(CatalogTestUtil.testStartVersion, partition.getVisibleVersion());
+
+        PublishVersionTask lastTask = transactionState.getPublishVersionTasks()
+                .get(CatalogTestUtil.testBackendId1).get(1);
+        lastTask.setSuccTablets(ImmutableMap.of(tabletId, 0L));
+        masterTransMgr.finishTransaction(CatalogTestUtil.testDbId1, transactionId,
+                visibleVersions, backendPartitions);
+        Assertions.assertFalse(lastTask.isFinished());
+        Assertions.assertEquals(TransactionStatus.VISIBLE, transactionState.getTransactionStatus());
+        Assertions.assertEquals(CatalogTestUtil.testStartVersion + 2, partition.getVisibleVersion());
+        Tablet tablet = partition.getIndex(CatalogTestUtil.testIndexId1).getTablet(tabletId);
+        Assertions.assertEquals(CatalogTestUtil.testStartVersion + 2,
+                tablet.getReplicaByBackendId(CatalogTestUtil.testBackendId1).getVersion());
+        Assertions.assertEquals(CatalogTestUtil.testStartVersion,
+                tablet.getReplicaByBackendId(CatalogTestUtil.testBackendId3).getVersion());
     }
 
     @Test

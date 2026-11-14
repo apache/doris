@@ -1646,11 +1646,9 @@ public class DatabaseTransactionMgr {
         boolean success = true;
         for (int i = 0; i < subTxnIds.size(); i++) {
             PublishVersionTask task = replicaPublishTasks.get(i);
-            // Defensive null guard: AgentTaskCleanupDaemon may force-finish a PublishVersionTask
-            // without populating succTablets; MasterImpl.finishPublishVersion may also call
-            // setSuccTablets(null) on a non-OK BE response.
+            // A task can report this tablet's success while retrying version gaps on other tablets.
             Map<Long, Long> succ = (task == null) ? null : task.getSuccTablets();
-            success = (task != null && task.isFinished() && succ != null && succ.containsKey(tabletId)) || (
+            success = (succ != null && succ.containsKey(tabletId)) || (
                     replica.getState() == Replica.ReplicaState.ALTER && (!Config.publish_version_check_alter_replica
                             || subTxnIds.get(i) < alterWaterschedTxnId || alterWaterschedTxnId == -1));
             if (!success) {
