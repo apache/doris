@@ -1,0 +1,15 @@
+-- Expected results derived from the source writes and synchronization rules before execution.
+-- !latest_skips_history --
+2	2
+
+-- !publication_rejected --
+PAUSED
+
+-- !retained_after_add --
+2	-2
+3	3
+4	4
+
+-- !added_summary --
+201	20483	21373
+

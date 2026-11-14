@@ -138,6 +138,29 @@ public interface SourceOffsetProvider {
     default void validateAlterOffset(String offset) throws Exception {
     }
 
+    default void validateAlterIncludeTables(List<String> updatedTables) throws JobException {
+        throw new JobException("Changing include_tables is not supported for this source");
+    }
+
+    default void applyIncludeTablesChange(List<String> updatedTables, List<String> addedTables) throws JobException {
+        throw new JobException("Changing include_tables is not supported for this source");
+    }
+
+    default boolean hasPendingIncludeTablesChange() {
+        return false;
+    }
+
+    default String getTableSchemas() {
+        return null;
+    }
+
+    default boolean isTableSchemasDirty() {
+        return false;
+    }
+
+    /** Acknowledge schema persistence only after the job journal succeeds. */
+    default void markTableSchemasPersisted(String persistedSchemas) {}
+
     /**
      * Replaying OffsetProvider is currently only required by JDBC.
      *
