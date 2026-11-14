@@ -61,8 +61,7 @@ suite("test_load_columns_from_path", "load_p0") {
             )
             WITH S3
             (
-                "s3.access_key" = "${ak}",
-                "s3.secret_key" = "${sk}",
+                ${getS3CredentialProperties()},
                 "s3.endpoint" = "${s3Endpoint}",
                 "s3.region" = "${s3Region}"
             )
@@ -114,8 +113,7 @@ suite("test_load_columns_from_path", "load_p0") {
             )
             WITH S3
             (
-                "s3.access_key" = "${ak}",
-                "s3.secret_key" = "${sk}",
+                ${getS3CredentialProperties()},
                 "s3.endpoint" = "${s3Endpoint}",
                 "s3.region" = "${s3Region}"
             )
@@ -168,8 +166,7 @@ suite("test_load_columns_from_path", "load_p0") {
             )
             WITH S3
             (
-                "s3.access_key" = "${ak}",
-                "s3.secret_key" = "${sk}",
+                ${getS3CredentialProperties()},
                 "s3.endpoint" = "${s3Endpoint}",
                 "s3.region" = "${s3Region}"
             )
@@ -230,8 +227,7 @@ suite("test_load_columns_from_path", "load_p0") {
             )
             WITH S3
             (
-                "s3.access_key" = "${ak}",
-                "s3.secret_key" = "${sk}",
+                ${getS3CredentialProperties()},
                 "s3.endpoint" = "${s3Endpoint}",
                 "s3.region" = "${s3Region}"
             )
@@ -281,8 +277,7 @@ suite("test_load_columns_from_path", "load_p0") {
             )
             WITH S3
             (
-                "s3.access_key" = "${ak}",
-                "s3.secret_key" = "${sk}",
+                ${getS3CredentialProperties()},
                 "s3.endpoint" = "${s3Endpoint}",
                 "s3.region" = "${s3Region}"
             )
@@ -330,8 +325,7 @@ suite("test_load_columns_from_path", "load_p0") {
             )
             WITH S3
             (
-                "s3.access_key" = "${ak}",
-                "s3.secret_key" = "${sk}",
+                ${getS3CredentialProperties()},
                 "s3.endpoint" = "${s3Endpoint}",
                 "s3.region" = "${s3Region}"
             )
@@ -380,8 +374,7 @@ suite("test_load_columns_from_path", "load_p0") {
             )
             WITH S3
             (
-                "s3.access_key" = "${ak}",
-                "s3.secret_key" = "${sk}",
+                ${getS3CredentialProperties()},
                 "s3.endpoint" = "${s3Endpoint}",
                 "s3.region" = "${s3Region}"
             )

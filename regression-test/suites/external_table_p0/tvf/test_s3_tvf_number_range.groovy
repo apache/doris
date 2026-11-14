@@ -52,8 +52,7 @@ suite("test_s3_tvf_number_range", "p0,external") {
                     "column_separator" = ",",
                     "s3.endpoint" = "${s3_endpoint}",
                     "s3.region" = "${region}",
-                    "s3.access_key" = "${ak}",
-                    "s3.secret_key" = "${sk}",
+                    ${getS3CredentialProperties()},
                     "csv_schema" = "a:int;b:int"
                 );
             """
@@ -74,8 +73,7 @@ suite("test_s3_tvf_number_range", "p0,external") {
                     "column_separator" = ",",
                     "s3.endpoint" = "${s3_endpoint}",
                     "s3.region" = "${region}",
-                    "s3.access_key" = "${ak}",
-                    "s3.secret_key" = "${sk}",
+                    ${getS3CredentialProperties()},
                     "csv_schema" = "a:int;b:int"
                 );
             """
@@ -96,8 +94,7 @@ suite("test_s3_tvf_number_range", "p0,external") {
                     "column_separator" = ",",
                     "s3.endpoint" = "${s3_endpoint}",
                     "s3.region" = "${region}",
-                    "s3.access_key" = "${ak}",
-                    "s3.secret_key" = "${sk}",
+                    ${getS3CredentialProperties()},
                     "csv_schema" = "a:int;b:int"
                 );
             """
@@ -118,8 +115,7 @@ suite("test_s3_tvf_number_range", "p0,external") {
                     "column_separator" = ",",
                     "s3.endpoint" = "${s3_endpoint}",
                     "s3.region" = "${region}",
-                    "s3.access_key" = "${ak}",
-                    "s3.secret_key" = "${sk}",
+                    ${getS3CredentialProperties()},
                     "csv_schema" = "a:int;b:int"
                 );
             """
@@ -140,8 +136,7 @@ suite("test_s3_tvf_number_range", "p0,external") {
                     "column_separator" = ",",
                     "s3.endpoint" = "${s3_endpoint}",
                     "s3.region" = "${region}",
-                    "s3.access_key" = "${ak}",
-                    "s3.secret_key" = "${sk}",
+                    ${getS3CredentialProperties()},
                     "csv_schema" = "a:int;b:int"
                 );
             """
@@ -163,8 +158,7 @@ suite("test_s3_tvf_number_range", "p0,external") {
                     "column_separator" = ",",
                     "s3.endpoint" = "${s3_endpoint}",
                     "s3.region" = "${region}",
-                    "s3.access_key" = "${ak}",
-                    "s3.secret_key" = "${sk}",
+                    ${getS3CredentialProperties()},
                     "csv_schema" = "a:int;b:int"
                 );
             """
@@ -185,8 +179,7 @@ suite("test_s3_tvf_number_range", "p0,external") {
                     "column_separator" = ",",
                     "s3.endpoint" = "${s3_endpoint}",
                     "s3.region" = "${region}",
-                    "s3.access_key" = "${ak}",
-                    "s3.secret_key" = "${sk}",
+                    ${getS3CredentialProperties()},
                     "csv_schema" = "a:int;b:int"
                 );
             """
@@ -207,8 +200,7 @@ suite("test_s3_tvf_number_range", "p0,external") {
                     "column_separator" = ",",
                     "s3.endpoint" = "${s3_endpoint}",
                     "s3.region" = "${region}",
-                    "s3.access_key" = "${ak}",
-                    "s3.secret_key" = "${sk}",
+                    ${getS3CredentialProperties()},
                     "csv_schema" = "a:int;b:int"
                 );
             """
@@ -233,8 +225,7 @@ suite("test_s3_tvf_number_range", "p0,external") {
                     "column_separator" = ",",
                     "s3.endpoint" = "${s3_endpoint}",
                     "s3.region" = "${region}",
-                    "s3.access_key" = "${ak}",
-                    "s3.secret_key" = "${sk}",
+                    ${getS3CredentialProperties()},
                     "csv_schema" = "a:int;b:int"
                 );
             """
@@ -255,8 +246,7 @@ suite("test_s3_tvf_number_range", "p0,external") {
                     "column_separator" = ",",
                     "s3.endpoint" = "${s3_endpoint}",
                     "s3.region" = "${region}",
-                    "s3.access_key" = "${ak}",
-                    "s3.secret_key" = "${sk}",
+                    ${getS3CredentialProperties()},
                     "csv_schema" = "a:int;b:int"
                 );
             """
@@ -281,8 +271,7 @@ suite("test_s3_tvf_number_range", "p0,external") {
                 (a, b)
             )
             WITH S3 (
-                "s3.access_key" = "${ak}",
-                "s3.secret_key" = "${sk}",
+                ${getS3CredentialProperties()},
                 "s3.endpoint" = "${s3_endpoint}",
                 "s3.region" = "${region}"
             );

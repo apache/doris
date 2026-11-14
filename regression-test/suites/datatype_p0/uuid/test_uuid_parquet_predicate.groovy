@@ -25,7 +25,7 @@ suite("test_uuid_parquet_predicate", "p0,external") {
     sql "SET enable_condition_cache = false"
     sql "SET enable_profile = true"
     String provider = getS3Provider()
-    String endpoint = getS3Endpoint()
+    String endpoint = getS3WriteEndpoint()
     if (provider.equalsIgnoreCase("AZURE")) {
         if (endpoint == "azure-endpoint") {
             endpoint = "https://${getS3AK()}.blob.core.windows.net"
@@ -36,8 +36,8 @@ suite("test_uuid_parquet_predicate", "p0,external") {
     String token = UUID.randomUUID().toString()
     String source
     File fixture = new File(context.dataPath, "test_data/uuid_predicate.parquet")
-    String bucket = context.config.otherConfigs.get('s3BucketName')
-    String key = "uuid_parquet_predicate/${token}/predicate.parquet"
+    String bucket = getS3WriteBucketName()
+    String key = getS3WriteKey("uuid_parquet_predicate/${token}/predicate.parquet")
     if (provider.equalsIgnoreCase("AZURE")) {
         new BlobClientBuilder()
                 .endpoint(endpoint)
@@ -46,11 +46,11 @@ suite("test_uuid_parquet_predicate", "p0,external") {
                 .credential(new StorageSharedKeyCredential(getS3AK(), getS3SK()))
                 .buildClient().uploadFromFile(fixture.absolutePath)
     } else {
-        getS3Client().putObject(bucket, key, fixture)
+        getS3WriteClient().putObject(bucket, key, fixture)
     }
     source = """S3('uri'='s3://${bucket}/${key}','format'='parquet',
-            'provider'='${provider}','s3.endpoint'='${endpoint}','s3.region'='${getS3Region()}',
-            's3.access_key'='${getS3AK()}','s3.secret_key'='${getS3SK()}')"""
+            'provider'='${provider}','s3.endpoint'='${endpoint}','s3.region'='${getS3WriteRegion()}',
+            ${getS3CredentialProperties()})"""
     for (boolean scannerV2 : [false, true]) {
         sql "SET enable_file_scanner_v2 = ${scannerV2}"
         for (boolean pruning : [false, true]) {

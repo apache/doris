@@ -43,8 +43,7 @@ suite("test_s3_load_with_no_file", "load_p0") {
             WITH S3 (
                 "AWS_ENDPOINT" = "${getS3Endpoint()}",
                 "PROVIDER" = "${getS3Provider()}",
-                "AWS_ACCESS_KEY" = "${getS3AK()}",
-                "AWS_SECRET_KEY" = "${getS3SK()}"
+                ${getS3CredentialProperties("AWS")}
             )
             """
     logger.info("submit sql: ${sql_str}");

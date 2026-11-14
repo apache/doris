@@ -28,8 +28,7 @@ suite("test_tvf_empty_file", "p0") {
        // so it should return empty sets.
        order_qt_select """ SELECT * FROM S3 (
                                    "uri" = "http://${bucket}.${s3_endpoint}/${path}/empty_file_test.csv",
-                                   "ACCESS_KEY"= "${ak}",
-                                   "SECRET_KEY" = "${sk}",
+                                   ${getS3CredentialProperties("tvf")},
                                    "format" = "csv",
                                    "region" = "${region}"
                                    );
@@ -37,8 +36,7 @@ suite("test_tvf_empty_file", "p0") {
 
        order_qt_desc """ desc function S3 (
                                    "uri" = "http://${bucket}.${s3_endpoint}/${path}/empty_file_test.csv",
-                                   "ACCESS_KEY"= "${ak}",
-                                   "SECRET_KEY" = "${sk}",
+                                   ${getS3CredentialProperties("tvf")},
                                    "format" = "csv",
                                    "region" = "${region}"
                                    );
@@ -51,8 +49,7 @@ suite("test_tvf_empty_file", "p0") {
        // so it should return data of empty_file_test_1.csv and empty_file_test_2.cs
        order_qt_select2 """ SELECT * FROM S3 (
                                    "uri" = "http://${bucket}.${s3_endpoint}/${path}/empty_file_test*.csv",
-                                   "ACCESS_KEY"= "${ak}",
-                                   "SECRET_KEY" = "${sk}",
+                                   ${getS3CredentialProperties("tvf")},
                                    "format" = "csv",
                                    "region" = "${region}"
                                    ) order by c1;
@@ -60,8 +57,7 @@ suite("test_tvf_empty_file", "p0") {
 
        order_qt_des2 """ desc function S3 (
                                    "uri" = "http://${bucket}.${s3_endpoint}/${path}/empty_file_test*.csv",
-                                   "ACCESS_KEY"= "${ak}",
-                                   "SECRET_KEY" = "${sk}",
+                                   ${getS3CredentialProperties("tvf")},
                                    "format" = "csv",
                                    "region" = "${region}"
                                    );

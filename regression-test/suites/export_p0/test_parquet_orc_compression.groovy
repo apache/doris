@@ -23,13 +23,13 @@ suite("test_parquet_orc_compression", "p0") {
 
     String ak = getS3AK()
     String sk = getS3SK()
-    String s3_endpoint = getS3Endpoint()
-    String region = getS3Region()
-    String bucket = context.config.otherConfigs.get("s3BucketName");
+    String s3_endpoint = getS3WriteEndpoint()
+    String region = getS3WriteRegion()
+    String bucket = getS3WriteBucketName();
 
 
     def table_export_name = "test_parquet_orc_compression"
-    def outfile_path_prefix = """${bucket}/export/test_parquet_orc_compression/exp_"""
+    def outfile_path_prefix = """${bucket}/${getS3WriteKey("export/test_parquet_orc_compression/exp_")}"""
 
     sql """ DROP TABLE IF EXISTS ${table_export_name} """
     sql """
@@ -93,8 +93,7 @@ suite("test_parquet_orc_compression", "p0") {
                 WITH S3(
                     "s3.endpoint" = "${s3_endpoint}",
                     "s3.region" = "${region}",
-                    "s3.secret_key"="${sk}",
-                    "s3.access_key" = "${ak}"
+                    ${getS3CredentialProperties()}
                 );
             """
 
@@ -103,8 +102,7 @@ suite("test_parquet_orc_compression", "p0") {
             
                 order_qt_select_load1 """ select * from s3(
                                             "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.${file_format}",
-                                            "s3.access_key"= "${ak}",
-                                            "s3.secret_key" = "${sk}",
+                                            ${getS3CredentialProperties()},
                                             "format" = "${file_format}",
                                             "region" = "${region}"
                                         ) ORDER BY user_id;
@@ -127,8 +125,7 @@ suite("test_parquet_orc_compression", "p0") {
                 "compress_type" = "${compression_type}",
                 "s3.endpoint" = "${s3_endpoint}",
                 "s3.region" = "${region}",
-                "s3.secret_key"="${sk}",
-                "s3.access_key" = "${ak}"
+                ${getS3CredentialProperties()}
             );
         """
 
@@ -136,8 +133,7 @@ suite("test_parquet_orc_compression", "p0") {
             def outfile_url = res[0][3]
             order_qt_select_load1 """ SELECT * FROM S3 (
                     "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.${file_format}",
-                    "ACCESS_KEY"= "${ak}",
-                    "SECRET_KEY" = "${sk}",
+                    ${getS3CredentialProperties("tvf")},
                     "format" = "${file_format}",
                     "region" = "${region}"
                 );

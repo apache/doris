@@ -33,15 +33,14 @@ suite("test_is_being_synced") {
         CREATE RESOURCE IF NOT EXISTS "${resourceName}"
         PROPERTIES(
             "type"="s3",
-            "AWS_ENDPOINT" = "${getS3Endpoint()}",
-            "AWS_REGION" = "${getS3Region()}",
-            "AWS_ROOT_PATH" = "regression/cooldown",
-            "AWS_ACCESS_KEY" = "${getS3AK()}",
-            "AWS_SECRET_KEY" = "${getS3SK()}",
+            "AWS_ENDPOINT" = "${getS3WriteEndpoint()}",
+            "AWS_REGION" = "${getS3WriteRegion()}",
+            "AWS_ROOT_PATH" = "${getS3WriteKey("regression/cooldown")}",
+            ${getS3CredentialProperties("AWS")},
             "AWS_MAX_CONNECTIONS" = "50",
             "AWS_REQUEST_TIMEOUT_MS" = "3000",
             "AWS_CONNECTION_TIMEOUT_MS" = "1000",
-            "AWS_BUCKET" = "${getS3BucketName()}",
+            "AWS_BUCKET" = "${getS3WriteBucketName()}",
             "s3_validity_check" = "true"
         );
     """

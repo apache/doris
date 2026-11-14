@@ -28,14 +28,14 @@ suite("test_export_table_with_materialized_view", "p0") {
 
     String ak = getS3AK()
     String sk = getS3SK()
-    String s3_endpoint = getS3Endpoint()
-    String region = getS3Region()
-    String bucket = context.config.otherConfigs.get("s3BucketName");
+    String s3_endpoint = getS3WriteEndpoint()
+    String region = getS3WriteRegion()
+    String bucket = getS3WriteBucketName();
 
 
     def table_export_name = "test_export_table_with_materialized_view"
     def table_load_name = "test_load_table_with_rollup"
-    def outfile_path_prefix = """${bucket}/export/p0/export_table_with_materialized_view/exp"""
+    def outfile_path_prefix = """${bucket}/${getS3WriteKey("export/p0/export_table_with_materialized_view/exp")}"""
 
     // create table and insert
     sql """ DROP TABLE IF EXISTS ${table_export_name} """
@@ -108,8 +108,7 @@ suite("test_export_table_with_materialized_view", "p0") {
             WITH S3(
                 "s3.endpoint" = "${s3_endpoint}",
                 "s3.region" = "${region}",
-                "s3.secret_key"="${sk}",
-                "s3.access_key" = "${ak}",
+                ${getS3CredentialProperties()},
                 "provider" = "${getS3Provider()}"
             );
         """
@@ -117,8 +116,7 @@ suite("test_export_table_with_materialized_view", "p0") {
 
         qt_select_load1 """ select * from s3(
                 "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5+bucket.length(), outfile_url.length() - 1)}0.parquet",
-                "s3.access_key"= "${ak}",
-                "s3.secret_key" = "${sk}",
+                ${getS3CredentialProperties()},
                 "format" = "parquet",
                 "provider" = "${getS3Provider()}",
                 "region" = "${region}"

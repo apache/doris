@@ -18,12 +18,12 @@
 suite("test_outfile_constant", "p0") {
     String ak = getS3AK()
     String sk = getS3SK()
-    String s3_endpoint = getS3Endpoint()
-    String region = getS3Region()
-    String bucket = context.config.otherConfigs.get("s3BucketName");
+    String s3_endpoint = getS3WriteEndpoint()
+    String region = getS3WriteRegion()
+    String bucket = getS3WriteBucketName();
 
     def export_table_name = "test_outfile_constant"
-    def outFilePath = "${bucket}/outfile/constant_type/exp_"
+    def outFilePath = "${bucket}/${getS3WriteKey("outfile/constant_type/exp_")}"
 
     def outfile_to_S3 = { select_stmt, format ->
         // select ... into outfile ...
@@ -34,8 +34,7 @@ suite("test_outfile_constant", "p0") {
             PROPERTIES (
                 "s3.endpoint" = "${s3_endpoint}",
                 "s3.region" = "${region}",
-                "s3.secret_key"="${sk}",
-                "s3.access_key" = "${ak}"
+                ${getS3CredentialProperties()}
             );
         """
 
@@ -45,8 +44,7 @@ suite("test_outfile_constant", "p0") {
     def s3_tvf = { outfile_url, format ->
        order_qt_s3_select """ SELECT * FROM S3 (
             "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.${format}",
-            "ACCESS_KEY"= "${ak}",
-            "SECRET_KEY" = "${sk}",
+            ${getS3CredentialProperties("tvf")},
             "format" = "${format}",
             "region" = "${region}"
         );

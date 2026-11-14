@@ -112,8 +112,7 @@ suite("test_error_data_handling", "p0") {
             COLUMNS TERMINATED BY ","
         )
         WITH S3 (
-            "AWS_ACCESS_KEY" = "$ak",
-            "AWS_SECRET_KEY" = "$sk",
+            ${getS3CredentialProperties("AWS")},
             "AWS_ENDPOINT" = "${s3Endpoint}",
             "AWS_REGION" = "${s3Region}",
             "provider" = "${getS3Provider()}"
@@ -149,8 +148,7 @@ suite("test_error_data_handling", "p0") {
             COLUMNS TERMINATED BY ","
         )
         WITH S3 (
-            "AWS_ACCESS_KEY" = "$ak",
-            "AWS_SECRET_KEY" = "$sk",
+            ${getS3CredentialProperties("AWS")},
             "AWS_ENDPOINT" = "${s3Endpoint}",
             "AWS_REGION" = "${s3Region}",
             "provider" = "${getS3Provider()}"
@@ -187,8 +185,7 @@ suite("test_error_data_handling", "p0") {
             COLUMNS TERMINATED BY ","
         )
         WITH S3 (
-            "AWS_ACCESS_KEY" = "$ak",
-            "AWS_SECRET_KEY" = "$sk",
+            ${getS3CredentialProperties("AWS")},
             "AWS_ENDPOINT" = "${s3Endpoint}",
             "AWS_REGION" = "${s3Region}",
             "provider" = "${getS3Provider()}"

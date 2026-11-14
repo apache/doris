@@ -64,8 +64,7 @@ suite("test_streaming_job_max_retry", "nonConcurrent") {
                 "column_separator" = ",",
                 "s3.endpoint" = "${getS3Endpoint()}",
                 "s3.region" = "${getS3Region()}",
-                "s3.access_key" = "${getS3AK()}",
-                "s3.secret_key" = "${getS3SK()}"
+                ${getS3CredentialProperties()}
             );
         """
 

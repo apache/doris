@@ -22,9 +22,9 @@ suite("test_create_and_drop_repository", "backup_restore,external") {
 
     String ak = getS3AK()
     String sk = getS3SK()
-    String endpoint = getS3Endpoint()
-    String region = getS3Region()
-    String bucket = context.config.otherConfigs.get("s3BucketName");
+    String endpoint = getS3WriteEndpoint()
+    String region = getS3WriteRegion()
+    String bucket = getS3WriteBucketName();
 
     def filterShowRepoResult = { result, name ->
         for (record in result) {
@@ -38,13 +38,12 @@ suite("test_create_and_drop_repository", "backup_restore,external") {
     sql """
     CREATE REPOSITORY `${repoName}`
     WITH S3
-    ON LOCATION "s3://${bucket}/${repoName}"
+    ON LOCATION "s3://${bucket}/${getS3WriteKey(repoName)}"
     PROPERTIES
     (
         "s3.endpoint" = "http://${endpoint}",
         "s3.region" = "${region}",
-        "s3.access_key" = "${ak}",
-        "s3.secret_key" = "${sk}",
+        ${getS3CredentialProperties()},
         "provider" = "${getS3Provider()}"
     )
         """
@@ -63,13 +62,12 @@ suite("test_create_and_drop_repository", "backup_restore,external") {
     sql """
     CREATE READ ONLY REPOSITORY `${repoName}`
     WITH S3
-    ON LOCATION "s3://${bucket}/${repoName}"
+    ON LOCATION "s3://${bucket}/${getS3WriteKey(repoName)}"
     PROPERTIES
     (
         "s3.endpoint" = "http://${endpoint}",
         "s3.region" = "${region}",
-        "s3.access_key" = "${ak}",
-        "s3.secret_key" = "${sk}",
+        ${getS3CredentialProperties()},
         "provider" = "${getS3Provider()}"
     )
         """

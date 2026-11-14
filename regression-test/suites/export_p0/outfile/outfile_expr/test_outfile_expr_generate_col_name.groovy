@@ -24,13 +24,13 @@ import java.nio.file.Paths
 suite("test_outfile_expr_generate_col_name", "p0") {
     String ak = getS3AK()
     String sk = getS3SK()
-    String s3_endpoint = getS3Endpoint()
-    String region = getS3Region()
-    String bucket = getS3BucketName();
+    String s3_endpoint = getS3WriteEndpoint()
+    String region = getS3WriteRegion()
+    String bucket = getS3WriteBucketName();
 
 
     def export_table_name = "outfile_expr_export_test"
-    def outFilePath = "${bucket}/outfile/expr_generate_col_name/exp_"
+    def outFilePath = "${bucket}/${getS3WriteKey("outfile/expr_generate_col_name/exp_")}"
 
 
     def create_table = {
@@ -61,8 +61,7 @@ suite("test_outfile_expr_generate_col_name", "p0") {
             PROPERTIES (
                 "s3.endpoint" = "${s3_endpoint}",
                 "s3.region" = "${region}",
-                "s3.secret_key"="${sk}",
-                "s3.access_key" = "${ak}"
+                ${getS3CredentialProperties()}
             );
         """
 
@@ -95,8 +94,7 @@ suite("test_outfile_expr_generate_col_name", "p0") {
     def check_outfile_data = { outfile_url, outfile_format ->
         order_qt_select_tvf """ SELECT * FROM S3 (
                             "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.${outfile_format}",
-                            "ACCESS_KEY"= "${ak}",
-                            "SECRET_KEY" = "${sk}",
+                            ${getS3CredentialProperties("tvf")},
                             "format" = "${outfile_format}",
                             "region" = "${region}"
                         );
@@ -106,8 +104,7 @@ suite("test_outfile_expr_generate_col_name", "p0") {
     def check_outfile_column_name = { outfile_url, outfile_format ->
         order_qt_desc_s3 """ Desc function S3 (
                     "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.${outfile_format}",
-                    "ACCESS_KEY"= "${ak}",
-                    "SECRET_KEY" = "${sk}",
+                    ${getS3CredentialProperties("tvf")},
                     "format" = "${outfile_format}",
                     "region" = "${region}"
                 );
@@ -125,8 +122,7 @@ suite("test_outfile_expr_generate_col_name", "p0") {
             PROPERTIES (
                 "s3.endpoint" = "${s3_endpoint}",
                 "s3.region" = "${region}",
-                "s3.secret_key"="${sk}",
-                "s3.access_key" = "${ak}"
+                ${getS3CredentialProperties()}
             );
         """
         def outfile_url = res[0][3]
@@ -146,8 +142,7 @@ suite("test_outfile_expr_generate_col_name", "p0") {
             PROPERTIES (
                 "s3.endpoint" = "${s3_endpoint}",
                 "s3.region" = "${region}",
-                "s3.secret_key"="${sk}",
-                "s3.access_key" = "${ak}"
+                ${getS3CredentialProperties()}
             );
         """
         def outfile_url = res[0][3]
@@ -167,8 +162,7 @@ suite("test_outfile_expr_generate_col_name", "p0") {
             PROPERTIES (
                 "s3.endpoint" = "${s3_endpoint}",
                 "s3.region" = "${region}",
-                "s3.secret_key"="${sk}",
-                "s3.access_key" = "${ak}"
+                ${getS3CredentialProperties()}
             );
         """
         def outfile_url = res[0][3]
@@ -207,8 +201,7 @@ suite("test_outfile_expr_generate_col_name", "p0") {
             PROPERTIES (
                 "s3.endpoint" = "${s3_endpoint}",
                 "s3.region" = "${region}",
-                "s3.secret_key"="${sk}",
-                "s3.access_key" = "${ak}"
+                ${getS3CredentialProperties()}
             );
         """
         def outfile_url = res[0][3]
@@ -231,8 +224,7 @@ suite("test_outfile_expr_generate_col_name", "p0") {
             PROPERTIES (
                 "s3.endpoint" = "${s3_endpoint}",
                 "s3.region" = "${region}",
-                "s3.secret_key"="${sk}",
-                "s3.access_key" = "${ak}"
+                ${getS3CredentialProperties()}
             );
         """
         def outfile_url = res[0][3]

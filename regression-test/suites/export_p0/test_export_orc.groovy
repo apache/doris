@@ -28,12 +28,12 @@ suite("test_export_orc", "p0") {
 
     String ak = getS3AK()
     String sk = getS3SK()
-    String s3_endpoint = getS3Endpoint()
-    String region = getS3Region()
-    String bucket = context.config.otherConfigs.get("s3BucketName");
+    String s3_endpoint = getS3WriteEndpoint()
+    String region = getS3WriteRegion()
+    String bucket = getS3WriteBucketName();
 
     def table_export_name = "test_export_orc"
-    def outfile_path_prefix = """${bucket}/export/p0/orc/exp"""
+    def outfile_path_prefix = """${bucket}/${getS3WriteKey("export/p0/orc/exp")}"""
     def format = "orc"
 
 
@@ -111,8 +111,7 @@ suite("test_export_orc", "p0") {
             WITH S3(
                 "s3.endpoint" = "${s3_endpoint}",
                 "s3.region" = "${region}",
-                "s3.secret_key"="${sk}",
-                "s3.access_key" = "${ak}",
+                ${getS3CredentialProperties()},
                 "provider" = "${getS3Provider()}"
             );
         """
@@ -120,8 +119,7 @@ suite("test_export_orc", "p0") {
 
         qt_select_load1 """ SELECT * FROM s3(
                                     "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.${format}",
-                                    "s3.access_key"= "${ak}",
-                                    "s3.secret_key" = "${sk}",
+                                    ${getS3CredentialProperties()},
                                     "format" = "${format}",
                                     "region" = "${region}",
                                     "provider" = "${getS3Provider()}"

@@ -28,13 +28,13 @@ suite("test_outfile_csv_map_type", "p0") {
 
     String ak = getS3AK()
     String sk = getS3SK()
-    String s3_endpoint = getS3Endpoint()
-    String region = getS3Region()
-    String bucket = context.config.otherConfigs.get("s3BucketName");
+    String s3_endpoint = getS3WriteEndpoint()
+    String region = getS3WriteRegion()
+    String bucket = getS3WriteBucketName();
 
     def export_table_name = "outfile_csv_map_type_export_test"
     def load_table_name = "outfile_csv_map_type_load_test"
-    def outFilePath = "${bucket}/outfile/csv/map_type/exp_"
+    def outFilePath = "${bucket}/${getS3WriteKey("outfile/csv/map_type/exp_")}"
 
 
     def create_table = {table_name, map_field ->
@@ -59,8 +59,7 @@ suite("test_outfile_csv_map_type", "p0") {
             PROPERTIES (
                 "s3.endpoint" = "${s3_endpoint}",
                 "s3.region" = "${region}",
-                "s3.secret_key"="${sk}",
-                "s3.access_key" = "${ak}"
+                ${getS3CredentialProperties()}
             );
         """
 
@@ -93,8 +92,7 @@ suite("test_outfile_csv_map_type", "p0") {
 
         qt_select_load1 """ SELECT * FROM S3 (
                 "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.csv",
-                "ACCESS_KEY"= "${ak}",
-                "SECRET_KEY" = "${sk}",
+                ${getS3CredentialProperties("tvf")},
                 "format" = "csv",
                 "region" = "${region}"
             );
@@ -129,8 +127,7 @@ suite("test_outfile_csv_map_type", "p0") {
 
         qt_select_load2 """ SELECT * FROM S3 (
                 "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.csv",
-                "ACCESS_KEY"= "${ak}",
-                "SECRET_KEY" = "${sk}",
+                ${getS3CredentialProperties("tvf")},
                 "format" = "csv",
                 "region" = "${region}"
             );
@@ -165,8 +162,7 @@ suite("test_outfile_csv_map_type", "p0") {
 
         qt_select_load3 """ SELECT * FROM S3 (
                 "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.csv",
-                "ACCESS_KEY"= "${ak}",
-                "SECRET_KEY" = "${sk}",
+                ${getS3CredentialProperties("tvf")},
                 "format" = "csv",
                 "region" = "${region}"
             );
@@ -200,8 +196,7 @@ suite("test_outfile_csv_map_type", "p0") {
 
         qt_select_load4 """ SELECT * FROM S3 (
                 "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.csv",
-                "ACCESS_KEY"= "${ak}",
-                "SECRET_KEY" = "${sk}",
+                ${getS3CredentialProperties("tvf")},
                 "format" = "csv",
                 "region" = "${region}"
             );
@@ -238,8 +233,7 @@ suite("test_outfile_csv_map_type", "p0") {
 
         qt_select_load5 """ SELECT * FROM S3 (
                 "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.csv",
-                "ACCESS_KEY"= "${ak}",
-                "SECRET_KEY" = "${sk}",
+                ${getS3CredentialProperties("tvf")},
                 "format" = "csv",
                 "region" = "${region}"
             );
@@ -274,8 +268,7 @@ suite("test_outfile_csv_map_type", "p0") {
 
         qt_select_load6 """ SELECT * FROM S3 (
                 "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.csv",
-                "ACCESS_KEY"= "${ak}",
-                "SECRET_KEY" = "${sk}",
+                ${getS3CredentialProperties("tvf")},
                 "format" = "csv",
                 "region" = "${region}"
             );
@@ -309,8 +302,7 @@ suite("test_outfile_csv_map_type", "p0") {
 
         qt_select_load7 """ SELECT * FROM S3 (
                 "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.csv",
-                "ACCESS_KEY"= "${ak}",
-                "SECRET_KEY" = "${sk}",
+                ${getS3CredentialProperties("tvf")},
                 "format" = "csv",
                 "region" = "${region}"
             );
@@ -344,8 +336,7 @@ suite("test_outfile_csv_map_type", "p0") {
 
         qt_select_load8 """ SELECT * FROM S3 (
                 "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.csv",
-                "ACCESS_KEY"= "${ak}",
-                "SECRET_KEY" = "${sk}",
+                ${getS3CredentialProperties("tvf")},
                 "format" = "csv",
                 "region" = "${region}"
             );
@@ -380,8 +371,7 @@ suite("test_outfile_csv_map_type", "p0") {
 
         qt_select_load9 """ SELECT * FROM S3 (
                 "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.csv",
-                "ACCESS_KEY"= "${ak}",
-                "SECRET_KEY" = "${sk}",
+                ${getS3CredentialProperties("tvf")},
                 "format" = "csv",
                 "region" = "${region}"
             );
@@ -418,8 +408,7 @@ suite("test_outfile_csv_map_type", "p0") {
 
         qt_select_load10 """ SELECT * FROM S3 (
                 "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.csv",
-                "ACCESS_KEY"= "${ak}",
-                "SECRET_KEY" = "${sk}",
+                ${getS3CredentialProperties("tvf")},
                 "format" = "csv",
                 "region" = "${region}"
             );
@@ -453,8 +442,7 @@ suite("test_outfile_csv_map_type", "p0") {
 
         qt_select_load11 """ SELECT * FROM S3 (
                 "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.csv",
-                "ACCESS_KEY"= "${ak}",
-                "SECRET_KEY" = "${sk}",
+                ${getS3CredentialProperties("tvf")},
                 "format" = "csv",
                 "region" = "${region}"
             );
@@ -488,8 +476,7 @@ suite("test_outfile_csv_map_type", "p0") {
 
         qt_select_load12 """ SELECT * FROM S3 (
                 "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.csv",
-                "ACCESS_KEY"= "${ak}",
-                "SECRET_KEY" = "${sk}",
+                ${getS3CredentialProperties("tvf")},
                 "format" = "csv",
                 "region" = "${region}"
             );
@@ -523,8 +510,7 @@ suite("test_outfile_csv_map_type", "p0") {
 
         qt_select_load13 """ SELECT * FROM S3 (
                 "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.csv",
-                "ACCESS_KEY"= "${ak}",
-                "SECRET_KEY" = "${sk}",
+                ${getS3CredentialProperties("tvf")},
                 "format" = "csv",
                 "region" = "${region}"
             );
@@ -558,8 +544,7 @@ suite("test_outfile_csv_map_type", "p0") {
 
         qt_select_load14 """ SELECT * FROM S3 (
                 "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.csv",
-                "ACCESS_KEY"= "${ak}",
-                "SECRET_KEY" = "${sk}",
+                ${getS3CredentialProperties("tvf")},
                 "format" = "csv",
                 "region" = "${region}"
             );
@@ -595,8 +580,7 @@ suite("test_outfile_csv_map_type", "p0") {
 
         qt_select_load15 """ SELECT * FROM S3 (
                 "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.csv",
-                "ACCESS_KEY"= "${ak}",
-                "SECRET_KEY" = "${sk}",
+                ${getS3CredentialProperties("tvf")},
                 "format" = "csv",
                 "region" = "${region}"
             );
@@ -632,8 +616,7 @@ suite("test_outfile_csv_map_type", "p0") {
 
         qt_select_load16 """ SELECT * FROM S3 (
                 "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.csv",
-                "ACCESS_KEY"= "${ak}",
-                "SECRET_KEY" = "${sk}",
+                ${getS3CredentialProperties("tvf")},
                 "format" = "csv",
                 "region" = "${region}"
             );
@@ -668,8 +651,7 @@ suite("test_outfile_csv_map_type", "p0") {
 
         qt_select_load17 """ SELECT * FROM S3 (
                 "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.csv",
-                "ACCESS_KEY"= "${ak}",
-                "SECRET_KEY" = "${sk}",
+                ${getS3CredentialProperties("tvf")},
                 "format" = "csv",
                 "region" = "${region}"
             );
@@ -704,8 +686,7 @@ suite("test_outfile_csv_map_type", "p0") {
 
         qt_select_load18 """ SELECT * FROM S3 (
                 "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.csv",
-                "ACCESS_KEY"= "${ak}",
-                "SECRET_KEY" = "${sk}",
+                ${getS3CredentialProperties("tvf")},
                 "format" = "csv",
                 "region" = "${region}"
             );

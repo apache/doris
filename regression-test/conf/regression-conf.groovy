@@ -121,6 +121,18 @@ s3Source="aliyun"
 // s3Provider = ""
 ak="***********"
 sk="***********"
+// Optional third component of temporary credentials. Never log these values.
+// sessionToken = ""
+// Test-generated objects may use a private bucket and a unique prefix for each run.
+// These settings do not relocate public input fixtures. Omitted values preserve existing behavior.
+// s3WriteBucketName = ""
+// s3WritePrefix = ""
+// Optional write endpoint/region; omitted values use the fixture endpoint/region.
+// s3WriteEndpoint = ""
+// s3WriteRegion = ""
+// Both locations use the configured provider and credentials.
+// Credentials must remain valid for the complete test run; this framework does not acquire/renew leases.
+
 
 // jdbc connector test config
 // To enable jdbc test, you need first start mysql/pg container.

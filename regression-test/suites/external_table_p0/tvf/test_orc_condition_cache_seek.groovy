@@ -21,7 +21,7 @@ import org.apache.doris.regression.action.ProfileAction
 
 suite("test_orc_condition_cache_seek", "p0,external") {
     String provider = getS3Provider()
-    String endpoint = getS3Endpoint()
+    String endpoint = getS3WriteEndpoint()
     if (provider.equalsIgnoreCase("AZURE")) {
         if (endpoint == "azure-endpoint") {
             endpoint = "https://${getS3AK()}.blob.core.windows.net"
@@ -29,8 +29,8 @@ suite("test_orc_condition_cache_seek", "p0,external") {
             endpoint = "https://${endpoint}"
         }
     }
-    String bucket = context.config.otherConfigs.get("s3BucketName")
-    String key = "orc_condition_cache_seek/${UUID.randomUUID()}/values.orc"
+    String bucket = getS3WriteBucketName()
+    String key = getS3WriteKey("orc_condition_cache_seek/${UUID.randomUUID()}/values.orc")
     File fixture = new File(context.dataPath, "test_data/condition_cache_seek.orc")
     def blobClient = null
     def s3Client = null
@@ -49,13 +49,13 @@ suite("test_orc_condition_cache_seek", "p0,external") {
                     .buildClient()
             blobClient.uploadFromFile(fixture.absolutePath)
         } else {
-            s3Client = getS3Client()
+            s3Client = getS3WriteClient()
             s3Client.putObject(bucket, key, fixture)
         }
         uploaded = true
         String source = """S3('uri'='s3://${bucket}/${key}', 'format'='orc',
-                'provider'='${provider}', 's3.endpoint'='${endpoint}', 's3.region'='${getS3Region()}',
-                's3.access_key'='${getS3AK()}', 's3.secret_key'='${getS3SK()}')"""
+                'provider'='${provider}', 's3.endpoint'='${endpoint}', 's3.region'='${getS3WriteRegion()}',
+                ${getS3CredentialProperties()})"""
         sql "SET enable_sql_cache = false"
         sql "SET enable_query_cache = false"
         sql "SET enable_profile = true"

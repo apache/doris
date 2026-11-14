@@ -146,8 +146,7 @@ suite("test_stream_load_advanced_mapping", "p0") {
                     SET (k19=to_bitmap(k04),k20=HLL_HASH(k04),k21=TO_QUANTILE_STATE(k04,1.0),kd19=to_bitmap(k05),kd20=HLL_HASH(k05),kd21=TO_QUANTILE_STATE(k05,1.0))
                 )
                 WITH S3 (
-                    "AWS_ACCESS_KEY" = "$ak",
-                    "AWS_SECRET_KEY" = "$sk",
+                    ${getS3CredentialProperties("AWS")},
                     "AWS_ENDPOINT" = "${getS3Endpoint()}",
                     "AWS_REGION" = "${getS3Region()}",
                     "PROVIDER" = "${getS3Provider()}"
@@ -194,8 +193,7 @@ suite("test_stream_load_advanced_mapping", "p0") {
                     SET (k19=to_bitmap("1,2,3"),k20=hll_hash("k00"),k21=TO_quantile_state(k04,0.5),kd12=CURRENT_TIMESTAMP(),kd14=NOW(),kd19=to_bitmap("4,5,6"),kd20=hll_hash("k00"),kd21=TO_quantile_state(k05,1.0))
                 )
                 WITH S3 (
-                    "AWS_ACCESS_KEY" = "$ak",
-                    "AWS_SECRET_KEY" = "$sk",
+                    ${getS3CredentialProperties("AWS")},
                     "AWS_ENDPOINT" = "${getS3Endpoint()}",
                     "AWS_REGION" = "${getS3Region()}",
                     "PROVIDER" = "${getS3Provider()}"
@@ -242,8 +240,7 @@ suite("test_stream_load_advanced_mapping", "p0") {
                     SET (k19=to_bitmap(k04),k20=HLL_HASH(k04),k21=TO_QUANTILE_STATE(k04,1.0),kd04=k00 * 1,kd11=NOW(),kd13=date_add(kd11, interval 30 day),kd19=to_bitmap(k05),kd20=HLL_HASH(k05),kd21=TO_QUANTILE_STATE(k05,1.0))
                 )
                 WITH S3 (
-                    "AWS_ACCESS_KEY" = "$ak",
-                    "AWS_SECRET_KEY" = "$sk",
+                    ${getS3CredentialProperties("AWS")},
                     "AWS_ENDPOINT" = "${getS3Endpoint()}",
                     "AWS_REGION" = "${getS3Region()}",
                     "PROVIDER" = "${getS3Provider()}"
@@ -290,8 +287,7 @@ suite("test_stream_load_advanced_mapping", "p0") {
                     SET (k19=to_bitmap(k04),k20=HLL_HASH(k04),k21=TO_QUANTILE_STATE(k04,1.0),kd11=str_to_date("2023-08-10", "%Y-%m-%d"),kd12=str_to_date(concat("2023-08-", random(5,10), " 12:00:00"), "%Y-%m-%d %H:%i:%s"),kd19=to_bitmap(concat(k00+2, ",", k00+3)),kd20=HLL_HASH(k05),kd21=TO_QUANTILE_STATE(k05,1.0))
                 )
                 WITH S3 (
-                    "AWS_ACCESS_KEY" = "$ak",
-                    "AWS_SECRET_KEY" = "$sk",
+                    ${getS3CredentialProperties("AWS")},
                     "AWS_ENDPOINT" = "${getS3Endpoint()}",
                     "AWS_REGION" = "${getS3Region()}",
                     "PROVIDER" = "${getS3Provider()}"

@@ -25,8 +25,7 @@ suite("test_tvf_error_url", "p0") {
     String path = "select_tvf/no_exists_file_test"
     order_qt_select """ SELECT * FROM S3 (
                             "uri" = "http://${bucket}.${s3_endpoint}/${path}/no_exist_file1.csv",
-                            "ACCESS_KEY"= "${ak}",
-                            "SECRET_KEY" = "${sk}",
+                            ${getS3CredentialProperties("tvf")},
                             "format" = "csv",
                             "region" = "${region}"
                             );
@@ -34,8 +33,7 @@ suite("test_tvf_error_url", "p0") {
 
     order_qt_desc """ desc function S3 (
                             "uri" = "http://${bucket}.${s3_endpoint}/${path}/no_exist_file1.csv",
-                            "ACCESS_KEY"= "${ak}",
-                            "SECRET_KEY" = "${sk}",
+                            ${getS3CredentialProperties("tvf")},
                             "format" = "csv",
                             "region" = "${region}"
                             );
@@ -43,8 +41,7 @@ suite("test_tvf_error_url", "p0") {
 
     order_qt_select2 """ SELECT * FROM S3 (
                             "uri" = "http://${bucket}.${s3_endpoint}/${path}/*.csv",
-                            "ACCESS_KEY"= "${ak}",
-                            "SECRET_KEY" = "${sk}",
+                            ${getS3CredentialProperties("tvf")},
                             "format" = "csv",
                             "region" = "${region}"
                             );
@@ -52,8 +49,7 @@ suite("test_tvf_error_url", "p0") {
 
     order_qt_desc2 """ desc function S3 (
                             "uri" = "http://${bucket}.${s3_endpoint}/${path}/*.csv",
-                            "ACCESS_KEY"= "${ak}",
-                            "SECRET_KEY" = "${sk}",
+                            ${getS3CredentialProperties("tvf")},
                             "format" = "csv",
                             "region" = "${region}"
                             );
