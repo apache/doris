@@ -19,6 +19,7 @@ package org.apache.doris.common.profile;
 
 import org.apache.doris.common.util.SafeStringBuilder;
 import org.apache.doris.thrift.TCounter;
+import org.apache.doris.thrift.TPlanNodeRuntimeStatsItem;
 import org.apache.doris.thrift.TRuntimeProfileNode;
 import org.apache.doris.thrift.TRuntimeProfileTree;
 import org.apache.doris.thrift.TUnit;
@@ -34,6 +35,7 @@ import org.junit.jupiter.api.Test;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Set;
 
 public class RuntimeProfileTest {
@@ -184,5 +186,69 @@ public class RuntimeProfileTest {
         profile.prettyPrint(builder, "");
 
         LOG.info("testUpdate profile:\n{}", builder.toString());
+    }
+
+    @Test
+    public void testHboStatsReadFlatAndGroupedCounters() {
+        for (boolean grouped : new boolean[] {false, true}) {
+            RuntimeProfile operator = new RuntimeProfile("HASH_JOIN_OPERATOR (id=7)", 7);
+            RuntimeProfile common = grouped ? new RuntimeProfile("CommonCounters") : operator;
+            RuntimeProfile custom = grouped ? new RuntimeProfile("CustomCounters") : operator;
+            if (grouped) {
+                operator.addChild(common, true);
+                operator.addChild(custom, true);
+            }
+            common.addCounter("RowsProduced", aggregateCounter(0, 0, 20, 10), "");
+            common.addCounter("InputRows", aggregateCounter(0, 0, 50, 50), "");
+            custom.addCounter("ProbeRows", aggregateCounter(0, 0, 0, 200), "");
+            custom.addCounter("RuntimeFilterInfo", aggregateCounter(0, 0, 0, 0), "");
+            custom.addCounter("RF0 InputRows", aggregateCounter(10, 20, 30, 40), "RuntimeFilterInfo");
+            custom.addCounter("RF0 FilterRows", aggregateCounter(0, 1, 2, 3), "RuntimeFilterInfo");
+            AggCounter waitTime = new AggCounter(TUnit.TIME_NS);
+            for (long value : new long[] {10, 20, 30, 40}) {
+                waitTime.addCounter(new Counter(TUnit.TIME_NS, value));
+            }
+            custom.addCounter("RF0 WaitTime", waitTime, "RuntimeFilterInfo");
+            RuntimeProfile unrelated = new RuntimeProfile("Scanner");
+            unrelated.addCounter("RowsProduced", aggregateCounter(999), "");
+            operator.addChild(unrelated, true);
+
+            List<TPlanNodeRuntimeStatsItem> items = RuntimeProfile.toTPlanNodeRuntimeStatsItem(operator, null);
+            Assertions.assertEquals(1, items.size());
+            TPlanNodeRuntimeStatsItem item = items.get(0);
+            Assertions.assertEquals(7, item.getNodeId());
+            Assertions.assertEquals(30, item.getOutputRows());
+            Assertions.assertEquals(100, item.getInputRows());
+            Assertions.assertEquals(200, item.getJoinProbeRows());
+            Assertions.assertEquals(4, item.getJoinProberSkewRatio());
+            Assertions.assertEquals(4, item.getInstanceNum());
+            Assertions.assertEquals(100, item.getRuntimeFilterInputRows());
+            Assertions.assertEquals(6, item.getRuntimeFilterRows());
+        }
+    }
+
+    @Test
+    public void testHboBuildSinkReadsGroupedInputRows() {
+        RuntimeProfile operator = new RuntimeProfile("HASH_JOIN_SINK_OPERATOR (id=8)", 8);
+        RuntimeProfile common = new RuntimeProfile("CommonCounters");
+        common.addCounter("InputRows", aggregateCounter(0, 0, 0, 200), "");
+        operator.addChild(common, true);
+
+        List<TPlanNodeRuntimeStatsItem> items = RuntimeProfile.toTPlanNodeRuntimeStatsItem(operator, null);
+        Assertions.assertEquals(1, items.size());
+        TPlanNodeRuntimeStatsItem item = items.get(0);
+        Assertions.assertEquals(8, item.getNodeId());
+        Assertions.assertEquals(200, item.getInputRows());
+        Assertions.assertEquals(200, item.getJoinBuilderRows());
+        Assertions.assertEquals(4, item.getJoinBuilderSkewRatio());
+        Assertions.assertEquals(4, item.getInstanceNum());
+    }
+
+    private static AggCounter aggregateCounter(long... values) {
+        AggCounter counter = new AggCounter(TUnit.UNIT);
+        for (long value : values) {
+            counter.addCounter(new Counter(TUnit.UNIT, value));
+        }
+        return counter;
     }
 }
