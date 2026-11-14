@@ -143,6 +143,21 @@ oceanbase_cdc_port=2883
 enableHiveTest=false
 enablePaimonTest=false
 
+// Delta uses a separate Spark configuration, with Hive 3 HMS and MinIO.
+enableDeltaLakeTest=false
+// Optional synthetic planning fixture; see the Delta planning README.
+enableDeltaLakePlanningTest=false
+// Supply a local JSON file with warehouse and storage properties for each storage matrix run.
+enableDeltaLakeStorageTest=false
+// Optional SF1 TPC-H/TPC-DS comparison against the same Parquet files through Hive.
+enableDeltaLakeBenchmarkTest=false
+deltalakeBenchmarkQueryPattern=".*"
+deltalakeStoragePropertiesFile=""
+deltalakeMinioPort=19001
+deltalakeHmsPort=19383
+deltalakeSparkPort=11002
+deltalakeWarehouse="s3a://delta/warehouse"
+
 // port of hive2 docker
 hive2HmsPort=9083
 hive2HdfsPort=8020
