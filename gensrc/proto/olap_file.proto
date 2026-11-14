@@ -586,6 +586,7 @@ message TabletSchemaPB {
     optional int32 row_ttl_time_zone_offset_seconds = 45 [default = 0];
     // cid of the row TTL hidden column (__DORIS_TTL_COL__).
     optional int32 ttl_col_idx = 46 [default = -1];
+    optional bool variant_escape_dots_in_keys = 47 [default = false];
 
     optional SplitSchemaPB __split_schema = 1000;  // A special field, DO NOT change it.
 }
@@ -646,6 +647,7 @@ message TabletSchemaCloudPB {
     optional int32 row_ttl_time_zone_offset_seconds = 46 [default = 0];
     // cid of the row TTL hidden column (__DORIS_TTL_COL__).
     optional int32 ttl_col_idx = 47 [default = -1];
+    optional bool variant_escape_dots_in_keys = 48 [default = false];
 
     optional bool is_dynamic_schema = 100 [default=false];
 

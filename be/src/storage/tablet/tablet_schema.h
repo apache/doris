@@ -367,7 +367,8 @@ public:
 
     const std::string& get_index_suffix() const { return _escaped_index_suffix_path; }
 
-    void set_escaped_escaped_index_suffix_path(const std::string& name);
+    void set_escaped_escaped_index_suffix_path(const std::string& name,
+                                               bool escape_percent = false);
 
     bool is_inverted_index() const { return _index_type == IndexType::INVERTED; }
 
@@ -434,6 +435,8 @@ public:
     }
     void to_schema_pb(TabletSchemaPB* tablet_meta_pb) const;
     void append_column(TabletColumn column, ColumnType col_type = ColumnType::NORMAL);
+
+    bool variant_escape_dots_in_keys() const { return _variant_escape_dots_in_keys; }
     void append_index(TabletIndex&& index);
     void remove_index(int64_t index_id);
     void clear_index();
@@ -824,6 +827,7 @@ private:
     // Contains column ids of which columns should be encoded into row store.
     // ATTN: For compability reason empty cids means all columns of tablet schema are encoded to row column
     std::vector<int32_t> _row_store_column_unique_ids;
+    bool _variant_escape_dots_in_keys = false;
     bool _deprecated_enable_variant_flatten_nested = false;
 
     std::map<size_t, int32_t> _vir_col_idx_to_unique_id;

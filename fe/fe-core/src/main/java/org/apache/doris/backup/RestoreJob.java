@@ -1492,7 +1492,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                             localTbl.getRowStoreColumnsUniqueIds(rowStoreColumns),
                             objectPool,
                             localTbl.rowStorePageSize(),
-                            localTbl.variantEnableFlattenNested(),
+                            localTbl.variantEnableFlattenNested(), localTbl.getVariantEscapeDotsInKeys(),
                             localTbl.storagePageSize(), localTbl.getTDEAlgorithm(),
                             localTbl.storageDictPageSize(),
                             localTbl.getColumnSeqMapping(),

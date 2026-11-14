@@ -22,10 +22,14 @@ import org.apache.doris.analysis.DateLiteralUtils;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DataProperty;
+import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.catalog.info.IndexType;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.qe.SessionVariable;
@@ -41,6 +45,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.mockito.Mockito;
 
 import java.time.Instant;
 import java.time.ZoneId;
@@ -55,6 +60,107 @@ import java.util.TimeZone;
 
 
 public class PropertyAnalyzerTest {
+    @Test
+    public void testVariantTableValidation() throws AnalysisException {
+        Column variant = Mockito.mock(Column.class);
+        Mockito.when(variant.getType()).thenReturn(Type.VARIANT);
+        Index badIndex = new Index(1, "idx", List.of("v"), IndexType.INVERTED,
+                Map.of("field_pattern", "a.bad%2e"), "");
+        PropertyAnalyzer.validateVariantTable(false, List.of(variant), List.of(badIndex));
+        Mockito.when(variant.getVariantEnableNestedGroup()).thenReturn(true);
+        PropertyAnalyzer.validateVariantTable(false, List.of(variant), List.of(badIndex));
+        Assertions.assertThrows(AnalysisException.class,
+                () -> PropertyAnalyzer.validateVariantTable(true, List.of(variant), List.of()));
+        Mockito.when(variant.getVariantEnableNestedGroup()).thenReturn(false);
+        Mockito.when(variant.getChildren()).thenReturn(List.of(new Column("a.bad%2e", Type.INT)));
+        Assertions.assertThrows(AnalysisException.class,
+                () -> PropertyAnalyzer.validateVariantTable(true, List.of(variant), List.of()));
+        Mockito.when(variant.getChildren()).thenReturn(List.of(new Column("a.good%2E", Type.INT)));
+        PropertyAnalyzer.validateVariantTable(true, List.of(variant), List.of());
+        Assertions.assertThrows(AnalysisException.class,
+                () -> PropertyAnalyzer.validateVariantTable(true, List.of(variant), List.of(badIndex)));
+        Index goodIndex = new Index(2, "good", List.of("v"), IndexType.INVERTED,
+                Map.of("field_pattern", "a.good%2E*"), "");
+        PropertyAnalyzer.validateVariantTable(true, List.of(variant), List.of(goodIndex));
+    }
+
+    @Test
+    public void testRejectVariantEscapeAlterAndExternal() throws AnalysisException {
+        PropertyAnalyzer.rejectVariantEscapeDotsInKeysAlter(null);
+        PropertyAnalyzer.rejectVariantEscapeDotsInKeysAlter(Map.of("other", "true"));
+        for (String key : List.of("variant_escape_dots_in_keys", "VARIANT_ESCAPE_DOTS_IN_KEYS")) {
+            for (String value : List.of("true", "false", "invalid")) {
+                Assertions.assertThrows(org.apache.doris.nereids.exceptions.AnalysisException.class,
+                        () -> PropertyAnalyzer.rejectVariantEscapeDotsInKeysAlter(Map.of(key, value)));
+                Assertions.assertThrows(AnalysisException.class,
+                        () -> PropertyAnalyzer.rejectVariantEscapeDotsInKeysExternal(Map.of(key, value)));
+            }
+        }
+    }
+
+    @Test
+    public void testConsistentVariantSources() throws AnalysisException {
+        String key = PropertyAnalyzer.PROPERTIES_VARIANT_ESCAPE_DOTS_IN_KEYS;
+        OlapTable escaped = Mockito.mock(OlapTable.class);
+        Mockito.when(escaped.getVariantEscapeDotsInKeys()).thenReturn(true);
+        Mockito.when(escaped.getBaseSchema()).thenReturn(List.of(new Column("v", Type.VARIANT)));
+        OlapTable legacy = Mockito.mock(OlapTable.class);
+        Mockito.when(legacy.getBaseSchema()).thenReturn(List.of(new Column("v", Type.VARIANT)));
+        OlapTable integers = Mockito.mock(OlapTable.class);
+        Mockito.when(integers.getBaseSchema()).thenReturn(List.of(new Column("k", Type.INT)));
+        OlapTable escapedIntegers = Mockito.mock(OlapTable.class);
+        Mockito.when(escapedIntegers.getVariantEscapeDotsInKeys()).thenReturn(true);
+        Mockito.when(escapedIntegers.getBaseSchema()).thenReturn(List.of(new Column("k", Type.INT)));
+        Assertions.assertEquals(Map.of(), PropertyAnalyzer.inheritVariantEscapeDotsInKeys(
+                Map.of(), List.of(escapedIntegers), true));
+        Assertions.assertEquals(Map.of(key, "true"), PropertyAnalyzer.inheritVariantEscapeDotsInKeys(
+                Map.of(), List.of(escapedIntegers), false));
+        Assertions.assertEquals(Map.of(key, "true"), PropertyAnalyzer.inheritVariantEscapeDotsInKeys(
+                Map.of(), List.of(integers, escaped), true));
+        Assertions.assertEquals(Map.of(), PropertyAnalyzer.inheritVariantEscapeDotsInKeys(
+                Map.of(), List.of(legacy), true));
+        Assertions.assertEquals(Map.of(key, "true"), PropertyAnalyzer.inheritVariantEscapeDotsInKeys(
+                Map.of(key, "TRUE"), List.of(escaped), true));
+        Assertions.assertEquals(Map.of(), PropertyAnalyzer.inheritVariantEscapeDotsInKeys(
+                Map.of(key, "FALSE"), List.of(legacy), true));
+        for (Map<String, String> props : List.of(Map.<String, String>of(), Map.of(key, "true"), Map.of(key, "false"))) {
+            Assertions.assertThrows(AnalysisException.class, () -> PropertyAnalyzer.inheritVariantEscapeDotsInKeys(
+                    props, List.of(legacy, escaped), true));
+        }
+        Assertions.assertThrows(AnalysisException.class, () -> PropertyAnalyzer.inheritVariantEscapeDotsInKeys(
+                Map.of(key, "false"), List.of(escaped), true));
+        Assertions.assertThrows(AnalysisException.class, () -> PropertyAnalyzer.inheritVariantEscapeDotsInKeys(
+                Map.of(key, "true"), List.of(legacy), true));
+        Assertions.assertEquals(Map.of(key, "true"), PropertyAnalyzer.inheritVariantEscapeDotsInKeys(
+                Map.of(key, "true"), List.of(integers, Mockito.mock(TableIf.class)), true));
+        Assertions.assertEquals(Map.of(key, "true"), PropertyAnalyzer.inheritVariantEscapeDotsInKeys(
+                Map.of(), List.of(legacy, escaped), false));
+    }
+
+    @Test
+    public void testInheritVariantEscapeDotsInKeys() throws AnalysisException {
+        String key = PropertyAnalyzer.PROPERTIES_VARIANT_ESCAPE_DOTS_IN_KEYS;
+        OlapTable escaped = Mockito.mock(OlapTable.class);
+        Mockito.when(escaped.getVariantEscapeDotsInKeys()).thenReturn(true);
+        OlapTable legacy = Mockito.mock(OlapTable.class);
+        TableIf external = Mockito.mock(TableIf.class);
+        Assertions.assertEquals(Map.of(key, "true"), PropertyAnalyzer.inheritVariantEscapeDotsInKeys(
+                Map.of(key, "TRUE"), List.of(legacy, external), false));
+        Assertions.assertEquals(Map.of(), PropertyAnalyzer.inheritVariantEscapeDotsInKeys(
+                Map.of(key, "FALSE"), List.of(escaped), false));
+        Assertions.assertEquals(Map.of(key, "true"), PropertyAnalyzer.inheritVariantEscapeDotsInKeys(
+                Map.of(), List.of(escaped), false));
+        Assertions.assertEquals(Map.of(), PropertyAnalyzer.inheritVariantEscapeDotsInKeys(
+                Map.of(), List.of(legacy), false));
+        Assertions.assertEquals(Map.of(), PropertyAnalyzer.inheritVariantEscapeDotsInKeys(
+                Map.of(), List.of(external), false));
+        Assertions.assertEquals(Map.of(), PropertyAnalyzer.inheritVariantEscapeDotsInKeys(null, List.of(), false));
+        Assertions.assertEquals(Map.of(key, "true"), PropertyAnalyzer.inheritVariantEscapeDotsInKeys(
+                Map.of(), List.of(legacy, external, escaped), false));
+        Assertions.assertThrows(AnalysisException.class, () -> PropertyAnalyzer.inheritVariantEscapeDotsInKeys(
+                Map.of(key, "invalid"), List.of(escaped), false));
+    }
+
     @Test
     public void testBinlogTtlRejectsValuesBelowDisabledSentinel() throws AnalysisException {
         Map<String, String> properties = new HashMap<>();
@@ -1009,6 +1115,30 @@ public class PropertyAnalyzerTest {
             Assertions.assertEquals(expectedSummer, dpSummer.getCooldownTimeMs(), "Summer target with JVM summer must also work");
         } finally {
             TimeZone.setDefault(originalTimezone);
+        }
+    }
+
+    @Test
+    public void testEscapedVariantPropertyAndStoragePathCodec() throws Exception {
+        Map<String, String> properties = new HashMap<>();
+        Assertions.assertFalse(PropertyAnalyzer.analyzeVariantEscapeDotsInKeys(properties));
+        for (String value : new String[] {"true", "TRUE", "false", "FALSE"}) {
+            properties.put(PropertyAnalyzer.PROPERTIES_VARIANT_ESCAPE_DOTS_IN_KEYS, value);
+            Assertions.assertEquals(Boolean.parseBoolean(value),
+                    PropertyAnalyzer.analyzeVariantEscapeDotsInKeys(properties));
+            Assertions.assertTrue(properties.isEmpty());
+        }
+        properties.put(PropertyAnalyzer.PROPERTIES_VARIANT_ESCAPE_DOTS_IN_KEYS, "invalid");
+        Assertions.assertThrows(AnalysisException.class,
+                () -> PropertyAnalyzer.analyzeVariantEscapeDotsInKeys(properties));
+        for (String key : new String[] {"", "a.b", "50%", "a%2Eb", "%25", "ordinary"}) {
+            String encoded = PropertyAnalyzer.encodeVariantPathComponent(key);
+            Assertions.assertEquals(key, PropertyAnalyzer.decodeVariantPathComponent(encoded));
+            PropertyAnalyzer.validateVariantStoragePath("parent." + encoded);
+        }
+        for (String invalid : new String[] {"%", "%2", "%2e", "%20", "a%25%"}) {
+            Assertions.assertThrows(AnalysisException.class,
+                    () -> PropertyAnalyzer.validateVariantStoragePath("parent." + invalid));
         }
     }
 }

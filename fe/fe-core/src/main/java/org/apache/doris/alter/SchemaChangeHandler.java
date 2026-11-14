@@ -2684,6 +2684,10 @@ public class SchemaChangeHandler extends AlterHandler {
                 }
             } // end for alter clauses
 
+            PropertyAnalyzer.validateVariantTable(olapTable.getVariantEscapeDotsInKeys(),
+                    indexSchemaMap.values().stream().flatMap(Collection::stream).collect(Collectors.toList()),
+                    newIndexes);
+
             if (LOG.isDebugEnabled()) {
                 LOG.debug("table: {}({}), lightSchemaChange: {}, lightIndexChange: {},"
                         + " buildIndexChange: {}, indexSchemaMap:{}",

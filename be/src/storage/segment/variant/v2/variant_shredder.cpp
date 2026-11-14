@@ -178,12 +178,17 @@ struct VariantShredder::Impl {
             return found->second;
         }
 
+        auto key = metadata_cache.metadata.key_at(field).to_string_view();
+        std::string encoded;
+        if (options.escape_dots_in_keys) {
+            encoded = encode_variant_path_component(key);
+            key = encoded;
+        }
         PathInDataBuilder builder;
-        builder.append(paths[parent].path.get_parts(), false)
-                .append(metadata_cache.metadata.key_at(field).to_string_view(), false);
+        builder.append(paths[parent].path.get_parts(), false).append(key, false);
         PathInData child = builder.build();
         // V2 object traversal keeps arrays as leaves. Canonicalizing into the dotted on-disk
-        // namespace also makes {"a.b": 1} and {"a": {"b": 1}} share one path.
+        // namespace merges dotted keys only in legacy mode; escaped components contain no dots.
         child = PathInData(child.get_path());
 
         PathIndex child_index = 0;

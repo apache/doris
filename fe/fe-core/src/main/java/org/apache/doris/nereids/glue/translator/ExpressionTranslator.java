@@ -235,7 +235,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
             return null;
         }
         OlapTable olapTbl = (OlapTable) tupleDesc.getTable();
-        return olapTbl.getInvertedIndex(column, slotDesc.getSubColLables());
+        return olapTbl.getInvertedIndexByStoragePath(column, slotDesc.getSubColLables(), null);
     }
 
     @Override

@@ -23,6 +23,8 @@
 #include <string>
 #include <vector>
 
+#include "common/status.h"
+
 namespace doris {
 
 class PathInDataTest : public ::testing::Test {
@@ -244,6 +246,20 @@ TEST_F(PathInDataTest, ComparisonWithIsTyped) {
     PathInData::Hash hasher;
     EXPECT_NE(hasher(path1), hasher(path2));
     EXPECT_EQ(hasher(path1), hasher(path3));
+}
+
+TEST_F(PathInDataTest, EscapedComponentsAreStrictAndReversible) {
+    for (const std::string_view key : {"", "a.b", "a%2Eb", "50%", "%25", "a_b", "..", "中文.键"}) {
+        const auto encoded = encode_variant_path_component(key);
+        EXPECT_EQ(encoded.find('.'), std::string::npos);
+        std::string decoded;
+        ASSERT_TRUE(decode_variant_path_component(encoded, &decoded).ok());
+        EXPECT_EQ(decoded, key);
+    }
+    for (const auto& key : {"%", "%2", "%2e", "%20", "%252e%"}) {
+        std::string decoded;
+        EXPECT_FALSE(decode_variant_path_component(key, &decoded).ok());
+    }
 }
 
 } // namespace doris

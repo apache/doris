@@ -1797,4 +1797,28 @@ TEST(VariantAssemblerLegacyTest, NestedArrayPathReturnsNotSupported) {
 }
 
 } // namespace
+
+TEST(VariantAssemblerLegacyTest, EscapedSparseAndDocKeysDecodeOnce) {
+    const auto cell = fixed_storage_cell<int32_t>(FieldType::OLAP_FIELD_TYPE_INT, 1);
+    for (auto kind : {StorageMapKind::SPARSE, StorageMapKind::DOC}) {
+        VariantAssemblerOptions options;
+        options.path_encoding = 1;
+        options.storage_map_kind = kind;
+        auto assembler = create_assembler(std::move(options));
+        ASSERT_NE(assembler, nullptr);
+        auto storage = map_column({{"a%252Eb", cell}, {"a%2Eb", cell}, {"a.b", cell}});
+        VariantAssemblerBatchView batch;
+        batch.num_rows = 1;
+        batch.storage_map = storage.get();
+        ColumnNullable::MutablePtr output;
+        ASSERT_TRUE(assembler->assemble(batch, &output).ok());
+        EXPECT_EQ(json_at(assembled_values(output), 0), R"({"a":{"b":1},"a%2Eb":1,"a.b":1})");
+        for (const auto& invalid : {"a%", "a%2e", "a%20"}) {
+            storage = map_column({{invalid, cell}});
+            batch.storage_map = storage.get();
+            EXPECT_TRUE(assembler->assemble(batch, &output).is<ErrorCode::CORRUPTION>());
+        }
+    }
+}
+
 } // namespace doris::segment_v2::variant_v2

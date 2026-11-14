@@ -53,6 +53,11 @@ bool has_extracted_variant_columns(const TabletSchema& tablet_schema, int parent
 
 Status validate_variant_v2_writer_layout(const TabletSchema& tablet_schema,
                                          const TabletColumn& parent_column) {
+    if (parent_column.variant_enable_nested_group() &&
+        tablet_schema.variant_escape_dots_in_keys()) {
+        return Status::NotSupported(
+                "NestedGroup and variant_escape_dots_in_keys cannot both be true");
+    }
     if (parent_column.variant_enable_nested_group()) {
         return Status::NotSupported("ColumnVariantV2 writer does not support nested-group layout");
     }
@@ -77,6 +82,7 @@ Status make_variant_shredder_options(const TabletSchema& tablet_schema,
             .physical_layout = physical_layout,
             .max_subcolumns_count = cast_set<size_t>(parent_column.variant_max_subcolumns_count()),
             .typed_paths_to_sparse = parent_column.variant_enable_typed_paths_to_sparse(),
+            .escape_dots_in_keys = tablet_schema.variant_escape_dots_in_keys(),
             .sparse_bucket_count = cast_set<uint32_t>(
                     std::max(1, parent_column.variant_sparse_hash_shard_count())),
             .max_sparse_column_statistics_size =
@@ -160,6 +166,10 @@ void init_column_meta(ColumnMetaPB* meta, uint32_t column_id, const TabletColumn
     if (column.is_variant_type()) {
         meta->set_variant_max_subcolumns_count(column.variant_max_subcolumns_count());
         meta->set_variant_enable_doc_mode(column.variant_enable_doc_mode());
+        if (!column.is_extracted_column() &&
+            opts.rowset_ctx->tablet_schema->variant_escape_dots_in_keys()) {
+            meta->set_variant_path_encoding(1);
+        }
     }
 }
 
@@ -194,7 +204,8 @@ Status create_column_writer(uint32_t cid, const TabletColumn& column,
         if (!subcolumn_indexes.empty()) {
             init_opt_inverted_index();
         } else if (!parent_index.empty() &&
-                   variant_util::inherit_index(parent_index, subcolumn_indexes, column)) {
+                   variant_util::inherit_index(parent_index, subcolumn_indexes, column,
+                                               tablet_schema->variant_escape_dots_in_keys())) {
             init_opt_inverted_index();
         } else {
             opt->need_inverted_index = false;
@@ -383,9 +394,6 @@ Status prepare_subcolumn_writer_target(
                     variant_util::ExtraInfo {.unique_id = -1,
                                              .parent_unique_id = parent_column.unique_id(),
                                              .path_info = full_path});
-            const auto& indexes =
-                    base_opts.rowset_ctx->tablet_schema->inverted_indexs(parent_column.unique_id());
-            variant_util::inherit_index(indexes, subcolumn_indexes, tablet_column);
         }
     }
 
@@ -406,13 +414,17 @@ Status prepare_subcolumn_writer_target(
     opts.file_writer = base_opts.file_writer;
     opts.storage_format = base_opts.storage_format;
     variant_util::inherit_column_attributes(parent_column, tablet_column);
-
+    if (!resolved_from_schema) {
+        variant_util::inherit_index(
+                base_opts.rowset_ctx->tablet_schema->inverted_indexs(parent_column.unique_id()),
+                subcolumn_indexes, tablet_column,
+                base_opts.rowset_ctx->tablet_schema->variant_escape_dots_in_keys());
+    }
     const bool need_record_none_null_value_size =
             (!tablet_column.path_info_ptr()->get_is_typed() ||
              parent_column.variant_enable_typed_paths_to_sparse()) &&
             !tablet_column.path_info_ptr()->has_nested_part() &&
             variant_util::should_record_variant_path_stats(parent_column);
-
     std::unique_ptr<ColumnWriter> writer;
     RETURN_IF_ERROR(create_column_writer(
             current_column_id, tablet_column, base_opts.rowset_ctx->tablet_schema,

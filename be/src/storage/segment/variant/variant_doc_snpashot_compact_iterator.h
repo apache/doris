@@ -26,8 +26,8 @@ namespace doris::segment_v2 {
 
 class VariantDocValueCompactIterator : public ColumnIterator {
 public:
-    VariantDocValueCompactIterator(ColumnIteratorUPtr&& column_iterator)
-            : _doc_value_iterator(std::move(column_iterator)) {}
+    VariantDocValueCompactIterator(ColumnIteratorUPtr&& column_iterator, uint32_t path_encoding = 0)
+            : _doc_value_iterator(std::move(column_iterator)), _path_encoding(path_encoding) {}
 
     Status init(const ColumnIteratorOptions& opts) override {
         return _doc_value_iterator->init(opts);
@@ -62,6 +62,7 @@ private:
             return Status::Corruption("Variant doc compact input is not Map<String,String>");
         }
         variant_v2::VariantAssemblerOptions options;
+        options.path_encoding = _path_encoding;
         options.storage_map_kind = variant_v2::StorageMapKind::DOC;
         auto assembler = DORIS_TRY(variant_v2::VariantAssembler::create(std::move(options)));
         variant_v2::VariantAssemblerBatchView batch;
@@ -73,6 +74,7 @@ private:
     }
 
     ColumnIteratorUPtr _doc_value_iterator;
+    uint32_t _path_encoding;
 };
 
 } // namespace doris::segment_v2

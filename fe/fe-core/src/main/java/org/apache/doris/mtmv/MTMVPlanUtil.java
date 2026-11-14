@@ -98,6 +98,7 @@ import org.apache.doris.qe.StmtExecutor;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -1082,7 +1083,22 @@ public class MTMVPlanUtil {
         }
         checkColumnIfChange(mtmv, mtmvAnalyzedQueryInfo.getColumnDefinitions());
         checkMTMVPartitionInfo(mtmv, mtmvAnalyzedQueryInfo.getMvPartitionInfo());
+        checkVariantEscapeDotsInKeys(mtmv, mtmvAnalyzedQueryInfo.getRelation());
         return mtmvAnalyzedQueryInfo;
+    }
+
+    private static void checkVariantEscapeDotsInKeys(MTMV mtmv, MTMVRelation relation) throws JobException {
+        try {
+            List<TableIf> baseTables = Lists.newArrayList();
+            for (BaseTableInfo baseTable : relation.getBaseTables()) {
+                baseTables.add(MTMVUtil.getTable(baseTable));
+            }
+            PropertyAnalyzer.inheritVariantEscapeDotsInKeys(ImmutableMap.of(
+                    PropertyAnalyzer.PROPERTIES_VARIANT_ESCAPE_DOTS_IN_KEYS,
+                    Boolean.toString(mtmv.getVariantEscapeDotsInKeys())), baseTables, true);
+        } catch (org.apache.doris.common.AnalysisException e) {
+            throw new JobException(e.getMessage(), e);
+        }
     }
 
     private static void checkMTMVPartitionInfo(MTMV mtmv, MTMVPartitionInfo analyzedMvPartitionInfo)

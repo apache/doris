@@ -33,8 +33,12 @@
 
 namespace doris {
 
-/// Class that represents path in document, e.g. JSON.
+class Status;
+std::string encode_variant_path_component(std::string_view key);
+Status decode_variant_path_component(std::string_view key, std::string* decoded);
 class PathInData;
+
+/// Class that represents path in document, e.g. JSON.
 using PathInDataPtr = std::shared_ptr<PathInData>;
 
 class PathInData {
