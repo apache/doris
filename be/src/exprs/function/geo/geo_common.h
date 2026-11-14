@@ -46,6 +46,7 @@ enum class GeoParseStatus {
     GEO_PARSE_CIRCLE_INVALID = 9,
     GEO_PARSE_WKT_SYNTAX_ERROR = 10,
     GEO_PARSE_WKB_SYNTAX_ERROR = 11,
+    GEO_PARSE_WKB_UNSUPPORTED_METADATA = 12,
 };
 
 std::string to_string(GeoParseStatus status);

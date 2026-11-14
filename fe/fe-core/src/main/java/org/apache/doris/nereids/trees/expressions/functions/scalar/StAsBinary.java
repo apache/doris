@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSi
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.VarBinaryType;
 import org.apache.doris.nereids.types.VarcharType;
 
 import com.google.common.base.Preconditions;
@@ -66,6 +67,12 @@ public class StAsBinary extends ScalarFunction
     @Override
     public List<FunctionSignature> getSignatures() {
         return SIGNATURES;
+    }
+
+    @Override
+    public FunctionSignature searchSignature(List<FunctionSignature> signatures) {
+        FunctionSignature signature = SpatialFunctionSignature.unary(child(0), VarBinaryType.INSTANCE);
+        return signature != null ? signature : ExplicitlyCastableSignature.super.searchSignature(signatures);
     }
 
     @Override

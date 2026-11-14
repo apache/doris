@@ -30,6 +30,8 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.connector.converter.ConnectorSpatialWriteNormalizer;
+import org.apache.doris.datasource.connector.converter.ConnectorSpatialWriteValidator;
 import org.apache.doris.datasource.connector.converter.ConnectorWriteValueConverter;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.foundation.format.FormatOptions;
@@ -737,10 +739,29 @@ public class InsertUtils {
         addColumnValue(analyzer, optimizedRowConstructor, value, targetType, rewriteContext, strictCast, null);
     }
 
-    private static void addColumnValue(Optional<ExpressionAnalyzer> analyzer,
+    static void addColumnValue(Optional<ExpressionAnalyzer> analyzer,
             ImmutableList.Builder<NamedExpression> optimizedRowConstructor,
             NamedExpression value, DataType targetType, ExpressionRewriteContext rewriteContext,
             boolean strictCast, Column targetColumn) {
+        if (targetColumn != null && targetColumn.getType().typeContainsSpatialType()) {
+            // Keep the source identity until binding can validate kind, CRS and algorithm.
+            if (!analyzer.isPresent()) {
+                optimizedRowConstructor.add(value);
+                return;
+            }
+            value = (NamedExpression) analyzer.get().analyze(value,
+                    new ExpressionRewriteContext(analyzer.get().getCascadesContext()));
+            if (value instanceof Alias && value.child(0) instanceof Cast
+                    && ConnectorSpatialWriteNormalizer.isMapOrStructCast(value.child(0).getDataType(), targetType)) {
+                value = (NamedExpression) value.withChildren(ConnectorSpatialWriteNormalizer.normalizeBoundSpatialNulls(
+                        value.child(0), targetType));
+            }
+            ConnectorSpatialWriteValidator.validate(targetColumn, value);
+            if (value instanceof Alias) {
+                value = (NamedExpression) value.withChildren(
+                        ConnectorSpatialWriteNormalizer.normalizeSpatialNulls(value.child(0), targetType));
+            }
+        }
         if (targetColumn != null && targetColumn.getConnectorStringWriteType() != null) {
             // Preserve textual input until binding can apply the connector's semantic conversion.
             if (!analyzer.isPresent()) {

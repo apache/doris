@@ -385,6 +385,11 @@ public:
     // called.
     virtual Status get_schema(std::vector<ColumnDefinition>* file_schema) const = 0;
 
+    // Synchronize a table-selected raw byte type for a spatially annotated leaf before open().
+    virtual Status apply_spatial_binary_types(ColumnDefinition*) {
+        return Status::NotSupported("File reader does not support spatial annotations as binary");
+    }
+
     // Create the mapper that matches this reader's scan-request capabilities. TableReader still
     // owns table-format semantics such as BY_NAME/BY_FIELD_ID/BY_INDEX, partition values and
     // default expressions; the FileReader only chooses whether file-local requests support columnar

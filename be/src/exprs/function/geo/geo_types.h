@@ -56,6 +56,8 @@ public:
 
     static std::unique_ptr<GeoShape> from_wkb(const char* data, size_t size,
                                               GeoParseStatus& status);
+    static std::unique_ptr<GeoShape> from_wkb_bytes(const char* data, size_t size,
+                                                    GeoParseStatus& status);
 
     void encode_to(std::string* buf);
     bool decode_from(const void* data, size_t size);
@@ -146,6 +148,7 @@ class GeoLine : public GeoShape {
 
 public:
     GeoLine();
+    explicit GeoLine(std::unique_ptr<S2Polyline> polyline);
     ~GeoLine() override;
 
     GeoParseStatus from_coords(const GeoCoordinateList& list);
@@ -186,6 +189,9 @@ class GeoPolygon : public GeoShape {
 
 public:
     GeoPolygon();
+    // Typed calculation admission retains input ring depths after S2 reorders loops.
+    GeoPolygon(std::unique_ptr<S2Polygon> polygon, std::vector<int> ring_depths);
+    const std::vector<int>& calculation_ring_depths() const { return _calculation_ring_depths; }
     ~GeoPolygon() override;
 
     GeoParseStatus from_coords(const GeoCoordinateListList& list);
@@ -219,6 +225,7 @@ protected:
 
 private:
     std::unique_ptr<S2Polygon> _polygon;
+    std::vector<int> _calculation_ring_depths;
 };
 
 class GeoMultiPolygon : public GeoShape {

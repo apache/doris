@@ -64,6 +64,9 @@ public class CountAtMin extends NotNullableAggregateFunction
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
+        if (getArgumentType(0).toCatalogDataType().typeContainsSpatialType()) {
+            throw new AnalysisException("count_at_min does not support spatial arguments");
+        }
         if (distinct) {
             throw new AnalysisException("COUNT_AT_MIN does not support DISTINCT");
         }

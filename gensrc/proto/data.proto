@@ -72,6 +72,8 @@ message PColumnMeta {
     optional bool variant_is_v2 = 12 [default = false];
     // Older blocks omit the declared VARBINARY length and retain the unspecified sentinel.
     optional int32 varbinary_length = 13 [default = -1];
+    optional string spatial_crs = 14;
+    optional string spatial_algorithm = 15;
 }
 
 message PBlock {

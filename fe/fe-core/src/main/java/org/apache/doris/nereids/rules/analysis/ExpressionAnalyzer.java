@@ -23,6 +23,8 @@ import org.apache.doris.catalog.FunctionRegistry;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.connector.converter.ConnectorSpatialWriteNormalizer;
+import org.apache.doris.datasource.connector.converter.ConnectorSpatialWriteNormalizer.SpatialMergeBranchCast;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.SqlCacheContext;
@@ -1039,6 +1041,11 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
     @Override
     public Expression visitCast(Cast cast, ExpressionRewriteContext context) {
         cast = (Cast) super.visitCast(cast, context);
+        if (cast instanceof SpatialMergeBranchCast) {
+            Expression value = ConnectorSpatialWriteNormalizer.normalizeBoundSpatialNulls(
+                    cast.child(), cast.getDataType());
+            return TypeCoercionUtils.castIfNotSameType(value, cast.getDataType());
+        }
 
         // NOTICE: just for compatibility with legacy planner.
         if (cast.child().getDataType().isComplexType() || cast.getDataType().isComplexType()) {

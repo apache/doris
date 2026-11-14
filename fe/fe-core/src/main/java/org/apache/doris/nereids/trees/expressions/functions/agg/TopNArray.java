@@ -89,6 +89,9 @@ public class TopNArray extends NullableAggregateFunction
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
+        if (getArgumentType(0).toCatalogDataType().typeContainsSpatialType()) {
+            throw new AnalysisException("topn_array does not support spatial arguments");
+        }
         if (!getArgument(1).isConstant()) {
             throw new AnalysisException(
                     "topn_array requires second parameter must be a constant: "

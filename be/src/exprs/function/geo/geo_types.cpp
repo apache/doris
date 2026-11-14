@@ -57,9 +57,14 @@ GeoPoint::GeoPoint() : _point(new S2Point()) {}
 GeoPoint::~GeoPoint() = default;
 
 GeoLine::GeoLine() = default;
+
+GeoLine::GeoLine(std::unique_ptr<S2Polyline> polyline) : _polyline(std::move(polyline)) {}
 GeoLine::~GeoLine() = default;
 
 GeoPolygon::GeoPolygon() = default;
+
+GeoPolygon::GeoPolygon(std::unique_ptr<S2Polygon> polygon, std::vector<int> ring_depths)
+        : _polygon(std::move(polygon)), _calculation_ring_depths(std::move(ring_depths)) {}
 GeoPolygon::~GeoPolygon() = default;
 
 GeoCircle::GeoCircle() = default;
@@ -343,6 +348,9 @@ static GeoParseStatus to_s2loop(const GeoCoordinateList& coords, std::unique_ptr
     if (!(*loop)->IsValid()) {
         return GeoParseStatus::GEO_PARSE_LOOP_INVALID;
     }
+    // Calculation rings select the smaller spherical region, regardless of winding.
+    // Reversing a small ring does not select its >hemisphere complement. Typed WKB
+    // storage/accessors preserve the original ring order independently of this parser.
     (*loop)->Normalize();
     return GeoParseStatus::GEO_PARSE_OK;
 }
@@ -425,6 +433,13 @@ std::unique_ptr<GeoShape> GeoShape::from_wkb(const char* data, size_t size,
     }
     std::unique_ptr<GeoShape> shape;
     status = WkbParse::parse_wkb(wkb, shape);
+    return shape;
+}
+
+std::unique_ptr<GeoShape> GeoShape::from_wkb_bytes(const char* data, size_t size,
+                                                   GeoParseStatus& status) {
+    std::unique_ptr<GeoShape> shape;
+    status = WkbParse::parse_wkb_bytes(data, size, shape);
     return shape;
 }
 

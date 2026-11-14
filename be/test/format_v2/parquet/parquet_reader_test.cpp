@@ -1851,7 +1851,7 @@ protected:
             bool is_immutable = false, bool enable_mapping_varbinary = false,
             std::string fs_name = {}, int64_t mtime = 0,
             std::optional<std::string> hive_parquet_time_zone = std::nullopt,
-            bool preserve_binary_uuid = false) const {
+            bool preserve_binary_uuid = false, bool spatial_annotations_as_bytes = true) const {
         auto system_properties = std::make_shared<io::FileSystemProperties>();
         system_properties->system_type = TFileType::FILE_LOCAL;
         auto file_description = std::make_unique<io::FileDescription>();
@@ -1865,7 +1865,8 @@ protected:
         return std::make_unique<format::parquet::ParquetReader>(
                 system_properties, file_description, std::move(io_ctx), profile,
                 global_rowid_context, enable_mapping_timestamp_tz, enable_mapping_varbinary,
-                std::move(hive_parquet_time_zone), preserve_binary_uuid);
+                std::move(hive_parquet_time_zone), preserve_binary_uuid, nullptr, std::nullopt,
+                spatial_annotations_as_bytes);
     }
 
     std::filesystem::path _test_dir;
@@ -1971,6 +1972,137 @@ TEST_F(NewParquetReaderTest, UuidPlainDictionaryNullableAndMappingMatrix) {
             }
         }
     }
+}
+
+void write_annotated_wkb_fixture(const std::string& path, bool dictionary, const std::string& wkb,
+                                 bool include_id = false) {
+    auto out = arrow::io::FileOutputStream::Open(path).ValueOrDie();
+    auto field = ::parquet::schema::PrimitiveNode::Make(
+            "shape", ::parquet::Repetition::OPTIONAL, ::parquet::LogicalType::Geometry("OGC:CRS84"),
+            ::parquet::Type::BYTE_ARRAY);
+    ::parquet::schema::NodeVector fields;
+    if (include_id) {
+        fields.push_back(::parquet::schema::PrimitiveNode::Make(
+                "id", ::parquet::Repetition::REQUIRED, ::parquet::Type::INT32));
+    }
+    fields.push_back(field);
+    auto schema_node =
+            ::parquet::schema::GroupNode::Make("schema", ::parquet::Repetition::REQUIRED, fields);
+    ::parquet::WriterProperties::Builder props;
+    if (!dictionary) {
+        props.disable_dictionary();
+    }
+    auto writer = ::parquet::ParquetFileWriter::Open(
+            out, std::static_pointer_cast<::parquet::schema::GroupNode>(schema_node),
+            props.build());
+    auto* row_group = writer->AppendRowGroup();
+    if (include_id) {
+        auto* id_column = static_cast<::parquet::Int32Writer*>(row_group->NextColumn());
+        const int32_t ids[] = {1, 2};
+        id_column->WriteBatch(2, nullptr, nullptr, ids);
+        id_column->Close();
+    }
+    auto* column = static_cast<::parquet::ByteArrayWriter*>(row_group->NextColumn());
+    const int16_t levels[] = {1, 0};
+    const ::parquet::ByteArray value(wkb);
+    ASSERT_EQ(column->WriteBatch(2, levels, nullptr, &value), 1);
+    column->Close();
+    row_group->Close();
+    writer->Close();
+    ASSERT_TRUE(out->Close().ok());
+}
+
+void check_hive_binary_spatial_block(format::parquet::ParquetReader& reader, Block& block, bool raw,
+                                     const std::string& wkb) {
+    size_t rows = 0;
+    bool eof = false;
+    const auto status = reader.get_block(&block, &rows, &eof);
+    if (!raw) {
+        EXPECT_FALSE(status.ok());
+        EXPECT_NE(status.to_string().find("WKB"), std::string::npos) << status;
+        return;
+    }
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_EQ(rows, 2);
+    const auto& result = *block.get_by_position(0).column;
+    EXPECT_EQ(result.get_data_at(0), StringRef(wkb));
+    EXPECT_TRUE(result.is_null_at(1));
+}
+
+void check_hive_binary_spatial_read(format::parquet::ParquetReader& reader, RuntimeState& state,
+                                    RuntimeProfile& profile, int expected_cache_hits, bool raw,
+                                    const std::string& wkb) {
+    ASSERT_TRUE(reader.init(&state).ok());
+    EXPECT_EQ(profile.get_counter("FileFooterHitCache")->value(), expected_cache_hits);
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader.get_schema(&schema).ok());
+    ASSERT_EQ(schema.size(), 1);
+    ASSERT_TRUE(schema[0].type->is_nullable());
+    ASSERT_EQ(remove_nullable(schema[0].type)->get_primitive_type(),
+              raw ? TYPE_VARBINARY : TYPE_GEOMETRY);
+
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->non_predicate_columns = {field_projection(0)};
+    request->local_positions.emplace(format::LocalColumnId(0), format::LocalIndex(0));
+    ASSERT_TRUE(reader.open(request).ok());
+    Block block = build_file_block(schema);
+    check_hive_binary_spatial_block(reader, block, raw, wkb);
+}
+
+TEST_F(NewParquetReaderTest, HiveBinaryPreservesAnnotatedParquetWkb) {
+    FileMetaCache metadata_cache(1024);
+    auto* env = ExecEnv::GetInstance();
+    auto* previous_cache = env->_file_meta_cache;
+    env->_file_meta_cache = &metadata_cache;
+    Defer restore_cache {[&] { env->_file_meta_cache = previous_cache; }};
+
+    // OGC WKB TRIANGLE ((0 0, 1 0, 0 1, 0 0)), outside Doris's typed WKB subset.
+    const std::string wkb(
+            "\x01\x11\x00\x00\x00\x01\x00\x00\x00\x04\x00\x00\x00"
+            "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+            "\x00\x00\x00\x00\x00\x00\xf0\x3f\x00\x00\x00\x00\x00\x00\x00\x00"
+            "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xf0\x3f"
+            "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00",
+            77);
+    for (bool dictionary : {false, true}) {
+        SCOPED_TRACE(dictionary);
+        ASSERT_NO_FATAL_FAILURE(write_annotated_wkb_fixture(_file_path, dictionary, wkb));
+
+        // Same file, first typed then raw, and both cache hits on repeat.
+        for (int repeat = 0; repeat < 2; ++repeat) {
+            for (bool raw : {false, true}) {
+                RuntimeState state {TQueryOptions(), TQueryGlobals()};
+                RuntimeProfile profile("spatial_annotation_cache");
+                auto reader = create_reader(0, -1, &profile, false, nullptr, std::nullopt, false,
+                                            true, {}, 1 + dictionary, {}, false, raw);
+                check_hive_binary_spatial_read(*reader, state, profile, repeat, raw, wkb);
+            }
+        }
+    }
+}
+
+TEST_F(NewParquetReaderTest, DirectParquetSchemaKeepsOrdinaryAndSpatialByteColumns) {
+    const std::string point(
+            "\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\xf0\x3f"
+            "\x00\x00\x00\x00\x00\x00\x00\x40",
+            21);
+    ASSERT_NO_FATAL_FAILURE(write_annotated_wkb_fixture(_file_path, false, point, true));
+    TFileScanRangeParams params;
+    params.__set_file_type(TFileType::FILE_LOCAL);
+    params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
+    params.__set_enable_mapping_varbinary(true);
+    TFileRangeDesc range;
+    range.__set_path(_file_path);
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(format::fetch_file_schema(params, range, std::make_shared<io::IOContext>(), nullptr,
+                                          &schema)
+                        .ok());
+    ASSERT_EQ(schema.size(), 2);
+    EXPECT_EQ(schema[0].name, "id");
+    EXPECT_EQ(schema[0].type->get_primitive_type(), TYPE_INT);
+    EXPECT_EQ(schema[1].name, "shape");
+    EXPECT_TRUE(schema[1].type->is_nullable());
+    EXPECT_EQ(remove_nullable(schema[1].type)->get_primitive_type(), TYPE_VARBINARY);
 }
 
 TEST_F(NewParquetReaderTest, ReadsNullableBooleanDictionaryFromExternalWriter) {

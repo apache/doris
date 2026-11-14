@@ -52,6 +52,7 @@ class ColumnDecimal;
 template <PrimitiveType T>
 class ColumnVector;
 class ColumnVariantV2;
+class ColumnSpatial;
 } // namespace doris
 
 namespace doris {
@@ -255,6 +256,8 @@ public:
     }
     void sort_column(const ColumnVariantV2& column, EqualFlags& flags, IColumn::Permutation& perms,
                      EqualRange& range, bool last_column) const;
+    void sort_column(const ColumnSpatial& column, EqualFlags& flags, IColumn::Permutation& perms,
+                     EqualRange& range, bool last_column) const;
     void sort_column(const ColumnVarbinary& column, EqualFlags& flags, IColumn::Permutation& perms,
                      EqualRange& range, bool last_column) const {
         _sort_by_default(column, flags, perms, range, last_column);
@@ -385,10 +388,12 @@ private:
                           EqualRange& range, bool last_column) const {
         size_t new_limit = _limit;
         auto comparator = [&](const size_t a, const size_t b) {
+            // Spatial StringViews need compare_at, including after nullable sorting unwraps them.
             if constexpr (!std::is_same_v<ColumnType, ColumnString> &&
                           !std::is_same_v<ColumnType, ColumnString64> &&
                           !std::is_same_v<ColumnType, ColumnArray> &&
                           !std::is_same_v<ColumnType, ColumnVarbinary> &&
+                          !std::is_same_v<ColumnType, ColumnSpatial> &&
                           !std::is_same_v<ColumnType, ColumnMap> &&
                           !std::is_same_v<ColumnType, ColumnStruct> &&
                           !std::is_same_v<ColumnType, ColumnVariantV2>) {

@@ -32,6 +32,10 @@ message PScalarType {
     // Only set for DECIMAL
     optional int32 precision = 3;
     optional int32 scale = 4;
+    // Only set for Iceberg GEOMETRY/GEOGRAPHY types.
+    optional string spatial_crs = 9;
+    // Only set for Iceberg GEOGRAPHY type.
+    optional string spatial_algorithm = 10;
 };
 
 // Represents a field in a STRUCT type.
@@ -124,6 +128,9 @@ message PGenericType {
         TIMESTAMPTZ = 42;
         TIMESTAMP_NS = 43;
         UUID = 44;
+        reserved 45; // FILE in branch-4.1; never reuse its wire identity.
+        GEOMETRY = 46;
+        GEOGRAPHY = 47;
         UNKNOWN = 999;
     }
     required TypeId id = 2;

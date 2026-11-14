@@ -578,7 +578,8 @@ ParquetReader::ParquetReader(std::shared_ptr<io::FileSystemProperties>& system_p
                              bool enable_mapping_timestamp_tz, bool enable_mapping_varbinary,
                              std::optional<std::string> hive_parquet_time_zone,
                              bool preserve_binary_uuid, ParquetProfileCache* profile_cache,
-                             std::optional<TFileEncryptionInfo> encryption_info)
+                             std::optional<TFileEncryptionInfo> encryption_info,
+                             bool spatial_annotations_as_bytes)
         : FileReader(system_properties, file_description, io_ctx, profile),
           _profile_cache(profile_cache),
           _global_rowid_context(global_rowid_context),
@@ -586,7 +587,8 @@ ParquetReader::ParquetReader(std::shared_ptr<io::FileSystemProperties>& system_p
           _enable_mapping_varbinary(enable_mapping_varbinary),
           _preserve_binary_uuid(preserve_binary_uuid),
           _hive_parquet_time_zone(std::move(hive_parquet_time_zone)),
-          _encryption_info(std::move(encryption_info)) {}
+          _encryption_info(std::move(encryption_info)),
+          _spatial_annotations_as_bytes(spatial_annotations_as_bytes) {}
 
 ParquetReader::~ParquetReader() {
     _clear_decryption_parameters();
@@ -649,7 +651,8 @@ Status ParquetReader::init(RuntimeState* state) {
         auto footer_status = _state->file_context.open(
                 _tracing_file_reader, _io_ctx.get(), _state->enable_page_cache, *_file_description,
                 _enable_mapping_timestamp_tz, _enable_mapping_varbinary, _preserve_binary_uuid,
-                _encryption_info.has_value() ? &*_encryption_info : nullptr);
+                _encryption_info.has_value() ? &*_encryption_info : nullptr,
+                _spatial_annotations_as_bytes);
         // The file context owns a SecureString after opening; discard the temporary wire copy
         // on success and failure, before any scan request can retain it.
         _clear_decryption_parameters();
@@ -712,6 +715,12 @@ Status ParquetReader::get_schema(std::vector<format::ColumnDefinition>* file_sch
     if (_global_rowid_context.has_value()) {
         file_schema->push_back(format::global_rowid_column_definition());
     }
+    return Status::OK();
+}
+
+Status ParquetReader::apply_spatial_binary_types(format::ColumnDefinition* file_column) {
+    auto* schema = _state->file_schema.at(file_column->local_id).get();
+    parquet::apply_spatial_binary_types(file_column, schema);
     return Status::OK();
 }
 

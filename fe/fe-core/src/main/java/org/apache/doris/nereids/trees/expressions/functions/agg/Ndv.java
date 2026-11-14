@@ -63,6 +63,10 @@ public class Ndv extends NotNullableAggregateFunction
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
+        // The BE kernel has no spatial value-state dispatch; fail before casts hide the input type.
+        if (getArgumentType(0).isSpatialType()) {
+            throw new AnalysisException("ndv does not support spatial arguments");
+        }
         if (getArgumentType(0).isOnlyMetricType()) {
             throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
         }

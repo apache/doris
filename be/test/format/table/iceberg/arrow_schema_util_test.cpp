@@ -26,6 +26,7 @@
 #include <fmt/format.h>
 #include <gtest/gtest.h>
 #include <parquet/api/reader.h>
+#include <parquet/arrow/reader.h>
 #include <parquet/arrow/writer.h>
 #include <parquet/schema.h>
 
@@ -33,10 +34,14 @@
 #include "core/block/block.h"
 #include "core/column/column_array.h"
 #include "core/column/column_nullable.h"
+#include "core/column/column_spatial.h"
 #include "core/column/column_varbinary.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_spatial.h"
 #include "core/data_type/data_type_varbinary.h"
+#include "core/data_type/data_type_variant.h"
+#include "format/arrow/arrow_row_batch.h"
 #include "format/table/iceberg/schema.h"
 #include "format/table/iceberg/schema_parser.h"
 #include "format/transformer/viceberg_parquet_writer.h"
@@ -149,6 +154,89 @@ TEST(ArrowSchemaUtilTest, IcebergParquetWriterPreservesUuidLogicalAnnotations) {
 }
 
 const std::string_view pfid = "PARQUET:field_id";
+
+TEST(ArrowSchemaUtilTest, IcebergParquetWriterPreservesSpatialLogicalAnnotations) {
+    auto* env = ExecEnv::GetInstance();
+    auto* previous_pool = env->_arrow_memory_pool;
+    env->_arrow_memory_pool = arrow::default_memory_pool();
+    Defer restore_pool([&] { env->_arrow_memory_pool = previous_pool; });
+
+    const std::string schema_json = R"JSON({"type":"struct","fields":[
+        {"id":1,"name":"shape","required":false,"type":"geometry(EPSG:3857)"},
+        {"id":2,"name":"place","required":false,"type":"geography(OGC:CRS84, vincenty)"},
+        {"id":3,"name":"payload","required":false,"type":"variant"}]})JSON";
+    auto schema = SchemaParser::from_json(schema_json);
+    auto geometry_type =
+            make_nullable(std::make_shared<DataTypeSpatial>(TYPE_GEOMETRY, "EPSG:3857"));
+    auto geography_type = make_nullable(
+            std::make_shared<DataTypeSpatial>(TYPE_GEOGRAPHY, "OGC:CRS84", "vincenty"));
+    auto payload_type = make_nullable(std::make_shared<DataTypeVariant>());
+    auto contexts = MockSlotRef::create_mock_contexts(
+            DataTypes {geometry_type, geography_type, payload_type});
+    const std::string wkb(
+            "\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\xf0?\x00\x00\x00\x00\x00\x00\x00@", 21);
+    auto geometry_values = ColumnSpatial::create(TYPE_GEOMETRY);
+    geometry_values->insert_data(wkb.data(), wkb.size());
+    auto geography_values = ColumnSpatial::create(TYPE_GEOGRAPHY);
+    geography_values->insert_data(wkb.data(), wkb.size());
+    auto nulls = ColumnUInt8::create();
+    nulls->insert_value(0);
+    Block block;
+    block.insert({ColumnNullable::create(std::move(geometry_values), nulls->clone_resized(1)),
+                  geometry_type, "shape"});
+    block.insert({ColumnNullable::create(std::move(geography_values), std::move(nulls)),
+                  geography_type, "place"});
+    auto payload = payload_type->create_column();
+    payload->insert_default();
+    block.insert({std::move(payload), payload_type, "payload"});
+
+    const auto path = "./spatial_parquet_writer_" + UniqueId::gen_uid().to_string() + ".parquet";
+    const auto fs = io::global_local_filesystem();
+    Defer cleanup([&] { static_cast<void>(fs->delete_file(path)); });
+    io::FileWriterPtr file_writer;
+    ASSERT_TRUE(fs->create_file(path, &file_writer).ok());
+    RuntimeState state;
+    ParquetFileOptions options {.compression_type = TParquetCompressionType::UNCOMPRESSED,
+                                .parquet_version = TParquetVersion::PARQUET_2_LATEST};
+    VIcebergParquetWriter writer(&state, file_writer.get(), contexts,
+                                 std::vector<std::string> {"shape", "place", "payload"}, false,
+                                 options, &schema_json, *schema);
+    ASSERT_TRUE(writer.open().ok());
+    ASSERT_TRUE(writer.write(block).ok());
+    ASSERT_TRUE(writer.close().ok());
+
+    auto reader = ::parquet::ParquetFileReader::OpenFile(path, false);
+    const auto metadata = reader->metadata();
+    ASSERT_EQ(metadata->schema()->group_node()->field_count(), 3);
+    const auto* const shape = metadata->schema()->Column(0);
+    const auto* const place = metadata->schema()->Column(1);
+    EXPECT_TRUE(shape->logical_type()->is_geometry());
+    EXPECT_EQ("EPSG:3857",
+              static_cast<const ::parquet::GeometryLogicalType&>(*shape->logical_type()).crs());
+    EXPECT_TRUE(place->logical_type()->is_geography());
+    EXPECT_EQ("OGC:CRS84",
+              static_cast<const ::parquet::GeographyLogicalType&>(*place->logical_type()).crs());
+    const auto& footer = metadata->key_value_metadata();
+    ASSERT_NE(footer, nullptr);
+    const auto iceberg_metadata = footer->Get("iceberg.schema");
+    ASSERT_TRUE(iceberg_metadata.ok()) << iceberg_metadata.status();
+    EXPECT_EQ(*iceberg_metadata, schema_json);
+    EXPECT_TRUE(footer->Contains("ARROW:schema"));
+
+    // Arrow's default reader uses the embedded schema to restore the ordinary Variant field.
+    ASSERT_TRUE(register_arrow_variant_extension().ok());
+    auto input = arrow::io::ReadableFile::Open(path).ValueOrDie();
+    auto arrow_reader = ::parquet::arrow::OpenFile(input, arrow::default_memory_pool());
+    ASSERT_TRUE(arrow_reader.ok()) << arrow_reader.status();
+    std::shared_ptr<arrow::Schema> result_schema;
+    const auto status = (*arrow_reader)->GetSchema(&result_schema);
+    ASSERT_TRUE(status.ok()) << status;
+    const auto payload_field = result_schema->GetFieldByName("payload");
+    ASSERT_NE(payload_field, nullptr);
+    ASSERT_EQ(payload_field->type()->id(), arrow::Type::EXTENSION);
+    const auto& extension = static_cast<const arrow::ExtensionType&>(*payload_field->type());
+    EXPECT_EQ(extension.extension_name(), "arrow.parquet.variant");
+}
 
 TEST(ArrowSchemaUtilTest, test_simple_field) {
     std::vector<NestedField> nested_fields;
@@ -358,6 +446,35 @@ TEST(ArrowSchemaUtilTest, test_binary_field_types) {
     auto uuid_type = std::static_pointer_cast<arrow::FixedSizeBinaryType>(fields[3]->type());
     EXPECT_EQ(16, uuid_type->byte_width());
     EXPECT_EQ("uuid", fields[3]->metadata()->Get("originalType").ValueUnsafe());
+}
+
+TEST(ArrowSchemaUtilTest, test_geospatial_field_types) {
+    const std::string schema_json = R"JSON({
+        "type": "struct",
+        "fields": [
+            {"id": 101, "name": "shape", "required": false, "type": "GEOMETRY(EPSG:3857)"},
+            {"id": 102, "name": "place", "required": false,
+             "type": "geography(OGC:CRS84, vincenty)"}
+        ]
+    })JSON";
+    const auto schema = SchemaParser::from_json(schema_json);
+    const auto* geometry = static_cast<const GeometryType*>(schema->columns()[0].field_type());
+    const auto* geography = static_cast<const GeographyType*>(schema->columns()[1].field_type());
+    EXPECT_EQ("EPSG:3857", geometry->crs());
+    EXPECT_EQ("OGC:CRS84", geography->crs());
+    EXPECT_EQ("vincenty", geography->algorithm());
+
+    std::vector<std::shared_ptr<arrow::Field>> fields;
+    ASSERT_TRUE(IcebergArrowSchemaConvertor(*schema, "utc").convert_fields(fields).ok());
+    ASSERT_EQ(2, fields.size());
+
+    EXPECT_EQ(arrow::Type::BINARY, fields[0]->type()->id());
+    EXPECT_EQ("101", fields[0]->metadata()->Get(pfid).ValueUnsafe());
+    EXPECT_EQ("GEOMETRY", fields[0]->metadata()->Get("iceberg.binary-type").ValueUnsafe());
+
+    EXPECT_EQ(arrow::Type::BINARY, fields[1]->type()->id());
+    EXPECT_EQ("102", fields[1]->metadata()->Get(pfid).ValueUnsafe());
+    EXPECT_EQ("GEOGRAPHY", fields[1]->metadata()->Get("iceberg.binary-type").ValueUnsafe());
 }
 
 TEST(ArrowSchemaUtilTest, test_variant_field) {

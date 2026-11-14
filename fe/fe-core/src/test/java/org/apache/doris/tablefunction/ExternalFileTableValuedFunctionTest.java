@@ -34,6 +34,7 @@ import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.filesystem.GlobListing;
 import org.apache.doris.filesystem.Location;
 import org.apache.doris.fs.FileSystemFactory;
+import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.proto.Types.PScalarType;
 import org.apache.doris.proto.Types.PStructField;
 import org.apache.doris.proto.Types.PTypeNode;
@@ -49,6 +50,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.Arrays;
 import java.util.List;
@@ -137,6 +139,37 @@ public class ExternalFileTableValuedFunctionTest {
         Assertions.assertEquals("CaseSensitive", field.getOriginalName());
         Assertions.assertEquals("mixed-case child", field.getComment());
         Assertions.assertTrue(field.getContainsNull());
+    }
+
+    @Test
+    public void testFileSchemaRejectsSpatialTypesAtEveryDepth() throws Exception {
+        ExternalFileTableValuedFunction tvf = Mockito.mock(
+                ExternalFileTableValuedFunction.class, Mockito.CALLS_REAL_METHODS);
+        Method getColumnType = ExternalFileTableValuedFunction.class
+                .getDeclaredMethod("getColumnType", List.class, int.class);
+        getColumnType.setAccessible(true);
+        for (TPrimitiveType spatial : Arrays.asList(TPrimitiveType.GEOMETRY, TPrimitiveType.GEOGRAPHY)) {
+            PTypeNode leaf = PTypeNode.newBuilder().setType(TTypeNodeType.SCALAR.getValue())
+                    .setScalarType(PScalarType.newBuilder().setType(spatial.getValue())
+                            .setSpatialCrs("EPSG:4326").setSpatialAlgorithm("karney")).build();
+            PTypeNode array = PTypeNode.newBuilder().setType(TTypeNodeType.ARRAY.getValue())
+                    .setScalarType(PScalarType.newBuilder().setType(TPrimitiveType.ARRAY.getValue())).build();
+            PTypeNode map = PTypeNode.newBuilder().setType(TTypeNodeType.MAP.getValue())
+                    .setScalarType(PScalarType.newBuilder().setType(TPrimitiveType.MAP.getValue())).build();
+            PTypeNode key = PTypeNode.newBuilder().setType(TTypeNodeType.SCALAR.getValue())
+                    .setScalarType(PScalarType.newBuilder().setType(TPrimitiveType.STRING.getValue())).build();
+            PTypeNode struct = PTypeNode.newBuilder().setType(TTypeNodeType.STRUCT.getValue())
+                    .setScalarType(PScalarType.newBuilder().setType(TPrimitiveType.STRUCT.getValue()))
+                    .addStructFields(PStructField.newBuilder().setName("shape")).build();
+            for (List<PTypeNode> nodes : Arrays.asList(Arrays.asList(leaf), Arrays.asList(array, leaf),
+                    Arrays.asList(map, key, leaf), Arrays.asList(struct, leaf))) {
+                InvocationTargetException failure = Assertions.assertThrows(InvocationTargetException.class,
+                        () -> getColumnType.invoke(tvf, nodes, 0));
+                Assertions.assertInstanceOf(NotSupportedException.class, failure.getCause());
+                Assertions.assertTrue(failure.getCause().getMessage().contains(
+                        "Spatial Parquet columns are only supported through an Iceberg catalog"));
+            }
+        }
     }
 
     @Test

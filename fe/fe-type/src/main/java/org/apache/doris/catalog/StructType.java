@@ -79,12 +79,17 @@ public class StructType extends Type {
 
     @Override
     public String toSql(int depth) {
+        return toSql(depth, false);
+    }
+
+    @Override
+    public String toSql(int depth, boolean noBackslashEscapes) {
         if (depth >= MAX_NESTING_DEPTH) {
             return "struct<...>";
         }
         ArrayList<String> fieldsSql = Lists.newArrayList();
         for (StructField f : fields) {
-            fieldsSql.add(f.toSql(depth + 1));
+            fieldsSql.add(f.toSql(depth + 1, noBackslashEscapes));
         }
         return String.format("struct<%s>", Joiner.on(",").join(fieldsSql));
     }

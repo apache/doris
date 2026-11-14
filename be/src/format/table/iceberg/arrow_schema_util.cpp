@@ -28,6 +28,9 @@ const char* IcebergArrowSchemaConvertor::PARQUET_FIELD_ID = "PARQUET:field_id";
 const char* IcebergArrowSchemaConvertor::ORIGINAL_TYPE = "originalType";
 const char* IcebergArrowSchemaConvertor::MAP_TYPE_VALUE = "mapType";
 const char* IcebergArrowSchemaConvertor::UUID_TYPE_VALUE = "uuid";
+const char* IcebergArrowSchemaConvertor::ICEBERG_BINARY_TYPE = "iceberg.binary-type";
+const char* IcebergArrowSchemaConvertor::GEOMETRY_BINARY_TYPE_VALUE = "GEOMETRY";
+const char* IcebergArrowSchemaConvertor::GEOGRAPHY_BINARY_TYPE_VALUE = "GEOGRAPHY";
 
 Status IcebergArrowSchemaConvertor::get_arrow_schema(std::shared_ptr<arrow::Schema>* result) const {
     // Field IDs, UUID annotations, Variant storage and timestamp bindings come from the pinned
@@ -107,6 +110,16 @@ Status IcebergArrowSchemaConvertor::convert_to_arrow_field(
         break;
 
     case iceberg::TypeID::BINARY:
+        arrow_type = arrow::binary();
+        break;
+
+    case iceberg::TypeID::GEOMETRY:
+        metadata[ICEBERG_BINARY_TYPE] = GEOMETRY_BINARY_TYPE_VALUE;
+        arrow_type = arrow::binary();
+        break;
+
+    case iceberg::TypeID::GEOGRAPHY:
+        metadata[ICEBERG_BINARY_TYPE] = GEOGRAPHY_BINARY_TYPE_VALUE;
         arrow_type = arrow::binary();
         break;
 

@@ -125,7 +125,11 @@ inline HashKeyType get_hash_key_type(const std::vector<DataTypePtr>& data_types)
         // fixed-width or string-key specialization even when it is the only grouping/join key.
         return HashKeyType::serialized;
     }
-    // serialized cannot be used in the case of single column, because the join operator will have some processing of column nullable, resulting in incorrect serialized results.
+    // Spatial columns store StringViews, not STRING offsets/chars. Use their column serializer
+    // for both values and nullable markers, as for the existing single-column complex keys.
+    if (t->get_primitive_type() == TYPE_GEOMETRY || t->get_primitive_type() == TYPE_GEOGRAPHY) {
+        return HashKeyType::serialized;
+    }
     if (!t->have_maximum_size_of_value()) {
         if (is_string_type(t->get_primitive_type()) || t->get_primitive_type() == TYPE_ARRAY ||
             t->get_primitive_type() == TYPE_JSONB) {

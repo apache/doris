@@ -170,6 +170,41 @@ const char* file_format_name(FileFormat format) {
     return "UNKNOWN";
 }
 
+bool has_spatial_file_leaf(const format::ColumnDefinition& column) {
+    const auto type = remove_nullable(column.type)->get_primitive_type();
+    return type == TYPE_GEOMETRY || type == TYPE_GEOGRAPHY ||
+           std::ranges::any_of(column.children, has_spatial_file_leaf);
+}
+
+bool annotate_spatial_binary_leaf(const DataTypePtr& table_type, format::ColumnDefinition* file) {
+    const auto file_type = remove_nullable(file->type)->get_primitive_type();
+    // An imported BINARY can retain a Parquet spatial annotation, including WKB shapes that
+    // typed Doris columns reject. Use bytes only when the table explicitly declares BINARY.
+    if (table_type == nullptr ||
+        remove_nullable(table_type)->get_primitive_type() != TYPE_VARBINARY ||
+        (file_type != TYPE_GEOMETRY && file_type != TYPE_GEOGRAPHY)) {
+        return false;
+    }
+    const auto binary = remove_nullable(table_type);
+    file->type = file->type->is_nullable() ? make_nullable(binary) : binary;
+    return true;
+}
+
+Status apply_spatial_binary_key_type(format::FileReader& reader, const DataTypePtr& table_type,
+                                     std::vector<format::ColumnDefinition>& file_schema,
+                                     const std::vector<const format::ColumnDefinition*>& path) {
+    auto* root = &file_schema[path.front() - file_schema.data()];
+    auto* leaf = root;
+    for (size_t i = 1; i < path.size(); ++i) {
+        leaf = &leaf->children[path[i] - path[i - 1]->children.data()];
+    }
+    // A nested equality key also changes the file reader's enclosing STRUCT type.
+    if (annotate_spatial_binary_leaf(table_type, leaf)) {
+        RETURN_IF_ERROR(reader.apply_spatial_binary_types(root));
+    }
+    return Status::OK();
+}
+
 const format::ColumnDefinition* find_matched_file_column(
         const format::ColumnDefinition& table_column,
         const std::vector<format::ColumnDefinition>& file_columns,
@@ -180,42 +215,35 @@ const format::ColumnDefinition* find_matched_file_column(
                    : format::find_column_by_name(table_column, file_columns);
 }
 
-// Copy the table field's timestamp marker onto the file column TableColumnMapper selects for it,
-// descending the way the mapper does: ARRAY and MAP children by position, STRUCT children by the
-// mapping mode, through an ID-less wrapper at any depth when the mapper allows one. Only a
-// DATETIMEV2 or TIMESTAMPTZ leaf takes the marker. A TIMESTAMP_NS leaf (an INT64 NANOS column
-// without the UTC annotation) keeps its nanoseconds: the Parquet reader rewrites any marked
-// timestamp leaf, so a marker there would make it decode TIMESTAMPTZ while the file schema still
-// says TIMESTAMP_NS. Returns whether any leaf took a marker.
-bool annotate_matched_timestamp_semantics(const format::ColumnDefinition& table_column,
-                                          format::ColumnDefinition* file_column,
-                                          format::TableColumnMappingMode mode,
-                                          bool allow_idless_complex_wrapper_projection) {
+// Descend the way TableColumnMapper does: ARRAY/MAP by position and STRUCT by identity,
+// including ID-less wrappers when the Iceberg scan contract allows them.
+template <typename AnnotateLeaf>
+bool annotate_matched_file_leaves(const format::ColumnDefinition& table_column,
+                                  format::ColumnDefinition* file_column,
+                                  format::TableColumnMappingMode mode,
+                                  bool allow_idless_complex_wrapper_projection,
+                                  const AnnotateLeaf& annotate_leaf) {
     DORIS_CHECK(file_column != nullptr);
     DORIS_CHECK(file_column->type != nullptr);
     switch (remove_nullable(file_column->type)->get_primitive_type()) {
-    case TYPE_DATETIMEV2:
-    case TYPE_TIMESTAMPTZ:
-        file_column->timestamp_is_adjusted_to_utc = table_column.timestamp_is_adjusted_to_utc;
-        return file_column->timestamp_is_adjusted_to_utc.has_value();
     case TYPE_ARRAY:
         DORIS_CHECK(file_column->children.size() == 1);
         // FE omits nested metadata for a field it describes only by its root.
         return table_column.children.size() == 1 &&
-               annotate_matched_timestamp_semantics(table_column.children[0],
-                                                    &file_column->children[0], mode,
-                                                    allow_idless_complex_wrapper_projection);
+               annotate_matched_file_leaves(table_column.children[0], file_column->children.data(),
+                                            mode, allow_idless_complex_wrapper_projection,
+                                            annotate_leaf);
     case TYPE_MAP: {
         DORIS_CHECK(file_column->children.size() == 2);
         if (table_column.children.size() != 2) {
             return false;
         }
-        const bool key = annotate_matched_timestamp_semantics(
-                table_column.children[0], &file_column->children[0], mode,
-                allow_idless_complex_wrapper_projection);
-        const bool value = annotate_matched_timestamp_semantics(
+        const bool key = annotate_matched_file_leaves(
+                table_column.children[0], file_column->children.data(), mode,
+                allow_idless_complex_wrapper_projection, annotate_leaf);
+        const bool value = annotate_matched_file_leaves(
                 table_column.children[1], &file_column->children[1], mode,
-                allow_idless_complex_wrapper_projection);
+                allow_idless_complex_wrapper_projection, annotate_leaf);
         return key || value;
     }
     case TYPE_STRUCT: {
@@ -225,15 +253,15 @@ bool annotate_matched_timestamp_semantics(const format::ColumnDefinition& table_
             const auto* matched = find_matched_file_column(table_child, file_column->children, mode,
                                                            allow_idless_complex_wrapper_projection);
             if (matched != nullptr) {
-                annotated |= annotate_matched_timestamp_semantics(
+                annotated |= annotate_matched_file_leaves(
                         table_child, &file_column->children[matched - file_column->children.data()],
-                        mode, allow_idless_complex_wrapper_projection);
+                        mode, allow_idless_complex_wrapper_projection, annotate_leaf);
             }
         }
         return annotated;
     }
     default:
-        return false;
+        return annotate_leaf(table_column, file_column);
     }
 }
 
@@ -290,7 +318,29 @@ Status IcebergTableReader::annotate_file_schema(
         return Status::OK();
     }
     _apply_positional_id_fallback(file_schema);
-    return _apply_table_timestamp_semantics(file_schema, _mapping_mode(*file_schema));
+    const auto mode = _mapping_mode(*file_schema);
+    // Ordinary files have no annotation to override. Avoid another field-matching pass for them.
+    if (std::ranges::any_of(*file_schema, has_spatial_file_leaf)) {
+        const bool allow_idless_wrappers = supports_iceberg_scan_semantics_v1(_scan_params);
+        for (const auto& table_column : _projected_columns) {
+            const auto* matched = find_matched_file_column(table_column, *file_schema, mode,
+                                                           allow_idless_wrappers);
+            if (matched == nullptr) {
+                continue;
+            }
+            auto* file_column = &(*file_schema)[matched - file_schema->data()];
+            const auto preserve_binary = [](const format::ColumnDefinition& target,
+                                            format::ColumnDefinition* file) {
+                return annotate_spatial_binary_leaf(target.type, file);
+            };
+            if (annotate_matched_file_leaves(table_column, file_column, mode, allow_idless_wrappers,
+                                             preserve_binary)) {
+                RETURN_IF_ERROR(_data_reader.reader->apply_spatial_binary_types(file_column));
+            }
+        }
+        RETURN_IF_ERROR(_apply_equality_delete_data_binary_types(file_schema));
+    }
+    return _apply_table_timestamp_semantics(file_schema, mode);
 }
 
 void IcebergTableReader::_apply_positional_id_fallback(
@@ -360,8 +410,19 @@ Status IcebergTableReader::_apply_table_timestamp_semantics(
         auto* file_column = &(*file_schema)[matched - file_schema->data()];
         // Rebuilding a container recreates its type from the children, so leave every column
         // without a marked leaf exactly as the file reader reported it.
-        if (annotate_matched_timestamp_semantics(table_column, file_column, mode,
-                                                 allow_idless_complex_wrapper_projection)) {
+        const auto annotate_timestamp = [](const format::ColumnDefinition& table,
+                                           format::ColumnDefinition* file) {
+            const auto type = remove_nullable(file->type)->get_primitive_type();
+            // TIMESTAMP_NS still carries nanoseconds, so it must keep its own decoder.
+            if (type != TYPE_DATETIMEV2 && type != TYPE_TIMESTAMPTZ) {
+                return false;
+            }
+            file->timestamp_is_adjusted_to_utc = table.timestamp_is_adjusted_to_utc;
+            return file->timestamp_is_adjusted_to_utc.has_value();
+        };
+        if (annotate_matched_file_leaves(table_column, file_column, mode,
+                                         allow_idless_complex_wrapper_projection,
+                                         annotate_timestamp)) {
             RETURN_IF_ERROR(format::apply_file_timestamp_semantics(file_column));
         }
     }
@@ -1335,6 +1396,17 @@ static Status equality_delete_comparison_type(int field_id, const DataTypePtr& d
     const auto data_value_type = remove_nullable(data_type);
     const auto delete_primitive = delete_value_type->get_primitive_type();
     const auto data_primitive = data_value_type->get_primitive_type();
+    // Older writers leave spatial WKB as unannotated BYTE_ARRAY. Compare an annotated
+    // spatial key and that VARBINARY key in their common raw-byte representation, e.g.
+    // GEOMETRY point1 in data matches the same WKB in an unannotated delete file.
+    // Two annotated keys still require identical kind, CRS and algorithm above.
+    if (((delete_primitive == TYPE_GEOMETRY || delete_primitive == TYPE_GEOGRAPHY) &&
+         data_primitive == TYPE_VARBINARY) ||
+        ((data_primitive == TYPE_GEOMETRY || data_primitive == TYPE_GEOGRAPHY) &&
+         delete_primitive == TYPE_VARBINARY)) {
+        *comparison_type = delete_primitive == TYPE_VARBINARY ? delete_value_type : data_value_type;
+        return Status::OK();
+    }
     // Parquet INT96 carries no instant annotation, so a timestamptz key in a Spark or Hive file
     // that Iceberg imported reads as DATETIMEV2(6), while an adjusted-UTC tombstone of the same
     // field, as a Flink upsert writes it, reads as TIMESTAMPTZ(6). Neither widens to the other.
@@ -1844,6 +1916,7 @@ Status IcebergTableReader::_append_row_position_output_column(format::FileScanRe
 
 Status IcebergTableReader::_find_equality_delete_data_field(
         const EqualityDeleteFilter& filter, size_t key_idx,
+        const std::vector<format::ColumnDefinition>& file_schema,
         EqualityDeleteColumnPath* const data_path, bool* const complete_path) const {
     DORIS_CHECK(key_idx < filter.field_ids.size());
     DORIS_CHECK(key_idx < filter.field_names.size());
@@ -1863,10 +1936,10 @@ Status IcebergTableReader::_find_equality_delete_data_field(
         static_cast<void>(find_equality_delete_column_path(_projected_columns,
                                                            filter.field_ids[key_idx], &table_path));
     }
-    if (table_path.empty() && mapping_mode() != format::TableColumnMappingMode::BY_NAME) {
+    const auto mode = _mapping_mode(file_schema);
+    if (table_path.empty() && mode != format::TableColumnMappingMode::BY_NAME) {
         const int field_id = filter.field_ids[key_idx];
-        *complete_path =
-                find_equality_delete_column_path(_data_reader.file_schema, field_id, data_path);
+        *complete_path = find_equality_delete_column_path(file_schema, field_id, data_path);
         return Status::OK();
     }
 
@@ -1886,12 +1959,12 @@ Status IcebergTableReader::_find_equality_delete_data_field(
                 "schema metadata",
                 filter.field_ids[key_idx]);
     }
-    const std::vector<format::ColumnDefinition>* candidates = &_data_reader.file_schema;
+    const std::vector<format::ColumnDefinition>* candidates = &file_schema;
     for (size_t index = 0; index < table_path.size(); ++index) {
         const auto* table_field = table_path[index];
         DORIS_CHECK(table_field != nullptr);
         const format::ColumnDefinition* data_field = nullptr;
-        if (mapping_mode() == format::TableColumnMappingMode::BY_NAME) {
+        if (mode == format::TableColumnMappingMode::BY_NAME) {
             data_field = format::find_column_by_name(*table_field, *candidates);
         } else {
             DORIS_CHECK(table_field->has_identifier_field_id());
@@ -1900,7 +1973,7 @@ Status IcebergTableReader::_find_equality_delete_data_field(
                     supports_iceberg_scan_semantics_v1(_scan_params) &&
                             _format == FileFormat::PARQUET);
         }
-        if (data_field == nullptr && mapping_mode() == format::TableColumnMappingMode::BY_NAME &&
+        if (data_field == nullptr && mode == format::TableColumnMappingMode::BY_NAME &&
             index + 1 == table_path.size() && !table_field->has_name_mapping) {
             // Schema-history fallback can carry a post-snapshot leaf rename when the target
             // snapshot's parent has expired. Retry the delete file's original leaf name, but
@@ -1916,6 +1989,38 @@ Status IcebergTableReader::_find_equality_delete_data_field(
         candidates = &data_field->children;
     }
     *complete_path = true;
+    return Status::OK();
+}
+
+Status IcebergTableReader::_apply_equality_delete_data_binary_types(
+        std::vector<format::ColumnDefinition>* file_schema) {
+    for (const auto& filter : _equality_delete_filters) {
+        // Like predicate construction, an empty tombstone file has no keys to read.
+        if (filter.delete_block.rows() == 0) {
+            continue;
+        }
+        for (size_t i = 0; i < filter.field_ids.size(); ++i) {
+            // A BINARY equality key can be hidden from the projected table columns.
+            if (remove_nullable(filter.key_types[i])->get_primitive_type() != TYPE_VARBINARY) {
+                continue;
+            }
+            EqualityDeleteColumnPath path;
+            bool complete = false;
+            RETURN_IF_ERROR(
+                    _find_equality_delete_data_field(filter, i, *file_schema, &path, &complete));
+            if (!complete) {
+                continue;
+            }
+            // The delete file's raw-byte type alone cannot identify a table BINARY field.
+            // Resolve the declared type again with this data leaf as the file-type fallback.
+            const auto field =
+                    _find_table_column_by_field_id(filter.field_ids[i], path.back()->type, true);
+            if (field.has_value()) {
+                RETURN_IF_ERROR(apply_spatial_binary_key_type(*_data_reader.reader, field->type,
+                                                              *file_schema, path));
+            }
+        }
+    }
     return Status::OK();
 }
 
@@ -2094,8 +2199,8 @@ Status IcebergTableReader::_append_equality_delete_predicates(format::FileScanRe
         for (size_t idx = 0; idx < filter.field_ids.size(); ++idx) {
             EqualityDeleteColumnPath data_path;
             bool complete_path = false;
-            RETURN_IF_ERROR(
-                    _find_equality_delete_data_field(filter, idx, &data_path, &complete_path));
+            RETURN_IF_ERROR(_find_equality_delete_data_field(filter, idx, _data_reader.file_schema,
+                                                             &data_path, &complete_path));
             VExprSPtr key_expr;
             DataTypePtr comparison_type;
             if (!complete_path) {
@@ -2246,7 +2351,7 @@ Status IcebergTableReader::_create_delete_file_reader(const TIcebergDeleteFileDe
         *reader = std::make_unique<format::parquet::ParquetReader>(
                 system_properties, file_description, io_ctx, _scanner_profile, std::nullopt,
                 enable_mapping_timestamp_tz, enable_mapping_varbinary, "", preserve_binary_uuid(),
-                _parquet_profile_cache);
+                _parquet_profile_cache, std::nullopt, parquet_spatial_annotations_as_bytes());
     } else {
         *reader = std::make_unique<format::orc::OrcReader>(
                 system_properties, file_description, io_ctx, _scanner_profile, std::nullopt,
@@ -2388,8 +2493,8 @@ Status IcebergTableReader::_init_equality_delete_predicates(
 }
 
 Status IcebergTableReader::_resolve_equality_delete_fields(
-        const TIcebergDeleteFileDesc& delete_file,
-        const std::vector<format::ColumnDefinition>& schema,
+        const TIcebergDeleteFileDesc& delete_file, format::FileReader& reader,
+        std::vector<format::ColumnDefinition>& schema,
         std::vector<EqualityDeleteColumnPath>* delete_paths, EqualityDeleteFilter* result) const {
     DORIS_CHECK(delete_paths != nullptr);
     DORIS_CHECK(result != nullptr);
@@ -2408,12 +2513,17 @@ Status IcebergTableReader::_resolve_equality_delete_fields(
         // compares a key in the wider of this type and its own (equality_delete_comparison_type):
         // narrowing to either side is lossy, as an INT overflow becomes NULL and NULL-safe
         // equality then matches a NULL key.
-        const DataTypePtr delete_file_type =
-                path.size() > 1 ? make_nullable(field->type) : field->type;
+        DataTypePtr delete_file_type = path.size() > 1 ? make_nullable(field->type) : field->type;
         DataTypePtr key_type = delete_file_type;
         if (auto table_field = _find_table_column_by_field_id(field_id, delete_file_type, true);
             table_field.has_value() && table_field->type != nullptr) {
             key_type = table_field->type;
+            // Tombstones are decoded before comparison casts. An annotated BINARY key must
+            // materialize as bytes here, even when the scan never projects that table field.
+            if (delete_file.file_format == TFileFormatType::FORMAT_PARQUET) {
+                RETURN_IF_ERROR(apply_spatial_binary_key_type(reader, key_type, schema, path));
+                delete_file_type = path.size() > 1 ? make_nullable(field->type) : field->type;
+            }
         }
         delete_paths->push_back(std::move(path));
         result->field_ids.push_back(field_id);
@@ -2445,7 +2555,8 @@ Status IcebergTableReader::_load_equality_delete_file(const TIcebergDeleteFileDe
                 &schema, format::TableColumnMappingMode::BY_FIELD_ID));
     }
     std::vector<EqualityDeleteColumnPath> delete_paths;
-    RETURN_IF_ERROR(_resolve_equality_delete_fields(delete_file, schema, &delete_paths, result));
+    RETURN_IF_ERROR(
+            _resolve_equality_delete_fields(delete_file, *reader, schema, &delete_paths, result));
 
     auto request = std::make_shared<format::FileScanRequest>();
     format::FileScanRequestBuilder request_builder(request.get());
