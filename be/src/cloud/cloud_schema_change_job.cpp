@@ -43,6 +43,7 @@
 #include "storage/tablet/tablet.h"
 #include "storage/tablet/tablet_fwd.h"
 #include "storage/tablet/tablet_meta.h"
+#include "storage/tablet/tablet_reader.h"
 #include "util/debug_points.h"
 
 namespace doris {
@@ -265,22 +266,19 @@ Status CloudSchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& reque
     // reader_context is stack variables, it's lifetime MUST keep the same with rs_readers
     RowsetReaderContext reader_context;
     reader_context.reader_type = ReaderType::READER_ALTER_TABLE;
-    reader_context.need_ordered_result = true;
     reader_context.delete_handler = &delete_handler;
     reader_context.read_schema = read_schema;
-    reader_context.is_unique = _base_tablet->keys_type() == UNIQUE_KEYS;
     reader_context.batch_size = ALTER_TABLE_BATCH_SIZE;
     reader_context.delete_bitmap = _base_tablet->tablet_meta()->delete_bitmap_ptr();
     reader_context.version = Version(0, start_resp.alter_version());
+    // The rows of every rowset are read in key order, by the cluster key when the table has one.
     std::vector<uint32_t> cluster_key_idxes;
-    if (!_base_tablet_schema->cluster_key_uids().empty()) {
-        for (const auto& uid : _base_tablet_schema->cluster_key_uids()) {
-            cluster_key_idxes.emplace_back(read_schema->ordinal_by_uid(uid));
-        }
-        reader_context.read_orderby_key_columns = &cluster_key_idxes;
-        reader_context.is_unique = false;
-        reader_context.use_sequence_column_for_merge_order = false;
+    for (const auto& uid : _base_tablet_schema->cluster_key_uids()) {
+        cluster_key_idxes.emplace_back(read_schema->ordinal_by_uid(uid));
     }
+    reader_context.merge = TabletReader::decide_merge(*_base_tablet_schema, *read_schema,
+                                                      cluster_key_idxes, /*key_ordered=*/true,
+                                                      /*reverse=*/false, /*older_first=*/false);
 
     for (auto& split : rs_splits) {
         RETURN_IF_ERROR(split.rs_reader->init(&reader_context));

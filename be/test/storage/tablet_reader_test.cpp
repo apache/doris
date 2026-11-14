@@ -251,7 +251,7 @@ TEST_F(TabletReaderTest, storage_topn_sorts_by_leading_key_columns) {
 }
 
 // Storage TopN without order-by key columns fails at init, instead of aborting the BE
-// later in VCollectIterator.
+// later in the TopN read.
 TEST_F(TabletReaderTest, storage_topn_without_orderby_key_columns_fails) {
     StorageEngine engine({});
     // A merge-on-read tablet, such as one read as DUP, sets up no order-by key columns.

@@ -43,8 +43,9 @@
 #include "core/column/column_string.h"
 #include "runtime/runtime_state.h"
 #include "storage/iterator/block_reader.h"
+#include "storage/iterator/mask_merge_iterator.h"
+#include "storage/iterator/row_sources_buffer.h"
 #include "storage/iterator/vertical_block_reader.h"
-#include "storage/iterator/vertical_merge_iterator.h"
 #include "storage/iterators.h"
 #include "storage/olap_common.h"
 #include "storage/olap_define.h"
@@ -147,8 +148,7 @@ Status Merger::vmerge_rowsets(BaseTabletSPtr tablet, ReaderType reader_type,
     if (reader_params.read_changelog) {
         // Changelog horizontal (non-vertical) compaction must produce a globally
         // (key, TSO)-ordered output.
-        reader_params.read_orderby_key = true;
-        reader_params.force_key_ordered_read = true;
+        reader_params.force_key_order = true;
     }
 
     TabletReadSource read_source;

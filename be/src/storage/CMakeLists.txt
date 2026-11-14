@@ -71,7 +71,6 @@ set(STORAGE_UNITY_SKIP
     ${CMAKE_CURRENT_SOURCE_DIR}/index/index_fs_directory.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/index/inverted/analysis/tokenizer/basic/basic_tokenizer.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/index/zone_map/zone_map_index.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/iterator/vcollect_iterator.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/tablet/tablet.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/task/engine_clone_task.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/predicate/predicate_creator_comparison.cpp

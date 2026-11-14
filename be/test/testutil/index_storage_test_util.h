@@ -153,7 +153,7 @@ struct IndexRowsetSpec {
 
 struct IndexReadOptions {
     ReaderType reader_type = ReaderType::READER_QUERY;
-    bool need_ordered_result = false;
+    bool key_ordered = false;
     std::vector<uint32_t> return_columns;
     std::vector<std::shared_ptr<ColumnPredicate>> predicates;
     std::map<std::string, DataTypePtr> target_cast_type_for_variants;

@@ -401,7 +401,7 @@ TEST_F(GroupRowsetWriterTest, partialUpdateSkipsHiddenNonKeyColumns) {
     const auto& changelog_schema = _changelog_tablet->tablet_schema();
     ASSERT_EQ(7, changelog_schema->num_columns());
     RowsetReaderContext reader_context;
-    reader_context.need_ordered_result = false;
+    reader_context.merge.key_ordered = false;
     // Read schema covers all changelog columns in order.
     auto read_schema = std::make_shared<ReadSchema>(changelog_schema->columns());
     reader_context.read_schema = read_schema;
@@ -475,7 +475,7 @@ TEST_F(GroupRowsetWriterTest, keyOnlyFixedPartialUpdatePreservesNarrowBlock) {
     auto read_schema = std::make_shared<ReadSchema>(project_columns_by_ordinal(
             changelog_schema->columns(), std::vector<ColumnId> {0, 1, 2, 3, 4, 5, 6}));
     RowsetReaderContext reader_context;
-    reader_context.need_ordered_result = false;
+    reader_context.merge.key_ordered = false;
     reader_context.read_schema = read_schema;
     EXPECT_TRUE(read_schema
                         ->init_from_tablet_schema(*changelog_schema,

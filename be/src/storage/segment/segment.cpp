@@ -61,7 +61,7 @@
 #include "storage/index/primary_key_index.h"
 #include "storage/index/short_key_index.h"
 #include "storage/index/zone_map/zonemap_eval_context.h"
-#include "storage/iterator/vgeneric_iterators.h"
+#include "storage/iterator/statistics_iterator.h"
 #include "storage/iterators.h"
 #include "storage/key_coder.h"
 #include "storage/olap_common.h"
@@ -1029,14 +1029,16 @@ Status Segment::_get_column_reader_for_read(const TabletColumn& col,
     if (col.name() == VERSION_COL) {
         // A singleton rowset exposes its rowset version for every row. Segment writers store a
         // placeholder because the publish version is not known when the segment is written.
-        if (read_options.version.first == read_options.version.second) {
+        if (read_options.rowset_version.first == read_options.rowset_version.second) {
             *column_reader = std::make_shared<ConstantColumnReader>(
-                    Field::create_field<TYPE_BIGINT>(read_options.version.second), col.type());
+                    Field::create_field<TYPE_BIGINT>(read_options.rowset_version.second),
+                    col.type());
             return Status::OK();
         }
         if (!_column_meta_accessor->has_column_uid(col_uid)) {
             return Status::InternalError("could not find version column read version is {}-{}",
-                                         read_options.version.first, read_options.version.second);
+                                         read_options.rowset_version.first,
+                                         read_options.rowset_version.second);
         }
         return _column_reader_cache->get_column_reader(col_uid, column_reader, read_options.stats,
                                                        &read_options.io_ctx);
@@ -1048,28 +1050,28 @@ Status Segment::_get_column_reader_for_read(const TabletColumn& col,
         // Version [0-0] identifies a pre-publish physical read, such as segment compaction while a
         // RowsetWriter is still open. Its TSO is intentionally [-1--1], so preserve the on-disk
         // COMMIT_TSO_COL=0 or CHANGELOG_TSO_COL=NULL placeholder instead of synthesizing a value.
-        if (read_options.version == Version(0, 0) && start_tso == -1 && end_tso == -1) {
+        if (read_options.rowset_version == Version(0, 0) && start_tso == -1 && end_tso == -1) {
             if (!_column_meta_accessor->has_column_uid(col_uid)) {
                 return Status::InternalError("could not find {} column", col.name());
             }
             return _column_reader_cache->get_column_reader(
                     col_uid, column_reader, read_options.stats, &read_options.io_ctx);
         }
-        if (read_options.version.first == read_options.version.second) {
+        if (read_options.rowset_version.first == read_options.rowset_version.second) {
             // A singleton needs its publish TSO to replace the on-disk NULL/0 placeholder.
             // Range rowsets already contain materialized TSOs: compacting the initial empty
             // [0-1] rowset with [2-2] and [3-3] can leave a valid output with TSO range [-1, T3].
             if (start_tso < 0 || end_tso < start_tso) {
                 return Status::InternalError(
                         "reading {} requires a valid commit tso, rowset version={}, commit tso={}",
-                        col.name(), read_options.version.to_string(),
+                        col.name(), read_options.rowset_version.to_string(),
                         read_options.commit_tso.to_string());
             }
             if (start_tso != end_tso) {
                 return Status::InternalError(
                         "singleton rowset {} requires a singleton commit tso when reading {}, "
                         "got {}",
-                        read_options.version.to_string(), col.name(),
+                        read_options.rowset_version.to_string(), col.name(),
                         read_options.commit_tso.to_string());
             }
             *column_reader = std::make_shared<ConstantColumnReader>(
