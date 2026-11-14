@@ -838,4 +838,104 @@ TEST_P(PointQuerySegmentReuseTest, LookupUpAndRowCacheHit) {
 
 INSTANTIATE_TEST_SUITE_P(SegmentLayouts, PointQuerySegmentReuseTest, testing::Bool());
 
+// Prepare real tuple descriptors and output expressions: debug visibility can omit the
+// delete-sign tuple slot even though the tablet schema still contains that column.
+class PointQueryDeleteSignProjectionTest : public testing::Test {
+protected:
+    static constexpr int kValueUid = 11;
+    static constexpr int kRawUid = 22;
+    static constexpr int kDeleteUid = 33;
+
+    static Status init(Reusable* reusable, const std::vector<int>& tuple_uids,
+                       const std::vector<int>& stored_uids) {
+        TabletSchema schema;
+        auto add_column = [&](int uid, const std::string& name, FieldType type) {
+            TabletColumn column(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE, type);
+            column.set_unique_id(uid);
+            column.set_name(name);
+            column.set_is_nullable(false);
+            schema.append_column(column);
+        };
+        add_column(kValueUid, "v", FieldType::OLAP_FIELD_TYPE_INT);
+        add_column(kRawUid, BeConsts::ROW_STORE_COL, FieldType::OLAP_FIELD_TYPE_STRING);
+        add_column(kDeleteUid, DELETE_SIGN, FieldType::OLAP_FIELD_TYPE_TINYINT);
+        TabletSchemaPB schema_pb;
+        schema.to_schema_pb(&schema_pb);
+        for (int uid : stored_uids) {
+            schema_pb.add_row_store_column_unique_ids(uid);
+        }
+        TabletSchema tablet_schema;
+        tablet_schema.init_from_pb(schema_pb);
+
+        TDescriptorTableBuilder table_builder;
+        TTupleDescriptorBuilder tuple_builder;
+        int value_index = 0;
+        for (size_t i = 0; i < tuple_uids.size(); ++i) {
+            const bool is_delete = tuple_uids[i] == kDeleteUid;
+            auto slot = TSlotDescriptorBuilder()
+                                .type(is_delete ? TYPE_TINYINT : TYPE_INT)
+                                .column_name(is_delete ? DELETE_SIGN : "v")
+                                .column_pos(static_cast<int>(i))
+                                .nullable(false)
+                                .build();
+            slot.__set_col_unique_id(tuple_uids[i]);
+            tuple_builder.add_slot(slot);
+            if (!is_delete) {
+                value_index = static_cast<int>(i);
+            }
+        }
+        tuple_builder.build(&table_builder);
+        const auto descriptors = table_builder.desc_tbl();
+        const auto& value_slot = descriptors.slotDescriptors[value_index];
+        TExprNode node;
+        node.node_type = TExprNodeType::SLOT_REF;
+        node.type = value_slot.slotType;
+        node.num_children = 0;
+        TSlotRef slot_ref;
+        slot_ref.__set_slot_id(value_slot.id);
+        slot_ref.__set_tuple_id(0);
+        slot_ref.__set_col_unique_id(kValueUid);
+        node.__set_slot_ref(slot_ref);
+        TExpr expr;
+        expr.nodes.push_back(node);
+        return reusable->init(descriptors, {expr}, TQueryOptions(), tablet_schema);
+    }
+};
+
+TEST_F(PointQueryDeleteSignProjectionTest, AbsentDeleteSlotIsNotRequested) {
+    Reusable reusable;
+    const auto status = init(&reusable, {kValueUid}, {kValueUid});
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_EQ(-1, reusable.delete_sign_idx());
+    EXPECT_TRUE(reusable.missing_col_uids().empty());
+    EXPECT_EQ((std::unordered_set<int> {kValueUid}), reusable.include_col_uids());
+    EXPECT_EQ(0, reusable.get_col_uid_to_idx().count(kDeleteUid));
+}
+
+TEST_F(PointQueryDeleteSignProjectionTest, UnprojectedDeleteSlotIsReadFromColumnStore) {
+    Reusable reusable;
+    const auto status = init(&reusable, {kDeleteUid, kValueUid}, {kValueUid});
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_EQ(0, reusable.delete_sign_idx());
+    EXPECT_EQ((std::unordered_set<int> {kDeleteUid}), reusable.missing_col_uids());
+    EXPECT_EQ(0, reusable.get_col_uid_to_idx().at(kDeleteUid));
+}
+
+TEST_F(PointQueryDeleteSignProjectionTest, UnprojectedDeleteSlotIsReadFromRowStore) {
+    Reusable reusable;
+    const auto status = init(&reusable, {kValueUid, kDeleteUid}, {kValueUid, kDeleteUid});
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_EQ(1, reusable.delete_sign_idx());
+    EXPECT_TRUE(reusable.missing_col_uids().empty());
+    EXPECT_EQ((std::unordered_set<int> {kValueUid, kDeleteUid}), reusable.include_col_uids());
+}
+
+TEST_F(PointQueryDeleteSignProjectionTest, FullRowStoreWithoutDeleteSlot) {
+    Reusable reusable;
+    const auto status = init(&reusable, {kValueUid}, {});
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_EQ(-1, reusable.delete_sign_idx());
+    EXPECT_TRUE(reusable.missing_col_uids().empty());
+}
+
 } // namespace doris
