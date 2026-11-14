@@ -19,6 +19,7 @@
 
 #include <arrow/util/base64.h>
 #include <fmt/core.h>
+#include <gen_cpp/Types_types.h>
 #include <rapidjson/document.h>
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
@@ -31,10 +32,15 @@
 
 namespace doris {
 
+bool PythonUDFMeta::uses_naive_datetime(const TFunction& fn) {
+    return fn.__isset.enable_python_udf_arrow_time_v2 && fn.enable_python_udf_arrow_time_v2;
+}
+
 Status PythonUDFMeta::convert_types_to_schema(const DataTypes& types, const std::string& timezone,
-                                              std::shared_ptr<arrow::Schema>* schema) {
+                                              std::shared_ptr<arrow::Schema>* schema,
+                                              bool datetime_naive) {
     arrow::SchemaBuilder builder;
-    const DorisArrowSchemaConvertor schema_convertor(timezone);
+    const PythonArrowSchemaConvertor schema_convertor(timezone, datetime_naive);
     for (size_t i = 0; i < types.size(); ++i) {
         std::shared_ptr<arrow::DataType> arrow_type;
         RETURN_IF_ERROR(schema_convertor.convert_to_arrow_type(types[i], &arrow_type));
@@ -93,8 +99,8 @@ Status PythonUDFMeta::serialize_to_json(std::string* json_str) const {
     {
         // Serialize base64 input types to json
         std::shared_ptr<arrow::Schema> input_schema;
-        RETURN_IF_ERROR(convert_types_to_schema(input_types, TimezoneUtils::default_time_zone,
-                                                &input_schema));
+        RETURN_IF_ERROR(
+                convert_types_to_schema(input_types, timezone, &input_schema, datetime_naive));
         std::shared_ptr<arrow::Buffer> input_schema_buffer;
         RETURN_IF_ERROR(serialize_arrow_schema(input_schema, &input_schema_buffer));
         std::string base64_str =
@@ -106,8 +112,8 @@ Status PythonUDFMeta::serialize_to_json(std::string* json_str) const {
     {
         // Serialize base64 return type to json
         std::shared_ptr<arrow::Schema> return_schema;
-        RETURN_IF_ERROR(convert_types_to_schema({return_type}, TimezoneUtils::default_time_zone,
-                                                &return_schema));
+        RETURN_IF_ERROR(
+                convert_types_to_schema({return_type}, timezone, &return_schema, datetime_naive));
         std::shared_ptr<arrow::Buffer> return_schema_buffer;
         RETURN_IF_ERROR(serialize_arrow_schema(return_schema, &return_schema_buffer));
         std::string base64_str =

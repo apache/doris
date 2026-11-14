@@ -158,6 +158,7 @@ public class FunctionToThriftConverter {
         tName.setFunctionName(fn.getFunctionName().getFunction());
         tfn.setName(tName);
         tfn.setBinaryType(toThriftBinaryType(fn.getBinaryType()));
+        tfn.setEnablePythonUdfArrowTimeV2(true);
         if (fn.getLocation() != null) {
             tfn.setHdfsLocation(fn.getLocation().getLocation());
         }

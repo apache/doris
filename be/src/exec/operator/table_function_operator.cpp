@@ -80,7 +80,7 @@ Status TableFunctionLocalState::open(RuntimeState* state) {
     RETURN_IF_ERROR(PipelineXLocalState<>::open(state));
     RETURN_IF_ERROR(_clone_table_function(state));
     for (auto* fn : _fns) {
-        RETURN_IF_ERROR(fn->open());
+        RETURN_IF_ERROR(fn->open(state));
     }
     _cur_child_offset = -1;
     _reset_block_fast_path_state();

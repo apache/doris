@@ -27,6 +27,33 @@ import org.junit.jupiter.api.Test;
 
 public class FunctionToThriftConverterTest {
 
+    @Test
+    void testPythonArrowTimeProtocolFlag() {
+        Type datetime = ScalarType.createDatetimeV2Type(6);
+        Type[] args = {datetime};
+        ScalarFunction scalar = ScalarFunction.createUdf(BinaryType.PYTHON_UDF,
+                new FunctionName("db1", "python_scalar"), args, datetime,
+                false, null, "evaluate", null, null);
+        ScalarFunction table = ScalarFunction.createUdf(BinaryType.PYTHON_UDF,
+                new FunctionName("db1", "python_table"), args, datetime,
+                false, null, "evaluate", null, null);
+        table.setUDTFunction(true);
+        AggregateFunction aggregate = new AggregateFunction(new FunctionName("db1", "python_aggregate"),
+                args, datetime, false, datetime, null,
+                "init", "accumulate", "merge", null, "finish", null, null);
+        aggregate.setBinaryType(BinaryType.PYTHON_UDF);
+        for (Function fn : new Function[] {scalar, table, aggregate}) {
+            fn.setRuntimeVersion("3.12.11");
+            TFunction result = FunctionToThriftConverter.toThrift(fn, datetime, args, new Boolean[] {true});
+            Assertions.assertTrue(result.isSetEnablePythonUdfArrowTimeV2());
+            Assertions.assertTrue(result.isEnablePythonUdfArrowTimeV2());
+        }
+        scalar.setBinaryType(BinaryType.JAVA_UDF);
+        TFunction javaFunction = FunctionToThriftConverter.toThrift(scalar, datetime, args, new Boolean[] {true});
+        Assertions.assertTrue(javaFunction.isSetEnablePythonUdfArrowTimeV2());
+        Assertions.assertTrue(javaFunction.isEnablePythonUdfArrowTimeV2());
+    }
+
     // ======================== ScalarFunction Tests ========================
 
     @Test

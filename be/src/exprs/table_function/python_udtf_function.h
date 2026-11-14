@@ -33,7 +33,7 @@ namespace doris {
  * PythonUDTFFunction - Python User-Defined Table Function
  * 
  * Execution Flow:
- * 1. open() - Create Python UDTF client and establish RPC connection
+ * 1. open(state) - Create Python UDTF client and establish RPC connection
  * 2. process_init(block) - Batch evaluate all rows:
  *    - Convert input block to Arrow RecordBatch
  *    - Call Python UDTF server via RPC (evaluates all rows in one call)
@@ -51,7 +51,7 @@ public:
     PythonUDTFFunction(const TFunction& t_fn);
     ~PythonUDTFFunction() override = default;
 
-    Status open() override;
+    Status open(RuntimeState* state) override;
     Status process_init(Block* block, RuntimeState* state) override;
     void process_row(size_t row_idx) override;
     void process_close() override;
@@ -84,6 +84,7 @@ private:
     const TFunction& _t_fn;
     DataTypePtr _return_type;
     PythonUDTFClientPtr _udtf_client;
+    std::string _timezone;
     cctz::time_zone _timezone_obj;
 
     // Result storage (similar to Java UDTF)
