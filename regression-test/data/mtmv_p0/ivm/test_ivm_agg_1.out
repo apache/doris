@@ -26,7 +26,7 @@
 3	60	20	3
 
 -- !scalar_after_first_update_incremental --
-3	65	21.66666666666667	3
+3	65	21.666666666666668	3
 
 -- !scalar_after_second_update_incremental --
 4	105	26.25	4
@@ -48,6 +48,9 @@
 
 -- !minmax_op_after_initial_incremental --
 10	30	3
+
+-- !minmax_op_after_min_delete --
+20	35	4
 
 -- !minmax_op_after_recovery --
 20	35	4

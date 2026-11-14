@@ -15,8 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import org.awaitility.Awaitility
-import static java.util.concurrent.TimeUnit.SECONDS
 
 suite("test_ivm_minmax_runtime_fallback") {
     // Base-table queries below assert the same rows as the MV, so transparent rewrite must be off.
@@ -47,30 +45,13 @@ suite("test_ivm_minmax_runtime_fallback") {
         BUILD DEFERRED REFRESH INCREMENTAL FALLBACK ON MANUAL
         KEY(category)
         DISTRIBUTED BY HASH(category) BUCKETS 1
-        PROPERTIES ("replication_num" = "1")
+        PROPERTIES ("replication_num" = "1", "ivm_minmax_top_k" = "1")
         AS SELECT category, MIN(score) AS min_score, MAX(score) AS max_score, COUNT(*) AS row_count
         FROM ivm_mm_fb_t
         GROUP BY category
     """
 
-    def latestTask = {
-        def taskResult
-        Awaitility.await().atMost(300, SECONDS).pollInterval(2, SECONDS).until({
-            taskResult = sql_return_maparray("""
-                SELECT Status, RefreshMode, IvmFallbackReason, ErrorMsg
-                FROM tasks('type'='mv')
-                WHERE MvDatabaseName = '${context.dbName}'
-                  AND MvName = 'ivm_mm_fb_mv'
-                ORDER BY CreateTime DESC, TaskId DESC LIMIT 1
-            """)
-            return !taskResult.isEmpty()
-                    && taskResult[0].Status.toString() != 'PENDING'
-                    && taskResult[0].Status.toString() != 'RUNNING'
-        })
-        return taskResult[0]
-    }
-
-    sql """REFRESH MATERIALIZED VIEW ivm_mm_fb_mv INCREMENTAL"""
+    refreshIvm("ivm_mm_fb_mv", """REFRESH MATERIALIZED VIEW ivm_mm_fb_mv INCREMENTAL""")
     waitingMTMVTaskFinishedByMvName("ivm_mm_fb_mv")
     order_qt_minmax_initial """
         SELECT category, min_score, max_score, row_count
@@ -81,8 +62,8 @@ suite("test_ivm_minmax_runtime_fallback") {
     sql """DELETE FROM ivm_mm_fb_t WHERE id = 1"""
     Thread.sleep(1000)
 
-    sql """REFRESH MATERIALIZED VIEW ivm_mm_fb_mv INCREMENTAL"""
-    def strictTask = latestTask()
+    refreshIvm("ivm_mm_fb_mv", """REFRESH MATERIALIZED VIEW ivm_mm_fb_mv INCREMENTAL""")
+    def strictTask = latestIvmTask("ivm_mm_fb_mv")
     assertEquals("FAILED", strictTask.Status.toString())
     assertEquals("MIN_MAX_BOUNDARY_HIT", strictTask.IvmFallbackReason.toString())
     assertTrue(strictTask.ErrorMsg.toString().contains("IVM fallback: min/max boundary hit"))
@@ -92,8 +73,8 @@ suite("test_ivm_minmax_runtime_fallback") {
         ORDER BY category
     """
 
-    sql """REFRESH MATERIALIZED VIEW ivm_mm_fb_mv INCREMENTAL FALLBACK"""
-    def fallbackTask = latestTask()
+    refreshIvm("ivm_mm_fb_mv", """REFRESH MATERIALIZED VIEW ivm_mm_fb_mv INCREMENTAL FALLBACK""")
+    def fallbackTask = latestIvmTask("ivm_mm_fb_mv")
     assertEquals("SUCCESS", fallbackTask.Status.toString())
     assertEquals("COMPLETE", fallbackTask.RefreshMode.toString())
     assertEquals("MIN_MAX_BOUNDARY_HIT", fallbackTask.IvmFallbackReason.toString())

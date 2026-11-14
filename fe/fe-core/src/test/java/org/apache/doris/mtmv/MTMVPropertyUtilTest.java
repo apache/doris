@@ -35,6 +35,7 @@ import org.apache.doris.catalog.SinglePartitionInfo;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.mtmv.ivm.IvmUtil;
 import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.collect.ImmutableMap;
@@ -213,6 +214,28 @@ class MTMVPropertyUtilTest {
         } catch (AnalysisException e) {
             throw new IllegalStateException(e);
         }
+    }
+
+    @Test
+    void testIvmMinMaxTopKProperty() {
+        String topK = PropertyAnalyzer.PROPERTIES_IVM_MINMAX_TOPK;
+        // An absent property is distinct from an explicit 0: normalize derives the absent case from
+        // the plan shape, while 0 is the extreme-only mode.
+        Assertions.assertFalse(MTMVPropertyUtil.getIvmMinMaxTopK(Maps.newHashMap()).isPresent());
+        Assertions.assertEquals(Long.valueOf(0L),
+                MTMVPropertyUtil.getIvmMinMaxTopK(ImmutableMap.of(topK, "0")).get());
+        Assertions.assertEquals(Long.valueOf(16L),
+                MTMVPropertyUtil.getIvmMinMaxTopK(ImmutableMap.of(topK, "16")).get());
+
+        MTMVPropertyUtil.analyzeProperty(topK, "0");
+        MTMVPropertyUtil.analyzeProperty(topK, String.valueOf(IvmUtil.MAX_IVM_MINMAX_TOP_K));
+        Assertions.assertThrows(org.apache.doris.nereids.exceptions.AnalysisException.class,
+                () -> MTMVPropertyUtil.analyzeProperty(topK, "-1"));
+        Assertions.assertThrows(org.apache.doris.nereids.exceptions.AnalysisException.class,
+                () -> MTMVPropertyUtil.analyzeProperty(topK,
+                        String.valueOf(IvmUtil.MAX_IVM_MINMAX_TOP_K + 1)));
+        Assertions.assertThrows(org.apache.doris.nereids.exceptions.AnalysisException.class,
+                () -> MTMVPropertyUtil.analyzeProperty(topK, "abc"));
     }
 
     private static final class PartitionSpec {

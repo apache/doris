@@ -22,6 +22,7 @@ import org.apache.doris.mtmv.ivm.IvmFailureReason;
 import org.apache.doris.mtmv.ivm.IvmUtil;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
@@ -29,11 +30,25 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnion;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CountAtMax;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CountAtMin;
+import org.apache.doris.nereids.trees.expressions.functions.agg.MaxTopK;
+import org.apache.doris.nereids.trees.expressions.functions.agg.MinTopK;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
+import org.apache.doris.nereids.trees.expressions.functions.agg.TopKFunction;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Array;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateNamedStruct;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
+import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
+import org.apache.doris.nereids.types.ArrayType;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -63,10 +78,14 @@ public abstract class IvmAggFunctionProcessor {
      * pool, and appended to {@code hiddenAggOutputs}.
      */
     IvmAggTargetSpec buildTargetSpec(int ordinal, AggregateFunction function, Alias visibleAlias,
-            Map<IvmAggColumnKey, Slot> aggColumnPool, List<NamedExpression> hiddenAggOutputs) {
+            Map<IvmAggColumnKey, Slot> aggColumnPool, List<NamedExpression> hiddenAggOutputs,
+            List<NamedExpression> internalAggOutputs, long minMaxTopK) {
+        Set<IvmAggStateKey> internalKeys = new LinkedHashSet<>(internalStateKeys(function, minMaxTopK));
+        List<IvmAggStateKey> aggregateKeys = new ArrayList<>(hiddenStateKeys(function, minMaxTopK));
+        aggregateKeys.addAll(internalKeys);
         ImmutableMap.Builder<IvmAggStateKey, Alias> hiddenAliases = ImmutableMap.builder();
-        for (IvmAggStateKey stateKey : hiddenStateKeys(function)) {
-            AggregateFunction stateFunc = hiddenStateAggregate(stateKey, function);
+        for (IvmAggStateKey stateKey : aggregateKeys) {
+            AggregateFunction stateFunc = hiddenStateAggregate(stateKey, function, minMaxTopK);
             IvmAggColumnKey key = IvmAggColumnKey.of(
                     IvmAggFunctionKind.valueOf(stateKey.name()), stateFunc.child(0));
             Slot existingSlot = aggColumnPool.get(key);
@@ -78,10 +97,21 @@ public abstract class IvmAggFunctionProcessor {
             Alias newAlias = new Alias(stateFunc, colName);
             hiddenAliases.put(stateKey, newAlias);
             aggColumnPool.put(key, newAlias.toSlot());
-            hiddenAggOutputs.add(newAlias);
+            // Internal outputs go after every persisted state: the delta apply rebuilds the
+            // aggregate output positionally, and skipping them only stays aligned at the tail.
+            (internalKeys.contains(stateKey) ? internalAggOutputs : hiddenAggOutputs).add(newAlias);
+        }
+        // Derived expressions may read every aggregate output, internal ones included.
+        ImmutableMap<IvmAggStateKey, Alias> stateAliases = hiddenAliases.build();
+        ImmutableMap.Builder<IvmAggStateKey, Alias> derivedAliases = ImmutableMap.builder();
+        for (IvmAggStateKey stateKey : derivedStateKeys(function, minMaxTopK)) {
+            String colName = IvmUtil.ivmAggHiddenColumnName(ordinal, stateKey.name());
+            derivedAliases.put(stateKey, new Alias(
+                    derivedStateExpression(stateKey, function, stateAliases, visibleAlias, minMaxTopK),
+                    colName));
         }
         return new IvmAggTargetSpec(ordinal, handledFunctionKind(), visibleAlias,
-                hiddenAliases.build(), targetArguments(function));
+                stateAliases, internalKeys, derivedAliases.build(), targetArguments(function), minMaxTopK);
     }
 
     /** Appends the processor-owned delta aggregate outputs for this target. */
@@ -122,8 +152,36 @@ public abstract class IvmAggFunctionProcessor {
     abstract void appendApplyExpressions(IvmAggTarget target, IvmAggApplyContext ctx);
 
     /** Hidden state columns this function needs in the normalized MV schema. */
-    protected List<IvmAggStateKey> hiddenStateKeys(AggregateFunction function) {
+    protected List<IvmAggStateKey> hiddenStateKeys(AggregateFunction function, long minMaxTopK) {
         return ImmutableList.of();
+    }
+
+    /**
+     * Aggregate outputs this function needs only to derive another state column. They are part of
+     * the normalized aggregate's output list, but the project above it computes the derived state
+     * from them and does not project them, so they never become MV columns.
+     */
+    protected List<IvmAggStateKey> internalStateKeys(AggregateFunction function, long minMaxTopK) {
+        return ImmutableList.of();
+    }
+
+    /**
+     * Hidden state columns computed by the project above the normalized aggregate from the
+     * {@link #hiddenStateKeys} and {@link #internalStateKeys} columns. They have no aggregate of
+     * their own, so they are not part of the aggregate output list.
+     */
+    protected List<IvmAggStateKey> derivedStateKeys(AggregateFunction function, long minMaxTopK) {
+        return ImmutableList.of();
+    }
+
+    /**
+     * Builds the expression of one {@link #derivedStateKeys} state from the aggregate output
+     * {@code stateAliases} (which includes {@link #internalStateKeys}) and the visible aggregate
+     * alias, in the project above the normalized aggregate.
+     */
+    protected Expression derivedStateExpression(IvmAggStateKey stateKey, AggregateFunction function,
+            Map<IvmAggStateKey, Alias> stateAliases, Alias visibleAlias, long minMaxTopK) {
+        throw new IllegalArgumentException("Unsupported derived IVM aggregate state: " + stateKey);
     }
 
     /**
@@ -148,22 +206,43 @@ public abstract class IvmAggFunctionProcessor {
         return ImmutableList.of(function.child(0));
     }
 
-    /** Aggregate function used to materialize one hidden state during normalize. */
-    protected AggregateFunction hiddenStateAggregate(IvmAggStateKey stateKey, AggregateFunction function) {
-        switch (stateKey) {
-            case COUNT:
-                return new Count(function.child(0));
-            case SUM:
-                return new Sum(function.child(0));
-            case BITMAP_UNION:
-                return new BitmapUnion(function.child(0));
-            case MIN_COUNT:
-                return new CountAtMin(function.child(0));
-            case MAX_COUNT:
-                return new CountAtMax(function.child(0));
-            default:
-                throw new IllegalArgumentException("Unsupported IVM aggregate state: " + stateKey);
-        }
+    /**
+     * Aggregate function used to materialize one hidden aggregate state during normalize.
+     *
+     * <p>{@code minMaxTopK} is the MV's resolved MIN/MAX capacity; only the MIN_TOPK/MAX_TOPK states
+     * read it, the other states ignore it.
+     */
+    protected AggregateFunction hiddenStateAggregate(IvmAggStateKey stateKey, AggregateFunction function,
+            long minMaxTopK) {
+        return switch (stateKey) {
+            case COUNT -> new Count(function.child(0));
+            case SUM -> new Sum(function.child(0));
+            case BITMAP_UNION -> new BitmapUnion(function.child(0));
+            case MIN_TOPK -> new MinTopK(function.child(0), new BigIntLiteral(minMaxTopK));
+            case MAX_TOPK -> new MaxTopK(function.child(0), new BigIntLiteral(minMaxTopK));
+            case MIN_COUNT -> new CountAtMin(function.child(0));
+            case MAX_COUNT -> new CountAtMax(function.child(0));
+            case MIN_TOPK_BOUND, MAX_TOPK_BOUND -> throw new IllegalArgumentException(
+                    "Derived IVM aggregate state has no materializing aggregate: " + stateKey);
+        };
+    }
+
+    /**
+     * The one-pair top-K array of a MIN/MAX state with capacity one, in the same
+     * {@code ARRAY<STRUCT<value, count>>} shape the top-K aggregate returns: one pair when the group
+     * has a non-NULL value, the empty array otherwise.
+     */
+    protected static Expression singlePairArray(Expression value, Expression count) {
+        DataType valueType = TopKFunction.normalizeValueType(value.getDataType());
+        ArrayType stateType = TopKFunction.resultType(valueType);
+        Expression pair = TypeCoercionUtils.castIfNotMatchType(
+                new CreateNamedStruct(
+                        new StringLiteral("value"),
+                        TypeCoercionUtils.castIfNotMatchType(value, valueType),
+                        new StringLiteral("count"), count),
+                stateType.getItemType());
+        return new If(new GreaterThan(count, new BigIntLiteral(0L)), new Array(pair),
+                new ArrayLiteral(ImmutableList.of(), stateType));
     }
 
     /** Logical delta slots this processor exposes to the apply stage. */

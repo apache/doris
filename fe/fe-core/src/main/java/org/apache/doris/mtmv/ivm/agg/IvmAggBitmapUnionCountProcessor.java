@@ -41,7 +41,7 @@ class IvmAggBitmapUnionCountProcessor extends IvmAggBitmapProcessor {
     }
 
     @Override
-    protected List<IvmAggStateKey> hiddenStateKeys(AggregateFunction function) {
+    protected List<IvmAggStateKey> hiddenStateKeys(AggregateFunction function, long minMaxTopK) {
         return ImmutableList.of(IvmAggStateKey.BITMAP_UNION);
     }
 

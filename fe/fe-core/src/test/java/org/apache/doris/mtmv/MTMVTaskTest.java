@@ -2038,14 +2038,24 @@ public class MTMVTaskTest {
     }
 
     @Test
-    public void testOtherCompleteFallbackDoesNotCapturePlanSignature() throws Exception {
+    public void testOtherCompleteFallbackCapturesPlanSignature() throws Exception {
         MTMVTask task = new MTMVTask(mtmv, relation, new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL));
         Deencapsulation.setField(task, "ivmFallbackReason", IvmFailureReason.CHANGELOG_BROKEN.name());
         IvmPlanSignature signature = new IvmPlanSignature("layout_s2", "signature_s2");
 
         executeCompleteRefresh(task, signature, signature);
 
-        Assertions.assertNull(task.getRefreshedIvmPlanSignature());
+        Assertions.assertEquals("signature_s2", task.getRefreshedIvmPlanSignature());
+    }
+
+    @Test
+    public void testCapacityRebuildCapturesPlanSignatureWithoutFallback() throws Exception {
+        Mockito.when(mtmv.getStatus()).thenReturn(new MTMVStatus(MTMVState.SCHEMA_CHANGE, "capacity changed"));
+        MTMVTask task = new MTMVTask(mtmv, relation, new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL));
+        IvmPlanSignature signature = new IvmPlanSignature("layout_k4", "signature_k4");
+        executeCompleteRefresh(task, signature, signature);
+        Assertions.assertNull(Deencapsulation.getField(task, "ivmFallbackReason"));
+        Assertions.assertEquals("signature_k4", task.getRefreshedIvmPlanSignature());
     }
 
     @Test

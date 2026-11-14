@@ -267,6 +267,16 @@ public class PropertyAnalyzer {
      */
     public static final String PROPERTIES_IVM_PARTITION_WINDOW_LIMIT =
             "ivm_partition_window_limit";
+    /**
+     * How many distinct values a MIN/MAX aggregate keeps per group in its incremental state.
+     *
+     * <p>0 is the extreme-only mode: the state keeps just the current extreme, which is enough
+     * when the changelog is append-only and joins cannot retract rows. Values above 0 make
+     * deleting the current extreme derivable without a complete refresh; the range is
+     * {@code 0 <= K <= IvmUtil.MAX_IVM_MINMAX_TOP_K}. Changing the property requires a complete refresh, because
+     * the persisted state was built for the old capacity.
+     */
+    public static final String PROPERTIES_IVM_MINMAX_TOPK = "ivm_minmax_top_k";
 
     public static final String ASYNC_MV_QUERY_REWRITE_CONSISTENCY_RELAXED_TABLES =
             "async_mv.query_rewrite.consistency_relaxed_tables";

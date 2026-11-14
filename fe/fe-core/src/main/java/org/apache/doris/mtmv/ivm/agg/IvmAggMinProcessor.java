@@ -19,18 +19,15 @@ package org.apache.doris.mtmv.ivm.agg;
 
 import org.apache.doris.mtmv.ivm.IvmFailureClassifier;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.GreaterThan;
-import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
-import org.apache.doris.nereids.trees.expressions.LessThan;
-import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CountAtMin;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 
-/** MIN-specific extreme comparisons and delta state. */
+/** MIN-specific top-K state, delta and merge. */
 class IvmAggMinProcessor extends IvmAggExtremalProcessor {
     IvmAggMinProcessor() {
-        super(IvmAggFunctionKind.MIN, IvmAggStateKey.MIN_COUNT, "DELMIN");
+        super(IvmAggFunctionKind.MIN, IvmAggStateKey.MIN_TOPK,
+                IvmAggStateKey.MIN_TOPK_BOUND, "DELMIN");
     }
 
     @Override
@@ -39,28 +36,18 @@ class IvmAggMinProcessor extends IvmAggExtremalProcessor {
     }
 
     @Override
-    protected Expression buildExtremeAggregate(Expression input) {
+    protected AggregateFunction buildExtremeAggregate(Expression input) {
         return new Min(input);
     }
 
     @Override
-    protected Expression buildExtremeCountAggregate(Expression input) {
+    protected AggregateFunction buildExtremeCountAggregate(Expression input) {
         return new CountAtMin(input);
     }
 
     @Override
-    protected Expression insertedIsBetter(Expression deltaInsert, Slot oldExtreme) {
-        return new LessThan(deltaInsert, oldExtreme);
-    }
-
-    @Override
-    protected Expression deletedExtremeIsAtLeastOld(Expression deltaDelete, Slot oldExtreme) {
-        return new GreaterThanEqual(deltaDelete, oldExtreme);
-    }
-
-    @Override
-    protected Expression deletedExtremeIsBeyondInsert(Expression deltaDelete, Expression deltaInsert) {
-        return new GreaterThan(deltaDelete, deltaInsert);
+    protected boolean isTopKAscending() {
+        return true;
     }
 
     @Override

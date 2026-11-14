@@ -29,6 +29,9 @@ public enum IvmAggFunctionKind {
     AVG,
     MIN,
     MAX,
+    MIN_TOPK,
+    MAX_TOPK,
+    /** Internal MIN/MAX helper states (COUNT_AT_MIN/MAX); never a visible aggregate function. */
     MIN_COUNT,
     MAX_COUNT,
     BITMAP_UNION,
