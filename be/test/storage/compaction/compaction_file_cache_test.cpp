@@ -19,16 +19,11 @@
 
 #include "cloud/config.h"
 #include "io/fs/file_writer.h"
+#include "storage/compaction/compaction.h"
 #include "storage/olap_common.h"
 #include "storage/rowset/rowset_writer_context.h"
 
 namespace doris {
-
-// Extern declaration for the free function in compaction.cpp
-extern bool should_enable_compaction_cache_index_only(bool write_file_cache,
-                                                      ReaderType compaction_type,
-                                                      bool enable_base_index_only,
-                                                      bool enable_cumu_index_only);
 
 class CompactionFileCacheTest : public testing::Test {
 public:
@@ -37,8 +32,12 @@ public:
         _orig_index_file_only_config = config::enable_file_cache_write_index_file_only;
         _orig_base_config = config::enable_file_cache_write_base_compaction_index_only;
         _orig_cumu_config = config::enable_file_cache_write_cumu_compaction_index_only;
+        _orig_keep_base_output_config = config::enable_file_cache_keep_base_compaction_output;
+        _orig_base_min_hit_ratio = config::file_cache_keep_base_compaction_output_min_hit_ratio;
 
         config::enable_file_cache_write_index_file_only = false;
+        config::enable_file_cache_keep_base_compaction_output = false;
+        config::file_cache_keep_base_compaction_output_min_hit_ratio = 0.5;
     }
 
     void TearDown() override {
@@ -46,12 +45,16 @@ public:
         config::enable_file_cache_write_index_file_only = _orig_index_file_only_config;
         config::enable_file_cache_write_base_compaction_index_only = _orig_base_config;
         config::enable_file_cache_write_cumu_compaction_index_only = _orig_cumu_config;
+        config::enable_file_cache_keep_base_compaction_output = _orig_keep_base_output_config;
+        config::file_cache_keep_base_compaction_output_min_hit_ratio = _orig_base_min_hit_ratio;
     }
 
 private:
     bool _orig_index_file_only_config;
     bool _orig_base_config;
     bool _orig_cumu_config;
+    bool _orig_keep_base_output_config;
+    double _orig_base_min_hit_ratio;
 };
 
 // ============================================================================
@@ -345,6 +348,25 @@ TEST_F(CompactionFileCacheTest, GlobalIndexFileOnlyTakesPrecedenceOverCompaction
     EXPECT_TRUE(index_opts.write_file_cache);
     EXPECT_FALSE(index_opts.allow_adaptive_file_cache_write);
     EXPECT_EQ(index_opts.approximate_bytes_to_write, 0);
+}
+
+TEST_F(CompactionFileCacheTest, CloudCumulativeCacheFollowsGlobalIndexOnlyPolicy) {
+    config::enable_file_cache_write_index_file_only = false;
+    EXPECT_TRUE(should_cache_cloud_cumulative_compaction_output());
+
+    config::enable_file_cache_write_index_file_only = true;
+    EXPECT_FALSE(should_cache_cloud_cumulative_compaction_output());
+}
+
+TEST_F(CompactionFileCacheTest, CloudBaseCacheFollowsExistingPolicy) {
+    EXPECT_FALSE(should_cache_cloud_base_compaction_output(50, 100));
+    EXPECT_TRUE(should_cache_cloud_base_compaction_output(51, 100));
+
+    config::enable_file_cache_keep_base_compaction_output = true;
+    EXPECT_TRUE(should_cache_cloud_base_compaction_output(0, 100));
+
+    config::enable_file_cache_write_index_file_only = true;
+    EXPECT_FALSE(should_cache_cloud_base_compaction_output(100, 100));
 }
 
 // ============================================================================
