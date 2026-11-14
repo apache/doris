@@ -18,7 +18,7 @@
 package org.apache.doris.dictionary;
 
 public enum LayoutType {
-    IP_TRIE, HASH_MAP;
+    IP_TRIE, HASH_MAP, FLAT;
 
     public static LayoutType of(String name) {
         return LayoutType.valueOf(name.toUpperCase());
