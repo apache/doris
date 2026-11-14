@@ -152,7 +152,17 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
 
             }
         } catch (Exception e) {
-            LOG.warn("convert {} to type {} failed, because: {}", value, type, e.getMessage(), e);
+            // Thrown with its cause, not logged at WARN: the caller decides how to report it. A
+            // listing of an external table's partitions reaches this for EVERY partition when the
+            // connector's values are not datetimes at all (an iceberg month(ts) spec supplies the
+            // month ordinal keyed under ts), and PluginDrivenMvccExternalTable summarizes the whole
+            // listing in one line; a WARN with a stack trace per value here was the other half of
+            // that storm. The detail stays available at DEBUG.
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("convert {} to type {} failed, because: {}", value, type, e.getMessage(), e);
+            }
+            throw new AnalysisException("date convert to datetime failed, "
+                    + "value is [" + value + "], type is [" + type + "]: " + e.getMessage(), e);
         }
         throw new AnalysisException("date convert to datetime failed, "
                 + "value is [" + value + "], type is [" + type + "].");
