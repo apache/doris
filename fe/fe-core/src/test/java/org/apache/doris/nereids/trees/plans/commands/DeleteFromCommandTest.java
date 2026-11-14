@@ -44,6 +44,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.RowTtlIsVisib
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.StmtExecutor;
@@ -152,6 +153,44 @@ public class DeleteFromCommandTest extends TestWithFeService {
         FallbackInvocation complex = runDeleteExpectingFallback(
                 "DELETE FROM ttl_delete_mow WHERE abs(k) = 1");
         Assertions.assertSame(complex.command.logicalQuery, complex.fallbackArguments.get(4));
+    }
+
+    @Test
+    public void testAnnDeleteCarriesVectors() throws Exception {
+        createTable("CREATE TABLE " + DB + ".ann_delete_mow ("
+                + "k INT NOT NULL, Vec ARRAY<FLOAT> NOT NULL, vec2 ARRAY<FLOAT> NOT NULL, "
+                + "other_array ARRAY<FLOAT>, v INT, "
+                + "INDEX ann1 (Vec) USING ANN PROPERTIES "
+                + "('index_type'='hnsw', 'metric_type'='l2_distance', 'dim'='3'), "
+                + "INDEX ann2 (vec2) USING ANN PROPERTIES "
+                + "('index_type'='hnsw', 'metric_type'='l2_distance', 'dim'='2')) "
+                + "UNIQUE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1 "
+                + "PROPERTIES ('replication_num'='1', 'enable_unique_key_merge_on_write'='true')");
+        DeleteFromCommand command = parseDelete("DELETE FROM ann_delete_mow WHERE k=1");
+        UnboundTableSink<?> sink = (UnboundTableSink<?>) command.completeQueryPlan(
+                connectContext, command.logicalQuery);
+        Assertions.assertEquals(Arrays.asList("k", "Vec", "vec2", Column.DELETE_SIGN), sink.getColNames());
+        Assertions.assertTrue(sink.isPartialUpdate());
+        // Resolve the generated lambda and its FLOAT fallback through the real analyzer.
+        PlanChecker.from(connectContext, sink).analyze(sink).rewrite();
+
+        DeleteFromUsingCommand using = (DeleteFromUsingCommand) new NereidsParser().parseSingle(
+                "DELETE FROM ann_delete_mow t USING ann_delete_mow s WHERE t.k = s.k");
+        LogicalPlan usingPlan = using.completeQueryPlan(connectContext, using.getLogicalQuery());
+        PlanChecker.from(connectContext, usingPlan).analyze(usingPlan).rewrite();
+    }
+
+    @Test
+    public void testDeleteWithoutAnnKeepsKeyOnlyWrite() throws Exception {
+        createTable("CREATE TABLE " + DB + ".plain_delete_mow ("
+                + "k INT NOT NULL, vec ARRAY<FLOAT> NOT NULL, v INT) "
+                + "UNIQUE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1 "
+                + "PROPERTIES ('replication_num'='1', 'enable_unique_key_merge_on_write'='true')");
+        DeleteFromCommand command = parseDelete("DELETE FROM plain_delete_mow WHERE k=1");
+        UnboundTableSink<?> sink = (UnboundTableSink<?>) command.completeQueryPlan(
+                connectContext, command.logicalQuery);
+        Assertions.assertEquals(Arrays.asList("k", Column.DELETE_SIGN), sink.getColNames());
+        Assertions.assertTrue(sink.isPartialUpdate());
     }
 
     @Test

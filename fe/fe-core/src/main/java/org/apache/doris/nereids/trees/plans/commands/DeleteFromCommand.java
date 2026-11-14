@@ -30,6 +30,7 @@ import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
@@ -38,6 +39,7 @@ import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.info.IndexType;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -47,6 +49,7 @@ import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
+import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundTableSinkCreator;
@@ -66,8 +69,10 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.RowTtlIsVisible;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.FloatLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
@@ -613,6 +618,12 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
                 break;
             }
         }
+        Set<String> annColumns = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+        for (Index index : targetTable.getIndexes()) {
+            if (index.getIndexType() == IndexType.ANN) {
+                annColumns.addAll(index.getColumns());
+            }
+        }
         for (Column column : targetTable.getBaseSchema(true)) {
             NamedExpression expr;
             if (column.getName().equalsIgnoreCase(Column.DELETE_SIGN)) {
@@ -625,6 +636,18 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
                 expr = new UnboundSlot(tableName, column.getName());
             } else if (!isMow && (!column.isVisible() || (!column.isAllowNull() && !column.hasDefaultValue()))) {
                 expr = new UnboundSlot(tableName, column.getName());
+            } else if (isMow && annColumns.contains(column.getName())) {
+                // Delete-sign writes still build ANN indexes. Missing vectors would be filled with
+                // empty arrays by partial update, so carry the original vectors into the write.
+                // Older writers admitted NULL coordinates. Replace only those coordinates in the
+                // invisible tombstone so that users can still DELETE these legacy rows. Keep one
+                // vector per row with the same dimension; live-row writes must reject NULLs.
+                String element = "__ann_delete_element";
+                Lambda lambda = new Lambda(ImmutableList.of(element),
+                        new UnboundFunction("coalesce", ImmutableList.of(
+                                new UnboundSlot(element), new FloatLiteral(0.0f))));
+                expr = new UnboundAlias(new UnboundFunction("array_map", ImmutableList.of(
+                        lambda, new UnboundSlot(tableName, column.getName()))), column.getName());
             } else if (hasClusterKey || hasSyncMaterializedView || targetTable.hasRowTtl()) {
                 // TTL tables cannot fill missing columns from independently reclaimed rows.
                 // Carry the query's complete row into the delete-sign write instead.
