@@ -1915,6 +1915,16 @@ public class Config extends ConfigBase {
             + "be greater than 0, if it is <=0, default is 10.")
     public static int job_insert_task_consumer_thread_num = 10;
 
+    @ConfField(masterOnly = true, description = "The number of threads used to run streaming job control tasks. "
+            + "These threads are separate from insert execution and streaming data execution. "
+            + "If the value is <=0, the default is 10.")
+    public static int job_streaming_task_consumer_thread_num = 10;
+
+    @ConfField(masterOnly = true, description = "The size of the streaming job control task waiting queue. "
+            + "If the size is <=0, 1024 will be used. If the size is not a power of two, "
+            + "the nearest power of two will be automatically selected.")
+    public static int streaming_task_queue_size = 1024;
+
     @ConfField(masterOnly = true, description = "The number of threads used to consume MTMV tasks, the value should "
             + "be greater than 0, if it is <=0, default is 10.")
     public static int job_mtmv_task_consumer_thread_num = 10;

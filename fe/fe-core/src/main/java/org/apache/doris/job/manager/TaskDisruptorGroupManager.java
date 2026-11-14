@@ -20,6 +20,7 @@ package org.apache.doris.job.manager;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.CustomThreadFactory;
 import org.apache.doris.job.base.AbstractJob;
+import org.apache.doris.job.base.JobExecuteType;
 import org.apache.doris.job.base.JobExecutionConfiguration;
 import org.apache.doris.job.common.JobType;
 import org.apache.doris.job.disruptor.TaskDisruptor;
@@ -42,6 +43,8 @@ import java.util.concurrent.TimeUnit;
 public class TaskDisruptorGroupManager<T extends AbstractTask> {
 
     private final Map<JobType, TaskProcessor> disruptorMap = new EnumMap<>(JobType.class);
+
+    private TaskProcessor streamingTaskProcessor;
 
     @Getter
     private TaskDisruptor<TimerJobEvent<AbstractJob>> dispatchDisruptor;
@@ -66,9 +69,15 @@ public class TaskDisruptorGroupManager<T extends AbstractTask> {
 
     private static final int DISPATCH_MTMV_TASK_QUEUE_SIZE = normalizeRingbufferSize(Config.mtmv_task_queue_size);
 
+    private static final int STREAMING_CONTROL_THREAD_NUM = Config.job_streaming_task_consumer_thread_num > 0
+            ? Config.job_streaming_task_consumer_thread_num : 10;
+
+    private static final int STREAMING_CONTROL_QUEUE_SIZE = normalizeRingbufferSize(Config.streaming_task_queue_size);
+
     public void init() {
         registerInsertDisruptor();
         registerMTMVDisruptor();
+        registerStreamingDisruptor();
         //when all task queue is ready, dispatch task to registered task executor
         registerDispatchDisruptor();
     }
@@ -78,7 +87,7 @@ public class TaskDisruptorGroupManager<T extends AbstractTask> {
         ThreadFactory dispatchThreadFactory = new CustomThreadFactory("dispatch-task");
         WorkHandler[] dispatchTaskExecutorHandlers = new WorkHandler[DISPATCH_TIMER_JOB_CONSUMER_THREAD_NUM];
         for (int i = 0; i < DISPATCH_TIMER_JOB_CONSUMER_THREAD_NUM; i++) {
-            dispatchTaskExecutorHandlers[i] = new DispatchTaskHandler(this.disruptorMap);
+            dispatchTaskExecutorHandlers[i] = new DispatchTaskHandler(this.disruptorMap, streamingTaskProcessor);
         }
         EventTranslatorVararg<TimerJobEvent<AbstractJob>> eventTranslator =
                 (event, sequence, args) -> event.setJob((AbstractJob) args[0]);
@@ -103,9 +112,17 @@ public class TaskDisruptorGroupManager<T extends AbstractTask> {
         disruptorMap.put(JobType.MV, mtmvTaskProcessor);
     }
 
+    private void registerStreamingDisruptor() {
+        ThreadFactory threadFactory = new CustomThreadFactory("streaming-job-schedule");
+        streamingTaskProcessor = new TaskProcessor(STREAMING_CONTROL_THREAD_NUM,
+                STREAMING_CONTROL_QUEUE_SIZE, threadFactory);
+    }
+
     public boolean dispatchInstantTask(AbstractTask task, JobType jobType,
             JobExecutionConfiguration jobExecutionConfiguration) {
-        return disruptorMap.get(jobType).addTask(task);
+        TaskProcessor processor = jobExecutionConfiguration.getExecuteType() == JobExecuteType.STREAMING
+                ? streamingTaskProcessor : disruptorMap.get(jobType);
+        return processor.addTask(task);
     }
 
     /**
