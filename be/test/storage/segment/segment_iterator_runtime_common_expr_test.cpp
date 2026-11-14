@@ -108,7 +108,8 @@ VExprContextSPtr make_topn_filter_ctx() {
     node.__set_node_type(TExprNodeType::FUNCTION_CALL);
     node.__set_type(create_type_desc(PrimitiveType::TYPE_BOOLEAN));
     node.__set_is_nullable(true);
-    auto topn_pred = VTopNPred::create_shared(node, /*source_node_id=*/0, nullptr);
+    auto topn_pred =
+            VTopNPred::create_shared(node, /*source_node_id=*/0, /*target_node_id=*/1, nullptr);
     topn_pred->add_child(make_struct_slot_ref());
     return VExprContext::create_shared(topn_pred);
 }

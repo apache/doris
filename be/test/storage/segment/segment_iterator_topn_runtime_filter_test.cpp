@@ -22,6 +22,7 @@
 #include <set>
 #include <string>
 #include <thread>
+#include <unordered_set>
 #include <vector>
 
 #include "core/column/column_vector.h"
@@ -114,7 +115,7 @@ protected:
         desc.__set_is_asc(!reverse);
         desc.__set_null_first(false);
         desc.__set_target_node_id_to_target_expr({{20, target}});
-        _predicate = std::make_unique<RuntimePredicate>(desc);
+        _predicate = std::make_unique<RuntimePredicate>(desc, std::unordered_set<int32_t> {});
         ASSERT_TRUE(_predicate->init_target(20, {{0, &_slot}}, 0).ok());
         if (!initial.is_null()) {
             ASSERT_TRUE(_predicate->update(initial).ok());

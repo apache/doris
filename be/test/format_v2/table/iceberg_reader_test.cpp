@@ -1912,7 +1912,7 @@ EvolutionTopNFilter make_evolution_topn_filter(RuntimeState* state, bool ascendi
     TExprNode topn_node;
     topn_node.__set_type(std::make_shared<DataTypeUInt8>()->to_thrift());
     topn_node.__set_is_nullable(true);
-    auto topn = VTopNPred::create_shared(topn_node, 10, nullptr);
+    auto topn = VTopNPred::create_shared(topn_node, 10, 20, nullptr);
     topn->add_child(VSlotRef::create_shared(0, 0, -1, type, "k"));
     return {.query_context = std::move(query), .conjunct = prepared_conjunct(state, topn)};
 }

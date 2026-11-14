@@ -363,6 +363,17 @@ public class OlapScanNode extends ScanNode {
         this.reasonOfPreAggregation = reasonOfPreAggregation;
     }
 
+    public KeysType getSelectedIndexKeyType() {
+        return selectedIndexId == -1 ? olapTable.getKeysType()
+                : olapTable.getIndexMetaByIndexId(selectedIndexId).getKeysType();
+    }
+
+    public boolean isReadChangelog() {
+        return olapTable instanceof OlapChangelogTableWrapper
+                || parseChangelogScanType(scanParams, olapTable) != TChangelogScanType.NONE
+                || (selectedIndexId != -1 && olapTable.getIndexMetaByIndexId(selectedIndexId).isChangelogIndex());
+    }
+
     public long getSelectedIndexId() {
         return selectedIndexId;
     }
@@ -1442,9 +1453,6 @@ public class OlapScanNode extends ScanNode {
         msg.olap_scan_node = new TOlapScanNode(desc.getId().asInt(), keyColumnNames, keyColumnTypes, isPreAggregation);
         msg.olap_scan_node.setColumnsDesc(columnsDesc);
         msg.olap_scan_node.setIndexesDesc(indexDesc);
-        if (olapTable instanceof OlapChangelogTableWrapper) {
-            msg.olap_scan_node.setReadChangelog(true);
-        }
         if (selectedIndexId != -1) {
             msg.olap_scan_node.setSchemaVersion(olapTable.getIndexSchemaVersion(selectedIndexId));
         }
@@ -1484,11 +1492,7 @@ public class OlapScanNode extends ScanNode {
         if (annSortLimit != -1) {
             msg.olap_scan_node.setAnnSortLimit(annSortLimit);
         }
-        if (selectedIndexId != -1) {
-            msg.olap_scan_node.setKeyType(olapTable.getIndexMetaByIndexId(selectedIndexId).getKeysType().toThrift());
-        } else {
-            msg.olap_scan_node.setKeyType(olapTable.getKeysType().toThrift());
-        }
+        msg.olap_scan_node.setKeyType(getSelectedIndexKeyType().toThrift());
         String tableName = olapTable.getName();
         if (selectedIndexId != -1) {
             tableName = tableName + "(" + getSelectedIndexName() + ")";
@@ -1523,8 +1527,7 @@ public class OlapScanNode extends ScanNode {
 
         msg.olap_scan_node.setDistributeColumnIds(new ArrayList<>(distributionColumnIds));
 
-        if (parseChangelogScanType(scanParams, olapTable) != TChangelogScanType.NONE
-                || (selectedIndexId != -1 && olapTable.getIndexMetaByIndexId(selectedIndexId).isChangelogIndex())) {
+        if (isReadChangelog()) {
             msg.olap_scan_node.setReadChangelog(true);
         }
 
