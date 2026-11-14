@@ -1,0 +1,12 @@
+{
+  "omitted_components": {
+    "hudi": {
+      "reason": "The native rootless Hudi MinIO initialization exits unsuccessfully before suites can start.",
+      "restore_when": "The unmodified Hudi fixture initializes and passes its readiness probe in the rootless runtime."
+    },
+    "oceanbase": {
+      "reason": "The native OceanBase fixture does not reach healthy state in the rootless runtime.",
+      "restore_when": "The unmodified OceanBase fixture passes its readiness and data probes in the rootless runtime."
+    }
+  }
+}
