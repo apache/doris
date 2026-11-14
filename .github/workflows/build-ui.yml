@@ -33,7 +33,7 @@ jobs:
       ui_changes: ${{ steps.filter.outputs.ui_changes }}
     steps:
       - name: Checkout ${{ github.ref }}
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           persist-credentials: false
           submodules: recursive
@@ -54,7 +54,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout ${{ github.ref }}
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           persist-credentials: false
 
