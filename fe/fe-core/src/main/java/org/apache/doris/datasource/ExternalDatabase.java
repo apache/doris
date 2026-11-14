@@ -33,6 +33,7 @@ import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.connector.cache.CacheSpec;
 import org.apache.doris.connector.cache.MetaCacheCleanup;
+import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.datasource.infoschema.ExternalInfoSchemaDatabase;
 import org.apache.doris.datasource.infoschema.ExternalMysqlDatabase;
 import org.apache.doris.datasource.metacache.FeMetaCacheEntry;
@@ -285,6 +286,9 @@ public abstract class ExternalDatabase<T extends ExternalTable>
                             localTableName, this.name);
                     return null;
                 }
+            } catch (DorisConnectorException e) {
+                // Authentication and transport errors must not be reported as a missing table.
+                throw e;
             } catch (RuntimeException e) {
                 // Handle "Found conflicting" exception explicitly
                 if (e.getMessage().contains(ExternalCatalog.FOUND_CONFLICTING)) {
