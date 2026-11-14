@@ -44,7 +44,10 @@
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_agg_state.h"
 #include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_variant_v2.h"
 #include "core/types.h"
+#include "core/value/variant/variant_template_paths.h"
 #include "exec/common/util.hpp"
 #include "exec/pipeline/pipeline_task.h"
 #include "exprs/function/array/function_array_distance.h"
@@ -69,6 +72,7 @@
 #include "storage/index/zone_map/zonemap_eval_context.h"
 #include "storage/segment/column_reader.h"
 #include "storage/segment/virtual_column_iterator.h"
+#include "util/hash_util.hpp"
 #include "util/simd/parquet_kernels.h"
 
 namespace doris {
@@ -249,6 +253,32 @@ Status create_agg_state_finalize_function(const std::string& function_name,
 
 VectorizedFnCall::VectorizedFnCall(const TExprNode& node) : VExpr(node) {
     _function_name = _fn.name.function_name;
+}
+
+// The digest keys the scan's condition cache, where one key has to stand for one result. A call's
+// result does not depend on its result type, with one exception: parse_to_variant and
+// try_parse_to_variant read a JSON number by the Schema Template the FE put on their result type
+// (function_variant_parse.cpp), so the same call over the same text is a DECIMAL under one
+// template and a DOUBLE under another, or under none. The type's name does not carry the
+// template, so its fields are hashed here.
+uint64_t VectorizedFnCall::get_digest(uint64_t seed) const {
+    uint64_t digest = VExpr::get_digest(seed);
+    if (digest == 0 || _data_type == nullptr) {
+        return digest;
+    }
+    const auto* variant = dynamic_cast<const DataTypeVariantV2*>(remove_nullable(_data_type).get());
+    if (variant == nullptr || variant->template_paths() == nullptr) {
+        return digest;
+    }
+    for (const VariantTemplatePath& field : variant->template_paths()->paths()) {
+        // the length first, so that two lists of patterns cannot run into one another
+        const uint64_t size = field.pattern.size();
+        digest = HashUtil::hash64(&size, sizeof(size), digest);
+        digest = HashUtil::hash64(field.pattern.data(), size, digest);
+        digest = HashUtil::hash64(&field.is_glob, sizeof(field.is_glob), digest);
+        digest = HashUtil::hash64(&field.type, sizeof(field.type), digest);
+    }
+    return digest;
 }
 
 Status VectorizedFnCall::prepare(RuntimeState* state, const RowDescriptor& desc,

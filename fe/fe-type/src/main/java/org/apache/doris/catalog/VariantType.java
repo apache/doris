@@ -17,8 +17,10 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.thrift.TPrimitiveType;
 import org.apache.doris.thrift.TScalarType;
 import org.apache.doris.thrift.TTypeDesc;
+import org.apache.doris.thrift.TVariantTemplatePath;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -28,7 +30,9 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.stream.Collectors;
@@ -209,6 +213,68 @@ public class VariantType extends ScalarType {
         scalarType.setVariantMaxSubcolumnsCount(variantMaxSubcolumnsCount);
         scalarType.setVariantEnableDocMode(enableVariantDocMode);
         scalarType.setVariantIsV2(true);
+        List<TVariantTemplatePath> templatePaths = collectTemplatePaths();
+        if (!templatePaths.isEmpty()) {
+            scalarType.setVariantTemplatePaths(templatePaths);
+        }
+    }
+
+    /**
+     * The predefined fields in declaration order, each with its type (an ARRAY field with its item type), for
+     * the BE's parser; an empty list when no field is DECIMAL or LARGEINT (or ARRAY of one), the two types that
+     * change how a JSON number is read. On a path whose first matching field is DECIMAL a number is parsed from
+     * its text instead of through a binary64; on one whose first matching field is LARGEINT an integer beyond
+     * 64 bits is read exactly from its text, where the parser otherwise rejects the whole document. The whole
+     * template rides so the BE matches a path the way the shredder does, first field wins: with
+     * 'amount*':string before 'amount':decimal(10,2) the number under "amount" stays off the text path on both
+     * sides. Precision and scale stay behind: the BE reads the number exactly and the template's own cast
+     * applies them. A template cannot hold a DECIMALV2 field.
+     *
+     * <p>Every TTypeDesc of the type asks, a read query's included, so a template that sends nothing is decided
+     * before any field is mapped: it builds nothing and refuses nothing.
+     */
+    public List<TVariantTemplatePath> collectTemplatePaths() {
+        if (!readsNumbersFromText()) {
+            return Collections.emptyList();
+        }
+        List<TVariantTemplatePath> paths = Lists.newArrayListWithCapacity(predefinedFields.size());
+        for (VariantField field : predefinedFields) {
+            TVariantTemplatePath path = new TVariantTemplatePath();
+            path.setPattern(field.getPattern());
+            path.setIsGlob(field.getPatternType() != PatternType.MATCH_NAME);
+            path.setType(templateFieldType(leafTypeOf(field).getPrimitiveType()));
+            paths.add(path);
+        }
+        return paths;
+    }
+
+    /**
+     * Whether the template declares a DECIMAL or LARGEINT field, an ARRAY of one included: the two types that
+     * change how a JSON number is read, and the only reason a template rides to the BE.
+     */
+    public boolean readsNumbersFromText() {
+        for (VariantField field : predefinedFields) {
+            Type leafType = leafTypeOf(field);
+            if (leafType.isDecimalV3() || leafType.isLargeIntType()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static Type leafTypeOf(VariantField field) {
+        Type type = field.getType();
+        return type instanceof ArrayType ? ((ArrayType) type).getItemType() : type;
+    }
+
+    /**
+     * {@link PrimitiveType#toThrift} refuses TIMESTAMP_NS while be_exec_version admits a BE that does not know
+     * the type, because a value of it could reach that BE. No value travels here: the type only names a field
+     * of the template, and only a BE that reads this list sees it, which is a BE that knows the type. Refusing
+     * would fail a query for a field it does not even read.
+     */
+    private static TPrimitiveType templateFieldType(PrimitiveType type) {
+        return type == PrimitiveType.TIMESTAMP_NS ? TPrimitiveType.TIMESTAMP_NS : type.toThrift();
     }
 
     @Override

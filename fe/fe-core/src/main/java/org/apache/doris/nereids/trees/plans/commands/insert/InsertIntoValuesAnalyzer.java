@@ -32,6 +32,7 @@ import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
 import org.apache.doris.nereids.rules.rewrite.MergeProjectable;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.rules.rewrite.PushProjectIntoUnion;
+import org.apache.doris.nereids.rules.rewrite.TypeVariantTemplateParse;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
@@ -56,6 +57,8 @@ public class InsertIntoValuesAnalyzer extends AbstractBatchJobExecutor {
     );
 
     private static final List<RewriteJob> POST_BIND_JOBS = jobs(
+            // the fast path runs no Rewriter: type parse_to_variant with the sink's variant template here
+            custom(RuleType.TYPE_VARIANT_TEMPLATE_PARSE, TypeVariantTemplateParse::new),
             bottomUp(
                     new MergeProjectable(),
                     // after bind olap table sink, the LogicalProject will be generated under LogicalOlapTableSink,

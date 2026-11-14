@@ -65,6 +65,10 @@ public:
         return Status::OK();
     }
 
+    // The target type's name is the whole of what a cast reads by. A VARIANT's Schema Template
+    // is not in that name, and it does not have to be: the FE takes the template off a cast's
+    // target before the expression is sent (ExprToThriftVisitor::dropVariantTemplates), so a cast
+    // to an ARRAY or STRUCT of a templated VARIANT reads a JSON string without it.
     uint64_t get_digest(uint64_t seed) const override {
         auto res = VExpr::get_digest(seed);
         if (res) {

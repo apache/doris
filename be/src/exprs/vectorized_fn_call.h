@@ -105,6 +105,7 @@ public:
 
     bool can_push_down_to_index() const override;
     bool equals(const VExpr& other) override;
+    uint64_t get_digest(uint64_t seed) const override;
 
     size_t estimate_memory(const size_t rows) override;
 

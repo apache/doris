@@ -136,6 +136,18 @@ enum TInvertedIndexFileStorageFormat {
     SNII = 4     // SNII native inverted index storage format
 }
 
+// One field of a VARIANT Schema Template, in declaration order, for the BE's JSON parser. The whole
+// template rides so the BE matches a path the way the shredder does (first matching field wins); the
+// matched field's type decides how a JSON number on the path is read. The FE sets all three fields.
+// A BE that finds one unset in any entry cannot tell which field matches first, and reads every
+// number as it does without a template.
+struct TVariantTemplatePath {
+  1: optional string pattern
+  2: optional bool is_glob
+  // The field's type; for an ARRAY field, its item type.
+  3: optional TPrimitiveType type
+}
+
 struct TScalarType {
     1: required TPrimitiveType type
 
@@ -151,6 +163,9 @@ struct TScalarType {
     6: optional bool variant_enable_doc_mode = false;
     // Execution-only ColumnVariantV2 marker. Table metadata never sets this field.
     7: optional bool variant_is_v2 = false;
+    // Set only for a VARIANT whose Schema Template declares a DECIMAL or LARGEINT field, or an
+    // ARRAY of one (execution-only): every field of the template, in declaration order.
+    8: optional list<TVariantTemplatePath> variant_template_paths;
 }
 
 // Represents a field in a STRUCT type.

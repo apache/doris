@@ -26,6 +26,7 @@
 
 #include "common/status.h"
 #include "core/value/variant/variant_batch_builder.h"
+#include "core/value/variant/variant_template_paths.h"
 #include "core/value/variant/variant_value.h"
 
 namespace cctz {
@@ -45,12 +46,21 @@ struct JsonToVariantOptions {
     // serde turns this off because it mostly re-reads JSON that a Variant serde wrote: a value the
     // parser cannot read back, such as an integer beyond 64 bits, then keeps its text.
     bool throw_on_invalid_json = true;
+    // The destination VARIANT's Schema Template, sent when it declares a DECIMAL or LARGEINT path
+    // (nullptr or empty: none). With it, simdjson's ondemand parser reads a document from its
+    // text: a JSON number on a DECIMAL path is parsed into a decimal instead of through a
+    // binary64, and an integer beyond 64 bits on a LARGEINT path is read exactly instead of
+    // failing the document. A template with a DECIMAL field has every document read that way; one
+    // without has the DOM parser go first and only a document that parser rejects read that way.
+    VariantTemplatePathsPtr template_paths = nullptr;
 
     // Takes a value snapshot. Later changes to mutable config do not affect an encoder.
     static JsonToVariantOptions current_config();
 };
 
-// Reuses one JSON parser and one batch builder. Each add_json() collects into a stack-only row;
+// Reuses one DOM parser, one ondemand parser with a padded copy of the current document, and one
+// batch builder. Each add_json() collects into a stack-only row; with template paths it may begin
+// a row for the ondemand pass, roll it back, and begin another for the DOM parser's verdict.
 // finish_batch() performs pass 2. A failed add_json() is terminal, as is a successful
 // finish_batch(). try_add_json() rolls back invalid input rows and keeps collecting.
 class JsonStringToVariantEncoder {
