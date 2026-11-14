@@ -153,6 +153,10 @@ private:
     [[nodiscard]] Status _get_row_ranges_by_column_conditions();
     [[nodiscard]] Status _apply_scan_restrictions();
     [[nodiscard]] Status _get_row_ranges_from_conditions(RowRanges* condition_row_ranges);
+    // _opts.col_id_to_predicates for zone-map pruning, with each TopN runtime filter replaced by
+    // the bound it holds now; marks those bounds applied.
+    std::unordered_map<int32_t, std::shared_ptr<AndBlockColumnPredicate>>
+    _snapshot_topn_runtime_filters();
     [[nodiscard]] Status _apply_expr_zonemap_to_row_ranges(const VExprContextSPtrs& conjuncts,
                                                            rowid_t min_rowid,
                                                            RowRanges* row_ranges);
