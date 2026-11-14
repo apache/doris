@@ -1445,6 +1445,36 @@ static Status create_variant_root_reader(const SegmentFooterPB& footer,
     return Status::OK();
 }
 
+TEST(VariantColumnIndexBindingTest, RenamedRootKeepsStoredSubpathIndexSuffix) {
+    TabletSchemaPB schema_pb;
+    schema_pb.set_keys_type(KeysType::DUP_KEYS);
+    construct_column(schema_pb.add_column(), 1, "VARIANT", "v", 1);
+    auto* index = schema_pb.add_index();
+    index->set_index_id(10);
+    index->set_index_name("path_idx");
+    index->set_index_type(IndexType::INVERTED);
+    index->add_col_unique_id(1);
+    (*index->mutable_properties())["parser"] = "english";
+    auto schema = std::make_shared<TabletSchema>();
+    schema->init_from_pb(schema_pb);
+
+    segment_v2::VariantColumnReader reader;
+    reader._tablet_schema = schema;
+    // RENAME changes query paths to payload.s, while old segments still store v.s.
+    for (const std::string& root : {"v", "payload"}) {
+        TabletColumn column;
+        column.set_name(root + ".s");
+        column.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
+        column.set_parent_unique_id(1);
+        column.set_path_info(PathInData(root + ".s"));
+        auto indexes =
+                reader.find_subcolumn_tablet_indexes(column, std::make_shared<DataTypeString>());
+        ASSERT_EQ(indexes.size(), 1);
+        EXPECT_EQ(indexes[0]->index_id(), 10);
+        EXPECT_EQ(indexes[0]->get_index_suffix(), "v%2Es");
+    }
+}
+
 class VariantColumnWriterReaderTest : public testing::Test {
 public:
     // Parent VARIANT column with an extracted VARIANT subcolumn `v.payload`, i.e. the layout
@@ -7030,6 +7060,46 @@ TEST_F(VariantColumnWriterReaderTest, test_find_subcolumn_tablet_indexes_branch_
         EXPECT_EQ(nested[0]->index_id(), 10002);
         EXPECT_EQ(nested[0]->get_index_suffix(), "v%2Earr%2Einner%2Ez");
         EXPECT_NE(nested[0]->get_index_suffix(), "arr%2Einner%2Ez");
+    }
+
+    TabletIndexPB values_index_pb;
+    construct_tablet_index(&values_index_pb, 10005, "idx_v_values", root_column.unique_id());
+    (*values_index_pb.mutable_properties())["variant_index_scope"] = "values";
+    (*values_index_pb.mutable_properties())["parser"] = "english";
+    TabletIndex values_index;
+    values_index.init_from_pb(values_index_pb);
+    _tablet_schema->append_index(std::move(values_index));
+
+    std::shared_ptr<segment_v2::ColumnReader> values_index_column_reader;
+    st = create_variant_root_reader(footer, file_reader, _tablet_schema,
+                                    &values_index_column_reader);
+    ASSERT_TRUE(st.ok()) << st.msg();
+    auto* values_index_variant_reader =
+            assert_cast<segment_v2::VariantColumnReader*>(values_index_column_reader.get());
+    ASSERT_NE(values_index_variant_reader, nullptr);
+    {
+        auto sparse_logical_path = values_index_variant_reader->find_subcolumn_tablet_indexes(
+                make_subcolumn("v.sparse", FieldType::OLAP_FIELD_TYPE_VARIANT, "v.sparse",
+                               root_unique_id),
+                std::make_shared<DataTypeVariant>(10, false));
+        EXPECT_TRUE(sparse_logical_path.empty());
+    }
+
+    {
+        auto hierarchical_logical_path = values_index_variant_reader->find_subcolumn_tablet_indexes(
+                make_subcolumn("v.object", FieldType::OLAP_FIELD_TYPE_VARIANT, "v.object",
+                               root_unique_id),
+                std::make_shared<DataTypeVariant>(10, false));
+        EXPECT_TRUE(hierarchical_logical_path.empty());
+    }
+
+    {
+        auto physical_sparse_map = values_index_variant_reader->find_subcolumn_tablet_indexes(
+                make_subcolumn("v.__sparse", FieldType::OLAP_FIELD_TYPE_MAP, "v.__sparse",
+                               root_unique_id),
+                std::make_shared<DataTypeMap>(std::make_shared<DataTypeString>(),
+                                              std::make_shared<DataTypeString>()));
+        EXPECT_TRUE(physical_sparse_map.empty());
     }
 }
 

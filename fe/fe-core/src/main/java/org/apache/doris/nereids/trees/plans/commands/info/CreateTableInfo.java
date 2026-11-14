@@ -1444,6 +1444,10 @@ public class CreateTableInfo {
 
                 // check inverted index
                 if (column.getType().isVariantType()) {
+                    if (indexDefs.stream().filter(IndexDefinition::isVariantValuesIndex).count() > 1) {
+                        throw new AnalysisException("VARIANT column supports only one values index");
+                    }
+
                     Map<String, List<IndexDefinition>> fieldPatternToIndexDef = new HashMap<>();
                     Map<String, DataType> fieldPatternToDataType = new HashMap<>();
                     for (IndexDefinition indexDef : indexDefs) {
