@@ -41,7 +41,7 @@ import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Version compatibility smoke test for the MySQL releases not exercised by the default ITCases
- * (which already cover 8.0): 5.7 and the 8.4 LTS. Runs the core read chain — snapshot full-load then
+ * (which already cover 8.0): 5.7, 8.4 and 9.7.4. Runs the core read chain — snapshot full-load then
  * incremental insert/update/delete — to confirm the from-to {@code writeRecords} path works across
  * versions whose defaults (charset, sql_mode, binlog-off on 5.7) differ from 8.0.
  */
@@ -53,7 +53,7 @@ class MySqlVersionSmokeITCase {
     private static final AtomicLong JOB_ID_SEQ = new AtomicLong(920_000);
 
     @ParameterizedTest
-    @ValueSource(strings = {"mysql:5.7", "mysql:8.4"})
+    @ValueSource(strings = {"mysql:5.7", "mysql:8.4", "mysql:9.7.4"})
     void snapshotAndDmlWorkAcrossVersions(String image) throws Exception {
         MySQLContainer<?> mysql =
                 new MySQLContainer<>(
@@ -62,8 +62,8 @@ class MySqlVersionSmokeITCase {
                         .withUsername("cdc")
                         .withPassword("123456")
                         .withEnv("MYSQL_ROOT_PASSWORD", ROOT_PASSWORD);
-        // 5.7 ships with binlog disabled; 8.x enables row-based binlog by default.
-        if (image.startsWith("mysql:5.7")) {
+        // 5.7 needs binlog enabled; 9.x rejects innodb_log_file_size in Testcontainers' default config.
+        if (image.startsWith("mysql:5.7") || image.startsWith("mysql:9.")) {
             mysql.withConfigurationOverride("docker/server-with-binlog");
         }
 

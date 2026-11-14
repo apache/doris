@@ -222,6 +222,8 @@ public class CustomMySqlAntlrDdlParser extends MySqlAntlrDdlParser {
                         new DataTypeResolver.DataTypeEntry(Types.TIMESTAMP, MySqlParser.DATETIME),
                         new DataTypeResolver.DataTypeEntry(Types.BINARY, MySqlParser.BINARY),
                         new DataTypeResolver.DataTypeEntry(Types.VARBINARY, MySqlParser.VARBINARY),
+                        new DataTypeResolver.DataTypeEntry(Types.OTHER, MySqlParser.VECTOR)
+                                .setDefaultLengthDimension(2048),
                         new DataTypeResolver.DataTypeEntry(Types.BLOB, MySqlParser.BLOB),
                         new DataTypeResolver.DataTypeEntry(Types.INTEGER, MySqlParser.YEAR)));
         dataTypeResolverBuilder.registerDataTypes(
