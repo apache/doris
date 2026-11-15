@@ -30,7 +30,13 @@ import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.thrift.FrontendService;
+import org.apache.doris.thrift.TFrontendPingFrontendRequest;
+import org.apache.doris.thrift.TFrontendPingFrontendResult;
+import org.apache.doris.thrift.TFrontendPingFrontendStatusCode;
 
+import org.apache.thrift.protocol.TBinaryProtocol;
+import org.apache.thrift.transport.TSocket;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -50,6 +56,20 @@ public class DemoTest extends TestWithFeService {
     @Override
     protected void runBeforeAll() throws Exception {
         FeConstants.default_scheduler_interval_millisecond = 10;
+    }
+
+    @Test
+    public void testAdvertisedRpcPort() throws Exception {
+        Env env = Env.getCurrentEnv();
+        try (TSocket socket = new TSocket("127.0.0.1", lastFeRpcPort, 5000)) {
+            socket.open();
+            FrontendService.Client client = new FrontendService.Client(new TBinaryProtocol(socket));
+            TFrontendPingFrontendRequest ping = new TFrontendPingFrontendRequest(env.getClusterId(), env.getToken());
+            ping.setDeployMode(env.getDeployMode());
+            TFrontendPingFrontendResult response = client.ping(ping);
+            Assertions.assertEquals(TFrontendPingFrontendStatusCode.OK, response.getStatus());
+            Assertions.assertEquals(lastFeRpcPort, response.getRpcPort());
+        }
     }
 
     @Test

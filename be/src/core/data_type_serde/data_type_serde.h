@@ -91,6 +91,8 @@ class Arena;
 class IDataType;
 struct CastParameters;
 
+struct BsonValueView;
+struct BsonDecodeContext;
 class DataTypeSerDe;
 using DataTypeSerDeSPtr = std::shared_ptr<DataTypeSerDe>;
 using DataTypeSerDeSPtrs = std::vector<DataTypeSerDeSPtr>;
@@ -492,6 +494,11 @@ public:
                                          const FormatOptions& options) const = 0;
 
     virtual void read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const = 0;
+
+    Status read_one_cell_from_bson(IColumn& column, const BsonValueView& value,
+                                   const BsonDecodeContext& context) const;
+    virtual Status decode_bson_value(IColumn& column, const BsonValueView& value,
+                                     const BsonDecodeContext& context) const;
 
     // return true if output as string
     // return false if output null

@@ -23,17 +23,24 @@ import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.connector.ConnectorSessionBuilder;
+import org.apache.doris.connector.ConnectorStatementScopeImpl;
+import org.apache.doris.connector.spi.ConnectorStatementScope;
 import org.apache.doris.connector.spi.mvcc.ConnectorSqlCacheVersion;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.CatalogMgr;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.mvcc.MvccReadSelector;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.PluginDrivenMvccExternalTable;
 import org.apache.doris.nereids.SqlCacheContext;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.qe.ConnectContext;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.Mockito;
 
 import java.util.Optional;
@@ -129,6 +136,102 @@ public class NereidsSqlCacheManagerPluginTableTest {
         Mockito.verify(table, Mockito.never()).getSqlCacheVersion(Optional.empty());
     }
 
+    @ParameterizedTest
+    @CsvSource({"false", "true"})
+    public void publicationResolvesBranchAgainWithoutChangingTheExecutingStatement(boolean moved) {
+        PluginDrivenMvccExternalTable table = mockTable(999L);
+        MvccSnapshot oldPin = Mockito.mock(MvccSnapshot.class);
+        MvccSnapshot currentPin = Mockito.mock(MvccSnapshot.class);
+        TableSnapshot branch = TableSnapshot.versionOf("dev");
+        Mockito.when(table.loadSnapshot(Mockito.any(), Mockito.eq(Optional.empty()))).thenReturn(oldPin);
+        Mockito.when(table.getSqlCacheVersion(Optional.of(oldPin)))
+                .thenReturn(Optional.of(new ConnectorSqlCacheVersion("dev:80", 800L)));
+        Mockito.when(table.getSqlCacheVersion(Optional.of(currentPin)))
+                .thenReturn(Optional.of(new ConnectorSqlCacheVersion(moved ? "dev:90" : "dev:80", 800L)));
+        ConnectContext connection = Mockito.spy(new ConnectContext());
+        connection.getSessionVariable().setEnableSqlCache(false);
+        connection.setEnv(mockEnvResolvingTo(table));
+        try (StatementContext executing = new StatementContext(connection, null)) {
+            connection.setStatementContext(executing);
+            executing.loadSnapshots(table, Optional.of(branch), Optional.empty());
+            SqlCacheContext candidate = new SqlCacheContext(UserIdentity.ROOT);
+            candidate.addUsedTable(table, Optional.of(oldPin),
+                    MvccReadSelector.of(Optional.of(branch), Optional.empty()));
+            ConnectorStatementScope originalScope = executing.getOrCreateConnectorStatementScope();
+            originalScope.computeIfAbsent("pinned-table", () -> oldPin);
+            ConnectorStatementScope[] validationScope = new ConnectorStatementScope[1];
+            Mockito.when(table.loadSnapshot(Mockito.any(), Mockito.eq(Optional.empty()))).thenAnswer(call -> {
+                Optional<TableSnapshot> requested = call.getArgument(0);
+                Assertions.assertEquals("dev", requested.orElseThrow().getValue());
+                ConnectorStatementScope scope = ConnectorSessionBuilder.from(connection).build().getStatementScope();
+                validationScope[0] = scope;
+                return scope.computeIfAbsent("pinned-table", () -> currentPin);
+            });
+            // Arrow Flight defers query teardown; publication's temporary scope must still close immediately.
+            Mockito.doReturn(false).when(connection).isReturnResultFromLocal();
+
+            Assertions.assertTrue(candidate.supportSqlCache());
+            Assertions.assertTrue(candidate.metadataVersionsMatch());
+            Assertions.assertEquals(1, candidate.getUsedTables().size());
+            NereidsSqlCacheManager manager = new NereidsSqlCacheManager();
+            Deencapsulation.invoke(manager, "publishIfDependenciesValid", connection, "branch", candidate);
+
+            Assertions.assertEquals(!moved, manager.getSqlCaches().getIfPresent("branch") != null);
+            Assertions.assertSame(executing, connection.getStatementContext());
+            Assertions.assertNotSame(originalScope, validationScope[0]);
+            Assertions.assertTrue(((ConnectorStatementScopeImpl) validationScope[0]).isClosed());
+            Assertions.assertFalse(((ConnectorStatementScopeImpl) originalScope).isClosed());
+            Assertions.assertSame(oldPin, executing.getSnapshot(table, Optional.of(branch), Optional.empty()).get());
+            Mockito.verify(table, Mockito.times(2)).loadSnapshot(Mockito.any(), Mockito.eq(Optional.empty()));
+            executing.closeConnectorStatementScope();
+        }
+    }
+
+    @Test
+    public void publicationRejectsMetadataInvalidatedDuringVersionValidation() {
+        PluginDrivenMvccExternalTable table = mockTable(999L);
+        ConnectorSqlCacheVersion token = new ConnectorSqlCacheVersion("uuid:80", 800L);
+        Mockito.when(table.getSqlCacheVersion(Optional.empty())).thenReturn(Optional.of(token));
+        NereidsSqlCacheManager manager = new NereidsSqlCacheManager();
+        SqlCacheContext candidate = new SqlCacheContext(UserIdentity.ROOT, manager.newMetadataSnapshot());
+        candidate.addUsedTable(table);
+        Mockito.when(table.getSqlCacheVersion(Optional.empty())).thenAnswer(call -> {
+            manager.invalidateAboutTable(table);
+            return Optional.of(token);
+        });
+        ConnectContext connection = new ConnectContext();
+        connection.getSessionVariable().setEnableSqlCache(false);
+        connection.setEnv(mockEnvResolvingTo(table));
+
+        Deencapsulation.invoke(manager, "publishIfDependenciesValid", connection, "changed", candidate);
+
+        Assertions.assertFalse(candidate.metadataVersionsMatch());
+        Assertions.assertNull(manager.getSqlCaches().getIfPresent("changed"));
+    }
+
+    @Test
+    public void publicationValidationFailureDoesNotFailTheQuery() {
+        PluginDrivenMvccExternalTable table = mockTable(999L);
+        Mockito.when(table.getSqlCacheVersion(Optional.empty()))
+                .thenReturn(Optional.of(new ConnectorSqlCacheVersion("uuid:80", 800L)));
+        SqlCacheContext candidate = new SqlCacheContext(UserIdentity.ROOT);
+        candidate.addUsedTable(table);
+        ConnectContext connection = new ConnectContext();
+        connection.getSessionVariable().setEnableSqlCache(false);
+        connection.setEnv(mockEnvResolvingTo(table));
+        ConnectorStatementScope[] validationScope = new ConnectorStatementScope[1];
+        Mockito.when(table.getSqlCacheVersion(Optional.empty())).thenAnswer(call -> {
+            validationScope[0] = ConnectorSessionBuilder.from(connection).build().getStatementScope();
+            throw new IllegalStateException("unavailable");
+        });
+        NereidsSqlCacheManager manager = new NereidsSqlCacheManager();
+        Assertions.assertDoesNotThrow(() -> Deencapsulation.invoke(
+                manager, "publishIfDependenciesValid", connection, "failed", candidate));
+        Assertions.assertNull(manager.getSqlCaches().getIfPresent("failed"));
+        Assertions.assertNull(connection.getStatementContext());
+        Assertions.assertTrue(((ConnectorStatementScopeImpl) validationScope[0]).isClosed());
+    }
+
     private PluginDrivenMvccExternalTable mockTable(long liveToken) {
         PluginDrivenMvccExternalTable table = Mockito.mock(PluginDrivenMvccExternalTable.class);
         DatabaseIf db = Mockito.mock(DatabaseIf.class);
@@ -153,8 +256,12 @@ public class NereidsSqlCacheManagerPluginTableTest {
         CatalogMgr mgr = Mockito.mock(CatalogMgr.class);
         CatalogIf catalog = Mockito.mock(CatalogIf.class);
         DatabaseIf db = Mockito.mock(DatabaseIf.class);
+        InternalCatalog internal = Mockito.mock(InternalCatalog.class);
+        Mockito.when(internal.getName()).thenReturn(InternalCatalog.INTERNAL_CATALOG_NAME);
+        Mockito.when(env.getInternalCatalog()).thenReturn(internal);
         Mockito.when(env.getCatalogMgr()).thenReturn(mgr);
         Mockito.when(mgr.getCatalog(CTL)).thenReturn(catalog);
+        Mockito.when(catalog.getProperties()).thenReturn(new java.util.HashMap<>());
         Mockito.doReturn(Optional.of(db)).when(catalog).getDb(DB);
         Mockito.doReturn(Optional.of(liveTable)).when(db).getTable(TBL);
         return env;
