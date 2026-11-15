@@ -674,11 +674,9 @@ CLUCENE_INCLUDING_FILES = {
     "storage/index/inverted/analysis/tokenizer/pinyin/pinyin_alphabet_tokenizer.h",
     "storage/index/inverted/analysis/tokenizer/pinyin/pinyin_tokenizer.cpp",
     # SNII (T3, T12, T13).
-    "storage/index/inverted/snii/compaction/eligibility.cpp",
     "storage/index/inverted/snii/snii_blob_directory.h",
     "storage/index/inverted/snii/snii_blob_staging_directory.h",
     "storage/index/inverted/snii/snii_index_reader.cpp",
-    "storage/index/inverted/snii/snii_index_writer.cpp",
 }
 # Files under a root whose code names a CLucene symbol.
 CLUCENE_SYMBOL_FILES = {
@@ -692,7 +690,6 @@ CLUCENE_SYMBOL_FILES = {
     # The analysis layer (T3, T4, T8, T9).
     "storage/index/inverted/analysis/analyzer/analyzer.cpp",
     "storage/index/inverted/analysis/analyzer/analyzer.h",
-    "storage/index/inverted/analysis/analyzer/analyzer_provider.h",
     "storage/index/inverted/analysis/analyzer/basic/basic_analyzer.h",
     "storage/index/inverted/analysis/analyzer/custom_analyzer.cpp",
     "storage/index/inverted/analysis/analyzer/custom_analyzer.h",
@@ -712,7 +709,6 @@ CLUCENE_SYMBOL_FILES = {
     "storage/index/inverted/analysis/char_filter/char_filter.h",
     "storage/index/inverted/analysis/char_filter/char_replace_char_filter.h",
     "storage/index/inverted/analysis/char_filter/icu_normalizer_char_filter.h",
-    "storage/index/inverted/analysis/inverted_index_parser.h",
     "storage/index/inverted/analysis/normalizer/custom_normalizer.cpp",
     "storage/index/inverted/analysis/normalizer/custom_normalizer.h",
     "storage/index/inverted/analysis/reader.h",
@@ -728,14 +724,11 @@ CLUCENE_SYMBOL_FILES = {
     "storage/index/inverted/analysis/tokenizer/pinyin/pinyin_alphabet_tokenizer.cpp",
     "storage/index/inverted/analysis/tokenizer/pinyin/pinyin_tokenizer.cpp",
     # SNII (T3, T12, T13).
-    "storage/index/inverted/snii/compaction/eligibility.cpp",
     "storage/index/inverted/snii/snii_blob_directory.cpp",
     "storage/index/inverted/snii/snii_blob_directory.h",
     "storage/index/inverted/snii/snii_blob_staging_directory.cpp",
     "storage/index/inverted/snii/snii_blob_staging_directory.h",
     "storage/index/inverted/snii/snii_index_reader.cpp",
-    "storage/index/inverted/snii/snii_index_writer.cpp",
-    "storage/index/inverted/snii/snii_index_writer.h",
 }
 
 

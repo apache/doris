@@ -43,25 +43,110 @@
 #include "storage/index/inverted/analysis/analyzer/kuromoji/KuromojiAnalyzer.h"
 #include "storage/index/inverted/analysis/analyzer/kuromoji/kuromoji_normalize.h"
 #include "storage/index/inverted/analysis/char_filter/char_replace_char_filter_factory.h"
+#include "storage/index/inverted/analysis/gram/gram_scheme.h"
+#include "storage/index/inverted/analysis/scratch.h"
 #include "storage/index/inverted/analysis/token_filter/lower_case_filter.h"
+#include "storage/index/inverted/clucene/lucene_backed_text_analyzer.h"
 #include "util/string_util.h"
 
 namespace doris::segment_v2::inverted_index {
 namespace {
 
+// The parser of a configuration whose analyzer is builtin, named by the parser or by the analyzer.
+InvertedIndexParserType builtin_parser_type(const InvertedIndexAnalyzerConfig& config) {
+    return config.analyzer_name.empty()
+                   ? config.parser_type
+                   : get_inverted_index_parser_type_from_string(config.analyzer_name);
+}
+
+TextAnalyzerPtr builtin_text_analyzer(const InvertedIndexAnalyzerConfig& config) {
+    return std::make_shared<LuceneBackedTextAnalyzer>(
+            InvertedIndexAnalyzer::create_builtin_analyzer(builtin_parser_type(config),
+                                                           config.parser_mode, config.lower_case,
+                                                           config.stop_words));
+}
+
 class BuiltinAnalyzerProvider final : public AnalyzerProvider {
 public:
-    explicit BuiltinAnalyzerProvider(InvertedIndexAnalyzerConfig config)
-            : _analyzer(InvertedIndexAnalyzer::create_builtin_analyzer(
-                      config.analyzer_name.empty()
-                              ? config.parser_type
-                              : get_inverted_index_parser_type_from_string(config.analyzer_name),
-                      config.parser_mode, config.lower_case, config.stop_words)) {}
+    explicit BuiltinAnalyzerProvider(const InvertedIndexAnalyzerConfig& config)
+            : _analyzer(builtin_text_analyzer(config)) {}
 
-    AnalyzerPtr get_analyzer() const override { return _analyzer; }
+    TextAnalyzerPtr get_analyzer() const override { return _analyzer; }
 
 private:
-    const AnalyzerPtr _analyzer;
+    const TextAnalyzerPtr _analyzer;
+};
+
+// The index's char filter in front of an analyzer. The writers and the query side used to apply it
+// through the reader they gave the analyzer (create_reader); it now belongs to the analyzer, so
+// every consumer reads every value through it, whatever the analyzer: a normalizer index with
+// char_filter_pattern "-" writes "A-B" as "a b". It runs the CLucene char filter over the whole
+// value until the char filters are native.
+class IndexCharFilterStream final : public TextTokenStream {
+public:
+    IndexCharFilterStream(const CharFilterMap* char_filters, std::unique_ptr<TextTokenStream> in)
+            : _char_filters(char_filters), _in(std::move(in)) {}
+
+    void reset(std::string_view text) override {
+        // Assigning a result short enough for the string's inline buffer keeps the buffer a long
+        // value grew, so release it first when it is above the high water mark.
+        release_oversized_scratch(_filtered);
+        _filtered = InvertedIndexAnalyzer::filter_characters(*_char_filters, text);
+        _in->reset(_filtered);
+    }
+
+    bool next_batch(TokenBatch& batch) override { return _in->next_batch(batch); }
+
+    // The filtered copy of the current value.
+    size_t reserved_bytes() const override { return _filtered.capacity() + _in->reserved_bytes(); }
+
+    void set_strict_utf8(bool strict) override { _in->set_strict_utf8(strict); }
+
+private:
+    const CharFilterMap* const _char_filters;
+    const std::unique_ptr<TextTokenStream> _in;
+    std::string _filtered;
+};
+
+class IndexCharFilterAnalyzer final : public TextAnalyzer {
+public:
+    IndexCharFilterAnalyzer(CharFilterMap char_filters, TextAnalyzerPtr analyzer)
+            : _char_filters(std::move(char_filters)), _analyzer(std::move(analyzer)) {}
+
+    std::unique_ptr<TextTokenStream> create_stream() const override {
+        return std::make_unique<IndexCharFilterStream>(&_char_filters, _analyzer->create_stream());
+    }
+
+private:
+    const CharFilterMap _char_filters;
+    const TextAnalyzerPtr _analyzer;
+};
+
+// `analyzer` behind the index's char filter, or `analyzer` itself for an index without one.
+TextAnalyzerPtr with_index_char_filter(const CharFilterMap& char_filters,
+                                       TextAnalyzerPtr analyzer) {
+    if (char_filters.empty()) {
+        return analyzer;
+    }
+    return std::make_shared<IndexCharFilterAnalyzer>(char_filters, std::move(analyzer));
+}
+
+// A provider whose analyzer is behind the index's char filter; the gram scheme is the inner one.
+class IndexCharFilterProvider final : public AnalyzerProvider {
+public:
+    IndexCharFilterProvider(const CharFilterMap& char_filters, AnalyzerProviderPtr provider)
+            : _provider(std::move(provider)),
+              _analyzer(with_index_char_filter(char_filters, _provider->get_analyzer())) {}
+
+    TextAnalyzerPtr get_analyzer() const override { return _analyzer; }
+
+    std::optional<gram::GramScheme> gram_scheme() const override {
+        return _provider->gram_scheme();
+    }
+
+private:
+    const AnalyzerProviderPtr _provider;
+    const TextAnalyzerPtr _analyzer;
 };
 
 // Normalizes text the way a builtin parser normalizes the terms it writes: the IK and kuromoji
@@ -111,9 +196,9 @@ ReaderPtr InvertedIndexAnalyzer::create_reader(const CharFilterMap& char_filter_
 }
 
 std::string InvertedIndexAnalyzer::filter_characters(const CharFilterMap& char_filter_map,
-                                                     const std::string& value) {
+                                                     std::string_view value) {
     if (char_filter_map.empty()) {
-        return value;
+        return std::string(value);
     }
     auto reader = create_reader(char_filter_map);
     reader->init(value.data(), static_cast<int32_t>(value.size()), true);
@@ -134,10 +219,11 @@ bool InvertedIndexAnalyzer::is_builtin_analyzer(const std::string& analyzer_name
            analyzer_name == INVERTED_INDEX_PARSER_KUROMOJI;
 }
 
-AnalyzerPtr InvertedIndexAnalyzer::create_builtin_analyzer(InvertedIndexParserType parser_type,
-                                                           const std::string& parser_mode,
-                                                           const std::string& lower_case,
-                                                           const std::string& stop_words) {
+namespace {
+
+AnalyzerPtr build_builtin_analyzer(InvertedIndexParserType parser_type,
+                                   const std::string& parser_mode, const std::string& lower_case,
+                                   const std::string& stop_words) {
     std::shared_ptr<lucene::analysis::Analyzer> analyzer;
 
     if (parser_type == InvertedIndexParserType::PARSER_STANDARD ||
@@ -207,15 +293,25 @@ AnalyzerPtr InvertedIndexAnalyzer::create_builtin_analyzer(InvertedIndexParserTy
     return analyzer;
 }
 
-AnalyzerPtr InvertedIndexAnalyzer::create_analyzer(const InvertedIndexAnalyzerConfig* config) {
+} // namespace
+
+AnalyzerPtr InvertedIndexAnalyzer::create_builtin_analyzer(InvertedIndexParserType parser_type,
+                                                           const std::string& parser_mode,
+                                                           const std::string& lower_case,
+                                                           const std::string& stop_words) {
+    try {
+        return build_builtin_analyzer(parser_type, parser_mode, lower_case, stop_words);
+    } catch (const CLuceneError& e) {
+        throw Exception(ErrorCode::INVERTED_INDEX_ANALYZER_ERROR,
+                        "building the {} analyzer failed: {}",
+                        inverted_index_parser_type_to_string(parser_type), e.what());
+    }
+}
+
+TextAnalyzerPtr InvertedIndexAnalyzer::create_analyzer(const InvertedIndexAnalyzerConfig* config) {
     DCHECK(config != nullptr);
     if (config->analyzer_name.empty() || is_builtin_analyzer(config->analyzer_name)) {
-        const InvertedIndexParserType parser_type =
-                config->analyzer_name.empty()
-                        ? config->parser_type
-                        : get_inverted_index_parser_type_from_string(config->analyzer_name);
-        return create_builtin_analyzer(parser_type, config->parser_mode, config->lower_case,
-                                       config->stop_words);
+        return with_index_char_filter(config->char_filter_map, builtin_text_analyzer(*config));
     }
 
     auto* index_policy_mgr = doris::ExecEnv::GetInstance()->index_policy_mgr();
@@ -223,7 +319,8 @@ AnalyzerPtr InvertedIndexAnalyzer::create_analyzer(const InvertedIndexAnalyzerCo
         throw Exception(ErrorCode::INVERTED_INDEX_ANALYZER_ERROR,
                         "Index policy manager is not initialized");
     }
-    return index_policy_mgr->get_analyzer_by_name(config->analyzer_name);
+    return with_index_char_filter(config->char_filter_map,
+                                  index_policy_mgr->get_analyzer_by_name(config->analyzer_name));
 }
 
 AnalyzerProviderPtr InvertedIndexAnalyzer::create_analyzer_provider(
@@ -233,45 +330,51 @@ AnalyzerProviderPtr InvertedIndexAnalyzer::create_analyzer_provider(
     if (legacy_name != nullptr) {
         legacy_name->clear();
     }
+    AnalyzerProviderPtr provider;
     if (config->analyzer_name.empty() || is_builtin_analyzer(config->analyzer_name)) {
         if (resolved_name != nullptr) {
             *resolved_name = config->analyzer_name;
         }
-        return std::make_shared<BuiltinAnalyzerProvider>(*config);
+        provider = std::make_shared<BuiltinAnalyzerProvider>(*config);
+    } else {
+        auto* index_policy_mgr = doris::ExecEnv::GetInstance()->index_policy_mgr();
+        if (index_policy_mgr == nullptr) {
+            throw Exception(ErrorCode::INVERTED_INDEX_ANALYZER_ERROR,
+                            "Index policy manager is not initialized");
+        }
+        provider = index_policy_mgr->get_analyzer_provider_by_name(config->analyzer_name,
+                                                                   resolved_name, legacy_name);
     }
-
-    auto* index_policy_mgr = doris::ExecEnv::GetInstance()->index_policy_mgr();
-    if (index_policy_mgr == nullptr) {
-        throw Exception(ErrorCode::INVERTED_INDEX_ANALYZER_ERROR,
-                        "Index policy manager is not initialized");
+    if (config->char_filter_map.empty()) {
+        return provider;
     }
-    return index_policy_mgr->get_analyzer_provider_by_name(
-            config->analyzer_name, config->char_filter_map, resolved_name, legacy_name);
+    return std::make_shared<IndexCharFilterProvider>(config->char_filter_map, std::move(provider));
 }
 
-std::vector<TermInfo> InvertedIndexAnalyzer::get_analyse_result(
-        ReaderPtr reader, lucene::analysis::Analyzer* analyzer) {
-    std::vector<TermInfo> analyse_result;
-
-    std::unique_ptr<lucene::analysis::TokenStream> token_stream(analyzer->tokenStream(L"", reader));
-
-    lucene::analysis::Token token;
+void InvertedIndexAnalyzer::get_analyse_result(std::string_view text, TextTokenStream& stream,
+                                               TokenBatch& batch, std::vector<TermInfo>* out) {
+    out->clear();
+    stream.reset(text);
     int32_t position = 0;
-    while (token_stream->next(&token)) {
-        if (token.termLength<char>() != 0) {
-            TermInfo t;
-            t.term = std::string(token.termBuffer<char>(), token.termLength<char>());
-            position += token.getPositionIncrement();
-            t.position = position;
-            analyse_result.emplace_back(std::move(t));
+    while (stream.next_batch(batch)) {
+        for (const TokenRef& token : batch.tokens()) {
+            // An empty term is dropped together with its increment, as the writers drop it.
+            if (token.size != 0) {
+                position += token.position_increment;
+                out->push_back({.term = std::string(token.term()), .position = position});
+            }
         }
     }
+    batch.release_oversized();
+}
 
-    if (token_stream != nullptr) {
-        token_stream->close();
-    }
-
-    return analyse_result;
+std::vector<TermInfo> InvertedIndexAnalyzer::get_analyse_result(std::string_view text,
+                                                                const TextAnalyzer& analyzer) {
+    std::vector<TermInfo> terms;
+    TokenBatch batch;
+    const std::unique_ptr<TextTokenStream> stream = analyzer.create_stream();
+    get_analyse_result(text, *stream, batch, &terms);
+    return terms;
 }
 
 std::vector<TermInfo> InvertedIndexAnalyzer::get_analyse_result(
@@ -291,10 +394,7 @@ std::vector<TermInfo> InvertedIndexAnalyzer::get_analyse_result(
     config.lower_case = get_parser_lowercase_from_properties(properties);
     config.stop_words = get_parser_stopwords_from_properties(properties);
     config.char_filter_map = get_parser_char_filter_map_from_properties(properties);
-    auto analyzer = create_analyzer(&config);
-    auto reader = create_reader(config.char_filter_map);
-    reader->init(search_str.data(), static_cast<int32_t>(search_str.size()), true);
-    return get_analyse_result(reader, analyzer.get());
+    return get_analyse_result(search_str, *create_analyzer(&config));
 }
 
 Status InvertedIndexAnalyzer::analyze(std::string_view value, const InvertedIndexAnalyzerCtx* ctx,
@@ -307,15 +407,10 @@ Status InvertedIndexAnalyzer::analyze(std::string_view value, const InvertedInde
             // Every string, the empty one included, is a term of an untokenized index.
             *out = {TermInfo {.term = std::string(value)}};
         } else if (const auto analyzer = ctx->get_analyzer(); analyzer != nullptr) {
-            auto reader = create_reader(ctx->char_filter_map);
-            reader->init(value.data(), static_cast<int32_t>(value.size()), true);
-            *out = get_analyse_result(reader, analyzer.get());
+            *out = get_analyse_result(value, *analyzer);
         } else {
             *out = get_analyse_result(value, properties);
         }
-    } catch (const CLuceneError& e) {
-        return Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>("analyzing '{}' failed: {}",
-                                                                       value, e.what());
     } catch (const Exception& e) {
         return Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>("analyzing '{}' failed: {}",
                                                                        value, e.what());
@@ -325,6 +420,16 @@ Status InvertedIndexAnalyzer::analyze(std::string_view value, const InvertedInde
 
 std::string InvertedIndexAnalyzer::normalize(const std::string& value,
                                              const std::map<std::string, std::string>& properties) {
+    try {
+        return normalize_term(value, properties);
+    } catch (const CLuceneError& e) {
+        throw Exception(ErrorCode::INVERTED_INDEX_ANALYZER_ERROR, "normalizing '{}' failed: {}",
+                        value, e.what());
+    }
+}
+
+std::string InvertedIndexAnalyzer::normalize_term(
+        const std::string& value, const std::map<std::string, std::string>& properties) {
     const std::string analyzer_name = get_analyzer_name_from_properties(properties);
     if (analyzer_name.empty() || is_builtin_analyzer(analyzer_name)) {
         // The index writers read a builtin analyzer's text through the index's character filter.
@@ -349,9 +454,7 @@ std::string InvertedIndexAnalyzer::normalize(const std::string& value,
     if (normalizer == nullptr) {
         return filter_characters(char_filter_map, value);
     }
-    auto reader = create_reader(char_filter_map);
-    reader->init(value.data(), static_cast<int32_t>(value.size()), true);
-    const auto terms = get_analyse_result(reader, normalizer.get());
+    const auto terms = get_analyse_result(filter_characters(char_filter_map, value), *normalizer);
     return terms.empty() ? std::string() : terms.front().get_single_term();
 }
 
