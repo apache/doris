@@ -1089,9 +1089,6 @@ Status StreamingAggLocalState::close(RuntimeState* state) {
     PODArray<AggregateDataPtr> tmp_places;
     _places.swap(tmp_places);
 
-    std::vector<char> tmp_deserialize_buffer;
-    _deserialize_buffer.swap(tmp_deserialize_buffer);
-
     /// _hash_table_size_counter may be null if prepare failed.
     if (_hash_table_size_counter) {
         std::visit(Overload {[&](std::monostate& arg) -> void {

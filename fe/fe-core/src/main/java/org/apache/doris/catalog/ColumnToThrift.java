@@ -17,7 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.common.Config;
 import org.apache.doris.thrift.TAggregationType;
 import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TColumnType;
@@ -84,7 +83,7 @@ public class ColumnToThrift {
                     tColumn.addToChildrenColumn(toThrift(child));
                 }
             }
-            tColumn.setBeExecVersion(Config.be_exec_version);
+            tColumn.setBeExecVersion(aggState.getBeExecVersion());
         }
         tColumn.setClusterKeyId(column.getClusterKeyId());
         tColumn.setVariantEnableTypedPathsToSparse(column.getVariantEnableTypedPathsToSparse());

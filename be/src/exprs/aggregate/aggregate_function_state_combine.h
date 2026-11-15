@@ -41,10 +41,9 @@ public:
         return std::make_shared<AggregateStateCombine>(function, argument_types_, return_type);
     }
 
-    void set_version(const int version_) override {
-        IAggregateFunctionHelper::set_version(version_);
-        _function->set_version(version_);
-    }
+    // The inherited set_version() changes only this combinator's query version.
+    // Keep the nested codec at the return type's metadata version. For example,
+    // query version 19 must preserve a version-20 no-input bitmap state as [0].
 
     void create(AggregateDataPtr __restrict place) const override { _function->create(place); }
 

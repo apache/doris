@@ -24,6 +24,8 @@
 
 #ifdef DORIS_BENCHMARK_HEADER
 #include DORIS_BENCHMARK_HEADER
+#elif defined(DORIS_NULLABLE_AGGREGATION_BENCHMARK_ONLY)
+#include "benchmark_nullable_aggregation.hpp"
 #else
 #include "benchmark_analyzer.hpp"
 #include "benchmark_array_range.hpp"
@@ -42,6 +44,7 @@
 #include "benchmark_hybrid_set.hpp"
 #include "benchmark_json_extract.hpp"
 #include "benchmark_md5.hpp"
+#include "benchmark_nullable_aggregation.hpp"
 #include "benchmark_relative_day.hpp"
 #include "benchmark_rowid_conversion.hpp"
 #include "benchmark_timestamptz_round.hpp"
@@ -135,6 +138,9 @@ int main(int argc, char** argv) {
     doris::ExecEnv::set_tracking_memory(false);
 
     ::benchmark::Initialize(&argc, argv);
+#ifdef DORIS_NULLABLE_ALLOCATION_COUNTER
+    doris::nullable_aggregation_benchmark::register_allocation_counter();
+#endif
     if (::benchmark::ReportUnrecognizedArguments(argc, argv)) {
         return 1;
     }

@@ -63,7 +63,8 @@ template <class FunctionType>
 AggregateFunctionPtr get_agg_state_function(const DataTypes& argument_types,
                                             DataTypePtr return_type) {
     return FunctionType::create(
-            assert_cast<const DataTypeAggState*>(argument_types[0].get())->get_nested_function(),
+            assert_cast<const DataTypeAggState*>(remove_nullable(argument_types[0]).get())
+                    ->get_nested_function(),
             argument_types, return_type);
 }
 
@@ -214,9 +215,8 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc,
                 return Status::InternalError("Agg state Function must input 1 argument but get {}",
                                              argument_types.size());
             }
-            if (argument_types[0]->is_nullable()) {
-                return Status::InternalError("Agg state function input type must be not nullable");
-            }
+            // UNION/MERGE skip an outer SQL NULL before decoding its state payload.
+            // The logical nullable wrapper is retained for that runtime dispatch.
             if (argument_types[0]->get_primitive_type() != PrimitiveType::TYPE_AGG_STATE) {
                 return Status::InternalError(
                         "Agg state function input type must be agg_state but get {}",
@@ -224,7 +224,7 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc,
             }
 
             std::string type_function_name =
-                    assert_cast<const DataTypeAggState*>(argument_types[0].get())
+                    assert_cast<const DataTypeAggState*>(remove_nullable(argument_types[0]).get())
                             ->get_function_name();
             if (type_function_name + AGG_UNION_SUFFIX == _fn.name.function_name) {
                 if (_data_type->is_nullable()) {
@@ -239,7 +239,8 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc,
                 }
                 _function = get_agg_state_function<AggregateStateUnion>(argument_types, _data_type);
             } else if (type_function_name + AGG_MERGE_SUFFIX == _fn.name.function_name) {
-                auto type = assert_cast<const DataTypeAggState*>(argument_types[0].get())
+                auto type = assert_cast<const DataTypeAggState*>(
+                                    remove_nullable(argument_types[0]).get())
                                     ->get_nested_function()
                                     ->get_return_type();
                 if (!type->equals(*_data_type)) {
@@ -265,8 +266,6 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc,
                     state->be_exec_version(),
                     {.is_window_function = _is_window_function,
                      .is_foreach = is_foreach,
-                     .enable_aggregate_function_null_v2 =
-                             state->enable_aggregate_function_null_v2(),
                      .new_version_percentile =
                              state->query_options().__isset.new_version_percentile &&
                              state->query_options().new_version_percentile,
@@ -277,8 +276,6 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc,
                     state->be_exec_version(),
                     {.is_window_function = _is_window_function,
                      .is_foreach = is_foreach,
-                     .enable_aggregate_function_null_v2 =
-                             state->enable_aggregate_function_null_v2(),
                      .new_version_percentile =
                              state->query_options().__isset.new_version_percentile &&
                              state->query_options().new_version_percentile,
@@ -288,6 +285,15 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc,
     if (_function == nullptr) {
         return Status::InternalError("Agg Function {} is not implemented", _fn.signature);
     }
+
+    // Old coordinators can request String nullable states; old variadic producers always
+    // use String even when their unary-V2 option is enabled. Adapt only the wire codec,
+    // never the execution algorithm. Version 20 has a single native-column contract.
+    const auto& options = state->query_options();
+    _function = make_nullable_wire_compatible_function(
+            std::move(_function), state->be_exec_version(),
+            options.__isset.enable_aggregate_function_null_v2 &&
+                    options.enable_aggregate_function_null_v2);
 
     if (!_sort_description.empty()) {
         _function = transform_to_sort_agg_function(_function, _argument_types_with_sort,
