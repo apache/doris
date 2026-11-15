@@ -73,6 +73,7 @@ import org.apache.doris.connector.spi.pushdown.ConnectorIn;
 import org.apache.doris.connector.spi.pushdown.ConnectorLiteral;
 import org.apache.doris.connector.spi.pushdown.FilterApplicationResult;
 import org.apache.doris.connector.spi.scan.ConnectorPartitionValues;
+import org.apache.doris.connector.spi.scan.ConnectorScanContext;
 import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.thrift.THiveTable;
 import org.apache.doris.thrift.TTableDescriptor;
@@ -285,7 +286,7 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
     // ConnectorMetadata interfaces — the owning sibling's concrete types are never cast here (cross-loader CCE).
     private final Function<ConnectorTableHandle, SiblingOwner> siblingOwnerResolver;
     // Connector-owned directory-listing cache, shared with the scan provider so estimateDataSizeByListingFiles
-    // (the periodic ExternalRowCountCache refresh source) reuses listings a scan warmed and vice versa. Injected
+    // (the periodic ExternalRowCountCache refresh source) reads complete listings warmed by scans. Injected
     // by HiveConnector.newMetadata as the SAME instance; the convenience constructors below build a private
     // default (harmless for the direct-construction tests, which inject their file sizes and never list).
     private final HiveFileListingCache fileListingCache;
@@ -1009,16 +1010,11 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
     }
 
     /**
-     * Estimates the table's on-disk data size (bytes) by listing its data files, a port of the file-listing
-     * half of legacy {@code HMSExternalTable.getRowCountFromFileList} (fe-core does the
-     * {@code size / rowWidth} division). Only plain-hive tables are estimated (hudi/iceberg-on-HMS are served
-     * by their own connectors; a view has no data files) — anything else returns -1. Partitions are sampled
-     * ({@link #STATS_PARTITION_SAMPLE_SIZE}) and the sampled size scaled back up to the whole table, exactly
-     * as legacy did. Best-effort: ordinary errors (unlistable location, remote failure) degrade to -1. Confirmed
-     * table absence propagates so the engine can repair its lookup before returning an unknown estimate.
-     * The Hadoop {@code FileSystem} reflection resolves its
-     * filesystem impl through the thread context classloader, so this pins the TCCL to the plugin classloader
-     * for the duration (the statistics thread is not pinned by fe-core, unlike the scan thread).
+     * Estimates data size from complete cached file listings, returning unknown for a cold sample. This keeps
+     * synchronous row-count estimation from fully listing a directory before a streaming scan starts. Sampled
+     * partition sizes are scaled to the whole table. Explicit ANALYZE uses {@link #listFileSizes} and can still
+     * enumerate storage. Ordinary errors and missing samples return -1 rather than becoming empty partitions.
+     * Confirmed table absence propagates so the engine can repair its lookup before returning an unknown estimate.
      */
     @Override
     public long estimateDataSizeByListingFiles(ConnectorSession session, ConnectorTableHandle handle) {
@@ -1032,13 +1028,11 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
         ClassLoader previous = Thread.currentThread().getContextClassLoader();
         try {
             Thread.currentThread().setContextClassLoader(getClass().getClassLoader());
-            // Resolve the engine FileSystem INSIDE the size lambda so it runs within estimateDataSize's
-            // catch(RuntimeException)->-1 region: statistics collection must degrade to -1, never fail a query,
-            // if getFileSystem throws. (context.getFileSystem returns the cached per-catalog FS, so per-location
-            // calls are cheap.)
+            // Query planning must not enumerate a cold directory before its streaming scan can start.
+            // Complete byte totals survive list-candidate abandonment; an absent sample is still unknown.
             return estimateDataSize(hiveHandle, STATS_PARTITION_SAMPLE_SIZE,
-                    (location, values) -> sumCachedFileSizes(
-                            hiveHandle, location, values, storage().getFileSystem(session)));
+                    (location, values) -> fileListingCache.cachedDataSize(hiveHandle.getDbName(),
+                            hiveHandle.getTableName(), location, values));
         } finally {
             Thread.currentThread().setContextClassLoader(previous);
         }
@@ -1073,10 +1067,12 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
             FileSystem fs = storage().getFileSystem(session);
             List<Long> sizes = new ArrayList<>();
             for (PartitionRef ref : resolvePartitionRefs(hiveHandle)) {
-                for (HiveFileStatus file : fileListingCache.listDataFiles(
-                        hiveHandle.getDbName(), hiveHandle.getTableName(),
-                        ref.location, ref.partitionValues, fs)) {
-                    sizes.add(file.getLength());
+                try (HiveFileIterator files = fileListingCache.openDataFiles(
+                        hiveHandle.getDbName(), hiveHandle.getTableName(), ref.location, ref.partitionValues,
+                        fs, new ConnectorScanContext())) {
+                    while (files.hasNext()) {
+                        sizes.add(files.next().getLength());
+                    }
                 }
             }
             return sizes;
@@ -1107,7 +1103,11 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
             }
             long totalSize = 0;
             for (PartitionRef ref : chosen) {
-                totalSize += Math.max(0, sizeOf.applyAsLong(ref.location, ref.partitionValues));
+                long size = sizeOf.applyAsLong(ref.location, ref.partitionValues);
+                if (size < 0) {
+                    return -1;
+                }
+                totalSize += size;
             }
             if (totalSize <= 0) {
                 return -1;
@@ -1186,24 +1186,6 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
             this.location = location;
             this.partitionValues = partitionValues == null ? Collections.emptyList() : partitionValues;
         }
-    }
-
-    /**
-     * Sums the sizes of the data files directly under {@code location}, served from the connector's shared
-     * {@link HiveFileListingCache} (which does the non-recursive {@code listStatus} and filters directories and
-     * {@code _}/{@code .}-prefixed hidden files — the same filter, and the same listing, the scan path uses). A
-     * listing failure propagates as a {@link DorisConnectorException} so {@link #estimateDataSize} degrades the
-     * whole estimate to -1 (legacy's file-list estimate was all-or-nothing best-effort). Routing through the
-     * cache keeps the periodic row-count refresh from re-listing directories a scan already cached.
-     */
-    private long sumCachedFileSizes(HiveTableHandle handle, String location,
-            List<String> partitionValues, FileSystem fs) {
-        long sum = 0;
-        for (HiveFileStatus file : fileListingCache.listDataFiles(
-                handle.getDbName(), handle.getTableName(), location, partitionValues, fs)) {
-            sum += file.getLength();
-        }
-        return sum;
     }
 
     // ========== ConnectorPushdownOps: Filter Pushdown ==========

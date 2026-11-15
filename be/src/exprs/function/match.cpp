@@ -236,11 +236,25 @@ private:
     bool _pending_sorted = true;
 };
 
+// The stream and the batch that tokenize the values of one block, made once per execute_match()
+// call. The stream is null when the values are not analyzed.
+struct BlockTokenizer {
+    explicit BlockTokenizer(const InvertedIndexAnalyzerCtx* analyzer_ctx) {
+        if (analyzer_ctx != nullptr && analyzer_ctx->requires_analysis() &&
+            analyzer_ctx->analyzer != nullptr) {
+            stream = analyzer_ctx->analyzer->create_stream();
+        }
+    }
+
+    std::unique_ptr<segment_v2::inverted_index::TextTokenStream> stream;
+    segment_v2::inverted_index::TokenBatch batch;
+};
+
 template <typename Callback>
 bool for_each_data_element_tokens(const FunctionMatchBase& function, const std::string& column_name,
                                   const InvertedIndexAnalyzerCtx* analyzer_ctx,
-                                  const ColumnString* string_col, size_t row,
-                                  const ColumnArray::Offsets64* array_offsets,
+                                  BlockTokenizer& tokenizer, const ColumnString* string_col,
+                                  size_t row, const ColumnArray::Offsets64* array_offsets,
                                   const ColumnUInt8::Container* array_element_null_map,
                                   Callback&& callback) {
     const size_t begin = array_offsets ? (row == 0 ? 0 : (*array_offsets)[row - 1]) : row;
@@ -260,8 +274,9 @@ bool for_each_data_element_tokens(const FunctionMatchBase& function, const std::
             }
             continue;
         }
-        auto tokens = function.analyse_data_token(column_name, analyzer_ctx, string_col, element,
-                                                  nullptr, unused_array_offset);
+        auto tokens = function.analyse_data_token(column_name, analyzer_ctx, tokenizer.stream.get(),
+                                                  &tokenizer.batch, string_col, element, nullptr,
+                                                  unused_array_offset);
         if (tokens.empty()) {
             continue;
         }
@@ -274,14 +289,14 @@ bool for_each_data_element_tokens(const FunctionMatchBase& function, const std::
 
 bool match_phrase_data_tokens(const FunctionMatchBase& function, const std::string& column_name,
                               const InvertedIndexAnalyzerCtx* analyzer_ctx,
-                              const ColumnString* string_col, size_t row,
+                              BlockTokenizer& tokenizer, const ColumnString* string_col, size_t row,
                               const ColumnArray::Offsets64* array_offsets,
                               const ColumnUInt8::Container* array_element_null_map,
                               StreamingPhraseMatcher& matcher) {
     matcher.reset_row();
     int64_t position_base = 0;
     const bool matched = for_each_data_element_tokens(
-            function, column_name, analyzer_ctx, string_col, row, array_offsets,
+            function, column_name, analyzer_ctx, tokenizer, string_col, row, array_offsets,
             array_element_null_map, [&](std::span<const segment_v2::TermInfo> tokens) {
                 const bool analyzed = analyzer_ctx && analyzer_ctx->requires_analysis() &&
                                       analyzer_ctx->analyzer != nullptr;
@@ -483,19 +498,16 @@ std::vector<segment_v2::TermInfo> FunctionMatchBase::analyse_query_str_token(
         return query_tokens;
     }
 
-    // Tokenize using the analyzer
-    auto reader = doris::segment_v2::inverted_index::InvertedIndexAnalyzer::create_reader(
-            analyzer_ctx->char_filter_map);
-    reader->init(match_query_str.data(), (int)match_query_str.size(), true);
-    query_tokens = doris::segment_v2::inverted_index::InvertedIndexAnalyzer::get_analyse_result(
-            reader, analyzer_ctx->analyzer.get());
-    return query_tokens;
+    return doris::segment_v2::inverted_index::InvertedIndexAnalyzer::get_analyse_result(
+            match_query_str, *analyzer_ctx->analyzer);
 }
 
 inline std::vector<segment_v2::TermInfo> FunctionMatchBase::analyse_data_token(
         const std::string& column_name, const InvertedIndexAnalyzerCtx* analyzer_ctx,
-        const ColumnString* string_col, size_t current_block_row_idx,
-        const ColumnArray::Offsets64* array_offsets, int32_t& current_src_array_offset,
+        segment_v2::inverted_index::TextTokenStream* stream,
+        segment_v2::inverted_index::TokenBatch* batch, const ColumnString* string_col,
+        size_t current_block_row_idx, const ColumnArray::Offsets64* array_offsets,
+        int32_t& current_src_array_offset,
         const ColumnUInt8::Container* array_element_null_map) const {
     std::vector<segment_v2::TermInfo> data_tokens;
     if (analyzer_ctx == nullptr) {
@@ -504,6 +516,8 @@ inline std::vector<segment_v2::TermInfo> FunctionMatchBase::analyse_data_token(
 
     const bool requires_analysis =
             analyzer_ctx->requires_analysis() && analyzer_ctx->analyzer != nullptr;
+    DORIS_CHECK(!requires_analysis || (stream != nullptr && batch != nullptr));
+    std::vector<segment_v2::TermInfo> element_tokens;
 
     if (array_offsets) {
         for (auto next_src_array_offset = (*array_offsets)[current_block_row_idx];
@@ -516,12 +530,8 @@ inline std::vector<segment_v2::TermInfo> FunctionMatchBase::analyse_data_token(
                 data_tokens.emplace_back(str_ref.to_string());
                 continue;
             }
-            auto reader = doris::segment_v2::inverted_index::InvertedIndexAnalyzer::create_reader(
-                    analyzer_ctx->char_filter_map);
-            reader->init(str_ref.data, (int)str_ref.size, true);
-            auto element_tokens =
-                    doris::segment_v2::inverted_index::InvertedIndexAnalyzer::get_analyse_result(
-                            reader, analyzer_ctx->analyzer.get());
+            doris::segment_v2::inverted_index::InvertedIndexAnalyzer::get_analyse_result(
+                    str_ref.to_string_view(), *stream, *batch, &element_tokens);
             for (auto& token : element_tokens) {
                 data_tokens.emplace_back(std::move(token));
             }
@@ -531,12 +541,8 @@ inline std::vector<segment_v2::TermInfo> FunctionMatchBase::analyse_data_token(
         if (!requires_analysis) {
             data_tokens.emplace_back(str_ref.to_string());
         } else {
-            auto reader = doris::segment_v2::inverted_index::InvertedIndexAnalyzer::create_reader(
-                    analyzer_ctx->char_filter_map);
-            reader->init(str_ref.data, (int)str_ref.size, true);
-            data_tokens =
-                    doris::segment_v2::inverted_index::InvertedIndexAnalyzer::get_analyse_result(
-                            reader, analyzer_ctx->analyzer.get());
+            doris::segment_v2::inverted_index::InvertedIndexAnalyzer::get_analyse_result(
+                    str_ref.to_string_view(), *stream, *batch, &data_tokens);
         }
     }
     return data_tokens;
@@ -581,8 +587,9 @@ Status FunctionMatchAny::execute_match(FunctionContext* context, const std::stri
         query_terms.emplace(token.get_single_term());
     }
 
+    BlockTokenizer tokenizer(analyzer_ctx);
     for (int i = 0; i < input_rows_count; i++) {
-        if (for_each_data_element_tokens(*this, column_name, analyzer_ctx, string_col, i,
+        if (for_each_data_element_tokens(*this, column_name, analyzer_ctx, tokenizer, string_col, i,
                                          array_offsets, array_element_null_map,
                                          [&](std::span<const segment_v2::TermInfo> data_tokens) {
                                              for (const auto& info : data_tokens) {
@@ -625,10 +632,11 @@ Status FunctionMatchAll::execute_match(FunctionContext* context, const std::stri
     }
     std::vector<size_t> last_seen_row;
 
+    BlockTokenizer tokenizer(analyzer_ctx);
     for (int i = 0; i < input_rows_count; i++) {
         size_t remaining = query_term_ids.size();
         if (for_each_data_element_tokens(
-                    *this, column_name, analyzer_ctx, string_col, i, array_offsets,
+                    *this, column_name, analyzer_ctx, tokenizer, string_col, i, array_offsets,
                     array_element_null_map, [&](std::span<const segment_v2::TermInfo> data_tokens) {
                         if (last_seen_row.empty()) {
                             last_seen_row.resize(query_term_ids.size(), 0);
@@ -677,9 +685,10 @@ Status FunctionMatchPhrase::execute_match(
     }
 
     StreamingPhraseMatcher matcher(query_tokens, PhraseMode::EXACT);
+    BlockTokenizer tokenizer(analyzer_ctx);
     for (int i = 0; i < input_rows_count; i++) {
-        if (match_phrase_data_tokens(*this, column_name, analyzer_ctx, string_col, i, array_offsets,
-                                     array_element_null_map, matcher)) {
+        if (match_phrase_data_tokens(*this, column_name, analyzer_ctx, tokenizer, string_col, i,
+                                     array_offsets, array_element_null_map, matcher)) {
             result[i] = true;
         }
     }
@@ -707,9 +716,10 @@ Status FunctionMatchPhrasePrefix::execute_match(
     }
 
     StreamingPhraseMatcher matcher(query_tokens, PhraseMode::PREFIX);
+    BlockTokenizer tokenizer(analyzer_ctx);
     for (int i = 0; i < input_rows_count; i++) {
-        if (match_phrase_data_tokens(*this, column_name, analyzer_ctx, string_col, i, array_offsets,
-                                     array_element_null_map, matcher)) {
+        if (match_phrase_data_tokens(*this, column_name, analyzer_ctx, tokenizer, string_col, i,
+                                     array_offsets, array_element_null_map, matcher)) {
             result[i] = true;
         }
     }
@@ -762,9 +772,10 @@ Status FunctionMatchRegexp::execute_match(
     };
 
     try {
+        BlockTokenizer tokenizer(analyzer_ctx);
         for (int i = 0; i < input_rows_count; i++) {
             for_each_data_element_tokens(
-                    *this, column_name, analyzer_ctx, string_col, i, array_offsets,
+                    *this, column_name, analyzer_ctx, tokenizer, string_col, i, array_offsets,
                     array_element_null_map, [&](std::span<const segment_v2::TermInfo> data_tokens) {
                         for (const auto& input : data_tokens) {
                             bool is_match = false;
@@ -811,9 +822,10 @@ Status FunctionMatchPhraseEdge::execute_match(
     }
 
     StreamingPhraseMatcher matcher(query_tokens, PhraseMode::EDGE);
+    BlockTokenizer tokenizer(analyzer_ctx);
     for (int i = 0; i < input_rows_count; i++) {
-        if (match_phrase_data_tokens(*this, column_name, analyzer_ctx, string_col, i, array_offsets,
-                                     array_element_null_map, matcher)) {
+        if (match_phrase_data_tokens(*this, column_name, analyzer_ctx, tokenizer, string_col, i,
+                                     array_offsets, array_element_null_map, matcher)) {
             result[i] = true;
         }
     }

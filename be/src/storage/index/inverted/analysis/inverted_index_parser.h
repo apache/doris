@@ -26,12 +26,6 @@
 #include "storage/index/inverted/analysis/analyzer/analyzer_provider.h"
 #include "util/debug_points.h"
 
-namespace lucene {
-namespace analysis {
-class Analyzer;
-}
-} // namespace lucene
-
 namespace doris {
 
 class TabletIndex;
@@ -130,12 +124,12 @@ struct InvertedIndexAnalyzerCtx {
     // Builtin parser used to execute the predicate.
     InvertedIndexParserType parser_type = InvertedIndexParserType::PARSER_UNKNOWN;
 
-    // Used for creating reader and tokenization
+    // Used for tokenization; the analyzer applies the index's char filter itself.
     CharFilterMap char_filter_map;
-    std::shared_ptr<lucene::analysis::Analyzer> analyzer;
+    segment_v2::inverted_index::TextAnalyzerPtr analyzer;
     segment_v2::inverted_index::AnalyzerProviderPtr analyzer_provider;
 
-    std::shared_ptr<lucene::analysis::Analyzer> get_analyzer() const {
+    segment_v2::inverted_index::TextAnalyzerPtr get_analyzer() const {
         if (analyzer_provider != nullptr) {
             return analyzer_provider->get_analyzer();
         }

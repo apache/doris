@@ -54,11 +54,8 @@ TIndexPolicy make_tokenizer_policy(int64_t id, std::string name, std::string typ
 
 size_t count_analyzer_terms(IndexPolicyMgr& manager, const std::string& name) {
     auto analyzer = manager.get_policy_by_name(name);
-    auto reader = segment_v2::inverted_index::InvertedIndexAnalyzer::create_reader({});
     const std::string text = "one two";
-    reader->init(text.data(), static_cast<int32_t>(text.size()), false);
-    return segment_v2::inverted_index::InvertedIndexAnalyzer::get_analyse_result(reader,
-                                                                                 analyzer.get())
+    return segment_v2::inverted_index::InvertedIndexAnalyzer::get_analyse_result(text, *analyzer)
             .size();
 }
 
@@ -212,12 +209,10 @@ TEST_F(IndexPolicyMgrTest, MatchDispatchPreservesReplayedExactIkTerms) {
     ASSERT_TRUE(config.uses_provider());
     EXPECT_EQ(config.provider_name, historical.name);
     EXPECT_EQ(config.analyzer_key, build_analyzer_key_from_properties({{"analyzer", "IK"}}));
-    auto analyzer = manager.get_analyzer_provider_by_name(config.provider_name, {})->get_analyzer();
-    auto reader = segment_v2::inverted_index::InvertedIndexAnalyzer::create_reader({});
+    auto analyzer = manager.get_analyzer_provider_by_name(config.provider_name)->get_analyzer();
     const std::string text = "abc def";
-    reader->init(text.data(), static_cast<int32_t>(text.size()), false);
-    const auto terms = segment_v2::inverted_index::InvertedIndexAnalyzer::get_analyse_result(
-            reader, analyzer.get());
+    const auto terms =
+            segment_v2::inverted_index::InvertedIndexAnalyzer::get_analyse_result(text, *analyzer);
     ASSERT_EQ(terms.size(), 1);
     EXPECT_EQ(terms.front().get_single_term(), text);
     EXPECT_EQ(count_analyzer_terms(manager, historical.name), 1);
@@ -391,7 +386,7 @@ TEST_F(IndexPolicyMgrTest, BuiltinNormalizerWinsOverNormalizedLegacyPolicy) {
     std::string resolved_name;
     std::string legacy_name;
     auto provider =
-            manager.get_analyzer_provider_by_name("lowercase", {}, &resolved_name, &legacy_name);
+            manager.get_analyzer_provider_by_name("lowercase", &resolved_name, &legacy_name);
     EXPECT_NE(provider, nullptr);
     EXPECT_EQ(resolved_name, "lowercase");
     EXPECT_TRUE(legacy_name.empty());
@@ -415,7 +410,7 @@ TEST_F(IndexPolicyMgrTest, ExactCustomNormalizerDoesNotPublishBuiltinAlias) {
     std::string resolved_name;
     std::string legacy_name;
     auto provider =
-            manager.get_analyzer_provider_by_name("LOWERCASE", {}, &resolved_name, &legacy_name);
+            manager.get_analyzer_provider_by_name("LOWERCASE", &resolved_name, &legacy_name);
     ASSERT_NE(provider, nullptr);
     EXPECT_EQ(resolved_name, "LOWERCASE");
     EXPECT_TRUE(legacy_name.empty()) << legacy_name;
@@ -438,10 +433,8 @@ TEST_F(IndexPolicyMgrTest, PolicyOnTheCanonicalNameLeavesOtherSpellingsOnTheBuil
     const std::string text = "Ab";
     auto analyze = [&](const std::string& name) {
         auto analyzer = manager.get_analyzer_by_name(name);
-        auto reader = segment_v2::inverted_index::InvertedIndexAnalyzer::create_reader({});
-        reader->init(text.data(), static_cast<int32_t>(text.size()), false);
         auto terms = segment_v2::inverted_index::InvertedIndexAnalyzer::get_analyse_result(
-                reader, analyzer.get());
+                text, *analyzer);
         EXPECT_EQ(terms.size(), 1) << name;
         return terms.empty() ? std::string() : terms[0].get_single_term();
     };
@@ -481,11 +474,9 @@ TEST_F(IndexPolicyMgrTest, ExistingPolicyTakesPrecedenceOverNewBuiltinName) {
 
     auto built = mgr.get_policy_by_name(analyzer.name);
     ASSERT_NE(built, nullptr);
-    auto reader = segment_v2::inverted_index::InvertedIndexAnalyzer::create_reader({});
     const std::string text = "abcd";
-    reader->init(text.data(), static_cast<int32_t>(text.size()), false);
-    auto terms = segment_v2::inverted_index::InvertedIndexAnalyzer::get_analyse_result(reader,
-                                                                                       built.get());
+    auto terms =
+            segment_v2::inverted_index::InvertedIndexAnalyzer::get_analyse_result(text, *built);
     ASSERT_EQ(terms.size(), 3);
     EXPECT_EQ(terms[0].get_single_term(), "ab");
     EXPECT_EQ(terms[1].get_single_term(), "bc");
