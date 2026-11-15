@@ -330,10 +330,12 @@ Status AggSinkLocalState::_merge_with_serialized_key_helper(Block* block) {
                         Base::_shared_state->aggregate_evaluators[i]);
                 auto column = block->get_by_position(col_id).column;
 
-                size_t buffer_size =
-                        Base::_shared_state->aggregate_evaluators[i]->size_of_data() * rows;
-                if (_deserialize_buffer.size() < buffer_size) {
-                    _deserialize_buffer.resize(buffer_size);
+                const auto* evaluator = Base::_shared_state->aggregate_evaluators[i];
+                AggregateDataPtr scratch = nullptr;
+                if (evaluator->needs_deserialize_and_merge_scratch()) {
+                    _deserialize_arena.clear();
+                    scratch = _deserialize_arena.aligned_alloc(evaluator->size_of_data() * rows,
+                                                               evaluator->align_of_data());
                 }
 
                 {
@@ -343,8 +345,8 @@ Status AggSinkLocalState::_merge_with_serialized_key_helper(Block* block) {
                                     _places.data(),
                                     Base::_parent->template cast<AggSinkOperatorX>()
                                             ._offsets_of_aggregate_states[i],
-                                    _deserialize_buffer.data(), column.get(),
-                                    Base::_shared_state->agg_arena_pool, rows);
+                                    scratch, column.get(), Base::_shared_state->agg_arena_pool,
+                                    rows);
                 }
             } else {
                 RETURN_IF_ERROR(
@@ -388,10 +390,12 @@ Status AggSinkLocalState::_merge_with_serialized_key_helper(Block* block) {
                     }
                     auto column = block->get_by_position(col_id).column;
 
-                    size_t buffer_size =
-                            Base::_shared_state->aggregate_evaluators[i]->size_of_data() * rows;
-                    if (_deserialize_buffer.size() < buffer_size) {
-                        _deserialize_buffer.resize(buffer_size);
+                    const auto* evaluator = Base::_shared_state->aggregate_evaluators[i];
+                    AggregateDataPtr scratch = nullptr;
+                    if (evaluator->needs_deserialize_and_merge_scratch()) {
+                        _deserialize_arena.clear();
+                        scratch = _deserialize_arena.aligned_alloc(evaluator->size_of_data() * rows,
+                                                                   evaluator->align_of_data());
                     }
 
                     {
@@ -400,8 +404,7 @@ Status AggSinkLocalState::_merge_with_serialized_key_helper(Block* block) {
                                 _places.data(),
                                 Base::_parent->template cast<AggSinkOperatorX>()
                                         ._offsets_of_aggregate_states[i],
-                                _deserialize_buffer.data(), column.get(),
-                                Base::_shared_state->agg_arena_pool, rows);
+                                scratch, column.get(), Base::_shared_state->agg_arena_pool, rows);
                     }
                 } else {
                     RETURN_IF_ERROR(Base::_shared_state->aggregate_evaluators[i]->execute_batch_add(
@@ -1037,9 +1040,8 @@ Status AggSinkLocalState::close(RuntimeState* state, Status exec_status) {
     _preagg_block.clear();
     PODArray<AggregateDataPtr> tmp_places;
     _places.swap(tmp_places);
+    _deserialize_arena.clear(true);
 
-    std::vector<char> tmp_deserialize_buffer;
-    _deserialize_buffer.swap(tmp_deserialize_buffer);
     return Base::close(state, exec_status);
 }
 

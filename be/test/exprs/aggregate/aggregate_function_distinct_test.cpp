@@ -128,11 +128,10 @@ class DistinctMergeDispatchTest : public testing::TestWithParam<bool> {
 protected:
     AggregateFunctionPtr function(const std::string& name, const DataTypePtr& input_type,
                                   const DataTypePtr& result_type, bool result_nullable) {
-        AggregateFunctionAttr attr;
-        attr.enable_aggregate_function_null_v2 = GetParam();
-        return AggregateFunctionSimpleFactory::instance().get(
+        auto function = AggregateFunctionSimpleFactory::instance().get(
                 name, {input_type}, result_type, result_nullable,
-                BeExecVersionManager::get_newest_version(), attr);
+                BeExecVersionManager::get_newest_version());
+        return GetParam() ? function : make_agg_state_compatible_function(std::move(function));
     }
 };
 

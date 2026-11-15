@@ -468,6 +468,30 @@ TEST_F(AnalyticSinkOperatorTest, SpillEligibilityKeepsRangeToCurrentRowWithOrder
     EXPECT_EQ(sink->_window_spill_unsupported_reason, "Streaming");
 }
 
+TEST_F(AnalyticSinkOperatorTest, SpillEligibilityPreservesLegacyNullablePartitionReduction) {
+    // Eligibility needs no input rows. A nullable full-partition aggregate at version 19
+    // uses the String codec, but still has the same spill strategy as its V2 function.
+    auto type = make_nullable(std::make_shared<DataTypeFloat64>());
+    for (const auto* name : {"sum", "avg", "min", "max"}) {
+        SCOPED_TRACE(name);
+        Initialize(1);
+        state->_query_options.__set_enable_spill(true);
+        create_operator(false, 1, name, {type}, type);
+        auto& function = sink->_agg_functions[0]->_function;
+        function->set_version(19);
+        function = make_nullable_wire_compatible_function(std::move(function), 19, false);
+        ASSERT_EQ(function->get_serialized_type()->get_primitive_type(), TYPE_STRING);
+
+        sink->_prepare_spill(state.get());
+
+        EXPECT_TRUE(sink->_enable_spill_analytic);
+        EXPECT_TRUE(sink->_spillable);
+        ASSERT_EQ(sink->_window_spill_strategies.size(), 1);
+        EXPECT_EQ(sink->_window_spill_strategies[0], WindowSpillStrategy::PARTITION_REDUCE);
+        EXPECT_EQ(sink->_window_spill_peer_functions[0], WindowSpillPeerFunction::NONE);
+    }
+}
+
 TEST_F(AnalyticSinkOperatorTest, SpillPathFullPartitionSumInMemory) {
     Initialize(10);
     create_operator(false, 1, "sum", {std::make_shared<DataTypeInt64>()},

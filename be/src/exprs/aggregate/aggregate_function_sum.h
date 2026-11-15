@@ -22,6 +22,7 @@
 
 #include <stddef.h>
 
+#include <algorithm>
 #include <memory>
 #include <type_traits>
 #include <vector>
@@ -36,6 +37,7 @@
 #include "core/field.h"
 #include "core/types.h"
 #include "exprs/aggregate/aggregate_function.h"
+#include "util/simd/bits.h"
 
 namespace doris {
 class Arena;
@@ -150,7 +152,15 @@ public:
     }
 
     void streaming_agg_serialize_to_column(const IColumn** columns, MutableColumnPtr& dst,
-                                           const size_t num_rows, Arena&) const override {
+                                           size_t num_rows, Arena&) const override {
+        streaming_agg_serialize_to_column_with_null_map(columns, dst, num_rows, nullptr);
+    }
+
+    // Nullable streaming writes the native fixed-width state directly. NULL rows get the
+    // empty state without constructing one temporary aggregate object per input row.
+    void streaming_agg_serialize_to_column_with_null_map(const IColumn** columns,
+                                                         MutableColumnPtr& dst, size_t num_rows,
+                                                         const UInt8* null_map) const {
         auto& col = assert_cast<ColumnFixedLengthObject&>(*dst);
         auto& src = assert_cast<const ColVecType&>(*columns[0]);
         DCHECK(col.item_size() == sizeof(Data))
@@ -158,9 +168,18 @@ public:
         col.resize(num_rows);
         auto* src_data = src.get_data().data();
         auto* dst_data = col.get_data().data();
+        if (null_map && !simd::contain_zero(null_map, num_rows)) {
+            // A fully masked load can still be slow. For an all-NULL batch, write
+            // empty states without loading the input values. For example, NULL
+            // with a hidden payload of 7 must produce a zero SUM state.
+            std::fill_n(reinterpret_cast<Data*>(dst_data), num_rows, Data {});
+            return;
+        }
+        using ResultType = typename PrimitiveTypeTraits<TResult>::CppType;
         for (size_t i = 0; i != num_rows; ++i) {
             auto& state = *reinterpret_cast<Data*>(&dst_data[sizeof(Data) * i]);
-            state.sum = typename PrimitiveTypeTraits<TResult>::CppType(src_data[i]);
+            // Select the value before the store. Each row needs one output store.
+            state.sum = null_map && null_map[i] ? ResultType {} : ResultType(src_data[i]);
         }
     }
 
@@ -192,6 +211,17 @@ public:
         const auto& col = assert_cast<const ColumnFixedLengthObject&>(*column);
         const auto* data = col.get_data().data();
         this->merge_vec(places, offset, AggregateDataPtr(data), arena, num_rows);
+    }
+
+    template <bool selected, typename MarkValid>
+    void deserialize_and_merge_vec_with_null_map(const AggregateDataPtr* places, size_t offset,
+                                                 const IColumn& column, const UInt8* null_map,
+                                                 Arena& arena, size_t rows,
+                                                 const MarkValid& mark_valid) const {
+        const auto& col = assert_cast<const ColumnFixedLengthObject&>(column);
+        this->template merge_vec_with_null_map<selected>(
+                places, offset, reinterpret_cast<ConstAggregateDataPtr>(col.get_data().data()),
+                null_map, arena, rows, mark_valid);
     }
 
     void deserialize_and_merge_vec_selected(const AggregateDataPtr* places, size_t offset,
