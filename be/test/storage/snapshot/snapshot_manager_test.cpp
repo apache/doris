@@ -467,4 +467,74 @@ TEST_F(SnapshotManagerTest, RenameDualInvertedIndexesByDefinition) {
     EXPECT_EQ(source.SerializeAsString(), converted.SerializeAsString());
 }
 
+TEST_F(SnapshotManagerTest, RenamePartiallyMatchedIndexesWithOverlappingIds) {
+    TabletSchemaPB source;
+    for (int i = 0; i < 2; ++i) {
+        auto* index = source.add_index();
+        index->set_index_id(1001 + i);
+        index->set_index_name(i == 0 ? "idx_c1" : "idx_c2");
+        index->set_index_type(IndexType::INVERTED);
+        index->add_col_unique_id(1 + i);
+    }
+    // Exercise both source and target orders: b may be visited before a is remapped.
+    for (bool reverse_source : {false, true}) {
+        for (bool reverse_target : {false, true}) {
+            for (int scenario = 0; scenario < 4; ++scenario) {
+                SCOPED_TRACE(testing::Message()
+                             << reverse_source << "," << reverse_target << "," << scenario);
+                auto target_pb = source;
+                target_pb.mutable_index(0)->set_index_id(1002);
+                target_pb.mutable_index(1)->set_index_id(1003);
+                (*target_pb.mutable_index(1)->mutable_properties())["normalizer"] =
+                        "lowercase_normalizer";
+                if (scenario == 1) {
+                    // No legacy target for b: its retained ID collides with a's matched ID.
+                    target_pb.mutable_index()->RemoveLast();
+                } else if (scenario == 3) {
+                    // Equal IDs with different suffixes are distinct directory identities.
+                    target_pb.mutable_index(0)->set_index_suffix_name("path");
+                }
+                if (reverse_target) {
+                    target_pb.mutable_index()->SwapElements(0, target_pb.index_size() - 1);
+                }
+                auto target = std::make_shared<TabletSchema>();
+                target->init_from_pb(target_pb);
+                auto converted = source;
+                if (scenario == 2) {
+                    auto* index = converted.add_index();
+                    index->CopyFrom(source.index(0));
+                    // A retained third index already occupies the legacy target ID.
+                    index->set_index_id(1003);
+                    index->set_index_name("idx_c3");
+                    index->set_col_unique_id(0, 3);
+                } else if (scenario == 3) {
+                    converted.mutable_index(0)->set_index_suffix_name("path");
+                }
+                if (reverse_source) {
+                    converted.mutable_index()->SwapElements(0, 1);
+                }
+                auto original = converted;
+                auto status = _engine->snapshot_mgr()->_rename_index_ids(converted, target);
+                if (scenario == 1 || scenario == 2) {
+                    EXPECT_FALSE(status.ok());
+                    EXPECT_NE(status.to_string().find("duplicate index identity"),
+                              std::string::npos);
+                    EXPECT_EQ(original.SerializeAsString(), converted.SerializeAsString());
+                } else {
+                    ASSERT_TRUE(status.ok()) << status;
+                    const auto& a = converted.index(reverse_source ? 1 : 0);
+                    const auto& b = converted.index(reverse_source ? 0 : 1);
+                    EXPECT_EQ(1002, a.index_id());
+                    EXPECT_EQ(scenario == 0 ? 1003 : 1002, b.index_id());
+                    EXPECT_TRUE(a.index_id() != b.index_id() ||
+                                a.index_suffix_name() != b.index_suffix_name());
+                    original.mutable_index(reverse_source ? 1 : 0)->set_index_id(a.index_id());
+                    original.mutable_index(reverse_source ? 0 : 1)->set_index_id(b.index_id());
+                    EXPECT_EQ(original.SerializeAsString(), converted.SerializeAsString());
+                }
+            }
+        }
+    }
+}
+
 } // namespace doris
