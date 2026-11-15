@@ -407,9 +407,16 @@ public class TimestampTzLiteral extends DateTimeLiteral {
         ZoneId zone = TimeZoneParser.parse(getSessionTimeZone(), TimeZoneParser.Usage.SESSION);
         ZonedDateTime local = toJavaDateType().atZone(ZoneOffset.UTC).withZoneSameInstant(zone);
         LocalDateTime target = local.toLocalDateTime().plusYears(years);
+        // Java treats year zero as leap; Doris clamps its February 29 to February 28.
+        // Clamp locally: converting the invalid date first can produce a valid UTC date.
+        if (target.getYear() == 0 && target.getMonthValue() == 2 && target.getDayOfMonth() == 29) {
+            target = target.withDayOfMonth(28);
+        }
         // The BE requires valid local dates as well as a valid UTC result.
         // For example, 9999-12-31 20:00 UTC is in local year 10000 in +08:00.
-        if (isDateOutOfRange(local.toLocalDateTime()) || isDateOutOfRange(target)) {
+        // UTC 0000-03-01 04:00 in -08:00 also has an invalid local leap day.
+        if (isDateOutOfRange(local.toLocalDateTime()) || isDateOutOfRange(target)
+                || checkDate(local.getYear(), local.getMonthValue(), local.getDayOfMonth())) {
             throw new AnalysisException("datetime out of range in time zone " + zone);
         }
         Instant result;

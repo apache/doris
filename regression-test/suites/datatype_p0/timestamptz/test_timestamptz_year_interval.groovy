@@ -30,6 +30,20 @@ suite("test_timestamptz_year_interval") {
                 SELECT years_add(CAST('2024-02-29 00:00:00 +08:00' AS TIMESTAMPTZ(6)), 1),
                        years_sub(CAST('2024-02-29 00:00:00 +08:00' AS TIMESTAMPTZ(6)), 1)
             """
+            // Doris treats year zero as non-leap, including before converting to UTC.
+            order_qt_year_zero_constant """
+                SELECT years_add(CAST('2024-02-29 00:00:00.123456 +08:00' AS TIMESTAMPTZ(6)), -2024),
+                       years_sub(CAST('2024-02-29 00:00:00.123456 +08:00' AS TIMESTAMPTZ(6)), 2024)
+            """
+            sql "SET time_zone = '-08:00'"
+            // This UTC date maps to local 0000-02-29, which is invalid in Doris.
+            for (def function : ['years_add', 'years_sub']) {
+                test {
+                    sql "SELECT ${function}(CAST('0000-03-01 04:00:00 +00:00' AS TIMESTAMPTZ(6)), 0)"
+                    exception "out of range"
+                }
+            }
+            sql "SET time_zone = '+08:00'"
         }
     } finally {
         sql "SET debug_skip_fold_constant = ${originalSkipFold}"
@@ -77,6 +91,12 @@ suite("test_timestamptz_year_interval") {
         SELECT years_add(ts, -1), years_sub(ts, -1),
                years_add(ts, 4), years_sub(ts, 4), years_add(ts, 0),
                date_add(ts, INTERVAL 1 YEAR), date_sub(ts, INTERVAL 1 YEAR)
+        FROM test_timestamptz_year_interval
+    """
+
+    order_qt_year_zero_column """
+        SELECT years_add(ts, -2024), years_sub(ts, 2024),
+               years_add(ts, -2024 * id), years_sub(ts, 2024 * id)
         FROM test_timestamptz_year_interval
     """
 }

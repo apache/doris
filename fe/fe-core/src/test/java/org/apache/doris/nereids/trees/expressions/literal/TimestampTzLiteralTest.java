@@ -365,6 +365,40 @@ class TimestampTzLiteralTest {
     }
 
     @Test
+    void testYearsClampYearZeroBeforeUtcConversion() {
+        ConnectContext context = new ConnectContext();
+        context.setThreadLocalInfo();
+        try {
+            for (String zone : new String[] {"+08:00", "+00:00", "-08:00"}) {
+                context.getSessionVariable().setTimeZone(zone);
+                TimestampTzLiteral input = new TimestampTzLiteral(TimeStampTzType.of(6),
+                        "2024-02-29 00:00:00.123456 " + zone);
+                TimestampTzLiteral expected = new TimestampTzLiteral(TimeStampTzType.of(6),
+                        "0000-02-28 00:00:00.123456 " + zone);
+                Assertions.assertEquals(expected, DateTimeArithmetic.yearsAdd(input, new IntegerLiteral(-2024)), zone);
+                Assertions.assertEquals(expected, DateTimeArithmetic.yearsSub(input, new IntegerLiteral(2024)), zone);
+            }
+        } finally {
+            ConnectContext.remove();
+        }
+    }
+
+    @Test
+    void testYearsRejectInvalidLocalLeapDay() {
+        ConnectContext context = new ConnectContext();
+        context.getSessionVariable().setTimeZone("-08:00");
+        context.setThreadLocalInfo();
+        try {
+            // Valid in UTC, but the local date is 0000-02-29, which Doris rejects.
+            TimestampTzLiteral input = new TimestampTzLiteral(TimeStampTzType.of(6),
+                    "0000-03-01 04:00:00 +00:00");
+            Assertions.assertThrows(AnalysisException.class, () -> input.plusYears(1));
+        } finally {
+            ConnectContext.remove();
+        }
+    }
+
+    @Test
     void testYearsKeepDstPolicy() {
         ConnectContext context = new ConnectContext();
         context.getSessionVariable().setTimeZone("America/New_York");
