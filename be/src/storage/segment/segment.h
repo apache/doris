@@ -253,14 +253,14 @@ private:
     Status _open(OlapReaderStatistics* stats, const io::IOContext* io_ctx = nullptr);
     Status _parse_footer(std::shared_ptr<SegmentFooterPB>& footer,
                          OlapReaderStatistics* stats = nullptr,
-                         const io::IOContext* io_ctx = nullptr);
+                         const io::IOContext* io_ctx = nullptr) const;
     Status _create_column_meta(const SegmentFooterPB& footer, OlapReaderStatistics* stats = nullptr,
                                const io::IOContext* io_ctx = nullptr);
     Status _load_pk_bloom_filter(OlapReaderStatistics* stats,
                                  const io::IOContext* io_ctx = nullptr);
 
     Status _write_error_file(size_t file_size, size_t offset, size_t bytes_read, char* data,
-                             io::IOContext& io_ctx);
+                             io::IOContext& io_ctx) const;
 
     Status _open_index_file_reader();
 

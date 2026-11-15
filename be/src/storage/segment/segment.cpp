@@ -568,7 +568,7 @@ Status Segment::new_iterator(ReadSchemaSPtr schema, const StorageReadOptions& re
 }
 
 Status Segment::_write_error_file(size_t file_size, size_t offset, size_t bytes_read, char* data,
-                                  io::IOContext& io_ctx) {
+                                  io::IOContext& io_ctx) const {
     if (!config::enbale_dump_error_file || !doris::config::is_cloud_mode()) {
         return Status::OK();
     }
@@ -628,8 +628,12 @@ Status Segment::_write_error_file(size_t file_size, size_t offset, size_t bytes_
     return Status::OK(); // already exists
 };
 
+// Parses the footer into the caller-owned output object without modifying any
+// Segment member (the reason this method is const). Concurrent cache misses may
+// parse independent, content-identical footer copies; sharing is handled by
+// StoragePageCache in _get_segment_footer().
 Status Segment::_parse_footer(std::shared_ptr<SegmentFooterPB>& footer, OlapReaderStatistics* stats,
-                              const io::IOContext* source_io_ctx) {
+                              const io::IOContext* source_io_ctx) const {
     // Footer := SegmentFooterPB, FooterPBSize(4), FooterPBChecksum(4), MagicNumber(4)
     auto file_size = _file_reader->size();
     if (file_size < 12) {
