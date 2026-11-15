@@ -35,7 +35,8 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 import java.util.HashSet;
-import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.FutureTask;
+import java.util.concurrent.Phaser;
 
 class TableStatsMetaTest {
 
@@ -44,7 +45,8 @@ class TableStatsMetaTest {
     private static final String BASE_INDEX_NAME = "baseIndex";
 
     private OlapTable mockOlapTable() {
-        OlapTable table = Mockito.mock(OlapTable.class);
+        // The snapshot test repeatedly calls these getters from both threads.
+        OlapTable table = Mockito.mock(OlapTable.class, Mockito.withSettings().stubOnly());
         Mockito.doReturn(Lists.newArrayList(BASE_INDEX_ID, ROLLUP_INDEX_ID)).when(table).getIndexIdList();
         Mockito.doReturn(BASE_INDEX_ID).when(table).getBaseIndexId();
         Mockito.doReturn(BASE_INDEX_NAME).when(table).getIndexNameById(BASE_INDEX_ID);
@@ -55,15 +57,18 @@ class TableStatsMetaTest {
         return table;
     }
 
-    // 100 rows of the base index had been loaded when the job was built.
     private AnalysisInfo analyzeJob() {
-        AnalysisInfo job = new AnalysisInfoBuilder().setRowCount(100)
+        return analyzeJob(100);
+    }
+
+    private AnalysisInfo analyzeJob(long collectedRows) {
+        AnalysisInfo job = new AnalysisInfoBuilder().setRowCount(collectedRows)
                 .setJobColumns(Sets.newHashSet(Pair.of(BASE_INDEX_NAME, "col1")))
-                .setUpdateRows(100)
+                .setUpdateRows(collectedRows)
                 .setTblUpdateTime(1000L)
                 .setJobType(AnalysisInfo.JobType.MANUAL)
                 .build();
-        job.addIndexRowCount(BASE_INDEX_ID, 100);
+        job.addIndexRowCount(BASE_INDEX_ID, collectedRows);
         return job;
     }
 
@@ -233,31 +238,39 @@ class TableStatsMetaTest {
     void testRowCountSnapshotIsCoherent() throws Exception {
         OlapTable table = mockOlapTable();
         TableStatsMeta meta = new TableStatsMeta(table);
-        // An analysis collected the 100 rows the table had, then 50 more rows were loaded.
-        meta.update(analyzeJob(), table);
+        AnalysisInfo first = analyzeJob(100);
+        AnalysisInfo second = analyzeJob(120);
+        meta.update(first, table);
         meta.updatedRows.set(150);
 
-        AtomicBoolean incoherent = new AtomicBoolean(false);
-        AtomicBoolean stop = new AtomicBoolean(false);
-        Thread reader = new Thread(() -> {
-            while (!stop.get()) {
-                // Every state the writer goes through reports the 150 rows the table holds.
-                if (meta.getRowCountWithDeltaRows(table, BASE_INDEX_ID) != 150) {
-                    incoherent.set(true);
+        // Both snapshots give 150 rows. Mixing the collected count from one with the baseline of
+        // the other gives 130 or 170. Start each read and update in the same round.
+        int rounds = 5000;
+        Phaser startOfRound = new Phaser(2);
+        FutureTask<Void> reader = new FutureTask<>(() -> {
+            try {
+                for (int i = 0; i < rounds; i++) {
+                    startOfRound.arriveAndAwaitAdvance();
+                    long rows = meta.getRowCountWithDeltaRows(table, BASE_INDEX_ID);
+                    Assertions.assertEquals(150L, rows, "row count at round " + i);
                 }
+            } finally {
+                startOfRound.arriveAndDeregister();
             }
+            return null;
         });
-        reader.start();
-        // Only transitions which really happen are performed: an analysis collecting the 100 rows the table
-        // had, while 150 rows are loaded. A reader which pairs the collected row count of one state with the
-        // baseline of the other would compute 100 + (150 - 0) = 250.
-        for (int i = 0; i < 5000; i++) {
-            meta.update(analyzeJob(), table);
-            meta.updatedRows.set(150);
+        new Thread(reader, "table-stats-snapshot-reader").start();
+        try {
+            for (int i = 0; i < rounds; i++) {
+                startOfRound.arriveAndAwaitAdvance();
+                meta.update(i % 2 == 0 ? second : first, table);
+            }
+        } finally {
+            startOfRound.arriveAndDeregister();
         }
-        stop.set(true);
-        reader.join();
-        Assertions.assertFalse(incoherent.get(), "the reader saw a row count of neither state");
+        reader.get();
+        Assertions.assertEquals(0, Mockito.mockingDetails(table).getInvocations().size(),
+                "the table mock retained snapshot test calls");
     }
 
     @Test

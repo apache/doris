@@ -26,11 +26,6 @@
 #include "exprs/vexpr.h"
 #include "storage/index/inverted/analysis/inverted_index_parser.h"
 
-namespace lucene {
-namespace analysis {
-class Analyzer;
-}
-} // namespace lucene
 namespace doris {
 class RowDescriptor;
 class RuntimeState;
@@ -71,7 +66,7 @@ private:
     std::string _function_name;
 
     // Lifecycle management: holds ownership of the analyzer
-    std::shared_ptr<lucene::analysis::Analyzer> _analyzer;
+    segment_v2::inverted_index::TextAnalyzerPtr _analyzer;
     segment_v2::inverted_index::AnalyzerProviderPtr _analyzer_provider;
 
     // Runtime context: holds raw pointer to analyzer and necessary runtime info

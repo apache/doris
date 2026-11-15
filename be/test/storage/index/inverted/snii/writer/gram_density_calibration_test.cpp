@@ -37,6 +37,7 @@
 #include "runtime/index_policy/index_policy_mgr.h"
 #include "storage/index/inverted/analysis/gram/gram_density.h"
 #include "storage/index/inverted/analysis/gram/gram_extractor.h"
+#include "storage/index/inverted/analysis/tokenizer/ngram/gram_tokenizer.h"
 #include "storage/index/inverted/snii/snii_index_writer.h"
 #include "storage/tablet/tablet_schema.h"
 #include "util/defer_op.h"
@@ -216,6 +217,12 @@ TEST(GramDensityCalibrationTest, TheRecordedSchemeCarriesTheSolvedRate) {
                "still holding the configured one means the solve never reached it";
     EXPECT_GE(writer.gram_scheme_for_test()->density_permille, gram::kMinSolvedDensityPermille);
     EXPECT_LE(writer.gram_scheme_for_test()->density_permille, gram::kMaxSolvedDensityPermille);
+    // The rate is on the one stream the writer cuts every row with.
+    const auto* tokenizer = dynamic_cast<const doris::segment_v2::inverted_index::GramTokenizer*>(
+            writer.stream_for_test());
+    ASSERT_NE(tokenizer, nullptr);
+    EXPECT_EQ(tokenizer->scheme().density_permille,
+              writer.gram_scheme_for_test()->density_permille);
 }
 
 // With the feature off nothing is held back and the configured rate stands, so an index built

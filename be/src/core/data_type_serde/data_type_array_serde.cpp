@@ -33,11 +33,13 @@
 #include "core/data_type/get_least_supertype.h"
 #include "core/data_type_serde/arrow_parent_nulls.h"
 #include "core/data_type_serde/arrow_validation.h"
+#include "core/data_type_serde/bson_value_view.h"
 #include "core/data_type_serde/complex_type_deserialize_util.h"
 #include "core/data_type_serde/orc_serde_utils.h"
 #include "core/string_ref.h"
 #include "exprs/function/function_helpers.h"
 #include "storage/field_type.h"
+#include "util/defer_op.h"
 #include "util/jsonb_document.h"
 #include "util/jsonb_writer.h"
 
@@ -800,6 +802,49 @@ Status DataTypeArraySerDe::read_column_from_orc(IColumn& column,
         return Status::OK();
     }
     return decode_list_orc_values(nested_serde, column, view);
+}
+
+Status DataTypeArraySerDe::decode_bson_value(IColumn& column, const BsonValueView& value,
+                                             const BsonDecodeContext& context) const {
+    RETURN_IF_ERROR(context.validate(value));
+    if (value.missing || value.value.value_type != BSON_TYPE_ARRAY || !context.binding ||
+        context.binding->children.size() != 1) {
+        return Status::InvalidArgument("BSON ARRAY requires one pinned element binding");
+    }
+    bson_t document;
+    bson_iter_t it;
+    if (!bson_init_static(&document, value.value.value.v_doc.data,
+                          value.value.value.v_doc.data_len) ||
+        !bson_iter_init(&it, &document)) {
+        return Status::InvalidArgument("Invalid BSON array");
+    }
+    auto& target = assert_cast<ColumnArray&>(column);
+    auto& data = target.get_data();
+    const size_t before = data.size();
+    const size_t offsets_before = target.get_offsets().size();
+    bool committed = false;
+    Defer rollback([&] {
+        if (!committed) {
+            if (data.size() > before) {
+                data.pop_back(data.size() - before);
+            }
+            target.get_offsets().resize(offsets_before);
+        }
+    });
+    size_t count = 0;
+    while (bson_iter_next(&it)) {
+        Status status = ++count > BsonDecodeContext::MAX_ELEMENTS
+                                ? Status::InvalidArgument("BSON array exceeds the element limit")
+                                : nested_serde->read_one_cell_from_bson(
+                                          data, BsonValueView::of(*bson_iter_value(&it)),
+                                          context.child(context.binding->children.data()));
+        if (!status.ok()) {
+            return status;
+        }
+    }
+    target.get_offsets().push_back(data.size());
+    committed = true;
+    return Status::OK();
 }
 
 } // namespace doris
