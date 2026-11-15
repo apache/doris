@@ -23,7 +23,6 @@ services:
     restart: always
     ports:
       - ${DOCKER_MINIO_EXTERNAL_PORT}:9000
-    privileged: true
     healthcheck:
       test: [ "CMD", "bash", "-c", "mc ping --count 1 local" ]
       interval: 20s
