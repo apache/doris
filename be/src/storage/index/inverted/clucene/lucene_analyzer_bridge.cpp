@@ -63,7 +63,6 @@ lucene::analysis::Token* LuceneTokenStreamBridge::next(lucene::analysis::Token* 
         _cursor = 0;
         if (_exhausted || !_stream->next_batch(_batch)) {
             _exhausted = true;
-            _batch.release_oversized();
             return nullptr;
         }
     }
@@ -71,6 +70,12 @@ lucene::analysis::Token* LuceneTokenStreamBridge::next(lucene::analysis::Token* 
     token->setTextNoCopy(ref.data, static_cast<int32_t>(ref.size));
     token->setPositionIncrement(ref.position_increment);
     return token;
+}
+
+void LuceneTokenStreamBridge::close() {
+    _batch.clear();
+    _cursor = 0;
+    _batch.release_oversized();
 }
 
 LuceneAnalyzerBridge::LuceneAnalyzerBridge(TextAnalyzerPtr analyzer)

@@ -29,7 +29,7 @@ under the License.
     </parent>
     <artifactId>fe-connector-mongodb</artifactId>
     <packaging>jar</packaging>
-    <name>Doris FE Connector - MongoDB Dependencies</name>
+    <name>Doris FE Connector - MongoDB</name>
     <description>Client dependency bundle for the native MongoDB connector.</description>
     <properties>
         <mongodb.driver.version>5.14.0</mongodb.driver.version>
@@ -50,6 +50,27 @@ under the License.
         </dependencies>
     </dependencyManagement>
     <dependencies>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-connector-spi</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-foundation</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-thrift</artifactId>
+            <version>${project.version}</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
         <dependency>
             <groupId>org.mongodb</groupId>
             <artifactId>mongodb-driver-sync</artifactId>

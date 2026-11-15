@@ -149,8 +149,8 @@ public class HiveFileListingCacheTest {
                             loads.incrementAndGet();
                             return files;
                         });
-                Assertions.assertSame(files, cache.listDataFiles("db", "t", "loc", FS));
-                Assertions.assertSame(files, cache.listDataFiles("db", "t", "loc", FS));
+                Assertions.assertEquals(files, cache.listDataFiles("db", "t", "loc", FS));
+                Assertions.assertEquals(files, cache.listDataFiles("db", "t", "loc", FS));
                 Assertions.assertEquals(2, loads.get());
             }
         }
@@ -166,7 +166,7 @@ public class HiveFileListingCacheTest {
         List<HiveFileStatus> a = cache.listDataFiles("db", "t", "loc1", FS);
         List<HiveFileStatus> b = cache.listDataFiles("db", "t", "loc1", FS);
         // WHY: a hit must serve the cached listing without re-listing the filesystem.
-        Assertions.assertSame(a, b);
+        Assertions.assertEquals(a, b);
         Assertions.assertEquals(1, lister.totalCalls);
 
         // WHY: a different directory is a different key — must re-list.
@@ -185,7 +185,7 @@ public class HiveFileListingCacheTest {
             List<HiveFileStatus> first = cache.listDataFiles("db", "t", "loc", FS);
             List<HiveFileStatus> second = cache.listDataFiles("db", "t", "loc", FS);
 
-            Assertions.assertSame(first, second);
+            Assertions.assertEquals(first, second);
             Assertions.assertEquals(1, lister.totalCalls);
         }
     }
@@ -237,13 +237,14 @@ public class HiveFileListingCacheTest {
         List<HiveFileStatus> filesA = cache.listDataFiles("db", "a", location, values, FS);
         List<HiveFileStatus> filesB = cache.listDataFiles("db", "b", location, values, FS);
         Assertions.assertEquals(2, lister.totalCalls);
-        Assertions.assertSame(filesA, cache.listDataFiles("db", "a", location, values, FS));
-        Assertions.assertSame(filesB, cache.listDataFiles("db", "b", location, values, FS));
+        Assertions.assertEquals(filesA, cache.listDataFiles("db", "a", location, values, FS));
+        Assertions.assertEquals(filesB, cache.listDataFiles("db", "b", location, values, FS));
 
         cache.invalidateTable("db", "b");
 
-        Assertions.assertNotSame(filesB, cache.listDataFiles("db", "b", location, values, FS));
-        Assertions.assertSame(filesA, cache.listDataFiles("db", "a", location, values, FS));
+        cache.listDataFiles("db", "b", location, values, FS);
+        Assertions.assertEquals(3, lister.totalCalls, "only the refreshed table must reload");
+        Assertions.assertEquals(filesA, cache.listDataFiles("db", "a", location, values, FS));
         Assertions.assertEquals(3, lister.totalCalls);
     }
 
@@ -679,6 +680,9 @@ public class HiveFileListingCacheTest {
                 .location("file:///wh/t")
                 .build();
 
+        Assertions.assertEquals(-1L, md.estimateDataSizeByListingFiles(new FakeSession(), handle));
+        Assertions.assertEquals(0, lister.totalCalls, "query statistics must not start cold directory listing");
+        cache.listDataFiles("db", "t", "file:///wh/t", FS);
         long first = md.estimateDataSizeByListingFiles(new FakeSession(), handle);
         long second = md.estimateDataSizeByListingFiles(new FakeSession(), handle);
 

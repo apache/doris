@@ -69,6 +69,7 @@ suite("txn_insert_with_schema_change") {
                 set 'compress_type', 'GZ'
                 file """${getS3Url()}/regression/tpch/sf1/${file_name}"""
                 time 10000 // limit inflight 10s
+                retryIfHttpError true
                 check { result, exception, startTime, endTime ->
                     if (exception != null) {
                         throw exception
