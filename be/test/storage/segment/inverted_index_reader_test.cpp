@@ -46,6 +46,7 @@
 #include "storage/index/inverted/analysis/analyzer/analyzer.h"
 #include "storage/index/inverted/clucene/clucene_index_reader.h"
 #include "storage/index/inverted/clucene/inverted_index_writer.h"
+#include "storage/index/inverted/clucene/lucene_backed_text_analyzer.h"
 #include "storage/index/inverted/common/inverted_index_desc.h"
 #include "storage/index/inverted/inverted_index_iterator.h"
 #include "storage/index/inverted/query/exec/term_pattern.h"
@@ -5090,7 +5091,7 @@ namespace {
 // Throws when asked for its analyzer and counts the requests.
 class FailingAnalyzerProvider final : public inverted_index::AnalyzerProvider {
 public:
-    std::shared_ptr<lucene::analysis::Analyzer> get_analyzer() const override {
+    inverted_index::TextAnalyzerPtr get_analyzer() const override {
         ++calls;
         throw Exception(ErrorCode::INVERTED_INDEX_ANALYZER_ERROR, "this test has no analyzer");
     }
@@ -5198,8 +5199,10 @@ TEST_F(InvertedIndexReaderTest, FulltextMatchPhraseUsesTheQueryAnalyzer) {
             english_fulltext_reader("fulltext_query_analyzer", {Slice("Quick Brown fox")}, &meta);
     InvertedIndexAnalyzerCtx case_keeping;
     case_keeping.parser_type = InvertedIndexParserType::PARSER_STANDARD;
-    case_keeping.analyzer = inverted_index::InvertedIndexAnalyzer::create_builtin_analyzer(
-            InvertedIndexParserType::PARSER_STANDARD, "", INVERTED_INDEX_PARSER_FALSE, "none");
+    case_keeping.analyzer = std::make_shared<inverted_index::LuceneBackedTextAnalyzer>(
+            inverted_index::InvertedIndexAnalyzer::create_builtin_analyzer(
+                    InvertedIndexParserType::PARSER_STANDARD, "", INVERTED_INDEX_PARSER_FALSE,
+                    "none"));
     // The result cache assumes one analyzer per index, which this test breaks on purpose.
     MatchContext run(/*scoring=*/false, /*query_cache=*/false);
     EXPECT_EQ(match(*reader, run.context, InvertedIndexQueryType::MATCH_PHRASE_QUERY, "Quick Brown",

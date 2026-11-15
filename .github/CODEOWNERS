@@ -30,8 +30,8 @@ be/src/exprs/vsearch.h @airborne12 @eldenmoon @csun5285
 be/src/exprs/vsearch.cpp @airborne12 @eldenmoon @csun5285
 
 be/src/cloud                                                                @liaoxin01 @luwei16 @gavinchou
-be/src/common                                                               @yiguolei @Mryange
 be/src/core                                                                 @yiguolei @Mryange
+be/src/exec/spill                                                           @yiguolei @mrhhsg @HappenLee
 be/src/io                                                                   @liaoxin01 @gavinchou @morningman @Gabriel39
 be/src/io/cache                                                             @liaoxin01 @gavinchou @morningman @Gabriel39
 be/src/io/fs                                                                @liaoxin01 @gavinchou @morningman @Gabriel39

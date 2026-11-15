@@ -24,7 +24,9 @@
 #include "runtime/exec_env.h"
 #include "storage/index/inverted/analysis/analysis_factory_mgr.h"
 #include "storage/index/inverted/analysis/token_stream.h"
+#include "storage/index/inverted/analysis/tokenizer/ngram/gram_tokenizer.h"
 #include "storage/index/inverted/analysis/tokenizer/ngram/ngram_tokenizer_factory.h"
+#include "storage/index/inverted/clucene/lucene_backed_text_analyzer.h"
 
 namespace doris::segment_v2::inverted_index {
 namespace {} // namespace
@@ -101,10 +103,11 @@ CustomAnalyzerPtr CustomAnalyzer::build_custom_analyzer(
     return builder.build();
 }
 
-CustomAnalyzerProvider::CustomAnalyzerProvider(
-        ImmutableCustomAnalyzerConfigPtr config,
-        std::map<std::string, std::string> /*outer_char_filter_map*/)
-        : _config(std::move(config)), _analyzer(CustomAnalyzer::build_custom_analyzer(_config)) {
+CustomAnalyzerProvider::CustomAnalyzerProvider(ImmutableCustomAnalyzerConfigPtr config)
+        : _config(std::move(config)) {
+    // Built for every configuration: building validates it, gram family included, and it is the
+    // analyzer of every configuration outside the gram family.
+    CustomAnalyzerPtr analyzer = CustomAnalyzer::build_custom_analyzer(_config);
     // Gram-family detection: when the tokenizer is "ngram", hand its Settings to
     // NGramTokenizerFactory::parse_gram_scheme so the same property mapping is reused (R16,
     // DRY). build_custom_analyzer() has already constructed that tokenizer successfully above
@@ -127,6 +130,12 @@ CustomAnalyzerProvider::CustomAnalyzerProvider(
             !st.ok()) {
             _gram_scheme.reset();
         }
+    }
+    // A gram-family configuration has no filter, so the GramTokenizer is its whole chain.
+    if (_gram_scheme.has_value()) {
+        _analyzer = std::make_shared<GramTextAnalyzer>(*_gram_scheme);
+    } else {
+        _analyzer = std::make_shared<LuceneBackedTextAnalyzer>(std::move(analyzer));
     }
 }
 void CustomAnalyzer::Builder::with_tokenizer(const std::string& name, const Settings& params) {

@@ -171,8 +171,8 @@ services:
       - CORE_CONF_io_compression_codecs=org.apache.hadoop.io.compress.SnappyCodec
       - HDFS_CONF_dfs_webhdfs_enabled=true
       - HDFS_CONF_dfs_permissions_enabled=false
-      - HDFS_CONF_dfs_namenode_rpc_address=hdfs-namenode:8020
-      - HDFS_CONF_dfs_namenode_http_address=0.0.0.0:9870
+      - HDFS_CONF_dfs_namenode_rpc___address=hdfs-namenode:8020
+      - HDFS_CONF_dfs_namenode_http___address=0.0.0.0:9870
       - HDFS_CONF_dfs_replication=1
       - HDFS_CONF_dfs_namenode_name_dir=/hadoop/dfs/name
       - HDFS_CONF_dfs_namenode_datanode_registration_ip___hostname___check=false
@@ -228,6 +228,12 @@ services:
     depends_on:
       - hdfs-namenode
       - hdfs-datanode
+    healthcheck:
+      # This image has bash but does not include curl or wget.
+      test: ["CMD", "bash", "-ec", "exec 3<>/dev/tcp/127.0.0.1/8181; printf 'GET /v1/config HTTP/1.0\\r\\nHost: localhost\\r\\n\\r\\n' >&3; head -n 1 <&3 | grep -q '^HTTP/1.[01] 200 '"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
 networks:
   ${CONTAINER_UID}iceberg-rest:

@@ -81,10 +81,11 @@ private:
 
 class CustomAnalyzerProvider final : public AnalyzerProvider {
 public:
-    explicit CustomAnalyzerProvider(ImmutableCustomAnalyzerConfigPtr config,
-                                    std::map<std::string, std::string> outer_char_filter_map = {});
+    explicit CustomAnalyzerProvider(ImmutableCustomAnalyzerConfigPtr config);
 
-    std::shared_ptr<lucene::analysis::Analyzer> get_analyzer() const override { return _analyzer; }
+    // A GramTextAnalyzer for the gram family, and otherwise the CustomAnalyzer behind a
+    // LuceneBackedTextAnalyzer.
+    TextAnalyzerPtr get_analyzer() const override { return _analyzer; }
     // Computed once by the constructor from the analyzer configuration and cached: it holds a
     // value when the tokenizer is "ngram" with a non-empty "mode" property and the analyzer
     // carries no char filter or token filter, and is nullopt otherwise (R22 fail-safe: any
@@ -95,8 +96,8 @@ public:
 
 private:
     ImmutableCustomAnalyzerConfigPtr _config;
-    std::shared_ptr<lucene::analysis::Analyzer> _analyzer;
     std::optional<gram::GramScheme> _gram_scheme;
+    TextAnalyzerPtr _analyzer;
 };
 
 } // namespace doris::segment_v2::inverted_index
