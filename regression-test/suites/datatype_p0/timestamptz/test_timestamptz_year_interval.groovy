@@ -45,6 +45,21 @@ suite("test_timestamptz_year_interval") {
             }
             sql "SET time_zone = '+08:00'"
         }
+
+        // Exercise the BE parser: this valid local date is stored as UTC 0000-02-29 04:00.
+        // Both zero and nonzero year intervals must reject the invalid UTC source.
+        sql "SET debug_skip_fold_constant = true"
+        sql "SET time_zone = '-08:00'"
+        for (def function : ['years_add', 'years_sub']) {
+            for (def years : [0, 1]) {
+                def delta = function == 'years_add' ? years : -years
+                test {
+                    sql "SELECT ${function}(CAST('0000-02-28 20:00:00 -08:00' AS TIMESTAMPTZ(6)), ${delta})"
+                    exception "out of range"
+                }
+            }
+        }
+        sql "SET time_zone = '+08:00'"
     } finally {
         sql "SET debug_skip_fold_constant = ${originalSkipFold}"
     }

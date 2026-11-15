@@ -183,6 +183,36 @@ TEST(VTimestampFunctionsTest, timestamptz_years_check_date_range) {
     EXPECT_THROW(Add::execute(TimestampTzValue(utc), -1, &context), Exception);
 }
 
+TEST(VTimestampFunctionsTest, timestamptz_years_reject_invalid_utc_source) {
+    MockRuntimeState state;
+    state._timezone_obj = cctz::fixed_time_zone(cctz::seconds(-8 * 3600));
+    FunctionContext context;
+    context._state = &state;
+    using Add = DateTimeOp<TYPE_TIMESTAMPTZ, TYPE_INT, TimestampTzValue,
+                           AddYearsImpl<TYPE_TIMESTAMPTZ>>;
+    using Sub = DateTimeOp<TYPE_TIMESTAMPTZ, TYPE_INT, TimestampTzValue,
+                           SubtractYearsImpl<TYPE_TIMESTAMPTZ>>;
+
+    // The string parser can produce this invalid UTC date from local
+    // 0000-02-28 20:00 in -08:00. A year change must not hide the invalid source.
+    DateV2Value<DateTimeV2ValueType> utc;
+    utc.unchecked_set_time(0, 2, 29, 4, 0, 0, 123456);
+    TimestampTzValue input(utc);
+    ASSERT_FALSE(input.is_valid_date());
+    for (int years : {0, 1}) {
+        SCOPED_TRACE(years);
+        EXPECT_THROW(Add::execute(input, years, &context), Exception);
+        EXPECT_THROW(Sub::execute(input, -years, &context), Exception);
+    }
+
+    // A valid UTC date in year zero still supports both directions and keeps its fraction.
+    utc.unchecked_set_time(0, 2, 28, 4, 0, 0, 123456);
+    input = TimestampTzValue(utc);
+    utc.unchecked_set_time(1, 2, 28, 4, 0, 0, 123456);
+    EXPECT_EQ(Add::execute(input, 1, &context), TimestampTzValue(utc));
+    EXPECT_EQ(Sub::execute(input, -1, &context), TimestampTzValue(utc));
+}
+
 TEST(VTimestampFunctionsTest, timestamptz_years_keep_dst_policy) {
     MockRuntimeState state;
     ASSERT_TRUE(cctz::load_time_zone("America/New_York", &state._timezone_obj));

@@ -777,6 +777,11 @@ struct DateTimeOp {
         // Date add/sub needs the session zone; diff and extract transforms take two arguments.
         if constexpr (std::is_same_v<Transform, AddYearsImpl<TYPE_TIMESTAMPTZ>> ||
                       std::is_same_v<Transform, SubtractYearsImpl<TYPE_TIMESTAMPTZ>>) {
+            // Parsed UTC 0000-02-29 can become valid local February 28 in -08:00.
+            // Reject it before changing years can hide the invalid UTC source.
+            if (!from.is_valid_date()) [[unlikely]] {
+                throw_out_of_bound_date_int(Transform::name, from, delta);
+            }
             // Use the local date for calendar years. In +08:00, 2024-02-29 00:00
             // is 2024-02-28 16:00 UTC. A year added in UTC gives March 1 locally.
             // The DATETIME transform changes February 29 to February 28 when needed.
