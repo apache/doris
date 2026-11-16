@@ -22,9 +22,9 @@ suite("predefine_schema_change_doc_value", "p0"){
     sql """ set debug_variant_enable_typed_paths_to_sparse = false """
     boolean minrowszero = new Random().nextBoolean();
     if (minrowszero) {
-        sql """ set debug_variant_doc_materialization_min_rows = 0 """
+        sql """ set debug_variant_subcolumn_extraction_min_rows = 0 """
     } else {
-        sql """ set debug_variant_doc_materialization_min_rows = 10000 """
+        sql """ set debug_variant_subcolumn_extraction_min_rows = 10000 """
     }
     sql """ set debug_variant_enable_doc_mode = true """
     sql "DROP TABLE IF EXISTS ${tableName}"

@@ -56,6 +56,7 @@ import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.thrift.TExprNode;
+import org.apache.doris.thrift.TVariantSerializeType;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
@@ -146,7 +147,7 @@ public class ExpressionTranslatorTest {
     public void testVariantIndexLookupUsesLogicalKeysForMatchAndSearch() {
         for (boolean escaped : new boolean[] {false, true}) {
             VariantType type = new VariantType(ImmutableList.of(), 0, false, 10000, 1,
-                    false, 0, 64, false);
+                    false, 0, 64, false, TVariantSerializeType.V1);
             Column column = new Column("v", type.toCatalogDataType());
             OlapTable table = Mockito.mock(OlapTable.class);
             Mockito.when(table.getVariantEscapeDotsInKeys()).thenReturn(escaped);

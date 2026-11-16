@@ -16,6 +16,8 @@
 // under the License.
 
 suite("dotted_key_escape_complex_rewrite", "p0,nonConcurrent") {
+    // the layout depends on the row threshold and DESC prints it, which fuzzy mode picks at random
+    sql "set debug_variant_subcolumn_extraction_min_rows = 0"
     sql "set debug_variant_enable_doc_mode=false"
     sql "set describe_extend_variant_column=true"
     sql "drop table if exists dotted_key_escape_complex"

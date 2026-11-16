@@ -78,7 +78,6 @@ suite("test_agg_after_nested_loop_join_local_exchange", "query_p0") {
 
     sql "SYNC"
 
-    sql "SET debug_variant_doc_hash_shard_count = 0"
     sql "SET debug_variant_max_subcolumns_count = 4"
     sql "SET debug_variant_sparse_hash_shard_count = 4"
     sql "SET disable_join_reorder = true"

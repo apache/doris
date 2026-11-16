@@ -32,6 +32,7 @@ import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.proto.OlapFile;
 import org.apache.doris.thrift.TColumn;
+import org.apache.doris.thrift.TVariantSerializeType;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
@@ -42,6 +43,7 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 
 public class ColumnTest {
 
@@ -202,6 +204,50 @@ public class ColumnTest {
             oldColumn.checkSchemaChangeAllowed(newColumn);
             Assertions.fail("No exception throws.");
         });
+    }
+
+    @Test
+    public void testVariantSerializeTypeReachesThriftAndPb() throws DdlException {
+        Column v1Zero = new Column("v", new VariantType(new ArrayList<>(), 0, false, 10000, 1, false, 0L, 64, false,
+                TVariantSerializeType.V1), false, null, true, null, "");
+        Column v2Zero = new Column("v", new VariantType(new ArrayList<>(), 0, false, 10000, 1, false, 0L, 64, false,
+                TVariantSerializeType.V2), false, null, true, null, "");
+        Assertions.assertEquals(TVariantSerializeType.V2,
+                ColumnToThrift.toThrift(v2Zero).getVariantSerializeType());
+        Assertions.assertEquals(OlapFile.VariantSerializeTypePB.VARIANT_SERIALIZE_V2,
+                ColumnToProtobuf.toPb(v2Zero, null, null).getVariantSerializeType());
+        Assertions.assertEquals(OlapFile.VariantSerializeTypePB.VARIANT_SERIALIZE_V1,
+                ColumnToProtobuf.toPb(v1Zero, null, null).getVariantSerializeType());
+    }
+
+    @Test
+    public void testVariantSchemaChangeOfTheRowThreshold() throws DdlException {
+        // a new column without doc mode can change its row threshold
+        Column ordinary = new Column("v", new VariantType(new ArrayList<>(), 2048, false, 10000, 2, false, 0L, 0,
+                false, TVariantSerializeType.V2), false, null, true, null, "");
+        ordinary.checkSchemaChangeAllowed(new Column("v", new VariantType(new ArrayList<>(), 2048, false, 10000, 2,
+                false, 100L, 0, false, TVariantSerializeType.V2), false, null, true, null, ""));
+        // a column of an older version with a count above 0 behaves as a new one and takes a threshold too
+        Column oldOrdinary = new Column("v", new VariantType(new ArrayList<>(), 2048, false, 10000, 2, false, 0L, 0,
+                false, TVariantSerializeType.V1), false, null, true, null, "");
+        oldOrdinary.checkSchemaChangeAllowed(new Column("v", new VariantType(new ArrayList<>(), 2048, false, 10000, 2,
+                false, 100L, 0, false, TVariantSerializeType.V2), false, null, true, null, ""));
+        // without doc mode a count of 0 on a column of an older version extracts every path, so it takes none
+        Column oldCountZero = new Column("v", new VariantType(new ArrayList<>(), 0, false, 10000, 2, false, 0L, 0,
+                false, TVariantSerializeType.V1), false, null, true, null, "");
+        Assertions.assertThrows(DdlException.class, () -> oldCountZero.checkSchemaChangeAllowed(new Column("v",
+                new VariantType(new ArrayList<>(), 0, false, 10000, 2, false, 100L, 0, false,
+                        TVariantSerializeType.V2), false, null, true, null, "")));
+
+        // a doc column can change it, also one of an older version
+        Column oldDoc = new Column("v", new VariantType(new ArrayList<>(), 0, false, 0, 0, true, 10L, 8, false,
+                TVariantSerializeType.V1), false, null, true, null, "");
+        oldDoc.checkSchemaChangeAllowed(new Column("v", new VariantType(new ArrayList<>(), 0, false, 0, 0, true, 2L,
+                8, false, TVariantSerializeType.V2), false, null, true, null, ""));
+        // the shard count is kept in the field of the mode and cannot change
+        Assertions.assertThrows(DdlException.class, () -> oldDoc.checkSchemaChangeAllowed(new Column("v",
+                new VariantType(new ArrayList<>(), 0, false, 0, 0, true, 10L, 4, false, TVariantSerializeType.V2),
+                false, null, true, null, "")));
     }
 
     @Test

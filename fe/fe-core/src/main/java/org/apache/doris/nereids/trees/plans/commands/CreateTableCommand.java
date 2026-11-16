@@ -60,6 +60,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.thrift.TVariantSerializeType;
 
 import com.google.common.collect.ImmutableList;
 import org.apache.logging.log4j.LogManager;
@@ -184,7 +185,9 @@ public class CreateTableCommand extends Command implements NeedAuditEncryption, 
             Slot s = slots.get(i);
             DataType dataType = s.getDataType().conversion();
             if (dataType instanceof VariantType) {
-                dataType = ((VariantType) dataType).withoutPredefinedFields();
+                // the created column is new, even when the query reads an old V1 or an external column
+                dataType = ((VariantType) dataType).withoutPredefinedFields()
+                        .withSerializeType(TVariantSerializeType.V2);
             }
             if (dataType.isVarBinaryType()) {
                 throw new AnalysisException("doris do not support varbinary create table, could use it by catalog");

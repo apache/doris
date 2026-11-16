@@ -19,6 +19,7 @@ import groovy.json.JsonOutput
 
 suite("sparse_ancestor_promotion_extended", "p0,nonConcurrent") {
     sql "SET debug_variant_enable_doc_mode = false"
+    sql "SET debug_variant_subcolumn_extraction_min_rows = 0"
     sql "SET describe_extend_variant_column = true"
     def backendIPs = [:]
     def backendHttpPorts = [:]

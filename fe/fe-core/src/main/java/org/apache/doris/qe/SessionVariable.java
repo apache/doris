@@ -1046,10 +1046,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String DEBUG_VARIANT_ENABLE_DOC_MODE = "debug_variant_enable_doc_mode";
 
-    public static final String DEBUG_VARIANT_DOC_MATERIALIZATION_MIN_ROWS =
-            "debug_variant_doc_materialization_min_rows";
-
-    public static final String DEBUG_VARIANT_DOC_HASH_SHARD_COUNT = "debug_variant_doc_hash_shard_count";
+    public static final String DEBUG_VARIANT_SUBCOLUMN_EXTRACTION_MIN_ROWS =
+            "debug_variant_subcolumn_extraction_min_rows";
 
     public static final String DEBUG_VARIANT_ENABLE_NESTED_GROUP = "debug_variant_enable_nested_group";
 
@@ -3811,22 +3809,14 @@ public class SessionVariable implements Serializable, Writable {
     public boolean defaultVariantEnableDocMode = false;
 
     @VarAttrDef.VarAttr(
-            name = DEBUG_VARIANT_DOC_MATERIALIZATION_MIN_ROWS,
+            name = DEBUG_VARIANT_SUBCOLUMN_EXTRACTION_MIN_ROWS,
             flag = VarAttrDef.INVISIBLE,
             needForward = true,
             checker = "checkDefaultVariantSettable",
-            fuzzy = true
+            fuzzy = true,
+            description = "Value of variant_subcolumn_extraction_min_rows for a VARIANT column defined without it."
     )
-    public long defaultVariantDocMaterializationMinRows = 0L;
-
-    @VarAttrDef.VarAttr(
-            name = DEBUG_VARIANT_DOC_HASH_SHARD_COUNT,
-            flag = VarAttrDef.INVISIBLE,
-            needForward = true,
-            checker = "checkDefaultVariantSettable",
-            fuzzy = true
-    )
-    public int defaultVariantDocHashShardCount = 64;
+    public long defaultVariantSubcolumnExtractionMinRows = 0L;
 
     @VarAttrDef.VarAttr(
             name = DEBUG_VARIANT_ENABLE_NESTED_GROUP,
@@ -3923,15 +3913,13 @@ public class SessionVariable implements Serializable, Writable {
         this.defaultVariantSparseHashShardCount = random.nextInt(5) + 1;
         this.useV3StorageFormat = random.nextBoolean();
         this.defaultVariantEnableDocMode = random.nextBoolean();
-        this.defaultVariantDocHashShardCount = random.nextInt(5);
         boolean zeroOrOne = random.nextBoolean();
-        this.defaultVariantDocMaterializationMinRows = zeroOrOne ? 0 : random.nextInt(20);
+        // the row threshold applies with and without doc mode
+        this.defaultVariantSubcolumnExtractionMinRows = zeroOrOne ? 0 : random.nextInt(20);
         if (this.defaultVariantEnableDocMode) {
-            this.defaultVariantMaxSubcolumnsCount = 0;
             this.defaultEnableTypedPathsToSparse = false;
         } else {
-            this.defaultVariantDocMaterializationMinRows = 0L;
-            this.defaultVariantDocHashShardCount = 0;
+            this.defaultEnableTypedPathsToSparse = random.nextBoolean();
         }
         int randomInt = random.nextInt(4);
         if (randomInt % 2 == 0) {
@@ -7007,12 +6995,8 @@ public class SessionVariable implements Serializable, Writable {
         return defaultVariantEnableDocMode;
     }
 
-    public long getDefaultVariantDocMaterializationMinRows() {
-        return defaultVariantDocMaterializationMinRows;
-    }
-
-    public int getDefaultVariantDocHashShardCount() {
-        return defaultVariantDocHashShardCount;
+    public long getDefaultVariantSubcolumnExtractionMinRows() {
+        return defaultVariantSubcolumnExtractionMinRows;
     }
 
     public boolean getDefaultVariantEnableNestedGroup() {
