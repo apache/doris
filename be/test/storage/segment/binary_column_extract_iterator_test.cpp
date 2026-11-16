@@ -855,7 +855,7 @@ TEST(BinaryColumnExtractIteratorV2Test, DoesNotRescanFrozenPathOrdering) {
 // DCHECK so release scans and compaction pay nothing.
 #if DCHECK_IS_ON()
 TEST(VariantAssemblerTest, DebugCheckRejectsUnsortedSparseRows) {
-    auto sparse = variant_util::create_variant_binary_column();
+    auto sparse = ColumnVariant::create_binary_column_fn();
     auto& map = assert_cast<ColumnMap&>(*sparse);
     DataTypeInt64 int_type;
     auto ints = ColumnInt64::create();
@@ -886,7 +886,7 @@ TEST(VariantAssemblerTest, DebugCheckRejectsUnsortedSparseRows) {
 // assumes both sides are byte-ordered, and the merged row is what later readers see, so it must
 // keep that invariant.
 TEST(SparseColumnMergeIteratorTest, KeepsByteOrderWhenMergingMaterializedSubcolumn) {
-    auto sparse = variant_util::create_variant_binary_column();
+    auto sparse = ColumnVariant::create_binary_column_fn();
     auto& map = assert_cast<ColumnMap&>(*sparse);
     DataTypeInt64 int_type;
     auto ints = ColumnInt64::create();
@@ -899,7 +899,7 @@ TEST(SparseColumnMergeIteratorTest, KeepsByteOrderWhenMergingMaterializedSubcolu
     auto counters = std::make_shared<SparseReadCounters>();
     auto cache = std::make_shared<BinaryColumnCache>(
             std::make_unique<FixedSparseIterator>(std::move(sparse), counters),
-            variant_util::create_variant_binary_column());
+            ColumnVariant::create_binary_column_fn());
 
     // Materialized path a.d; the dense iterator yields one nullable bigint row: 3.
     auto dense_type = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt64>());
@@ -915,16 +915,17 @@ TEST(SparseColumnMergeIteratorTest, KeepsByteOrderWhenMergingMaterializedSubcolu
                                                           std::make_shared<SparseReadCounters>()),
                     dense_type)));
 
-    VariantCompactionPaths path_set_info;
+    TabletSchema::PathsSetInfo path_set_info;
     OlapReaderStatistics stats;
-    StorageReadOptions read_options(stats);
+    StorageReadOptions read_options;
+    read_options.stats = &stats;
     SparseColumnMergeIterator iterator(path_set_info, std::move(cache), std::move(src_subcolumns),
                                        &read_options);
     ColumnIteratorOptions iterator_options;
     iterator_options.stats = &stats;
     ASSERT_TRUE(iterator.init(iterator_options).ok());
     ASSERT_TRUE(iterator.seek_to_ordinal(0).ok());
-    auto dst = variant_util::create_variant_binary_column();
+    auto dst = ColumnVariant::create_binary_column_fn();
     size_t rows = 1;
     bool has_null = false;
     ASSERT_TRUE(iterator.next_batch(&rows, dst, &has_null).ok());
