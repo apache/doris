@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.DaysAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DaysSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursAdd;
 import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.qe.ConnectContext;
 
@@ -108,10 +109,16 @@ class TimestampTzLiteralTest {
             Assertions.assertTrue(new HoursAdd(timestamp, new IntegerLiteral(24)).isMonotonic(lower, upper));
             SlotReference datetime = new SlotReference("dt", DateTimeV2Type.of(6));
             Assertions.assertTrue(new DaysAdd(datetime, new IntegerLiteral(1)).isMonotonic(lower, upper));
+            Assertions.assertTrue(new DaysSub(datetime, new IntegerLiteral(1)).isMonotonic(lower, upper));
+            SlotReference interval = new SlotReference("days", IntegerType.INSTANCE);
+            Assertions.assertFalse(new DaysAdd(datetime, interval).isMonotonic(lower, upper));
+            Assertions.assertFalse(new DaysSub(datetime, interval).isMonotonic(lower, upper));
             for (String zone : new String[] {"UTC", "+08:00"}) {
                 context.getSessionVariable().setTimeZone(zone);
                 Assertions.assertTrue(add.isMonotonic(lower, upper));
                 Assertions.assertTrue(sub.isMonotonic(lower, upper));
+                Assertions.assertFalse(new DaysAdd(timestamp, interval).isMonotonic(lower, upper));
+                Assertions.assertFalse(new DaysSub(timestamp, interval).isMonotonic(lower, upper));
             }
         } finally {
             ConnectContext.remove();

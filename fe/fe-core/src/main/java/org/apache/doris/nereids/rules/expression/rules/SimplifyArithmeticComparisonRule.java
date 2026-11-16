@@ -28,7 +28,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Multiply;
 import org.apache.doris.nereids.trees.expressions.Subtract;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
-import org.apache.doris.nereids.trees.expressions.functions.DateAddSubMonotonic;
+import org.apache.doris.nereids.trees.expressions.functions.DateAddSubRearrangeable;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DaysAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DaysSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursAdd;
@@ -118,20 +118,11 @@ public class SimplifyArithmeticComparisonRule implements ExpressionPatternRuleFa
             return false;
         }
 
-        // The rule can move a date interval only if the date function keeps the order of input values.
-        // It calls isMonotonic(null, null) because it has no input range bounds.
-        // Calendar day addition can change UTC time order for TIMESTAMPTZ values when the UTC offset changes.
-        //
-        // Example in America/New_York:
-        // ts = 2024-11-03 01:50:00-04:00
-        // cutoff = 2024-11-04 01:30:00-05:00
-        // days_add(ts, 1) < cutoff is false.
-        // ts < days_sub(cutoff, 1) is true.
-        // The subtraction selects the second 01:30 on November 3, with UTC offset -05:00.
-        //
-        // The check keeps the original comparison if isMonotonic returns false.
-        if (cmp.left() instanceof DateAddSubMonotonic
-                && !((DateAddSubMonotonic) cmp.left()).isMonotonic(null, null)) {
+        // Date functions must opt in to exact inverse comparisons for their bound input domain.
+        // Monotonicity alone proves neither invertibility nor preservation of range errors.
+        if (cmp.left() instanceof BoundFunction
+                && (!(cmp.left() instanceof DateAddSubRearrangeable)
+                    || !((DateAddSubRearrangeable) cmp.left()).canRearrangeComparison())) {
             return false;
         }
 

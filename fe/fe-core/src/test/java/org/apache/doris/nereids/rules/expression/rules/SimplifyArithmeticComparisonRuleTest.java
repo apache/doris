@@ -17,17 +17,22 @@
 
 package org.apache.doris.nereids.rules.expression.rules;
 
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.expression.ExpressionRewrite;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteTestHelper;
 import org.apache.doris.nereids.rules.expression.ExpressionRuleExecutor;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.DateAddSubMonotonic;
+import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeArithmetic;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DaysAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DaysSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursAdd;
+import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TimestampTzLiteral;
 import org.apache.doris.nereids.types.DataType;
@@ -49,7 +54,7 @@ import java.util.Map;
 class SimplifyArithmeticComparisonRuleTest extends ExpressionRewriteTestHelper {
 
     @Test
-    void testTimestampTzCalendarDaysCannotRearrangeAcrossDst() {
+    void testTimestampTzCalendarDaysCannotRearrange() {
         ConnectContext previous = ConnectContext.get();
         ConnectContext connectContext = new ConnectContext();
         connectContext.setThreadLocalInfo();
@@ -57,21 +62,72 @@ class SimplifyArithmeticComparisonRuleTest extends ExpressionRewriteTestHelper {
             SlotReference timestamp = new SlotReference("ts", TimeStampTzType.of(6));
             TimestampTzLiteral bound = new TimestampTzLiteral(TimeStampTzType.of(6),
                     "2024-11-04 01:30:00-05:00");
-            IntegerLiteral one = new IntegerLiteral(1);
-            connectContext.getSessionVariable().setTimeZone("America/New_York");
-            for (Expression arithmetic : new Expression[] {new DaysAdd(timestamp, one),
-                    new DaysSub(timestamp, one)}) {
-                ComparisonPredicate predicate = new LessThan(arithmetic, bound);
-                Assertions.assertEquals(predicate, SimplifyArithmeticComparisonRule.simplify(predicate, context));
-                for (String zone : new String[] {"UTC", "+08:00"}) {
-                    connectContext.getSessionVariable().setTimeZone(zone);
-                    Assertions.assertNotEquals(predicate,
-                            SimplifyArithmeticComparisonRule.simplify(predicate, context));
+            for (String zone : new String[] {"America/New_York", "UTC", "+08:00", "-08:00"}) {
+                connectContext.getSessionVariable().setTimeZone(zone);
+                for (int days : new int[] {-1, 0, 1}) {
+                    IntegerLiteral interval = new IntegerLiteral(days);
+                    for (Expression arithmetic : new Expression[] {new DaysAdd(timestamp, interval),
+                            new DaysSub(timestamp, interval)}) {
+                        ComparisonPredicate predicate = new LessThan(arithmetic, bound);
+                        Assertions.assertEquals(predicate, SimplifyArithmeticComparisonRule.simplify(predicate, context));
+                        // Range consumers still use monotonicity, independently of rearrangement eligibility.
+                        Assertions.assertEquals(!zone.equals("America/New_York"),
+                                ((DateAddSubMonotonic) arithmetic).inferRange(bound, bound, context).isPresent());
+                    }
                 }
-                connectContext.getSessionVariable().setTimeZone("America/New_York");
+                ComparisonPredicate hours = new LessThan(new HoursAdd(timestamp, new IntegerLiteral(1)), bound);
+                Assertions.assertNotEquals(hours, SimplifyArithmeticComparisonRule.simplify(hours, context));
             }
-            ComparisonPredicate hours = new LessThan(new HoursAdd(timestamp, one), bound);
-            Assertions.assertNotEquals(hours, SimplifyArithmeticComparisonRule.simplify(hours, context));
+        } finally {
+            ConnectContext.remove();
+            if (previous != null) {
+                previous.setThreadLocalInfo();
+            }
+        }
+    }
+
+    @Test
+    void testTimestampTzValidInverseDoesNotHideSourceRangeError() {
+        ConnectContext previous = ConnectContext.get();
+        ConnectContext connectContext = new ConnectContext();
+        connectContext.setThreadLocalInfo();
+        try {
+            SlotReference timestamp = new SlotReference("ts", TimeStampTzType.of(6));
+            IntegerLiteral one = new IntegerLiteral(1);
+            connectContext.getSessionVariable().setTimeZone("+08:00");
+            TimestampTzLiteral maximum = new TimestampTzLiteral(TimeStampTzType.of(6),
+                    "9999-12-31 23:00:00+00:00");
+            TimestampTzLiteral upperCutoff = new TimestampTzLiteral(TimeStampTzType.of(6),
+                    "9999-12-30 12:00:00+00:00");
+            Expression upperInverse = FoldConstantRuleOnFE.evaluate(new DaysAdd(upperCutoff, one), context);
+            Assertions.assertEquals(new TimestampTzLiteral(TimeStampTzType.of(6),
+                    "9999-12-31 12:00:00+00:00"), upperInverse);
+            Assertions.assertThrows(AnalysisException.class, () -> DateTimeArithmetic.daysSub(maximum, one));
+            Assertions.assertEquals(BooleanLiteral.TRUE,
+                    FoldConstantRuleOnFE.evaluate(new GreaterThan(maximum, upperInverse), context));
+            ComparisonPredicate subtract = new GreaterThan(new DaysSub(timestamp, one), upperCutoff);
+            Assertions.assertEquals(subtract, SimplifyArithmeticComparisonRule.simplify(subtract, context));
+            for (String operator : ImmutableList.of("<", "<=", ">", ">=", "=", "<=>")) {
+                assertDateComparisonUnchanged("days_sub(AA, 1) " + operator
+                        + " '9999-12-30 12:00:00+00:00'", TimeStampTzType.of(6));
+                assertDateComparisonUnchanged("days_add(AA, -1) " + operator
+                        + " '9999-12-30 12:00:00+00:00'", TimeStampTzType.of(6));
+            }
+
+            // The symmetric case crosses the lower local-year boundary in a negative offset.
+            connectContext.getSessionVariable().setTimeZone("-08:00");
+            TimestampTzLiteral minimum = new TimestampTzLiteral(TimeStampTzType.of(6),
+                    "0000-01-01 01:00:00+00:00");
+            TimestampTzLiteral lowerCutoff = new TimestampTzLiteral(TimeStampTzType.of(6),
+                    "0000-01-02 12:00:00+00:00");
+            Expression lowerInverse = FoldConstantRuleOnFE.evaluate(new DaysSub(lowerCutoff, one), context);
+            Assertions.assertEquals(new TimestampTzLiteral(TimeStampTzType.of(6),
+                    "0000-01-01 12:00:00+00:00"), lowerInverse);
+            Assertions.assertThrows(AnalysisException.class, () -> DateTimeArithmetic.daysAdd(minimum, one));
+            Assertions.assertEquals(BooleanLiteral.TRUE,
+                    FoldConstantRuleOnFE.evaluate(new LessThan(minimum, lowerInverse), context));
+            ComparisonPredicate add = new LessThan(new DaysAdd(timestamp, one), lowerCutoff);
+            Assertions.assertEquals(add, SimplifyArithmeticComparisonRule.simplify(add, context));
         } finally {
             ConnectContext.remove();
             if (previous != null) {
@@ -279,15 +335,16 @@ class SimplifyArithmeticComparisonRuleTest extends ExpressionRewriteTestHelper {
 
     @Test
     public void testTimestampComparisonWithinRange() {
-        // A fixed-offset session permits calendar DAY rearrangement.
+        // Elapsed-time arithmetic keeps the existing optimization and fractional precision.
         cascadesContext.getConnectContext().getSessionVariable().setTimeZone("UTC");
-        // Preserve precision when a valid boundary moves by one day.
+        // TIMESTAMPTZ DAY arithmetic is deliberately excluded even in a fixed-offset session.
         for (DataType type : ImmutableList.of(TimeStampTzType.of(6), TimeStampNsType.INSTANCE)) {
             String fraction = type.isTimeStampNsType() ? ".123456789" : ".123456+00:00";
             Map<String, Slot> slots = Maps.newHashMap();
             slots.put("AA", new SlotReference("AA", type));
             ComparisonPredicate original = (ComparisonPredicate) typeCoercion(replaceUnboundSlot(
-                    PARSER.parseExpression("days_sub(AA, 1) < '2026-11-13 15:03:12" + fraction + "'"), slots));
+                    PARSER.parseExpression((type.isTimeStampTzType() ? "hours_sub(AA, 24)" : "days_sub(AA, 1)")
+                            + " < '2026-11-13 15:03:12" + fraction + "'"), slots));
             Expression expected = typeCoercion(replaceUnboundSlot(
                     PARSER.parseExpression("AA < '2026-11-14 15:03:12" + fraction + "'"), slots));
             Expression actual = SimplifyArithmeticComparisonRule.simplify(original, context);
