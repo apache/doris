@@ -478,7 +478,9 @@ TEST(FunctionSearchNullTest, OldThreeValuedDslCacheEntryIsAMiss) {
     InvertedIndexQueryCache::CacheKey key {
             body.get_index_file_reader()->get_index_path_prefix(), "__search_dsl__",
             InvertedIndexQueryType::SEARCH_DSL_QUERY,
-            FunctionSearch::dsl_cache_signature(fixture.param(root, options), nullptr)};
+            FunctionSearch::dsl_cache_signature(
+                    fixture.param(root, options), nullptr,
+                    {{"body", {"body", std::make_shared<DataTypeString>()}}})};
     InvertedIndexQueryCacheHandle handle;
     cache.get()->insert(key, std::make_shared<roaring::Roaring>(rows({1, 2})), &handle);
 

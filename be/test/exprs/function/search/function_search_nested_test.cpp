@@ -182,6 +182,36 @@ protected:
 // is_nested_group_search_supported (CE / Default provider)
 // ===========================================================================
 
+TEST_F(FunctionSearchNestedTest, NestedCallbacksUsePhysicalAliasPath) {
+    TSearchFieldBinding binding;
+    binding.__set_field_name("doc.items.tags.name");
+    binding.__set_is_variant_subcolumn(true);
+    binding.__set_parent_field_name("v");
+    binding.__set_subcolumn_path("payload.items.tags.name");
+    std::unordered_map<std::string, IndexFieldNameAndTypePair> types;
+    std::unordered_map<std::string, IndexIterator*> iterators;
+    FieldReaderResolver resolver(types, iterators, std::make_shared<IndexQueryContext>(),
+                                 {binding});
+    std::string mapped_path;
+    resolver.set_leaf_query_mapper([&](const std::string& path, auto*) {
+        mapped_path = path;
+        return Status::OK();
+    });
+    inverted_index::query_v2::QueryPtr query =
+            std::make_shared<inverted_index::query_v2::BitSetQuery>(roaring::Roaring());
+    ASSERT_TRUE(resolver.map_leaf_query("doc.items.tags.name", &query).ok());
+    EXPECT_EQ("v.payload.items.tags.name", mapped_path);
+    resolver.set_leaf_num_rows_resolver([&](const std::string& path, uint32_t* count) {
+        mapped_path = path;
+        *count = 42;
+        return Status::OK();
+    });
+    uint32_t count = 0;
+    ASSERT_TRUE(resolver.leaf_num_rows("doc.items.tags.name", &count).ok());
+    EXPECT_EQ("v.payload.items.tags.name", mapped_path);
+    EXPECT_EQ(42, count);
+}
+
 TEST_F(FunctionSearchNestedTest, DefaultProviderNestedGroupSearchSupport) {
     auto provider = segment_v2::create_nested_group_read_provider();
     ASSERT_NE(nullptr, provider);

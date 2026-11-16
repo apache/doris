@@ -135,21 +135,13 @@ public class SearchExpressionTest {
     }
 
     @Test
-    public void testWithChildrenValidation() {
-        String dsl = "title:hello";
-        SearchDslParser.QsPlan plan = createTestPlan();
-        SlotReference titleSlot = createTestSlot("title");
-        List<Expression> slotChildren = Arrays.asList(titleSlot);
-
-        SearchExpression searchExpr = new SearchExpression(dsl, plan, slotChildren);
-
-        // Non-slot children should throw exception
-        Expression nonSlotExpr = new org.apache.doris.nereids.trees.expressions.literal.StringLiteral("test");
-        List<Expression> invalidChildren = Arrays.asList(nonSlotExpr);
-
-        Assertions.assertThrows(IllegalArgumentException.class, () -> {
-            searchExpr.withChildren(invalidChildren);
-        });
+    public void testWithChildrenAllowsNullInference() {
+        SearchExpression expression = new SearchExpression("title:hello", createTestPlan(),
+                Arrays.asList(createTestSlot("title")));
+        Expression nullChild = new org.apache.doris.nereids.trees.expressions.literal.NullLiteral(StringType.INSTANCE);
+        SearchExpression replaced = expression.withChildren(Arrays.asList(nullChild));
+        Assertions.assertEquals(nullChild, replaced.child(0));
+        Assertions.assertFalse(replaced.foldable());
     }
 
     @Test

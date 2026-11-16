@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.SourceDependentExpression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
@@ -35,7 +36,7 @@ import java.util.List;
  * ScalarFunction 'multi_match'.
  */
 public class MultiMatch extends ScalarFunction
-        implements BinaryExpression, ExplicitlyCastableSignature, AlwaysNotNullable {
+        implements BinaryExpression, ExplicitlyCastableSignature, AlwaysNotNullable, SourceDependentExpression {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(BooleanType.INSTANCE).varArgs(StringType.INSTANCE)
