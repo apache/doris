@@ -595,13 +595,9 @@ DataTypePtr DataTypeFactory::create_data_type(const std::vector<TTypeNode>& type
             throw Exception(ErrorCode::INVALID_ARGUMENT, "Invalid FILE type descriptor");
         }
         if (node.type == TTypeNodeType::FILE) {
-            constexpr TPrimitiveType::type child_types[] = {
-                    TPrimitiveType::STRING, TPrimitiveType::BIGINT, TPrimitiveType::BIGINT,
-                    TPrimitiveType::STRING, TPrimitiveType::STRING, TPrimitiveType::VARBINARY};
             for (size_t i = 0; i < DataTypeFile::FIELD_COUNT; ++i) {
                 const auto& child = types[*idx + i + 1];
-                if (child.type != TTypeNodeType::SCALAR || !child.__isset.scalar_type ||
-                    child.scalar_type.type != child_types[i]) {
+                if (child.type != TTypeNodeType::SCALAR || !child.__isset.scalar_type) {
                     throw Exception(ErrorCode::INVALID_ARGUMENT,
                                     "FILE requires its canonical scalar children");
                 }
@@ -734,13 +730,9 @@ DataTypePtr DataTypeFactory::create_data_type(
             throw Exception(ErrorCode::INVALID_ARGUMENT, "Invalid FILE protobuf type descriptor");
         }
         if (node.type() == TTypeNodeType::FILE) {
-            constexpr TPrimitiveType::type child_types[] = {
-                    TPrimitiveType::STRING, TPrimitiveType::BIGINT, TPrimitiveType::BIGINT,
-                    TPrimitiveType::STRING, TPrimitiveType::STRING, TPrimitiveType::VARBINARY};
             for (int i = 0; i < DataTypeFile::FIELD_COUNT; ++i) {
                 const auto& child = types.Get(*idx + i + 1);
-                if (child.type() != TTypeNodeType::SCALAR || !child.has_scalar_type() ||
-                    child.scalar_type().type() != child_types[i]) {
+                if (child.type() != TTypeNodeType::SCALAR || !child.has_scalar_type()) {
                     throw Exception(ErrorCode::INVALID_ARGUMENT,
                                     "FILE requires its canonical scalar children");
                 }

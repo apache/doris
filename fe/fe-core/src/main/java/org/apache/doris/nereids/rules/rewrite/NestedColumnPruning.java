@@ -537,10 +537,7 @@ public class NestedColumnPruning implements CustomRewriter {
 
         /** pruneCastType */
         public DataType pruneCastType(DataTypeAccessTree origin, DataTypeAccessTree cast) {
-            if (type.isFileType() || cast.type.isFileType()) {
-                // FILE conversions validate the complete source and retain the declared target.
-                return cast.type;
-            } else if (type instanceof StructType) {
+            if (type instanceof StructType) {
                 Map<String, String> nameMapping = new LinkedHashMap<>();
                 List<String> castNames = new ArrayList<>(cast.children.keySet());
                 int i = 0;
@@ -607,14 +604,7 @@ public class NestedColumnPruning implements CustomRewriter {
                 // visitCast falls back to reading the original value data before evaluating cast.
                 return type.equals(cast.type);
             }
-            if (type.isFileType() || cast.type.isFileType()) {
-                if (!type.equals(cast.type)) {
-                    return false;
-                }
-                String fieldName = path.get(index).toLowerCase(Locale.ROOT);
-                return children.get(fieldName).replacePathByAnotherTree(
-                        cast.children.get(fieldName), path, index + 1, pathType);
-            } else if (cast.type instanceof StructType) {
+            if (cast.type instanceof StructType) {
                 List<StructField> fields = ((StructType) cast.type).getFields();
                 for (int i = 0; i < fields.size(); i++) {
                     String castFieldName = path.get(index);

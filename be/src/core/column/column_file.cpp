@@ -17,10 +17,7 @@
 
 #include "core/column/column_file.h"
 
-#include <crc32c/crc32c.h>
-
 #include <algorithm>
-#include <limits>
 
 #include "core/arena.h"
 #include "core/assert_cast.h"
@@ -29,11 +26,8 @@
 #include "core/column/column_varbinary.h"
 #include "core/column/column_vector.h"
 #include "core/column/columns_common.h"
-#include "core/custom_allocator.h"
 #include "core/data_type/primitive_type.h"
 #include "core/field.h"
-#include "exec/common/sip_hash.h"
-#include "util/hash_util.hpp"
 
 namespace doris {
 namespace {
@@ -50,56 +44,21 @@ MutableColumns make_file_children() {
     return children;
 }
 
-// VARBINARY has no column hash implementation. Hash the lossless row encoding,
-// which includes every child null flag and length, without exposing SQL hashing.
-template <typename Update>
-void hash_file_rows(const ColumnFile& column, size_t start, size_t end, const uint8_t* null_map,
-                    Update&& update) {
-    DorisVector<char> buffer;
-    for (size_t row = start; row < end; ++row) {
-        if (null_map != nullptr && null_map[row] != 0) {
-            continue;
-        }
-        buffer.resize(column.serialize_size_at(row));
-        column.serialize_impl(buffer.data(), row);
-        update(row, buffer.data(), buffer.size());
-    }
-}
-
-uint32_t file_crc(const char* data, size_t size, uint32_t hash) {
-    // A complete row can exceed the uint32 length accepted by zlib_crc_hash.
-    while (size != 0) {
-        const auto length =
-                static_cast<uint32_t>(std::min<size_t>(size, std::numeric_limits<uint32_t>::max()));
-        hash = HashUtil::zlib_crc_hash(data, length, hash);
-        data += length;
-        size -= length;
-    }
-    return hash;
-}
-
 } // namespace
 
 ColumnFile::ColumnFile() : ColumnFile(make_file_children()) {}
 
 ColumnFile::ColumnFile(MutableColumns&& columns) {
-    if (columns.size() != NUM_CHILDREN) {
-        throw Exception(ErrorCode::INTERNAL_ERROR, "ColumnFile requires six children, got {}",
-                        columns.size());
-    }
+    DCHECK_EQ(columns.size(), NUM_CHILDREN);
     for (size_t i = 0; i < NUM_CHILDREN; ++i) {
         _columns[i] = std::move(columns[i]);
     }
-    sanity_check();
     check_const_only_in_top_level();
 }
 
 void ColumnFile::sanity_check() const {
     for (size_t i = 0; i < NUM_CHILDREN; ++i) {
-        const auto* child = dynamic_cast<const ColumnNullable*>(_columns[i].get());
-        if (child == nullptr) {
-            throw Exception(ErrorCode::INTERNAL_ERROR, "ColumnFile child {} must be nullable", i);
-        }
+        const auto* child = assert_cast<const ColumnNullable*>(_columns[i].get());
         const auto& nested = child->get_nested_column();
         bool expected_type;
         if (i == 1 || i == 2) {
@@ -110,16 +69,9 @@ void ColumnFile::sanity_check() const {
             // Both string offset widths represent the same physical child type.
             expected_type = nested.is_column_string();
         }
-        if (!expected_type) {
-            throw Exception(ErrorCode::INTERNAL_ERROR, "Invalid ColumnFile child {} type {}", i,
-                            nested.get_name());
-        }
+        DCHECK(expected_type);
         child->sanity_check();
-        if (i != 0 && child->size() != size()) {
-            throw Exception(ErrorCode::INTERNAL_ERROR,
-                            "ColumnFile child {} has {} rows, expected {}", i, child->size(),
-                            size());
-        }
+        DCHECK_EQ(child->size(), size());
     }
 }
 
@@ -150,10 +102,7 @@ void ColumnFile::get(size_t n, Field& res) const {
 void ColumnFile::insert(const Field& value) {
     DCHECK_EQ(value.get_type(), TYPE_FILE);
     const auto& fields = value.get<TYPE_FILE>();
-    if (fields.size() != NUM_CHILDREN) {
-        throw Exception(ErrorCode::INTERNAL_ERROR, "FILE Field requires six children, got {}",
-                        fields.size());
-    }
+    DCHECK_EQ(fields.size(), NUM_CHILDREN);
     for (size_t i = 0; i < NUM_CHILDREN; ++i) {
         _columns[i]->insert(fields[i]);
     }
@@ -409,55 +358,6 @@ size_t ColumnFile::get_max_row_byte_size() const {
         size += column->get_max_row_byte_size();
     }
     return size;
-}
-
-void ColumnFile::update_hash_with_value(size_t n, SipHash& hash) const {
-    hash_file_rows(*this, n, n + 1, nullptr,
-                   [&](size_t, const char* data, size_t size) { hash.update(data, size); });
-}
-
-void ColumnFile::update_hashes_with_value(uint64_t* __restrict hashes,
-                                          const uint8_t* __restrict null_data) const {
-    hash_file_rows(*this, 0, size(), null_data, [&](size_t row, const char* data, size_t size) {
-        hashes[row] = HashUtil::xxHash64WithSeed(data, size, hashes[row]);
-    });
-}
-
-void ColumnFile::update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
-                                          const uint8_t* __restrict null_data) const {
-    hash_file_rows(*this, start, end, null_data, [&](size_t, const char* data, size_t size) {
-        hash = HashUtil::xxHash64WithSeed(data, size, hash);
-    });
-}
-
-void ColumnFile::update_crcs_with_value(uint32_t* __restrict hashes, PrimitiveType /*type*/,
-                                        uint32_t rows, uint32_t /*offset*/,
-                                        const uint8_t* __restrict null_data) const {
-    DCHECK_EQ(rows, size());
-    hash_file_rows(*this, 0, rows, null_data, [&](size_t row, const char* data, size_t size) {
-        hashes[row] = file_crc(data, size, hashes[row]);
-    });
-}
-
-void ColumnFile::update_crc_with_value(size_t start, size_t end, uint32_t& hash,
-                                       const uint8_t* __restrict null_data) const {
-    hash_file_rows(*this, start, end, null_data, [&](size_t, const char* data, size_t size) {
-        hash = file_crc(data, size, hash);
-    });
-}
-
-void ColumnFile::update_crc32c_batch(uint32_t* __restrict hashes,
-                                     const uint8_t* __restrict null_map) const {
-    hash_file_rows(*this, 0, size(), null_map, [&](size_t row, const char* data, size_t size) {
-        hashes[row] = crc32c_extend(hashes[row], reinterpret_cast<const uint8_t*>(data), size);
-    });
-}
-
-void ColumnFile::update_crc32c_single(size_t start, size_t end, uint32_t& hash,
-                                      const uint8_t* __restrict null_map) const {
-    hash_file_rows(*this, start, end, null_map, [&](size_t, const char* data, size_t size) {
-        hash = crc32c_extend(hash, reinterpret_cast<const uint8_t*>(data), size);
-    });
 }
 
 int ColumnFile::compare_at(size_t, size_t, const IColumn&, int) const {

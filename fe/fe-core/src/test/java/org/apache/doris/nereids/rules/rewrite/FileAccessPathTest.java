@@ -23,7 +23,6 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.nereids.rules.rewrite.AccessPathExpressionCollector.CollectAccessPathResult;
 import org.apache.doris.nereids.rules.rewrite.NestedColumnPruning.DataTypeAccessTree;
-import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.Not;
@@ -38,7 +37,6 @@ import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.FileType;
 import org.apache.doris.nereids.types.IntegerType;
-import org.apache.doris.nereids.types.JsonType;
 import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.StructField;
@@ -57,15 +55,6 @@ import java.util.Map;
 import java.util.TreeSet;
 
 public class FileAccessPathTest {
-    @Test
-    public void testJsonCastNeedsAllSixChildren() {
-        SlotReference file = slot("f", FileType.INSTANCE, true);
-        AccessPathInfo info = prune(file, new Cast(file, JsonType.INSTANCE), field(file, "size"));
-        Assertions.assertEquals(ImmutableList.of(data("f")), info.getAllAccessPaths());
-        Assertions.assertSame(FileType.INSTANCE, info.getPrunedType());
-        Assertions.assertEquals(6, ((FileType) info.getPrunedType()).getFields().size());
-    }
-
     @Test
     public void testCanonicalChildrenAndGetterPaths() {
         SlotReference file = slot("f", FileType.INSTANCE, false);
@@ -108,16 +97,6 @@ public class FileAccessPathTest {
             Assertions.assertEquals(ImmutableList.of(data("f", name)),
                     prune(file, collect(file, false, true, new Length(getter))).getAllAccessPaths());
         }
-    }
-
-    @Test
-    public void testMetadataCrossesFileIdentityCasts() {
-        SlotReference file = slot("f", FileType.INSTANCE, true);
-        Expression identityField = field(new Cast(file, FileType.INSTANCE), "uri");
-        Assertions.assertEquals(ImmutableList.of(meta("f", "uri", "OFFSET")),
-                prune(file, new Length(identityField)).getAllAccessPaths());
-        Assertions.assertEquals(ImmutableList.of(meta("f", "uri", "NULL")),
-                prune(file, new IsNull(identityField)).getAllAccessPaths());
     }
 
     @Test
@@ -195,13 +174,6 @@ public class FileAccessPathTest {
             tree.setAccessByPath(path.getPath(), 0, path.getType());
         }
         Assertions.assertTrue(tree.getChildren().get("s").getChildren().get("f").isAccessAll());
-    }
-
-    @Test
-    public void testFileCastsDoNotBecomeStructShapePruning() {
-        SlotReference file = slot("f", FileType.INSTANCE, true);
-        Assertions.assertEquals(ImmutableList.of(data("f", "size")),
-                prune(file, field(new Cast(file, FileType.INSTANCE), "size")).getAllAccessPaths());
     }
 
     @Test

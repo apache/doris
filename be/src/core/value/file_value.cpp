@@ -17,25 +17,15 @@
 
 #include "core/value/file_value.h"
 
-#include <algorithm>
-#include <array>
-#include <limits>
 #include <string_view>
-
-#include "core/field.h"
+#include <utility>
 
 namespace doris {
 namespace {
 // Keep helper names separate from other anonymous namespaces in Core unity builds.
 namespace file_value_detail {
 
-constexpr std::array<std::string_view, 6> FIELD_NAMES = {"uri",          "offset",   "size",
-                                                         "content_type", "checksum", "inline"};
 constexpr size_t MAX_METADATA_BYTES = 1024;
-
-bool ascii_digit(char ch) {
-    return ch >= '0' && ch <= '9';
-}
 
 bool mime_token_char(char ch) {
     // RFC 2045 section 5.1: ASCII minus SPACE, CTLs and tspecials.
@@ -160,45 +150,6 @@ bool mime(std::string_view text) {
     return true;
 }
 
-bool equals_known_algorithm(std::string_view text, std::string_view canonical) {
-    return text.size() == canonical.size() &&
-           std::equal(text.begin(), text.end(), canonical.begin(), [](char ch, char expected) {
-               return (ch >= 'a' && ch <= 'z' ? ch - 'a' + 'A' : ch) == expected;
-           });
-}
-
-bool checksum(std::string_view text) {
-    const auto colon = text.find(':');
-    if (colon == std::string_view::npos || colon == 0 || colon + 1 == text.size()) {
-        return false;
-    }
-    const auto algorithm = text.substr(0, colon);
-    const auto digest = text.substr(colon + 1);
-    struct KnownAlgorithm {
-        std::string_view name;
-        size_t hex_length;
-    };
-    constexpr std::array algorithms = {KnownAlgorithm {"ETAG", 0}, KnownAlgorithm {"MD5", 32},
-                                       KnownAlgorithm {"CRC32", 8}, KnownAlgorithm {"CRC32C", 8},
-                                       KnownAlgorithm {"SHA-256", 64}};
-    for (const auto& known : algorithms) {
-        if (equals_known_algorithm(algorithm, known.name)) {
-            // Case-insensitive recognition prevents misspellings of known names
-            // from escaping validation as unknown algorithms. Never normalize.
-            if (algorithm != known.name) {
-                return false;
-            }
-            if (known.hex_length == 0) {
-                return true; // ETAG is opaque, including quotes and multipart suffixes.
-            }
-            return digest.size() == known.hex_length &&
-                   std::all_of(digest.begin(), digest.end(),
-                               [](char ch) { return ascii_digit(ch) || (ch >= 'a' && ch <= 'f'); });
-        }
-    }
-    return true; // Both parts of an unknown algorithm are nonempty opaque bytes.
-}
-
 } // namespace file_value_detail
 } // namespace
 
@@ -273,54 +224,6 @@ std::optional<std::string> file_checksum_from_etag(std::optional<std::string_vie
         return std::nullopt;
     }
     return "ETAG:" + std::string(*etag);
-}
-
-Status validate_file(const File& value) {
-    // Callers establish the canonical field count and types when constructing or decoding FILE.
-    DCHECK_EQ(value.size(), file_value_detail::FIELD_NAMES.size());
-    const auto text = [&value](size_t field) -> std::optional<std::string_view> {
-        return value[field].is_null() ? std::nullopt : std::optional(value[field].as_string_view());
-    };
-    const auto number = [&value](size_t field) -> std::optional<int64_t> {
-        return value[field].is_null() ? std::nullopt
-                                      : std::optional(value[field].get<TYPE_BIGINT>());
-    };
-    return validate_file(text(0), number(1), number(2), text(3), text(4), value[5].is_null());
-}
-
-Status validate_file(std::optional<std::string_view> uri_value, std::optional<int64_t> offset,
-                     std::optional<int64_t> size, std::optional<std::string_view> content_type,
-                     std::optional<std::string_view> checksum_value, bool inline_is_null) {
-    using namespace file_value_detail;
-    if (!uri_value && inline_is_null) {
-        return Status::InvalidArgument("FILE uri must not be NULL when inline is NULL");
-    }
-    if (size && *size < 0) {
-        return Status::InvalidArgument("FILE size must be nonnegative");
-    }
-    if (offset) {
-        if (*offset < 0) {
-            return Status::InvalidArgument("FILE offset must be nonnegative");
-        }
-        if (!size) {
-            return Status::InvalidArgument("FILE offset requires size");
-        }
-        if (*offset > std::numeric_limits<Int64>::max() - *size) {
-            return Status::InvalidArgument("FILE offset plus size exceeds BIGINT");
-        }
-    }
-    if (content_type && !is_valid_file_content_type(*content_type)) {
-        return Status::InvalidArgument(
-                "FILE content_type must be a nonempty valid media type within 1024 bytes");
-    }
-    if (checksum_value &&
-        (checksum_value->size() > MAX_METADATA_BYTES || !checksum(*checksum_value))) {
-        return Status::InvalidArgument(
-                "FILE checksum must be algorithm:digest within 1024 bytes; known algorithms "
-                "require canonical names and prescribed lowercase hex digests (ETAG is "
-                "opaque)");
-    }
-    return Status::OK();
 }
 
 } // namespace doris

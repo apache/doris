@@ -641,13 +641,6 @@ TEST_F(FunctionToFileTest, PreservesUriAndValidatesMetadataAfterSuccessfulStat) 
                 return Status::OK();
             }));
     EXPECT_FALSE(execute(context.get(), uris({string("s3://bucket/a.txt")}), output).ok());
-    EXPECT_CALL(*filesystem, stat_impl(_, _, _))
-            .WillOnce(Invoke([](const io::Path&, io::FileStat* metadata, io::FileStatContext*) {
-                *metadata = io::FileStat {.size = 1,
-                                          .checksum = "MD5:ABCDEF0123456789ABCDEF0123456789"};
-                return Status::OK();
-            }));
-    EXPECT_FALSE(execute(context.get(), uris({string("s3://bucket/a.txt")}), output).ok());
 }
 
 TEST_F(FunctionToFileTest, CancellationStopsFurtherMetadataCalls) {

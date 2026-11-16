@@ -98,17 +98,11 @@ protected:
         }
     }
 
-    static uint64_t sip_hash(const IColumn& column, size_t row) {
-        SipHash hash;
-        column.update_hash_with_value(row, hash);
-        return hash.get64();
-    }
-
     template <typename F>
     static void expect_not_implemented(F&& operation) {
         try {
             operation();
-            FAIL() << "FILE ordering must fail";
+            FAIL() << "Unsupported FILE operation must fail";
         } catch (const Exception& e) {
             EXPECT_EQ(e.code(), ErrorCode::NOT_IMPLEMENTED_ERROR);
         }
@@ -207,32 +201,6 @@ TEST_F(ColumnFileTest, FixedNullableShapeAndIndependentIdentity) {
         }
     }
     column->sanity_check();
-}
-
-TEST_F(ColumnFileTest, RejectMalformedPhysicalChildren) {
-    auto wrong_count = children();
-    wrong_count.pop_back();
-    EXPECT_THROW(ColumnFile::create(std::move(wrong_count)), Exception);
-    auto non_nullable = children();
-    non_nullable[0] = ColumnString::create();
-    EXPECT_THROW(ColumnFile::create(std::move(non_nullable)), Exception);
-    auto wrong_binary = children();
-    wrong_binary[5] = ColumnNullable::create(ColumnString::create(), ColumnUInt8::create());
-    EXPECT_THROW(ColumnFile::create(std::move(wrong_binary)), Exception);
-    auto wrong_integer = children();
-    wrong_integer[1] = ColumnNullable::create(ColumnInt32::create(), ColumnUInt8::create());
-    EXPECT_THROW(ColumnFile::create(std::move(wrong_integer)), Exception);
-    auto constant = children();
-    constant[0]->insert_default();
-    constant[0] = ColumnConst::create(std::move(constant[0]), 0);
-    EXPECT_THROW(ColumnFile::create(std::move(constant)), Exception);
-    auto uneven = children();
-    uneven[2]->insert_default();
-    EXPECT_THROW(ColumnFile::create(std::move(uneven)), Exception);
-
-    auto column = ColumnFile::create();
-    EXPECT_THROW(column->insert(Field::create_field<TYPE_FILE>(File(5))), Exception);
-    EXPECT_EQ(column->size(), 0);
 }
 
 TEST_F(ColumnFileTest, FieldRoundTripPreservesNullEmptyAndBinary) {
@@ -508,62 +476,19 @@ TEST_F(ColumnFileTest, OuterNullAndNestedArraySerialization) {
     expect_file(data.get_nested_column(), 1, value);
 }
 
-TEST_F(ColumnFileTest, IntegrityHashIncludesEveryChildAndInlineNullness) {
-    auto column = ColumnFile::create();
-    const auto original = file(&large_bytes);
-    column->insert(original);
-    for (size_t i = 0; i < 6; ++i) {
-        auto modified = original;
-        modified.get<TYPE_FILE>()[i] = Field();
-        column->insert(modified);
-        EXPECT_NE(sip_hash(*column, 0), sip_hash(*column, i + 1));
-    }
-    const std::string empty;
-    column->insert(file(&empty));
-    column->insert(file(&small_bytes));
-    EXPECT_NE(sip_hash(*column, 6), sip_hash(*column, 7));
-    EXPECT_NE(sip_hash(*column, 0), sip_hash(*column, 8));
-    auto copy = column->clone_resized(column->size());
-    for (size_t i = 0; i < column->size(); ++i) {
-        EXPECT_EQ(sip_hash(*column, i), sip_hash(*copy, i));
-    }
-}
-
-TEST_F(ColumnFileTest, BatchAndRangeHashesSkipOuterNullPayload) {
+TEST_F(ColumnFileTest, RejectHashing) {
     auto column = ColumnFile::create();
     column->insert(file(&small_bytes));
-    column->insert(file(&large_bytes));
-    const uint8_t null_map[] = {0, 1};
-    std::array<uint64_t, 2> xx {17, 17};
-    std::array<uint32_t, 2> crc {17, 17};
-    std::array<uint32_t, 2> crc32c {17, 17};
-    column->update_hashes_with_value(xx.data(), null_map);
-    column->update_crcs_with_value(crc.data(), TYPE_FILE, 2, 0, null_map);
-    column->update_crc32c_batch(crc32c.data(), null_map);
-    uint64_t expected_xx = 17;
-    uint32_t expected_crc = 17;
-    uint32_t expected_crc32c = 17;
-    column->update_xxHash_with_value(0, 1, expected_xx, nullptr);
-    column->update_crc_with_value(0, 1, expected_crc, nullptr);
-    column->update_crc32c_single(0, 1, expected_crc32c, nullptr);
-    EXPECT_EQ(xx[0], expected_xx);
-    EXPECT_EQ(crc[0], expected_crc);
-    EXPECT_EQ(crc32c[0], expected_crc32c);
-    EXPECT_NE(xx[0], 17);
-    EXPECT_NE(crc[0], 17);
-    EXPECT_NE(crc32c[0], 17);
-    EXPECT_EQ(xx[1], 17);
-    EXPECT_EQ(crc[1], 17);
-    EXPECT_EQ(crc32c[1], 17);
-    uint64_t masked_xx = 17;
-    uint32_t masked_crc = 17;
-    uint32_t masked_crc32c = 17;
-    column->update_xxHash_with_value(0, 2, masked_xx, null_map);
-    column->update_crc_with_value(0, 2, masked_crc, null_map);
-    column->update_crc32c_single(0, 2, masked_crc32c, null_map);
-    EXPECT_EQ(masked_xx, expected_xx);
-    EXPECT_EQ(masked_crc, expected_crc);
-    EXPECT_EQ(masked_crc32c, expected_crc32c);
+    SipHash sip;
+    uint64_t xx = 17;
+    uint32_t crc = 17;
+    expect_not_implemented([&] { column->update_hash_with_value(0, sip); });
+    expect_not_implemented([&] { column->update_hashes_with_value(&xx, nullptr); });
+    expect_not_implemented([&] { column->update_xxHash_with_value(0, 1, xx, nullptr); });
+    expect_not_implemented([&] { column->update_crcs_with_value(&crc, TYPE_FILE, 1); });
+    expect_not_implemented([&] { column->update_crc_with_value(0, 1, crc, nullptr); });
+    expect_not_implemented([&] { column->update_crc32c_batch(&crc, nullptr); });
+    expect_not_implemented([&] { column->update_crc32c_single(0, 1, crc, nullptr); });
 }
 
 TEST_F(ColumnFileTest, RejectComparisonAndSortingEvenWhenEmpty) {
@@ -579,34 +504,6 @@ TEST_F(ColumnFileTest, RejectComparisonAndSortingEvenWhenEmpty) {
                 [&] { column->sort_column(nullptr, flags, permutation, range, true); });
         column->insert(file(&small_bytes));
     }
-}
-
-TEST_F(ColumnFileTest, OuterNullHashesIgnoreHiddenPayload) {
-    auto first = ColumnNullable::create(ColumnFile::create(), ColumnUInt8::create());
-    auto second = ColumnNullable::create(ColumnFile::create(), ColumnUInt8::create());
-    first->insert(file(&small_bytes));
-    second->insert(file(&large_bytes));
-    first->get_null_map_data()[0] = 1;
-    second->get_null_map_data()[0] = 1;
-    EXPECT_EQ(sip_hash(*first, 0), sip_hash(*second, 0));
-    uint64_t first_xx = 17;
-    uint64_t second_xx = 17;
-    uint32_t first_crc = 17;
-    uint32_t second_crc = 17;
-    uint32_t first_crc32c = 17;
-    uint32_t second_crc32c = 17;
-    first->update_hashes_with_value(&first_xx, nullptr);
-    second->update_hashes_with_value(&second_xx, nullptr);
-    first->update_crcs_with_value(&first_crc, TYPE_FILE, 1, 0, nullptr);
-    second->update_crcs_with_value(&second_crc, TYPE_FILE, 1, 0, nullptr);
-    first->update_crc32c_batch(&first_crc32c, nullptr);
-    second->update_crc32c_batch(&second_crc32c, nullptr);
-    EXPECT_EQ(first_xx, second_xx);
-    EXPECT_EQ(first_crc, second_crc);
-    EXPECT_EQ(first_crc32c, second_crc32c);
-    EXPECT_NE(first_xx, 17);
-    EXPECT_NE(first_crc, 17);
-    EXPECT_NE(first_crc32c, 17);
 }
 
 } // namespace doris

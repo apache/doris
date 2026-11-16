@@ -124,6 +124,9 @@ Status VListFileTVF::get_next(RuntimeState* state, Block* block, bool* eos) {
         if (is_directory && (_path.delimiter.empty() || object.key == _path.prefix)) {
             continue;
         }
+        if (!is_directory && object.size < 0) {
+            return Status::InvalidArgument("FILE size must be nonnegative");
+        }
         std::array<Field, 3> fields {
                 Field::create_field<TYPE_STRING>("s3://" + _path.bucket + "/" + object.key),
                 Field::create_field<TYPE_BIGINT>(is_directory ? 0 : object.size), Field()};
@@ -136,7 +139,6 @@ Status VListFileTVF::get_next(RuntimeState* state, Block* block, bool* eos) {
             if (auto checksum = file_checksum_from_etag(object.etag)) {
                 value[4] = Field::create_field<TYPE_STRING>(std::move(*checksum));
             }
-            RETURN_IF_ERROR(validate_file(value));
             fields[2] = Field::create_field<TYPE_FILE>(std::move(value));
         }
         for (size_t i = 0; i < columns.size(); ++i) {

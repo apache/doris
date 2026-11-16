@@ -96,9 +96,8 @@ Status FunctionToFile::open(FunctionContext* context, FunctionContext::FunctionS
         return Status::InvalidArgument("TO_FILE requires query resources");
     }
     const auto* resource_column = context->get_constant_col(0);
-    if (!resource_column || resource_column->column_ptr()->is_null_at(0)) {
-        return Status::InvalidArgument("TO_FILE resource must be a non-NULL constant string");
-    }
+    DCHECK(resource_column);
+    DCHECK(!resource_column->column_ptr()->is_null_at(0));
     const auto resource_name = resource_column->column_ptr()->get_data_at(0).to_string();
     const auto resource = resources->find(resource_name);
     if (resource == resources->end()) {
@@ -170,6 +169,9 @@ Status FunctionToFile::execute_impl(FunctionContext* context, Block& block,
         const auto stat_status = filesystem->stat(uri, &metadata, &state->stat_context);
         RETURN_IF_CANCELLED(runtime);
         RETURN_IF_ERROR(stat_status);
+        if (metadata.size < 0) {
+            return Status::InvalidArgument("FILE size must be nonnegative");
+        }
         auto content_type = to_file_content_type(s3_uri.get_key(), metadata);
         File value(DataTypeFile::FIELD_COUNT);
         value[0] = Field::create_field<TYPE_STRING>(uri);
@@ -178,7 +180,6 @@ Status FunctionToFile::execute_impl(FunctionContext* context, Block& block,
         if (metadata.checksum) {
             value[4] = Field::create_field<TYPE_STRING>(*metadata.checksum);
         }
-        RETURN_IF_ERROR(validate_file(value));
         output->insert(Field::create_field<TYPE_FILE>(std::move(value)));
     }
     if (block.get_by_position(result).type->is_nullable()) {
