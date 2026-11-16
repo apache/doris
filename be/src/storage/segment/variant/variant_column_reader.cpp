@@ -260,8 +260,9 @@ int64_t VariantColumnReader::get_metadata_size() const {
 Status VariantColumnReader::_create_hierarchical_reader(
         ColumnIteratorUPtr* reader, int32_t col_uid, PathInData path,
         const SubcolumnColumnMetaInfo::Node* node, const SubcolumnColumnMetaInfo::Node* root,
-        ColumnReaderCache* column_reader_cache, OlapReaderStatistics* stats,
-        HierarchicalDataIterator::ReadType read_type, const io::IOContext* io_ctx) {
+        ColumnReaderCache* column_reader_cache, int read_be_exec_version,
+        OlapReaderStatistics* stats, HierarchicalDataIterator::ReadType read_type,
+        const io::IOContext* io_ctx) {
     // make sure external meta is loaded otherwise can't find any meta data for extracted columns
     // TODO(lhy): this will load all external meta if not loaded, and memory will be consumed.
     RETURN_IF_ERROR(load_external_meta_once(stats, io_ctx));
@@ -305,7 +306,7 @@ Status VariantColumnReader::_create_hierarchical_reader(
     }
     RETURN_IF_ERROR(HierarchicalDataIterator::create(
             reader, col_uid, path, node, std::move(sparse_iter), std::move(root_column_reader),
-            column_reader_cache, stats, read_type, io_ctx));
+            column_reader_cache, read_be_exec_version, stats, read_type, io_ctx));
     return Status::OK();
 }
 
@@ -355,8 +356,8 @@ Status VariantColumnReader::_create_sparse_merge_reader(ColumnIteratorUPtr* iter
         // Create subcolumn iterator
         std::shared_ptr<ColumnReader> column_reader;
         RETURN_IF_ERROR(column_reader_cache->get_path_column_reader(
-                target_col.parent_unique_id(), subcolumn_reader->path, &column_reader, opts->stats,
-                subcolumn_reader.get(), &opts->io_ctx));
+                target_col.parent_unique_id(), subcolumn_reader->path, opts->get_be_exec_version(),
+                &column_reader, opts->stats, subcolumn_reader.get(), &opts->io_ctx));
         ColumnIteratorUPtr it;
         RETURN_IF_ERROR(column_reader->new_iterator(&it, nullptr));
         // Create substream reader and add to tree
@@ -404,8 +405,8 @@ Status VariantColumnReader::_new_default_iter_with_same_nested(
         std::unique_ptr<ColumnIterator> sibling_iter;
         std::shared_ptr<ColumnReader> column_reader;
         RETURN_IF_ERROR(column_reader_cache->get_path_column_reader(
-                tablet_column.parent_unique_id(), leaf->path, &column_reader, opt->stats, leaf,
-                &opt->io_ctx));
+                tablet_column.parent_unique_id(), leaf->path, opt->get_be_exec_version(),
+                &column_reader, opt->stats, leaf, &opt->io_ctx));
         RETURN_IF_ERROR(column_reader->new_iterator(&sibling_iter, nullptr));
         *iterator = std::make_unique<DefaultNestedColumnIterator>(std::move(sibling_iter),
                                                                   leaf->data.file_column_type);
@@ -549,9 +550,9 @@ Status VariantColumnReader::_build_read_plan_flat_leaves(
     }
     VLOG_DEBUG << "new iterator: " << target_col.path_info_ptr()->get_path();
     std::shared_ptr<ColumnReader> column_reader;
-    RETURN_IF_ERROR(column_reader_cache->get_path_column_reader(target_col.parent_unique_id(),
-                                                                node->path, &column_reader,
-                                                                opts->stats, node, &opts->io_ctx));
+    RETURN_IF_ERROR(column_reader_cache->get_path_column_reader(
+            target_col.parent_unique_id(), node->path, opts->get_be_exec_version(), &column_reader,
+            opts->stats, node, &opts->io_ctx));
     plan->kind = ReadKind::LEAF;
     plan->type = column_reader->get_vec_data_type();
     plan->relative_path = relative_path;
@@ -795,12 +796,10 @@ bool VariantColumnReader::_try_build_nested_group_plan(ReadPlan* plan,
     return _try_fill_nested_group_plan(plan, target_col, opt, col_uid, relative_path);
 }
 
-Status VariantColumnReader::_try_build_leaf_plan(ReadPlan* plan, int32_t col_uid,
-                                                 const PathInData& relative_path,
-                                                 const SubcolumnColumnMetaInfo::Node* node,
-                                                 ColumnReaderCache* column_reader_cache,
-                                                 OlapReaderStatistics* stats,
-                                                 const io::IOContext* io_ctx) {
+Status VariantColumnReader::_try_build_leaf_plan(
+        ReadPlan* plan, int32_t col_uid, const PathInData& relative_path,
+        const SubcolumnColumnMetaInfo::Node* node, ColumnReaderCache* column_reader_cache,
+        int read_be_exec_version, OlapReaderStatistics* stats, const io::IOContext* io_ctx) {
     if (node == nullptr) {
         return Status::OK();
     }
@@ -810,7 +809,8 @@ Status VariantColumnReader::_try_build_leaf_plan(ReadPlan* plan, int32_t col_uid
 
     std::shared_ptr<ColumnReader> leaf_column_reader;
     RETURN_IF_ERROR(column_reader_cache->get_path_column_reader(
-            col_uid, leaf_node->path, &leaf_column_reader, stats, leaf_node, io_ctx));
+            col_uid, leaf_node->path, read_be_exec_version, &leaf_column_reader, stats, leaf_node,
+            io_ctx));
     plan->kind = ReadKind::LEAF;
     plan->type = leaf_column_reader->get_vec_data_type();
     plan->relative_path = relative_path;
@@ -821,6 +821,7 @@ Status VariantColumnReader::_try_build_leaf_plan(ReadPlan* plan, int32_t col_uid
 Status VariantColumnReader::_try_build_external_leaf_plan(ReadPlan* plan, int32_t col_uid,
                                                           const PathInData& relative_path,
                                                           ColumnReaderCache* column_reader_cache,
+                                                          int read_be_exec_version,
                                                           OlapReaderStatistics* stats,
                                                           const io::IOContext* io_ctx) {
     if (!_ext_meta_reader || !_ext_meta_reader->available()) {
@@ -829,7 +830,8 @@ Status VariantColumnReader::_try_build_external_leaf_plan(ReadPlan* plan, int32_
 
     std::shared_ptr<ColumnReader> leaf_column_reader;
     Status st = column_reader_cache->get_path_column_reader(
-            col_uid, relative_path, &leaf_column_reader, stats, nullptr, io_ctx);
+            col_uid, relative_path, read_be_exec_version, &leaf_column_reader, stats, nullptr,
+            io_ctx);
     DCHECK(!_has_prefix_path_unlocked(relative_path, stats, io_ctx));
     if (st.ok()) {
         plan->kind = ReadKind::LEAF;
@@ -956,13 +958,14 @@ Status VariantColumnReader::_build_read_plan(ReadPlan* plan, const TabletColumn&
     }
 
     RETURN_IF_ERROR(_try_build_leaf_plan(plan, col_uid, relative_path, node, column_reader_cache,
-                                         opt->stats, &opt->io_ctx));
+                                         opt->get_be_exec_version(), opt->stats, &opt->io_ctx));
     if (plan->kind == ReadKind::LEAF) {
         return Status::OK();
     }
     if (node == nullptr) {
         RETURN_IF_ERROR(_try_build_external_leaf_plan(
-                plan, col_uid, relative_path, column_reader_cache, opt->stats, &opt->io_ctx));
+                plan, col_uid, relative_path, column_reader_cache, opt->get_be_exec_version(),
+                opt->stats, &opt->io_ctx));
         if (plan->kind == ReadKind::LEAF) {
             return Status::OK();
         }
@@ -1023,7 +1026,8 @@ Status VariantColumnReader::_create_iterator_from_plan(
                                                       : target_col.parent_unique_id();
         RETURN_IF_ERROR(_create_hierarchical_reader(
                 iterator, col_uid, plan.relative_path, plan.node, plan.root, column_reader_cache,
-                opt->stats, HierarchicalDataIterator::ReadType::ROOT_ONLY, &opt->io_ctx));
+                opt->get_be_exec_version(), opt->stats,
+                HierarchicalDataIterator::ReadType::ROOT_ONLY, &opt->io_ctx));
         return _maybe_wrap_root_merge_iterator(iterator, plan, opt);
     }
     case ReadKind::HIERARCHICAL: {
@@ -1032,7 +1036,7 @@ Status VariantColumnReader::_create_iterator_from_plan(
         // `v.keep` / `v.owner` and merge them into the final variant result.
         RETURN_IF_ERROR(_create_hierarchical_reader(
                 iterator, variant_root_uid(target_col), plan.relative_path, plan.node, plan.root,
-                column_reader_cache, opt->stats,
+                column_reader_cache, opt->get_be_exec_version(), opt->stats,
                 HierarchicalDataIterator::ReadType::SUBCOLUMNS_AND_SPARSE, &opt->io_ctx));
         return _maybe_wrap_root_merge_iterator(iterator, plan, opt);
     }
@@ -1085,7 +1089,7 @@ Status VariantColumnReader::_create_iterator_from_plan(
     case ReadKind::HIERARCHICAL_DOC: {
         RETURN_IF_ERROR(_create_hierarchical_reader(
                 iterator, variant_root_uid(target_col), plan.relative_path, plan.node, plan.root,
-                column_reader_cache, opt->stats,
+                column_reader_cache, opt->get_be_exec_version(), opt->stats,
                 HierarchicalDataIterator::ReadType::DOC_VALUE_COLUMN, &opt->io_ctx));
         if (opt && opt->stats) {
             opt->stats->variant_doc_value_column_iter_count++;

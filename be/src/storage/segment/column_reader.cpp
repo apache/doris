@@ -32,6 +32,7 @@
 #include <utility>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/exception.h"
 #include "common/status.h"
 #include "core/assert_cast.h"
 #include "core/binary_cast.hpp"
@@ -490,6 +491,17 @@ Status ColumnReader::create_agg_state(const ColumnReaderOptions& opts, const Col
 
     return Status::InternalError("Not supported type: {}, serialized type: {}",
                                  agg_state_type->get_name(), int(type));
+}
+
+Status ColumnReader::check_read_compatibility(int read_be_exec_version) const {
+    if (const auto* agg_state_type = typeid_cast<const DataTypeAggState*>(_data_type.get())) {
+        RETURN_IF_CATCH_EXCEPTION(
+                agg_state_type->check_function_compatibility(read_be_exec_version));
+    }
+    for (const auto& child : _sub_readers) {
+        RETURN_IF_ERROR(child->check_read_compatibility(read_be_exec_version));
+    }
+    return Status::OK();
 }
 
 bool ColumnReader::is_compaction_reader_type(ReaderType type) {

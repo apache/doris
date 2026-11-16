@@ -17,6 +17,7 @@
 
 #include "storage/segment/column_reader_cache.h"
 
+#include "common/exception.h"
 #include "storage/segment/column_meta_accessor.h"
 #include "storage/segment/segment.h"
 #include "storage/segment/variant/variant_column_reader.h"
@@ -93,12 +94,13 @@ std::map<int32_t, std::shared_ptr<ColumnReader>> ColumnReaderCache::get_availabl
     return readers;
 }
 
-Status ColumnReaderCache::get_column_reader(int32_t col_uid,
+Status ColumnReaderCache::get_column_reader(int32_t col_uid, int read_be_exec_version,
                                             std::shared_ptr<ColumnReader>* column_reader,
                                             OlapReaderStatistics* stats,
                                             const io::IOContext* source_io_ctx) {
     // Attempt to find in cache
     if (auto cached = _lookup({col_uid, {}})) {
+        RETURN_IF_ERROR(cached->check_read_compatibility(read_be_exec_version));
         *column_reader = cached;
         return Status::OK();
     }
@@ -120,7 +122,7 @@ Status ColumnReaderCache::get_column_reader(int32_t col_uid,
     RETURN_IF_ERROR(st_meta);
 
     ColumnReaderOptions opts {.kept_in_memory = _tablet_schema->is_in_memory(),
-                              .be_exec_version = _be_exec_version,
+                              .be_exec_version = read_be_exec_version,
                               .tablet_schema = _tablet_schema};
 
     std::shared_ptr<ColumnReader> reader;
@@ -128,28 +130,33 @@ Status ColumnReaderCache::get_column_reader(int32_t col_uid,
         // Variant root columns require VariantColumnReader, which encapsulates
         // subcolumn layout, sparse columns and external meta.
         std::unique_ptr<VariantColumnReader> variant_reader(new VariantColumnReader());
-        RETURN_IF_ERROR(variant_reader->init(opts, _accessor, footer_pb_shared, col_uid, _num_rows,
-                                             _file_reader, stats, source_io_ctx));
+        RETURN_IF_ERROR_OR_CATCH_EXCEPTION(variant_reader->init(opts, _accessor, footer_pb_shared,
+                                                                col_uid, _num_rows, _file_reader,
+                                                                stats, source_io_ctx));
         reader.reset(variant_reader.release());
         VLOG_DEBUG << "insert cache (variant): uid=" << col_uid << " col_id=" << meta.column_id();
     } else {
         // For non-variant columns, we can create reader directly from ColumnMetaPB.
         VLOG_DEBUG << "insert cache: uid=" << col_uid << " col_id=" << meta.column_id();
-        RETURN_IF_ERROR(ColumnReader::create(opts, meta, _num_rows, _file_reader, &reader));
+        RETURN_IF_ERROR_OR_CATCH_EXCEPTION(
+                ColumnReader::create(opts, meta, _num_rows, _file_reader, &reader));
     }
 
+    RETURN_IF_ERROR(reader->check_read_compatibility(read_be_exec_version));
     _insert_direct({col_uid, {}}, reader);
     *column_reader = std::move(reader);
     return Status::OK();
 }
 
 Status ColumnReaderCache::get_path_column_reader(int32_t col_uid, PathInData relative_path,
+                                                 int read_be_exec_version,
                                                  std::shared_ptr<ColumnReader>* column_reader,
                                                  OlapReaderStatistics* stats,
                                                  const SubcolumnColumnMetaInfo::Node* node_hint,
                                                  const io::IOContext* source_io_ctx) {
     // Attempt to find in cache first
     if (auto cached = _lookup({col_uid, relative_path})) {
+        RETURN_IF_ERROR(cached->check_read_compatibility(read_be_exec_version));
         *column_reader = cached;
         return Status::OK();
     }
@@ -169,10 +176,11 @@ Status ColumnReaderCache::get_path_column_reader(int32_t col_uid, PathInData rel
 
     // Ensure variant root reader is available in cache.
     ColumnReaderOptions opts {.kept_in_memory = _tablet_schema->is_in_memory(),
-                              .be_exec_version = _be_exec_version,
+                              .be_exec_version = read_be_exec_version,
                               .tablet_schema = _tablet_schema};
     std::shared_ptr<ColumnReader> variant_column_reader;
-    RETURN_IF_ERROR(get_column_reader(col_uid, &variant_column_reader, stats, source_io_ctx));
+    RETURN_IF_ERROR(get_column_reader(col_uid, read_be_exec_version, &variant_column_reader, stats,
+                                      source_io_ctx));
 
     if (relative_path.empty()) {
         *column_reader = std::move(variant_column_reader);
@@ -183,9 +191,12 @@ Status ColumnReaderCache::get_path_column_reader(int32_t col_uid, PathInData rel
     // inline vs external meta details.
     std::shared_ptr<ColumnReader> path_reader;
     auto* vreader = static_cast<VariantColumnReader*>(variant_column_reader.get());
-    Status st = vreader->create_path_reader(relative_path, opts, _accessor, *footer_pb_shared,
-                                            _file_reader, _num_rows, &path_reader, stats,
-                                            source_io_ctx);
+    Status st;
+    ASSIGN_STATUS_IF_CATCH_EXCEPTION(
+            st = vreader->create_path_reader(relative_path, opts, _accessor, *footer_pb_shared,
+                                             _file_reader, _num_rows, &path_reader, stats,
+                                             source_io_ctx),
+            st);
     if (st.is<ErrorCode::NOT_FOUND>()) {
         *column_reader = nullptr;
         return st;
@@ -193,6 +204,7 @@ Status ColumnReaderCache::get_path_column_reader(int32_t col_uid, PathInData rel
     RETURN_IF_ERROR(st);
 
     // Cache and return
+    RETURN_IF_ERROR(path_reader->check_read_compatibility(read_be_exec_version));
     _insert_direct({col_uid, relative_path}, path_reader);
     *column_reader = std::move(path_reader);
     return Status::OK();

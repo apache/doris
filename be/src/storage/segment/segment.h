@@ -30,7 +30,6 @@
 #include <string>
 #include <unordered_map>
 
-#include "agent/be_exec_version_manager.h"
 #include "common/be_mock_util.h"
 #include "common/status.h" // Status
 #include "core/column/column.h"
@@ -381,8 +380,6 @@ private:
 
     InvertedIndexFileInfo _idx_file_info;
     int64_t _tablet_id = -1;
-
-    int _be_exec_version = BeExecVersionManager::get_newest_version();
 };
 
 } // namespace segment_v2

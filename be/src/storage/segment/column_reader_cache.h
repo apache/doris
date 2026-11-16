@@ -16,7 +16,6 @@
 // under the License.
 #pragma once
 
-#include "agent/be_exec_version_manager.h"
 #include "io/fs/file_reader.h"
 #include "io/io_common.h"
 #include "storage/olap_common.h"
@@ -63,11 +62,13 @@ public:
     std::map<int32_t, std::shared_ptr<ColumnReader>> get_available_readers(bool include_subcolumns);
 
     // Get column reader by column unique id
-    Status get_column_reader(int32_t col_uid, std::shared_ptr<ColumnReader>* column_reader,
+    Status get_column_reader(int32_t col_uid, int read_be_exec_version,
+                             std::shared_ptr<ColumnReader>* column_reader,
                              OlapReaderStatistics* stats, const io::IOContext* io_ctx = nullptr);
 
     // Get column reader by column unique id and path(leaf node of variant's subcolumn)
     virtual Status get_path_column_reader(int32_t col_uid, PathInData relative_path,
+                                          int read_be_exec_version,
                                           std::shared_ptr<ColumnReader>* column_reader,
                                           OlapReaderStatistics* stats,
                                           const SubcolumnColumnMetaInfo::Node* node_hint = nullptr,
@@ -89,7 +90,6 @@ private:
     std::list<CacheNode> _lru_list;
     // Map from key to list iterator for O(1) access
     std::unordered_map<ColumnReaderCacheKey, std::list<CacheNode>::iterator> _cache_map;
-    int _be_exec_version = BeExecVersionManager::get_newest_version();
 
     // Non-owning pointer to the segment's ColumnMetaAccessor.
     ColumnMetaAccessor* _accessor = nullptr;

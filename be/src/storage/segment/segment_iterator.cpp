@@ -2185,7 +2185,8 @@ Status SegmentIterator::_init_index_iterators() {
             std::shared_ptr<ColumnReader> column_reader;
             if (column.is_extracted_column()) {
                 if (!_segment->_column_reader_cache->get_column_reader(
-                            column.parent_unique_id(), &column_reader, _opts.stats) ||
+                            column.parent_unique_id(), _opts.get_be_exec_version(), &column_reader,
+                            _opts.stats, &_opts.io_ctx) ||
                     column_reader == nullptr) {
                     continue;
                 }
