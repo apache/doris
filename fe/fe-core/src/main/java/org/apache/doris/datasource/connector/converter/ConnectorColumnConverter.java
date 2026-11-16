@@ -371,6 +371,12 @@ public final class ConnectorColumnConverter {
                     return ScalarType.createTimeStampTzType(precision);
                 }
                 return ScalarType.createTimeStampTzType(0);
+            case "TIMEV2":
+                // Like DATETIMEV2, connectors put the time scale in the precision field.
+                if (precision >= 0) {
+                    return ScalarType.createTimeV2Type(precision);
+                }
+                return ScalarType.TIMEV2;
             case "VARBINARY":
                 if (precision > 0) {
                     return ScalarType.createVarbinaryType(precision);
