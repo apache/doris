@@ -35,9 +35,12 @@ import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.SetOptionsCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.types.BigIntType;
+import org.apache.doris.persist.GlobalVarPersistInfo;
 import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.utframe.UtFrameUtils;
 
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Lists;
 import org.apache.commons.io.FileUtils;
 import org.junit.After;
 import org.junit.Assert;
@@ -45,6 +48,10 @@ import org.junit.BeforeClass;
 import org.junit.Test;
 import org.junit.jupiter.api.Assertions;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
 import java.io.File;
 import java.util.UUID;
 
@@ -222,6 +229,69 @@ public class VariableMgrTest {
         SetType setType = SetType.SESSION;
         Literal l = VariableMgr.getLiteral(sv, name, setType);
         Assert.assertEquals(BigIntType.INSTANCE, l.getDataType());
+    }
+
+    @Test
+    public void testDefaultVariantVariablesOnlyForTesting() throws Exception {
+        boolean originalEnableDebugPoints = Config.enable_debug_points;
+        try {
+            for (String name : new String[] {SessionVariable.DEFAULT_VARIANT_MAX_SUBCOLUMNS_COUNT,
+                    SessionVariable.DEFAULT_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE,
+                    SessionVariable.DEFAULT_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE,
+                    SessionVariable.DEFAULT_VARIANT_SPARSE_HASH_SHARD_COUNT,
+                    SessionVariable.DEFAULT_VARIANT_ENABLE_DOC_MODE,
+                    SessionVariable.DEFAULT_VARIANT_DOC_MATERIALIZATION_MIN_ROWS,
+                    SessionVariable.DEFAULT_VARIANT_DOC_HASH_SHARD_COUNT,
+                    SessionVariable.DEFAULT_VARIANT_ENABLE_NESTED_GROUP}) {
+                Assertions.assertTrue(VariableMgr.dump(SetType.SESSION, new SessionVariable(), null).stream()
+                        .noneMatch(row -> row.get(0).equals(name)), name);
+
+                SessionVariable sessionVariable = new SessionVariable();
+                String defaultValue = sessionVariable.getForwardVariables().get(name);
+                Config.enable_debug_points = false;
+                for (SetType setType : new SetType[] {SetType.SESSION, SetType.GLOBAL}) {
+                    SetVar setVar = new SetVar(setType, name, new StringLiteral("1"));
+                    DdlException e = Assertions.assertThrows(DdlException.class,
+                            () -> VariableMgr.setVar(sessionVariable, setVar));
+                    Assertions.assertTrue(e.getMessage().contains("only for testing"), e.getMessage());
+                }
+                Assertions.assertEquals(defaultValue, sessionVariable.getForwardVariables().get(name));
+                Assertions.assertEquals(defaultValue, VariableMgr.newSessionVariable().getForwardVariables().get(name));
+
+                // A statement forwarded by another FE carries the value of its session
+                SessionVariable forwarded = new SessionVariable();
+                forwarded.setForwardedSessionVariables(ImmutableMap.of(name, "1"));
+                String value = forwarded.getForwardVariables().get(name);
+                Assertions.assertNotEquals(defaultValue, value, name);
+
+                Config.enable_debug_points = true;
+                VariableMgr.setVar(sessionVariable, new SetVar(SetType.SESSION, name, new StringLiteral("1")));
+                Assertions.assertEquals(value, sessionVariable.getForwardVariables().get(name));
+            }
+        } finally {
+            Config.enable_debug_points = originalEnableDebugPoints;
+        }
+    }
+
+    @Test
+    public void testPersistedDefaultVariantVariableDroppedOnReplay() throws Exception {
+        boolean originalEnableDebugPoints = Config.enable_debug_points;
+        try {
+            Config.enable_debug_points = false;
+            // A value set by SET GLOBAL before the upgrade
+            SessionVariable persisted = new SessionVariable();
+            persisted.defaultVariantEnableDocMode = true;
+            ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+            new GlobalVarPersistInfo(persisted, Lists.newArrayList(SessionVariable.DEFAULT_VARIANT_ENABLE_DOC_MODE))
+                    .write(new DataOutputStream(bytes));
+            GlobalVarPersistInfo info = GlobalVarPersistInfo.read(
+                    new DataInputStream(new ByteArrayInputStream(bytes.toByteArray())));
+
+            VariableMgr.replayGlobalVariableV2(info, false);
+            Assertions.assertFalse(VariableMgr.newSessionVariable().defaultVariantEnableDocMode);
+        } finally {
+            Config.enable_debug_points = originalEnableDebugPoints;
+        }
     }
 
     @Test
