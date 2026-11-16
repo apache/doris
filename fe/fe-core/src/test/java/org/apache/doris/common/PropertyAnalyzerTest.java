@@ -718,10 +718,18 @@ public class PropertyAnalyzerTest {
 
     @Test
     public void testCheckDefaultVariantMaxSparseColumnStatisticsSize() {
-        SessionVariable sessionVariable = new SessionVariable();
-        Assertions.assertThrows(UnsupportedOperationException.class,
-                () -> sessionVariable.checkDefaultVariantMaxSparseColumnStatisticsSize("0"));
-        sessionVariable.checkDefaultVariantMaxSparseColumnStatisticsSize("1");
+        // The default_variant_* variables can only be set with debug points enabled.
+        boolean originalEnableDebugPoints = Config.enable_debug_points;
+        try {
+            Config.enable_debug_points = true;
+            SessionVariable sessionVariable = new SessionVariable();
+            UnsupportedOperationException e = Assertions.assertThrows(UnsupportedOperationException.class,
+                    () -> sessionVariable.checkDefaultVariantMaxSparseColumnStatisticsSize("0"));
+            Assertions.assertTrue(e.getMessage().contains("it must between 1 and 50000"), e.getMessage());
+            sessionVariable.checkDefaultVariantMaxSparseColumnStatisticsSize("1");
+        } finally {
+            Config.enable_debug_points = originalEnableDebugPoints;
+        }
     }
 
     @Test
