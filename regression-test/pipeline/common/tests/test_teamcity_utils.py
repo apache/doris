@@ -294,9 +294,26 @@ teamcity_request --fail https://ci.example
             body = self.state()['posts'][0]
             self.assertEqual(body['buildType']['id'], pipeline)
             self.assertEqual({p['name']: p['value'] for p in body['properties']['property']},
-                             {'env.PR_NUMBER': '123', 'env.CI_BRANCH': 'master'})
+                             {'env.PR_NUMBER': '123', 'env.CI_BRANCH': 'master', 'env.CI_REQUESTED_PR_HEAD': HEAD})
             self.assertNotIn('custom-artifact-dependencies', body)
             self.assertEqual(len(self.state()['posts']), 1)
+
+    def test_workflow_dispatch_matrix(self):
+        workflow = (HELPER.parents[3] / '.github/workflows/comment-to-trigger-teamcity.yml').read_text()
+        conditions = dict(re.findall(r'    - name: "Trigger ([a-z_]+)"\n      if: \$\{\{ (.*?) \}\}', workflow))
+        for branch in ['master', 'branch-4.2', 'branch-4.1']:
+            for command in [*conditions, 'buildall']:
+                selected = set()
+                for lane, condition in conditions.items():
+                    expression = condition.replace('steps.parse.outputs.comment_trigger', "'true'")
+                    expression = expression.replace('steps.parse.outputs.COMMENT_TRIGGER_TYPE', repr(command))
+                    expression = expression.replace('steps.parse.outputs.TARGET_BRANCH', repr(branch)).replace('&&', 'and')
+                    if eval(expression, {'__builtins__': {}, 'fromJSON': json.loads,
+                                         'contains': lambda values, value: value in values}):
+                        selected.add(lane)
+                expected = {'feut', 'beut', 'cloudut', 'compile', 'performance'} if command == 'buildall' else {command}
+                if branch != 'master': expected.discard('performance')
+                self.assertEqual(selected, expected, (branch, command))
 
     def test_exact_revision_submission(self):
         self.trigger()

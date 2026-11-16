@@ -48,7 +48,7 @@ TARGETS=(
     "be/src/storage/index/inverted/query/engine/intersection.cpp"
     "be/src/storage/index/inverted/common/query_info.h"
     "be/src/storage/index/inverted/analysis/tokenizer/pinyin/pinyin_alphabet_tokenizer.h"
-    "be/src/storage/index/inverted/analysis/analyzer/analyzer_provider.h"
+    "be/src/storage/index/inverted/analysis/analyzer/analyzer.h"
 )
 # Files the CLucene cases create; restore() removes them.
 PROBE_INNER="be/src/util/zz_clucene_probe_inner.h"
@@ -161,14 +161,14 @@ cp "${BACKUP}/be/src/storage/index/inverted/common/query_info.h" \
 
 # A symbol exception that no longer breaks the rule fails the gate.
 sed -i 's/lucene::/clucene_gate_probe::/g' \
-    "${ROOT}/be/src/storage/index/inverted/analysis/analyzer/analyzer_provider.h"
+    "${ROOT}/be/src/storage/index/inverted/analysis/analyzer/analyzer.h"
 OUT="$(run_gate)"; EC=$?
 [ "${EC}" -eq 1 ] || fail "stale CLucene symbol exception expected exit 1, got ${EC}"
 echo "${OUT}" | grep -q \
-    "CLUCENE_SYMBOL_FILES lists storage/index/inverted/analysis/analyzer/analyzer_provider.h" \
+    "CLUCENE_SYMBOL_FILES lists storage/index/inverted/analysis/analyzer/analyzer.h" \
     || fail "stale CLucene symbol exception not reported"
-cp "${BACKUP}/be/src/storage/index/inverted/analysis/analyzer/analyzer_provider.h" \
-    "${ROOT}/be/src/storage/index/inverted/analysis/analyzer/analyzer_provider.h"
+cp "${BACKUP}/be/src/storage/index/inverted/analysis/analyzer/analyzer.h" \
+    "${ROOT}/be/src/storage/index/inverted/analysis/analyzer/analyzer.h"
 
 printf '#include <fmt/format.h>\n' >> "${ROOT}/be/src/core/uint24.h"
 OUT="$(run_gate)"; EC=$?
