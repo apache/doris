@@ -80,7 +80,6 @@ public:
                     const StorageReadOptions& opts);
     ~SegmentIterator() override;
 
-    [[nodiscard]] Status init_iterators();
     [[nodiscard]] Status init(const StorageReadOptions& opts) override;
     [[nodiscard]] Status next_batch(Block* block) override;
 
@@ -127,7 +126,11 @@ private:
     [[nodiscard]] Status _init_query_read_ahead();
     // Complex columns retain their original reader and segment prefetcher.
     bool _use_read_ahead_for_column(ColumnId cid) const;
+    void _init_column_metadata(ColumnId cid);
+    // Reuse an iterator already prepared by key-range or column-condition filtering.
+    [[nodiscard]] Status _init_column_iterator(ColumnId cid);
     [[nodiscard]] Status _init_column_iterators();
+    [[nodiscard]] Status _init_column_condition_resources();
     [[nodiscard]] Status _init_index_iterators();
     // Initialize eager and lazy page sequences after pruning and submit their first windows
     // together. Subsequent data-page reads advance each physical column's window.
@@ -323,6 +326,8 @@ private:
     void _calculate_common_expr_index_exec_status();
 
     Status _process_eof(Block* block);
+    // Also used before scan buffers exist when a filtering stage proves the scan empty.
+    Status _finish_scan(Block* block);
 
     void _fill_column_nothing();
 
@@ -382,7 +387,7 @@ private:
     // vector idx -> column iterarator
     std::vector<std::unique_ptr<ColumnIterator>> _column_iterators;
     std::vector<std::unique_ptr<IndexIterator>> _index_iterators;
-    // after init(), `_row_bitmap` contains all rowid to scan
+    // Candidate rowids, populated and narrowed by the filtering stages in _lazy_init().
     roaring::Roaring _row_bitmap;
     // Cardinality cached when the range iterator is created or rebuilt after TopN pruning.
     uint64_t _row_bitmap_cardinality = 0;
