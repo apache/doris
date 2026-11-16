@@ -1837,6 +1837,7 @@ template <typename Float>
 struct GeographyTangent {
     Float east;
     Float north;
+    Float north_scale;
 };
 
 template <typename Float>
@@ -1862,10 +1863,12 @@ static bool geography_tangent(const GeoCoordinate& from, const GeoCoordinate& to
     const auto [sin_half, cos_half] = geography_degree_sincos<Float>(end.first, -start.first, true);
     const Float east = geography_degree_sincos<Float>(end.second).second *
                        geography_degree_sincos<Float>(end.first, -start.first).first;
-    const Float north =
-            geography_degree_sincos<Float>(end.second, -start.second).first * cos_half * cos_half +
+    const Float north_difference =
+            geography_degree_sincos<Float>(end.second, -start.second).first * cos_half * cos_half;
+    const Float north_sum =
             geography_degree_sincos<Float>(end.second, start.second).first * sin_half * sin_half;
-    *tangent = {east, north};
+    using std::abs;
+    *tangent = {east, north_difference + north_sum, abs(north_difference) + abs(north_sum)};
     return true;
 }
 
@@ -1918,7 +1921,12 @@ static Status geography_relative_cross(const GeoCoordinate& start, const GeoCoor
     const Float westward = first.east * last.north;
     const Float cross = eastward - westward;
     const Float error = 64 * std::numeric_limits<Float>::epsilon();
-    if (abs(cross) > error * (abs(eastward) + abs(westward))) {
+    // Include the north construction, not just the final subtraction. From (0,45) to
+    // (90,1e-17), its O(1) terms cancel before the cross product sees a tiny nonzero value.
+    // Use the raw-degree fallback unless this estimate fits the DOUBLE output precision.
+    const Float scale = abs(eastward) + abs(westward) + first.north_scale * abs(last.east) +
+                        last.north_scale * abs(first.east);
+    if (error * scale < std::numeric_limits<double>::epsilon() * abs(cross)) {
         *result = cross;
         return Status::OK();
     }

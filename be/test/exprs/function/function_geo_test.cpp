@@ -449,6 +449,24 @@ TEST(VGeoFunctionsTest, GeographyAnglePreservesTinyTurnBetweenNonequatorialEndpo
                               1e-115);
 }
 
+TEST(VGeoFunctionsTest, GeographyAngleAccountsForTangentCancellation) {
+    const std::string vertex = "010100000000000000000000000000000000804640";
+    const std::string east = "010100000000000000008056400000000000000000";
+    // At longitude 90 the exact turn is atan(tan(latitude)/sqrt(2)).
+    // The half-latitude tangent expression subtracts O(1) terms before the cross product.
+    const std::array<std::pair<std::string, double>, 4> cases {{
+            {"0101000000000000000080564097d44646f50e673c", 1.2341341494884353e-19},
+            {"01010000000000000000805640bc89d897b2d29c3c", 1.2341341494884351e-18},
+            {"010100000000000000008056409b2ba1869b84063d", 1.234134149488435e-16},
+            {"0101000000000000000080564095d626e80b2e113e", 1.2341341494884352e-11},
+    }};
+    for (const auto& [start, expected] : cases) {
+        check_geography_direction("st_angle", {start, vertex, east}, expected, expected * 1e-13);
+        const double reverse = std::min(2 * M_PI - expected, std::nextafter(2 * M_PI, 0.0));
+        check_geography_direction("st_angle", {east, vertex, start}, reverse, 1e-15);
+    }
+}
+
 TEST(VGeoFunctionsTest, GeographyAngleKeepsExactGreatCircleDirections) {
     // These degree coordinates are exactly coplanar, although rounded vector products differ.
     const std::string a = "0101000000000000000080464000000000008046c0";      // (45,-45)

@@ -37,6 +37,9 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Cardinality;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateMap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateNamedStruct;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateStruct;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MapContainsKey;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MapKeys;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MapSize;
 import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.MapLiteral;
@@ -139,12 +142,7 @@ public final class ConnectorSpatialWriteNormalizer {
         while (producerInput instanceof LogicalSort || producerInput instanceof LogicalLimit) {
             wrappers.add(producerInput);
             for (Expression expression : producerInput.getExpressions()) {
-                // A direct CARDINALITY(map_slot) depends on the entry count, which retagging preserves.
-                if (!isMapCardinality(expression)) {
-                    for (Slot input : expression.getInputSlots()) {
-                        sortInputs.add(input.getExprId());
-                    }
-                }
+                collectSortInputs(expression, sortInputs);
             }
             producerInput = (LogicalPlan) producerInput.child(0);
         }
@@ -210,14 +208,16 @@ public final class ConnectorSpatialWriteNormalizer {
                 if (wrapper instanceof LogicalSort) {
                     LogicalSort<?> sort = (LogicalSort<?>) wrapper;
                     List<OrderKey> keys = sort.getOrderKeys().stream().map(key -> {
-                        Expression expr = key.getExpr();
-                        if (isMapCardinality(expr)) {
-                            Slot input = replacedSlots.get(((Slot) expr.child(0)).getExprId());
-                            if (input != null) {
-                                return key.withExpression(new Cardinality(input));
+                        // Rebind inside ordinary ancestors too, e.g. CARDINALITY(m)+1.
+                        // Analysis rebuilds the function signature with the retagged MAP argument.
+                        Expression rebound = key.getExpr().rewriteDownShortCircuit(expression -> {
+                            if (expression instanceof Slot) {
+                                Slot replacement = replacedSlots.get(((Slot) expression).getExprId());
+                                return replacement == null ? expression : replacement;
                             }
-                        }
-                        return key;
+                            return expression;
+                        });
+                        return rebound == key.getExpr() ? key : key.withExpression(rebound);
                     }).collect(ImmutableList.toImmutableList());
                     normalizedSource = sort.withOrderKeysAndChild(keys, normalizedSource);
                 } else {
@@ -228,9 +228,20 @@ public final class ConnectorSpatialWriteNormalizer {
         return changed ? new LogicalProject<>(outputs, normalizedSource) : normalizedSource;
     }
 
-    private static boolean isMapCardinality(Expression expression) {
-        return expression instanceof Cardinality && expression.child(0) instanceof Slot
-                && expression.child(0).getDataType() instanceof MapType;
+    private static void collectSortInputs(Expression expression, Set<ExprId> inputs) {
+        if (expression instanceof Slot) {
+            inputs.add(((Slot) expression).getExprId());
+            return;
+        }
+        // Retagging NULL values preserves keys and entry counts. Recognize these observations
+        // inside ordinary expressions as well as at the root. Other MAP observations still block.
+        boolean keysOrCount = (expression instanceof Cardinality || expression instanceof MapSize
+                || expression instanceof MapKeys || expression instanceof MapContainsKey)
+                && expression.child(0) instanceof Slot && expression.child(0).getDataType() instanceof MapType;
+        // MAP_CONTAINS_KEY's lookup can have its own MAP dependency; only its first input is safe.
+        for (int i = keysOrCount ? 1 : 0; i < expression.arity(); i++) {
+            collectSortInputs(expression.child(i), inputs);
+        }
     }
 
     private static boolean isForwardingProject(LogicalProject<?> project) {
