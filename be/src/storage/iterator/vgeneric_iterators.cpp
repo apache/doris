@@ -27,6 +27,7 @@
 #include "core/block/block.h"
 #include "core/block/column_with_type_and_name.h"
 #include "core/column/column.h"
+#include "core/column/column_nothing.h"
 #include "core/data_type/data_type.h"
 #include "storage/iterators.h"
 #include "storage/olap_common.h"
@@ -142,6 +143,18 @@ Status VMergeIteratorContext::copy_rows(Block* block, bool advanced) {
     size_t start = _index_in_block - _cur_batch_num + 1 - advanced;
 
     RETURN_IF_CATCH_EXCEPTION({
+        // A caller-created block can still contain virtual-slot placeholders, even
+        // though SegmentIterator has materialized the input columns. ColumnNothing
+        // only counts inserted rows and discards their values, so replace the empty
+        // destination placeholders before copying the first rows.
+        if (dst.rows() == 0) {
+            for (auto& column : dst) {
+                if (check_and_get_column<ColumnNothing>(column.column.get())) {
+                    DCHECK(column.column->empty());
+                    column.column = column.type->create_column();
+                }
+            }
+        }
         for (size_t i = 0; i < _read_schema->num_block_columns(); ++i) {
             auto& s_col = src.get_by_position(i);
             auto& d_col = dst.get_by_position(i);
