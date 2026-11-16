@@ -48,8 +48,8 @@ public class DatasourcePrintableMap<K, V> extends BasicPrintableMap<K, V> {
         SENSITIVE_KEY.add("password");
         SENSITIVE_KEY.add("kerberos_keytab_content");
         SENSITIVE_KEY.add("bos_secret_accesskey");
-        // jdbc.password, elasticsearch.password, the MaxCompute secret, the Iceberg REST keys and the Fluss
-        // entries below predate ConnectorSecuritySurface. Those connectors now declare their secrets
+        // The JDBC, MongoDB, Elasticsearch, MaxCompute, Iceberg REST and Fluss entries below were added before
+        // connectors could declare secret properties on ConnectorSecuritySurface. They now declare their secrets
         // themselves; the entries stay so that a catalog whose connector plugin is not loaded still prints
         // them masked. A new connector key belongs on its connector's security surface, not here.
         SENSITIVE_KEY.add("jdbc.password");

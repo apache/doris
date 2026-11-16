@@ -175,6 +175,26 @@ public class EncryptSQLTest extends ParserTestBase {
                     + ")";
             parseAndCheck(sql, res);
 
+            sql = "ALTER CATALOG ctl SET PROPERTIES("
+                    + " \"password\" = \"😀😀😀😀😀😀😀secret\","
+                    + " \"s3.secret_key\" = \"second-secret\","
+                    + " \"comment\" = \"visible😀\")";
+            res = "ALTER CATALOG ctl SET PROPERTIES("
+                    + " \"password\" = \"*XXX\","
+                    + " \"s3.secret_key\" = \"*XXX\","
+                    + " \"comment\" = \"visible😀\")";
+            parseAndCheck(sql, res);
+
+            sql = "ALTER /* 😀😀😀😀😀😀😀😀 */ CATALOG ctl SET PROPERTIES("
+                    + " \"comment\" = \"visible😀\","
+                    + " \"password\" = \"first-secret\","
+                    + " \"s3.secret_key\" = \"😀second-secret\")";
+            res = "ALTER /* 😀😀😀😀😀😀😀😀 */ CATALOG ctl SET PROPERTIES("
+                    + " \"comment\" = \"visible😀\","
+                    + " \"password\" = \"*XXX\","
+                    + " \"s3.secret_key\" = \"*XXX\")";
+            parseAndCheck(sql, res);
+
             sql = "CREATE TABLE mysql_tbl("
                     + " k1 DATE,"
                     + " k2 INT,"
