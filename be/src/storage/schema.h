@@ -37,6 +37,8 @@
 
 namespace doris {
 
+class SlotDescriptor;
+
 #include "common/compile_check_begin.h"
 
 // The class is used to represent row's format in memory.  Each row contains
@@ -80,6 +82,10 @@ public:
 
     static IColumn::MutablePtr get_predicate_column_ptr(const DataTypePtr& data_type,
                                                         const ReaderType reader_type);
+
+    // Builds the column `slot` reads from the slot's name, unique id, type and default value.
+    // For a column the tablet schema does not have yet, e.g. one a light schema change just added.
+    static TabletColumn tablet_column_from_slot(const SlotDescriptor& slot);
 
     const std::vector<TabletColumnPtr>& columns() const { return _cols; }
 
