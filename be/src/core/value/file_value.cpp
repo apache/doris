@@ -25,8 +25,6 @@ namespace {
 // Keep helper names separate from other anonymous namespaces in Core unity builds.
 namespace file_value_detail {
 
-constexpr size_t MAX_METADATA_BYTES = 1024;
-
 bool mime_token_char(char ch) {
     // RFC 2045 section 5.1: ASCII minus SPACE, CTLs and tspecials.
     return ch > 0x20 && ch < 0x7f &&
@@ -154,8 +152,7 @@ bool mime(std::string_view text) {
 } // namespace
 
 bool is_valid_file_content_type(std::string_view content_type) {
-    return content_type.size() <= file_value_detail::MAX_METADATA_BYTES &&
-           file_value_detail::mime(content_type);
+    return file_value_detail::mime(content_type);
 }
 
 std::string_view infer_file_content_type_from_name(std::string_view name) {

@@ -75,6 +75,37 @@ TEST(DataTypeFileTest, CanonicalIdentityAndMetadata) {
     EXPECT_EQ(proto.types(6).scalar_type().len(), std::numeric_limits<int32_t>::max());
 }
 
+TEST(DataTypeFileTest, LegacyVarcharDescriptorsNormalizeToString) {
+    DataTypeFile type;
+    TTypeDesc thrift;
+    type.to_thrift(thrift);
+    PTypeDesc proto;
+    static_cast<const IDataType&>(type).to_protobuf(&proto);
+    for (const int index : {1, 4, 5}) {
+        const int length = index == 1 ? 65533 : 1024;
+        thrift.types[index].scalar_type.__set_type(TPrimitiveType::VARCHAR);
+        thrift.types[index].scalar_type.__set_len(length);
+        proto.mutable_types(index)->mutable_scalar_type()->set_type(TPrimitiveType::VARCHAR);
+        proto.mutable_types(index)->mutable_scalar_type()->set_len(length);
+    }
+    for (const auto& restored : {
+                 DataTypeFactory::instance().create_data_type(thrift, false),
+                 DataTypeFactory::instance().create_data_type(proto, false),
+         }) {
+        const auto& file = assert_cast<const DataTypeFile&>(*restored);
+        for (const size_t index : {0, 3, 4}) {
+            const auto child = remove_nullable(file.get_element(index));
+            EXPECT_EQ(child->get_primitive_type(), TYPE_STRING);
+            EXPECT_EQ(assert_cast<const DataTypeString&>(*child).len(), -1);
+        }
+        TTypeDesc output;
+        file.to_thrift(output);
+        for (const int index : {1, 4, 5}) {
+            EXPECT_EQ(output.types[index].scalar_type.type, TPrimitiveType::STRING);
+        }
+    }
+}
+
 TEST(DataTypeFileTest, RejectMalformedTypeDescriptors) {
     DataTypeFile type;
     TTypeDesc original;
@@ -106,9 +137,13 @@ TEST(DataTypeFileTest, SerializationRetainsBinaryInlineAndNulls) {
     auto column = type.create_column();
     const std::string bytes("\0\xff\0", 3);
     const std::string uri = "s3://bucket/object?versionId=" + std::string(70000, 'a');
+    const std::string content_type = "application/x-example;profile=" + std::string(70000, 'a');
+    const std::string checksum = "ETAG:" + std::string(70000, 'A');
     column->insert(Field::create_field<TYPE_FILE>(
             File {Field::create_field<TYPE_STRING>(uri), Field(),
-                  Field::create_field<TYPE_BIGINT>(Int64 {0}), Field(), Field(),
+                  Field::create_field<TYPE_BIGINT>(Int64 {0}),
+                  Field::create_field<TYPE_STRING>(content_type),
+                  Field::create_field<TYPE_STRING>(checksum),
                   Field::create_field<TYPE_VARBINARY>(StringView(bytes))}));
     column->insert(Field::create_field<TYPE_FILE>(
             File {Field::create_field<TYPE_STRING>(String {"hdfs://host/a"}), Field(), Field(),
@@ -125,6 +160,8 @@ TEST(DataTypeFileTest, SerializationRetainsBinaryInlineAndNulls) {
     ASSERT_EQ(restored->size(), 3);
     auto value = (*restored)[0];
     EXPECT_EQ(value.get<TYPE_FILE>()[0].get<TYPE_STRING>(), uri);
+    EXPECT_EQ(value.get<TYPE_FILE>()[3].get<TYPE_STRING>(), content_type);
+    EXPECT_EQ(value.get<TYPE_FILE>()[4].get<TYPE_STRING>(), checksum);
     const auto& inline_value = value.get<TYPE_FILE>()[5].get<TYPE_VARBINARY>();
     EXPECT_EQ(std::string(inline_value.data(), inline_value.size()), bytes);
     EXPECT_TRUE((*restored)[1].get<TYPE_FILE>()[5].is_null());
