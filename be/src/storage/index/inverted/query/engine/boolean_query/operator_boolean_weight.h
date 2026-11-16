@@ -49,6 +49,31 @@ public:
               _score_combiner(std::move(score_combiner)) {}
     ~OperatorBooleanWeight() override = default;
 
+    // Unscored, the operator lists its rows among a conjunction's candidates, so its clauses
+    // read only the rows the conjunction's other clauses kept.
+    bool lists_rows(const QueryExecutionContext& /*context*/,
+                    const std::string& /*binding_key*/) const override {
+        return _is_do_nothing_combiner();
+    }
+
+    index_query::TruthSet listed_rows(const QueryExecutionContext& context,
+                                      const std::string& /*binding_key*/,
+                                      const roaring::Roaring* candidates) override {
+        DORIS_CHECK(_is_do_nothing_combiner());
+        // Candidates covering much of the segment save little and would turn the listed term
+        // groups' block reads into row-by-row checks: evaluate as before and keep the rows
+        // among them.
+        constexpr uint64_t dense_candidate_factor = 4;
+        if (candidates != nullptr &&
+            candidates->cardinality() * dense_candidate_factor >= context.segment_num_rows) {
+            auto rows = evaluate_children(context, nullptr);
+            rows.true_rows &= *candidates;
+            rows.null_rows &= *candidates;
+            return rows;
+        }
+        return evaluate_children(context, candidates);
+    }
+
     ScorerPtr scorer(const QueryExecutionContext& context) override {
         if (_is_do_nothing_combiner()) {
             return build_three_value_scorer(context);
@@ -251,35 +276,78 @@ private:
                                  candidates);
     }
 
-    index_query::TruthSet evaluate_children(const QueryExecutionContext& context) {
+    // The rows among `candidates` (every row when null).
+    index_query::TruthSet evaluate_children(const QueryExecutionContext& context,
+                                            const roaring::Roaring* candidates = nullptr) {
         auto groups = listed_terms(context, /*scoring=*/false);
         if (_type == OperatorType::OP_AND) {
-            return evaluate_conjunction(context, groups);
+            return evaluate_conjunction(context, groups, candidates);
         }
         index_query::TruthSet result;
         for (ListedTerms& group : groups) {
-            result.union_with(group.disjunction());
-        }
-        for (size_t i = 0; i < _sub_weights.size(); ++i) {
-            if (!is_listed(groups, i)) {
-                result.union_with(clause_rows(context, i, nullptr));
+            auto rows = group.disjunction();
+            if (candidates != nullptr) {
+                rows.true_rows &= *candidates;
+                rows.null_rows &= *candidates;
             }
+            result.union_with(rows);
+        }
+        // A row one clause holds TRUE is TRUE for the disjunction, so the later clauses only
+        // read the rows still open while those are few; many open rows are read whole, as
+        // taking the TRUE ones out would cost a pass over them and save no read.
+        constexpr uint64_t dense_open_factor = 4;
+        const uint64_t all_rows =
+                candidates != nullptr ? candidates->cardinality() : context.segment_num_rows;
+        roaring::Roaring open;
+        for (size_t i = 0; i < _sub_weights.size(); ++i) {
+            if (is_listed(groups, i)) {
+                continue;
+            }
+            const roaring::Roaring* rows = candidates;
+            const uint64_t open_rows = all_rows - result.true_rows.cardinality();
+            if (open_rows == 0) {
+                break;
+            }
+            if (!result.true_rows.isEmpty() &&
+                open_rows * dense_open_factor < context.segment_num_rows) {
+                if (candidates != nullptr) {
+                    open = *candidates;
+                } else {
+                    open = roaring::Roaring();
+                    open.addRange(0, context.segment_num_rows);
+                }
+                open -= result.true_rows;
+                rows = &open;
+            }
+            result.union_with(clause_rows(context, i, rows));
         }
         if (_type == OperatorType::OP_NOT) {
-            result.negate(context.segment_num_rows);
+            if (candidates == nullptr) {
+                result.negate(context.segment_num_rows);
+            } else {
+                roaring::Roaring complement = *candidates;
+                complement -= result.true_rows;
+                complement -= result.null_rows;
+                result.true_rows = std::move(complement);
+            }
         }
         return result;
     }
 
     // Cheaper clauses run first, so the others read only the rows they keep: the scorers and
     // the listed groups in cost order, then the clauses listing their own rows on what is left.
+    // With `candidates`, every clause reads only those rows.
     index_query::TruthSet evaluate_conjunction(const QueryExecutionContext& context,
-                                               std::vector<ListedTerms>& groups) {
+                                               std::vector<ListedTerms>& groups,
+                                               const roaring::Roaring* initial) {
         index_query::TruthSet result;
         // An absent term leaves no row TRUE; only its field's NULL rows can still be UNKNOWN.
         if (std::ranges::any_of(groups, [](const ListedTerms& group) {
                 return group.has_absent_term() && !group.has_nulls();
             })) {
+            return result;
+        }
+        if (initial != nullptr && initial->isEmpty()) {
             return result;
         }
         struct Step {
@@ -307,9 +375,14 @@ private:
                     {.cost = group.cheapest_doc_freq(), .scorer = nullptr, .group = &group});
         }
         std::ranges::stable_sort(steps, {}, &Step::cost);
-        result.true_rows.addRange(0, context.segment_num_rows);
         roaring::Roaring possible;
         const roaring::Roaring* candidates = nullptr;
+        if (initial != nullptr) {
+            result.true_rows = *initial;
+            candidates = &result.true_rows;
+        } else {
+            result.true_rows.addRange(0, context.segment_num_rows);
+        }
         std::vector<uint32_t> listed_candidates;
         // Narrows the result by one clause's rows; true when nothing can match any more.
         const auto narrow = [&](const index_query::TruthSet& rows) {

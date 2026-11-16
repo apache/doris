@@ -63,6 +63,15 @@ public:
     // A row the Boolean does not match is FALSE, even where a clause's field is NULL.
     bool is_two_valued() const override { return true; }
 
+    // Unscored, the Boolean lists its rows among a parent's candidates: the required clauses
+    // first, each reading only the rows the ones before kept, then the SHOULD and MUST_NOT
+    // clauses on what is left.
+    bool lists_rows(const QueryExecutionContext& context,
+                    const std::string& binding_key) const override;
+    index_query::TruthSet listed_rows(const QueryExecutionContext& context,
+                                      const std::string& binding_key,
+                                      const roaring::Roaring* candidates) override;
+
 private:
     std::unordered_map<Occur, std::vector<ScorerPtr>> per_occur_scorers(
             const QueryExecutionContext& context, const std::string& binding_key = {});

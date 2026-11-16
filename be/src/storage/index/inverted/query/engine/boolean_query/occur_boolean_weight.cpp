@@ -18,6 +18,7 @@
 #include "storage/index/inverted/query/engine/boolean_query/occur_boolean_weight.h"
 
 #include "storage/index/inverted/query/engine/all_query/all_query.h"
+#include "storage/index/inverted/query/engine/complete_null_bitmap.h"
 #include "storage/index/inverted/query/engine/disjunction_scorer.h"
 #include "storage/index/inverted/query/engine/exclude_scorer.h"
 #include "storage/index/inverted/query/engine/intersection.h"
@@ -372,6 +373,148 @@ ScorerPtr OccurBooleanWeight<ScoreCombinerPtrT>::build_exclude_opt(
     auto do_nothing = std::make_shared<DoNothingCombiner>();
     auto specialized = scorer_union(std::move(must_not_scorers), do_nothing);
     return into_box_scorer(std::move(specialized), do_nothing);
+}
+
+template <typename ScoreCombinerPtrT>
+bool OccurBooleanWeight<ScoreCombinerPtrT>::lists_rows(const QueryExecutionContext& /*context*/,
+                                                       const std::string& /*binding_key*/) const {
+    // A minimum_should_match above one counts matches per row, which its disjunction scorer
+    // does without holding a bitmap per count.
+    return !_enable_scoring && _minimum_number_should_match <= 1;
+}
+
+// Follows complex_scorer's rules for unscored rows: an empty MUST clause or an all MUST_NOT
+// clause matches nothing, an all clause is no constraint as MUST and counts toward
+// minimum_should_match as SHOULD, and SHOULD clauses beside a required clause change nothing
+// unless minimum_should_match asks for them.
+template <typename ScoreCombinerPtrT>
+index_query::TruthSet OccurBooleanWeight<ScoreCombinerPtrT>::listed_rows(
+        const QueryExecutionContext& context, const std::string& binding_key,
+        const roaring::Roaring* candidates) {
+    DORIS_CHECK(!_enable_scoring && _minimum_number_should_match <= 1);
+    index_query::TruthSet result;
+    if (_sub_weights.empty() || context.segment_num_rows == 0) {
+        return result;
+    }
+    if (_sub_weights.size() == 1) {
+        const auto& [occur, weight] = _sub_weights[0];
+        const size_t should_count = occur == Occur::SHOULD ? 1 : 0;
+        if (occur == Occur::MUST_NOT || _minimum_number_should_match > should_count) {
+            return result;
+        }
+    }
+
+    // A clause that lists its rows reads only the rows asked for. Any other gets its scorer
+    // now, so all and empty clauses are known before a row is read.
+    struct Clause {
+        size_t index = 0;
+        std::string key;
+        ScorerPtr scorer;
+    };
+    std::unordered_map<Occur, std::vector<Clause>> clauses;
+    std::unordered_map<Occur, AllAndEmptyScorerCounts> counts;
+    for (size_t i = 0; i < _sub_weights.size(); ++i) {
+        const auto& [occur, weight] = _sub_weights[i];
+        Clause clause {.index = i,
+                       .key = _binding_keys[i].empty() ? binding_key : _binding_keys[i],
+                       .scorer = nullptr};
+        if (!weight->lists_rows(context, clause.key)) {
+            clause.scorer = weight->scorer(context, clause.key);
+            if (clause.scorer == nullptr) {
+                continue;
+            }
+            if (dynamic_cast<AllScorer*>(clause.scorer.get()) != nullptr) {
+                counts[occur].num_all_scorers++;
+                continue;
+            }
+            if (dynamic_cast<EmptyScorer*>(clause.scorer.get()) != nullptr) {
+                counts[occur].num_empty_scorers++;
+                continue;
+            }
+        }
+        clauses[occur].push_back(std::move(clause));
+    }
+    if (counts[Occur::MUST].num_empty_scorers > 0 || counts[Occur::MUST_NOT].num_all_scorers > 0) {
+        return result;
+    }
+    auto& must = clauses[Occur::MUST];
+    auto& should = clauses[Occur::SHOULD];
+    auto& must_not = clauses[Occur::MUST_NOT];
+    const size_t should_all = counts[Occur::SHOULD].num_all_scorers;
+    const size_t minimum = _minimum_number_should_match > should_all
+                                   ? _minimum_number_should_match - should_all
+                                   : 0;
+    if (minimum > should.size()) {
+        return result;
+    }
+    const bool has_must = !must.empty() || counts[Occur::MUST].num_all_scorers > 0;
+
+    roaring::Roaring rows;
+    if (candidates != nullptr) {
+        rows = *candidates;
+    } else {
+        rows.addRange(0, context.segment_num_rows);
+    }
+    // The rows a clause matches among `within`.
+    const auto clause_rows = [&](Clause& clause, const roaring::Roaring& within) {
+        if (clause.scorer == nullptr) {
+            return _sub_weights[clause.index]
+                    .second->listed_rows(context, clause.key, &within)
+                    .true_rows;
+        }
+        return collect_truth_set(clause.scorer, context.null_resolver, &within).true_rows;
+    };
+    // The rows any of `clauses` matches among `within`. A row one clause matches is not read by
+    // the later ones while the rows left open are few; many open rows are read whole, as taking
+    // the matched ones out would cost a pass over them and save no read.
+    const auto any_rows = [&](std::vector<Clause>& any, const roaring::Roaring& within) {
+        constexpr uint64_t dense_open_factor = 4;
+        const uint64_t within_rows = within.cardinality();
+        roaring::Roaring matched;
+        for (Clause& clause : any) {
+            const uint64_t open_rows = within_rows - matched.cardinality();
+            if (open_rows == 0) {
+                break;
+            }
+            if (open_rows * dense_open_factor >= context.segment_num_rows) {
+                matched |= clause_rows(clause, within);
+            } else {
+                matched |= clause_rows(clause, within - matched);
+            }
+        }
+        return matched;
+    };
+
+    // The required scorers cheapest first, then the clauses listing their rows.
+    std::ranges::stable_sort(must, [](const Clause& a, const Clause& b) {
+        const uint64_t a_cost = a.scorer == nullptr ? UINT64_MAX : a.scorer->cost();
+        const uint64_t b_cost = b.scorer == nullptr ? UINT64_MAX : b.scorer->cost();
+        return a_cost < b_cost;
+    });
+    for (Clause& clause : must) {
+        if (rows.isEmpty()) {
+            return result;
+        }
+        rows = clause_rows(clause, rows);
+    }
+
+    if (minimum == 1) {
+        rows = any_rows(should, rows);
+    } else if (!has_must && should_all == 0) {
+        // Without a required clause the SHOULD clauses are the rows, unless one of them
+        // matches every row.
+        if (should.empty()) {
+            return result;
+        }
+        rows = any_rows(should, rows);
+    }
+
+    // MUST_NOT removes only the rows its clauses match.
+    if (!rows.isEmpty() && !must_not.empty()) {
+        rows -= any_rows(must_not, rows);
+    }
+    result.true_rows = std::move(rows);
+    return result;
 }
 
 template class OccurBooleanWeight<SumCombinerPtr>;

@@ -19,6 +19,7 @@
 
 #include <array>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <roaring/roaring.hh>
 #include <vector>
@@ -279,6 +280,206 @@ TEST(BooleanTruthContractTest, OperatorAndReadsABroadChildWithinSelectiveRows) {
     ASSERT_NE(nulls, nullptr);
     EXPECT_EQ(*nulls, roaring::Roaring::bitmapOf(2, 30, 40));
     EXPECT_LE(work->advances + work->seeks, 8U);
+}
+
+// A disjunction under an unscored AND reads its children only within the rows the AND's other
+// clauses keep, and a later child only the rows the earlier ones leave open.
+TEST(BooleanTruthContractTest, OperatorAndReadsANestedDisjunctionWithinSelectiveRows) {
+    constexpr uint32_t row_count = 4096;
+    TruthRows broad;
+    broad.true_rows->addRange(0, row_count);
+    broad.true_rows->remove(40);
+    broad.null_rows->add(40);
+    TruthRows other;
+    other.true_rows->addRange(0, row_count);
+    TruthRows selective;
+    selective.true_rows->add(10);
+    selective.true_rows->add(40);
+    selective.null_rows->add(30);
+    auto broad_work = std::make_shared<ScorerWork>();
+    auto other_work = std::make_shared<ScorerWork>();
+    OperatorBooleanQueryBuilder disjunction(OperatorType::OP_OR);
+    disjunction.add(std::make_shared<ForwardOnlyQuery>(broad, 1.0F, broad_work));
+    disjunction.add(std::make_shared<ForwardOnlyQuery>(other, 1.0F, other_work));
+    OperatorBooleanQueryBuilder builder(OperatorType::OP_AND);
+    builder.add(disjunction.build());
+    builder.add(std::make_shared<ForwardOnlyQuery>(selective, 1.0F));
+    QueryExecutionContext context;
+    context.segment_num_rows = row_count;
+    auto scorer = builder.build()->weight(false)->scorer(context);
+
+    roaring::Roaring actual;
+    for (uint32_t doc = scorer->doc(); doc != TERMINATED; doc = scorer->advance()) {
+        actual.add(doc);
+    }
+    EXPECT_EQ(actual, roaring::Roaring::bitmapOf(2, 10, 40));
+    const auto* nulls = scorer->get_null_bitmap();
+    ASSERT_NE(nulls, nullptr);
+    EXPECT_EQ(*nulls, roaring::Roaring::bitmapOf(1, 30));
+    EXPECT_LE(broad_work->advances + broad_work->seeks, 8U);
+    // The first child holds row 10 and row 30 TRUE, so the second reads only row 40.
+    EXPECT_LE(other_work->advances + other_work->seeks, 4U);
+}
+
+// Nested unscored AND, OR and NOT keep SQL's three-valued logic when each reads only the rows
+// its parent conjunction keeps.
+TEST(BooleanTruthContractTest, NestedOperatorsWithinCandidatesMatchThreeValuedLogic) {
+    constexpr uint32_t row_count = 512;
+    constexpr size_t leaf_count = 6;
+    uint32_t state = 12345;
+    const auto next = [&state]() {
+        state = state * 1103515245U + 12345U;
+        return (state >> 16) & 0x7FFF;
+    };
+    for (int round = 0; round < 200; ++round) {
+        SCOPED_TRACE(round);
+        std::array<std::vector<ScalarTruth>, leaf_count> values;
+        std::array<TruthRows, leaf_count> rows;
+        for (size_t leaf = 0; leaf < leaf_count; ++leaf) {
+            // Leaves from very selective to broad.
+            const uint32_t true_percent = 2 + static_cast<uint32_t>(leaf) * 15;
+            for (uint32_t doc = 0; doc < row_count; ++doc) {
+                const uint32_t pick = next() % 100;
+                const ScalarTruth value = pick < true_percent       ? ScalarTruth::True
+                                          : pick < true_percent + 8 ? ScalarTruth::Unknown
+                                                                    : ScalarTruth::False;
+                values[leaf].push_back(value);
+                rows[leaf].add(doc, value);
+            }
+        }
+        // A random tree: each node is a leaf, a NOT of a node, or an AND/OR of 2-3 nodes.
+        struct Node {
+            QueryPtr query;
+            std::vector<ScalarTruth> values;
+        };
+        std::function<Node(int)> build = [&](int depth) -> Node {
+            const uint32_t kind = depth == 0 ? 0 : next() % 4;
+            if (kind == 0) {
+                const size_t leaf = next() % leaf_count;
+                return {std::make_shared<BitSetQuery>(rows[leaf].true_rows, rows[leaf].null_rows),
+                        values[leaf]};
+            }
+            if (kind == 1) {
+                Node child = build(depth - 1);
+                OperatorBooleanQueryBuilder builder(OperatorType::OP_NOT);
+                builder.add(child.query);
+                for (auto& value : child.values) {
+                    value = value == ScalarTruth::True    ? ScalarTruth::False
+                            : value == ScalarTruth::False ? ScalarTruth::True
+                                                          : ScalarTruth::Unknown;
+                }
+                return {builder.build(), std::move(child.values)};
+            }
+            const OperatorType op = kind == 2 ? OperatorType::OP_AND : OperatorType::OP_OR;
+            OperatorBooleanQueryBuilder builder(op);
+            Node result = build(depth - 1);
+            builder.add(result.query);
+            const uint32_t children = 2 + next() % 2;
+            for (uint32_t i = 1; i < children; ++i) {
+                Node child = build(depth - 1);
+                builder.add(child.query);
+                for (uint32_t doc = 0; doc < row_count; ++doc) {
+                    result.values[doc] = evaluate_binary(op, result.values[doc], child.values[doc]);
+                }
+            }
+            result.query = builder.build();
+            return result;
+        };
+        Node root = build(3);
+        TruthRows expected;
+        for (uint32_t doc = 0; doc < row_count; ++doc) {
+            expected.add(doc, root.values[doc]);
+        }
+        QueryExecutionContext context;
+        context.segment_num_rows = row_count;
+        auto weight = root.query->weight(false);
+        auto scorer = weight->scorer(context);
+        roaring::Roaring actual;
+        for (uint32_t doc = scorer->doc(); doc != TERMINATED; doc = scorer->advance()) {
+            actual.add(doc);
+        }
+        EXPECT_EQ(actual, *expected.true_rows);
+        const auto* nulls = scorer->get_null_bitmap();
+        EXPECT_EQ(nulls == nullptr ? roaring::Roaring() : *nulls, *expected.null_rows);
+        if (weight->lists_rows(context, "")) {
+            // Sparse candidates, and dense ones that take the whole-segment path.
+            roaring::Roaring dense;
+            dense.addRange(0, row_count);
+            dense -= roaring::Roaring::bitmapOf(3, 2, 64, 400);
+            for (const auto& candidates :
+                 {roaring::Roaring::bitmapOf(5, 1, 7, 100, 300, 511), dense}) {
+                const auto listed = weight->listed_rows(context, "", &candidates);
+                EXPECT_EQ(listed.true_rows, *expected.true_rows & candidates);
+                EXPECT_EQ(listed.null_rows, *expected.null_rows & candidates);
+            }
+        }
+    }
+}
+
+// Unscored, an occur Boolean lists the rows its scorer matches, and among candidates the same
+// rows within them, for random trees of MUST, SHOULD and MUST_NOT clauses.
+TEST(BooleanTruthContractTest, OccurListedRowsMatchTheScorer) {
+    constexpr uint32_t row_count = 700;
+    constexpr size_t leaf_count = 6;
+    uint32_t state = 777;
+    const auto next = [&state]() {
+        state = state * 1103515245U + 12345U;
+        return (state >> 16) & 0x7FFF;
+    };
+    for (int round = 0; round < 300; ++round) {
+        SCOPED_TRACE(round);
+        std::array<TruthRows, leaf_count> rows;
+        for (size_t leaf = 0; leaf < leaf_count; ++leaf) {
+            const uint32_t true_percent = 3 + static_cast<uint32_t>(leaf) * 15;
+            for (uint32_t doc = 0; doc < row_count; ++doc) {
+                const uint32_t pick = next() % 100;
+                rows[leaf].add(doc, pick < true_percent       ? ScalarTruth::True
+                                    : pick < true_percent + 6 ? ScalarTruth::Unknown
+                                                              : ScalarTruth::False);
+            }
+        }
+        std::function<QueryPtr(int)> build = [&](int depth) -> QueryPtr {
+            if (depth == 0 || next() % 3 == 0) {
+                const size_t leaf = next() % leaf_count;
+                return std::make_shared<BitSetQuery>(rows[leaf].true_rows, rows[leaf].null_rows);
+            }
+            OccurBooleanQueryBuilder builder;
+            const uint32_t children = 1 + next() % 4;
+            size_t shoulds = 0;
+            for (uint32_t i = 0; i < children; ++i) {
+                const uint32_t kind = next() % 6;
+                const Occur occur = kind < 2   ? Occur::MUST
+                                    : kind < 5 ? Occur::SHOULD
+                                               : Occur::MUST_NOT;
+                shoulds += occur == Occur::SHOULD;
+                builder.add(build(depth - 1), occur);
+            }
+            builder.set_minimum_number_should_match(next() % (shoulds + 2));
+            return builder.build();
+        };
+        QueryPtr root = build(3);
+        QueryExecutionContext context;
+        context.segment_num_rows = row_count;
+        auto weight = root->weight(false);
+        roaring::Roaring expected;
+        auto scorer = weight->scorer(context);
+        for (uint32_t doc = scorer->doc(); doc != TERMINATED; doc = scorer->advance()) {
+            expected.add(doc);
+        }
+        if (!weight->lists_rows(context, "")) {
+            continue;
+        }
+        const auto listed = weight->listed_rows(context, "", nullptr);
+        EXPECT_EQ(listed.true_rows, expected);
+        EXPECT_TRUE(listed.null_rows.isEmpty());
+        roaring::Roaring candidates;
+        for (uint32_t doc = 0; doc < row_count; ++doc) {
+            if (next() % 5 == 0) {
+                candidates.add(doc);
+            }
+        }
+        EXPECT_EQ(weight->listed_rows(context, "", &candidates).true_rows, expected & candidates);
+    }
 }
 
 class FieldNullIterator final : public segment_v2::IndexIterator {
