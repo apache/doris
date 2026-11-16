@@ -32,7 +32,8 @@ bool can_score_match(const TabletIndex* index_meta) {
         return true;
     }
     return get_parser_phrase_support_string_from_properties(properties) ==
-           INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES;
+                   INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES ||
+           IndexReaderHelper::is_normalizer_only(properties);
 }
 
 } // namespace

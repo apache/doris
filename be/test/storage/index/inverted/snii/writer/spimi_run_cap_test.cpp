@@ -27,7 +27,8 @@
 #include "storage/index/inverted/snii/writer/spimi_term_buffer.h"
 #include "storage/index/inverted/snii/writer/term_posting_test_utils.h"
 
-// Check that merge fan-in limits preserve postings, including documents split across runs.
+// Spill runs share one spool, and merging preserves posting order.
+// A zero fan-in cap retains the posting workspace and file descriptor limits.
 using doris::Status;
 using doris::snii::writer::SpimiTermBuffer;
 using doris::snii::writer::StreamedTermPostings;

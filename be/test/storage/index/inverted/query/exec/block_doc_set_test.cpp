@@ -67,6 +67,22 @@ private:
     size_t _next = 0;
 };
 
+TEST(BlockDocSetTest, MissingNormsUseUnitDocumentLength) {
+    const std::array<uint32_t, 1> docs {5};
+    PostingsBlock block {.docs = docs,
+                         .freqs = {},
+                         .norms = {},
+                         .range_begin = 0,
+                         .range_end = 0,
+                         .dense = false};
+    EXPECT_EQ(block.freq_at(0), 1U);
+    EXPECT_EQ(block.norm_at(0), 1U);
+
+    const std::array<uint32_t, 1> stored_norm {0};
+    block.norms = stored_norm;
+    EXPECT_EQ(block.norm_at(0), 0U);
+}
+
 TEST(BlockDocSetTest, ReadFailureDoesNotBecomeEndOfPostings) {
     TestBlockCursor source({{.docs = {},
                              .freqs = {},

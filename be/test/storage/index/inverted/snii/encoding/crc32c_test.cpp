@@ -109,17 +109,8 @@ TEST(SniiCrc32c, ExtendAcrossArbitrarySplits) {
     }
 }
 
-// =============================================================================
-// T21 -- CRC32C 3-way interleaved hardware reference paths.
-//
-// Production crc32c()/crc32c_extend() delegate to the bundled Google crc32c
-// thirdparty (already hardware-accelerated + interleaved). The doris::snii::detail
-// seam below exposes three reference sub-paths -- portable slice-by-8, serial
-// SSE4.2 hardware, and the 3-way interleaved SSE4.2 hardware algorithm with a
-// GF(2) shift-combine -- so these tests can prove, byte-for-byte, that the
-// production path equals the canonical CRC32C across every size/alignment and that
-// the hardware path is engaged. detail::* is compiled only under BE_TEST.
-// =============================================================================
+// Compare production CRC32C with portable, serial hardware, and interleaved
+// hardware reference paths. The reference paths compile only under BE_TEST.
 
 namespace {
 
@@ -149,7 +140,7 @@ constexpr size_t kAlignments[] = {0, 1, 2, 3, 4, 7};
 
 } // namespace
 
-// FV-1: hw3 == slice8 == hw_serial == production crc32c across all sizes/alignments.
+// Hw3 == slice8 == hw_serial == production crc32c across all sizes/alignments.
 TEST(SniiCrc32cTest, Hw3MatchesSlice8AcrossSizesAndAlignments) {
     for (size_t n : kSweepSizes) {
         for (size_t align : kAlignments) {
@@ -167,7 +158,7 @@ TEST(SniiCrc32cTest, Hw3MatchesSlice8AcrossSizesAndAlignments) {
     }
 }
 
-// FV-2: degenerate + exact-divisible boundaries. Empty -> canonical crc32c("")==0
+// Degenerate + exact-divisible boundaries. Empty -> canonical crc32c("")==0
 // on every path; n=3072 is exactly 3*1024 (zero interleave tail).
 TEST(SniiCrc32cTest, DegenerateAndExactDivisibleBoundaries) {
     const Slice empty(nullptr, 0);
@@ -186,7 +177,7 @@ TEST(SniiCrc32cTest, DegenerateAndExactDivisibleBoundaries) {
     }
 }
 
-// FV-3: seeded-extend chaining equals the one-shot over the whole, including a
+// Seeded-extend chaining equals the one-shot over the whole, including a
 // length that crosses the 1024 threshold (4097). Covers the seed chain + the hw3
 // GF(2) combine linearity (the property every framed section relies on).
 TEST(SniiCrc32cTest, ExtendEqualsConcatenationAcrossThreshold) {
@@ -208,7 +199,7 @@ TEST(SniiCrc32cTest, ExtendEqualsConcatenationAcrossThreshold) {
     }
 }
 
-// FV-4: canonical CRC32C vectors from an external authority. A path that altered
+// Canonical CRC32C vectors from an external authority. A path that altered
 // the value -- and hence the on-disk format -- would break these.
 TEST(SniiCrc32cTest, KnownVectorsMatchExternalAuthority) {
     const char* digits = "123456789";
@@ -231,7 +222,7 @@ TEST(SniiCrc32cTest, KnownVectorsMatchExternalAuthority) {
     EXPECT_EQ(ref, detail::crc32c_hw3_extend(0, as));
 }
 
-// FV-5: single-bit-flip regression -- the checksum still distinguishes a one-bit
+// Single-bit-flip regression -- the checksum still distinguishes a one-bit
 // change (verify capability not degraded) on both the production and hw3 paths.
 TEST(SniiCrc32cTest, SingleBitFlipChangesChecksum) {
     std::vector<uint8_t> buf = make_padded_bytes(0x5A5A5A5AULL, 0, 2048); // crosses threshold
@@ -250,7 +241,7 @@ TEST(SniiCrc32cTest, SingleBitFlipChangesChecksum) {
     }
 }
 
-// FV-6 ([perf-deterministic]): the interleave optimization is engaged and correct.
+// The interleave optimization is engaged and correct.
 // threshold > 0, and when hardware CRC is present the dispatcher-selected hardware
 // paths equal the authoritative library value.
 TEST(SniiCrc32cPerfTest, OptimizationEngagedThresholdAndHardwarePath) {
@@ -297,7 +288,7 @@ TEST(SniiCrc32cPerfTest, Hw3ThroughputReportOnly) {
     SUCCEED();
 }
 
-// FV-7: reader black-box regression. build_reader stamps every dict-block /
+// Reader black-box regression. build_reader stamps every dict-block /
 // prx-window / frq-region crc via the production crc32c(); open_index and the
 // queries re-verify them, so assert_ok fails on any Status::Corruption from the
 // dict_block / prx_pod / frq_pod verify paths. Results must match the known-good

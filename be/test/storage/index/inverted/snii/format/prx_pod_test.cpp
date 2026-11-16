@@ -1342,13 +1342,7 @@ TEST(SniiPrxPod, FlatBuilderExtraPositionsRejected) {
     }
 }
 
-// ---------------------------------------------------------------------------
-// T14: auto-mode single-encode -- the auto builders derive per-doc deltas once,
-// directly emit a provably smaller singleton RAW frame, and only materialize a
-// throwaway raw plaintext payload when it is large enough (>= 512 B) for zstd.
-// The tests below cover the deterministic raw-build counter seam plus builder
-// byte/codec equivalence.
-// ---------------------------------------------------------------------------
+// Check the auto builders' encoding count and byte-equivalent output.
 
 namespace {
 
@@ -1854,15 +1848,7 @@ TEST(SniiPrxPodTest, NullSinkRejected) {
     EXPECT_TRUE(s2.is<doris::ErrorCode::INVALID_ARGUMENT>()) << s2.to_string();
 }
 
-// ===========================================================================
-// T22 -- single-copy framing (write_pfor / write_raw / write_zstd_compressed +
-// SectionFramer::write) and the bitpack capacity reserve. The framing refactor
-// writes [codec/type][len][payload] DIRECTLY into the caller's sink and crc's
-// that span in place (no temp ByteSink), so these tests pin the on-disk bytes to
-// an INDEPENDENT hand-assembly of the wire frame. A wrong crc range, a view()
-// taken at the wrong time, or a wrong start offset shows up as a byte or Status
-// mismatch. All bytes MUST stay identical to the pre-refactor output.
-// ===========================================================================
+// Compare direct frame writes with independently assembled wire bytes.
 
 namespace {
 

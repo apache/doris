@@ -37,15 +37,9 @@ namespace doris::snii::reader {
 class SniiRewriteSnapshot;
 } // namespace doris::snii::reader
 
-// Writes one SNII container through an append-only FileWriter:
-//
-//   [bootstrap header]
-//   [posting and DICT regions per logical index]
-//   [norms and null-bitmap sections per logical index]
-//   [Core, sampled-term index, and DICT directory per logical index]
-//   [metadata directory][optional cache-block padding][tail pointer]
-//
-// SectionRefs and directory entries use absolute file offsets. DICT entry posting offsets are relative to their index's posting region; the tail pointer locates the metadata directory.
+// Writes a container with a bootstrap header, index sections, a metadata directory, optional
+// cache padding, and a tail pointer through an append-only FileWriter.
+// Directory offsets are absolute; DICT posting offsets are relative to the index's posting region.
 namespace doris::snii::writer {
 
 // A container is padded up to a file-cache block boundary only when it spans at least this many
@@ -161,10 +155,11 @@ public:
     // holding a partial prefix.
     Status inherit(const reader::SniiRewriteSnapshot& snapshot, io::FileReader* source);
 
-    // Buffers one logical index: builds its section bytes and meta sub-sections.
-    // The actual file writing happens in finish() (single front-to-back pass).
-    // The key (index_id, suffix) must not collide with an inherited one.
+    // Builds one logical index synchronously. The convenience overload copies
+    // and charges in.null_docids; ingestion uses the tracked overload to transfer
+    // the already-charged allocation without a second resident vector.
     Status add_logical_index(const SniiIndexInput& in);
+    Status add_logical_index(const SniiIndexInput& in, TrackedNullDocids null_docids);
 
     // Registers one opaque BLOB logical index (kind must not be kInverted).
     // Registration is pure bookkeeping -- NOT A BYTE is written here, so it is
@@ -246,6 +241,7 @@ private:
     Status write_index_aux_sections(LogicalIndexWriter& writer, Placement& placement);
     Status write_tail();
     Status append(const std::vector<uint8_t>& bytes);
+    Status _add_logical_index(const SniiIndexInput& in, TrackedNullDocids null_docids);
     Status poison(Status status);
     // Argument validation for one add_blob_index call; see the .cpp.
     static Status validate_blob_registration(format::LogicalIndexKind kind,

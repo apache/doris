@@ -19,6 +19,8 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.IndexDef;
 
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -37,6 +39,40 @@ public class IndexTest {
 
         Assert.assertEquals(Collections.singletonList(107),
                 index.getColumnUniqueIds(Collections.singletonList(shadowColumn)));
+    }
+
+    @Test
+    public void testInvertedIndexPhraseDefaultsFollowTokenization() {
+        Index exact = new Index(1, "exact", ImmutableList.of("col"), IndexDef.IndexType.INVERTED, ImmutableMap.of(), "");
+        Assert.assertFalse(exact.getProperties().containsKey("support_phrase"));
+
+        Index keyword = new Index(2, "keyword", ImmutableList.of("col"), IndexDef.IndexType.INVERTED,
+                ImmutableMap.of("parser", "none"), "");
+        Assert.assertFalse(keyword.getProperties().containsKey("support_phrase"));
+
+        Index normalized = new Index(3, "normalized", ImmutableList.of("col"), IndexDef.IndexType.INVERTED,
+                ImmutableMap.of("normalizer", "lowercase"), "");
+        Assert.assertFalse(normalized.getProperties().containsKey("support_phrase"));
+
+        Index customNormalizer = new Index(7, "custom_normalizer", ImmutableList.of("col"), IndexDef.IndexType.INVERTED,
+                ImmutableMap.of("normalizer", "split_norm"), "");
+        Assert.assertEquals("true", customNormalizer.getProperties().get("support_phrase"));
+
+        Index disabledCustomNormalizer = new Index(8, "disabled_custom_normalizer", ImmutableList.of("col"),
+                IndexDef.IndexType.INVERTED, ImmutableMap.of("normalizer", "split_norm", "support_phrase", "false"), "");
+        Assert.assertEquals("false", disabledCustomNormalizer.getProperties().get("support_phrase"));
+
+        Index parsed = new Index(4, "parsed", ImmutableList.of("col"), IndexDef.IndexType.INVERTED,
+                ImmutableMap.of("parser", "english"), "");
+        Assert.assertEquals("true", parsed.getProperties().get("support_phrase"));
+
+        Index analyzed = new Index(5, "analyzed", ImmutableList.of("col"), IndexDef.IndexType.INVERTED,
+                ImmutableMap.of("analyzer", "english"), "");
+        Assert.assertEquals("true", analyzed.getProperties().get("support_phrase"));
+
+        Index disabled = new Index(6, "disabled", ImmutableList.of("col"), IndexDef.IndexType.INVERTED,
+                ImmutableMap.of("parser", "english", "support_phrase", "false"), "");
+        Assert.assertEquals("false", disabled.getProperties().get("support_phrase"));
     }
 
     @Test

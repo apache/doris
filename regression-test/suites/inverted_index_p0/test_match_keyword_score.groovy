@@ -94,11 +94,9 @@ suite("test_match_keyword_score", "p0") {
             """, true)
         }
 
-        // A VARIANT path is typed per segment: n holds numbers, indexed as BKD, in the first
-        // insert and text in the second. The plain VARIANT index makes every path a keyword
-        // index, so CAST(v['n'] AS STRING) MATCH collects statistics for n; the BKD segment adds
-        // none instead of failing, and its rows match without the index with score 0. p exists
-        // only in the first insert: the other segment has no index for it and adds nothing.
+        // Mixed numeric/text segments must ignore BKD and missing indexes when collecting text statistics.
+        // Keep each path in an indexed subcolumn so CI limits cannot move it to the sparse column.
+        sql "set default_variant_max_subcolumns_count = 0"
         sql "set default_variant_enable_typed_paths_to_sparse = false"
         sql "set default_variant_enable_doc_mode = false"
         sql "DROP TABLE IF EXISTS test_match_keyword_score_variant"
