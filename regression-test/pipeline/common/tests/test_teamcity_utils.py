@@ -114,6 +114,38 @@ curl(){ python3 "$FIXTURE_ROOT/status_mock.py" "$@"; }
         self.assertEqual(self.skipped_contexts(), ['TeamCity/feut'])
         self.assertFalse(self.state().get('posts'))
 
+    def run_with_pr(self, pr, changed):
+        prefix = '''teamcity_request(){ python3 "$FIXTURE_ROOT/mock.py" "$@"; }
+curl(){
+    if [[ "$*" == *'/pulls/123'* ]]; then
+        printf '%s\\n' "$MOCK_PR";
+    else
+        python3 "$FIXTURE_ROOT/status_mock.py" "$@";
+    fi
+}
+'''
+        return self.run_shell(prefix + 'trigger_or_skip_build ' + changed + ' 123 master ' + HEAD + ' feut 1',
+                              mock=False, check=False, env={'MOCK_PR': json.dumps(pr)})
+
+    def test_draft_pr_can_trigger_and_skip(self):
+        pr = {'state': 'open', 'draft': True, 'head': {'sha': HEAD}, 'base': {'ref': 'master'}}
+        result = self.run_with_pr(pr, 'true')
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(len(self.state()['posts']), 1)
+        result = self.run_with_pr(pr, 'false')
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.skipped_contexts(), ['TeamCity/feut'])
+
+    def test_closed_or_changed_draft_pr_cannot_trigger_or_skip(self):
+        for change in [{'state': 'closed'}, {'head': {'sha': 'b' * 40}}, {'base': {'ref': 'branch-4.2'}}]:
+            for changed in ['true', 'false']:
+                with self.subTest(change=change, changed=changed):
+                    pr = {'state': 'open', 'draft': True, 'head': {'sha': HEAD}, 'base': {'ref': 'master'}, **change}
+                    result = self.run_with_pr(pr, changed)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertFalse(self.state().get('posts'))
+                    self.assertFalse(self.skipped_contexts())
+
     def test_compile_skip_covers_downstream_checks(self):
         self.run_shell('trigger_or_skip_build false 123 master ' + HEAD + ' compile 1')
         self.assertEqual(self.skipped_contexts(), ['TeamCity/compile', 'TeamCity/p0', 'TeamCity/cloud_p0',
