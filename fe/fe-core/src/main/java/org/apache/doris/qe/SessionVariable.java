@@ -530,6 +530,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_SNAPSHOT_POINT_QUERY = "enable_snapshot_point_query";
 
     public static final String ENABLE_FILE_CACHE = "enable_file_cache";
+    public static final String ENABLE_FILE_CACHE_IO_ADAPTOR = "enable_file_cache_io_adaptor";
 
     public static final String DISABLE_FILE_CACHE = "disable_file_cache";
 
@@ -2417,6 +2418,11 @@ public class SessionVariable implements Serializable, Writable {
             + "The cache is not used when BE config enable_file_cache=false.")
     public boolean enableFileCache = true;
 
+    @VarAttrDef.VarAttr(name = ENABLE_FILE_CACHE_IO_ADAPTOR, needForward = true,
+            description = "Allow external queries to adaptively read remote data "
+                    + "when local file-cache reads are slower.")
+    public boolean enableFileCacheIoAdaptor = true;
+
     // Specify base path for file cache, or chose a random path.
     @VarAttrDef.VarAttr(name = FILE_CACHE_BASE_PATH, needForward = true, description = "Specify the storage path of "
             + "the block file cache on BE, default 'random', "
@@ -3086,6 +3092,22 @@ public class SessionVariable implements Serializable, Writable {
             description = "enable count(*) pushdown optimization for external table")
     private boolean enableCountPushDownForExternalTable = true;
 
+    public static final String MONGODB_READ_PREFERENCE = "mongodb_read_preference";
+    public static final String MONGODB_READ_CONCERN = "mongodb_read_concern";
+
+    @VarAttrDef.VarAttr(name = MONGODB_READ_PREFERENCE, needForward = true,
+            checker = "checkMongoDBReadPreference",
+            options = {"inherit", "primary", "primaryPreferred", "secondary", "secondaryPreferred", "nearest"},
+            description = "MongoDB data-read routing for this session or SET_VAR statement. "
+                    + "inherit follows the catalog policy, including URI routing criteria")
+    public String mongodbReadPreference = "inherit";
+
+    @VarAttrDef.VarAttr(name = MONGODB_READ_CONCERN, needForward = true,
+            checker = "checkMongoDBReadConcern", options = {"inherit", "local", "majority", "available"},
+            description = "MongoDB data-read visibility for this session or SET_VAR statement. "
+                    + "inherit follows the catalog policy; shared snapshots are not supported")
+    public String mongodbReadConcern = "inherit";
+
     public static final String FLUSS_UNION_READ_MODE = "fluss_union_read_mode";
 
     @VarAttrDef.VarAttr(name = FLUSS_UNION_READ_MODE,
@@ -3703,6 +3725,7 @@ public class SessionVariable implements Serializable, Writable {
 
     @VarAttrDef.VarAttr(
             name = DEFAULT_VARIANT_MAX_SUBCOLUMNS_COUNT,
+            flag = VarAttrDef.INVISIBLE,
             needForward = true,
             checker = "checkDefaultVariantMaxSubcolumnsCount",
             fuzzy = true
@@ -3711,13 +3734,16 @@ public class SessionVariable implements Serializable, Writable {
 
     @VarAttrDef.VarAttr(
             name = DEFAULT_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE,
+            flag = VarAttrDef.INVISIBLE,
             needForward = true,
+            checker = "checkDefaultVariantSettable",
             fuzzy = true
     )
     public boolean defaultEnableTypedPathsToSparse = false;
 
     @VarAttrDef.VarAttr(
             name = DEFAULT_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE,
+            flag = VarAttrDef.INVISIBLE,
             needForward = true,
             checker = "checkDefaultVariantMaxSparseColumnStatisticsSize",
             fuzzy = true
@@ -3734,7 +3760,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VarAttrDef.VarAttr(
             name = DEFAULT_VARIANT_SPARSE_HASH_SHARD_COUNT,
+            flag = VarAttrDef.INVISIBLE,
             needForward = true,
+            checker = "checkDefaultVariantSettable",
             fuzzy = true
     )
     public int defaultVariantSparseHashShardCount = 0;
@@ -3746,28 +3774,36 @@ public class SessionVariable implements Serializable, Writable {
 
     @VarAttrDef.VarAttr(
             name = DEFAULT_VARIANT_ENABLE_DOC_MODE,
+            flag = VarAttrDef.INVISIBLE,
             needForward = true,
+            checker = "checkDefaultVariantSettable",
             fuzzy = true
     )
     public boolean defaultVariantEnableDocMode = false;
 
     @VarAttrDef.VarAttr(
             name = DEFAULT_VARIANT_DOC_MATERIALIZATION_MIN_ROWS,
+            flag = VarAttrDef.INVISIBLE,
             needForward = true,
+            checker = "checkDefaultVariantSettable",
             fuzzy = true
     )
     public long defaultVariantDocMaterializationMinRows = 0L;
 
     @VarAttrDef.VarAttr(
             name = DEFAULT_VARIANT_DOC_HASH_SHARD_COUNT,
+            flag = VarAttrDef.INVISIBLE,
             needForward = true,
+            checker = "checkDefaultVariantSettable",
             fuzzy = true
     )
     public int defaultVariantDocHashShardCount = 64;
 
     @VarAttrDef.VarAttr(
             name = DEFAULT_VARIANT_ENABLE_NESTED_GROUP,
+            flag = VarAttrDef.INVISIBLE,
             needForward = true,
+            checker = "checkDefaultVariantSettable",
             fuzzy = true
     )
     public boolean defaultVariantEnableNestedGroup = false;
@@ -4555,6 +4591,21 @@ public class SessionVariable implements Serializable, Writable {
         if ("require".equals(normalized) && !BackendSelectionManager.supportsRequiredSelection()) {
             throw new UnsupportedOperationException(
                     "Backend selection provider does not support required backend selection");
+        }
+    }
+
+    public void checkMongoDBReadPreference(String value) {
+        if (!Set.of("inherit", "primary", "primarypreferred", "secondary", "secondarypreferred", "nearest")
+                .contains(value.toLowerCase(Locale.ROOT))) {
+            throw new UnsupportedOperationException("Invalid mongodb_read_preference; expected inherit, primary, "
+                    + "primaryPreferred, secondary, secondaryPreferred or nearest");
+        }
+    }
+
+    public void checkMongoDBReadConcern(String value) {
+        if (!Set.of("inherit", "local", "majority", "available").contains(value.toLowerCase(Locale.ROOT))) {
+            throw new UnsupportedOperationException("Invalid mongodb_read_concern; expected inherit, local, "
+                    + "majority or available");
         }
     }
 
@@ -5804,6 +5855,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setSkipDeleteBitmap(skipDeleteBitmap);
 
         tResult.setEnableFileCache(enableFileCache);
+        tResult.setEnableFileCacheIoAdaptor(enableFileCacheIoAdaptor);
 
         tResult.setEnablePageCache(enablePageCache);
 
@@ -6843,7 +6895,17 @@ public class SessionVariable implements Serializable, Writable {
         }
     }
 
+    // The default_variant_* variables only drive the tests, which run with debug points enabled. Users state VARIANT
+    // properties in the column definition, so a DDL text creates the same column in every session.
+    public void checkDefaultVariantSettable(String value) {
+        if (!Config.enable_debug_points) {
+            throw new UnsupportedOperationException("default_variant_* session variables are only for testing, "
+                    + "set the property in the VARIANT column definition");
+        }
+    }
+
     public void checkDefaultVariantMaxSubcolumnsCount(String variantMaxSubcolumnsCount) {
+        checkDefaultVariantSettable(variantMaxSubcolumnsCount);
         int value = Integer.valueOf(variantMaxSubcolumnsCount);
         if (value < 0 || value > 100000) {
             throw new UnsupportedOperationException(
@@ -6852,6 +6914,7 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public void checkDefaultVariantMaxSparseColumnStatisticsSize(String variantMaxSparseColumnStatisticsSize) {
+        checkDefaultVariantSettable(variantMaxSparseColumnStatisticsSize);
         int value = Integer.valueOf(variantMaxSparseColumnStatisticsSize);
         if (value < 1 || value > 50000) {
             throw new UnsupportedOperationException("variant max sparse column statistics size is: "

@@ -131,7 +131,7 @@ public class MasterOpExecutorBackendSelectionTest {
     }
 
     @Test
-    public void testForwardResultExposesExternalDmlAuditBackendIds() throws Exception {
+    public void testForwardResultExposesAuditBackendIds() throws Exception {
         TMasterOpResult result = new TMasterOpResult();
         result.setMaxJournalId(0L);
         result.setAuditStatisticsBackendIds(List.of(10001L, 10002L));

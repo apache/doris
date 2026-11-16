@@ -213,7 +213,9 @@ public final class ConnectorColumnConverter {
      * This is the inverse of {@link #convertType(ConnectorType)}.
      */
     public static ConnectorType toConnectorType(Type dorisType) {
-        if (dorisType instanceof ConnectorComputeVariantType) {
+        if (dorisType instanceof ConnectorUnknownType) {
+            return ConnectorType.of("UNKNOWN");
+        } else if (dorisType instanceof ConnectorComputeVariantType) {
             // Preserve the execution carrier on the reverse write-schema path; reporting ordinary
             // VARIANT would make an unchanged external schema look concurrently modified.
             return ConnectorType.of("VARIANT_COMPUTE_V2");
@@ -371,6 +373,12 @@ public final class ConnectorColumnConverter {
                     return ScalarType.createTimeStampTzType(precision);
                 }
                 return ScalarType.createTimeStampTzType(0);
+            case "TIMEV2":
+                // Like DATETIMEV2, connectors put the time scale in the precision field.
+                if (precision >= 0) {
+                    return ScalarType.createTimeV2Type(precision);
+                }
+                return ScalarType.TIMEV2;
             case "VARBINARY":
                 if (precision > 0) {
                     return ScalarType.createVarbinaryType(precision);
@@ -382,6 +390,8 @@ public final class ConnectorColumnConverter {
                 // This carrier is execution-only: connector schemas use it for native external
                 // Variant encodings, while persisted Doris table metadata keeps regular Variant rules.
                 return new ConnectorComputeVariantType();
+            case "UNKNOWN":
+                return new ConnectorUnknownType();
             case "UNSUPPORTED":
                 return Type.UNSUPPORTED;
             default:

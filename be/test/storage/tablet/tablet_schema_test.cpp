@@ -20,9 +20,12 @@
 #include <gen_cpp/Descriptors_types.h>
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/olap_file.pb.h>
+#include <google/protobuf/descriptor.pb.h>
+#include <google/protobuf/dynamic_message.h>
 #include <gtest/gtest.h>
 
 #include <set>
+#include <tuple>
 #include <vector>
 
 #include "agent/be_exec_version_manager.h"
@@ -1135,6 +1138,117 @@ TEST_F(TabletSchemaTest, to_schema_pb_v2_skips_legacy_flags) {
     EXPECT_FALSE(out.integer_type_default_use_plain_encoding());
     EXPECT_NE(BinaryPlainEncodingTypePB::BINARY_PLAIN_ENCODING_V2,
               out.binary_plain_encoding_default_impl());
+}
+
+TEST_F(TabletSchemaTest, EscapedVariantPropertyAndIndexSuffixRoundTrip) {
+    TabletColumn column;
+    column.set_unique_id(7);
+    column.set_name("v");
+    column.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
+    TabletIndex index;
+    index.set_escaped_escaped_index_suffix_path("v.a%2Eb_x");
+    EXPECT_EQ(index.get_index_suffix(), "v%2Ea%2Eb%5Fx");
+    index.set_escaped_escaped_index_suffix_path("v.a%2Eb_x", true);
+    EXPECT_EQ(index.get_index_suffix(), "v%2Ea%252Eb%5Fx");
+    index.set_escaped_escaped_index_suffix_path("v.a.b_x", true);
+    EXPECT_EQ(index.get_index_suffix(), "v%2Ea%2Eb%5Fx");
+    TabletSchema schema;
+    TabletSchemaPB schema_pb;
+    schema_pb.set_variant_escape_dots_in_keys(true);
+    schema.init_from_pb(schema_pb);
+    schema.append_column(column);
+    for (auto kind : {IndexType::INVERTED, IndexType::ANN}) {
+        TabletIndexPB index_pb;
+        index_pb.set_index_id(kind == IndexType::INVERTED ? 70 : 71);
+        index_pb.set_index_type(kind);
+        index_pb.add_col_unique_id(7);
+        TabletIndex child_index;
+        child_index.init_from_pb(index_pb);
+        child_index.set_escaped_escaped_index_suffix_path("v.a%2Eb_x", true);
+        schema.append_index(std::move(child_index));
+    }
+    TabletColumn scalar;
+    scalar.set_name("v.a%2Eb_x");
+    scalar.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
+    scalar.set_parent_unique_id(7);
+    scalar.set_path_info(PathInData("v.a%2Eb_x"));
+    const auto indexes = schema.inverted_indexs(scalar);
+    ASSERT_EQ(indexes.size(), 1);
+    EXPECT_EQ(indexes[0]->index_id(), 70);
+    EXPECT_EQ(schema.inverted_indexs(7, "v.a%2Eb_x")[0], indexes[0]);
+    auto array = scalar;
+    array.set_type(FieldType::OLAP_FIELD_TYPE_ARRAY);
+    ASSERT_NE(schema.ann_index(array), nullptr);
+    EXPECT_EQ(schema.ann_index(array)->index_id(), 71);
+    EXPECT_EQ(schema.ann_index(7, "v.a%2Eb_x"), schema.ann_index(array));
+}
+
+TEST_F(TabletSchemaTest, MasterPersistedEncodingGoldenBytes) {
+    // Physical segment expectations remain in the writer/reader golden test. The table
+    // policy now lives in TabletSchemaPB 47 (f8 02 01), never in ColumnPB 36.
+    const auto golden = std::string("\xf8\x02\x01", 3);
+    TabletSchemaPB pb;
+    ASSERT_TRUE(pb.ParseFromString(golden));
+    TabletSchema schema;
+    schema.init_from_pb(pb);
+    EXPECT_TRUE(schema.variant_escape_dots_in_keys());
+    TabletSchemaPB restored;
+    schema.to_schema_pb(&restored);
+    auto projection = restored;
+    for (int i = 0; i < projection.GetDescriptor()->field_count(); ++i) {
+        const auto* field = projection.GetDescriptor()->field(i);
+        if (field->number() != 47) projection.GetReflection()->ClearField(&projection, field);
+    }
+    EXPECT_EQ(projection.SerializeAsString(), golden);
+    EXPECT_EQ(ColumnPB::descriptor()->FindFieldByNumber(36), nullptr);
+}
+
+TEST_F(TabletSchemaTest, EscapedSchemaPolicySurvivesCopies) {
+    TabletSchemaPB pb;
+    pb.set_keys_type(KeysType::DUP_KEYS);
+    auto* root = pb.add_column();
+    root->set_unique_id(7);
+    root->set_name("v");
+    root->set_type("VARIANT");
+    TabletSchema legacy;
+    legacy.init_from_pb(pb, false, true);
+    pb.set_variant_escape_dots_in_keys(true);
+    TabletSchema escaped;
+    escaped.init_from_pb(pb, false, true);
+    EXPECT_FALSE(legacy.variant_escape_dots_in_keys());
+    EXPECT_TRUE(escaped.variant_escape_dots_in_keys());
+    TabletSchema copied;
+    copied.copy_from(escaped);
+    copied.clear_columns();
+    TabletColumn added;
+    added.set_name("added");
+    added.set_unique_id(8);
+    added.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
+    copied.append_column(added);
+    EXPECT_TRUE(copied.variant_escape_dots_in_keys());
+    TabletSchemaPB persisted;
+    copied.to_schema_pb(&persisted);
+    TabletSchema reloaded;
+    reloaded.init_from_pb(persisted, false, true);
+    EXPECT_TRUE(reloaded.variant_escape_dots_in_keys());
+}
+
+TEST_F(TabletSchemaTest, CurrentSchemaKeepsPersistedTablePolicy) {
+    TabletSchemaPB pb;
+    pb.set_keys_type(KeysType::DUP_KEYS);
+    pb.set_variant_escape_dots_in_keys(true);
+    auto* root = pb.add_column();
+    root->set_name("v");
+    root->set_unique_id(7);
+    root->set_type("VARIANT");
+    TabletSchema persisted;
+    persisted.init_from_pb(pb, false, true);
+    TabletColumn incoming(*root);
+    OlapTableIndexSchema index;
+    index.columns = {&incoming};
+    TabletSchema current;
+    current.build_current_tablet_schema(1, 2, &index, persisted);
+    EXPECT_TRUE(current.variant_escape_dots_in_keys());
 }
 
 } // namespace doris
