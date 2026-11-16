@@ -1919,8 +1919,15 @@ build_libunwind() {
         # -nostdinc++ only required for gcc compilation
         cflags="-I${TP_INCLUDE_DIR} -std=c99 -D_LIBUNWIND_NO_HEAP=1 -D_DEBUG -D_LIBUNWIND_IS_NATIVE_ONLY -O3 -fno-exceptions -funwind-tables -fno-sanitize=all -nostdinc++ -fno-rtti -Wno-error=incompatible-pointer-types"
         # Only the library is consumed; the test programs and man pages are not.
+        # AArch64 enables .debug_frame by default. Its compressed-section decoder uses zlib's
+        # malloc, which can deadlock when signal-context unwinding interrupts the allocator.
+        # Keep .eh_frame and .gnu_debugdata support, but do not enter that decoder.
         CFLAGS="${cflags}" LDFLAGS="-L${TP_LIB_DIR} -llzma" ../configure --prefix="${TP_INSTALL_DIR}" --disable-shared --enable-static \
-            --disable-tests --disable-documentation
+            --disable-tests --disable-documentation --disable-debug-frame
+        if grep -q '^#define CONFIG_DEBUG_FRAME' include/config.h; then
+            echo 'ERROR: libunwind must not decode .debug_frame in a signal handler' >&2
+            exit 1
+        fi
 
         make -j "${PARALLEL}"
         make install

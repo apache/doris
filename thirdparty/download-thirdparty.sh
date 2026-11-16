@@ -533,10 +533,20 @@ fi
 # without changing ordinary dl_iterate_phdr callers.
 if [[ " ${TP_ARCHIVES[*]} " =~ " LIBUNWIND " ]]; then
     if [[ "${LIBUNWIND_SOURCE}" = "libunwind-1.8.3" ]]; then
+        libunwind_patch_checksum="$(cksum < "${TP_PATCH_DIR}/libunwind-1.8.3-doris-phdr-cache.patch")"
+        libunwind_patch_marker="${TP_SOURCE_DIR}/${LIBUNWIND_SOURCE}/${PATCHED_MARK}"
+        # An older empty marker records only the PHDR hunk. Re-extract rather than applying
+        # the complete patch twice, so an interrupted build also receives newer hunks.
+        if [[ -f "${libunwind_patch_marker}" ]] &&
+            [[ "$(cat "${libunwind_patch_marker}")" != "${libunwind_patch_checksum}" ]]; then
+            rm -rf "${TP_SOURCE_DIR}/${LIBUNWIND_SOURCE}"
+            "${TAR_CMD}" xzf "${TP_SOURCE_DIR}/${LIBUNWIND_NAME}" -C "${TP_SOURCE_DIR}/"
+        fi
         cd "${TP_SOURCE_DIR}/${LIBUNWIND_SOURCE}"
         if [[ ! -f "${PATCHED_MARK}" ]]; then
-            patch -p1 <"${TP_PATCH_DIR}/libunwind-1.8.3-doris-phdr-cache.patch"
-            touch "${PATCHED_MARK}"
+            patch --batch --forward --reject-file=- --fuzz=0 --no-backup-if-mismatch -s \
+                -p1 <"${TP_PATCH_DIR}/libunwind-1.8.3-doris-phdr-cache.patch"
+            printf '%s\n' "${libunwind_patch_checksum}" > "${PATCHED_MARK}"
         fi
         cd -
     fi

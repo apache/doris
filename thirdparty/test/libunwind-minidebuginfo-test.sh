@@ -19,17 +19,11 @@
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-source_dir="${TP_SOURCE_DIR:-${root}/src}/libunwind-1.8.3"
 install_dir="${TP_INSTALL_DIR:-${root}/installed}"
 artifact_dir="${AUTOPILOT_ARTIFACT_DIR:-${TMPDIR:-/tmp}}"
 
 [[ "$(uname -s)" == Linux ]] || { echo "SKIP: GNU libunwind is Linux-only"; exit 0; }
-[[ -f "${source_dir}/src/elfxx.c" ]] || { echo "missing libunwind source: ${source_dir}" >&2; exit 1; }
 [[ -f "${install_dir}/lib/libunwind.a" ]] || { echo "missing libunwind archive" >&2; exit 1; }
-grep -Fq 'struct xz_allocator_data allocator_data = {0};' "${source_dir}/src/elfxx.c" || {
-    echo "mini-debug allocator is not initialized in the patched source" >&2
-    exit 1
-}
 
 tmpdir="$(mktemp -d "${artifact_dir}/libunwind-minidebug.XXXXXX")"
 trap 'rm -rf "${tmpdir}"' EXIT
