@@ -539,6 +539,12 @@ Status SniiCompoundWriter::write_index_aux_sections(LogicalIndexWriter& writer,
         placement.bsbf_len = out_->bytes_written() - placement.bsbf_off;
         writer.release_bsbf_bytes();
     }
+    if (writer.has_dict_gram_summary()) {
+        placement.gram_summary_off = out_->bytes_written();
+        RETURN_IF_ERROR(append(writer.dict_gram_summary_bytes()));
+        placement.gram_summary_len = out_->bytes_written() - placement.gram_summary_off;
+        writer.release_dict_gram_summary_bytes();
+    }
     return Status::OK();
 }
 
@@ -600,6 +606,7 @@ Status SniiCompoundWriter::write_tail() {
         refs.norms = {.offset = p.norms_off, .length = p.norms_len};
         refs.null_bitmap = {.offset = p.null_off, .length = p.null_len};
         refs.bsbf = {.offset = p.bsbf_off, .length = p.bsbf_len};
+        refs.dict_gram_summary = {.offset = p.gram_summary_off, .length = p.gram_summary_len};
 
         SerializedMetadataGroup group;
         RETURN_IF_ERROR(w.finish_metadata(refs, p.dict_off, &group));

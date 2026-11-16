@@ -155,6 +155,7 @@ void snii_resolve_index_write_params(bool is_direct_load, bool has_norms,
         input->target_dict_block_bytes =
                 static_cast<uint32_t>(config::snii_target_dict_block_bytes);
     }
+    input->dict_gram_summary = config::snii_dict_gram_summary;
     input->stop_gram_df_threshold = snii_effective_stop_gram_df_threshold(*input);
 }
 

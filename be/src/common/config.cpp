@@ -1470,6 +1470,9 @@ DEFINE_mInt32(snii_inline_read_max_segments, "16");
 // of a larger fetch+decompress unit per cold dict-block miss. Write side
 // only; the block size is self-described by the on-disk directory.
 DEFINE_mInt32(snii_target_dict_block_bytes, "0");
+// The DICT gram summary costs about one byte per key and skips about 99 of 100 blocks for a
+// word-sized literal on tokenized text; it is not written where it could not skip blocks.
+DEFINE_mBool(snii_dict_gram_summary, "true");
 // SNII's index-build share of the process memory limit, as a percent -- the
 // index-build analogue of load_process_max_memory_limit_percent. Once live SNII
 // index-build memory crosses this share, the largest reclaimable posting arenas

@@ -106,6 +106,8 @@ message SniiSectionRefsPB {
     optional SniiRegionRefPB null_bitmap = 3;
     optional SniiRegionRefPB bsbf = 4;
     optional SniiRegionRefPB norms = 5;
+    // DICT gram summary (format/dict_gram_summary.h); absent when the writer built none.
+    optional SniiRegionRefPB dict_gram_summary = 6;
 }
 // Stores the gram scheme used to write the index, so readers can split query
 // patterns the same way. Auto mode is resolved before serialization.
