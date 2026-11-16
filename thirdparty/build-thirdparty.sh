@@ -2493,7 +2493,6 @@ install_paimon_rust() {
         touch "${incomplete}"
         install_rust_archive "${archive}"
         mv -f "${staged}" "${destination}"
-        touch "${TP_INSTALL_DIR}/lib64/.paimon-rust-0.5.0"
         rm -f "${incomplete}"
     )
 }
@@ -2570,11 +2569,9 @@ build_lance_c() {
     env "${cargo_env[@]}" "${cargo_bin}" "${cargo_args[@]}"
 
     mkdir -p "${TP_INSTALL_DIR}/include" "${TP_INSTALL_DIR}/lib64"
-    rm -f "${TP_INSTALL_DIR}/lib64/.lance-c-rust-1.95.0"
     rm -rf "${TP_INSTALL_DIR}/include/lance"
     cp -av include/lance "${TP_INSTALL_DIR}/include/"
     install_rust_archive "${BUILD_DIR}/release/liblance_c.a"
-    touch "${TP_INSTALL_DIR}/lib64/.lance-c-rust-1.95.0"
 }
 
 build_paimon_rust() {
