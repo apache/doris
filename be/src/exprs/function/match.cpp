@@ -74,11 +74,9 @@ Status append_variant_leaf_tokens(const InvertedIndexAnalyzerCtx* analyzer_ctx,
             tokens->emplace_back(std::string(text));
             return Status::OK();
         }
-        auto reader = segment_v2::inverted_index::InvertedIndexAnalyzer::create_reader(
-                analyzer_ctx->char_filter_map);
-        reader->init(text.data(), cast_set<int>(text.size()), true);
-        auto value_tokens = segment_v2::inverted_index::InvertedIndexAnalyzer::get_analyse_result(
-                reader, analyzer_ctx->analyzer.get());
+        std::vector<segment_v2::TermInfo> value_tokens;
+        RETURN_IF_ERROR(segment_v2::inverted_index::InvertedIndexAnalyzer::analyze(
+                text, analyzer_ctx, {}, &value_tokens));
         tokens->insert(tokens->end(), std::make_move_iterator(value_tokens.begin()),
                        std::make_move_iterator(value_tokens.end()));
         return Status::OK();
