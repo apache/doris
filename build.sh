@@ -486,8 +486,8 @@ else
     LAST_THIRDPARTY_LIB='hadoop_hdfs_3_4/native/libhdfs.a'
 fi
 
-# Old installs can contain the sentinel but predate Paimon. Rebuild the whole
-# dependency set so Lance and Paimon also use the same selected Rust toolchain.
+# Old installs can contain the sentinel but predate Paimon 0.5.0 or Rust 1.95.
+# Rebuild both Rust libraries together to avoid mixing their standard libraries.
 # An interrupted header/archive publication must be repaired before either file is reused.
 if [[ ! -f "${DORIS_THIRDPARTY}/installed/lib/${LAST_THIRDPARTY_LIB}" ||
       ! -f "${DORIS_THIRDPARTY}/installed/lib64/liblance_c.a" ||
@@ -495,6 +495,8 @@ if [[ ! -f "${DORIS_THIRDPARTY}/installed/lib/${LAST_THIRDPARTY_LIB}" ||
       ! -f "${DORIS_THIRDPARTY}/installed/include/paimon_rust/paimon.h" ||
       ! -s "${DORIS_THIRDPARTY}/installed/lib64/libpaimon_c.a" ||
       ! -s "${DORIS_THIRDPARTY}/installed/include/paimon_rust/paimon.h" ||
+      ! -f "${DORIS_THIRDPARTY}/installed/lib64/.paimon-rust-0.5.0" ||
+      ! -f "${DORIS_THIRDPARTY}/installed/lib64/.lance-c-rust-1.95.0" ||
       -e "${DORIS_THIRDPARTY}/installed/lib64/.paimon-installing" ]]; then
     # Compilation images may contain only installed artifacts; never erase them without a rebuild source.
     if [[ ! -f "${DORIS_THIRDPARTY}/build-thirdparty.sh" ]]; then

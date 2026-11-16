@@ -61,7 +61,8 @@ class PaimonBuildTest(unittest.TestCase):
         if system == "Darwin":
             sentinel = "libbrotlienc.a"
         files = ["lib/" + sentinel, "lib64/liblance_c.a", "lib64/libpaimon_c.a",
-                 "include/paimon_rust/paimon.h"]
+                 "include/paimon_rust/paimon.h", "lib64/.paimon-rust-0.5.0",
+                 "lib64/.lance-c-rust-1.95.0"]
         for name in files:
             if name != missing:
                 self.write("installed/" + name, "" if name == empty else "complete")
@@ -95,6 +96,15 @@ class PaimonBuildTest(unittest.TestCase):
 
     def test_missing_lance_rebuilds(self):
         self.check_install("Linux", "lib64/liblance_c.a")
+
+    def test_previous_paimon_release_rebuilds(self):
+        self.check_install("Linux", "lib64/.paimon-rust-0.5.0")
+
+    def test_previous_lance_toolchain_rebuilds(self):
+        self.check_install("Linux", "lib64/.lance-c-rust-1.95.0")
+
+    def test_previous_release_image_requires_refresh(self):
+        self.check_install("Linux", "lib64/.paimon-rust-0.5.0", installed_only=True)
 
     def test_clean_option_is_preserved(self):
         self.check_install("Linux", "lib64/libpaimon_c.a", clean=1)
@@ -133,6 +143,7 @@ class PaimonBuildTest(unittest.TestCase):
         target_archive = self.work / "installed/lib64/libpaimon_c.a"
         target_header = self.work / "installed/include/paimon_rust/paimon.h"
         marker = target_archive.parent / ".paimon-installing"
+        release_marker = target_archive.parent / ".paimon-rust-0.5.0"
         self.env.update(TP_INSTALL_DIR=str(self.work / "installed"), STRIP_TP_LIB="OFF",
                         KERNEL="Linux", ARCHIVE=str(archive), HEADER=str(header))
         failures = {
@@ -147,7 +158,7 @@ class PaimonBuildTest(unittest.TestCase):
         for replacement in (False, True):
             for stage, injection in failures.items():
                 with self.subTest(replacement=replacement, stage=stage):
-                    for path in (target_archive, target_header, marker):
+                    for path in (target_archive, target_header, marker, release_marker):
                         if path.exists():
                             path.unlink()
                         path.parent.mkdir(parents=True, exist_ok=True)
@@ -161,6 +172,7 @@ class PaimonBuildTest(unittest.TestCase):
                         self.assertEqual(target_header.read_text(), "new header")
                         self.assertEqual(target_archive.read_text(), "new archive")
                         self.assertFalse(marker.exists())
+                        self.assertTrue(release_marker.exists())
                     else:
                         self.assertNotEqual(result.returncode, 0)
                         if replacement:
@@ -168,6 +180,7 @@ class PaimonBuildTest(unittest.TestCase):
                         else:
                             self.assertFalse(target_header.exists())
                         self.assertEqual(marker.exists(), stage != "header-copy")
+                        self.assertFalse(release_marker.exists())
                         # A retry must repair the pair and clear its incomplete marker.
                         retry = self.run_bash(self.archive_installer()
                                               + '\ninstall_paimon_rust "$ARCHIVE" "$HEADER"')
@@ -175,6 +188,7 @@ class PaimonBuildTest(unittest.TestCase):
                         self.assertEqual(target_header.read_text(), "new header")
                         self.assertEqual(target_archive.read_text(), "new archive")
                         self.assertFalse(marker.exists())
+                        self.assertTrue(release_marker.exists())
                     self.assertEqual(list(target_header.parent.glob("*.tmp.*")), [])
 
     def check_archive_publication(self, name):
@@ -220,12 +234,25 @@ class PaimonBuildTest(unittest.TestCase):
     def test_atomic_paimon_archive_publication(self):
         self.check_archive_publication("libpaimon_c.a")
 
-    def check_header(self, offline, inherited_offline="", cargo_override=True):
+    def mock_old_rustup(self):
+        self.executable("bin/rustup", r'''case "$*" in
+    'toolchain list') echo '1.94.0-x86_64-unknown-linux-gnu (default)' ;;
+    'toolchain install 1.95.0 --profile minimal') printf '%s' "$*" > "$RUSTUP_LOG" ;;
+    *) exit 92 ;;
+esac
+''')
+        self.env.pop("RUSTUP_TOOLCHAIN", None)
+        self.env["RUSTUP_LOG"] = str(self.work / "rustup.log")
+
+    def check_header(self, offline, inherited_offline="", cargo_override=True,
+                     cargo_version="1.95.0", old_rustup=False):
         script = (ROOT / "thirdparty/build-thirdparty.sh").read_text()
         function = re.search(r"^build_paimon_rust\(\) \{\n.*?^\}", script, re.M | re.S)[0]
         cargo = self.executable("custom/cargo", r'''case "$1" in
-    --version) echo 'cargo 1.94.0' ;;
+    --version) echo "cargo $MOCK_CARGO_VERSION" ;;
     build)
+        test "$RUSTUP_TOOLCHAIN" = 1.95.0
+        test "$OPENSSL_DIR" = "$TP_INSTALL_DIR"
         mkdir -p "$CARGO_TARGET_DIR/release"
         printf 'archive' > "$CARGO_TARGET_DIR/release/libpaimon_c.a"
         ;;
@@ -244,9 +271,12 @@ printf '/* Generated test header */\n' > "$2"
                         TP_SOURCE_DIR=str(self.work / "src"), PAIMON_RUST_SOURCE="paimon",
                         TP_INSTALL_DIR=str(self.work / "installed"), BUILD_DIR="build",
                         PARALLEL="1", KERNEL="Linux", STRIP_TP_LIB="OFF",
-                        RUSTUP_TOOLCHAIN="1.94.0", PAIMON_RUST_CARGO_OFFLINE=offline,
+                        RUSTUP_TOOLCHAIN="1.95.0", PAIMON_RUST_CARGO_OFFLINE=offline,
                         PAIMON_RUST_CBINDGEN=str(cbindgen),
+                        MOCK_CARGO_VERSION=cargo_version,
                         METADATA_LOG=str(self.work / "metadata.log"))
+        if old_rustup:
+            self.mock_old_rustup()
         if cargo_override:
             self.env["PAIMON_RUST_CARGO"] = str(cargo)
         else:
@@ -256,7 +286,15 @@ printf '/* Generated test header */\n' > "$2"
             self.env["CARGO_NET_OFFLINE"] = inherited_offline
         result = self.run_bash("check_if_source_exist() { :; }\n" + self.archive_installer()
                                + "\n" + function + "\nbuild_paimon_rust")
+        if cargo_version == "1.94.0":
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("requires Rust/Cargo 1.95.0 or newer", result.stdout)
+            self.assertFalse((self.work / "metadata.log").exists())
+            return
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        if old_rustup:
+            self.assertEqual((self.work / "rustup.log").read_text(),
+                             "toolchain install 1.95.0 --profile minimal")
         expected = "true" if offline.upper() == "ON" else inherited_offline or "unset"
         self.assertEqual((self.work / "metadata.log").read_text(), expected)
         self.assertTrue((self.work / "installed/include/paimon_rust/paimon.h").exists())
@@ -264,6 +302,73 @@ printf '/* Generated test header */\n' > "$2"
 
     def test_header_uses_selected_cargo(self):
         self.check_header("OFF")
+
+    def test_paimon_installs_new_toolchain_with_only_old_one_present(self):
+        self.check_header("OFF", old_rustup=True)
+
+    def test_paimon_rejects_explicit_old_toolchain(self):
+        self.check_header("OFF", cargo_version="1.94.0")
+
+    def check_lance_toolchain(self, cargo_version="1.95.0", old_rustup=False,
+                              fail_header_copy=False):
+        script = (ROOT / "thirdparty/build-thirdparty.sh").read_text()
+        function = re.search(r"^build_lance_c\(\) \{\n.*?^\}", script, re.M | re.S)[0]
+        cargo = self.executable("bin/cargo", r'''case "$1" in
+    --version) echo "cargo $MOCK_CARGO_VERSION" ;;
+    build)
+        test "$RUSTUP_TOOLCHAIN" = 1.95.0
+        mkdir -p "$CARGO_TARGET_DIR/release"
+        printf archive > "$CARGO_TARGET_DIR/release/liblance_c.a"
+        ;;
+    *) exit 90 ;;
+esac
+''')
+        self.executable("installed/bin/protoc", "exit 0\n")
+        self.write("src/lance/include/lance/lance.h", "header")
+        self.env.update(PATH=str(self.work / "bin") + os.pathsep + os.environ["PATH"],
+                        TP_SOURCE_DIR=str(self.work / "src"), LANCE_C_SOURCE="lance",
+                        TP_INSTALL_DIR=str(self.work / "installed"), BUILD_DIR="build",
+                        PARALLEL="1", KERNEL="Linux", STRIP_TP_LIB="OFF",
+                        LANCE_C_CARGO=str(cargo), RUSTUP_TOOLCHAIN="1.95.0",
+                        MOCK_CARGO_VERSION=cargo_version)
+        if old_rustup:
+            self.mock_old_rustup()
+        injection = ""
+        if fail_header_copy:
+            self.write("installed/lib64/.lance-c-rust-1.95.0")
+            self.write("installed/lib64/liblance_c.a", "old archive")
+            injection = "cp() { return 1; }\n"
+        result = self.run_bash(injection + "check_if_source_exist() { :; }\n" + self.archive_installer()
+                               + "\n" + function + "\nbuild_lance_c")
+        archive = self.work / "installed/lib64/liblance_c.a"
+        if fail_header_copy:
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual(archive.read_text(), "old archive")
+            self.assertFalse((archive.parent / ".lance-c-rust-1.95.0").exists())
+            return
+        if cargo_version == "1.94.0":
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("requires Rust/Cargo 1.95.0 or newer", result.stdout)
+            self.assertFalse(archive.exists())
+            return
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(archive.read_text(), "archive")
+        self.assertTrue((archive.parent / ".lance-c-rust-1.95.0").exists())
+        if old_rustup:
+            self.assertEqual((self.work / "rustup.log").read_text(),
+                             "toolchain install 1.95.0 --profile minimal")
+
+    def test_lance_uses_paimon_toolchain(self):
+        self.check_lance_toolchain()
+
+    def test_lance_installs_new_toolchain_with_only_old_one_present(self):
+        self.check_lance_toolchain(old_rustup=True)
+
+    def test_lance_rejects_explicit_old_toolchain(self):
+        self.check_lance_toolchain(cargo_version="1.94.0")
+
+    def test_lance_header_copy_failure_invalidates_old_receipt(self):
+        self.check_lance_toolchain(fail_header_copy=True)
 
     def test_header_metadata_is_offline(self):
         self.check_header("on", cargo_override=False)

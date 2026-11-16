@@ -2493,6 +2493,7 @@ install_paimon_rust() {
         touch "${incomplete}"
         install_rust_archive "${archive}"
         mv -f "${staged}" "${destination}"
+        touch "${TP_INSTALL_DIR}/lib64/.paimon-rust-0.5.0"
         rm -f "${incomplete}"
     )
 }
@@ -2506,7 +2507,7 @@ build_lance_c() {
 
     local cargo_bin="${LANCE_C_CARGO:-${CARGO:-cargo}}"
     if ! command -v "${cargo_bin}" >/dev/null 2>&1; then
-        echo "cargo is required to build lance-c. Install Rust 1.94.0 or set LANCE_C_CARGO."
+        echo "cargo is required to build lance-c. Install Rust 1.95.0 or set LANCE_C_CARGO."
         exit 1
     fi
     if [[ ! -x "${TP_INSTALL_DIR}/bin/protoc" ]]; then
@@ -2514,7 +2515,7 @@ build_lance_c() {
         exit 1
     fi
 
-    local required_rust_version="1.94.0"
+    local required_rust_version="1.95.0"
     local cargo_env=(
         "CARGO_BUILD_JOBS=${PARALLEL}"
         "CARGO_TARGET_DIR=${PWD}/${BUILD_DIR}"
@@ -2538,7 +2539,7 @@ build_lance_c() {
         echo "failed to get cargo version for lance-c. Install Rust ${required_rust_version} or set LANCE_C_CARGO/RUSTUP_TOOLCHAIN."
         exit 1
     fi
-    # Rust 1.94.0 is the minimum supported version. Allow newer toolchains when
+    # Use Paimon's Rust 1.95.0 baseline for both static libraries. Allow newer toolchains when
     # callers explicitly select one or rustup is unavailable on the system.
     if ! awk -v required="${required_rust_version}" -v actual="${cargo_version}" 'BEGIN {
             split(required, r, ".");
@@ -2569,9 +2570,11 @@ build_lance_c() {
     env "${cargo_env[@]}" "${cargo_bin}" "${cargo_args[@]}"
 
     mkdir -p "${TP_INSTALL_DIR}/include" "${TP_INSTALL_DIR}/lib64"
+    rm -f "${TP_INSTALL_DIR}/lib64/.lance-c-rust-1.95.0"
     rm -rf "${TP_INSTALL_DIR}/include/lance"
     cp -av include/lance "${TP_INSTALL_DIR}/include/"
     install_rust_archive "${BUILD_DIR}/release/liblance_c.a"
+    touch "${TP_INSTALL_DIR}/lib64/.lance-c-rust-1.95.0"
 }
 
 build_paimon_rust() {
@@ -2583,14 +2586,15 @@ build_paimon_rust() {
 
     local cargo_bin="${PAIMON_RUST_CARGO:-${CARGO:-cargo}}"
     if ! command -v "${cargo_bin}" >/dev/null 2>&1; then
-        echo "cargo is required to build paimon-rust. Install Rust 1.94.0 or set PAIMON_RUST_CARGO."
+        echo "cargo is required to build paimon-rust. Install Rust 1.95.0 or set PAIMON_RUST_CARGO."
         exit 1
     fi
 
-    local required_rust_version="1.94.0"
+    local required_rust_version="1.95.0"
     local cargo_env=(
         "CARGO_BUILD_JOBS=${PARALLEL}"
         "CARGO_TARGET_DIR=${PWD}/${BUILD_DIR}"
+        "OPENSSL_DIR=${TP_INSTALL_DIR}"
     )
     if command -v rustup >/dev/null 2>&1 && [[ -z "${RUSTUP_TOOLCHAIN}" ]]; then
         # The presence check must look for the toolchain the minimum actually
@@ -2610,7 +2614,7 @@ build_paimon_rust() {
         echo "failed to get cargo version for paimon-rust. Install Rust ${required_rust_version} or set PAIMON_RUST_CARGO/RUSTUP_TOOLCHAIN."
         exit 1
     fi
-    # Rust 1.94.0 is the minimum supported version. Allow newer toolchains when
+    # Rust 1.95.0 is the minimum supported version. Allow newer toolchains when
     # callers explicitly select one or rustup is unavailable on the system.
     # NOTE: paimon_c and lance_c are both Rust staticlibs linked into the same
     # BE binary; they must be built with the SAME rustc toolchain so the linker
