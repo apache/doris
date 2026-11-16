@@ -90,6 +90,7 @@ else()
 endif()
 
 if (USE_UNWIND)
+    include(${CMAKE_CURRENT_LIST_DIR}/libunwind-signal-contract.cmake)
     add_thirdparty(libunwind LIBNAME "lib64/libunwind.a")
 endif()
 

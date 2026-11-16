@@ -1931,6 +1931,9 @@ build_libunwind() {
 
         make -j "${PARALLEL}"
         make install
+        # Publish only after the checked configuration and archive installation succeed. The
+        # consumer compares both this contract generation and the installed archive bytes.
+        bash "${TP_DIR}/libunwind-signal-contract.sh" publish "${TP_INSTALL_DIR}"
     fi
 }
 

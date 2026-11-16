@@ -196,11 +196,12 @@ void capture_signal_context_unwind(const ucontext_t* context, SignalContextCaptu
 #endif
 }
 
-// SAFETY: this handler only runs libunwind against the kernel-provided signal context and writes
-// raw PCs into a preallocated process-wide slot. It never symbolicates, logs, allocates strings, or
-// opens /proc. The PHDR cache scope is deliberately limited to this handler: a target thread may be
-// interrupted while already holding glibc's loader lock, but normal sanitizer/JVM/exception paths
-// must still see the live loader list through the original dl_iterate_phdr implementation.
+// SAFETY: Doris only writes raw PCs from the kernel-provided signal context into a preallocated
+// process-wide slot; it does not render symbols or log here. GNU libunwind's AArch64 fallback for
+// missing DWARF may still query procedure names, open /proc maps and ELF files, and decode
+// mini-debug data with its mmap-backed allocator. The PHDR cache scope is limited to this handler:
+// a target thread may be interrupted while holding glibc's loader lock, but normal sanitizer,
+// JVM, and exception paths must see the live loader list through the original dl_iterate_phdr.
 void stack_trace_signal_handler(int /*sig*/, siginfo_t* info, void* context) {
     auto saved_errno = errno;
 
