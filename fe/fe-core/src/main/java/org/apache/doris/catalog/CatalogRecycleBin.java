@@ -851,36 +851,35 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
     private void recoverAllTables(RecycleDatabaseInfo dbInfo) throws DdlException {
         Database db = dbInfo.getDb();
         Set<String> tableNames = Sets.newHashSet(dbInfo.getTableNames());
-        Set<Long> tableIds = Sets.newHashSet(dbInfo.getTableIds());
+        Set<Long> tableIds = dbInfo.getTableIds();
         long dbId = db.getId();
-        Iterator<Map.Entry<Long, RecycleTableInfo>> iterator = idToTable.entrySet().iterator();
-        while (iterator.hasNext() && !tableNames.isEmpty()) {
-            Map.Entry<Long, RecycleTableInfo> entry = iterator.next();
-            RecycleTableInfo tableInfo = entry.getValue();
-            if (tableInfo.getDbId() != dbId || !tableNames.contains(tableInfo.getTable().getName())
-                    || !tableIds.contains(tableInfo.getTable().getId())) {
-                continue;
+        // Validate the complete table set before restoring any table.
+        for (Long tableId : tableIds) {
+            RecycleTableInfo tableInfo = idToTable.get(tableId);
+            if (tableInfo != null && tableInfo.getDbId() == dbId) {
+                tableNames.remove(tableInfo.getTable().getName());
             }
+        }
 
-            Table table = tableInfo.getTable();
+        if (!tableNames.isEmpty()) {
+            throw new DdlException("Tables[" + tableNames + "] is missing. Can not recover db");
+        }
+
+        for (Long tableId : tableIds) {
+            Table table = idToTable.get(tableId).getTable();
             if (table.getType() == TableType.OLAP) {
                 db.registerTable(table);
                 LOG.info("recover db[{}] with table[{}]: {}", dbId, table.getId(), table.getName());
             } else {
                 LOG.info("ignore recover db[{}] with table[{}]: {}", dbId, table.getId(), table.getName());
             }
-            iterator.remove();
-            idToRecycleTime.remove(table.getId());
-            tableNames.remove(table.getName());
+            idToTable.remove(tableId);
+            idToRecycleTime.remove(tableId);
 
             dbIdTableNameToIds.computeIfPresent(Pair.of(dbId, table.getName()), (k, v) -> {
-                v.remove(table.getId());
+                v.remove(tableId);
                 return v.isEmpty() ? null : v;
             });
-        }
-
-        if (!tableNames.isEmpty()) {
-            throw new DdlException("Tables[" + tableNames + "] is missing. Can not recover db");
         }
     }
 
