@@ -3108,6 +3108,21 @@ public class SessionVariable implements Serializable, Writable {
                     + "inherit follows the catalog policy; shared snapshots are not supported")
     public String mongodbReadConcern = "inherit";
 
+    @VarAttrDef.VarAttr(name = "enable_mongodb_predicate_pushdown", needForward = true,
+            affectQueryResultInExecution = true,
+            description = "Enable verified MongoDB candidate predicates; strict errors and views remain local")
+    public boolean enableMongoDBPredicatePushdown = true;
+
+    @VarAttrDef.VarAttr(name = "enable_mongodb_like_pushdown", needForward = true,
+            affectQueryResultInExecution = true,
+            description = "Enable conservative MongoDB LIKE candidates with local residual evaluation")
+    public boolean enableMongoDBLikePushdown = true;
+
+    @VarAttrDef.VarAttr(name = "enable_mongodb_projection_pushdown", needForward = true,
+            affectQueryResultInExecution = true,
+            description = "Read only MongoDB roots required by projections and residual predicates")
+    public boolean enableMongoDBProjectionPushdown = true;
+
     public static final String FLUSS_UNION_READ_MODE = "fluss_union_read_mode";
 
     @VarAttrDef.VarAttr(name = FLUSS_UNION_READ_MODE,

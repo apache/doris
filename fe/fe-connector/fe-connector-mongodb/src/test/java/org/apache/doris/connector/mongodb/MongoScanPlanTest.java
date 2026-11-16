@@ -18,6 +18,10 @@
 package org.apache.doris.connector.mongodb;
 
 import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.ConnectorType;
+import org.apache.doris.connector.spi.pushdown.ConnectorColumnRef;
+import org.apache.doris.connector.spi.pushdown.ConnectorComparison;
+import org.apache.doris.connector.spi.pushdown.ConnectorLiteral;
 import org.apache.doris.connector.spi.scan.ConnectorScanRange;
 import org.apache.doris.connector.spi.scan.ConnectorScanRequest;
 import org.apache.doris.connector.spi.scan.ScanNodePropertiesResult;
@@ -26,6 +30,7 @@ import org.apache.doris.thrift.TMongoScanDesc;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import org.bson.Document;
+import org.bson.RawBsonDocument;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -34,7 +39,7 @@ import java.util.Map;
 import java.util.Optional;
 
 class MongoScanPlanTest {
-    private static final class Session implements ConnectorSession {
+    private static class Session implements ConnectorSession {
         private final Map<String, String> policies;
 
         Session() {
@@ -231,6 +236,121 @@ class MongoScanPlanTest {
         Assertions.assertTrue(current.getBindingJson().contains("bson_types"));
         Assertions.assertThrows(IllegalArgumentException.class, () -> new MongoScanPlanProvider(properties)
                 .planScan(new Session(), ConnectorScanRequest.builder(handle, List.of(stale)).build()));
+    }
+
+    @Test
+    void nullPolicyEnablesCandidatesWithoutConsumingResiduals() {
+        MongoCatalogProperties properties = MongoCatalogProperties.of(Map.of(
+                "mongodb.uri", "mongodb://localhost:27017", "mongodb.type_mismatch", "null",
+                "mongodb.schema", "{\"sample.records\":{\"columns\":[{\"name\":\"seq\","
+                        + "\"path\":[\"seq\"],\"doris_type\":\"BIGINT\",\"bson_types\":[\"long\"]}]}}"));
+        MongoTableHandle handle = new MongoTableHandle("sample",
+                new Document("name", "records").append("type", "collection"), properties);
+        var expression = new ConnectorComparison(ConnectorComparison.Operator.GE,
+                new ConnectorColumnRef("seq", ConnectorType.of("BIGINT")), ConnectorLiteral.ofLong(10));
+        var result = new MongoScanPlanProvider(properties).getScanNodePropertiesResult(new Session(), handle,
+                List.of(new MongoColumnHandle(handle.getSchema().getBindings().get(0),
+                        handle.getSchema().getVersion())), Optional.of(expression));
+        Assertions.assertEquals("SUPERSET", result.getProperties().get("predicate_pushdown"));
+        Assertions.assertFalse(result.hasConjunctTracking());
+    }
+
+    private MongoCatalogProperties typedProperties(String policy, List<String> path) {
+        Document column = new Document("name", "seq").append("path", path)
+                .append("doris_type", "BIGINT").append("bson_types", List.of("long"));
+        return MongoCatalogProperties.of(Map.of("mongodb.uri", "mongodb://localhost:27017",
+                "mongodb.type_mismatch", policy, "mongodb.schema",
+                new Document("sample.records", new Document("columns", List.of(column))).toJson()));
+    }
+
+    private TMongoScanDesc descriptor(MongoCatalogProperties properties, String kind, ConnectorSession session,
+            boolean columns) {
+        MongoTableHandle table = new MongoTableHandle("sample",
+                new Document("name", "records").append("type", kind), properties);
+        var binding = table.getSchema().getBindings().get(0);
+        var filter = new ConnectorComparison(ConnectorComparison.Operator.GE,
+                new ConnectorColumnRef("seq", binding.column().getType()), ConnectorLiteral.ofLong(10));
+        var request = ConnectorScanRequest.builder(table,
+                columns ? List.of(new MongoColumnHandle(binding, table.getSchema().getVersion())) : List.of())
+                .filter(Optional.of(filter)).build();
+        var range = new MongoScanPlanProvider(properties).planScan(session, request).get(0);
+        var result = new TTableFormatFileDesc();
+        range.populateRangeParams(result, new TFileRangeDesc());
+        return result.getMongodbParams();
+    }
+
+    @Test
+    void scanRangeCarriesBsonRatherThanRelaxedJsonOrUntypedNumbers() {
+        var descriptor = descriptor(typedProperties("null", List.of("Source")), "collection", new Session(), true);
+        var filter = new RawBsonDocument(descriptor.getFilterBson());
+        Assertions.assertEquals(10, filter.getDocument("Source").getInt64("$gte").getValue());
+        var projection = new RawBsonDocument(descriptor.getProjectionBson());
+        Assertions.assertEquals(1, projection.getInt32("Source").getValue());
+        Assertions.assertEquals(0, projection.getInt32("_id").getValue());
+    }
+
+    @Test
+    void strictAndViewScansCannotHideHistoricalTypeFailures() {
+        Assertions.assertFalse(descriptor(typedProperties("error", List.of("seq")),
+                "collection", new Session(), true).isSetFilterBson());
+        Assertions.assertFalse(descriptor(typedProperties("null", List.of("seq")),
+                "view", new Session(), true).isSetFilterBson());
+    }
+
+    @Test
+    void statementSwitchesDisableRemoteWorkIndependently() {
+        var session = new Session() {
+            @Override
+            public Map<String, String> getSessionProperties() {
+                return Map.of("enable_mongodb_predicate_pushdown", "false",
+                        "enable_mongodb_projection_pushdown", "false");
+            }
+        };
+        var descriptor = descriptor(typedProperties("null", List.of("seq")), "collection", session, true);
+        Assertions.assertFalse(descriptor.isSetFilterBson());
+        Assertions.assertFalse(descriptor.isSetProjectionBson());
+    }
+
+    @Test
+    void projectionKeepsWholeRootsForPathErrorsAndPrunedStructChildren() {
+        var descriptor = descriptor(typedProperties("error", List.of("Parent", "Child")),
+                "collection", new Session(), true);
+        var projection = new RawBsonDocument(descriptor.getProjectionBson());
+        Assertions.assertEquals(1, projection.getInt32("Parent").getValue());
+        Assertions.assertFalse(projection.containsKey("Parent.Child"));
+        Assertions.assertFalse(descriptor.isSetFilterBson());
+    }
+
+    @Test
+    void literalDotAndWholeDocumentBindingsDisableProjection() {
+        Assertions.assertFalse(descriptor(typedProperties("null", List.of("literal.dot")),
+                "collection", new Session(), true).isSetProjectionBson());
+        var table = new MongoTableHandle("sample", new Document("name", "records").append("type", "collection"),
+                properties());
+        var request = ConnectorScanRequest.builder(table, List.of(new MongoColumnHandle(
+                table.getSchema().getBindings().get(0), table.getSchema().getVersion()))).build();
+        var result = new TTableFormatFileDesc();
+        new MongoScanPlanProvider(properties()).planScan(new Session(), request).get(0)
+                .populateRangeParams(result, new TFileRangeDesc());
+        Assertions.assertFalse(result.getMongodbParams().isSetProjectionBson());
+    }
+
+    @Test
+    void countOnlyProjectionPreservesOneDocumentPerSourceRow() {
+        var d = descriptor(typedProperties("null", List.of("seq")), "collection", new Session(), false);
+        Assertions.assertEquals(1, new RawBsonDocument(d.getProjectionBson()).getInt32("_id").getValue());
+    }
+
+    @Test
+    void strictSqlCastErrorsAlsoKeepCandidatesLocal() {
+        var session = new Session() {
+            @Override
+            public Map<String, String> getSessionProperties() {
+                return Map.of("enable_strict_cast", "true");
+            }
+        };
+        Assertions.assertFalse(descriptor(typedProperties("null", List.of("seq")),
+                "collection", session, true).isSetFilterBson());
     }
 
 }

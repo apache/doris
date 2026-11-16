@@ -566,4 +566,131 @@ TEST_F(BsonSerdeTest, DecimalStorageWidthsPreserveExactScaledValues) {
               static_cast<Int128>(1234500000000LL));
 }
 
+TEST_F(BsonSerdeTest, Decimal128ExtremesNeverRoundOrChangeEarlierRows) {
+    auto type = make_nullable(std::make_shared<DataTypeDecimal<TYPE_DECIMAL128I>>(38, 4));
+    auto column = type->create_column();
+    for (const auto& text :
+         {"9999999999999999999999999999999999", "-9999999999999999999999999999999999", "-0E+6111",
+          "1E-4", "123.4500000000000000000000000000000"}) {
+        ASSERT_TRUE(
+                read(type, *column, R"({"v":{"$numberDecimal":")" + std::string(text) + R"("}})")
+                        .ok());
+    }
+    for (const auto& text : {"1E+34", "1E-5", "1E-6176", "-NaN", "-Infinity"}) {
+        std::string json = R"({"v":{"$numberDecimal":")" + std::string(text) + R"("}})";
+        const auto before = column->size();
+        EXPECT_FALSE(read(type, *column, json).ok());
+        EXPECT_EQ(column->size(), before);
+        ASSERT_TRUE(read(type, *column, json, true).ok());
+        EXPECT_TRUE(assert_cast<const ColumnNullable&>(*column).is_null_at(before));
+    }
+    ASSERT_TRUE(read(type, *column, R"({"v":{"$numberDecimal":"1.0000"}})").ok());
+    const auto& data = assert_cast<const ColumnDecimal<TYPE_DECIMAL128I>&>(
+                               assert_cast<const ColumnNullable&>(*column).get_nested_column())
+                               .get_data();
+    EXPECT_EQ(data.back().value, 10000);
+}
+
+TEST_F(BsonSerdeTest, UtcDatetimeRangeBoundariesAreLossless) {
+    auto type = std::make_shared<DataTypeDateTimeV2>(3);
+    auto column = type->create_column();
+    ASSERT_TRUE(read(type, *column, R"({"v":{"$date":{"$numberLong":"-62135596800000"}}})").ok());
+    ASSERT_TRUE(read(type, *column, R"({"v":{"$date":{"$numberLong":"253402300799000"}}})").ok());
+    EXPECT_FALSE(read(type, *column, R"({"v":{"$date":{"$numberLong":"253402300800000"}}})").ok());
+    EXPECT_FALSE(
+            read(type, *column, R"({"v":{"$date":{"$numberLong":"-9223372036854775808"}}})").ok());
+    EXPECT_EQ(column->size(), 2);
+    auto packed = assert_cast<const ColumnDateTimeV2&>(*column).get_data()[1];
+    DateV2Value<DateTimeV2ValueType> value;
+    memcpy(&value, &packed, sizeof(value));
+    EXPECT_EQ(value.year(), 9999);
+    EXPECT_EQ(value.month(), 12);
+    EXPECT_EQ(value.day(), 31);
+}
+
+TEST_F(BsonSerdeTest, UtcDatetimeFractionalScaleNeverRounds) {
+    for (int scale : {0, 1, 2, 3, 6}) {
+        auto type = std::make_shared<DataTypeDateTimeV2>(scale);
+        auto column = type->create_column();
+        auto upper = read(type, *column, R"({"v":{"$date":{"$numberLong":"253402300799999"}}})");
+        EXPECT_EQ(upper.ok(), scale >= 3);
+        auto negative = read(type, *column, R"({"v":{"$date":{"$numberLong":"-1"}}})");
+        EXPECT_EQ(negative.ok(), scale >= 3);
+    }
+}
+
+TEST_F(BsonSerdeTest, FloatingPointSpecialValuesAndNarrowingKeepTheContract) {
+    auto type = std::make_shared<DataTypeFloat64>();
+    auto column = type->create_column();
+    for (const auto& text : {"NaN", "Infinity", "-Infinity", "-0.0"}) {
+        ASSERT_TRUE(read(type, *column, R"({"v":{"$numberDouble":")" + std::string(text) + R"("}})")
+                            .ok());
+    }
+    const auto& data = assert_cast<const ColumnFloat64&>(*column).get_data();
+    EXPECT_TRUE(std::isnan(data[0]));
+    EXPECT_EQ(data[1], std::numeric_limits<double>::infinity());
+    EXPECT_EQ(data[2], -std::numeric_limits<double>::infinity());
+    EXPECT_TRUE(std::signbit(data[3]));
+    auto narrow = make_nullable(std::make_shared<DataTypeFloat32>());
+    auto narrowed = narrow->create_column();
+    EXPECT_FALSE(read(narrow, *narrowed, R"({"v":0.1})").ok());
+    EXPECT_EQ(narrowed->size(), 0);
+    ASSERT_TRUE(read(narrow, *narrowed, R"({"v":0.1})", true).ok());
+    ASSERT_TRUE(read(narrow, *narrowed, R"({"v":1.5})").ok());
+    EXPECT_TRUE(assert_cast<const ColumnNullable&>(*narrowed).is_null_at(0));
+    EXPECT_FALSE(assert_cast<const ColumnNullable&>(*narrowed).is_null_at(1));
+}
+
+TEST_F(BsonSerdeTest, RecursiveStructArrayDecimalFailureRestoresEveryOffset) {
+    auto decimal = make_nullable(std::make_shared<DataTypeDecimal<TYPE_DECIMAL64>>(10, 2));
+    auto strings = make_nullable(
+            std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeString>())));
+    auto structure = make_nullable(std::make_shared<DataTypeStruct>(DataTypes {decimal, strings},
+                                                                    Strings {"amount", "tags"}));
+    auto type = make_nullable(std::make_shared<DataTypeArray>(structure));
+    auto column = type->create_column();
+    auto root = binding("v", {4});
+    auto element = binding("element", {3});
+    auto tags = binding("tags", {4});
+    tags.children = {binding("element", {2})};
+    element.children = {binding("amount", {19}), tags};
+    root.children = {element};
+    std::string valid = R"({"v":[{"tags":["a",null],"amount":{"$numberDecimal":"1.20"}},null,{}]})";
+    ASSERT_TRUE(read(type, *column, valid, root).ok());
+    const auto& array = assert_cast<const ColumnArray&>(
+            assert_cast<const ColumnNullable&>(*column).get_nested_column());
+    EXPECT_EQ(array.get_offsets().back(), 3);
+    std::string invalid =
+            R"({"v":[{"amount":{"$numberDecimal":"2.00"},"tags":["new"]},{"amount":{"$numberDecimal":"1.234"}}]})";
+    EXPECT_FALSE(read(type, *column, invalid, root).ok());
+    EXPECT_EQ(column->size(), 1);
+    EXPECT_EQ(array.get_data().size(), 3);
+    ASSERT_TRUE(read(type, *column, invalid, root, true).ok());
+    EXPECT_TRUE(assert_cast<const ColumnNullable&>(*column).is_null_at(1));
+    EXPECT_EQ(array.get_data().size(), 3);
+    ASSERT_TRUE(read(type, *column, valid, root).ok());
+    EXPECT_EQ(array.get_offsets().back(), 6);
+    EXPECT_EQ(array.get_data().size(), 6);
+}
+
+TEST_F(BsonSerdeTest, BinarySubtypeTwoOwnsPayloadAndRejectsOtherSubtypes) {
+    auto type = make_nullable(std::make_shared<DataTypeVarbinary>());
+    auto column = type->create_column();
+    auto field = binding("v", {5});
+    field.subtype = 2;
+    ASSERT_TRUE(read(type, *column, R"({"v":{"$binary":{"base64":"AP+A","subType":"02"}}})", field)
+                        .ok());
+    EXPECT_EQ(assert_cast<const ColumnNullable&>(*column)
+                      .get_nested_column()
+                      .get_data_at(0)
+                      .to_string(),
+              std::string("\x00\xff\x80", 3));
+    EXPECT_FALSE(read(type, *column, R"({"v":{"$binary":{"base64":"AP+A","subType":"04"}}})", field)
+                         .ok());
+    EXPECT_EQ(column->size(), 1);
+    ASSERT_TRUE(
+            read(type, *column, R"({"v":{"$binary":{"base64":"","subType":"02"}}})", field).ok());
+    EXPECT_FALSE(assert_cast<const ColumnNullable&>(*column).is_null_at(1));
+}
+
 } // namespace doris
