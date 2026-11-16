@@ -383,7 +383,8 @@ public class IcebergWritePlanProviderTest {
     private static WriteSession sessionFor(Table table, RecordingConnectorContext ctx) {
         RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
         ops.table = table;
-        IcebergConnectorTransaction txn = new IcebergConnectorTransaction(42L, ops, ctx);
+        IcebergConnectorTransaction txn = new IcebergConnectorTransaction(42L, ops, ctx, null, null,
+                IcebergWriteSchemaContext.create(table, "test", Optional.empty(), false, false));
         return new WriteSession(txn);
     }
 
@@ -2617,7 +2618,8 @@ public class IcebergWritePlanProviderTest {
             RecordingConnectorContext ctx = contextWithStorage();
             RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
             ops.table = table;
-            IcebergConnectorTransaction txn = new IcebergConnectorTransaction(42L, ops, ctx);
+            IcebergConnectorTransaction txn = new IcebergConnectorTransaction(42L, ops, ctx, null, null,
+                    IcebergWriteSchemaContext.create(table, "t1", Optional.empty(), false, false));
             providerFor(table, ctx).planWrite(new WriteSession(txn),
                     new WriteHandle(new IcebergTableHandle("db1", "t1")).writeOperation(operation));
 

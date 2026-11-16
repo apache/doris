@@ -2033,6 +2033,14 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
                 session.allocateTransactionId(), catalogOps, context, resourceTracker, catalogProps.getFlavor());
     }
 
+    @Override
+    public ConnectorTransaction beginTransaction(ConnectorSession session, ConnectorTableHandle handle) {
+        IcebergTableHandle table = (IcebergTableHandle) handle;
+        return new IcebergConnectorTransaction(session.allocateTransactionId(), catalogOps, context,
+                resourceTracker, catalogProps.getFlavor(),
+                IcebergStatementScope.rewriteSchema(session, table.getDbName(), table.getTableName()));
+    }
+
     /**
      * Rejects row-level DML on iceberg copy-on-write tables (Doris only supports merge-on-read deletes /
      * deletion vectors). Reads the per-operation write-mode property ({@code write.delete.mode} /

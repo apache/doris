@@ -205,11 +205,9 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
         // isOverwrite() boolean, so an overwriting INSERT is promoted to the OVERWRITE operation the
         // transaction switches on at commit time (Append vs ReplacePartitions / OverwriteFiles).
         IcebergWriteSchemaContext schemaContext = handle.getWriteOperation() == WriteOperation.REWRITE
-                ? null : resolveWriteSchema(session, tableHandle, handle.getBranchName());
-        if (schemaContext != null) {
-            // REWRITE resolves its schema after beginWrite and checks it in buildRewriteSink.
-            validateVariantWrite(handle, schemaContext);
-        }
+                ? transaction.getRewriteSchemaContext()
+                : resolveWriteSchema(session, tableHandle, handle.getBranchName());
+        validateVariantWrite(handle, schemaContext);
         validateNestedPartitionWriteCompatibility(handle, schemaContext);
         IcebergWriteContext writeContext = buildWriteContext(handle, schemaContext);
         transaction.beginWrite(session, tableHandle.getDbName(), tableHandle.getTableName(), writeContext);
@@ -279,7 +277,7 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
                 // rewritableDeletes supply does not apply to rewrite (it deals with no position deletes), and
                 // is already evicted above.
                 TDataSink dataSink = new TDataSink(TDataSinkType.ICEBERG_TABLE_SINK);
-                dataSink.setIcebergTableSink(buildRewriteSink(table, tableHandle, handle));
+                dataSink.setIcebergTableSink(buildRewriteSink(table, tableHandle, handle, schemaContext));
                 return dataSink;
             }
             default:
@@ -950,28 +948,33 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
      * All other fields are inherited unchanged from the INSERT path.
      */
     private TIcebergTableSink buildRewriteSink(Table table, IcebergTableHandle tableHandle,
-            ConnectorWriteHandle handle) {
+            ConnectorWriteHandle handle, IcebergWriteSchemaContext rewriteSchemaContext) {
         // A compaction REWRITE atomically replaces a file set; it is never a user INSERT OVERWRITE, and the
         // BE writer does not accept the REWRITE write-type together with the overwrite flag.
         if (handle.isOverwrite()) {
             throw new DorisConnectorException("REWRITE writes cannot be overwrite operations");
         }
-        IcebergWriteSchemaContext rewriteSchemaContext = IcebergWriteSchemaContext.create(
-                table, tableHandle.getTableName(), Optional.empty(),
-                mappingVarbinaryEnabled(), mappingTimestampTzEnabled());
-        // REWRITE resolves its schema after beginWrite, so its Variant check and rolling-upgrade fence must run
-        // here against the same schema and partition spec that the compaction sink will actually use.
-        validateVariantWrite(handle, rewriteSchemaContext);
-        validateNestedPartitionWriteCompatibility(handle, rewriteSchemaContext);
+        // Each group binds its sorter in a separate scope. A concurrent ASC-to-DESC change must not label
+        // files sorted by the new order with the old order pinned by rewrite planning.
+        if (table.sortOrder().orderId() != rewriteSchemaContext.getSortOrder().orderId()) {
+            throw new DorisConnectorException("Iceberg sort order changed during rewrite planning for "
+                    + tableHandle.getTableName() + "; retry the statement");
+        }
         TIcebergTableSink tSink = buildSink(table, tableHandle, handle, rewriteSchemaContext);
+        // An evolved unpartitioned spec may have a nonzero ID. Keep the explicit definition on the wire too.
+        PartitionSpec outputSpec = rewriteSchemaContext.getPartitionSpec();
+        tSink.setPartitionSpecId(outputSpec.specId());
+        tSink.setPartitionSpecsJson(Collections.singletonMap(
+                outputSpec.specId(), rewriteSchemaContext.getPartitionSpecJson()));
         tSink.setWriteType(TIcebergWriteType.REWRITE);
-        if (IcebergWriterHelper.getFormatVersion(table) >= 3) {
+        if (rewriteSchemaContext.getFormatVersion() >= 3) {
             // iceberg v3 format requires the row-lineage fields when rewriting data files.
-            Schema rewriteSchema = IcebergWriterHelper.appendRowLineageFieldsForV3(table.schema());
+            Schema rewriteSchema = rewriteSchemaContext.getMergeSchema();
             tSink.setSchemaJson(SchemaParser.toJson(rewriteSchema));
             // #65782: the collect flag must reflect the same (v3-appended) schema the sink advertises.
-            tSink.setCollectColumnStats(IcebergWriterHelper.shouldCollectColumnStats(table, rewriteSchema));
-            tSink.setNanCountFieldIds(IcebergWriterHelper.nanCountFieldIds(table, rewriteSchema));
+            tSink.setCollectColumnStats(
+                    IcebergWriterHelper.shouldCollectColumnStats(rewriteSchemaContext, rewriteSchema));
+            tSink.setNanCountFieldIds(IcebergWriterHelper.nanCountFieldIds(rewriteSchemaContext, rewriteSchema));
         }
         return tSink;
     }

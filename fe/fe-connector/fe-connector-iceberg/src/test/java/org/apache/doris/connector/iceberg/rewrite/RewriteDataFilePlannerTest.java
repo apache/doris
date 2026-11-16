@@ -164,7 +164,7 @@ public class RewriteDataFilePlannerTest {
             int minInputFiles, boolean rewriteAll, long maxGroupSize, int deleteFileThreshold,
             double deleteRatioThreshold, ConnectorPredicate where) {
         return new RewriteDataFilePlanner.Parameters(TARGET, minFileSize, maxFileSize, minInputFiles, rewriteAll,
-                maxGroupSize, deleteFileThreshold, deleteRatioThreshold, /* outputSpecId (dead) */ 2L, where);
+                maxGroupSize, deleteFileThreshold, deleteRatioThreshold, null, where);
     }
 
     private static RewriteDataFilePlanner.Parameters rewriteAll(long maxGroupSize, ConnectorPredicate where) {
@@ -271,7 +271,7 @@ public class RewriteDataFilePlannerTest {
         RewriteDataFilePlanner planner = plannerWithTasks(
                 CloseableIterable.combine(Collections.emptyList(), () -> closed.set(true)));
 
-        Assertions.assertTrue(planner.planAndOrganizeTasks(null).isEmpty());
+        Assertions.assertTrue(planner.planAndOrganizeTasks(createUnpartitioned("closed_success")).isEmpty());
         Assertions.assertTrue(closed.get(), "the Iceberg planning iterable must be closed after success");
     }
 
@@ -292,7 +292,8 @@ public class RewriteDataFilePlannerTest {
         RewriteDataFilePlanner planner = plannerWithTasks(
                 CloseableIterable.combine(failingTasks, () -> closed.set(true)));
 
-        Assertions.assertThrows(DorisConnectorException.class, () -> planner.planAndOrganizeTasks(null));
+        Assertions.assertThrows(DorisConnectorException.class,
+                () -> planner.planAndOrganizeTasks(createUnpartitioned("closed_failure")));
         Assertions.assertTrue(closed.get(), "the Iceberg planning iterable must be closed after failure");
     }
 
@@ -504,7 +505,7 @@ public class RewriteDataFilePlannerTest {
         // hasEnoughContent fires alone (count > 1 && size 200 > target 150); size 200 <= group cap so hasTooMuchContent off.
         List<RewriteDataGroup> groups = new RewriteDataFilePlanner(
                 new RewriteDataFilePlanner.Parameters(150L, 200L, 1000L, 100, false, 1_000_000L,
-                        Integer.MAX_VALUE, 0.3, 2L, null), ZoneOffset.UTC).planAndOrganizeTasks(t);
+                        Integer.MAX_VALUE, 0.3, null, null), ZoneOffset.UTC).planAndOrganizeTasks(t);
 
         Assertions.assertEquals(1, groups.size());
         Assertions.assertEquals(2, totalFiles(groups));
