@@ -105,9 +105,12 @@ static void classify_columns(const SegmentFooterPB& footer, ColumnClassification
                 std::string rel_path = rel.get_path();
                 int32_t root_uid = col.column_path_info().parrent_column_unique_id();
 
-                if (rel_path.find("__DORIS_VARIANT_SPARSE__") != std::string::npos) {
+                // Substring matches embed user columns (e.g. x__DORIS_VARIANT_SPARSE__y)
+                // without an external index entry, making their committed values invisible.
+                if (variant_util::variant_binary_column_bucket(rel_path, SPARSE_COLUMN_PATH)) {
                     classification.pending_sparse[root_uid].emplace_back(col);
-                } else if (rel_path.find("__DORIS_VARIANT_DOC_VALUE__") != std::string::npos) {
+                } else if (variant_util::variant_binary_column_bucket(rel_path,
+                                                                      DOC_VALUE_COLUMN_PATH)) {
                     classification.pending_doc_value[root_uid].emplace_back(col);
                 } else {
                     classification.pending_subcols[root_uid].emplace_back(rel_path, col);

@@ -250,6 +250,9 @@ int64_t VariantColumnReader::get_metadata_size() const {
         }
     }
 
+    for (const auto& [path, meta] : _embedded_subcolumn_metas) {
+        size += path.size() + meta.SpaceUsedLong();
+    }
     for (const auto& reader : *_subcolumns_meta_info) {
         size += reader->path.get_path().size();
         size += sizeof(SubcolumnMeta);
@@ -476,11 +479,11 @@ Status VariantColumnReader::_build_read_plan_flat_leaves(
             return Status::OK();
         }
         // Case 2: bucketized sparse column path: __DORIS_VARIANT_SPARSE__.b{i}
-        if (rel.rfind(std::string(SPARSE_COLUMN_PATH) + ".b", 0) == 0) {
+        // A suffix such as .b0tail belongs to a user column, not bucket zero.
+        if (auto bucket = variant_util::variant_binary_column_bucket(rel, SPARSE_COLUMN_PATH);
+            rel != SPARSE_COLUMN_PATH && bucket) {
             CHECK(_binary_column_reader->get_type() == BinaryColumnType::MULTIPLE_SPARSE);
-            // parse bucket index
-            uint32_t bucket_index = static_cast<uint32_t>(
-                    atoi(rel.substr(std::string(SPARSE_COLUMN_PATH).size() + 2).c_str()));
+            auto bucket_index = static_cast<uint32_t>(*bucket);
             const auto& reader = _binary_column_reader->select_reader(bucket_index);
             if (!reader) {
                 return Status::NotFound("bucket sparse column reader not found: {}", rel);
@@ -496,10 +499,10 @@ Status VariantColumnReader::_build_read_plan_flat_leaves(
         }
 
         // case 3: doc snapshot column
-        if (rel.find(DOC_VALUE_COLUMN_PATH) != std::string::npos) {
+        // Marker substrings must use the ordinary leaf/sparse read plan.
+        if (auto bucket = variant_util::variant_binary_column_bucket(rel, DOC_VALUE_COLUMN_PATH)) {
             CHECK(_binary_column_reader->get_type() == BinaryColumnType::MULTIPLE_DOC_VALUE);
-            size_t bucket = rel.rfind('b');
-            uint32_t bucket_value = static_cast<uint32_t>(std::stoul(rel.substr(bucket + 1)));
+            auto bucket_value = static_cast<uint32_t>(*bucket);
             plan->kind = ReadKind::DOC_COMPACT;
             plan->type = DataTypeFactory::instance().create_data_type(target_col);
             plan->binary_column_reader = _binary_column_reader->select_reader(bucket_value);
@@ -1253,10 +1256,9 @@ Status VariantColumnReader::init(const ColumnReaderOptions& opts, ColumnMetaAcce
         }
 
         // case 2: bucketized sparse column
-        std::string bucket_prefix = std::string(SPARSE_COLUMN_PATH) + ".b";
-        if (rel_str.starts_with(bucket_prefix)) {
-            uint32_t idx =
-                    static_cast<uint32_t>(atoi(rel_str.substr(bucket_prefix.size()).c_str()));
+        // Only exact writer-generated bucket names are physical Map columns.
+        if (auto bucket = variant_util::variant_binary_column_bucket(rel_str, SPARSE_COLUMN_PATH)) {
+            auto idx = static_cast<uint32_t>(*bucket);
             DCHECK(col.has_variant_statistics()) << col.DebugString();
             if (should_record_path_stats) {
                 // Additively merge per-bucket sparse stats into the unified statistics.
@@ -1270,9 +1272,10 @@ Status VariantColumnReader::init(const ColumnReaderOptions& opts, ColumnMetaAcce
         }
 
         // case 3: doc snapshot column
-        if (rel_str.find(DOC_VALUE_COLUMN_PATH) != std::string::npos) {
-            size_t bucket = rel_str.rfind('b');
-            uint32_t bucket_value = static_cast<uint32_t>(std::stoi(rel_str.substr(bucket + 1)));
+        // A user key such as x__DORIS_VARIANT_DOC_VALUE__y is an ordinary subcolumn.
+        if (auto bucket =
+                    variant_util::variant_binary_column_bucket(rel_str, DOC_VALUE_COLUMN_PATH)) {
+            auto bucket_value = static_cast<uint32_t>(*bucket);
             std::shared_ptr<ColumnReader> column_reader;
             RETURN_IF_ERROR(ColumnReader::create(opts, col, num_rows, file_reader, &column_reader));
             tmp_doc_value_readers[bucket_value] = std::move(column_reader);
@@ -1286,12 +1289,56 @@ Status VariantColumnReader::init(const ColumnReaderOptions& opts, ColumnMetaAcce
         return Status::OK();
     };
 
+    auto add_subcolumn_meta = [&](const ColumnMetaPB& column_pb, int32_t ordinal) {
+        PathInData path;
+        path.from_protobuf(column_pb.column_path_info());
+        // init subcolumns
+        auto relative_path = path.copy_pop_front();
+        if (relative_path.empty()) {
+            return;
+        }
+        // Skip NestedGroup subcolumns (columns with ___DOR_ng___. prefix in path).
+        // NestedGroup columns only contain rows that have the nested array, not all rows.
+        // They need special handling via NestedGroupWholeIterator, not regular subcolumns.
+        const auto& leaf_path = relative_path.get_path();
+        if (contains_nested_group_marker(leaf_path)) {
+            VLOG_DEBUG << "Skipping NestedGroup subcolumn: " << leaf_path;
+            return;
+        }
+        // check the root is already a leaf node
+        if (should_record_path_stats && column_pb.has_none_null_size()) {
+            _statistics->subcolumns_non_null_size.emplace(relative_path.get_path(),
+                                                          column_pb.none_null_size());
+        }
+        // 3.1.2 may store a flat JSON key like {"a.b": 1} as a single PathInData part.
+        // New compaction schema and query path expect a dot-split multi-part shape.
+        // Rebuild via the string constructor when the path has neither typed
+        // nor nested metadata, so the tree matches the new shape.
+        if (!relative_path.get_is_typed() && !relative_path.has_nested_part()) {
+            relative_path = PathInData(relative_path.get_path());
+        }
+        _subcolumns_meta_info->add(
+                relative_path,
+                SubcolumnMeta {
+                        .file_column_type = DataTypeFactory::instance().create_data_type(column_pb),
+                        .footer_ordinal = ordinal});
+    };
+
     // First try initialize sparse from root's embedded children_columns (new segments)
     if (self_column_pb.children_columns_size() > 0) {
         for (int i = 0; i < self_column_pb.children_columns_size(); ++i) {
             const ColumnMetaPB& child_pb = self_column_pb.children_columns(i);
             bool handled = false;
             RETURN_IF_ERROR(handle_sparse_meta(child_pb, &handled));
+            // Old V3 writers embedded user columns with marker substrings and omitted their
+            // path-index entries. Keep their metadata locally so query AND compaction can
+            // read the existing data pages through the normal subcolumn reader cache.
+            if (!handled && child_pb.has_column_path_info()) {
+                PathInData path;
+                path.from_protobuf(child_pb.column_path_info());
+                _embedded_subcolumn_metas.emplace(std::string(path.get_relative_path()), child_pb);
+                add_subcolumn_meta(child_pb, -1);
+            }
         }
     }
 
@@ -1316,12 +1363,7 @@ Status VariantColumnReader::init(const ColumnReaderOptions& opts, ColumnMetaAcce
             continue;
         }
         DCHECK(column_pb.has_column_path_info());
-        PathInData path;
-        path.from_protobuf(column_pb.column_path_info());
-
         // init sparse column readers
-        auto relative_sparse = path.copy_pop_front();
-        auto rel_str = relative_sparse.get_path();
         {
             bool handled = false;
             RETURN_IF_ERROR(handle_sparse_meta(column_pb, &handled));
@@ -1330,36 +1372,7 @@ Status VariantColumnReader::init(const ColumnReaderOptions& opts, ColumnMetaAcce
             }
         }
 
-        // init subcolumns
-        auto relative_path = path.copy_pop_front();
-        if (relative_path.empty()) {
-            continue;
-        }
-        // Skip NestedGroup subcolumns (columns with ___DOR_ng___. prefix in path).
-        // NestedGroup columns only contain rows that have the nested array, not all rows.
-        // They need special handling via NestedGroupWholeIterator, not regular subcolumns.
-        const auto& leaf_path = relative_path.get_path();
-        if (contains_nested_group_marker(leaf_path)) {
-            VLOG_DEBUG << "Skipping NestedGroup subcolumn: " << leaf_path;
-            continue;
-        }
-        // check the root is already a leaf node
-        if (should_record_path_stats && column_pb.has_none_null_size()) {
-            _statistics->subcolumns_non_null_size.emplace(relative_path.get_path(),
-                                                          column_pb.none_null_size());
-        }
-        // 3.1.2 may store a flat JSON key like {"a.b": 1} as a single PathInData part.
-        // New compaction schema and query path expect a dot-split multi-part shape.
-        // Rebuild via the string constructor when the path has neither typed
-        // nor nested metadata, so the tree matches the new shape.
-        if (!relative_path.get_is_typed() && !relative_path.has_nested_part()) {
-            relative_path = PathInData(relative_path.get_path());
-        }
-        _subcolumns_meta_info->add(
-                relative_path,
-                SubcolumnMeta {
-                        .file_column_type = DataTypeFactory::instance().create_data_type(column_pb),
-                        .footer_ordinal = ordinal});
+        add_subcolumn_meta(column_pb, ordinal);
     }
 
     // finalize bucket readers if any
@@ -1422,6 +1435,13 @@ Status VariantColumnReader::create_path_reader(
         const io::FileReaderSPtr& file_reader, uint64_t num_rows,
         std::shared_ptr<ColumnReader>* out, OlapReaderStatistics* stats,
         const io::IOContext* source_io_ctx) {
+    // Old V3 marker-substring columns have neither a footer ordinal nor a path-index entry.
+    // This immutable metadata is populated once at segment initialization, with no per-row work.
+    if (auto it = _embedded_subcolumn_metas.find(relative_path.get_path());
+        it != _embedded_subcolumn_metas.end()) {
+        return ColumnReader::create(opts, it->second, num_rows, file_reader, out);
+    }
+
     // 1) Try inline subcolumn meta if available (footer_ordinal >= 0)
     const auto* node = get_subcolumn_meta_by_path(relative_path);
     if (node != nullptr && node->data.footer_ordinal >= 0) {

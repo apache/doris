@@ -526,4 +526,34 @@ TEST_F(VariantStatsCalculatorTest, CalculateVariantStatsWithFooterOffset) {
     EXPECT_EQ(_footer->columns(footer_offset).none_null_size(), 2);
 }
 
+TEST_F(VariantStatsCalculatorTest, MaterializedSparseMarkerUsesScalarStats) {
+    const std::string path = "v.x__DORIS_VARIANT_SPARSE__y";
+    add_footer_column_with_path(1, path);
+    _tablet_schema->append_column(create_variant_column(1, "v"));
+    auto sub = create_variant_column(2, path, 1, path);
+    sub.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
+    _tablet_schema->append_column(sub);
+    std::vector<uint32_t> ids {1};
+    VariantStatsCaculator calculator(_footer.get(), _tablet_schema, ids);
+    Block block;
+    block.insert({create_nullable_column({false, true, false}, {"701", "", "703"}),
+                  make_nullable(std::make_shared<DataTypeString>()), path});
+    ASSERT_TRUE(calculator.calculate_variant_stats(&block, 0, 3).ok());
+    EXPECT_EQ(_footer->columns(0).none_null_size(), 2);
+    EXPECT_FALSE(_footer->columns(0).has_variant_statistics());
+}
+
+TEST_F(VariantStatsCalculatorTest, MaterializedDocMarkerRecordsStats) {
+    const std::string path = "v.x__DORIS_VARIANT_DOC_VALUE__y";
+    add_footer_column_with_path(1, path);
+    _tablet_schema->append_column(create_variant_column(2, path, 1, path));
+    std::vector<uint32_t> ids {0};
+    VariantStatsCaculator calculator(_footer.get(), _tablet_schema, ids);
+    Block block;
+    block.insert({create_nullable_column({false, true, false}, {"701", "", "703"}),
+                  make_nullable(std::make_shared<DataTypeString>()), path});
+    ASSERT_TRUE(calculator.calculate_variant_stats(&block, 0, 3).ok());
+    EXPECT_EQ(_footer->columns(0).none_null_size(), 2);
+}
+
 } // namespace doris::segment_v2
