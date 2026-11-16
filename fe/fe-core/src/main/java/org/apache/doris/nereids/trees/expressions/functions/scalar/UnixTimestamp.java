@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.expressions.literal.TimeStampNsLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
@@ -155,7 +156,10 @@ public class UnixTimestamp extends ScalarFunction
             return false;
         }
         DataType argumentType = child(0).getDataType();
-        if (!(argumentType instanceof DateTimeV2Type || argumentType instanceof TimeStampNsType)) {
+        // All local time types can cross a gap. In New York on 2024-03-10,
+        // 02:30 maps to 07:30 UTC, but 03:00 maps to 07:00 UTC.
+        if (!(argumentType instanceof DateTimeType || argumentType instanceof DateTimeV2Type
+                || argumentType instanceof TimeStampNsType)) {
             return true;
         }
         ZoneId timeZone;
