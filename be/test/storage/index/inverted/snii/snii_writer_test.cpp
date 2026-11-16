@@ -62,6 +62,7 @@
 #include "storage/index/inverted/snii/snii_index_writer.h"
 #include "storage/index/inverted/snii/writer/logical_index_writer.h"
 #include "storage/tablet/tablet_schema.h"
+#include "testutil/tmp_file_dirs_util.h"
 #include "util/slice.h"
 
 namespace doris::segment_v2 {
@@ -199,32 +200,52 @@ void init_failure_index_meta(doris::TabletIndex* index_meta, int64_t index_id) {
 
 // An analyzer that throws INVERTED_INDEX_ANALYZER_ERROR to simulate a token filter's runtime
 // failure. Previously, a token filter's UTF-8 validation provided this failure path.
-class ThrowingTokenStream final : public lucene::analysis::TokenStream {
+class ThrowingTokenStream final : public doris::segment_v2::inverted_index::TextTokenizer {
 public:
-    lucene::analysis::Token* next(lucene::analysis::Token*) override {
+    void reset(std::string_view /*text*/) override {}
+    bool next_batch(doris::segment_v2::inverted_index::TokenBatch& /*batch*/) override {
         throw doris::Exception(doris::ErrorCode::INVERTED_INDEX_ANALYZER_ERROR,
                                "analyzer failure injected by test");
     }
-    void close() override {}
-    void reset() override {}
+    size_t reserved_bytes() const override { return 0; }
 };
 
-class ThrowingAnalyzer final : public lucene::analysis::Analyzer {
+class ThrowingAnalyzer final : public doris::segment_v2::inverted_index::TextAnalyzer {
 public:
-    bool isSDocOpt() override { return true; }
-
-    lucene::analysis::TokenStream* tokenStream(const TCHAR*, lucene::util::Reader*) override {
-        return new ThrowingTokenStream();
+    std::unique_ptr<doris::segment_v2::inverted_index::TextTokenStream> create_stream()
+            const override {
+        return std::make_unique<ThrowingTokenStream>();
     }
+};
 
-    lucene::analysis::TokenStream* reusableTokenStream(const TCHAR*,
-                                                       lucene::util::Reader*) override {
-        _reusable = std::make_unique<ThrowingTokenStream>();
-        return _reusable.get();
+// A stream that hands over a batch with a 1 MiB term, then throws: an analyzer error in the middle
+// of a value, after the writer took some of its tokens.
+class LongTermThenThrowingTokenStream final
+        : public doris::segment_v2::inverted_index::TextTokenizer {
+public:
+    void reset(std::string_view /*text*/) override { _handed_over = false; }
+    bool next_batch(doris::segment_v2::inverted_index::TokenBatch& batch) override {
+        batch.clear();
+        if (_handed_over) {
+            throw doris::Exception(doris::ErrorCode::INVERTED_INDEX_ANALYZER_ERROR,
+                                   "analyzer failure injected by test");
+        }
+        _handed_over = true;
+        batch.push_copy(std::string(1U << 20, 'a'), 1);
+        return true;
     }
+    size_t reserved_bytes() const override { return 0; }
 
 private:
-    std::unique_ptr<ThrowingTokenStream> _reusable;
+    bool _handed_over = false;
+};
+
+class LongTermThenThrowingAnalyzer final : public doris::segment_v2::inverted_index::TextAnalyzer {
+public:
+    std::unique_ptr<doris::segment_v2::inverted_index::TextTokenStream> create_stream()
+            const override {
+        return std::make_unique<LongTermThenThrowingTokenStream>();
+    }
 };
 // Generic index_meta construction: push an arbitrary property table into a fresh TabletIndex, so
 // the gram-family detection tests can pass custom properties directly instead of hardcoding them
@@ -242,7 +263,7 @@ void init_gram_index_meta(doris::TabletIndex* index_meta, int64_t index_id,
     index_meta->init_from_pb(index_pb);
 }
 
-std::shared_ptr<lucene::analysis::Analyzer> create_failure_analyzer() {
+doris::segment_v2::inverted_index::TextAnalyzerPtr create_failure_analyzer() {
     return std::make_shared<ThrowingAnalyzer>();
 }
 
@@ -631,9 +652,7 @@ TEST(SniiWriterFailureLatch, AnalyzerFailureDiscardsStateAndBlocksFinish) {
                                                     doris::FieldType::OLAP_FIELD_TYPE_VARCHAR);
     ASSERT_OK(writer.init());
 
-    writer.set_analysis_for_test(
-            doris::segment_v2::inverted_index::InvertedIndexAnalyzer::create_reader({}),
-            create_failure_analyzer());
+    writer.set_analysis_for_test(create_failure_analyzer());
 
     const doris::Slice value = malformed_value_after_valid_token();
     auto add_status = writer.add_values(reinterpret_cast<const uint8_t*>(&value), 1);
@@ -645,6 +664,108 @@ TEST(SniiWriterFailureLatch, AnalyzerFailureDiscardsStateAndBlocksFinish) {
     EXPECT_EQ(writer.finish().code(), doris::ErrorCode::INVERTED_INDEX_ANALYZER_ERROR);
     EXPECT_EQ(writer.term_buffer_for_test(), nullptr);
     EXPECT_EQ(writer.memory_reporter_for_test(), nullptr);
+}
+
+// The writer stops charging its analysis memory once an analyzer error is latched, so the batch,
+// which still holds the tokens the writer took from the failed row, goes with the stream.
+TEST(SniiWriterFailureLatch, AnalyzerFailureFreesThePartialBatch) {
+    doris::TabletIndex index_meta;
+    init_failure_index_meta(&index_meta, 92);
+    doris::segment_v2::SniiIndexColumnWriter writer(nullptr, &index_meta,
+                                                    doris::FieldType::OLAP_FIELD_TYPE_VARCHAR);
+    ASSERT_OK(writer.init());
+    writer.set_analysis_for_test(std::make_shared<LongTermThenThrowingAnalyzer>());
+
+    const doris::Slice value("a row whose analysis fails");
+    ASSERT_EQ(writer.add_values(reinterpret_cast<const uint8_t*>(&value), 1).code(),
+              doris::ErrorCode::INVERTED_INDEX_ANALYZER_ERROR);
+    EXPECT_EQ(writer.stream_for_test(), nullptr);
+    EXPECT_EQ(writer._analysis_charged_bytes, 0);
+    EXPECT_EQ(writer._batch.capacity_bytes(), 0);
+}
+
+// The writer reads every row with the one stream init() made and one batch. Through the lowercase
+// normalizer a 2 MiB value is one 2 MiB term, so the batch grows far past the high water mark for
+// it; once the row is written the batch is back under the mark, and what the writer charges for its
+// analysis is exactly the stream's and the batch's capacity, then and after the next row.
+TEST(SniiWriterAnalysis, BatchReturnsUnderTheHighWaterMarkAfterALongRow) {
+    ScopedGramPolicies policies;
+    doris::TabletIndex index_meta;
+    init_gram_index_meta(&index_meta, 9021, {{"normalizer", "lowercase"}});
+    doris::segment_v2::SniiIndexColumnWriter writer(nullptr, &index_meta,
+                                                    doris::FieldType::OLAP_FIELD_TYPE_VARCHAR);
+    ASSERT_OK(writer.init());
+    ASSERT_NE(writer.stream_for_test(), nullptr);
+    const auto analysis_bytes = [&writer] {
+        return static_cast<int64_t>(writer._stream->reserved_bytes() +
+                                    writer._batch.capacity_bytes());
+    };
+
+    const std::string long_row(2U << 20, 'A');
+    const doris::Slice long_value(long_row);
+    ASSERT_OK(writer.add_values(reinterpret_cast<const uint8_t*>(&long_value), 1));
+    EXPECT_LE(writer._batch.capacity_bytes(),
+              doris::segment_v2::inverted_index::ANALYZER_SCRATCH_HIGH_WATER_BYTES);
+    EXPECT_EQ(writer._analysis_charged_bytes, analysis_bytes());
+
+    const doris::Slice short_value("short row");
+    ASSERT_OK(writer.add_values(reinterpret_cast<const uint8_t*>(&short_value), 1));
+    EXPECT_GT(writer._batch.capacity_bytes(), 0);
+    EXPECT_EQ(writer._analysis_charged_bytes, analysis_bytes());
+}
+
+// The stream and the batch live from init() until finish() or close_on_error(): once the memory
+// reporter no longer charges their buffers, they go too.
+TEST(SniiWriterAnalysis, StreamGoesWithFinishAndCloseOnError) {
+    {
+        doris::TabletIndex index_meta;
+        init_failure_index_meta(&index_meta, 9022);
+        doris::segment_v2::SniiIndexColumnWriter writer(nullptr, &index_meta,
+                                                        doris::FieldType::OLAP_FIELD_TYPE_VARCHAR);
+        ASSERT_OK(writer.init());
+        ASSERT_NE(writer.stream_for_test(), nullptr);
+        writer.close_on_error();
+        EXPECT_EQ(writer.stream_for_test(), nullptr);
+    }
+    doris::test::ensure_tmp_file_dirs();
+    const std::string directory = "./ut_dir/snii_writer_stream_lifetime";
+    auto fs = doris::io::global_local_filesystem();
+    ASSERT_OK(fs->delete_directory(directory));
+    ASSERT_OK(fs->create_directory(directory));
+    const std::string path = directory + "/stream.idx";
+    doris::io::FileWriterPtr file;
+    ASSERT_OK(fs->create_file(path, &file));
+    doris::segment_v2::IndexFileWriter index_writer(fs, path, "stream_lifetime", 0,
+                                                    doris::InvertedIndexStorageFormatPB::SNII,
+                                                    std::move(file));
+    doris::TabletIndex index_meta;
+    init_failure_index_meta(&index_meta, 9023);
+    doris::segment_v2::SniiIndexColumnWriter writer(&index_writer, &index_meta,
+                                                    doris::FieldType::OLAP_FIELD_TYPE_VARCHAR);
+    ASSERT_OK(writer.init());
+    const doris::Slice value("hello world");
+    ASSERT_OK(writer.add_values(reinterpret_cast<const uint8_t*>(&value), 1));
+    ASSERT_GT(writer._batch.capacity_bytes(), 0);
+    ASSERT_OK(writer.finish());
+    EXPECT_EQ(writer.stream_for_test(), nullptr);
+    EXPECT_EQ(writer._batch.capacity_bytes(), 0);
+    ASSERT_OK(index_writer.begin_close());
+    ASSERT_OK(index_writer.finish_close());
+    ASSERT_OK(fs->delete_directory(directory));
+}
+
+// The CLucene chinese analyzer raises a CLuceneError for a missing dictionary file; init() reports
+// it as INVERTED_INDEX_ANALYZER_ERROR.
+TEST(SniiWriterAnalysis, MissingChineseDictionaryFailsInit) {
+    const std::string saved = doris::config::inverted_index_dict_path;
+    doris::config::inverted_index_dict_path = "./ut_dir/no_such_dictionary";
+    doris::TabletIndex index_meta;
+    init_gram_index_meta(&index_meta, 9024, {{"parser", "chinese"}});
+    doris::segment_v2::SniiIndexColumnWriter writer(nullptr, &index_meta,
+                                                    doris::FieldType::OLAP_FIELD_TYPE_VARCHAR);
+    const doris::Status status = writer.init();
+    doris::config::inverted_index_dict_path = saved;
+    EXPECT_EQ(status.code(), doris::ErrorCode::INVERTED_INDEX_ANALYZER_ERROR) << status;
 }
 
 // The writer follows the norms policy it shares with the CLucene writer and SNII compaction: the
@@ -832,10 +953,7 @@ TEST(SniiWriterTest, GramTokenizerBuffersReachTheMemoryReporter) {
     // Ground truth: the same tokenizer on the same row, driven standalone. reset() is what fills
     // the buffers, so their capacity is settled by the time it returns.
     doris::segment_v2::inverted_index::GramTokenizer tokenizer(*writer.gram_scheme_for_test());
-    auto reader = std::make_shared<lucene::util::SStringReader<char>>();
-    reader->init(row.data(), static_cast<int32_t>(row.size()), false);
-    tokenizer.set_reader(reader);
-    tokenizer.reset();
+    tokenizer.reset(row);
     const size_t scratch_bytes = tokenizer.reserved_bytes();
     ASSERT_GT(scratch_bytes, 512U * 1024U) << "the row is meant to dwarf the distinct-term set";
 

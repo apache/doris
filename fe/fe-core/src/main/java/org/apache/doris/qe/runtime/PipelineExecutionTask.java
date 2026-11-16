@@ -67,7 +67,7 @@ public class PipelineExecutionTask extends AbstractRuntimeTask<BackendWorker, Mu
     private final long timeoutDeadline;
     private final CoordinatorContext coordinatorContext;
     private final BackendServiceProxy backendServiceProxy;
-    private final Set<Long> dispatchedBackendIdsForAudit = ConcurrentHashMap.newKeySet();
+    private final Set<Long> dispatchedBackendIds = ConcurrentHashMap.newKeySet();
 
     // mutable states
     public PipelineExecutionTask(
@@ -101,7 +101,7 @@ public class PipelineExecutionTask extends AbstractRuntimeTask<BackendWorker, Mu
             if (!status.ok()) {
                 throw new UserException(status.getErrorMsg());
             }
-            dispatchedBackendIdsForAudit.clear();
+            dispatchedBackendIds.clear();
             sendAndWaitPhaseOneRpc();
             if (coordinatorContext.twoPhaseExecution()) {
                 sendAndWaitPhaseTwoRpc();
@@ -125,7 +125,7 @@ public class PipelineExecutionTask extends AbstractRuntimeTask<BackendWorker, Mu
         List<RpcInfo> rpcs = Lists.newArrayList();
         for (MultiFragmentsPipelineTask fragmentsTask : childrenTasks.allTasks()) {
             // Include uncertain RPC outcomes, but never a planned backend whose dispatch was not attempted.
-            dispatchedBackendIdsForAudit.add(fragmentsTask.getBackend().getId());
+            dispatchedBackendIds.add(fragmentsTask.getBackend().getId());
             rpcs.add(new RpcInfo(
                     fragmentsTask,
                     DateTime.now().getMillis(),
@@ -140,8 +140,8 @@ public class PipelineExecutionTask extends AbstractRuntimeTask<BackendWorker, Mu
         coordinatorContext.updateProfileIfPresent(profile -> profile.setRpcPhase1Latency(rpcPhase1Latency));
     }
 
-    public Set<Long> getDispatchedBackendIdsForAudit() {
-        return ImmutableSet.copyOf(dispatchedBackendIdsForAudit);
+    public Set<Long> getDispatchedBackendIds() {
+        return ImmutableSet.copyOf(dispatchedBackendIds);
     }
 
     private void sendAndWaitPhaseTwoRpc() throws RpcException, UserException {

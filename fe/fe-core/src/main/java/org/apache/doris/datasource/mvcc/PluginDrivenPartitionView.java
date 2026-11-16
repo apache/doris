@@ -262,7 +262,7 @@ public final class PluginDrivenPartitionView {
 
         List<Type> frozenTypes() {
             return types.stream().map(type -> {
-                // Type.fromThrift does not retain TIMESTAMPTZ scale or VARBINARY length.
+                // Type.fromThrift does not retain every scalar parameter, such as VARBINARY length.
                 // Preserve all scalar parameters when freezing the conversion's schema.
                 if (type.getTypes().get(0).isSetScalarType()) {
                     TScalarType scalar = type.getTypes().get(0).getScalarType();

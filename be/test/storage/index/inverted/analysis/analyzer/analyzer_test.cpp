@@ -31,6 +31,9 @@
 #include "runtime/index_policy/index_policy_mgr.h"
 #include "storage/index/inverted/analysis/inverted_index_parser.h"
 #include "storage/index/inverted/analysis/reader.h"
+#include "storage/index/inverted/analysis/scratch.h"
+#include "storage/index/inverted/analysis/token_batch.h"
+#include "storage/index/inverted/clucene/lucene_backed_text_analyzer.h"
 #include "util/defer_op.h"
 
 namespace doris::segment_v2::inverted_index {
@@ -334,11 +337,8 @@ TEST_F(AnalyzerTest, TestAnalyzerFunctionality) {
     ASSERT_NE(analyzer, nullptr);
 
     // Test tokenization
-    auto reader = std::make_shared<lucene::util::SStringReader<char>>();
-    std::string text = "Hello World Test";
-    reader->init(text.data(), static_cast<int32_t>(text.size()), true);
-
-    auto result = InvertedIndexAnalyzer::get_analyse_result(reader, analyzer.get());
+    const std::string text = "Hello World Test";
+    auto result = InvertedIndexAnalyzer::get_analyse_result(text, *analyzer);
     EXPECT_GT(result.size(), 0);
 
     // Verify tokens are not empty
@@ -351,6 +351,67 @@ TEST_F(AnalyzerTest, TestAnalyzerFunctionality) {
         }
         EXPECT_GE(term_info.position, 0);
     }
+}
+
+// The index's char filter is part of the analyzer create_analyzer() and
+// create_analyzer_provider() build: without it the english parser keeps "axb" whole, with "x"
+// replaced by a space it makes two terms.
+TEST_F(AnalyzerTest, TestIndexCharFilterIsPartOfTheAnalyzer) {
+    InvertedIndexAnalyzerConfig config;
+    config.parser_type = InvertedIndexParserType::PARSER_ENGLISH;
+    config.lower_case = INVERTED_INDEX_PARSER_TRUE;
+    const auto terms = [](const TextAnalyzer& analyzer) {
+        std::vector<std::string> out;
+        for (const auto& info : InvertedIndexAnalyzer::get_analyse_result("axb", analyzer)) {
+            out.push_back(info.get_single_term());
+        }
+        return out;
+    };
+    EXPECT_EQ(terms(*InvertedIndexAnalyzer::create_analyzer(&config)),
+              std::vector<std::string> {"axb"});
+
+    config.char_filter_map = {
+            {INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE, INVERTED_INDEX_CHAR_FILTER_CHAR_REPLACE},
+            {INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN, "x"},
+            {INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT, " "}};
+    EXPECT_EQ(terms(*InvertedIndexAnalyzer::create_analyzer(&config)),
+              (std::vector<std::string> {"a", "b"}));
+    EXPECT_EQ(terms(*InvertedIndexAnalyzer::create_analyzer_provider(&config)->get_analyzer()),
+              (std::vector<std::string> {"a", "b"}));
+}
+
+// The char filter's stream keeps the filtered copy of a value until the next one. A long value's
+// copy does not stay behind a short value, whose copy fits in the string's inline buffer.
+TEST_F(AnalyzerTest, TestIndexCharFilterReleasesTheCopyOfALongValue) {
+    InvertedIndexAnalyzerConfig config;
+    config.parser_type = InvertedIndexParserType::PARSER_ENGLISH;
+    config.char_filter_map = {
+            {INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE, INVERTED_INDEX_CHAR_FILTER_CHAR_REPLACE},
+            {INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN, "x"},
+            {INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT, " "}};
+    // A stream must not outlive the analyzer that made it.
+    const TextAnalyzerPtr analyzer = InvertedIndexAnalyzer::create_analyzer(&config);
+    const auto stream = analyzer->create_stream();
+    TokenBatch batch;
+    std::vector<TermInfo> terms;
+
+    // Filtered to 1 MiB of spaces, which make no token.
+    const std::string long_value(1U << 20, 'x');
+    InvertedIndexAnalyzer::get_analyse_result(long_value, *stream, batch, &terms);
+    EXPECT_GE(stream->reserved_bytes(), long_value.size());
+    InvertedIndexAnalyzer::get_analyse_result("axb", *stream, batch, &terms);
+    EXPECT_LT(stream->reserved_bytes(), ANALYZER_SCRATCH_HIGH_WATER_BYTES);
+}
+
+// A missing dictionary is an analyzer error for a query value too.
+TEST_F(AnalyzerTest, TestMissingChineseDictionaryIsAnAnalyzerError) {
+    const std::string saved = config::inverted_index_dict_path;
+    config::inverted_index_dict_path = "./ut_dir/no_such_dictionary";
+    std::vector<TermInfo> out;
+    const Status status =
+            InvertedIndexAnalyzer::analyze("中文分词", nullptr, {{"parser", "chinese"}}, &out);
+    config::inverted_index_dict_path = saved;
+    EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_ANALYZER_ERROR) << status;
 }
 
 // ==================== Query values ====================
@@ -384,8 +445,10 @@ TEST_F(AnalyzerTest, TestAnalyzeQueryValue) {
     // A context's analyzer comes before the index's.
     InvertedIndexAnalyzerCtx standard;
     standard.parser_type = InvertedIndexParserType::PARSER_STANDARD;
-    standard.analyzer = InvertedIndexAnalyzer::create_builtin_analyzer(
-            InvertedIndexParserType::PARSER_STANDARD, "", INVERTED_INDEX_PARSER_FALSE, "none");
+    standard.analyzer = std::make_shared<LuceneBackedTextAnalyzer>(
+            InvertedIndexAnalyzer::create_builtin_analyzer(InvertedIndexParserType::PARSER_STANDARD,
+                                                           "", INVERTED_INDEX_PARSER_FALSE,
+                                                           "none"));
     ASSERT_TRUE(InvertedIndexAnalyzer::analyze("Hello World", &standard, english, &out).ok());
     EXPECT_EQ(terms(out), (std::vector<std::string> {"Hello", "World"}));
 

@@ -1392,6 +1392,8 @@ DECLARE_mBool(enable_evaluate_shadow_queue_diff);
 
 DECLARE_mBool(file_cache_enable_only_warm_up_idx);
 
+DECLARE_mDouble(file_cache_io_adaptor_skip_read_factor);
+
 // async file cache write
 DECLARE_mBool(enable_async_file_cache_write);
 DECLARE_mInt32(async_file_cache_write_workers_per_disk);
@@ -2092,7 +2094,12 @@ DECLARE_mInt64(load_reader_max_block_bytes);
 
 // Maximum number of OpenMP threads available for concurrent index builds.
 // -1 means auto: use 80% of detected CPU cores.
+// Auto sizing shares the CPU count captured on first use with ann_index_build_threads_per_task.
 DECLARE_Int32(omp_threads_limit);
+// OpenMP threads per ANN train/add call, capped by the global budget above.
+// -1 means auto: 1 thread below 32 available CPU cores, otherwise 4 threads.
+// The CPU count is captured once on first use and reused until BE restart.
+DECLARE_Int32(ann_index_build_threads_per_task);
 // The capacity of segment partial column cache, used to cache column readers for each segment.
 DECLARE_mInt32(max_segment_partial_column_cache_size);
 // Cache for ANN index IVF on-disk list data.

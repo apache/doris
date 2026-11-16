@@ -616,7 +616,15 @@ struct StRelationFunction {
     static const size_t NUM_ARGS = 2;
     using Type = DataTypeUInt8;
 
-    static Status execute(Block& block, const ColumnNumbers& arguments, size_t result) {
+    static Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
+        if (scope == FunctionContext::FunctionStateScope::THREAD_LOCAL) {
+            context->set_function_state(scope, std::make_shared<StRelationState>());
+        }
+        return Status::OK();
+    }
+
+    static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                          size_t result) {
         DCHECK_EQ(arguments.size(), 2);
         auto return_type = block.get_data_type(result);
         const auto& left_col = block.get_by_position(arguments[0]).column;
@@ -632,20 +640,34 @@ struct StRelationFunction {
         auto null_map = ColumnUInt8::create(size, 0);
         auto& null_map_data = null_map->get_data();
 
-        for (size_t row = 0; row < size; ++row) {
-            // Propagate NULL before using nested placeholders; a NULL geometry has an
-            // empty payload, not a WKB shape.
+        const bool left_is_const = is_column_const(*left_col);
+        const bool right_is_const = is_column_const(*right_col);
+        std::array<std::shared_ptr<GeoShape>, NUM_ARGS> const_shapes;
+        // Typed NULL rows contain empty WKB placeholders. Delay constant admission until
+        // the first row where both arguments have values.
+        size_t first_row = 0;
+        while (first_row < size && any_geo_argument_is_null(block, arguments, first_row)) {
+            null_map_data[first_row++] = 1;
+        }
+        RETURN_IF_ERROR(decode_constants(context, block, arguments, first_row, &const_shapes));
+
+        for (size_t row = first_row; row < size; ++row) {
             if (any_geo_argument_is_null(block, arguments, row)) {
                 null_map_data[row] = 1;
                 continue;
             }
-            std::unique_ptr<GeoShape> shape1;
-            RETURN_IF_ERROR(
-                    decode_calculation_shape(left_col->get_data_at(row), left_type, &shape1, NAME));
-            std::unique_ptr<GeoShape> shape2;
-            RETURN_IF_ERROR(decode_calculation_shape(right_col->get_data_at(row), right_type,
-                                                     &shape2, NAME));
-
+            std::unique_ptr<GeoShape> row_shape1;
+            std::unique_ptr<GeoShape> row_shape2;
+            if (!left_is_const) {
+                RETURN_IF_ERROR(decode_calculation_shape(left_col->get_data_at(row), left_type,
+                                                         &row_shape1, NAME));
+            }
+            if (!right_is_const) {
+                RETURN_IF_ERROR(decode_calculation_shape(right_col->get_data_at(row), right_type,
+                                                         &row_shape2, NAME));
+            }
+            auto* shape1 = left_is_const ? const_shapes[0].get() : row_shape1.get();
+            auto* shape2 = right_is_const ? const_shapes[1].get() : row_shape2.get();
             if (!shape1 || !shape2) {
                 null_map_data[row] = 1;
                 continue;
@@ -658,12 +680,57 @@ struct StRelationFunction {
                                                    left_col->get_data_at(row),
                                                    right_col->get_data_at(row), &relation_value));
             } else {
-                relation_value = Func::evaluate(shape1.get(), shape2.get());
+                relation_value = Func::evaluate(shape1, shape2);
             }
             res->get_data()[row] = relation_value;
         }
         block.replace_by_position(result,
                                   ColumnNullable::create(std::move(res), std::move(null_map)));
+        return Status::OK();
+    }
+
+private:
+    static Status decode_constants(FunctionContext* context, const Block& block,
+                                   const ColumnNumbers& arguments, size_t first_row,
+                                   std::array<std::shared_ptr<GeoShape>, NUM_ARGS>* shapes) {
+        // Empty batches and all-NULL argument pairs never reach typed shape admission.
+        if (first_row == block.rows()) {
+            return Status::OK();
+        }
+        // Direct scalar evaluation can run without a thread-local FunctionContext.
+        auto* state = context == nullptr
+                              ? nullptr
+                              : reinterpret_cast<StRelationState*>(context->get_function_state(
+                                        FunctionContext::FunctionStateScope::THREAD_LOCAL));
+        for (size_t arg = 0; arg < NUM_ARGS; ++arg) {
+            const auto& column = block.get_by_position(arguments[arg]).column;
+            if (is_column_const(*column)) {
+                RETURN_IF_ERROR(decode_const(state, cast_set<int>(arg),
+                                             column->get_data_at(first_row),
+                                             block.get_data_type(arguments[arg]), &(*shapes)[arg]));
+            }
+        }
+        return Status::OK();
+    }
+
+    // Reuse decoded constants across blocks while preserving typed WKB admission.
+    static Status decode_const(StRelationState* state, int arg, const StringRef& value,
+                               const DataTypePtr& type, std::shared_ptr<GeoShape>* shape) {
+        if (state == nullptr) {
+            std::unique_ptr<GeoShape> decoded;
+            RETURN_IF_ERROR(decode_calculation_shape(value, type, &decoded, NAME));
+            *shape = std::move(decoded);
+            return Status::OK();
+        }
+        auto& cached = state->args[arg];
+        if (!cached.decoded || StringRef(cached.encoded) != value) {
+            std::unique_ptr<GeoShape> decoded;
+            RETURN_IF_ERROR(decode_calculation_shape(value, type, &decoded, NAME));
+            cached.encoded.assign(value.data, value.size);
+            cached.shape = std::move(decoded);
+            cached.decoded = true;
+        }
+        *shape = cached.shape;
         return Status::OK();
     }
 };
