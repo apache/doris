@@ -486,7 +486,7 @@ struct TMasterOpResult {
     9: optional TTxnLoadInfo txnLoadInfo;
     10: optional i64 groupCommitLoadBeId;
     11: optional i64 affectedRows;
-    // Lets the forwarding FE wait for the final statistics of external write fragments.
+    // Lets the forwarding FE wait for the final statistics of dispatched fragments.
     12: optional list<i64> auditStatisticsBackendIds;
     // Confirms that the executing FE serialized raw MySQL packets with CLIENT_DEPRECATE_EOF.
     13: optional bool clientDeprecatedEofApplied;
