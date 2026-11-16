@@ -20,7 +20,10 @@
 // same STRUCT, the TopN filter must still see the ORDER BY field on every tablet.
 suite("topn_filter_nested_column_pruning") {
     sql "set enable_prune_nested_column = true"
-    sql "set topn_filter_ratio = 0.5"
+    // The filter requires max(estimated row count, 1) * ratio > LIMIT + OFFSET.
+    // An estimate of 1 with ratio 0.5 does not enable the filter for LIMIT 1.
+    // Use a large ratio to enable it for LIMIT 1 and LIMIT 2, even before statistics arrive.
+    sql "set topn_filter_ratio = 1000000"
     sql "set parallel_pipeline_task_num = 1"
     sql "set time_zone = '+08:00'"
 
@@ -47,19 +50,21 @@ suite("topn_filter_nested_column_pruning") {
         (3, struct('2030-01-01 00:00:00+08:00', '2030-01-01 00:00:00+00:00'),
             struct(20, 40), struct('2030-01-01', '2030-01-01'))
     """
-    // The TopN filter is only generated when the planner has row count statistics.
-    sql "ANALYZE TABLE topn_filter_nested_prune_tbl WITH SYNC"
 
-    explain {
-        sql """
-            SELECT struct_element(ts, 'a')
-            FROM topn_filter_nested_prune_tbl
-            WHERE struct_element(ts, 'b') IS NOT NULL
-            ORDER BY 1 NULLS LAST LIMIT 1
-        """
-        contains("TOPN OPT:1")
-        contains("all access paths: [ts.a, ts.b.NULL]")
-        contains("predicate access paths: [ts.b.NULL]")
+    // Both limits must use the filter and read only the required nested fields.
+    // With four rows and ratio 0.5, LIMIT 2 would not use the filter because 2 > 2 is false.
+    [1, 2].each { limit ->
+        explain {
+            sql """
+                SELECT struct_element(ts, 'a')
+                FROM topn_filter_nested_prune_tbl
+                WHERE struct_element(ts, 'b') IS NOT NULL
+                ORDER BY 1 NULLS LAST LIMIT ${limit}
+            """
+            contains("TOPN OPT:1")
+            contains("all access paths: [ts.a, ts.b.NULL]")
+            contains("predicate access paths: [ts.b.NULL]")
+        }
     }
 
     qt_timestamptz_asc """

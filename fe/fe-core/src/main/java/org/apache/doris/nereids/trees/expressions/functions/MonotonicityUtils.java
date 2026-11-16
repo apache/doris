@@ -228,8 +228,9 @@ public final class MonotonicityUtils {
             return isTimeStampTzToLocalMonotonic(
                     (TimeStampTzType) sourceType, destinationScale, lower, upper);
         }
-        if (sourceType instanceof TimeStampNsType && targetType instanceof TimeStampTzType) {
-            return isTimeStampNsToTimeStampTzMonotonic((TimeStampTzType) targetType, lower, upper);
+        if ((sourceType instanceof DateTimeV2Type || sourceType instanceof TimeStampNsType)
+                && targetType instanceof TimeStampTzType) {
+            return isLocalToTimeStampTzMonotonic((TimeStampTzType) targetType, lower, upper);
         }
         return true;
     }
@@ -268,8 +269,8 @@ public final class MonotonicityUtils {
         return isInstantToLocalMonotonic(zoneId, lowerInstant, upperInstant);
     }
 
-    /** Check a local TIMESTAMP_NS cast after rounding to the TIMESTAMPTZ output scale. */
-    public static boolean isTimeStampNsToTimeStampTzMonotonic(
+    /** Check local datetime casts for a clock gap in the conversion range. */
+    public static boolean isLocalToTimeStampTzMonotonic(
             TimeStampTzType destinationType, Literal lower, Literal upper) {
         ZoneId zoneId;
         try {
@@ -280,11 +281,18 @@ public final class MonotonicityUtils {
         if (zoneId.getRules().isFixedOffset()) {
             return true;
         }
-        if (!(lower instanceof TimeStampNsLiteral) || !(upper instanceof TimeStampNsLiteral)) {
+        if (!(lower instanceof DateLiteral) || !(upper instanceof DateLiteral)) {
             return false;
         }
-        LocalDateTime lowerDateTime = roundTimeStampNs((TimeStampNsLiteral) lower, destinationType.getScale());
-        LocalDateTime upperDateTime = roundTimeStampNs((TimeStampNsLiteral) upper, destinationType.getScale());
+        LocalDateTime lowerDateTime;
+        LocalDateTime upperDateTime;
+        if (lower instanceof TimeStampNsLiteral) {
+            lowerDateTime = roundTimeStampNs((TimeStampNsLiteral) lower, destinationType.getScale());
+            upperDateTime = roundTimeStampNs((TimeStampNsLiteral) upper, destinationType.getScale());
+        } else {
+            lowerDateTime = ((DateLiteral) lower).toJavaDateType();
+            upperDateTime = ((DateLiteral) upper).toJavaDateType();
+        }
         return isLocalToInstantMonotonic(zoneId, lowerDateTime, upperDateTime);
     }
 
