@@ -20,6 +20,7 @@
 #include <gen_cpp/Descriptors_types.h>
 #include <gen_cpp/segment_v2.pb.h>
 #include <glog/logging.h>
+#include <parallel_hashmap/phmap.h>
 #include <sys/types.h>
 
 #include <cstddef> // for size_t
@@ -232,6 +233,10 @@ public:
     // per-field zone maps for STRUCT pruning.
     const std::vector<std::shared_ptr<ColumnReader>>& sub_readers() const { return _sub_readers; }
 
+    ColumnReader* sub_reader_by_uid(int32_t uid) const;
+
+    int32_t unique_id() const { return _unique_id; }
+
     virtual FieldType get_meta_type() { return _meta_type; }
 
     int64_t get_metadata_size() const override;
@@ -290,6 +295,8 @@ private:
 
     DataTypePtr _data_type;
 
+    int32_t _unique_id = -1;
+
     FieldType _type =
             FieldType::OLAP_FIELD_TYPE_NONE; // initialized in init(), may changed by subclasses.
     const EncodingInfo* _encoding_info =
@@ -306,6 +313,10 @@ private:
     std::unordered_map<int64_t, IndexReaderPtr> _index_readers;
 
     std::vector<std::shared_ptr<ColumnReader>> _sub_readers;
+
+    // Sub-readers keyed by subcolumn unique id. Id-based lookup survives subfield insertion or
+    // reordering by schema change, unlike the positional order in _sub_readers.
+    phmap::flat_hash_map<int32_t, std::shared_ptr<ColumnReader>> _sub_reader_by_uid;
 
     DorisCallOnce<Status> _set_dict_encoding_type_once;
 };

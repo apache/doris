@@ -54,7 +54,9 @@
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_factory.hpp"
+#include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_struct.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/field.h"
 #include "core/string_ref.h"
@@ -3764,45 +3766,6 @@ Status SegmentIterator::_apply_expr_zonemap_to_row_ranges(const VExprContextSPtr
         }
 
         if (is_struct_column) {
-            // Recursively collect every scalar subfield's reader (any nesting depth) so that
-            // `struct.a.b OP literal` predicates prune at page granularity. Each scalar subfield
-            // is itself a ColumnReader carrying its own per-page (and segment-level) zone maps, so
-            // it is pruned exactly like a top-level column. Nested STRUCT fields are descended
-            // rather than treated as leaves; subfields without a zone map (array/map subfields, or
-            // written before this feature) are skipped.
-            struct StructSubfield {
-                ColumnReader* reader;
-                std::vector<int> nested_key; // [column_id, field_ordinal, ...]
-                DataTypePtr data_type;
-            };
-            std::vector<StructSubfield> subfields;
-            auto collect_struct_subfields = [&](auto& self, ColumnReader* r, int slot,
-                                                std::vector<int>& path) -> void {
-                for (size_t ord = 0; ord < r->sub_readers().size(); ++ord) {
-                    const auto& sub = r->sub_readers()[ord];
-                    path.push_back(static_cast<int>(ord));
-                    const bool is_struct = sub->get_vec_data_type() != nullptr &&
-                                           sub->get_vec_data_type()->get_primitive_type() ==
-                                                   PrimitiveType::TYPE_STRUCT;
-                    if (is_struct) {
-                        self(self, sub.get(), slot, path);
-                    } else if (sub->has_zone_map()) {
-                        std::vector<int> nested_key;
-                        nested_key.reserve(path.size() + 1);
-                        nested_key.push_back(slot);
-                        nested_key.insert(nested_key.end(), path.begin(), path.end());
-                        subfields.push_back(StructSubfield {sub.get(), std::move(nested_key),
-                                                            sub->get_vec_data_type()});
-                    }
-                    path.pop_back();
-                }
-            };
-            std::vector<int> path;
-            collect_struct_subfields(collect_struct_subfields, reader.get(), slot_index, path);
-            if (subfields.empty()) {
-                continue;
-            }
-
             // Partition this column's conjuncts by the subfield path they reference, so each
             // subfield is pruned independently against only its own predicates. Different
             // subfields do not share page boundaries, so their pages cannot be pruned together.
@@ -3814,20 +3777,51 @@ Status SegmentIterator::_apply_expr_zonemap_to_row_ranges(const VExprContextSPtr
                     conjuncts_by_subfield[sl->slot_index].emplace_back(conjunct);
                 }
             }
+            if (conjuncts_by_subfield.empty()) {
+                continue;
+            }
 
-            // Page-level pruning per referenced subfield, falling back to segment-level when the
-            // subfield has no per-page zone maps.
-            for (const auto& sf : subfields) {
-                auto it = conjuncts_by_subfield.find(sf.nested_key);
-                if (it == conjuncts_by_subfield.end()) {
+            // Struct type from the segment schema; each element of a subfield path after the slot
+            // id is a field ordinal into this type.
+            const DataTypePtr current_type = remove_nullable(_schema->data_type(cid));
+            for (const auto& [subfield_path, sub_conjuncts] : conjuncts_by_subfield) {
+                ColumnReader* sub_reader = reader.get();
+                DataTypePtr struct_type = current_type;
+                bool resolved = true;
+                // Walk the path by field unique id rather than by position, so subfields inserted
+                // or reordered by schema change still resolve to the reader holding their data.
+                for (size_t i = 1; i < subfield_path.size(); ++i) {
+                    auto struct_dt = std::dynamic_pointer_cast<const DataTypeStruct>(struct_type);
+                    if (struct_dt == nullptr) {
+                        resolved = false;
+                        break;
+                    }
+                    const int32_t field_ordinal = subfield_path[i];
+                    if (field_ordinal < 0 ||
+                        field_ordinal >= static_cast<int32_t>(struct_dt->get_elements().size())) {
+                        resolved = false;
+                        break;
+                    }
+                    const int32_t field_uid = struct_dt->get_unique_id(field_ordinal);
+                    ColumnReader* next = sub_reader->sub_reader_by_uid(field_uid);
+                    if (next == nullptr) {
+                        resolved = false;
+                        break;
+                    }
+                    sub_reader = next;
+                    struct_type = remove_nullable(struct_dt->get_element(field_ordinal));
+                }
+                // Unresolvable paths (e.g. array/map subfields or legacy segments without ids)
+                // and sub-readers without a zone map cannot be pruned.
+                if (!resolved || !sub_reader->has_zone_map()) {
                     continue;
                 }
-                const auto& sub_conjuncts = it->second;
 
+                const DataTypePtr data_type = sub_reader->get_vec_data_type();
                 RowRanges sub_ranges;
                 bool has_page_zm = false;
-                RETURN_IF_ERROR(prune_column_pages(sf.reader, sf.data_type, sub_conjuncts,
-                                                   sf.nested_key, true, &sub_ranges, &has_page_zm));
+                RETURN_IF_ERROR(prune_column_pages(sub_reader, data_type, sub_conjuncts,
+                                                   subfield_path, true, &sub_ranges, &has_page_zm));
                 if (has_page_zm) {
                     RowRanges::ranges_intersection(*row_ranges, sub_ranges, row_ranges);
                     if (row_ranges->is_empty()) {
@@ -3835,13 +3829,13 @@ Status SegmentIterator::_apply_expr_zonemap_to_row_ranges(const VExprContextSPtr
                     }
                 } else {
                     ZoneMap sub_zone_map;
-                    if (sf.reader->get_segment_zone_map(&sub_zone_map).ok() &&
+                    if (sub_reader->get_segment_zone_map(&sub_zone_map).ok() &&
                         !sub_zone_map.pass_all) {
                         ZoneMapEvalContext ctx;
                         ZoneMapEvalContext::SlotZoneMap slot_zone_map;
-                        slot_zone_map.data_type = sf.data_type;
+                        slot_zone_map.data_type = data_type;
                         slot_zone_map.zone_map = std::make_shared<ZoneMap>(std::move(sub_zone_map));
-                        ctx.nested_slots.emplace(sf.nested_key, std::move(slot_zone_map));
+                        ctx.nested_slots.emplace(subfield_path, std::move(slot_zone_map));
                         const auto result =
                                 VExprContext::evaluate_zonemap_filter(sub_conjuncts, ctx);
                         ctx.stats.accumulate_to(_opts.stats);

@@ -810,7 +810,7 @@ suite("test_expr_zonemap_pruning") {
                 assertSameWithAndWithoutPruning("test_expr_zonemap_pruning_struct", predicate))
     }
     assertStructCount("s.a <= 3", 2L)
-    assertStructCount("s.a > 2", 3L)
+    assertStructCount("s.a > 2", 4L)
     assertStructCount("s.a = 2", 0L)
     assertStructCount("s.b < 'c'", 2L)
     assertStructCount("s.b = 'cherry'", 0L)
