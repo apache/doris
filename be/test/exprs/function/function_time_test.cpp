@@ -220,13 +220,27 @@ TEST(VTimestampFunctionsTest, timestamptz_years_keep_dst_policy) {
     context._state = &state;
     using Add = DateTimeOp<TYPE_TIMESTAMPTZ, TYPE_INT, TimestampTzValue,
                            AddYearsImpl<TYPE_TIMESTAMPTZ>>;
+    using Sub = DateTimeOp<TYPE_TIMESTAMPTZ, TYPE_INT, TimestampTzValue,
+                           SubtractYearsImpl<TYPE_TIMESTAMPTZ>>;
 
-    // At 06:30 UTC, 01:30 occurs for the second time. Adding zero years must
-    // keep this instant, rather than select the first 01:30 at 05:30 UTC.
+    // Both occurrences of local 01:30 must retain their input offset for a zero interval.
     DateV2Value<DateTimeV2ValueType> utc;
-    utc.unchecked_set_time(2024, 11, 3, 6, 30, 0, 123456);
+    for (int hour : {5, 6}) {
+        utc.unchecked_set_time(2024, 11, 3, hour, 30, 0, 123456);
+        const TimestampTzValue input(utc);
+        EXPECT_EQ(Add::execute(input, 0, &context), input);
+        EXPECT_EQ(Sub::execute(input, 0, &context), input);
+    }
+
+    // Adding from 2023 retains -04:00; subtracting from 2025 retains -05:00.
+    utc.unchecked_set_time(2023, 11, 3, 5, 30, 0, 123456);
     TimestampTzValue input(utc);
-    EXPECT_EQ(Add::execute(input, 0, &context), input);
+    utc.unchecked_set_time(2024, 11, 3, 5, 30, 0, 123456);
+    EXPECT_EQ(Add::execute(input, 1, &context), TimestampTzValue(utc));
+    utc.unchecked_set_time(2025, 11, 3, 6, 30, 0, 123456);
+    input = TimestampTzValue(utc);
+    utc.unchecked_set_time(2024, 11, 3, 6, 30, 0, 123456);
+    EXPECT_EQ(Sub::execute(input, 1, &context), TimestampTzValue(utc));
 
     // The target 2024-03-10 02:30 does not exist in New York. Use the existing
     // gap rule: select 03:00 and keep the fraction, which is 07:00 UTC.
@@ -234,6 +248,7 @@ TEST(VTimestampFunctionsTest, timestamptz_years_keep_dst_policy) {
     input = TimestampTzValue(utc);
     utc.unchecked_set_time(2024, 3, 10, 7, 0, 0, 123456);
     EXPECT_EQ(Add::execute(input, 1, &context), TimestampTzValue(utc));
+    EXPECT_EQ(Sub::execute(input, -1, &context), TimestampTzValue(utc));
 }
 
 template <typename Transform>

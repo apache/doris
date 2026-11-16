@@ -787,7 +787,7 @@ struct DateTimeOp {
             // The DATETIME transform changes February 29 to February 28 when needed.
             const auto& timezone = context->state()->timezone_obj();
             DateV2Value<DateTimeV2ValueType> local;
-            from.convert_utc_to_local(timezone, local);
+            const int preferred_offset = from.convert_utc_to_local(timezone, local);
             using LocalTransform =
                     std::conditional_t<std::is_same_v<Transform, AddYearsImpl<TYPE_TIMESTAMPTZ>>,
                                        AddYearsImpl<TYPE_DATETIMEV2>,
@@ -796,7 +796,7 @@ struct DateTimeOp {
             TimestampTzValue result;
             // Keep the input offset when the target time occurs twice during a DST change.
             // This also keeps years_add(ts, 0) equal to ts in the repeated hour.
-            result.convert_local_to_utc(timezone, local_result, from.utc_offset(timezone));
+            result.convert_local_to_utc(timezone, local_result, preferred_offset);
             // A valid local date can exceed the UTC range, for example year 0 in +08:00.
             if (!result.is_valid_date()) [[unlikely]] {
                 throw_out_of_bound_date_int(Transform::name, from, delta);
