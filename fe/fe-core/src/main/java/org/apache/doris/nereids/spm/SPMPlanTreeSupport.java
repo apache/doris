@@ -96,6 +96,7 @@ import org.apache.doris.qe.GlobalVariable;
 
 import com.google.common.collect.ImmutableList;
 
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -188,6 +189,10 @@ public final class SPMPlanTreeSupport {
 
         /** Matching exit of enterProjectionItem(int). */
         default void exitProjectionItem() {
+        }
+
+        /** Records a positional SELECT reference whose target contains placeholders. */
+        default void noteParameterizedOrdinalTarget() {
         }
     }
 
@@ -1524,24 +1529,9 @@ public final class SPMPlanTreeSupport {
             // A bare integer GROUP BY ordinal stays CONCRETE (see the loop above), but the
             // ANALYZER resolves it to the SELECT item's expression - which carries
             // placeholders. The frozen rendering of such a group key is NOT faithful (see
-            // SPMPlaceholderBuilder#hasParameterizedGroupByOrdinalTarget), so the CREATE
+            // SPMPlaceholderBuilder#hasParameterizedOrdinalTarget), so the CREATE
             // must keep the user planSql and replay the parameterized tree.
-            if (newOutput != aggregate.getOutputExpressions()
-                    && transform instanceof SPMPlaceholderBuilder) {
-                List<? extends NamedExpression> outputs = aggregate.getOutputExpressions();
-                for (Expression groupByExpr : aggregate.getGroupByExpressions()) {
-                    if (!(groupByExpr instanceof IntegerLikeLiteral)) {
-                        continue;
-                    }
-                    int ordinal = ((IntegerLikeLiteral) groupByExpr).getBigDecimalValue()
-                            .intValue();
-                    if (ordinal >= 1 && ordinal <= outputs.size()
-                            && newOutput.get(ordinal - 1) != outputs.get(ordinal - 1)) {
-                        ((SPMPlaceholderBuilder) transform)
-                                .noteParameterizedGroupByOrdinalTarget();
-                    }
-                }
-            }
+            noteParameterizedOrdinalTargets(aggregate.getGroupByExpressions(), newOutput, transform);
             if (!changed) {
                 return aggregate;
             }
@@ -1614,11 +1604,48 @@ public final class SPMPlanTreeSupport {
             } finally {
                 clearGroupByMirrorLookup(transform);
             }
+            List<Expression> keys = new ArrayList<>(orderKeys.size());
+            for (OrderKey orderKey : orderKeys) {
+                keys.add(orderKey.getExpr());
+            }
+            noteParameterizedSortOrdinalTargets(keys, child, transform);
             dropGroupByMirrorsFrom(mirrorMark);
             if (!changed) {
                 return sort;
             }
             return sort.withOrderKeysAndChild(newOrderKeys, child);
+        }
+
+        /** Find the SELECT items an ORDER BY ordinal resolves to, including set operands. */
+        private void noteParameterizedSortOrdinalTargets(List<Expression> keys,
+                Plan plan, ExprTransform transform) {
+            if (carriesOutputList(plan)) {
+                noteParameterizedOrdinalTargets(keys, outputItemsOf(plan), transform);
+            } else if (plan instanceof OneRowRelation) {
+                noteParameterizedOrdinalTargets(keys, ((OneRowRelation) plan).getProjects(), transform);
+            } else if (plan instanceof LogicalSetOperation) {
+                for (Plan child : plan.children()) {
+                    noteParameterizedSortOrdinalTargets(keys, child, transform);
+                }
+            } else if (plan.children().size() == 1) {
+                noteParameterizedSortOrdinalTargets(keys, plan.child(0), transform);
+            }
+        }
+
+        /** Ordinals stay concrete, but their parameterized targets must be replayed as a tree. */
+        private void noteParameterizedOrdinalTargets(List<Expression> keys,
+                List<? extends NamedExpression> outputs, ExprTransform transform) {
+            for (Expression key : keys) {
+                if (!(key instanceof IntegerLikeLiteral)) {
+                    continue;
+                }
+                BigDecimal ordinal = ((IntegerLikeLiteral) key).getBigDecimalValue();
+                if (ordinal.compareTo(BigDecimal.ONE) >= 0
+                        && ordinal.compareTo(BigDecimal.valueOf(outputs.size())) <= 0
+                        && containsPlaceholder(outputs.get(ordinal.intValueExact() - 1))) {
+                    transform.noteParameterizedOrdinalTarget();
+                }
+            }
         }
 
         @Override

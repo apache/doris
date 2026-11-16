@@ -187,7 +187,7 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
     private int booleanConditionalDepth;
 
     /**
-     * Depth of a CONTAINER CONSTRUCTOR (`array(...)`) whose ELEMENTS are the markers that carry
+     * Depth of an all-NULL container producer whose ELEMENTS / VALUES are the markers that carry
      * the container's element type (see markerPayload): an all-NULL element list is what makes
      * the constructor NullType, so its NULL elements are parameterized BOOLEAN while the
      * constructor itself sits in a container position of a NullType-producing chain.
@@ -195,22 +195,7 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
     private int containerElementDepth;
 
     /**
-     * Depth of a MAP CONSTRUCTOR (`map(...)`) whose VALUE markers carry the map's value type (see
-     * markerPayload): only the ODD child positions are values - the keys feed the map's KEY type
-     * and keep their own typing, exactly like the map-literal repair does.
-     */
-    private int mapValueElementDepth;
-
-    /**
-     * Depth of an ARRAY-FROM-ELEMENT producer ({@code array_repeat(x, n)} declares
-     * {@code ARRAY<FollowToAnyDataType(0)>}) whose ELEMENT argument decides the result's element
-     * type (see markerPayload): an all-NULL element argument makes the whole call
-     * {@code ARRAY<NULL_TYPE>}, so its marker must be retyped BOOLEAN there.
-     */
-    private int elementArgumentDepth;
-
-    /**
-     * Whether a bare integer GROUP BY ordinal references a SELECT item that carries a
+     * Whether a bare integer GROUP BY / ORDER BY ordinal references a SELECT item that carries a
      * placeholder (see SPMPlanTreeSupport#visitLogicalAggregate). The ordinal itself stays
      * CONCRETE, but the analyzer resolves it to that item's (parameterized) expression, and
      * the frozen rendering of a placeholder group key is NOT faithful: the capture optimizer
@@ -219,7 +204,7 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
      * grouped by the constant. The CREATE keeps the user planSql then and replays the
      * parameterized tree, whose analysis resolves the ordinal in the caller's own query.
      */
-    private boolean parameterizedGroupByOrdinalTarget;
+    private boolean parameterizedOrdinalTarget;
 
     /** The enclosing block's root-ordinal counter, restored by exitQueryBlock(). */
     private final Deque<Long> rootOrdinalStack = new ArrayDeque<>();
@@ -232,14 +217,15 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
         this.groupByMirrorLookup = lookup;
     }
 
-    /** See parameterizedGroupByOrdinalTarget. */
-    public boolean hasParameterizedGroupByOrdinalTarget() {
-        return parameterizedGroupByOrdinalTarget;
+    /** See parameterizedOrdinalTarget. */
+    public boolean hasParameterizedOrdinalTarget() {
+        return parameterizedOrdinalTarget;
     }
 
-    /** Marks one bare integer GROUP BY ordinal whose SELECT item carries placeholders. */
-    public void noteParameterizedGroupByOrdinalTarget() {
-        this.parameterizedGroupByOrdinalTarget = true;
+    /** Marks one GROUP BY / ORDER BY ordinal whose SELECT item carries placeholders. */
+    @Override
+    public void noteParameterizedOrdinalTarget() {
+        this.parameterizedOrdinalTarget = true;
     }
 
     /**
@@ -314,6 +300,11 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
             } finally {
                 childIndexStack.pop();
             }
+        }
+
+        @Override
+        public void noteParameterizedOrdinalTarget() {
+            SPMPlaceholderBuilder.this.noteParameterizedOrdinalTarget();
         }
 
         @Override
@@ -419,10 +410,16 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
         Object[] positions = childIndexStack.toArray();
         StringBuilder sb = new StringBuilder();
         for (int i = positions.length - 1; i >= 0; i--) {
+            int position = (Integer) positions[i];
+            if (position == -1) {
+                // A subquery's expression root starts a new path, independent of its caller.
+                sb.setLength(0);
+                continue;
+            }
             if (sb.length() > 0) {
                 sb.append('/');
             }
-            sb.append(positions[i]);
+            sb.append(position);
         }
         return sb.toString();
     }
@@ -1007,19 +1004,6 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
         if (isIfConditional(parent)) {
             return childIndex == 1 || childIndex == 2;
         }
-        if (isArrayConstructor(parent)) {
-            // an ARRAY's elements are the array's VALUES: under an all-NULL element type the
-            // consuming call is NullType and gets replaced as a whole, so every element marker
-            // has to be BOOLEAN already (round-79 #3)
-            return true;
-        }
-        if (isMapConstructor(parent)) {
-            // a MAP constructor's children alternate KEY, VALUE: only a VALUE feeds the map's
-            // value type and with it what `element_at` returns, so only the odd positions may be
-            // typed BOOLEAN - a BOOLEAN key would change the map's key type and be a type error
-            // for the captured key literal (round-80 #1)
-            return childIndex % 2 == 1;
-        }
         return isCoalesceConditional(parent);
     }
 
@@ -1062,7 +1046,7 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
                 markerPayload(literal, parent, currentProjectItem() >= 0,
                         booleanConditionalDepth > 0 && isConditionalResultPosition(parent),
                         booleanConditionalDepth > 0 && isNullTypeContainerPosition(parent),
-                        isContainerElementPosition(parent)));
+                        isContainerElementPosition(parent) && !isNullTypeContainerPosition(parent)));
         placeholderExprs.add(new PlaceholderExpr(literal, placeholder, parent, childIndex,
                 blockId, projectItem, rootOrdinal, occurrencePath));
         return placeholder;
@@ -1162,7 +1146,7 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
         }
         if (booleanElementContainer) {
             // A bracket ARRAY literal keeps its elements as LITERALS (ArrayLiteral#getValue), so
-            // the ELEMENT markers the function spelling gets (see isConditionalResultPosition)
+            // the ELEMENT markers the function spelling gets (see isContainerElementPosition)
             // cannot exist here: the whole literal is ONE marker, its type is the literal's own
             // ARRAY<NULL_TYPE> and `element_at` on it is still NullType - the Boolean consumer
             // replaced the whole call and the marker with it, so the `element_at([TRUE], 1)`
@@ -1205,13 +1189,20 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
      * @return whether the literal is such an element
      */
     private boolean isContainerElementPosition(Expression parent) {
-        if (containerElementDepth > 0) {
-            return true;
+        if (containerElementDepth == 0) {
+            return false;
         }
-        if (elementArgumentDepth > 0 && elementTypeArgumentIndex(parent) == currentChildIndex()) {
-            return true;
+        // Keys determine the map's key type independently of its value type.
+        if (isMapConstructor(parent) && currentChildIndex() % 2 == 0) {
+            return false;
         }
-        return mapValueElementDepth > 0 && isMapConstructor(parent) && currentChildIndex() % 2 == 1;
+        if ((parent instanceof WhenClause || isIfConditional(parent))
+                && !isConditionalResultPosition(parent)) {
+            return false;
+        }
+        // Counts and other non-element arguments do not determine the array's element type.
+        int elementIndex = elementTypeArgumentIndex(parent);
+        return elementIndex < 0 || elementIndex == currentChildIndex();
     }
 
     /**
@@ -1545,28 +1536,14 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
         // Keeping the element markers BOOLEAN makes the constructor ARRAY<BOOLEAN>, which removes
         // the NullType from the chain without changing any value (a NULL is NULL whatever its
         // type).
-        boolean containerElementOperand = isAllNullArray(expr) && booleanConditionalDepth > 0
-                && isNullTypeContainerPosition(expr);
-        boolean mapValueElementOperand = isMapConstructor(expr) && isAllNullMap(expr)
-                && booleanConditionalDepth > 0 && isNullTypeContainerPosition(expr);
-        // An ARRAY-FROM-ELEMENT producer (`array_repeat(NULL, 1)`) is retyped through its
-        // ELEMENT argument, so the question is whether the CALL sits in a container position
-        // of ITS parent (`element_at(array_repeat(NULL, 1), 1)`): isNullTypeContainerPosition
-        // reads the child index, so it must be asked about the parent here, not the call.
-        boolean elementArgumentOperand = elementTypeArgumentIndex(expr) >= 0
-                && booleanConditionalDepth > 0 && isNullTypeContainerPosition(parent);
+        boolean containerElementOperand = isAllNullContainer(expr) && booleanConditionalDepth > 0
+                && isNullTypeContainerPosition(parent);
 
         if (booleanConditionalOperand) {
             booleanConditionalDepth++;
         }
         if (containerElementOperand) {
             containerElementDepth++;
-        }
-        if (mapValueElementOperand) {
-            mapValueElementDepth++;
-        }
-        if (elementArgumentOperand) {
-            elementArgumentDepth++;
         }
         try {
             for (int i = 0; i < children.size(); i++) {
@@ -1575,9 +1552,19 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
                 // literals ("1 + 1") never merge into one placeholder id
                 childIndexStack.push(i);
                 Expression newChild;
+                int savedContainerDepth = containerElementDepth;
+                int savedBooleanDepth = booleanConditionalDepth;
+                if (containerElementDepth > 0 && !isContainerElementPosition(expr)) {
+                    // Excluded positions also exclude their descendants (map keys, counts,
+                    // and conditional predicates), rather than only a direct literal.
+                    containerElementDepth = 0;
+                    booleanConditionalDepth = 0;
+                }
                 try {
                     newChild = child.accept(this, expr);
                 } finally {
+                    containerElementDepth = savedContainerDepth;
+                    booleanConditionalDepth = savedBooleanDepth;
                     childIndexStack.pop();
                 }
                 newChildren.add(newChild);
@@ -1586,12 +1573,6 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
                 }
             }
         } finally {
-            if (elementArgumentOperand) {
-                elementArgumentDepth--;
-            }
-            if (mapValueElementOperand) {
-                mapValueElementDepth--;
-            }
             if (containerElementOperand) {
                 containerElementDepth--;
             }

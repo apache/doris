@@ -1037,6 +1037,8 @@ public class StatementContext implements Closeable {
         resolvedSnapshotScanParams.clear();
         viewInfos.clear();
         resetConnectorStatementScope();
+        // SPM fallback starts a new planning attempt after retiring the abandoned scope.
+        beginPartitionPolicyReplan();
         isShortCircuitQuery = false;
         shortCircuitQueryContext = null;
         restoreRuntimeFilterWaitTime();
