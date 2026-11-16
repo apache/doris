@@ -24,7 +24,6 @@
 namespace doris {
 
 bool contains_file_type(const DataTypePtr& type);
-Status validate_file_column(const IColumn& column, const DataTypePtr& type);
 
 // A FILE always owns its canonical six-child schema. Scan selection is carried separately.
 class DataTypeFile final : public IDataType {

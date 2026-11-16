@@ -19,12 +19,9 @@
 
 #include <gen_cpp/types.pb.h>
 #include <rapidjson/document.h>
-#include <rapidjson/memorystream.h>
 
 #include <algorithm>
 #include <array>
-#include <limits>
-#include <string_view>
 #include <utility>
 
 #include "core/column/column_const.h"
@@ -33,7 +30,6 @@
 #include "core/custom_allocator.h"
 #include "core/data_type/data_type_file.h"
 #include "core/string_buffer.hpp"
-#include "core/value/file_value.h"
 #include "util/jsonb_writer.h"
 #include "util/mysql_row_buffer.h"
 #include "util/url_coding.h"
@@ -43,39 +39,6 @@ namespace {
 
 constexpr size_t FILE_FIELDS = DataTypeFile::FIELD_COUNT;
 constexpr size_t INLINE_FIELD_INDEX = DataTypeFile::INLINE_FIELD_INDEX;
-
-int base64_digit(char ch) {
-    if (ch >= 'A' && ch <= 'Z') {
-        return ch - 'A';
-    }
-    if (ch >= 'a' && ch <= 'z') {
-        return ch - 'a' + 26;
-    }
-    if (ch >= '0' && ch <= '9') {
-        return ch - '0' + 52;
-    }
-    if (ch == '+') {
-        return 62;
-    }
-    if (ch == '/') {
-        return 63;
-    }
-    return -1;
-}
-
-Status check_inline_base64(StringRef encoded, size_t padding) {
-    const auto digits = encoded.size - padding;
-    for (size_t i = 0; i < digits; ++i) {
-        if (base64_digit(encoded.data[i]) < 0) {
-            return Status::InvalidArgument("FILE inline requires standard padded Base64");
-        }
-    }
-    // RFC 4648's unused low bits must be zero, so each byte sequence has one encoding.
-    if (padding != 0 && (base64_digit(encoded.data[digits - 1]) & ((1 << (2 * padding)) - 1))) {
-        return Status::InvalidArgument("FILE inline Base64 has nonzero pad bits");
-    }
-    return Status::OK();
-}
 
 // Multiples of three keep padding confined to the final chunk. Scratch space is bounded
 // independently of the inline value's size.
@@ -91,12 +54,6 @@ void write_base64(StringRef bytes, BufferWritable& bw) {
         bw.write(reinterpret_cast<const char*>(output.data()), written);
     }
     bw.write('"');
-}
-
-Status append_file(IColumn& column, File value) {
-    RETURN_IF_ERROR(validate_file(value));
-    column.insert(Field::create_field<TYPE_FILE>(std::move(value)));
-    return Status::OK();
 }
 
 Status check_pb_null_map(const PValues& value, int rows) {
@@ -191,99 +148,41 @@ Status DataTypeFileSerDe::serialize_column_to_json(const IColumn& column, int64_
     SERIALIZE_COLUMN_TO_JSON();
 }
 
-Status DataTypeFileSerDe::from_string(StringRef& str, IColumn& column,
-                                      const FormatOptions& options) const {
-    return _read_json(str, column);
-}
-
-Status DataTypeFileSerDe::_checked_inline_size(size_t encoded_size, size_t padding,
-                                               uint32_t* decoded_size) {
-    if (encoded_size % 4 != 0 || padding > 2 || (encoded_size == 0 && padding != 0)) {
-        return Status::InvalidArgument("FILE inline requires standard padded Base64");
-    }
-    constexpr uint64_t MAX_INLINE_SIZE = std::numeric_limits<uint32_t>::max();
-    const auto groups = encoded_size / 4;
-    // Check before multiplication/allocation; the limit is VARBINARY's uint32_t length.
-    if (groups > (MAX_INLINE_SIZE + padding) / 3) {
-        return Status::InvalidArgument("FILE inline exceeds VARBINARY value length");
-    }
-    *decoded_size = static_cast<uint32_t>(groups * 3 - padding);
-    return Status::OK();
-}
-
-Status DataTypeFileSerDe::_decode_inline(StringRef encoded, DorisVector<char>& scratch,
-                                         Field& value) {
-    size_t padding = 0;
-    if (encoded.size != 0 && encoded.data[encoded.size - 1] == '=') {
-        padding = encoded.size > 1 && encoded.data[encoded.size - 2] == '=' ? 2 : 1;
-    }
-    uint32_t decoded_size = 0;
-    RETURN_IF_ERROR(_checked_inline_size(encoded.size, padding, &decoded_size));
-    RETURN_IF_ERROR(check_inline_base64(encoded, padding));
-    // libbase64 needs room for 3/4 of the encoded input, including padding.
-    // The checked group count bounds this scratch allocation before it is made.
-    scratch.resize(static_cast<size_t>(decoded_size) + padding);
-    if (decoded_size != 0 &&
-        base64_decode(encoded.data, encoded.size, scratch.data()) != decoded_size) {
-        return Status::InvalidArgument("Invalid FILE inline Base64");
-    }
-    value = Field::create_field<TYPE_VARBINARY>(StringView(scratch.data(), decoded_size));
-    return Status::OK();
-}
-
-Status DataTypeFileSerDe::_read_json(StringRef str, IColumn& column) const {
-    if (str.size == 0) {
-        return Status::InvalidArgument("FILE requires a JSON object");
-    }
+Status DataTypeFileSerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
+                                                         const FormatOptions&) const {
     rapidjson::Document document;
-    rapidjson::MemoryStream stream(str.data, str.size);
-    document.ParseStream(stream);
-    if (document.HasParseError() || !document.IsObject() || stream.Tell() != str.size) {
-        return Status::InvalidArgument("FILE requires a JSON object");
+    document.Parse(slice.data, slice.size);
+    if (document.HasParseError() || !document.IsObject()) {
+        return Status::InvalidArgument("FILE aggregate state requires a JSON object");
     }
     File value(FILE_FIELDS);
     DorisVector<char> inline_bytes;
-    std::array<bool, FILE_FIELDS> seen {};
-    for (const auto& member : document.GetObject()) {
-        const std::string_view name(member.name.GetString(), member.name.GetStringLength());
-        const auto it = std::ranges::find(_names, name);
-        if (it == _names.end()) {
-            return Status::InvalidArgument("Unknown FILE JSON field {}", name);
-        }
-        const auto index = cast_set<size_t>(it - _names.begin());
-        if (seen[index]) {
-            return Status::InvalidArgument("Duplicate FILE JSON field {}", name);
-        }
-        seen[index] = true;
-        const auto& field = member.value;
+    for (size_t i = 0; i < FILE_FIELDS; ++i) {
+        DCHECK(document.HasMember(_names[i].c_str()));
+        const auto& field = document[_names[i].c_str()];
         if (field.IsNull()) {
             continue;
         }
-        if (index == 1 || index == 2) {
-            if (!field.IsInt64()) {
-                return Status::InvalidArgument("FILE {} must be a BIGINT JSON integer", name);
+        if (i == 1 || i == 2) {
+            value[i] = Field::create_field<TYPE_BIGINT>(field.GetInt64());
+        } else if (i == INLINE_FIELD_INDEX) {
+            const auto encoded_size = field.GetStringLength();
+            inline_bytes.resize(static_cast<size_t>(encoded_size) / 4 * 3);
+            const auto size = encoded_size == 0 ? 0
+                                                : base64_decode(field.GetString(), encoded_size,
+                                                                inline_bytes.data());
+            if (size < 0) {
+                return Status::InvalidArgument("Invalid FILE aggregate state Base64");
             }
-            value[index] = Field::create_field<TYPE_BIGINT>(field.GetInt64());
+            value[i] = Field::create_field<TYPE_VARBINARY>(
+                    StringView(inline_bytes.data(), cast_set<uint32_t>(size)));
         } else {
-            if (!field.IsString()) {
-                return Status::InvalidArgument("FILE {} must be a JSON string", name);
-            }
-            if (index == INLINE_FIELD_INDEX) {
-                RETURN_IF_ERROR(
-                        _decode_inline(StringRef(field.GetString(), field.GetStringLength()),
-                                       inline_bytes, value[index]));
-            } else {
-                value[index] = Field::create_field<TYPE_STRING>(
-                        std::string(field.GetString(), field.GetStringLength()));
-            }
+            value[i] = Field::create_field<TYPE_STRING>(
+                    std::string(field.GetString(), field.GetStringLength()));
         }
     }
-    return append_file(column, std::move(value));
-}
-
-Status DataTypeFileSerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
-                                                         const FormatOptions& options) const {
-    return _read_json(StringRef(slice.data, slice.size), column);
+    column.insert(Field::create_field<TYPE_FILE>(std::move(value)));
+    return Status::OK();
 }
 
 Status DataTypeFileSerDe::deserialize_column_from_json_vector(IColumn& column,
@@ -332,55 +231,6 @@ Status DataTypeFileSerDe::serialize_column_to_jsonb(const IColumn& column, int64
         return Status::InternalError("Cannot end FILE JSON object");
     }
     return Status::OK();
-}
-
-Status DataTypeFileSerDe::deserialize_column_from_jsonb(IColumn& column, const JsonbValue* json,
-                                                        CastParameters& cast_parameters) const {
-    if (!json->isObject()) {
-        return Status::InvalidArgument("FILE requires a JSON object");
-    }
-    File value(FILE_FIELDS);
-    std::array<bool, FILE_FIELDS> seen {};
-    DorisVector<char> inline_bytes;
-    for (const auto& member : *json->unpack<ObjectVal>()) {
-        const std::string_view name(member.getKeyStr(), member.klen());
-        const auto it = std::ranges::find(_names, name);
-        if (it == _names.end()) {
-            return Status::InvalidArgument("Unknown FILE JSON field {}", name);
-        }
-        const auto index = cast_set<size_t>(it - _names.begin());
-        if (seen[index]) {
-            return Status::InvalidArgument("Duplicate FILE JSON field {}", name);
-        }
-        seen[index] = true;
-        const auto* field = member.value();
-        if (field->isNull()) {
-            continue;
-        }
-        if (index == 1 || index == 2) {
-            if (!field->isInt() || field->int_val() < std::numeric_limits<int64_t>::min() ||
-                field->int_val() > std::numeric_limits<int64_t>::max()) {
-                return Status::InvalidArgument("FILE {} must be a BIGINT JSON integer", name);
-            }
-            value[index] = Field::create_field<TYPE_BIGINT>(static_cast<int64_t>(field->int_val()));
-        } else {
-            if (!field->isString()) {
-                return Status::InvalidArgument("FILE {} must be a string", name);
-            }
-            const auto* bytes = field->unpack<JsonbStringVal>();
-            if (index == INLINE_FIELD_INDEX) {
-                RETURN_IF_ERROR(_decode_inline(StringRef(bytes->getBlob(), bytes->getBlobLen()),
-                                               inline_bytes, value[index]));
-            } else {
-                value[index] = Field::create_field<TYPE_STRING>(
-                        std::string(bytes->getBlob(), bytes->getBlobLen()));
-            }
-        }
-    }
-    if (std::ranges::any_of(seen, [](bool present) { return !present; })) {
-        return Status::InvalidArgument("FILE CAST requires exactly six fields");
-    }
-    return append_file(column, std::move(value));
 }
 
 Status DataTypeFileSerDe::write_column_to_pb(const IColumn& column, PValues& result, int64_t start,

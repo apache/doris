@@ -20,13 +20,10 @@
 #include <gen_cpp/data.pb.h>
 #include <gen_cpp/types.pb.h>
 
-#include <algorithm>
-#include <array>
 #include <limits>
 
 #include "core/column/column_const.h"
 #include "core/column/column_file.h"
-#include "core/column/column_nullable.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
@@ -35,7 +32,6 @@
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type/data_type_varbinary.h"
 #include "core/data_type_serde/data_type_file_serde.h"
-#include "core/value/file_value.h"
 #include "util/string_util.h"
 
 namespace doris {
@@ -60,55 +56,6 @@ bool contains_file_type(const DataTypePtr& original) {
     default:
         return false;
     }
-}
-
-namespace {
-std::optional<std::string_view> file_text_at(const ColumnNullable& column, size_t row) {
-    if (column.is_null_at(row)) {
-        return std::nullopt;
-    }
-    const auto text = column.get_nested_column().get_data_at(row);
-    return std::string_view(text.data, text.size);
-}
-
-Status validate_file_values(const ColumnFile& file, const NullMap* parent_nulls) {
-    std::array<const ColumnNullable*, DataTypeFile::FIELD_COUNT> children;
-    for (size_t child = 0; child < children.size(); ++child) {
-        children[child] = &assert_cast<const ColumnNullable&>(file.get_column(child));
-    }
-    const auto& offsets =
-            assert_cast<const ColumnInt64&>(children[1]->get_nested_column()).get_data();
-    const auto& sizes =
-            assert_cast<const ColumnInt64&>(children[2]->get_nested_column()).get_data();
-    for (size_t row = 0; row < file.size(); ++row) {
-        if (parent_nulls && (*parent_nulls)[row]) {
-            continue;
-        }
-        const auto offset =
-                children[1]->is_null_at(row) ? std::nullopt : std::optional(offsets[row]);
-        const auto size = children[2]->is_null_at(row) ? std::nullopt : std::optional(sizes[row]);
-        RETURN_IF_ERROR(validate_file(
-                file_text_at(*children[0], row), offset, size, file_text_at(*children[3], row),
-                file_text_at(*children[4], row), children[5]->is_null_at(row)));
-    }
-    return Status::OK();
-}
-
-} // namespace
-
-Status validate_file_column(const IColumn& column, const DataTypePtr& type) {
-    DCHECK_EQ(remove_nullable(type)->get_primitive_type(), TYPE_FILE);
-    const IColumn* data = &column;
-    if (const auto* constant = check_and_get_column<ColumnConst>(column)) {
-        data = &constant->get_data_column();
-    }
-    const NullMap* nulls = nullptr;
-    if (const auto* nullable = check_and_get_column<ColumnNullable>(data)) {
-        // CAST merges ancestor NULL masks before validating the resulting FILE column.
-        nulls = &nullable->get_null_map_data();
-        data = &nullable->get_nested_column();
-    }
-    return validate_file_values(assert_cast<const ColumnFile&>(*data), nulls);
 }
 
 DataTypeFile::DataTypeFile()
@@ -210,7 +157,6 @@ const char* DataTypeFile::deserialize(const char* buf, MutableColumnPtr* column,
         buf = _elements[i]->deserialize(buf, &child, version);
         file.get_column_ptr(i) = std::move(child);
     }
-    file.sanity_check();
     return buf;
 }
 

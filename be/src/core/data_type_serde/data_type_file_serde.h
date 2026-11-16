@@ -17,20 +17,15 @@
 
 #pragma once
 
-#include "core/custom_allocator.h"
 #include "core/data_type_serde/data_type_serde.h"
 
 namespace doris {
 
-// FILE exposes six fields in query results. PB restores query values; public JSONB supports CAST.
-// Row-store JSONB, Arrow and ORC are unsupported.
 class DataTypeFileSerDe final : public DataTypeSerDe {
 public:
     explicit DataTypeFileSerDe(int nesting_level = 1);
     std::string get_name() const override { return "File"; }
 
-    Status from_string(StringRef& str, IColumn& column,
-                       const FormatOptions& options) const override;
     void to_string(const IColumn& column, size_t row_num, BufferWritable& bw,
                    const FormatOptions& options) const override;
     Status serialize_one_cell_to_json(const IColumn& column, int64_t row_num, BufferWritable& bw,
@@ -44,8 +39,6 @@ public:
                                                const FormatOptions& options) const override;
     Status serialize_column_to_jsonb(const IColumn& column, int64_t row_num, JsonbWriter& writer,
                                      const FormatOptions& options) const override;
-    Status deserialize_column_from_jsonb(IColumn& column, const JsonbValue* value,
-                                         CastParameters& cast_parameters) const override;
 
     bool write_column_to_mysql_text(const IColumn& column, BufferWritable& bw, int64_t row_idx,
                                     const FormatOptions& options) const override;
@@ -74,9 +67,6 @@ public:
     void set_return_object_as_string(bool value) override;
 
 private:
-    Status _read_json(StringRef str, IColumn& column) const;
-    static Status _decode_inline(StringRef encoded, DorisVector<char>& scratch, Field& value);
-    static Status _checked_inline_size(size_t encoded_size, size_t padding, uint32_t* decoded_size);
     void _write_json(const IColumn& column, int64_t row, BufferWritable& bw) const;
 
     DataTypeSerDeSPtrs _element_serdes;

@@ -33,7 +33,6 @@
 #include "core/data_type/data_type_struct.h"
 #include "core/field.h"
 #include "core/string_buffer.hpp"
-#include "core/value/file_value.h"
 #include "exprs/aggregate/aggregate_function.h"
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 
@@ -126,7 +125,6 @@ TEST(FileAggregateTest, CollectListPartialStatesPreserveOpaqueBytes) {
                   Field::create_field<TYPE_BIGINT>(Int64 {7}), Field(),
                   Field::create_field<TYPE_STRING>(std::string("ETAG:\xff\0x", 8)),
                   Field::create_field<TYPE_VARBINARY>(StringView("\xff\0x", 3))});
-    ASSERT_TRUE(validate_file(file.get<TYPE_FILE>()).ok());
     const std::vector<std::pair<DataTypePtr, Field>> cases = {
             {file_type, file},
             {std::make_shared<DataTypeArray>(nullable_file),

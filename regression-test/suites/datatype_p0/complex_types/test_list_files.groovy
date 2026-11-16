@@ -88,6 +88,35 @@ suite("test_list_files", "p0,external") {
                 WHERE path = '${root}a.json'
             )
         """
+        for (boolean spill : [false, true]) {
+            String hint = """/*+ SET_VAR(enable_spill=${spill}, enable_force_spill=${spill},
+                spill_min_revocable_mem=1, force_sort_algorithm='full',
+                topn_lazy_materialization_threshold=-1) */"""
+            sql """${fileRows}
+                SELECT ${hint} a.id, a.f, ARRAY(b.f, NULL)
+                FROM file_scan a JOIN [shuffle] file_scan b ON a.id = b.id
+                ORDER BY a.id DESC LIMIT 4 OFFSET 2
+            """
+            quickTest("file_aggregate_${spill}", """${fileRows}
+                SELECT ${hint} id % 2 AS category, COUNT(f), ARRAY_SIZE(COLLECT_LIST(f)),
+                    SUM(ELEMENT_AT(f, 'size'))
+                FROM file_scan GROUP BY category ORDER BY category
+            """)
+            sql """${fileRows}
+                SELECT ${hint} id, f, FIRST_VALUE(f) OVER (PARTITION BY id % 2 ORDER BY id)
+                FROM file_scan ORDER BY id
+            """
+        }
+        for (String query : [
+            "SELECT f, COUNT(*) FROM file_scan GROUP BY f",
+            "SELECT DISTINCT f FROM file_scan",
+            "SELECT f FROM file_scan UNION SELECT f FROM file_scan"
+        ]) {
+            test {
+                sql "${fileRows} ${query}"
+                exception "FILE"
+            }
+        }
         test {
             sql "${fileRows} SELECT (SELECT i.f FROM file_scan i WHERE i.id=o.id) FROM file_scan o"
             exception "Agg Function any_value(FILE) is not implemented"

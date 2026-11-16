@@ -76,6 +76,14 @@ empty/	\N	\N	\N	\N	\N	true
 marker/	\N	\N	\N	\N	\N	true
 sub/	\N	\N	\N	\N	\N	true
 
+-- !file_aggregate_false --
+0	4	4	8
+1	4	4	8
+
+-- !file_aggregate_true --
+0	4	4	8
+1	4	4	8
+
 -- !no_trailing_slash --
 5	2	2
 

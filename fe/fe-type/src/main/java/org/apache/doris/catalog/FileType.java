@@ -43,13 +43,17 @@ public final class FileType extends Type {
     @SerializedName("fields")
     private List<StructField> fields;
 
+    private FileType() {
+        fields = canonicalFields();
+    }
+
     public FileType(List<StructField> fields) {
+        this();
         validateFields(fields);
-        this.fields = canonicalFields();
     }
 
     public static FileType create() {
-        return new FileType(canonicalFields());
+        return new FileType();
     }
 
     private static List<StructField> canonicalFields() {
@@ -146,7 +150,6 @@ public final class FileType extends Type {
 
     @Override
     public void toThrift(TTypeDesc container) {
-        validateFields(fields);
         TTypeNode node = new TTypeNode(TTypeNodeType.FILE);
         node.setStructFields(new ArrayList<>());
         container.addToTypes(node);

@@ -17,27 +17,11 @@
 
 #pragma once
 
-#include <cstdint>
 #include <optional>
 #include <string>
 #include <string_view>
 
-#include "common/status.h"
-
 namespace doris {
-
-struct File;
-
-// Validate the values of a non-NULL FILE without changing any bytes.
-// The caller must supply six children with the canonical FILE field types.
-// SQL NULL FILE values are handled by the caller, outside this function.
-Status validate_file(const File& value);
-
-// Borrow metadata from FILE columns. Inline bytes are opaque to validation;
-// only their SQL NULL state participates in the rules.
-Status validate_file(std::optional<std::string_view> uri, std::optional<int64_t> offset,
-                     std::optional<int64_t> size, std::optional<std::string_view> content_type,
-                     std::optional<std::string_view> checksum, bool inline_is_null);
 
 bool is_valid_file_content_type(std::string_view content_type);
 

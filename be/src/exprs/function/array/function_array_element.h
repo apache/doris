@@ -237,9 +237,13 @@ private:
                          size_t input_rows_count) const {
         const auto& argument = block.get_by_position(arguments[0]);
         const auto& type = assert_cast<const DataTypeFile&>(*remove_nullable(argument.type));
-        size_t index = 0;
-        RETURN_IF_ERROR(get_file_element_index(type, block.get_by_position(arguments[1]), index));
-        return execute_field<ColumnFile>(block, arguments[0], result, input_rows_count, index);
+        const auto& selector = block.get_by_position(arguments[1]);
+        DCHECK(selector.column);
+        DCHECK(!selector.column->is_null_at(0));
+        const auto index =
+                type.try_get_position_by_name(selector.column->get_data_at(0).to_string());
+        DCHECK(index.has_value());
+        return execute_field<ColumnFile>(block, arguments[0], result, input_rows_count, *index);
     }
 
     template <typename ColumnType>

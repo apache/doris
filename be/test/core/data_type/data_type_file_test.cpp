@@ -20,10 +20,7 @@
 #include <gen_cpp/data.pb.h>
 #include <gen_cpp/types.pb.h>
 #include <gtest/gtest.h>
-#include <sys/mman.h>
-#include <unistd.h>
 
-#include <cstdlib>
 #include <limits>
 #include <utility>
 #include <vector>
@@ -104,94 +101,6 @@ TEST(DataTypeFileTest, RejectMalformedTypeDescriptors) {
     EXPECT_THROW(DataTypeFactory::instance().create_data_type(proto, false), Exception);
 }
 
-TEST(DataTypeFileTest, ValidationRespectsFileNulls) {
-    const auto type = make_nullable(std::make_shared<DataTypeFile>());
-    auto column = type->create_column();
-    column->insert_default();
-    EXPECT_TRUE(validate_file_column(*column, type).ok());
-    auto& nullable = assert_cast<ColumnNullable&>(*column);
-    nullable.get_null_map_data()[0] = 0;
-    EXPECT_FALSE(validate_file_column(*column, type).ok());
-    nullable.get_null_map_data()[0] = 1;
-    auto constant = ColumnConst::create(std::move(column), 8);
-    EXPECT_TRUE(validate_file_column(*constant, type).ok());
-}
-
-namespace {
-void validate_protected_inline() {
-    const auto page_size = static_cast<size_t>(sysconf(_SC_PAGESIZE));
-    auto* bytes = static_cast<char*>(
-            mmap(nullptr, page_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0));
-    if (bytes == MAP_FAILED) {
-        std::_Exit(1);
-    }
-    const auto type = std::make_shared<DataTypeFile>();
-    auto column = type->create_column();
-    column->insert_default();
-    column->insert(
-            Field::create_field<TYPE_FILE>(File {Field::create_field<TYPE_STRING>("urn:valid"),
-                                                 Field(), Field(), Field(), Field(), Field()}));
-    column->insert_default();
-    auto& inline_column =
-            assert_cast<ColumnNullable&>(assert_cast<ColumnFile&>(*column).get_column(5));
-    auto& payloads = assert_cast<ColumnVarbinary&>(inline_column.get_nested_column()).get_data();
-    payloads[0] = StringView(bytes, static_cast<uint32_t>(page_size));
-    payloads[1] = StringView(bytes, static_cast<uint32_t>(page_size));
-    inline_column.get_null_map_data().assign(size_t {3}, UInt8 {0});
-    if (mprotect(bytes, page_size, PROT_NONE) != 0 || !validate_file_column(*column, type).ok()) {
-        std::_Exit(2);
-    }
-    // Empty inline is still non-NULL; NULL uri + NULL inline is invalid.
-    inline_column.get_null_map_data()[2] = 1;
-    if (validate_file_column(*column, type).ok()) {
-        std::_Exit(3);
-    }
-    column->resize(1);
-    auto constant = ColumnConst::create(std::move(column), 8);
-    if (!validate_file_column(*constant, type).ok()) {
-        std::_Exit(4);
-    }
-    if (munmap(bytes, page_size) != 0) {
-        std::_Exit(5);
-    }
-    std::_Exit(0);
-}
-} // namespace
-
-TEST(DataTypeFileDeathTest, BoundaryValidationNeverReadsInlineBytes) {
-    // A large VARBINARY view points to a protected page; reading or copying
-    // its bytes during validation makes the child process fail.
-    ASSERT_EXIT(validate_protected_inline(), ::testing::ExitedWithCode(0), "");
-}
-
-TEST(DataTypeFileTest, BoundaryValidationChecksMetadataWithInline) {
-    const auto type = std::make_shared<DataTypeFile>();
-    const std::string bytes(4096, '\xff');
-    File valid {Field(), Field(), Field(),
-                Field(), Field(), Field::create_field<TYPE_VARBINARY>(StringView(bytes))};
-    for (const auto& [index, bad_value] :
-         std::vector<std::pair<size_t, Field>> {{1, Field::create_field<TYPE_BIGINT>(Int64 {-1})},
-                                                {1, Field::create_field<TYPE_BIGINT>(Int64 {0})},
-                                                {2, Field::create_field<TYPE_BIGINT>(Int64 {-1})},
-                                                {3, Field::create_field<TYPE_STRING>("text")},
-                                                {4, Field::create_field<TYPE_STRING>("MD5:abc")}}) {
-        auto fields = valid;
-        fields[index] = bad_value;
-        auto column = type->create_column();
-        column->insert(Field::create_field<TYPE_FILE>(std::move(fields)));
-        EXPECT_FALSE(validate_file_column(*column, type).ok()) << index;
-    }
-    valid[1] = Field::create_field<TYPE_BIGINT>(std::numeric_limits<Int64>::max());
-    valid[2] = Field::create_field<TYPE_BIGINT>(Int64 {1});
-    auto column = type->create_column();
-    column->insert(Field::create_field<TYPE_FILE>(valid));
-    EXPECT_FALSE(validate_file_column(*column, type).ok());
-    valid[1] = Field::create_field<TYPE_BIGINT>(Int64 {0});
-    column->clear();
-    column->insert(Field::create_field<TYPE_FILE>(std::move(valid)));
-    EXPECT_TRUE(validate_file_column(*column, type).ok());
-}
-
 TEST(DataTypeFileTest, SerializationRetainsBinaryInlineAndNulls) {
     DataTypeFile type;
     auto column = type.create_column();
@@ -221,7 +130,6 @@ TEST(DataTypeFileTest, SerializationRetainsBinaryInlineAndNulls) {
     EXPECT_TRUE((*restored)[1].get<TYPE_FILE>()[5].is_null());
     EXPECT_TRUE((*restored)[2].get<TYPE_FILE>()[0].is_null());
     EXPECT_EQ((*restored)[2].get<TYPE_FILE>()[5].as_string_view(), bytes);
-    EXPECT_TRUE(validate_file_column(*restored, std::make_shared<DataTypeFile>()).ok());
 }
 
 TEST(DataTypeFileTest, BlockRoundTripPreservesNestedAndConstantFileValues) {
