@@ -453,7 +453,7 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
             for (StructField field : ((StructType) type).getFields()) {
                 checkUdfSupportedType(field.getType(), typePosition + " field " + field.getName());
             }
-        } else if (type.isObjectStored()) {
+        } else if (type.isObjectStored() || type.isFileType()) {
             throw new AnalysisException(String.format(
                     "%s does not support %s type %s", binaryType, typePosition, type.toSql()));
         }

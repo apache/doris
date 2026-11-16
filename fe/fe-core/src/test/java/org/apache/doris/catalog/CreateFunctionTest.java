@@ -33,7 +33,6 @@ import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateFunctionCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.persist.CreateFunctionInfo;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.persist.OperationType;
@@ -214,41 +213,36 @@ public class CreateFunctionTest extends TestWithFeService {
     }
 
     @Test
-    public void testCreatePythonFunctionsPreserveFileSignatures() throws Exception {
+    public void testCreatePythonFunctionsRejectFileSignatures() throws Exception {
         ConnectContext ctx = UtFrameUtils.createDefaultCtx();
         createDatabase(ctx, "create database py_file_type_db;");
         ctx.setDatabase("py_file_type_db");
         String properties = " properties('type'='PYTHON_UDF', 'symbol'='evaluate', "
                 + "'runtime_version'='3.10.2');";
-        Database db = Env.getCurrentInternalCatalog().getDbNullable("py_file_type_db");
         int index = 0;
         for (String kind : ImmutableList.of("function", "aggregate function", "tables function")) {
             for (String fileType : ImmutableList.of("file", "array<file>", "map<string,file>",
                     "struct<f:file>", "array<struct<f:file>>")) {
-                Type expectedType = DataType.convertFromString(fileType).toCatalogDataType();
                 String returnType = kind.equals("tables function") ? "array<int>" : "int";
                 String argumentName = "file_arg_" + index++;
-                createFunction("create " + kind + " py_file_type_db." + argumentName + "(" + fileType
-                        + ") returns " + returnType + properties, ctx);
-                Function argumentFunction = findFunction(db, argumentName);
-                Assertions.assertEquals(expectedType, argumentFunction.getArgs()[0]);
-                Assertions.assertEquals(Type.INT, argumentFunction.getReturnType());
+                assertCreateFunctionAnalysisException(ctx,
+                        "create " + kind + " py_file_type_db." + argumentName + "(" + fileType
+                                + ") returns " + returnType + properties,
+                        "PYTHON_UDF does not support argument 1");
                 String outputType = kind.equals("tables function") ? "array<" + fileType + ">" : fileType;
                 String returnName = "file_return_" + index++;
-                createFunction("create " + kind + " py_file_type_db." + returnName + "(int) returns "
-                        + outputType + properties, ctx);
-                Function returnFunction = findFunction(db, returnName);
-                Assertions.assertEquals(Type.INT, returnFunction.getArgs()[0]);
-                Assertions.assertEquals(expectedType, returnFunction.getReturnType());
+                assertCreateFunctionAnalysisException(ctx,
+                        "create " + kind + " py_file_type_db." + returnName + "(int) returns "
+                                + outputType + properties,
+                        "PYTHON_UDF does not support return");
             }
         }
         for (String fileType : ImmutableList.of("file", "array<file>", "map<string,file>", "struct<f:file>")) {
             String name = "file_state_" + index++;
-            createFunction("create aggregate function py_file_type_db." + name
-                    + "(int) returns int intermediate " + fileType + properties, ctx);
-            AggregateFunction function = (AggregateFunction) findFunction(db, name);
-            Assertions.assertEquals(DataType.convertFromString(fileType).toCatalogDataType(),
-                    function.getIntermediateType());
+            assertCreateFunctionAnalysisException(ctx,
+                    "create aggregate function py_file_type_db." + name
+                            + "(int) returns int intermediate " + fileType + properties,
+                    "PYTHON_UDF does not support intermediate");
         }
     }
 

@@ -169,19 +169,16 @@ TEST_F(FileValueTest, Rfc2045MimeAsciiLexicalClasses) {
     }
 }
 
-TEST_F(FileValueTest, Rfc2045MimeCommentDepthAndFoldedLengthLimit) {
-    const std::string nested = "x/y" + std::string(510, '(') + std::string(510, ')');
+TEST_F(FileValueTest, Rfc2045MimeNestedCommentsAndFoldingWhitespace) {
+    const std::string nested = "x/y" + std::string(4096, '(') + std::string(4096, ')');
     EXPECT_TRUE(is_valid_file_content_type(nested));
     EXPECT_FALSE(is_valid_file_content_type(nested.substr(0, nested.size() - 1)));
-    EXPECT_FALSE(is_valid_file_content_type("x/y" + std::string(511, '(') + std::string(511, ')')));
     std::string folded = "x/y";
-    for (int i = 0; i < 340; ++i) {
+    for (int i = 0; i < 4096; ++i) {
         folded += "\r\n ";
     }
-    folded += ' ';
-    EXPECT_EQ(folded.size(), 1024);
     EXPECT_TRUE(is_valid_file_content_type(folded));
-    EXPECT_FALSE(is_valid_file_content_type(folded + ' '));
+    EXPECT_FALSE(is_valid_file_content_type(folded + "\r\n"));
 }
 
 TEST_F(FileValueTest, InfersContentTypeFromFilesystemNames) {

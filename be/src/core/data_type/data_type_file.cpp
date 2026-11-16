@@ -80,6 +80,11 @@ DataTypeFile::DataTypeFile(const DataTypes& elements, const Strings& names) : Da
         }
         auto child = remove_nullable(elements[i]);
         auto expected = remove_nullable(_elements[i]);
+        // branch-4.1 VARCHAR children use the canonical STRING types initialized above.
+        if (expected->get_primitive_type() == TYPE_STRING &&
+            child->get_primitive_type() == TYPE_VARCHAR) {
+            continue;
+        }
         if (child->get_primitive_type() != expected->get_primitive_type() ||
             !child->equals(*expected)) {
             throw Exception(ErrorCode::INVALID_ARGUMENT, "Invalid FILE child type for {}",
