@@ -247,8 +247,7 @@ public:
         }
 
         if constexpr (PT == PredicateType::EQ) {
-            // A constant segment (e.g. delete_sign = 0) needs no residual equality filter,
-            // which would otherwise force ANN Top-N to fall back to brute force.
+            // Equal bounds prove the equality is always true, unless the predicate is negated.
             return !_opposite && Compare::equal(zone_map.min_value.template get<Type>(), _value) &&
                    Compare::equal(zone_map.max_value.template get<Type>(), _value);
         } else if constexpr (PT == PredicateType::LT) {
