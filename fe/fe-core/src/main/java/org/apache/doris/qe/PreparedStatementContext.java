@@ -32,6 +32,8 @@ public class PreparedStatementContext {
     public ConnectContext ctx;
     private StatementContext statementContext;
     public String stmtString;
+    // Preserve the effective PREPARE hash, including SQL conversion fallback, across connection commands.
+    private final String sqlHash;
     public Optional<ShortCircuitQueryContext> shortCircuitQueryContext = Optional.empty();
     public Optional<GroupCommitPlanner> groupCommitPlanner = Optional.empty();
     // Long data belongs to a prepared statement and survives individual upload commands.
@@ -48,6 +50,11 @@ public class PreparedStatementContext {
         this.ctx = ctx;
         this.statementContext = statementContext;
         this.stmtString = stmtString;
+        this.sqlHash = ctx.getSqlHash();
+    }
+
+    public String getSqlHash() {
+        return sqlHash;
     }
 
     public boolean isEmptyCursorOpen() {

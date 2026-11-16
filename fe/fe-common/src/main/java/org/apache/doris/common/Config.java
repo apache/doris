@@ -17,6 +17,8 @@
 
 package org.apache.doris.common;
 
+import org.apache.doris.qe.QueryAuditPolicy;
+
 import java.io.File;
 import java.lang.reflect.Field;
 
@@ -98,7 +100,8 @@ public class Config extends ConfigBase {
     @ConfField(description = "The maximum number of FE audit log files. After exceeding this number, the oldest log "
             + "file will be deleted")
     public static int audit_log_roll_num = 90;
-    @ConfField(description = "The type of FE audit log file",
+    @ConfField(description = "The type of FE audit log file. "
+            + "query is always included when query_audit_always_on is true.",
             options = {"slow_query", "query", "load", "stream_load"})
     public static String[] audit_log_modules = {"slow_query", "query", "load", "stream_load"};
     @ConfField(mutable = true, description = "The threshold of slow query, in milliseconds. If the response time of a "
@@ -115,6 +118,16 @@ public class Config extends ConfigBase {
     public static String audit_log_delete_age = "30d";
     @ConfField(description = "Whether to enable compression for FE audit log files")
     public static boolean audit_log_enable_compress = false;
+
+    @ConfField(description = "When true, query audit cannot be disabled or hollowed out at runtime: every statement "
+            + "this FE receives is audited to both fe.audit.log and __internal_schema.audit_log. "
+            + "enable_audit_plugin and enable_prepared_stmt_audit_log stay on, audit_plugin_load_timeout stays within "
+            + "the Stream Load timeout range, and the other audit_plugin_* variables "
+            + "and the configs audit_event_log_queue_size, query_audit_log_timeout_ms, "
+            + "be_report_query_statistics_timeout_ms and workload_runtime_status_thread_interval_ms cannot be set "
+            + "weaker than their defaults, skip_audit_user_list is ignored, and audit_log_modules always includes "
+            + "query. Changing it requires editing fe.conf and restarting the FE.")
+    public static boolean query_audit_always_on = false;
 
     @ConfField(description = "Active lineage plugins. Specify the name returned by LineagePlugin.name()")
     public static String[] activate_lineage_plugin = {};
@@ -2875,19 +2888,21 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int workload_max_action_num_in_policy = 5; // mainly used to limit set session var action
 
-    @ConfField(mutable = true)
-    public static int workload_runtime_status_thread_interval_ms = 2000;
+    @ConfField(mutable = true, callback = QueryAuditPolicy.ProtectedConfHandler.class)
+    public static int workload_runtime_status_thread_interval_ms
+            = QueryAuditPolicy.DEFAULT_WORKLOAD_RUNTIME_STATUS_THREAD_INTERVAL_MS;
 
     // NOTE: it should bigger than be config report_query_statistics_interval_ms
-    @ConfField(mutable = true)
-    public static int query_audit_log_timeout_ms = 5000;
+    @ConfField(mutable = true, callback = QueryAuditPolicy.ProtectedConfHandler.class)
+    public static int query_audit_log_timeout_ms = QueryAuditPolicy.DEFAULT_QUERY_AUDIT_LOG_TIMEOUT_MS;
 
     @ConfField(description = "The operations of the users in this list will not be recorded in the audit log. "
-            + "Multiple users are separated by commas.")
+            + "Multiple users are separated by commas. Ignored when query_audit_always_on is true.")
     public static String skip_audit_user_list = "";
 
-    @ConfField(mutable = true)
-    public static int be_report_query_statistics_timeout_ms = 60000;
+    @ConfField(mutable = true, callback = QueryAuditPolicy.ProtectedConfHandler.class)
+    public static int be_report_query_statistics_timeout_ms
+            = QueryAuditPolicy.DEFAULT_BE_REPORT_QUERY_STATISTICS_TIMEOUT_MS;
 
     @ConfField(mutable = true, masterOnly = true)
     public static int workload_group_max_num = 15;
@@ -3529,8 +3544,8 @@ public class Config extends ConfigBase {
     public static boolean enable_cloud_running_txn_check = true;
 
     //* audit_event_log_queue_size = qps * query_audit_log_timeout_ms
-    @ConfField(mutable = true)
-    public static int audit_event_log_queue_size = 250000;
+    @ConfField(mutable = true, callback = QueryAuditPolicy.ProtectedConfHandler.class)
+    public static int audit_event_log_queue_size = QueryAuditPolicy.DEFAULT_AUDIT_EVENT_LOG_QUEUE_SIZE;
 
     @ConfField(description = "Maximum size of the lineage event queue. Events will be discarded when exceeded.")
     public static int lineage_event_queue_size = 50000;
