@@ -27,6 +27,7 @@
 #include "core/block/block.h"
 #include "core/block/column_with_type_and_name.h"
 #include "core/column/column.h"
+#include "core/column/column_nothing.h"
 #include "core/data_type/data_type.h"
 #include "storage/iterators.h"
 #include "storage/olap_common.h"
@@ -148,6 +149,21 @@ Status VMergeIteratorContext::copy_rows(Block* block, bool advanced) {
 
             ColumnPtr& s_cp = s_col.column;
             ColumnPtr& d_cp = d_col.column;
+
+            // A virtual slot is materialized only in the block handed to SegmentIterator,
+            // which is this context's _block (src). The caller's block (dst) may still hold
+            // the ColumnNothing placeholder created by SlotDescriptor/ReadSchema, and
+            // ColumnNothing::insert_range_from only bumps its row count and drops the values.
+            // Example: storage Top-N over a rowset with overlapping segments reads through
+            // this merge iterator; dst's distance slot stays ColumnNothing, the values are
+            // lost here, and the following MutableBlock::add_rows fails with E-7412.
+            // Replace the placeholder with an empty column of the source type before the
+            // first copy; afterwards dst holds a real column and this branch is skipped.
+            if (check_and_get_column<ColumnNothing>(d_cp.get())) {
+                DORIS_CHECK(d_cp->empty());
+                d_cp = s_cp->clone_empty();
+                d_col.type = s_col.type;
+            }
 
             d_cp->assert_mutable()->insert_range_from(*s_cp, start, _cur_batch_num);
         }
