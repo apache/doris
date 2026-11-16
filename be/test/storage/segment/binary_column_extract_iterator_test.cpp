@@ -32,6 +32,7 @@
 #include "core/column/column_string.h"
 #include "core/column/column_variant.h"
 #include "core/column/column_vector.h"
+#include "core/column/variant_column_utils.h"
 #include "core/column/variant_v2/column_variant_v2.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_string.h"
@@ -853,6 +854,8 @@ TEST(BinaryColumnExtractIteratorV2Test, DoesNotRescanFrozenPathOrdering) {
 
 // Debug builds must reject a sparse row that violates the byte-order invariant; the check is a
 // DCHECK so release scans and compaction pay nothing.
+// Assert the helper directly: EXPECT_DEATH(assemble(...)) forks, which is unsafe in the full
+// threaded ASAN BEUT process and aborted the runner with exit 134.
 #if DCHECK_IS_ON()
 TEST(VariantAssemblerTest, DebugCheckRejectsUnsortedSparseRows) {
     auto sparse = ColumnVariant::create_binary_column_fn();
@@ -865,20 +868,9 @@ TEST(VariantAssemblerTest, DebugCheckRejectsUnsortedSparseRows) {
     append_storage_cell(map, "a-b", int_type, *ints, 1);
     map.get_offsets().push_back(2);
 
-    variant_v2::VariantAssemblerOptions options;
-    options.storage_map_kind = variant_v2::StorageMapKind::SPARSE;
-    auto assembler = variant_v2::VariantAssembler::create(std::move(options));
-    ASSERT_TRUE(assembler.has_value());
-    EXPECT_DEATH(
-            {
-                ColumnNullable::MutablePtr result;
-                (void)(*assembler)
-                        ->assemble({.num_rows = map.size(),
-                                    .materialized_columns = {},
-                                    .storage_map = &map},
-                                   &result);
-            },
-            "is_variant_sparse_row_sorted");
+    const auto& paths = assert_cast<const ColumnString&>(map.get_keys());
+    ASSERT_EQ(paths.size(), 2);
+    EXPECT_FALSE(is_variant_sparse_row_sorted(paths, 0, paths.size()));
 }
 #endif
 
