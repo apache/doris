@@ -47,7 +47,7 @@
 #include <thread>
 #include <vector>
 
-#if defined(USE_UNWIND) && USE_UNWIND && defined(__x86_64__)
+#if defined(USE_UNWIND) && USE_UNWIND
 #ifndef UNW_LOCAL_ONLY
 #define UNW_LOCAL_ONLY
 #endif
@@ -133,7 +133,7 @@ pid_t get_current_tid() {
     return static_cast<pid_t>(syscall(SYS_gettid));
 }
 
-#if defined(USE_UNWIND) && USE_UNWIND && defined(__x86_64__)
+#if defined(USE_UNWIND) && USE_UNWIND
 void append_frame(SignalContextCapture* capture, uintptr_t pc) {
     if (pc == 0 || capture->size >= capture->frame_pointers.size()) {
         return;
@@ -149,7 +149,7 @@ void capture_signal_context_unwind(const ucontext_t* context, SignalContextCaptu
         return;
     }
 
-#if defined(USE_UNWIND) && USE_UNWIND && defined(__x86_64__)
+#if defined(USE_UNWIND) && USE_UNWIND
     unw_cursor_t cursor;
     auto* unwind_context = reinterpret_cast<unw_context_t*>(const_cast<ucontext_t*>(context));
     int rc = unw_init_local2(&cursor, unwind_context, UNW_INIT_SIGNAL_FRAME);
@@ -243,7 +243,7 @@ void install_signal_handler() {
         LOG(FATAL) << "SIGRTMIN+" << STACK_TRACE_SIGNAL_OFFSET << " exceeds SIGRTMAX";
     }
 
-#if defined(USE_UNWIND) && USE_UNWIND && defined(__x86_64__)
+#if defined(USE_UNWIND) && USE_UNWIND
     updatePHDRCache();
     if (!hasPHDRCache()) {
         LOG(FATAL) << "BE thread stack trace requires lock-free PHDR cache";
@@ -481,18 +481,15 @@ bool prepare_signal_capture(int timeout_ms, std::string* error) {
         return false;
     }
 
-#if defined(USE_UNWIND) && USE_UNWIND && defined(__x86_64__)
+#if defined(USE_UNWIND) && USE_UNWIND
     updatePHDRCache();
     if (!hasPHDRCache()) {
         *error = "lock-free PHDR cache is unavailable";
         return false;
     }
-#elif !defined(USE_UNWIND) || !USE_UNWIND
+#else
     *error = "BE thread stack trace requires libunwind; this build was compiled with "
              "USE_UNWIND=OFF";
-    return false;
-#else
-    *error = "signal-context libunwind is unsupported on this architecture";
     return false;
 #endif
 
