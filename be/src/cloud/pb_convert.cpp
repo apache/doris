@@ -464,10 +464,6 @@ TabletSchemaCloudPB doris_tablet_schema_to_cloud(TabletSchemaPB&& in) {
 void doris_tablet_schema_to_cloud(TabletSchemaCloudPB* out, const TabletSchemaPB& in) {
     // ATTN: please keep the set order aligned with the definition of proto.
     out->set_keys_type(in.keys_type());
-    // Older schemas omit this field; do not turn absence into an explicit false.
-    if (in.has_variant_escape_dots_in_keys()) {
-        out->set_variant_escape_dots_in_keys(in.variant_escape_dots_in_keys());
-    }
     out->mutable_column()->CopyFrom(in.column());
     out->set_num_short_key_columns(in.num_short_key_columns());
     out->set_num_rows_per_row_block(in.num_rows_per_row_block());
@@ -518,6 +514,10 @@ void doris_tablet_schema_to_cloud(TabletSchemaCloudPB* out, const TabletSchemaPB
     out->set_ttl_col_idx(in.ttl_col_idx());
     out->set_row_ttl_duration_us(in.row_ttl_duration_us());
     out->set_row_ttl_time_zone_offset_seconds(in.row_ttl_time_zone_offset_seconds());
+    // Older schemas omit this field; do not turn absence into an explicit false.
+    if (in.has_variant_escape_dots_in_keys()) {
+        out->set_variant_escape_dots_in_keys(in.variant_escape_dots_in_keys());
+    }
 
     if (in.has___split_schema()) {
         out->mutable___split_schema()->CopyFrom(in.__split_schema());
@@ -526,10 +526,6 @@ void doris_tablet_schema_to_cloud(TabletSchemaCloudPB* out, const TabletSchemaPB
 
 void doris_tablet_schema_to_cloud(TabletSchemaCloudPB* out, TabletSchemaPB&& in) {
     out->set_keys_type(in.keys_type());
-    // Older schemas omit this field; do not turn absence into an explicit false.
-    if (in.has_variant_escape_dots_in_keys()) {
-        out->set_variant_escape_dots_in_keys(in.variant_escape_dots_in_keys());
-    }
     out->mutable_column()->Swap(in.mutable_column());
     out->set_num_short_key_columns(in.num_short_key_columns());
     out->set_num_rows_per_row_block(in.num_rows_per_row_block());
@@ -580,6 +576,10 @@ void doris_tablet_schema_to_cloud(TabletSchemaCloudPB* out, TabletSchemaPB&& in)
     out->set_ttl_col_idx(in.ttl_col_idx());
     out->set_row_ttl_duration_us(in.row_ttl_duration_us());
     out->set_row_ttl_time_zone_offset_seconds(in.row_ttl_time_zone_offset_seconds());
+    // Older schemas omit this field; do not turn absence into an explicit false.
+    if (in.has_variant_escape_dots_in_keys()) {
+        out->set_variant_escape_dots_in_keys(in.variant_escape_dots_in_keys());
+    }
 
     if (in.has___split_schema()) {
         out->mutable___split_schema()->CopyFrom(in.__split_schema());
@@ -601,10 +601,6 @@ TabletSchemaPB cloud_tablet_schema_to_doris(TabletSchemaCloudPB&& in) {
 void cloud_tablet_schema_to_doris(TabletSchemaPB* out, const TabletSchemaCloudPB& in) {
     // ATTN: please keep the set order aligned with the definition of proto.
     out->set_keys_type(in.keys_type());
-    // Older schemas omit this field; do not turn absence into an explicit false.
-    if (in.has_variant_escape_dots_in_keys()) {
-        out->set_variant_escape_dots_in_keys(in.variant_escape_dots_in_keys());
-    }
     out->mutable_column()->CopyFrom(in.column());
     out->set_num_short_key_columns(in.num_short_key_columns());
     out->set_num_rows_per_row_block(in.num_rows_per_row_block());
@@ -655,6 +651,10 @@ void cloud_tablet_schema_to_doris(TabletSchemaPB* out, const TabletSchemaCloudPB
     out->set_ttl_col_idx(in.ttl_col_idx());
     out->set_row_ttl_duration_us(in.row_ttl_duration_us());
     out->set_row_ttl_time_zone_offset_seconds(in.row_ttl_time_zone_offset_seconds());
+    // Older schemas omit this field; do not turn absence into an explicit false.
+    if (in.has_variant_escape_dots_in_keys()) {
+        out->set_variant_escape_dots_in_keys(in.variant_escape_dots_in_keys());
+    }
 
     if (in.has___split_schema()) {
         out->mutable___split_schema()->CopyFrom(in.__split_schema());
@@ -664,10 +664,6 @@ void cloud_tablet_schema_to_doris(TabletSchemaPB* out, const TabletSchemaCloudPB
 void cloud_tablet_schema_to_doris(TabletSchemaPB* out, TabletSchemaCloudPB&& in) {
     // ATTN: please keep the set order aligned with the definition of proto.
     out->set_keys_type(in.keys_type());
-    // Older schemas omit this field; do not turn absence into an explicit false.
-    if (in.has_variant_escape_dots_in_keys()) {
-        out->set_variant_escape_dots_in_keys(in.variant_escape_dots_in_keys());
-    }
     out->mutable_column()->Swap(in.mutable_column());
     out->set_num_short_key_columns(in.num_short_key_columns());
     out->set_num_rows_per_row_block(in.num_rows_per_row_block());
@@ -718,6 +714,10 @@ void cloud_tablet_schema_to_doris(TabletSchemaPB* out, TabletSchemaCloudPB&& in)
     out->set_ttl_col_idx(in.ttl_col_idx());
     out->set_row_ttl_duration_us(in.row_ttl_duration_us());
     out->set_row_ttl_time_zone_offset_seconds(in.row_ttl_time_zone_offset_seconds());
+    // Older schemas omit this field; do not turn absence into an explicit false.
+    if (in.has_variant_escape_dots_in_keys()) {
+        out->set_variant_escape_dots_in_keys(in.variant_escape_dots_in_keys());
+    }
 
     if (in.has___split_schema()) {
         out->mutable___split_schema()->CopyFrom(in.__split_schema());
