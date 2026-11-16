@@ -46,10 +46,17 @@ public class InferAggNotNull extends OneRewriteRuleFactory {
                     LogicalAggregate<Plan> agg = ctx.root;
                     Set<AggregateFunction> aggregateFunctions = agg.getAggregateFunctions();
                     Set<Expression> isNotNulls = inferCommonNotNulls(aggregateFunctions, ctx.cascadesContext);
-                    Set<Expression> predicates = Collections.emptySet();
-                    if ((agg.child() instanceof Filter)) {
-                        predicates = ((Filter) agg.child()).getConjuncts();
+                    // Read every filter in the chain right under the aggregate, not only the first one. This
+                    // rule puts what it generates into a filter of its own on top, and that filter hides the
+                    // ones below it: reading only the first, the rule would generate again, on every pass, a
+                    // not-null that a lower filter holds. The filters below stay as they were written, so
+                    // InferFilterNotNull, which skips a filter that holds a generated not-null, still infers
+                    // from their conjuncts.
+                    ImmutableSet.Builder<Expression> predicatesBuilder = ImmutableSet.builder();
+                    for (Plan child = agg.child(); child instanceof Filter; child = child.child(0)) {
+                        predicatesBuilder.addAll(((Filter) child).getConjuncts());
                     }
+                    Set<Expression> predicates = predicatesBuilder.build();
                     ImmutableSet.Builder<Expression> needGenerateNotNullsBuilder = ImmutableSet.builder();
                     for (Expression isNotNull : isNotNulls) {
                         if (!predicates.contains(isNotNull)) {
