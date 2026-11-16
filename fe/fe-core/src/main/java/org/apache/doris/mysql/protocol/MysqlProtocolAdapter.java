@@ -17,6 +17,8 @@
 
 package org.apache.doris.mysql.protocol;
 
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.Status;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.mysql.DummyMysqlChannel;
 import org.apache.doris.mysql.MysqlCapability;
@@ -261,6 +263,12 @@ public class MysqlProtocolAdapter implements ProtocolAdapter {
      */
     public void finishCommand(ConnectContext ctx, StmtExecutor executor) throws IOException {
         LOG.debug("Finalize command for query {}", DebugUtil.printId(ctx.queryId()));
+        // The last batch may carry EOS, so cancellation need not pass through getNext again.
+        // Keep the connection when the cancellation error can be written normally.
+        Status cancelReason = executor == null ? null : executor.getPendingCancelReason();
+        if (cancelReason != null && ctx.getState().getStateType() == MysqlStateType.EOF) {
+            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, cancelReason.getErrorMsg());
+        }
         ByteBuffer packet;
         if (executor != null && executor.hasForwardedToMaster()
                 && ctx.getState().getStateType() != MysqlStateType.ERR) {
