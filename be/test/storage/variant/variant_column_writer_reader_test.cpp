@@ -1717,7 +1717,7 @@ protected:
         for (const auto& batch : batches) {
             Block block = _tablet_schema->create_block();
             auto columns = std::move(block).mutate_columns();
-            if (_tablet_schema->variant_escape_dots_in_keys()) {
+            if (_tablet_schema->column(0).variant_is_v2()) {
                 ColumnPtr source;
                 DataTypePtr type;
                 EXPECT_TRUE(create_variant_writer_source(
@@ -1776,7 +1776,11 @@ protected:
         RowsetReaderContext reader_context;
         reader_context.need_ordered_result = false;
         auto read_schema = std::make_shared<TabletSchema>(*_tablet_schema);
-        read_schema->mutable_column(0).set_variant_is_v2(true);
+        // The schema copy shares columns. Keep the query execution flag out of the
+        // source tablet schema so subsequent legacy writes still exercise V1.
+        TabletColumn read_column = read_schema->column(0);
+        read_column.set_variant_is_v2(true);
+        read_schema->replace_column(0, std::move(read_column));
         reader_context.tablet_schema = read_schema;
         OlapReaderStatistics stats;
         reader_context.stats = &stats;
@@ -10195,6 +10199,9 @@ TEST_F(VariantColumnWriterReaderTest, CrossEncodingVariantSinkPreservesObjectsAn
                                         source_escape);
                     const auto format = external ? TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V3
                                                  : TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V2;
+                    // Exercise V2 execution under both storage encodings. A V1 writer may
+                    // coerce string roots before this V2 sink round trip even begins.
+                    _tablet_schema->mutable_column(0).set_variant_is_v2(true);
                     init_tablet_from_current_schema(12610, format);
                     auto source = create_variant_rowset({{docs[i]}}, 1);
                     std::vector<segment_v2::SegmentSharedPtr> segments;
@@ -10310,6 +10317,169 @@ TEST_F(VariantColumnWriterReaderTest, EscapedKeysRejectNestedGroupWriterLayout) 
               std::string::npos);
 }
 
+TEST_F(VariantColumnWriterReaderTest, EscapedSchemaReadsAndRewritesLegacyAndEscapedSegments) {
+    init_variant_tablet(12402, 1);
+    auto legacy =
+            create_variant_rowset({{R"({"a":{"b":2},"a%2Eb":3,"pct%":4})", R"({})", R"([])"}}, 1);
+    SegmentFooterPB footer;
+    ASSERT_TRUE(read_rowset_metas(legacy, &footer).ok());
+    ASSERT_EQ(footer.columns(0).variant_path_encoding(), 0);
+    std::vector<std::string> expected;
+    ASSERT_TRUE(read_rowset_variant_rows(legacy, &expected).ok());
+
+    // Model historical segments whose marker is still 0 under an escaped tablet schema.
+    // This is a compatibility fixture, not a supported ALTER of the immutable table policy.
+    TabletSchemaPB pb;
+    _tablet_schema->to_schema_pb(&pb);
+    pb.set_variant_escape_dots_in_keys(true);
+    pb.set_schema_version(pb.schema_version() + 1);
+    _tablet_schema = std::make_shared<TabletSchema>();
+    _tablet_schema->init_from_pb(pb);
+    _tablet->update_max_version_schema(_tablet_schema);
+    _tablet->tablet_meta()->mutable_tablet_schema()->copy_from(*_tablet_schema);
+    auto escaped = create_variant_rowset({{R"({"a.b":1,"a":{"b":2},"a%2Eb":3,"pct%":4})"}}, 2);
+    ASSERT_TRUE(read_rowset_metas(escaped, &footer).ok());
+    ASSERT_EQ(footer.columns(0).variant_path_encoding(), 1);
+    std::vector<std::string> actual;
+    ASSERT_TRUE(read_rowset_variant_rows(legacy, &actual).ok());
+    EXPECT_EQ(actual, expected);
+    std::vector<segment_v2::SegmentSharedPtr> legacy_segments;
+    ASSERT_TRUE(std::static_pointer_cast<BetaRowset>(legacy)->load_segments(&legacy_segments).ok());
+    ASSERT_EQ(legacy_segments.size(), 1);
+    const std::vector<std::vector<std::string>> paths {
+            {"a%252Eb"}, {"pct%25"}, {"a", "b"}, {"a%2Eb"}};
+    const std::vector<std::optional<std::string>> values {"3", "4", "2", std::nullopt};
+    for (size_t i = 0; i < paths.size(); ++i) {
+        auto thrift_slot = TSlotDescriptorBuilder()
+                                   .type(TYPE_VARIANT)
+                                   .nullable(true)
+                                   .column_name("v")
+                                   .column_pos(0)
+                                   .build();
+        thrift_slot.__set_col_unique_id(1);
+        thrift_slot.__set_column_paths(paths[i]);
+        thrift_slot.slotType.types[0].scalar_type.__set_variant_is_v2(true);
+        SlotDescriptor slot(thrift_slot);
+        auto column = slot.type()->create_column();
+        OlapReaderStatistics read_stats;
+        StorageReadOptions options;
+        options.stats = &read_stats;
+        options.io_ctx.reader_type = ReaderType::READER_QUERY;
+        options.tablet_schema = _tablet_schema;
+        ColumnIteratorUPtr iterator;
+        auto read_status = legacy_segments[0]->seek_and_read_by_rowid(*_tablet_schema, &slot, {0},
+                                                                      column, options, iterator);
+        ASSERT_TRUE(read_status.ok()) << read_status;
+        const auto& nullable = assert_cast<const ColumnNullable&>(*column);
+        if (values[i].has_value()) {
+            ASSERT_FALSE(nullable.is_null_at(0)) << paths[i][0];
+            EXPECT_EQ(variant_json_at(nullable.get_nested_column(), 0), *values[i]);
+        } else {
+            EXPECT_TRUE(nullable.is_null_at(0));
+        }
+        ASSERT_TRUE(iterator->seek_to_ordinal(0).ok());
+        auto sequential_type = legacy_segments[0]->get_data_type_of(
+                variant_util::get_column_by_type(
+                        slot.type(), "v",
+                        {.parent_unique_id = 1, .path_info = PathInData("V1", paths[i])}),
+                options);
+        auto sequential = sequential_type->create_column();
+        size_t count = 1;
+        ASSERT_TRUE(iterator->next_batch(&count, sequential).ok());
+        ASSERT_EQ(count, 1);
+        ColumnPtr sequential_variant;
+        ASSERT_TRUE(variant_util::cast_column({sequential->get_ptr(), sequential_type, "v"},
+                                              slot.type(), &sequential_variant)
+                            .ok());
+        EXPECT_EQ(sequential_variant->compare_at(0, 0, *column, -1), 0);
+
+        // A typed scalar target has no Variant execution flag. The legacy-path
+        // projection must still use V2 internally, then cast to the requested scalar.
+        auto typed_type = make_nullable(std::make_shared<DataTypeInt64>());
+        auto typed_column = variant_util::get_column_by_type(
+                typed_type, "v", {.parent_unique_id = 1, .path_info = PathInData("V1", paths[i])});
+        auto storage_type = legacy_segments[0]->get_data_type_of(typed_column, options);
+        auto stored_values = storage_type->create_column();
+        ColumnIteratorUPtr typed_iterator;
+        ASSERT_TRUE(legacy_segments[0]
+                            ->new_column_iterator(typed_column, &typed_iterator, &options)
+                            .ok());
+        ColumnIteratorOptions typed_options;
+        typed_options.file_reader = legacy_segments[0]->file_reader().get();
+        typed_options.stats = &read_stats;
+        ASSERT_TRUE(typed_iterator->init(typed_options).ok());
+        ASSERT_TRUE(typed_iterator->seek_to_ordinal(0).ok());
+        count = 1;
+        ASSERT_TRUE(typed_iterator->next_batch(&count, stored_values).ok());
+        ASSERT_EQ(count, 1);
+        ColumnPtr typed_values;
+        ASSERT_TRUE(variant_util::cast_column({stored_values->get_ptr(), storage_type, "v"},
+                                              typed_type, &typed_values)
+                            .ok());
+        const auto& typed_nullable = assert_cast<const ColumnNullable&>(*typed_values);
+        if (values[i].has_value()) {
+            ASSERT_FALSE(typed_nullable.is_null_at(0));
+            EXPECT_EQ(assert_cast<const ColumnInt64&>(typed_nullable.get_nested_column())
+                              .get_data()[0],
+                      std::stoll(*values[i]));
+        } else {
+            EXPECT_TRUE(typed_nullable.is_null_at(0));
+        }
+    }
+    TabletColumn v1_destination = _tablet_schema->column(0);
+    v1_destination.set_variant_is_v2(false);
+    StorageReadOptions rejected_options;
+    rejected_options.tablet_schema = _tablet_schema;
+    OlapReaderStatistics rejected_stats;
+    rejected_options.stats = &rejected_stats;
+    rejected_options.io_ctx.reader_type = ReaderType::READER_QUERY;
+    ColumnIteratorUPtr rejected_iterator;
+    auto rejected_status = legacy_segments[0]->new_column_iterator(
+            v1_destination, &rejected_iterator, &rejected_options);
+    EXPECT_TRUE(rejected_status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) << rejected_status;
+    ASSERT_TRUE(read_rowset_variant_rows(escaped, &actual).ok());
+    expected.insert(expected.end(), actual.begin(), actual.end());
+
+    RowsetWriterContext context;
+    context.rowset_id.init(22402);
+    context.rowset_type = BETA_ROWSET;
+    context.rowset_state = VISIBLE;
+    context.data_dir = _data_dir.get();
+    context.tablet_schema = _tablet_schema;
+    context.tablet_path = _tablet->tablet_path();
+    context.tablet_id = _tablet->tablet_id();
+    context.tablet = _tablet;
+    context.version = Version(1, 2);
+    context.write_type = DataWriteType::TYPE_COMPACTION;
+    auto result = RowsetFactory::create_rowset_writer(*_engine_ref, context, false);
+    ASSERT_TRUE(result.has_value()) << result.error();
+    auto writer = std::move(result).value();
+    auto readers = create_rowset_readers({legacy, escaped});
+    Merger::Statistics stats;
+    auto status = Merger::vmerge_rowsets(_tablet, ReaderType::READER_CUMULATIVE_COMPACTION,
+                                         *_tablet_schema, readers, writer.get(), &stats);
+    ASSERT_TRUE(status.ok()) << status;
+    RowsetSharedPtr output;
+    ASSERT_TRUE(writer->build(output).ok());
+    ASSERT_TRUE(read_rowset_variant_rows(output, &actual).ok());
+    std::sort(expected.begin(), expected.end());
+    std::sort(actual.begin(), actual.end());
+    EXPECT_EQ(actual, expected);
+    ASSERT_TRUE(read_rowset_metas(output, &footer).ok());
+    EXPECT_EQ(footer.columns(0).variant_path_encoding(), 1);
+
+    RowsetSharedPtr vertical;
+    auto vertical_status = compact_escaped_rowsets({legacy, escaped}, 1, 22403, &vertical);
+    ASSERT_TRUE(vertical_status.ok()) << vertical_status;
+    auto read_vertical_status = read_rowset_variant_rows(vertical, &actual);
+    ASSERT_TRUE(read_vertical_status.ok()) << read_vertical_status;
+    std::sort(actual.begin(), actual.end());
+    EXPECT_EQ(actual, expected);
+    auto stats_status = variant_util::VariantCompactionUtil::check_path_stats({legacy, escaped},
+                                                                              vertical, _tablet);
+    EXPECT_TRUE(stats_status.ok()) << stats_status;
+}
+
 TEST_F(VariantColumnWriterReaderTest, EscapedStorageRejectsLegacyWriterAndReader) {
     const std::vector<std::string> jsons {R"({"a.b":1,"a":{"b":2}})"};
     init_variant_tablet(12401, 10, false, false, false, 0, 0, true);
@@ -10332,7 +10502,12 @@ TEST_F(VariantColumnWriterReaderTest, EscapedStorageRejectsLegacyWriterAndReader
     EXPECT_FALSE(read_variant_root_rows(footer, path, &rows, false).ok());
     ASSERT_TRUE(read_variant_root_rows(footer, path, &rows, true).ok());
     ASSERT_EQ(rows.size(), 1);
-    EXPECT_EQ(rows[0], jsons[0]);
+    ASSERT_TRUE(rows[0].has_value());
+    rapidjson::Document actual, expected;
+    actual.Parse(rows[0]->c_str());
+    expected.Parse(jsons[0].c_str());
+    ASSERT_FALSE(actual.HasParseError());
+    EXPECT_TRUE(actual == expected) << *rows[0];
 }
 
 } // namespace doris

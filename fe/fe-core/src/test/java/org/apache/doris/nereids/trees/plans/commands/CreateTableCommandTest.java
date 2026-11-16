@@ -48,16 +48,20 @@ import java.util.Optional;
 
 class CreateTableCommandTest {
     private boolean previousVariantV2;
+    private boolean previousVariantEscape;
 
     @org.junit.jupiter.api.BeforeEach
     public void enableVariantV2() {
         previousVariantV2 = org.apache.doris.common.Config.enable_variant_v2;
+        previousVariantEscape = org.apache.doris.common.Config.enable_variant_escape_dots_in_keys;
+        org.apache.doris.common.Config.enable_variant_escape_dots_in_keys = true;
         org.apache.doris.common.Config.enable_variant_v2 = true;
     }
 
     @org.junit.jupiter.api.AfterEach
     public void restoreVariantV2() {
         org.apache.doris.common.Config.enable_variant_v2 = previousVariantV2;
+        org.apache.doris.common.Config.enable_variant_escape_dots_in_keys = previousVariantEscape;
     }
 
     @Test

@@ -4138,6 +4138,13 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, description = "Whether to enable ColumnVariantV2 for Variant execution and storage.")
     public static boolean enable_variant_v2 = false;
 
+    // V2 execution does not imply support for escaped storage paths on every backend.
+    // Enable only after ALL FEs/BEs (and the cloud meta-service) support this format.
+    // Adding an older node or downgrading after creating escaped tables is unsupported.
+    @ConfField(mutable = true, description = "Allow creating and loading escaped-key Variant tables only after "
+            + "all cluster nodes support variant_escape_dots_in_keys. Keep false during rolling upgrades.")
+    public static boolean enable_variant_escape_dots_in_keys = false;
+
     @ConfField(mutable = true, description = "Prometheus output table dimension metric count limit.")
     public static int prom_output_table_metrics_limit = 10000;
 

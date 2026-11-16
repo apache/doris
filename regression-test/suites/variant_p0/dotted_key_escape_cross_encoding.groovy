@@ -19,7 +19,7 @@ import groovy.json.JsonOutput
 import groovy.json.JsonSlurper
 
 suite("dotted_key_escape_cross_encoding", "p0,nonConcurrent") {
-    setFeConfigTemporary([enable_variant_v2: true]) {
+    setFeConfigTemporary([enable_variant_v2: true, enable_variant_escape_dots_in_keys: true]) {
         assertTrue(getFeConfig("enable_variant_v2").toBoolean())
     sql "set sql_mode=''"
     sql "set group_commit='off_mode'"

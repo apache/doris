@@ -16,7 +16,7 @@
 // under the License.
 
 suite("dotted_key_escape_compaction", "p0,nonConcurrent") {
-    setFeConfigTemporary([enable_variant_v2: true]) {
+    setFeConfigTemporary([enable_variant_v2: true, enable_variant_escape_dots_in_keys: true]) {
         assertTrue(getFeConfig("enable_variant_v2").toBoolean())
 
     // Compaction preserves the visible version; cached query results would hide output corruption.

@@ -420,6 +420,13 @@ public class CreateTableInfo {
             }
         }
         paddingEngineName(ctlName, ctx);
+        if (!engineName.equalsIgnoreCase(ENGINE_OLAP)) {
+            try {
+                PropertyAnalyzer.rejectVariantEscapeDotsInKeysExternal(properties);
+            } catch (org.apache.doris.common.AnalysisException e) {
+                throw new AnalysisException(e.getMessage(), e);
+            }
+        }
         checkEngineName();
 
         // not allow auto bucket with auto list partition

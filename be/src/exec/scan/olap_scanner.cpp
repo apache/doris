@@ -595,6 +595,8 @@ Status OlapScanner::_init_variant_columns() {
         if (slot->type()->get_primitive_type() != PrimitiveType::TYPE_VARIANT) {
             continue;
         }
+        RETURN_IF_ERROR(variant_util::check_variant_execution(
+                tablet_schema->variant_escape_dots_in_keys(), slot->type()));
         // Materialized paths are absent from the persisted frontend schema. Build their transient
         // read-schema entries from the slot type so V1 and V2 share the same path/type mapping.
         const PathInData path(tablet_schema->column_by_uid(slot->col_unique_id()).name_lower_case(),

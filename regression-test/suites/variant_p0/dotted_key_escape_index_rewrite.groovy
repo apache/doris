@@ -16,7 +16,7 @@
 // under the License.
 
 suite("dotted_key_escape_index_rewrite", "p0,nonConcurrent") {
-    setFeConfigTemporary([enable_variant_v2: true]) {
+    setFeConfigTemporary([enable_variant_v2: true, enable_variant_escape_dots_in_keys: true]) {
         assertTrue(getFeConfig("enable_variant_v2").toBoolean())
     sql "set default_variant_enable_doc_mode=false"
     ["V2", "V3"].each { format ->

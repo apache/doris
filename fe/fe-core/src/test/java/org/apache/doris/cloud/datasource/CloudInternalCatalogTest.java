@@ -332,7 +332,7 @@ public class CloudInternalCatalogTest {
     }
 
     @Test
-    public void escapedCloudReplicaRejectsConfigDowngrade() throws Exception {
+    public void escapedCloudReplicaPreservesPolicyWithV1Queries() throws Exception {
         boolean previous = Config.enable_variant_v2;
         CloudTablet tablet = new CloudTablet(12345L);
         tablet.addReplica(new CloudReplica(12346L, -1L, Replica.ReplicaState.NORMAL, 1L, 0,
@@ -342,8 +342,8 @@ public class CloudInternalCatalogTest {
             Assertions.assertTrue(createTabletMeta(tablet, TCompressionType.LZ4F, true)
                     .getSchema().getVariantEscapeDotsInKeys());
             Config.enable_variant_v2 = false;
-            Assertions.assertThrows(org.apache.doris.common.DdlException.class,
-                    () -> createTabletMeta(tablet, TCompressionType.LZ4F, true));
+            Assertions.assertTrue(createTabletMeta(tablet, TCompressionType.LZ4F, true)
+                    .getSchema().getVariantEscapeDotsInKeys());
             Assertions.assertFalse(createTabletMeta(tablet, TCompressionType.LZ4F, false)
                     .getSchema().getVariantEscapeDotsInKeys());
         } finally {

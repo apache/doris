@@ -416,6 +416,8 @@ public class MTMVPlanUtilTest extends SqlTestBase {
         org.apache.doris.nereids.StatementContext previousStatement = connectContext.getStatementContext();
         connectContext.setStatementContext(new org.apache.doris.nereids.StatementContext(connectContext, null));
         boolean previousVariantV2 = org.apache.doris.common.Config.enable_variant_v2;
+        boolean previousVariantEscape = org.apache.doris.common.Config.enable_variant_escape_dots_in_keys;
+        org.apache.doris.common.Config.enable_variant_escape_dots_in_keys = true;
         org.apache.doris.common.Config.enable_variant_v2 = true;
         try {
             for (String policy : new String[] {"false", "true"}) {
@@ -441,6 +443,7 @@ public class MTMVPlanUtilTest extends SqlTestBase {
                     "async MV must use the same value of variant_escape_dots_in_keys"), error.getMessage());
         } finally {
             org.apache.doris.common.Config.enable_variant_v2 = previousVariantV2;
+            org.apache.doris.common.Config.enable_variant_escape_dots_in_keys = previousVariantEscape;
             connectContext.setStatementContext(previousStatement);
         }
     }

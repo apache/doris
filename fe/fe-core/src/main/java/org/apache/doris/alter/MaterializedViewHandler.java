@@ -394,6 +394,7 @@ public class MaterializedViewHandler extends AlterHandler {
             OlapTable olapTable, Database db, long baseIndexId, KeysType mvKeysType,
             OriginStatement origStmt, Map<String, String> sessionVariables) throws DdlException, AnalysisException {
         PropertyAnalyzer.rejectVariantEscapeDotsInKeysAlter(properties);
+        PropertyAnalyzer.requireVariantV2ForEscape(olapTable.getVariantEscapeDotsInKeys());
         PropertyAnalyzer.validateVariantTable(olapTable.getVariantEscapeDotsInKeys(),
                 mvColumns, Collections.emptyList());
         if (mvKeysType == null) {
@@ -622,6 +623,7 @@ public class MaterializedViewHandler extends AlterHandler {
         }
 
         try {
+            PropertyAnalyzer.requireVariantV2ForEscape(olapTable.getVariantEscapeDotsInKeys());
             PropertyAnalyzer.validateVariantTable(olapTable.getVariantEscapeDotsInKeys(),
                     newMVColumns, Collections.emptyList());
         } catch (AnalysisException e) {

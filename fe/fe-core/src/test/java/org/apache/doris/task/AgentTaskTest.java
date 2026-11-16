@@ -242,7 +242,7 @@ public class AgentTaskTest {
     }
 
     @Test
-    public void escapedReplicaRejectsConfigDowngrade() throws Exception {
+    public void escapedReplicaPreservesPolicyWithV1Queries() throws Exception {
         CreateReplicaTask replica = (CreateReplicaTask) createReplicaTask;
         boolean previous = org.apache.doris.common.Config.enable_variant_v2;
         java.lang.reflect.Field escaped = CreateReplicaTask.class.getDeclaredField("variantEscapeDotsInKeys");
@@ -252,7 +252,7 @@ public class AgentTaskTest {
             escaped.setBoolean(createReplicaTask, true);
             Assert.assertTrue(replica.toThrift().getTabletSchema().isVariantEscapeDotsInKeys());
             org.apache.doris.common.Config.enable_variant_v2 = false;
-            org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class, replica::toThrift);
+            Assert.assertTrue(replica.toThrift().getTabletSchema().isVariantEscapeDotsInKeys());
             escaped.setBoolean(createReplicaTask, false);
             Assert.assertFalse(replica.toThrift().getTabletSchema().isVariantEscapeDotsInKeys());
         } finally {

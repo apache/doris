@@ -2247,15 +2247,24 @@ public class PropertyAnalyzer {
         if (escaped && !Config.enable_variant_v2) {
             throw new AnalysisException("variant_escape_dots_in_keys=true requires enable_variant_v2=true");
         }
+        requireVariantEscapeStorageSupport(escaped);
     }
 
-    /** Validate the final catalog columns and indexes before publishing an escaped table schema. */
+    /** Physical restore needs storage-format support, independently of query execution types. */
+    public static void requireVariantEscapeStorageSupport(boolean escaped) throws AnalysisException {
+        if (escaped && !Config.enable_variant_escape_dots_in_keys) {
+            throw new AnalysisException("variant_escape_dots_in_keys is disabled during rolling upgrades; "
+                    + "enable enable_variant_escape_dots_in_keys only after all FE/BE nodes and the cloud "
+                    + "meta-service support escaped Variant storage. Downgrading these nodes is unsupported");
+        }
+    }
+
+    /** Validate persisted schema attributes, independently of the FE's query execution switch. */
     public static void validateVariantTable(boolean escaped, Collection<Column> columns, Collection<Index> indexes)
             throws AnalysisException {
         if (!escaped) {
             return;
         }
-        requireVariantV2ForEscape(true);
         for (Column column : columns) {
             if (!column.getType().isVariantType()) {
                 continue;

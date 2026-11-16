@@ -107,7 +107,18 @@
 #include "util/jsonb_utils.h"
 
 namespace doris::variant_util {
+
 #include "common/compile_check_begin.h"
+
+Status check_variant_execution(bool escape_dots_in_keys, const DataTypePtr& type) {
+    if (escape_dots_in_keys && type->get_primitive_type() == TYPE_VARIANT &&
+        typeid_cast<const DataTypeVariantV2*>(remove_nullable(type).get()) == nullptr) {
+        return Status::NotSupported(
+                "Escaped Variant storage requires V2 execution; "
+                "enable enable_variant_v2");
+    }
+    return Status::OK();
+}
 
 namespace {
 
@@ -792,7 +803,7 @@ uint32_t variant_binary_shard_of(const StringRef& path, uint32_t bucket_num) {
 
 Status VariantCompactionUtil::aggregate_path_to_stats(
         const RowsetSharedPtr& rs,
-        std::unordered_map<int32_t, PathToNoneNullValues>* uid_to_path_stats) {
+        std::unordered_map<int32_t, PathToNoneNullValues>* uid_to_path_stats, bool escaped_paths) {
     SegmentCacheHandle segment_cache;
     RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(
             std::static_pointer_cast<BetaRowset>(rs), &segment_cache));
@@ -821,13 +832,31 @@ Status VariantCompactionUtil::aggregate_path_to_stats(
             const auto* source_stats = variant_column_reader->get_stats();
             CHECK(source_stats);
 
+            // Compare logical paths in the output encoding. A legacy literal percent key
+            // and a new escaped dotted key can otherwise have the same physical spelling.
+            auto canonical_path = [&](const std::string& path) {
+                if (!escaped_paths || variant_column_reader->path_encoding() != 0) {
+                    return path;
+                }
+                const PathInData legacy_path(path);
+                std::string encoded;
+                bool first = true;
+                for (const auto& part : legacy_path.get_parts()) {
+                    if (!first) {
+                        encoded += '.';
+                    }
+                    first = false;
+                    encoded += encode_variant_path_component(part.key);
+                }
+                return encoded;
+            };
             // agg path -> stats
             for (const auto& [path, size] : source_stats->sparse_column_non_null_size) {
-                (*uid_to_path_stats)[column->unique_id()][path] += size;
+                (*uid_to_path_stats)[column->unique_id()][canonical_path(path)] += size;
             }
 
             for (const auto& [path, size] : source_stats->subcolumns_non_null_size) {
-                (*uid_to_path_stats)[column->unique_id()][path] += size;
+                (*uid_to_path_stats)[column->unique_id()][canonical_path(path)] += size;
             }
         }
     }
@@ -842,7 +871,7 @@ Status VariantCompactionUtil::aggregate_variant_extended_info(
             std::static_pointer_cast<BetaRowset>(rs), &segment_cache));
 
     for (const auto& column : rs->tablet_schema()->columns()) {
-        if (!column->is_variant_type()) {
+        if (!column->is_variant_type() || column->unique_id() < 0) {
             continue;
         }
         auto& extended_info = (*uid_to_variant_extended_info)[column->unique_id()];
@@ -861,6 +890,7 @@ Status VariantCompactionUtil::aggregate_variant_extended_info(
             CHECK(column_reader->get_meta_type() == FieldType::OLAP_FIELD_TYPE_VARIANT);
             auto* variant_column_reader =
                     assert_cast<segment_v2::VariantColumnReader*>(column_reader.get());
+            extended_info.has_legacy_path_encoding |= variant_column_reader->path_encoding() == 0;
             // load external meta before getting stats
             RETURN_IF_ERROR(variant_column_reader->load_external_meta_once());
             const auto* source_stats = variant_column_reader->get_stats();
@@ -978,10 +1008,14 @@ Status VariantCompactionUtil::check_path_stats(const std::vector<RowsetSharedPtr
     }
     std::unordered_map<int32_t, PathToNoneNullValues> original_uid_to_path_stats;
     for (const auto& rs : intputs) {
-        RETURN_IF_ERROR(aggregate_path_to_stats(rs, &original_uid_to_path_stats));
+        RETURN_IF_ERROR(
+                aggregate_path_to_stats(rs, &original_uid_to_path_stats,
+                                        output->tablet_schema()->variant_escape_dots_in_keys()));
     }
     std::unordered_map<int32_t, PathToNoneNullValues> output_uid_to_path_stats;
-    RETURN_IF_ERROR(aggregate_path_to_stats(output, &output_uid_to_path_stats));
+    RETURN_IF_ERROR(
+            aggregate_path_to_stats(output, &output_uid_to_path_stats,
+                                    output->tablet_schema()->variant_escape_dots_in_keys()));
     for (const auto& [uid, stats] : output_uid_to_path_stats) {
         if (output->tablet_schema()->column_by_uid(uid).is_variant_type() &&
             output->tablet_schema()->column_by_uid(uid).variant_enable_doc_mode()) {
@@ -1215,6 +1249,19 @@ Status VariantCompactionUtil::get_extended_compaction_schema(
         for (const auto& rs : rowsets) {
             RETURN_IF_ERROR(aggregate_variant_extended_info(rs, &uid_to_variant_extended_info));
         }
+    }
+
+    if (target->variant_escape_dots_in_keys() &&
+        std::ranges::any_of(uid_to_variant_extended_info, [](const auto& entry) {
+            return entry.second.has_legacy_path_encoding;
+        })) {
+        // Flat column groups require one physical path namespace. Reconstruct old segments
+        // with their own encoding and let the existing V2 writer shred the complete values
+        // into the new encoding, just as schema change does. Subsequent compactions can use
+        // flat groups once every input segment carries the escaped marker.
+        target = target->copy_without_variant_extracted_columns();
+        target->set_path_set_info({});
+        return Status::OK();
     }
 
     // build the output schema

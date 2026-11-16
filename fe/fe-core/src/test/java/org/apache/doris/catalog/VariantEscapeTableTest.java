@@ -37,16 +37,20 @@ import java.util.TreeSet;
 
 public class VariantEscapeTableTest extends TestWithFeService {
     private boolean previousVariantV2;
+    private boolean previousVariantEscape;
 
     @org.junit.jupiter.api.BeforeEach
     public void enableVariantV2() {
         previousVariantV2 = org.apache.doris.common.Config.enable_variant_v2;
+        previousVariantEscape = org.apache.doris.common.Config.enable_variant_escape_dots_in_keys;
+        org.apache.doris.common.Config.enable_variant_escape_dots_in_keys = true;
         org.apache.doris.common.Config.enable_variant_v2 = true;
     }
 
     @org.junit.jupiter.api.AfterEach
     public void restoreVariantV2() {
         org.apache.doris.common.Config.enable_variant_v2 = previousVariantV2;
+        org.apache.doris.common.Config.enable_variant_escape_dots_in_keys = previousVariantEscape;
     }
 
     @Override
@@ -60,6 +64,47 @@ public class VariantEscapeTableTest extends TestWithFeService {
     private OlapTable table(String name) throws Exception {
         return (OlapTable) Env.getCurrentInternalCatalog().getDbOrMetaException("variant_escape_table")
                 .getTableOrMetaException(name);
+    }
+
+    @Test
+    public void testRollingUpgradeGateRejectsCreationAndLoads() throws Exception {
+        createTable("CREATE TABLE upgrade_source(k INT, v VARIANT) DUPLICATE KEY(k) "
+                + "DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES('replication_num'='1',"
+                + "'variant_escape_dots_in_keys'='true')");
+        org.apache.doris.common.Config.enable_variant_escape_dots_in_keys = false;
+        Exception create = Assertions.assertThrows(Exception.class, () -> createTable(
+                "CREATE TABLE upgrade_disabled(k INT, v VARIANT) DUPLICATE KEY(k) "
+                        + "DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES('replication_num'='1',"
+                        + "'variant_escape_dots_in_keys'='true')"));
+        Assertions.assertTrue(create.getMessage().contains("disabled during rolling upgrades"), create.getMessage());
+        Exception like = Assertions.assertThrows(Exception.class,
+                () -> createLike("CREATE TABLE upgrade_like LIKE upgrade_source"));
+        Assertions.assertTrue(like.getMessage().contains("disabled during rolling upgrades"), like.getMessage());
+        org.apache.doris.planner.OlapTableSink sink = new org.apache.doris.planner.OlapTableSink(
+                table("upgrade_source"), null, java.util.Collections.emptyList(), false);
+        Exception load = Assertions.assertThrows(Exception.class,
+                () -> sink.init(new org.apache.doris.thrift.TUniqueId(1, 2), 1, 1, 60, 1, false, false, 60));
+        Assertions.assertTrue(load.getMessage().contains("disabled during rolling upgrades"), load.getMessage());
+        createTable("CREATE TABLE upgrade_legacy(k INT, v VARIANT) DUPLICATE KEY(k) "
+                + "DISTRIBUTED BY HASH(k) BUCKETS 1 PROPERTIES('replication_num'='1')");
+    }
+
+    @Test
+    public void testNonOlapCreateRejectsExplicitEncoding() throws Exception {
+        for (String value : new String[] {"true", "false"}) {
+            String ddl = "CREATE TABLE external_encoding_" + value + "(k INT) ENGINE=ELASTICSEARCH "
+                    + "PROPERTIES('hosts'='http://127.0.0.1:9200','index'='test',"
+                    + "'variant_escape_dots_in_keys'='" + value + "')";
+            Exception error = Assertions.assertThrows(Exception.class, () -> createTable(ddl));
+            Assertions.assertTrue(error.getMessage().contains("requires an OLAP table"), error.getMessage());
+            String ctas = "CREATE TABLE external_ctas_" + value + " ENGINE=ELASTICSEARCH "
+                    + "PROPERTIES('hosts'='http://127.0.0.1:9200','index'='test',"
+                    + "'variant_escape_dots_in_keys'='" + value + "') AS SELECT 1 AS k";
+            Exception ctasError = Assertions.assertThrows(Exception.class, () -> createTable(ctas));
+            Assertions.assertTrue(ctasError.getMessage().contains("requires an OLAP table"), ctasError.getMessage());
+        }
+        createTable("CREATE TABLE external_no_encoding(k INT) ENGINE=ELASTICSEARCH "
+                + "PROPERTIES('hosts'='http://127.0.0.1:9200','index'='test')");
     }
 
     @Test
@@ -295,7 +340,12 @@ public class VariantEscapeTableTest extends TestWithFeService {
         assertV2Required(() -> createMv("CREATE MATERIALIZED VIEW v1_sync "
                 + "AS SELECT k AS kk, element_at(v,'obj') AS sub FROM v2_source"));
         assertV2Required(() -> alterTableSync("ALTER TABLE v2_source ADD ROLLUP v1_rollup(k,v)"));
-        assertV2Required(() -> alterTableSync("ALTER TABLE v2_source ADD COLUMN added VARIANT"));
+        alterTableSync("ALTER TABLE v2_source ADD COLUMN added VARIANT");
+        Assertions.assertTrue(table("v2_source").getVariantEscapeDotsInKeys());
+        alterTableSync("ALTER TABLE v2_source DROP COLUMN added");
+        alterTableSync("ALTER TABLE v2_source ADD COLUMN ordinary INT DEFAULT '0'");
+        alterTableSync("ALTER TABLE v2_source DROP COLUMN ordinary");
+        Assertions.assertTrue(table("v2_source").getVariantEscapeDotsInKeys());
         createLike("CREATE TABLE v1_like_false LIKE v1_false");
         createTable("CREATE TABLE v1_ctas_false DISTRIBUTED BY HASH(k) BUCKETS 1 "
                 + "PROPERTIES('replication_num'='1') AS SELECT k,v FROM v1_default");

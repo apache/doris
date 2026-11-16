@@ -24,7 +24,6 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.Status;
 import org.apache.doris.policy.Policy;
@@ -44,7 +43,6 @@ import org.apache.doris.thrift.TTabletSchema;
 import org.apache.doris.thrift.TTabletType;
 import org.apache.doris.thrift.TTaskType;
 
-import com.google.common.base.Preconditions;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -292,8 +290,6 @@ public class CreateReplicaTask extends AgentTask {
     }
 
     public TCreateTabletReq toThrift() {
-        Preconditions.checkState(!variantEscapeDotsInKeys || Config.enable_variant_v2,
-                "variant_escape_dots_in_keys=true requires enable_variant_v2=true");
         TCreateTabletReq createTabletReq = new TCreateTabletReq();
         createTabletReq.setTabletId(tabletId);
 

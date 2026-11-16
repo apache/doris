@@ -19,7 +19,7 @@ import org.awaitility.Awaitility
 import java.util.concurrent.TimeUnit
 
 suite("dotted_key_escape_compaction_failure", "p0,nonConcurrent") {
-    setFeConfigTemporary([enable_variant_v2: true]) {
+    setFeConfigTemporary([enable_variant_v2: true, enable_variant_escape_dots_in_keys: true]) {
         assertTrue(getFeConfig("enable_variant_v2").toBoolean())
     sql "set group_commit='off_mode'"
     sql "set enable_sql_cache=false"

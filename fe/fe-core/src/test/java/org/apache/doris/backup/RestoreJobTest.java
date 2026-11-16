@@ -35,6 +35,7 @@ import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.UserException;
@@ -267,6 +268,71 @@ public class RestoreJobTest {
         List<Resource> resources = Lists.newArrayList();
         tbls.add(expectedRestoreTbl);
         backupMeta = new BackupMeta(tbls, resources);
+    }
+
+    @Test
+    public void testEscapedRestoreRequiresStorageActivation() {
+        boolean previous = Config.enable_variant_escape_dots_in_keys;
+        try {
+            Config.enable_variant_escape_dots_in_keys = false;
+            prepareRestorePolicyCheck(true);
+            job.run();
+            Assert.assertFalse(job.getStatus().ok());
+            Assert.assertTrue(job.getStatus().getErrMsg(),
+                    job.getStatus().getErrMsg().contains("disabled during rolling upgrades"));
+        } finally {
+            Config.enable_variant_escape_dots_in_keys = previous;
+        }
+    }
+
+    @Test
+    public void testActivatedRestoreDoesNotRequireV2QueryExecution() {
+        boolean previous = Config.enable_variant_escape_dots_in_keys;
+        boolean previousV2 = Config.enable_variant_v2;
+        try {
+            Config.enable_variant_escape_dots_in_keys = true;
+            Config.enable_variant_v2 = false;
+            prepareRestorePolicyCheck(true);
+            job.run();
+            // Reaching the existing table-state check proves physical restore passed the
+            // storage-format gate without depending on query execution configuration.
+            Assert.assertTrue(job.getStatus().getErrMsg(),
+                    job.getStatus().getErrMsg().contains("state is not NORMAL"));
+        } finally {
+            Config.enable_variant_escape_dots_in_keys = previous;
+            Config.enable_variant_v2 = previousV2;
+        }
+    }
+
+    @Test
+    public void testUnescapedRestoreDoesNotRequireStorageActivation() {
+        boolean previous = Config.enable_variant_escape_dots_in_keys;
+        try {
+            Config.enable_variant_escape_dots_in_keys = false;
+            OlapTable unselected = new OlapTable(99998L, "unselected_escaped_backup",
+                    expectedRestoreTbl.getBaseSchema(), expectedRestoreTbl.getKeysType(),
+                    expectedRestoreTbl.getPartitionInfo(), expectedRestoreTbl.getDefaultDistributionInfo());
+            unselected.setVariantEscapeDotsInKeys(true);
+            backupMeta = new BackupMeta(Lists.newArrayList(expectedRestoreTbl, unselected), Lists.newArrayList());
+            prepareRestorePolicyCheck(false);
+            job.run();
+            Assert.assertTrue(job.getStatus().getErrMsg(),
+                    job.getStatus().getErrMsg().contains("state is not NORMAL"));
+        } finally {
+            Config.enable_variant_escape_dots_in_keys = previous;
+        }
+    }
+
+    private void prepareRestorePolicyCheck(boolean escaped) {
+        job = new RestoreJob(label, "2018-01-01 01:01:01", db.getId(), db.getFullName(), jobInfo, false,
+                new ReplicaAllocation((short) 3), 100000, -1, false, false, false, false,
+                false, false, false, false, env, Repository.KEEP_ON_LOCAL_REPO_ID, backupMeta);
+        expectedRestoreTbl.setVariantEscapeDotsInKeys(escaped);
+        OlapTable target = new OlapTable(99999L, expectedRestoreTbl.getName(),
+                expectedRestoreTbl.getBaseSchema(), expectedRestoreTbl.getKeysType(),
+                expectedRestoreTbl.getPartitionInfo(), expectedRestoreTbl.getDefaultDistributionInfo());
+        target.setState(OlapTable.OlapTableState.SCHEMA_CHANGE);
+        db.registerTable(target);
     }
 
     @Test

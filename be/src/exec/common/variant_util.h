@@ -65,6 +65,9 @@ namespace doris::variant_util {
 using PathToNoneNullValues = std::unordered_map<std::string, int64_t>;
 using PathToDataTypes = std::unordered_map<PathInData, std::vector<DataTypePtr>, PathInData::Hash>;
 
+// Check the requested execution type before a read schema can promote its Variant columns.
+Status check_variant_execution(bool escape_dots_in_keys, const DataTypePtr& type);
+
 inline bool should_record_variant_path_stats(const TabletColumn& column) {
     return !column.variant_enable_nested_group();
 }
@@ -85,6 +88,7 @@ struct VariantExtendedInfo {
             nested_paths;               // nested paths in this variant column
     PathToDataTypes path_to_data_types; // key: path, value: data types
     bool has_nested_group = false;      // whether this variant column has nested group
+    bool has_legacy_path_encoding = false;
 };
 
 /// Returns number of dimensions in Array type. 0 if type is not array.
@@ -194,7 +198,8 @@ public:
     // collect path stats from the variant column
     static Status aggregate_path_to_stats(
             const RowsetSharedPtr& rs,
-            std::unordered_map<int32_t, PathToNoneNullValues>* uid_to_path_stats);
+            std::unordered_map<int32_t, PathToNoneNullValues>* uid_to_path_stats,
+            bool escaped_paths = false);
 
     // Build the temporary schema for compaction, this will reduce the memory usage of compacting variant columns
     static Status get_extended_compaction_schema(const std::vector<RowsetSharedPtr>& rowsets,

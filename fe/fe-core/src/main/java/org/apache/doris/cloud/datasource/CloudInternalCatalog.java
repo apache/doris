@@ -402,9 +402,6 @@ public class CloudInternalCatalog extends InternalCatalog {
         schemaBuilder.setStoragePageSize(storagePageSize);
         schemaBuilder.setStorageDictPageSize(storageDictPageSize);
         schemaBuilder.setEnableVariantFlattenNested(variantEnableFlattenNested);
-        if (variantEscapeDotsInKeys && !Config.enable_variant_v2) {
-            throw new DdlException("variant_escape_dots_in_keys=true requires enable_variant_v2=true");
-        }
         schemaBuilder.setVariantEscapeDotsInKeys(variantEscapeDotsInKeys);
         if (!CollectionUtils.isEmpty(clusterKeyUids)) {
             schemaBuilder.addAllClusterKeyUids(clusterKeyUids);

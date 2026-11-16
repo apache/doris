@@ -16,7 +16,7 @@
 // under the License.
 
 suite("dotted_key_escape_ctas_template", "p0,nonConcurrent") {
-    setFeConfigTemporary([enable_variant_v2: true]) {
+    setFeConfigTemporary([enable_variant_v2: true, enable_variant_escape_dots_in_keys: true]) {
         assertTrue(getFeConfig("enable_variant_v2").toBoolean())
     sql "DROP TABLE IF EXISTS dotted_ctas_template_legacy"
     sql """CREATE TABLE dotted_ctas_template_legacy(k INT,

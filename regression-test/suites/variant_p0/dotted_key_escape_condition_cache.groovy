@@ -18,7 +18,7 @@
 import org.apache.doris.regression.action.ProfileAction
 
 suite("dotted_key_escape_condition_cache", "p0,nonConcurrent") {
-    setFeConfigTemporary([enable_variant_v2: true]) {
+    setFeConfigTemporary([enable_variant_v2: true, enable_variant_escape_dots_in_keys: true]) {
         assertTrue(getFeConfig("enable_variant_v2").toBoolean())
     sql "DROP TABLE IF EXISTS dotted_key_escape_condition_cache"
     // One tablet keeps the literal and nested predicates on the same segment/cache entries.
