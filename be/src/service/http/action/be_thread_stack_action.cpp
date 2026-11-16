@@ -244,9 +244,7 @@ void install_signal_handler() {
         LOG(FATAL) << "SIGRTMIN+" << STACK_TRACE_SIGNAL_OFFSET << " exceeds SIGRTMAX";
     }
 
-    // TSan disables the PHDR cache. Let prepare_signal_capture reject the request before
-    // signaling a target thread instead of aborting the BE on the first stack request.
-#if defined(USE_UNWIND) && USE_UNWIND && !defined(THREAD_SANITIZER)
+#if defined(USE_UNWIND) && USE_UNWIND
     updatePHDRCache();
     if (!hasPHDRCache()) {
         LOG(FATAL) << "BE thread stack trace requires lock-free PHDR cache";

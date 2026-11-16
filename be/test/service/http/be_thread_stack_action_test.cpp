@@ -54,7 +54,6 @@ namespace doris {
 #ifdef __linux__
 namespace {
 
-#if !defined(THREAD_SANITIZER)
 class ParkedMarkerThread {
 public:
     void start() {
@@ -151,7 +150,6 @@ private:
     std::mutex _mu;
     std::condition_variable _ready_cv;
 };
-#endif
 
 EvHttpServer* s_server = nullptr;
 BeThreadStackAction* s_action = nullptr;
@@ -168,7 +166,6 @@ Status do_get(const std::string& path, long* http_status, std::string* body) {
     return Status::OK();
 }
 
-#if !defined(THREAD_SANITIZER)
 std::string thread_header(pid_t tid) {
     return "----- thread " + std::to_string(tid) + " (";
 }
@@ -212,7 +209,6 @@ bool wait_until_syscall(pid_t tid, long expected_syscall) {
     }
     return false;
 }
-#endif
 
 } // namespace
 
@@ -237,25 +233,6 @@ protected:
         config::enable_all_http_auth = false;
     }
 };
-
-#if defined(THREAD_SANITIZER)
-// TSan intentionally has no PHDR cache. Neither malformed nor valid requests may abort the BE;
-// the valid request must be rejected before a remote thread receives the unwind signal.
-TEST_F(BeThreadStackActionTest, TSanRejectsCaptureWithoutAborting) {
-    long http_status = 0;
-    std::string body;
-    ASSERT_TRUE(do_get("/api/stack_trace?thread_id=abc", &http_status, &body).ok());
-    EXPECT_EQ(400, http_status);
-    EXPECT_THAT(body, testing::HasSubstr("invalid thread_id: abc"));
-
-    ASSERT_TRUE(do_get("/api/stack_trace", &http_status, &body).ok());
-    EXPECT_EQ(500, http_status);
-    EXPECT_THAT(body, testing::HasSubstr("lock-free PHDR cache is unavailable"));
-
-    ASSERT_TRUE(do_get("/api/stack_trace?thread_id=abc", &http_status, &body).ok());
-    EXPECT_EQ(400, http_status);
-}
-#else
 
 // Covers explicit thread_id filtering and back-to-back remote signal captures: multiple TIDs must
 // be sampled exactly once, without falling back to full-process enumeration or timing out the next
@@ -414,8 +391,6 @@ TEST_F(BeThreadStackActionTest, DynamicOpenRefreshesPhdrCache) {
 #endif
 }
 
-#endif // THREAD_SANITIZER
-
 // Covers request validation for thread filters, timeout, symbolization mode, and the syscall-skip
 // flag, so invalid knobs fail before any thread is signaled.
 TEST_F(BeThreadStackActionTest, InvalidParamsReturnBadRequest) {
@@ -450,7 +425,6 @@ TEST_F(BeThreadStackActionTest, InvalidParamsReturnBadRequest) {
     }
 }
 
-#if !defined(THREAD_SANITIZER)
 // Covers best-effort symbolization in FAST mode by repeatedly sampling a stable marker thread until
 // a test frame is visible in the rendered stack.
 TEST_F(BeThreadStackActionTest, BestEffortSymbolizedFrameObserved) {
@@ -477,7 +451,6 @@ TEST_F(BeThreadStackActionTest, BestEffortSymbolizedFrameObserved) {
 
     marker.stop();
 }
-#endif // !THREAD_SANITIZER
 
 // Covers StackTrace cache isolation by DWARF mode. The same PCs must not reuse a cached
 // DISABLED rendering for FAST, or leak FAST file/line output back into DISABLED.

@@ -29,9 +29,3 @@ index c11345e..837fbfe 100644
    SIGPROCMASK (SIG_SETMASK, &saved_mask, NULL);
  
    if (ret > 0)
-diff --git a/src/elfxx.c b/src/elfxx.c
---- a/src/elfxx.c
-+++ b/src/elfxx.c
-@@ -530 +530 @@ elf_w (extract_minidebuginfo) (struct elf_image *ei, struct elf_image *mdi)
--  struct xz_allocator_data allocator_data;
-+  struct xz_allocator_data allocator_data = {0};
