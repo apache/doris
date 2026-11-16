@@ -100,7 +100,7 @@ public class IcebergTypeMappingReadTest {
     }
 
     @Test
-    public void unknownTypesDegradeButSpatialTypesRemainTyped() {
+    public void spatialTypesRemainTypedAndUnsupportedTypesDegrade() {
         // Preserve unzoned nanosecond timestamps and spatial metadata; unsupported types still degrade.
         Assertions.assertEquals("TIMESTAMP_NS", mapOff(Types.TimestampNanoType.withoutZone()).getTypeName());
         Assertions.assertEquals("UNSUPPORTED", mapOff(Types.TimestampNanoType.withZone()).getTypeName());
@@ -108,7 +108,6 @@ public class IcebergTypeMappingReadTest {
         Assertions.assertEquals("OGC:CRS84", mapOff(Types.GeometryType.crs84()).getSpatialCrs());
         Assertions.assertEquals("GEOGRAPHY", mapOff(Types.GeographyType.crs84()).getTypeName());
         Assertions.assertEquals("spherical", mapOff(Types.GeographyType.crs84()).getSpatialAlgorithm());
-        Assertions.assertEquals("UNSUPPORTED", mapOff(Types.UnknownType.get()).getTypeName());
         Assertions.assertEquals("VARIANT_COMPUTE_V2", mapOff(Types.VariantType.get()).getTypeName());
         Assertions.assertEquals("GEOMETRY", mapOn(Types.GeometryType.crs84()).getTypeName());
     }
@@ -125,6 +124,12 @@ public class IcebergTypeMappingReadTest {
         Type geographyType = IcebergTypeMapping.toIcebergPrimitive(geography);
         Assertions.assertEquals("EPSG:4326", ((Types.GeographyType) geographyType).crs());
         Assertions.assertEquals("vincenty", ((Types.GeographyType) geographyType).algorithm().toString());
+    }
+
+    @Test
+    public void unknownRetainsItsReadOnlyIdentityRegardlessOfMappingFlags() {
+        Assertions.assertEquals("UNKNOWN", mapOff(Types.UnknownType.get()).getTypeName());
+        Assertions.assertEquals("UNKNOWN", mapOn(Types.UnknownType.get()).getTypeName());
     }
 
     @Test

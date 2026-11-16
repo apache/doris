@@ -5445,6 +5445,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 ? visitVariantSubColTypeList(variantCtx.variantSubColTypeList()) : Lists.newArrayList();
         Map<String, String> properties = variantCtx.properties != null
                 ? Maps.newHashMap(visitPropertyClause(variantCtx.properties)) : Maps.newHashMap();
+        if (properties.containsKey(PropertyAnalyzer.PROPERTIES_VARIANT_ESCAPE_DOTS_IN_KEYS)) {
+            throw new NotSupportedException("variant_escape_dots_in_keys is a table property; "
+                    + "use CREATE TABLE PROPERTIES(\"variant_escape_dots_in_keys\"=\"true\")");
+        }
 
         // The default_variant_* session variables only drive the tests, which run with debug points enabled.
         // Elsewhere, and without a session, the properties a DDL leaves out take the built-in values, whatever the

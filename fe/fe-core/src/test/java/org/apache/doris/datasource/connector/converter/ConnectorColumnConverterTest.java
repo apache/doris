@@ -34,9 +34,54 @@ import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
 import java.util.Locale;
 
 class ConnectorColumnConverterTest {
+
+    @Test
+    void testUnknownKeepsDisplayIdentityAndUsesNullExecutionType() {
+        Type unknown = ConnectorColumnConverter.convertType(ConnectorType.of("UNKNOWN"));
+        Assertions.assertInstanceOf(ConnectorUnknownType.class, unknown);
+        Assertions.assertTrue(unknown.isNull());
+        Assertions.assertTrue(unknown.isSupported());
+        Assertions.assertEquals("unknown", unknown.toSql());
+        Assertions.assertEquals("unknown", unknown.toString());
+        Assertions.assertEquals(org.apache.doris.nereids.types.NullType.INSTANCE,
+                org.apache.doris.nereids.types.DataType.fromCatalogType(unknown));
+        Assertions.assertEquals(org.apache.doris.thrift.TPrimitiveType.NULL_TYPE,
+                unknown.toThrift().getTypes().get(0).getScalarType().getType());
+        Assertions.assertEquals("UNKNOWN", ConnectorColumnConverter.toConnectorType(unknown).getTypeName());
+        String json = org.apache.doris.persist.gson.GsonUtils.GSON.toJson(unknown, Type.class);
+        Type restored = org.apache.doris.persist.gson.GsonUtils.GSON.fromJson(json, Type.class);
+        Assertions.assertInstanceOf(ConnectorUnknownType.class, restored);
+        Assertions.assertEquals("unknown", restored.toSql());
+        // Unknown result cells use the same client metadata contract as an ordinary SQL NULL.
+        Assertions.assertEquals(Type.NULL.getPrimitiveType().toMysqlType(),
+                unknown.getPrimitiveType().toMysqlType());
+    }
+
+    @Test
+    void testNestedUnknownRoundtripAndConcreteRebindDoNotMutateOldColumns() {
+        ConnectorType unknown = ConnectorType.of("UNKNOWN");
+        List<ConnectorType> types = Arrays.asList(unknown, ConnectorType.arrayOf(unknown, true),
+                ConnectorType.mapOf(ConnectorType.of("STRING"), unknown, true),
+                ConnectorType.structOf(Collections.singletonList("u"), Collections.singletonList(unknown),
+                        Collections.singletonList(true), Collections.singletonList("null only")));
+        for (ConnectorType type : types) {
+            Type converted = ConnectorColumnConverter.convertType(type);
+            Assertions.assertEquals(type, ConnectorColumnConverter.toConnectorType(converted));
+            Assertions.assertTrue(converted.toSql().contains("unknown"));
+        }
+        Column oldColumn = ConnectorColumnConverter.convertColumn(
+                new ConnectorColumn("u", unknown, "", true, null).withUniqueId(7));
+        Column newColumn = ConnectorColumnConverter.convertColumn(
+                new ConnectorColumn("u", ConnectorType.of("BIGINT"), "", true, null).withUniqueId(7));
+        Assertions.assertEquals(oldColumn.getUniqueId(), newColumn.getUniqueId());
+        Assertions.assertEquals(Type.BIGINT, newColumn.getType());
+        Assertions.assertEquals("unknown", oldColumn.getType().toSql());
+    }
 
     @Test
     void connectorWriteDefaultSqlSurvivesColumnRoundtrip() {

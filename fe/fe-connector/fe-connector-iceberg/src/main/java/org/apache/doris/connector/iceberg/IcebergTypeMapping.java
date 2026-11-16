@@ -162,12 +162,15 @@ public final class IcebergTypeMapping {
                 // TIMESTAMP_NS is a wall-clock type; zoned nanoseconds need a distinct carrier.
                 return ConnectorType.of(((Types.TimestampNanoType) primitive).shouldAdjustToUTC()
                         ? "UNSUPPORTED" : "TIMESTAMP_NS");
+            case UNKNOWN:
+                // V3 unknown has only NULL values; retain its logical identity for schema display and writes.
+                return ConnectorType.of("UNKNOWN");
             case TIME:
                 // iceberg TIME has no Doris analogue -> UNSUPPORTED (explicit, byte-parity with legacy
                 // IcebergUtils which also mapped TIME to Type.UNSUPPORTED).
                 return ConnectorType.of("UNSUPPORTED");
             default:
-                // Any primitive iceberg type Doris cannot represent, including UNKNOWN,
+                // Any other primitive iceberg type Doris cannot represent
                 // degrades to UNSUPPORTED: the table still LOADS and only this
                 // column is present-but-unqueryable. This DIVERGES from legacy (IcebergUtils.icebergPrimitiveType-
                 // ToDorisType threw IllegalArgumentException "Cannot transform unknown type", failing the whole
@@ -205,6 +208,9 @@ public final class IcebergTypeMapping {
     static Type toIcebergPrimitive(ConnectorType type) {
         String name = type.getTypeName().toUpperCase(Locale.ROOT);
         switch (name) {
+            case "UNKNOWN":
+            case "NULL_TYPE":
+                throw new DorisConnectorException("Creating Iceberg unknown columns is not supported");
             case "UUID":
                 return Types.UUIDType.get();
             case "GEOMETRY":

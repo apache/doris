@@ -59,6 +59,7 @@ struct TTabletSchema {
     // Fixed UTC offset for temporal row TTL in [-43200, 50400].
     // UTC, direct expiration and non-TTL schemas use 0.
     33: optional i32 row_ttl_time_zone_offset_seconds = 0
+    34: optional bool variant_escape_dots_in_keys
 }
 
 // this enum stands for different storage format in src_backends
