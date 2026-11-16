@@ -412,6 +412,40 @@ public class MTMVPlanUtilTest extends SqlTestBase {
     }
 
     @Test
+    public void testEnsureMTMVQueryUsableRejectsChangedViewEncoding() throws Exception {
+        org.apache.doris.nereids.StatementContext previousStatement = connectContext.getStatementContext();
+        connectContext.setStatementContext(new org.apache.doris.nereids.StatementContext(connectContext, null));
+        boolean previousVariantV2 = org.apache.doris.common.Config.enable_variant_v2;
+        org.apache.doris.common.Config.enable_variant_v2 = true;
+        try {
+            for (String policy : new String[] {"false", "true"}) {
+                createTables("CREATE TABLE refresh_encoding_" + policy
+                        + "(k INT,v VARIANT<PROPERTIES('variant_enable_nested_group'='false')>) "
+                        + "DUPLICATE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1 "
+                        + "PROPERTIES('replication_num'='1','variant_escape_dots_in_keys'='" + policy + "')");
+            }
+            createView("CREATE VIEW refresh_encoding_view AS SELECT k,v FROM refresh_encoding_false");
+            createMvByNereids("CREATE MATERIALIZED VIEW refresh_encoding_mv "
+                    + "BUILD DEFERRED REFRESH COMPLETE ON MANUAL DISTRIBUTED BY HASH(k) BUCKETS 1 "
+                    + "PROPERTIES('replication_num'='1') AS SELECT k,v FROM refresh_encoding_view");
+            MTMV mtmv = (MTMV) Env.getCurrentInternalCatalog().getDbOrAnalysisException("test")
+                    .getTableOrAnalysisException("refresh_encoding_mv");
+            Assertions.assertDoesNotThrow(() -> MTMVPlanUtil.ensureMTMVQueryUsable(mtmv,
+                    MTMVPlanUtil.createMTMVContext(mtmv, MTMVPlanUtil.DISABLE_RULES_WHEN_GENERATE_MTMV_CACHE)));
+            executeSql("ALTER VIEW refresh_encoding_view AS SELECT k,v FROM refresh_encoding_true");
+            JobException error = Assertions.assertThrows(JobException.class,
+                    () -> MTMVPlanUtil.ensureMTMVQueryUsable(mtmv,
+                            MTMVPlanUtil.createMTMVContext(mtmv,
+                                    MTMVPlanUtil.DISABLE_RULES_WHEN_GENERATE_MTMV_CACHE)));
+            Assertions.assertTrue(error.getMessage().contains(
+                    "async MV must use the same value of variant_escape_dots_in_keys"), error.getMessage());
+        } finally {
+            org.apache.doris.common.Config.enable_variant_v2 = previousVariantV2;
+            connectContext.setStatementContext(previousStatement);
+        }
+    }
+
+    @Test
     public void testEnsureMTMVQueryAnalyzeFailed() throws Exception {
         createTable("CREATE TABLE IF NOT EXISTS analyze_faild_t_partition (\n"
                 + "    id bigint not null,\n"

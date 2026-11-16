@@ -194,7 +194,7 @@ public class CloudInternalCatalog extends InternalCatalog {
                         tbl.getRowStoreColumnsUniqueIds(rowStoreColumns),
                         indexId == tbl.getBaseIndexId() ? partitionInvertedIndexFileStorageFormat : null,
                         tbl.rowStorePageSize(),
-                        tbl.variantEnableFlattenNested(), clusterKeyUids,
+                        tbl.variantEnableFlattenNested(), tbl.getVariantEscapeDotsInKeys(), clusterKeyUids,
                         tbl.storagePageSize(), tbl.getTDEAlgorithmPB(),
                         tbl.storageDictPageSize(), true,
                                     tbl.getVerticalCompactionNumColumnsPerGroup());
@@ -229,7 +229,7 @@ public class CloudInternalCatalog extends InternalCatalog {
             Long timeSeriesCompactionLevelThreshold, boolean disableAutoCompaction,
             List<Integer> rowStoreColumnUniqueIds,
             TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat, long pageSize,
-            boolean variantEnableFlattenNested, List<Integer> clusterKeyUids,
+            boolean variantEnableFlattenNested, boolean variantEscapeDotsInKeys, List<Integer> clusterKeyUids,
             long storagePageSize, EncryptionAlgorithmPB encryptionAlgorithm, long storageDictPageSize,
             boolean createInitialRowset,
             int verticalCompactionNumColumnsPerGroup) throws DdlException {
@@ -402,6 +402,10 @@ public class CloudInternalCatalog extends InternalCatalog {
         schemaBuilder.setStoragePageSize(storagePageSize);
         schemaBuilder.setStorageDictPageSize(storageDictPageSize);
         schemaBuilder.setEnableVariantFlattenNested(variantEnableFlattenNested);
+        if (variantEscapeDotsInKeys && !Config.enable_variant_v2) {
+            throw new DdlException("variant_escape_dots_in_keys=true requires enable_variant_v2=true");
+        }
+        schemaBuilder.setVariantEscapeDotsInKeys(variantEscapeDotsInKeys);
         if (!CollectionUtils.isEmpty(clusterKeyUids)) {
             schemaBuilder.addAllClusterKeyUids(clusterKeyUids);
         }

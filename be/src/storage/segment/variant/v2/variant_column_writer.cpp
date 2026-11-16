@@ -104,6 +104,9 @@ VariantV2ColumnWriter::~VariantV2ColumnWriter() = default;
 Status VariantV2ColumnWriter::init() {
     RETURN_IF_ERROR(variant_writer_helpers::validate_variant_v2_writer_layout(
             *_opts.rowset_ctx->tablet_schema, *_tablet_column));
+    if (_opts.rowset_ctx->tablet_schema->variant_escape_dots_in_keys()) {
+        _opts.meta->set_variant_path_encoding(1);
+    }
     _root_only = variant_writer_helpers::has_extracted_variant_columns(
             *_opts.rowset_ctx->tablet_schema, _tablet_column->unique_id());
     if (_root_only) {

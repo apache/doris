@@ -2256,7 +2256,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                             tbl.storeRowColumn(), binlogConfig,
                             tbl.getRowStoreColumnsUniqueIds(rowStoreColumns),
                             objectPool, tbl.rowStorePageSize(),
-                            tbl.variantEnableFlattenNested(),
+                            tbl.variantEnableFlattenNested(), tbl.getVariantEscapeDotsInKeys(),
                             tbl.storagePageSize(), tbl.getTDEAlgorithm(),
                             tbl.storageDictPageSize(),
                             tbl.getVerticalCompactionNumColumnsPerGroup());
@@ -2737,6 +2737,21 @@ public class InternalCatalog implements CatalogIf<Database> {
             throw new DdlException(e.getMessage());
         }
         olapTable.setVerticalCompactionNumColumnsPerGroup(verticalCompactionNumColumnsPerGroup);
+
+        try {
+            if (olapTable instanceof MTMV) {
+                List<TableIf> baseTables = Lists.newArrayList();
+                for (BaseTableInfo baseTable : ((MTMV) olapTable).getRelation().getBaseTables()) {
+                    baseTables.add(MTMVUtil.getTable(baseTable));
+                }
+                properties.putAll(PropertyAnalyzer.inheritVariantEscapeDotsInKeys(properties, baseTables, true));
+            }
+            olapTable.setVariantEscapeDotsInKeys(PropertyAnalyzer.analyzeVariantEscapeDotsInKeys(properties));
+            PropertyAnalyzer.validateVariantTable(olapTable.getVariantEscapeDotsInKeys(),
+                    baseSchema, createTableInfo.getIndexes());
+        } catch (AnalysisException e) {
+            throw new DdlException(e.getMessage());
+        }
 
         boolean variantEnableFlattenNested  = false;
         try {

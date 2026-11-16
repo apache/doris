@@ -530,6 +530,8 @@ message TabletSchemaPB {
     // storage_format; the fallback path lives in TabletSchema::init_from_pb.
     optional TabletStorageFormatPB storage_format = 36;
 
+    optional bool variant_escape_dots_in_keys = 47 [default = false];
+
     optional SplitSchemaPB __split_schema = 1000;  // A special field, DO NOT change it.
 }
 
@@ -574,6 +576,8 @@ message TabletSchemaCloudPB {
 
     // Persisted TStorageFormat (V2=2, V3=3); see TabletSchemaPB::storage_format.
     optional TabletStorageFormatPB storage_format = 37;
+
+    optional bool variant_escape_dots_in_keys = 48 [default = false];
 
     optional bool is_dynamic_schema = 100 [default=false];
 

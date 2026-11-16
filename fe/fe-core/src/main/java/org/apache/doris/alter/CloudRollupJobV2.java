@@ -243,7 +243,7 @@ public class CloudRollupJobV2 extends RollupJobV2 {
                                     tbl.getRowStoreColumnsUniqueIds(rowStoreColumns),
                                     null,
                                     tbl.rowStorePageSize(),
-                                    tbl.variantEnableFlattenNested(), null,
+                                    tbl.variantEnableFlattenNested(), tbl.getVariantEscapeDotsInKeys(), null,
                                     tbl.storagePageSize(), tbl.getTDEAlgorithmPB(),
                                     tbl.storageDictPageSize(), true,
                                     tbl.getVerticalCompactionNumColumnsPerGroup());

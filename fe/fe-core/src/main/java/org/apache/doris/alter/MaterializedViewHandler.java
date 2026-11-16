@@ -393,6 +393,9 @@ public class MaterializedViewHandler extends AlterHandler {
             List<Column> mvColumns, Column whereColumn, Map<String, String> properties,
             OlapTable olapTable, Database db, long baseIndexId, KeysType mvKeysType,
             OriginStatement origStmt, Map<String, String> sessionVariables) throws DdlException, AnalysisException {
+        PropertyAnalyzer.rejectVariantEscapeDotsInKeysAlter(properties);
+        PropertyAnalyzer.validateVariantTable(olapTable.getVariantEscapeDotsInKeys(),
+                mvColumns, Collections.emptyList());
         if (mvKeysType == null) {
             // assign rollup index's key type, same as base index's
             mvKeysType = olapTable.getKeysType();
@@ -618,6 +621,12 @@ public class MaterializedViewHandler extends AlterHandler {
             }
         }
 
+        try {
+            PropertyAnalyzer.validateVariantTable(olapTable.getVariantEscapeDotsInKeys(),
+                    newMVColumns, Collections.emptyList());
+        } catch (AnalysisException e) {
+            throw new DdlException(e.getMessage());
+        }
         for (Column column : newMVColumns) {
             // check c.2
             if (column.isKey() && column.getType().isFloatingPointType()) {

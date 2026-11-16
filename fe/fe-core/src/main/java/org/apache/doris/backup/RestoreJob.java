@@ -343,7 +343,6 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         return false;
     }
 
-
     public synchronized boolean finishTabletDownloadTask(DownloadTask task, TFinishTaskRequest request) {
         if (checkTaskStatus(task, task.getJobId(), request)) {
             return false;
@@ -1474,7 +1473,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                             localTbl.getRowStoreColumnsUniqueIds(rowStoreColumns),
                             objectPool,
                             localTbl.rowStorePageSize(),
-                            localTbl.variantEnableFlattenNested(),
+                            localTbl.variantEnableFlattenNested(), localTbl.getVariantEscapeDotsInKeys(),
                             localTbl.storagePageSize(), localTbl.getTDEAlgorithm(),
                             localTbl.storageDictPageSize(),
                             localTbl.getVerticalCompactionNumColumnsPerGroup());
@@ -1731,7 +1730,6 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                 }
             }
         }
-
 
         // restored tables
         for (Table restoreTbl : restoredTbls) {
