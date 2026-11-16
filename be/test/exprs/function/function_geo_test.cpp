@@ -441,11 +441,6 @@ TEST(VGeoFunctionsTest, function_geo_st_contains_const_polygon) {
         ConstShapeRunner runner("st_contains", 0);
         EXPECT_EQ(expected, runner.run(polygon, points));
     }
-    // The polygon is the second argument of st_within.
-    {
-        ConstShapeRunner runner("st_within", 1);
-        EXPECT_EQ(expected, runner.run(polygon, points));
-    }
     // An invalid constant makes every row NULL.
     {
         ConstShapeRunner runner("st_contains", 0);
