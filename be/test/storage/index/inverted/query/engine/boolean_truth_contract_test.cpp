@@ -31,6 +31,7 @@
 #include "storage/index/inverted/query/engine/bit_set_query/bit_set_scorer.h"
 #include "storage/index/inverted/query/engine/boolean_query/boolean_query_builder.h"
 #include "storage/index/inverted/query/engine/boolean_query/operator.h"
+#include "storage/index/inverted/query/engine/collect/doc_set_collector.h"
 #include "storage/index/inverted/query/engine/null_bitmap_test_util.h"
 
 namespace doris::segment_v2::inverted_index::query_v2 {
@@ -418,6 +419,84 @@ TEST(BooleanTruthContractTest, NestedOperatorsWithinCandidatesMatchThreeValuedLo
 
 // Unscored, an occur Boolean lists the rows its scorer matches, and among candidates the same
 // rows within them, for random trees of MUST, SHOULD and MUST_NOT clauses.
+// Required groups run from the fewest estimated rows up, whatever order the query wrote them
+// in: a broad group written first reads only the rows a rare group keeps.
+TEST(BooleanTruthContractTest, RequiredGroupsRunFromTheRarestUp) {
+    constexpr uint32_t row_count = 4096;
+    TruthRows broad;
+    broad.true_rows->addRange(0, row_count);
+    TruthRows rare_a;
+    rare_a.true_rows->add(10);
+    TruthRows rare_b;
+    rare_b.true_rows->add(20);
+    auto broad_work = std::make_shared<ScorerWork>();
+    for (bool occur : {true, false}) {
+        SCOPED_TRACE(occur);
+        *broad_work = ScorerWork();
+        QueryPtr query;
+        if (occur) {
+            OccurBooleanQueryBuilder broad_group;
+            broad_group.add(std::make_shared<ForwardOnlyQuery>(broad, 1.0F, broad_work),
+                            Occur::SHOULD);
+            broad_group.add(std::make_shared<ForwardOnlyQuery>(broad, 1.0F, broad_work),
+                            Occur::SHOULD);
+            OccurBooleanQueryBuilder rare_group;
+            rare_group.add(std::make_shared<BitSetQuery>(rare_a.true_rows), Occur::SHOULD);
+            rare_group.add(std::make_shared<BitSetQuery>(rare_b.true_rows), Occur::SHOULD);
+            OccurBooleanQueryBuilder builder;
+            builder.add(broad_group.build(), Occur::MUST);
+            builder.add(rare_group.build(), Occur::MUST);
+            query = builder.build();
+        } else {
+            OperatorBooleanQueryBuilder broad_group(OperatorType::OP_OR);
+            broad_group.add(std::make_shared<ForwardOnlyQuery>(broad, 1.0F, broad_work));
+            broad_group.add(std::make_shared<ForwardOnlyQuery>(broad, 1.0F, broad_work));
+            OperatorBooleanQueryBuilder rare_group(OperatorType::OP_OR);
+            rare_group.add(std::make_shared<BitSetQuery>(rare_a.true_rows));
+            rare_group.add(std::make_shared<BitSetQuery>(rare_b.true_rows));
+            OperatorBooleanQueryBuilder builder(OperatorType::OP_AND);
+            builder.add(broad_group.build());
+            builder.add(rare_group.build());
+            query = builder.build();
+        }
+        QueryExecutionContext context;
+        context.segment_num_rows = row_count;
+        auto weight = query->weight(false);
+        ASSERT_TRUE(weight->lists_rows(context, ""));
+        EXPECT_EQ(weight->estimate_rows(context, ""), 2U);
+        EXPECT_EQ(weight->listed_rows(context, "", nullptr).true_rows,
+                  roaring::Roaring::bitmapOf(2, 10, 20));
+        EXPECT_LE(broad_work->advances + broad_work->seeks, 8U);
+    }
+}
+
+// An unscored collection given candidates keeps exactly the matches among them, for a weight
+// that lists its rows and for one that only has a scorer.
+TEST(BooleanTruthContractTest, CollectionWithinCandidatesKeepsTheirMatches) {
+    constexpr uint32_t row_count = 1000;
+    TruthRows rows;
+    for (uint32_t doc = 0; doc < row_count; doc += 3) {
+        rows.true_rows->add(doc);
+    }
+    roaring::Roaring candidates;
+    for (uint32_t doc = 0; doc < row_count; doc += 7) {
+        candidates.add(doc);
+    }
+    OccurBooleanQueryBuilder builder;
+    builder.add(std::make_shared<BitSetQuery>(rows.true_rows), Occur::MUST);
+    builder.add(std::make_shared<BitSetQuery>(rows.true_rows), Occur::SHOULD);
+    const std::array<QueryPtr, 2> queries = {builder.build(),
+                                             std::make_shared<ForwardOnlyQuery>(rows, 1.0F)};
+    for (const auto& query : queries) {
+        QueryExecutionContext context;
+        context.segment_num_rows = row_count;
+        auto collected = std::make_shared<roaring::Roaring>();
+        collect_multi_segment_doc_set(query->weight(false), context, "", collected, nullptr,
+                                      /*enable_scoring=*/false, nullptr, &candidates);
+        EXPECT_EQ(*collected, *rows.true_rows & candidates);
+    }
+}
+
 TEST(BooleanTruthContractTest, OccurListedRowsMatchTheScorer) {
     constexpr uint32_t row_count = 700;
     constexpr size_t leaf_count = 6;
