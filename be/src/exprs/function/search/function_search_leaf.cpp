@@ -30,6 +30,7 @@
 #include "storage/index/inverted/common/inverted_index_cache.h"
 #include "storage/index/inverted/inverted_index_iterator.h"
 #include "storage/index/inverted/inverted_index_reader.h"
+#include "storage/index/inverted/query/engine/phrase_query/phrase_set.h"
 #include "storage/index/inverted/reader/text_index_reader.h"
 #include "storage/olap_common.h"
 #include "util/string_parser.hpp"
@@ -149,6 +150,26 @@ Status LazyLeafCompiler::compile(const logical::Node& leaf, const SearchLeafCont
     }
     return segment_v2::plan_query(leaf, ctx.context, _field, _binding_key, /*candidates=*/nullptr,
                                   out);
+}
+
+Status LazyLeafCompiler::compile_phrase_set(const std::vector<const logical::Phrase*>& phrases,
+                                            const SearchLeafContext& ctx, query_v2::QueryPtr* out) {
+    DORIS_CHECK(!ctx.scoring);
+    std::vector<std::string> terms;
+    std::vector<query_v2::PhraseSetPhrase> specs;
+    specs.reserve(phrases.size());
+    for (const logical::Phrase* phrase : phrases) {
+        for (const auto& slot : phrase->slots) {
+            terms.push_back(slot.get_single_term());
+        }
+        specs.push_back({.clauses = phrase->slots,
+                         .slop = static_cast<uint32_t>(phrase->slop),
+                         .ordered = phrase->ordered});
+    }
+    RETURN_IF_ERROR(_source->prepare_terms(terms));
+    *out = std::make_shared<query_v2::PhraseSetQuery>(
+            std::make_shared<query_v2::PhraseSetGroup>(_field, std::move(specs)));
+    return Status::OK();
 }
 
 ScalarLeafCompiler::ScalarLeafCompiler(segment_v2::IndexIterator* iterator, DataTypePtr column_type,

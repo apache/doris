@@ -274,19 +274,145 @@ Clauses matching_clauses(const logical::Bool& boolean, bool scoring) {
     return kept;
 }
 
+// A phrase a phrase set can run: two or more clauses of one term each, matched in place.
+bool joins_phrase_set(const logical::Node& node) {
+    const auto* phrase = node.as<logical::Phrase>();
+    return phrase != nullptr && phrase->slots.size() > 1 && !phrase->prefix && !phrase->suffix &&
+           std::ranges::all_of(phrase->slots, [](const segment_v2::TermInfo& slot) {
+               return slot.is_single_term();
+           });
+}
+
+// A phrase set holds a document list per distinct word and per phrase, each as large as a bitmap
+// of the segment's rows when its words are common. Past this many bytes its phrases run as
+// separate phrase queries, which hold no lists.
+constexpr uint64_t kMaxPhraseSetBytes = 32ULL << 20;
+
+// The clauses of an unscored OR, or of an unscored OCCUR of SHOULD clauses that one match
+// satisfies, that are phrases of one field: two or more of them run as a phrase set, which reads
+// each word once. Scored phrases keep their phrase queries.
+Status phrase_sets(const logical::Bool& boolean, const Clauses& clauses,
+                   const SearchLeafContext& ctx, FieldReaderResolver& resolver,
+                   std::vector<std::vector<size_t>>* out) {
+    std::vector<std::vector<size_t>>& sets = *out;
+    sets.clear();
+    const bool any_of = boolean.op == logical::BoolOp::kOr ||
+                        (boolean.op == logical::BoolOp::kOccur && boolean.min_should_match <= 1 &&
+                         std::ranges::all_of(clauses, [](const auto& clause) {
+                             return clause.first == logical::Occur::kShould;
+                         }));
+    if (ctx.scoring || !any_of || clauses.size() < 2) {
+        return Status::OK();
+    }
+    std::vector<const logical::FieldRef*> fields;
+    for (size_t i = 0; i < clauses.size(); ++i) {
+        const logical::Node& node = *clauses[i].second;
+        if (!joins_phrase_set(node)) {
+            continue;
+        }
+        const logical::FieldRef* field = node.field();
+        const FieldReaderBinding* binding = resolver.find_binding(field->binding);
+        if (binding == nullptr || binding->leaf_compiler == nullptr ||
+            !binding->leaf_compiler->compiles_phrase_sets()) {
+            continue;
+        }
+        auto same = std::ranges::find_if(fields, [field](const logical::FieldRef* other) {
+            return other->name == field->name && other->binding == field->binding;
+        });
+        if (same == fields.end()) {
+            fields.push_back(field);
+            sets.emplace_back();
+            same = fields.end() - 1;
+        }
+        sets[same - fields.begin()].push_back(i);
+    }
+    std::erase_if(sets, [](const std::vector<size_t>& set) { return set.size() < 2; });
+    std::vector<std::vector<size_t>> bounded;
+    for (std::vector<size_t>& set : sets) {
+        std::vector<std::string_view> words;
+        for (size_t clause : set) {
+            for (const auto& slot : clauses[clause].second->as<logical::Phrase>()->slots) {
+                if (std::ranges::find(words, std::string_view(slot.get_single_term())) ==
+                    words.end()) {
+                    words.emplace_back(slot.get_single_term());
+                }
+            }
+        }
+        uint32_t num_rows = 0;
+        RETURN_IF_ERROR(
+                resolver.leaf_num_rows(clauses[set.front()].second->field()->name, &num_rows));
+        const uint64_t lists = words.size() + set.size() + 1;
+        if (lists * (num_rows / 8 + 1) <= kMaxPhraseSetBytes) {
+            bounded.push_back(std::move(set));
+        }
+    }
+    sets = std::move(bounded);
+    return Status::OK();
+}
+
+// Compiles the phrases `set` of `clauses` as one phrase set, kept at the set's first clause.
+Status compile_phrase_set(const Clauses& clauses, const std::vector<size_t>& set,
+                          const SearchLeafContext& ctx, FieldReaderResolver& resolver,
+                          std::vector<query_v2::QueryPtr>* queries,
+                          std::vector<std::string>* keys) {
+    std::vector<const logical::Phrase*> phrases;
+    for (size_t clause : set) {
+        phrases.push_back(clauses[clause].second->as<logical::Phrase>());
+    }
+    const logical::FieldRef& field = phrases.front()->field;
+    const FieldReaderBinding* binding = resolver.find_binding(field.binding);
+    SearchLeafContext leaf_ctx = ctx;
+    RETURN_IF_ERROR(resolver.leaf_num_rows(field.name, &leaf_ctx.num_rows));
+    query_v2::QueryPtr query;
+    RETURN_IF_ERROR(binding->leaf_compiler->compile_phrase_set(phrases, leaf_ctx, &query));
+    RETURN_IF_ERROR(mask_null_rows(resolver, field.name, &query));
+    RETURN_IF_ERROR(resolver.map_leaf_query(field.name, &query));
+    (*queries)[set.front()] = std::move(query);
+    (*keys)[set.front()] = field.binding;
+    return Status::OK();
+}
+
 // AND, OR and NOT ignore the per-clause occur; OCCUR keeps it and the threshold. A Boolean
 // left with one clause after dropping clauses that only score is that clause, with its binding.
 Status compile_bool(const logical::Bool& boolean, const SearchLeafContext& ctx,
                     FieldReaderResolver& resolver, query_v2::QueryPtr* out,
                     std::string* binding_key) {
-    const Clauses clauses = matching_clauses(boolean, ctx.scoring);
+    Clauses clauses = matching_clauses(boolean, ctx.scoring);
     if (clauses.size() == 1 && boolean.clauses.size() > 1) {
         return compile_node(*clauses.front().second, ctx, resolver, out, binding_key);
     }
     std::vector<query_v2::QueryPtr> queries(clauses.size());
     std::vector<std::string> keys(clauses.size());
+    std::vector<bool> compiled(clauses.size(), false);
+    std::vector<bool> absorbed(clauses.size(), false);
+    std::vector<std::vector<size_t>> sets;
+    RETURN_IF_ERROR(phrase_sets(boolean, clauses, ctx, resolver, &sets));
+    for (const auto& set : sets) {
+        RETURN_IF_ERROR(compile_phrase_set(clauses, set, ctx, resolver, &queries, &keys));
+        for (size_t clause : set) {
+            compiled[clause] = true;
+            absorbed[clause] = clause != set.front();
+        }
+    }
     for (size_t i = 0; i < clauses.size(); ++i) {
-        RETURN_IF_ERROR(compile_node(*clauses[i].second, ctx, resolver, &queries[i], &keys[i]));
+        if (!compiled[i]) {
+            RETURN_IF_ERROR(compile_node(*clauses[i].second, ctx, resolver, &queries[i], &keys[i]));
+        }
+    }
+    // A phrase set answers for all its clauses at the first of them.
+    for (size_t i = clauses.size(); i-- > 0;) {
+        if (absorbed[i]) {
+            clauses.erase(clauses.begin() + static_cast<ptrdiff_t>(i));
+            queries.erase(queries.begin() + static_cast<ptrdiff_t>(i));
+            keys.erase(keys.begin() + static_cast<ptrdiff_t>(i));
+        }
+    }
+    if (queries.size() == 1 && boolean.clauses.size() > 1) {
+        *out = std::move(queries.front());
+        if (binding_key != nullptr) {
+            *binding_key = std::move(keys.front());
+        }
+        return Status::OK();
     }
     if (boolean.op == logical::BoolOp::kOccur) {
         auto builder = query_v2::create_occur_boolean_query_builder();

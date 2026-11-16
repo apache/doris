@@ -22,6 +22,7 @@
 #include <roaring/roaring.hh>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include "common/status.h"
 #include "core/data_type/data_type.h"
@@ -49,6 +50,19 @@ public:
 
     virtual Status compile(const index_query::logical::Node& leaf, const SearchLeafContext& ctx,
                            segment_v2::inverted_index::query_v2::QueryPtr* out) = 0;
+
+    // Whether the compiler runs phrases of its field OR'ed together as one phrase set.
+    virtual bool compiles_phrase_sets() const { return false; }
+
+    // Compiles unscored OR'ed phrases of the field as one phrase set query.
+    virtual Status compile_phrase_set(
+            const std::vector<const index_query::logical::Phrase*>& phrases,
+            const SearchLeafContext& ctx, segment_v2::inverted_index::query_v2::QueryPtr* out) {
+        (void)phrases;
+        (void)ctx;
+        (void)out;
+        return Status::NotSupported("this index does not run phrase sets");
+    }
 };
 
 // Compiles a leaf into the lazy query_v2 query the engine evaluates on the field's bound source,
@@ -60,6 +74,12 @@ public:
 
     Status compile(const index_query::logical::Node& leaf, const SearchLeafContext& ctx,
                    segment_v2::inverted_index::query_v2::QueryPtr* out) override;
+
+    bool compiles_phrase_sets() const override { return true; }
+
+    Status compile_phrase_set(const std::vector<const index_query::logical::Phrase*>& phrases,
+                              const SearchLeafContext& ctx,
+                              segment_v2::inverted_index::query_v2::QueryPtr* out) override;
 
 private:
     std::wstring _field;
