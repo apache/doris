@@ -84,18 +84,19 @@ public class ReorderJoin extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
         return logicalFilter(subTree(LogicalJoin.class, LogicalFilter.class))
-            .when(filter -> filter.child() instanceof LogicalJoin)
-            .whenNot(filter -> filter.child() instanceof LogicalJoin
-                    && ((((LogicalJoin<?, ?>) filter.child()).isMarkJoin())
-                        || ((LogicalJoin<?, ?>) filter.child()).getJoinType().isAsofJoin()))
             .thenApply(ctx -> {
+                LogicalFilter<?> filter = MergeFilters.mergeFilters(ctx.root);
+                if (!(filter.child() instanceof LogicalJoin)) {
+                    return null;
+                }
+                LogicalJoin<?, ?> join = (LogicalJoin<?, ?>) filter.child();
                 if (ctx.statementContext.getConnectContext().getSessionVariable().isDisableJoinReorder()
                         || ctx.cascadesContext.isLeadingDisableJoinReorder()
-                        || ((LogicalJoin<?, ?>) ctx.root.child()).isLeadingJoin()) {
+                        || join.isLeadingJoin() || join.isMarkJoin() || join.getJoinType().isAsofJoin()
+                        || join.getExpressions().stream().anyMatch(Expression::containsVolatileExpression)) {
                     return null;
                 }
 
-                LogicalFilter<Plan> filter = ctx.root;
                 Set<Expression> uniqueExprConjuncts = Sets.newHashSet();
                 Set<Expression> nonUniqueExprConjuncts = Sets.newHashSetWithExpectedSize(filter.getConjuncts().size());
                 for (Expression conjunct : filter.getConjuncts()) {
@@ -110,7 +111,7 @@ public class ReorderJoin extends OneRewriteRuleFactory {
                 if (nonUniqueExprConjuncts.isEmpty()) {
                     return null;
                 }
-                LogicalFilter<Plan> nonUniqueExprFilter = uniqueExprConjuncts.isEmpty()
+                LogicalFilter<?> nonUniqueExprFilter = uniqueExprConjuncts.isEmpty()
                         ? filter : filter.withConjunctsAndChild(nonUniqueExprConjuncts, filter.child());
 
                 Map<Plan, DistributeHint> planToHintType = Maps.newHashMap();
@@ -121,11 +122,10 @@ public class ReorderJoin extends OneRewriteRuleFactory {
                 ctx.statementContext.addJoinFilters(multiJoin.getJoinFilter());
                 ctx.statementContext.setMaxNAryInnerJoin(multiJoin.children().size());
                 Plan after = multiJoinToJoin(multiJoin, planToHintType);
-                if (after != null && !after.equals(nonUniqueExprFilter)) {
-                    return PlanUtils.filterOrSelf(uniqueExprConjuncts, after);
-                } else {
+                if (after == null || after.equals(nonUniqueExprFilter)) {
                     return null;
                 }
+                return PlanUtils.filterOrSelf(uniqueExprConjuncts, after);
             }).toRule(RuleType.REORDER_JOIN);
     }
 
@@ -135,10 +135,7 @@ public class ReorderJoin extends OneRewriteRuleFactory {
      * --> {@link MultiJoin}
      */
     public Plan joinToMultiJoin(Plan plan, Map<Plan, DistributeHint> planToHintType) {
-        // A top-down retry can reach child filters before MergeFilters has merged them.
-        // Preserve filters without a direct join child as join-cluster boundaries.
-        if (nonJoinAndNonFilter(plan)
-                || (plan instanceof LogicalFilter && !(plan.child(0) instanceof LogicalJoin))) {
+        if (nonJoinAndNonFilter(plan)) {
             return plan;
         }
 
@@ -149,7 +146,11 @@ public class ReorderJoin extends OneRewriteRuleFactory {
 
         LogicalJoin<?, ?> join;
         if (plan instanceof LogicalFilter) {
-            LogicalFilter<?> filter = (LogicalFilter<?>) plan;
+            // A top-down retry can reach consecutive filters before the MergeFilters rule runs.
+            LogicalFilter<?> filter = MergeFilters.mergeFilters((LogicalFilter<?>) plan);
+            if (!(filter.child() instanceof LogicalJoin)) {
+                return plan;
+            }
             for (Expression conjunct : filter.getConjuncts()) {
                 // (t1 join t2) join t3 where t1.a = t3.x + random()
                 // if reorder, then may have ((t1 join t3) on t1.a = t3.x + random()) join t2,
