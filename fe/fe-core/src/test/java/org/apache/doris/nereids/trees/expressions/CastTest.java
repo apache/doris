@@ -641,11 +641,11 @@ public class CastTest {
         boolean originalEnableVariantV2 = Config.enable_variant_v2;
         try {
             Config.enable_variant_v2 = false;
-            Assertions.assertFalse(castNullable(false, VariantType.INSTANCE, BooleanType.INSTANCE));
-            Assertions.assertFalse(castNullable(false, VariantType.INSTANCE, IntegerType.INSTANCE));
-            Assertions.assertFalse(castNullable(false, VariantType.INSTANCE, StringType.INSTANCE));
+            Assertions.assertTrue(castNullable(false, VariantType.INSTANCE, BooleanType.INSTANCE));
+            Assertions.assertTrue(castNullable(false, VariantType.INSTANCE, IntegerType.INSTANCE));
+            Assertions.assertTrue(castNullable(false, VariantType.INSTANCE, StringType.INSTANCE));
             Assertions.assertTrue(castNullable(false, VariantType.INSTANCE, JsonType.INSTANCE));
-            Assertions.assertFalse(castNullable(false, VariantType.INSTANCE, ArrayType.of(IntegerType.INSTANCE)));
+            Assertions.assertTrue(castNullable(false, VariantType.INSTANCE, ArrayType.of(IntegerType.INSTANCE)));
             Assertions.assertFalse(castNullable(false, VariantType.INSTANCE, VariantType.INSTANCE));
             Assertions.assertTrue(castNullable(true, VariantType.INSTANCE, VariantType.INSTANCE));
 

@@ -943,6 +943,15 @@ Status ScanLocalStateBase::_normalize_is_null_predicate(
         return Status::OK();
     }
 
+    // A Variant cast can introduce NULLs for non-NULL stored values, so `CAST(v AS T) IS NULL`
+    // is not equivalent to `v IS NULL`. Keep the null test in the expression tree instead of
+    // pushing a NullPredicate down on the source Variant column.
+    if (root->children()[0]->node_type() == TExprNodeType::CAST_EXPR &&
+        VExpr::expr_without_cast(root->children()[0])->data_type()->get_primitive_type() ==
+                PrimitiveType::TYPE_VARIANT) {
+        return Status::OK();
+    }
+
     auto fn_call = assert_cast<VectorizedFnCall*>(root.get());
     if (fn_call->fn().name.function_name == "is_null_pred") {
         pred = NullPredicate::create_shared(
