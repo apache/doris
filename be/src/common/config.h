@@ -1217,7 +1217,9 @@ DECLARE_Int32(min_s3_file_system_thread_num);
 DECLARE_Int32(max_s3_file_system_thread_num);
 
 // Thread pool for S3 reads in cross-CG peer winner race.
-// Max should match max_concurrent_peer_races so the pool never fills up under normal operation.
+// Effective max threads = max(max_peer_race_s3_thread_num, max_concurrent_peer_races) at startup,
+// so every race slot has a thread; setting it below max_concurrent_peer_races has no effect.
+// Changing max_concurrent_peer_races at runtime does not resize the pool.
 DECLARE_Int32(min_peer_race_s3_thread_num);
 DECLARE_Int32(max_peer_race_s3_thread_num);
 
@@ -1391,6 +1393,8 @@ DECLARE_mInt64(file_cache_background_lru_log_replay_interval_ms);
 DECLARE_mBool(enable_evaluate_shadow_queue_diff);
 
 DECLARE_mBool(file_cache_enable_only_warm_up_idx);
+
+DECLARE_mDouble(file_cache_io_adaptor_skip_read_factor);
 
 // async file cache write
 DECLARE_mBool(enable_async_file_cache_write);

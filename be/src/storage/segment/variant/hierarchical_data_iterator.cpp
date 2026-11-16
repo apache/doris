@@ -49,7 +49,7 @@ Status HierarchicalDataIterator::create(ColumnIteratorUPtr* reader, int32_t col_
                                         std::unique_ptr<SubstreamIterator>&& root_column_reader,
                                         ColumnReaderCache* column_reader_cache,
                                         OlapReaderStatistics* stats, ReadType read_type,
-                                        const io::IOContext* io_ctx) {
+                                        const io::IOContext* io_ctx, uint32_t path_encoding) {
     if (read_type == ReadType::ROOT_ONLY) {
         DORIS_CHECK(root_column_reader != nullptr);
         DORIS_CHECK(binary_column_reader == nullptr);
@@ -84,6 +84,7 @@ Status HierarchicalDataIterator::create(ColumnIteratorUPtr* reader, int32_t col_
     stream_iter->_stats = stats;
 
     variant_v2::VariantAssemblerOptions assembler_options;
+    assembler_options.path_encoding = path_encoding;
     assembler_options.requested_path = path;
     if (stream_iter->_binary_column_reader) {
         assembler_options.storage_map_kind = read_type == ReadType::SUBCOLUMNS_AND_SPARSE

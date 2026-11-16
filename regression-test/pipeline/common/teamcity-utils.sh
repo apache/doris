@@ -56,7 +56,7 @@ teamcity_current_pr() {
         -H "Authorization: Bearer ${GITHUB_TOKEN:?}" \
         "https://api.github.com/repos/apache/doris/pulls/${PULL_REQUEST_NUM}" |
         jq -e --arg head "$COMMIT_ID_FROM_TRIGGER" --arg branch "$PULL_REQUEST_TARGET_BRANCH" \
-            '.state=="open" and .draft==false and .head.sha==$head and .base.ref==$branch' >/dev/null
+            '.state=="open" and .head.sha==$head and .base.ref==$branch' >/dev/null
 }
 
 teamcity_current_root() {

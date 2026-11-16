@@ -764,6 +764,11 @@ public final class JdbcQueryBuilder {
     private static final Set<String> UNARY_OPERATORS = Collections.singleton("~");
 
     private String functionCallToSql(ConnectorFunctionCall func, Map<String, String> colMapping) {
+        // A UDF runs only in Doris: the remote database has no such function, or one of the same name that
+        // computes something else. This also keeps a pre-rendered fragment that calls one local.
+        if (!func.isBuiltin()) {
+            return null;
+        }
         String funcName = func.getFunctionName();
 
         // 0. Handle arithmetic operators rendered as infix: (arg1 + arg2)

@@ -464,6 +464,7 @@ TabletSchemaCloudPB doris_tablet_schema_to_cloud(TabletSchemaPB&& in) {
 void doris_tablet_schema_to_cloud(TabletSchemaCloudPB* out, const TabletSchemaPB& in) {
     // ATTN: please keep the set order aligned with the definition of proto.
     out->set_keys_type(in.keys_type());
+    out->set_variant_escape_dots_in_keys(in.variant_escape_dots_in_keys());
     out->mutable_column()->CopyFrom(in.column());
     out->set_num_short_key_columns(in.num_short_key_columns());
     out->set_num_rows_per_row_block(in.num_rows_per_row_block());
@@ -522,6 +523,7 @@ void doris_tablet_schema_to_cloud(TabletSchemaCloudPB* out, const TabletSchemaPB
 
 void doris_tablet_schema_to_cloud(TabletSchemaCloudPB* out, TabletSchemaPB&& in) {
     out->set_keys_type(in.keys_type());
+    out->set_variant_escape_dots_in_keys(in.variant_escape_dots_in_keys());
     out->mutable_column()->Swap(in.mutable_column());
     out->set_num_short_key_columns(in.num_short_key_columns());
     out->set_num_rows_per_row_block(in.num_rows_per_row_block());
@@ -593,6 +595,7 @@ TabletSchemaPB cloud_tablet_schema_to_doris(TabletSchemaCloudPB&& in) {
 void cloud_tablet_schema_to_doris(TabletSchemaPB* out, const TabletSchemaCloudPB& in) {
     // ATTN: please keep the set order aligned with the definition of proto.
     out->set_keys_type(in.keys_type());
+    out->set_variant_escape_dots_in_keys(in.variant_escape_dots_in_keys());
     out->mutable_column()->CopyFrom(in.column());
     out->set_num_short_key_columns(in.num_short_key_columns());
     out->set_num_rows_per_row_block(in.num_rows_per_row_block());
@@ -652,6 +655,7 @@ void cloud_tablet_schema_to_doris(TabletSchemaPB* out, const TabletSchemaCloudPB
 void cloud_tablet_schema_to_doris(TabletSchemaPB* out, TabletSchemaCloudPB&& in) {
     // ATTN: please keep the set order aligned with the definition of proto.
     out->set_keys_type(in.keys_type());
+    out->set_variant_escape_dots_in_keys(in.variant_escape_dots_in_keys());
     out->mutable_column()->Swap(in.mutable_column());
     out->set_num_short_key_columns(in.num_short_key_columns());
     out->set_num_rows_per_row_block(in.num_rows_per_row_block());
