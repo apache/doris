@@ -56,8 +56,11 @@ MULTILINESTRING { return wkt_::parser::make_KW_MULTI_LINESTRING(); }
 MULTIPOINT { return wkt_::parser::make_KW_MULTI_POINT(); }
 POLYGON { return wkt_::parser::make_KW_POLYGON(); }
 LINESTRING { return wkt_::parser::make_KW_LINESTRING(); }
-POINT { 
-    return wkt_::parser::make_KW_POINT(); }
+POINT { return wkt_::parser::make_KW_POINT(); }
+EMPTY { return wkt_::parser::make_KW_EMPTY(); }
+ZM { return wkt_::parser::make_KW_ZM(); }
+Z { return wkt_::parser::make_KW_Z(); }
+M { return wkt_::parser::make_KW_M(); }
 
 \( |
 \) |
@@ -66,6 +69,6 @@ POINT {
 
 [ \t\n\r]+ { /* ignore whitespace */ }
 
-. { yyterminate(); }
+. { return wkt_::parser::make_INVALID_TOKEN(); }
 
 %%
