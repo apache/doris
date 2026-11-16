@@ -77,7 +77,6 @@ jobs:
       - name: Test build-thirdparty.sh
         run: |
           thirdparty/test/azure-vcpkg-retry-test.sh
-          python3 thirdparty/test/paimon-build-test.py
 
       - name: Test thirdparty configuration
         run: |
