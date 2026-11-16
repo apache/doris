@@ -22,8 +22,9 @@ import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 
 import io.delta.kernel.Snapshot;
-import io.delta.kernel.TableManager;
 import io.delta.kernel.engine.Engine;
+
+import java.util.Optional;
 
 /** Immutable statement coordinates; the in-memory snapshot avoids replay throughout planning. */
 final class DeltaLakeTableHandle implements ConnectorTableHandle {
@@ -31,20 +32,24 @@ final class DeltaLakeTableHandle implements ConnectorTableHandle {
 
     private final String database;
     private final String table;
-    private final String path;
+    private final DeltaLakeTableReference reference;
     private final String tableId;
     private final long version;
     private final transient Snapshot snapshot;
 
     DeltaLakeTableHandle(String database, String table, Snapshot snapshot) {
-        this(database, table, snapshot.getPath(), DeltaKernelCompat.tableId(snapshot), snapshot.getVersion(), snapshot);
+        this(database, table, DeltaLakeTableReference.filesystem(snapshot.getPath()), snapshot);
     }
 
-    private DeltaLakeTableHandle(String database, String table, String path, String tableId,
+    DeltaLakeTableHandle(String database, String table, DeltaLakeTableReference reference, Snapshot snapshot) {
+        this(database, table, reference, DeltaKernelCompat.tableId(snapshot), snapshot.getVersion(), snapshot);
+    }
+
+    private DeltaLakeTableHandle(String database, String table, DeltaLakeTableReference reference, String tableId,
             long version, Snapshot snapshot) {
         this.database = database;
         this.table = table;
-        this.path = path;
+        this.reference = reference;
         this.tableId = tableId;
         this.version = version;
         this.snapshot = snapshot;
@@ -52,7 +57,9 @@ final class DeltaLakeTableHandle implements ConnectorTableHandle {
 
     // Queued statistics work retains coordinates, not a potentially large cached snapshot.
     DeltaLakeTableHandle withoutSnapshot() {
-        return new DeltaLakeTableHandle(database, table, path, tableId, version, null);
+        DeltaLakeTableReference coordinates =
+                new DeltaLakeTableReference(reference.path, reference.registrationId, reference.managed);
+        return new DeltaLakeTableHandle(database, table, coordinates, tableId, version, null);
     }
 
     String getDatabase() {
@@ -64,7 +71,11 @@ final class DeltaLakeTableHandle implements ConnectorTableHandle {
     }
 
     String getPath() {
-        return path;
+        return reference.path;
+    }
+
+    DeltaLakeTableReference reference() {
+        return reference;
     }
 
     String getTableId() {
@@ -75,25 +86,30 @@ final class DeltaLakeTableHandle implements ConnectorTableHandle {
         return version;
     }
 
-    DeltaLakeTableHandle atVersion(Engine engine, long requestedVersion) {
+    DeltaLakeTableHandle atVersion(DeltaLakeRuntime runtime, long requestedVersion) {
         if (version == requestedVersion) {
             return this;
         }
-        Snapshot pinned = TableManager.loadSnapshot(path).atVersion(requestedVersion).build(engine);
+        Snapshot pinned = reference.load(runtime.engine(reference), runtime.resolver, database, table,
+                Optional.of(requestedVersion));
         if (!tableId.equals(DeltaKernelCompat.tableId(pinned))) {
-            throw new DorisConnectorException("Delta table was recreated during the statement: " + path);
+            throw new DorisConnectorException("Delta table was recreated during the statement: " + getPath());
         }
-        return new DeltaLakeTableHandle(database, table, pinned);
+        return new DeltaLakeTableHandle(database, table, reference, pinned);
     }
 
-    Snapshot snapshot(Engine engine) {
+    Snapshot snapshot(DeltaLakeRuntime runtime) {
+        return snapshot == null ? snapshot(runtime.engine(reference), runtime.resolver) : snapshot;
+    }
+
+    Snapshot snapshot(Engine engine, DeltaLakeTableResolver resolver) {
         if (snapshot != null) {
             return snapshot;
         }
-        Snapshot reloaded = TableManager.loadSnapshot(path).atVersion(version).build(engine);
+        Snapshot reloaded = reference.load(engine, resolver, database, table, Optional.of(version));
         // A recreated table can reuse version 0 at the same path; it is not the statement's table.
         if (!tableId.equals(DeltaKernelCompat.tableId(reloaded))) {
-            throw new DorisConnectorException("Delta table was recreated during the statement: " + path);
+            throw new DorisConnectorException("Delta table was recreated during the statement: " + getPath());
         }
         return reloaded;
     }

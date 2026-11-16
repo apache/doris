@@ -56,17 +56,25 @@ under the License.
                     <groupId>org.apache.hadoop</groupId>
                     <artifactId>hadoop-client-api</artifactId>
                 </exclusion>
-                <exclusion>
-                    <groupId>io.unitycatalog</groupId>
-                    <artifactId>unitycatalog-client</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>io.unitycatalog</groupId>
-                    <artifactId>unitycatalog-hadoop</artifactId>
-                </exclusion>
             </exclusions>
         </dependency>
 
+
+        <dependency>
+            <groupId>io.delta</groupId>
+            <artifactId>delta-kernel-unitycatalog</artifactId>
+            <version>4.4.1</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.apache.hadoop</groupId>
+                    <artifactId>hadoop-client-runtime</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.apache.hadoop</groupId>
+                    <artifactId>hadoop-client-api</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
 
         <dependency>
             <groupId>${project.groupId}</groupId>
@@ -98,11 +106,6 @@ under the License.
             <version>${project.version}</version>
         </dependency>
 
-        <dependency>
-            <groupId>${project.groupId}</groupId>
-            <artifactId>fe-connector-metastore-hms</artifactId>
-            <version>${project.version}</version>
-        </dependency>
         <dependency>
             <groupId>${project.groupId}</groupId>
             <artifactId>fe-connector-metastore-deltalake</artifactId>
@@ -149,6 +152,22 @@ under the License.
                     <artifactId>slf4j-reload4j</artifactId>
                 </exclusion>
             </exclusions>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-pool2</artifactId>
+        </dependency>
+
+        <!-- UC's generated REST client registers JavaTimeModule on the plugin's ObjectMapper. -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.datatype</groupId>
+            <artifactId>jackson-datatype-jsr310</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.hadoop</groupId>
+            <artifactId>hadoop-azure</artifactId>
         </dependency>
 
         <dependency>

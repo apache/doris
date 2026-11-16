@@ -21,7 +21,6 @@ import org.apache.doris.connector.metastore.MetaStoreProperties;
 import org.apache.doris.connector.metastore.spi.MetaStoreProviders;
 import org.apache.doris.foundation.property.ConnectorPropertiesUtils;
 import org.apache.doris.foundation.property.ConnectorProperty;
-import org.apache.doris.foundation.property.ParamRules;
 
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -32,10 +31,10 @@ import java.util.Map;
 final class DeltaLakeCatalogProperties {
     static final String CATALOG_TYPE = "deltalake.catalog.type";
     static final String FILESYSTEM = "filesystem";
-    static final String HMS = "hms";
+    static final String UC = "uc";
 
     @ConnectorProperty(names = {CATALOG_TYPE}, required = false,
-            description = "Delta metadata source: filesystem (default) or hms.")
+            description = "Delta metadata source: filesystem (default) or uc.")
     private String catalogType = FILESYSTEM;
 
     @ConnectorProperty(names = {"enable.mapping.timestamp_tz"}, required = false,
@@ -45,11 +44,6 @@ final class DeltaLakeCatalogProperties {
     @ConnectorProperty(names = {"enable.mapping.varbinary"}, required = false,
             description = "Map Delta binary columns to VARBINARY instead of STRING.")
     private boolean mapVarbinary;
-
-    // Shared HMS client setting, also consumed by Hive and Hudi.
-    @ConnectorProperty(names = {"hive.metastore.client.pool.size"}, required = false,
-            description = "Maximum number of pooled Hive Metastore clients.")
-    private int hmsClientPoolSize = 8;
 
     private final Map<String, String> raw;
     private MetaStoreProperties metastore;
@@ -62,15 +56,13 @@ final class DeltaLakeCatalogProperties {
         DeltaLakeCatalogProperties result = new DeltaLakeCatalogProperties(properties);
         ConnectorPropertiesUtils.bindConnectorProperties(result, properties);
         result.catalogType = result.catalogType.toLowerCase(Locale.ROOT);
-        if (!FILESYSTEM.equals(result.catalogType) && !HMS.equals(result.catalogType)) {
+        if (!FILESYSTEM.equals(result.catalogType) && !UC.equals(result.catalogType)) {
             throw new IllegalArgumentException("Unsupported " + CATALOG_TYPE + ": " + result.catalogType
-                    + "; expected filesystem or hms");
+                    + "; expected filesystem or uc");
         }
         result.metastore = MetaStoreProviders.bindForType(result.catalogType, properties, Collections.emptyMap());
         result.metastore.validate();
         DeltaLakeSnapshotCache.validate(properties);
-        new ParamRules().check(() -> result.hmsClientPoolSize < 0,
-                "hive.metastore.client.pool.size must not be negative").validate();
         return result;
     }
 
@@ -88,10 +80,6 @@ final class DeltaLakeCatalogProperties {
 
     boolean isMapVarbinary() {
         return mapVarbinary;
-    }
-
-    int getHmsClientPoolSize() {
-        return hmsClientPoolSize;
     }
 
     Map<String, String> getRaw() {

@@ -53,7 +53,7 @@ import java.util.concurrent.FutureTask;
  * private newInstance per authority and close exactly these clients, without closing another catalog's
  * global Hadoop cache entries. Directory discovery borrows the same instances.
  */
-final class DeltaLakeFileIO implements FileIO, AutoCloseable {
+class DeltaLakeFileIO implements FileIO, AutoCloseable {
     private final Configuration configuration;
     private final ConnectorContext context;
     // Publish the task under this monitor, then initialize outside it: different authorities and

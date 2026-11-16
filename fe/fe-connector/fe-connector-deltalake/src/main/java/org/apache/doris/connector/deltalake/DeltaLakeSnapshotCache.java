@@ -29,12 +29,11 @@ import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.DorisConnectorException;
 
 import io.delta.kernel.Snapshot;
-import io.delta.kernel.TableManager;
-import io.delta.kernel.engine.Engine;
 
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import java.util.function.LongSupplier;
 import java.util.function.Supplier;
@@ -94,14 +93,16 @@ final class DeltaLakeSnapshotCache {
         CacheSpec.checkWeightProperties(properties, "deltalake", LATEST, SNAPSHOT, DeltaLakeStatisticsCache.STATISTICS);
     }
 
-    Snapshot latest(ConnectorSession session, String database, String table, String path, Engine engine) {
+    Snapshot latest(ConnectorSession session, String database, String table, DeltaLakeTableReference reference,
+            DeltaLakeRuntime runtime) {
+        Supplier<Snapshot> loader = () -> reference.load(runtime.engine(reference), runtime.resolver, database, table,
+                Optional.empty());
         if (session == null) {
-            // Metadata callers without a user identity must not reuse another caller's cached result.
-            return loadLatest(path, engine);
+            return loader.get();
         }
-        return latest(new TableKey(session.getUser(), database, table, path),
-                () -> loadLatest(path, engine),
-                version -> TableManager.loadSnapshot(path).atVersion(version).build(engine));
+        return latest(new TableKey(session.getUser(), database, table, reference), loader,
+                version -> reference.load(runtime.engine(reference), runtime.resolver, database, table,
+                        Optional.of(version)));
     }
 
     Snapshot latest(TableKey key, Supplier<Snapshot> loader, VersionLoader versionLoader) {
@@ -109,7 +110,6 @@ final class DeltaLakeSnapshotCache {
             Snapshot[] loaded = {null};
             Latest reference = latest.get(key, ignored -> {
                 Snapshot snapshot = loader.get();
-                DeltaLakeFeatureCheck.check(snapshot);
                 loaded[0] = snapshot;
                 SnapshotKey version = new SnapshotKey(key, DeltaKernelCompat.tableId(snapshot), snapshot.getVersion());
                 snapshots.get(version, unused -> cached(snapshot));
@@ -130,16 +130,9 @@ final class DeltaLakeSnapshotCache {
                     throw new DorisConnectorException("Delta table was recreated while its version was cached: "
                             + key.path);
                 }
-                DeltaLakeFeatureCheck.check(snapshot);
                 return cached(snapshot);
             }).snapshot;
         }
-    }
-
-    private static Snapshot loadLatest(String path, Engine engine) {
-        Snapshot snapshot = TableManager.loadSnapshot(path).build(engine);
-        DeltaLakeFeatureCheck.check(snapshot);
-        return snapshot;
     }
 
     private static CachedSnapshot cached(Snapshot snapshot) {
@@ -155,17 +148,24 @@ final class DeltaLakeSnapshotCache {
         private final String database;
         private final String table;
         private final String path;
+        private final String registrationId;
 
         TableKey(String user, String database, String table, String path) {
+            this(user, database, table, DeltaLakeTableReference.filesystem(path));
+        }
+
+        TableKey(String user, String database, String table, DeltaLakeTableReference reference) {
             this.user = Objects.requireNonNull(user);
             this.database = database;
             this.table = table;
-            this.path = path;
+            this.path = reference.path;
+            this.registrationId = reference.registrationId;
         }
 
         private long estimatedBytes() {
             return 128L + JvmSizeUtils.stringSize(user) + JvmSizeUtils.stringSize(database)
-                    + JvmSizeUtils.stringSize(table) + JvmSizeUtils.stringSize(path);
+                    + JvmSizeUtils.stringSize(table) + JvmSizeUtils.stringSize(path)
+                    + JvmSizeUtils.stringSize(registrationId);
         }
 
         @Override
@@ -175,12 +175,13 @@ final class DeltaLakeSnapshotCache {
             }
             TableKey other = (TableKey) object;
             return user.equals(other.user) && database.equals(other.database)
-                    && table.equals(other.table) && path.equals(other.path);
+                    && table.equals(other.table) && path.equals(other.path)
+                    && Objects.equals(registrationId, other.registrationId);
         }
 
         @Override
         public int hashCode() {
-            return Objects.hash(user, database, table, path);
+            return Objects.hash(user, database, table, path, registrationId);
         }
     }
 
@@ -196,7 +197,7 @@ final class DeltaLakeSnapshotCache {
         }
 
         static SnapshotKey of(String user, DeltaLakeTableHandle handle) {
-            return new SnapshotKey(new TableKey(user, handle.getDatabase(), handle.getTable(), handle.getPath()),
+            return new SnapshotKey(new TableKey(user, handle.getDatabase(), handle.getTable(), handle.reference()),
                     handle.getTableId(), handle.getVersion());
         }
 

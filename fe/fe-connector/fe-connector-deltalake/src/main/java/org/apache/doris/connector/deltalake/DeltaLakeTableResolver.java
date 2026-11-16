@@ -18,15 +18,28 @@
 
 package org.apache.doris.connector.deltalake;
 
+import io.delta.kernel.Snapshot;
+import io.delta.kernel.engine.Engine;
+
+import java.io.Closeable;
 import java.io.IOException;
 import java.util.List;
 import java.util.Optional;
 
 /** Resolves catalog names to table roots; schema and partitions are always read from the Delta log. */
-interface DeltaLakeTableResolver {
+interface DeltaLakeTableResolver extends Closeable {
     List<String> listDatabases() throws IOException;
 
     List<String> listTables(String database) throws IOException;
 
-    Optional<String> tableLocation(String database, String table) throws IOException;
+    Optional<DeltaLakeTableReference> tableLocation(String database, String table) throws IOException;
+
+    default Snapshot managedSnapshot(Engine engine, String database, String table, DeltaLakeTableReference reference,
+            Optional<Long> version) {
+        throw new UnsupportedOperationException("Catalog-managed snapshots require Unity Catalog");
+    }
+
+    @Override
+    default void close() throws IOException {
+    }
 }

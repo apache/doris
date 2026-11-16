@@ -123,6 +123,15 @@ public class HiveTableFormatDetectionTest {
                         .get()).getTableType());
     }
 
+    @Test
+    void deltaRegistrationCannotFallThroughToHiveParquet() {
+        HmsTableInfo table = HmsTableInfo.builder().dbName("db").tableName("t").tableType("EXTERNAL_TABLE")
+                .inputFormat(PARQUET).parameters(Collections.singletonMap("spark.sql.sources.provider", "DeLtA"))
+                .build();
+        Assertions.assertEquals(HiveTableType.UNKNOWN, HiveTableFormatDetector.detect(table));
+        Assertions.assertThrows(DorisConnectorException.class, () -> handleFor(table));
+    }
+
     // ===== helpers =====
 
     private Optional<ConnectorTableHandle> handleFor(HmsTableInfo tableInfo) {

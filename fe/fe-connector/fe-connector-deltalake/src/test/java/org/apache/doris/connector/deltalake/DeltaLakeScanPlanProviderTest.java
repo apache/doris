@@ -20,7 +20,6 @@ package org.apache.doris.connector.deltalake;
 import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorMetadata;
 import org.apache.doris.connector.spi.ConnectorPartitionInfo;
-import org.apache.doris.connector.spi.ConnectorPushdownOps;
 import org.apache.doris.connector.spi.ConnectorStatementScope;
 import org.apache.doris.connector.spi.ConnectorStorageContext;
 import org.apache.doris.connector.spi.ConnectorType;
@@ -233,11 +232,10 @@ class DeltaLakeScanPlanProviderTest {
     }
 
     @Test
-    void scanProviderRejectsCastPredicatePushdown() throws Exception {
+    void metadataRejectsCastPredicatePushdown() throws Exception {
         try (Connector connector = connector()) {
-            ConnectorPushdownOps pushdown = Assertions.assertInstanceOf(
-                    ConnectorPushdownOps.class, connector.getScanPlanProvider());
-            Assertions.assertFalse(pushdown.supportsCastPredicatePushdown(new TestingConnectorSession("cast")));
+            TestingConnectorSession session = new TestingConnectorSession("cast");
+            Assertions.assertFalse(connector.getMetadata(session).supportsCastPredicatePushdown(session));
         }
     }
 

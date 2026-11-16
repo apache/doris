@@ -19,7 +19,7 @@
 package org.apache.doris.connector.deltalake;
 
 import org.apache.doris.connector.metastore.FileSystemMetaStoreProperties;
-import org.apache.doris.connector.metastore.HmsMetaStoreProperties;
+import org.apache.doris.connector.metastore.deltalake.uc.UnityCatalogProperties;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -40,14 +40,13 @@ class DeltaLakeCatalogPropertiesTest {
     }
 
     @Test
-    void bindsHmsWithoutRequiringWarehouse() {
-        Map<String, String> raw = new HashMap<>();
-        raw.put("deltalake.catalog.type", "HMS");
-        raw.put("hive.metastore.uris", "thrift://localhost:9083");
-        DeltaLakeCatalogProperties properties = DeltaLakeCatalogProperties.of(raw);
-        Assertions.assertInstanceOf(HmsMetaStoreProperties.class, properties.getMetastore());
-        Assertions.assertEquals("hms", properties.getCatalogType());
-        raw.remove("hive.metastore.uris");
+    void bindsUnityCatalogWithoutWarehouseAndRejectsHms() {
+        Map<String, String> raw = new HashMap<>(Map.of("deltalake.catalog.type", "UC",
+                UnityCatalogProperties.URI_KEY, "https://example.org", UnityCatalogProperties.NAMESPACE, "main"));
+        Assertions.assertInstanceOf(UnityCatalogProperties.class, DeltaLakeCatalogProperties.of(raw).getMetastore());
+        raw.remove(UnityCatalogProperties.NAMESPACE);
+        Assertions.assertThrows(IllegalArgumentException.class, () -> DeltaLakeCatalogProperties.of(raw));
+        raw.put("deltalake.catalog.type", "hms");
         Assertions.assertThrows(IllegalArgumentException.class, () -> DeltaLakeCatalogProperties.of(raw));
     }
 

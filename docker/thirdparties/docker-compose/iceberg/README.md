@@ -276,15 +276,61 @@ Set these in `regression-test/conf/regression-conf-custom.groovy`, together with
 
 ```bash
 bash run-regression-test.sh --run -d external_table_p0/deltalake \
-    -s test_deltalake_basic,test_deltalake_skipping,test_deltalake_features,test_deltalake_metadata,test_deltalake_hive,test_deltalake_errors,test_deltalake_parquet,test_deltalake_parquet_deletion_vector,test_deltalake_metrics,test_deltalake_hms_registration
+    -s test_deltalake_basic,test_deltalake_skipping,test_deltalake_features,test_deltalake_metadata,test_deltalake_errors,test_deltalake_parquet,test_deltalake_parquet_deletion_vector,test_deltalake_metrics
 ```
 
-The tests use both Delta HMS/filesystem catalogs and a Hive catalog's Delta
-routing. They cover native reads, mapping/renames, type widening, deletion
+These tests read Delta through the filesystem catalog. Spark uses HMS to create
+and update the shared fixtures. They cover native reads, mapping/renames, type widening, deletion
 vectors, checkpoints/sidecars/compaction, TTL/REFRESH, streaming, COUNT, pruning
 and profiles. Spark Thrift is required for the refresh tests' new commits.
 The optional million-file fixture is prepared separately; see
 `regression-test/suites/external_table_p2/deltalake/README.md`.
+
+#### Read-only Unity Catalog
+
+Use an open-source Unity Catalog 0.7.0 server on the same host as the test FE and BE.
+Create the UC catalog `doris_delta` with a dedicated `file://` storage root. Spark, UC
+and the test BE must see the same absolute fixture path. The fixture replaces only
+`doris_delta.m1.uc_managed` and retains the data for later runs. With Spark 4.0,
+run the following from the Doris checkout:
+
+```bash
+export UC_TEST_SERVER=http://127.0.0.1:8080
+spark-submit --master 'local[2]' \
+  --packages io.delta:delta-spark_4.0_2.13:4.4.1,io.unitycatalog:unitycatalog-spark_4.0_2.13:0.6.0 \
+  docker/thirdparties/docker-compose/iceberg/scripts/deltalake/uc-managed.py
+```
+
+Set `enableDeltaLakeUcTest=true` and `deltalakeUcUri` to the server origin in
+`regression-conf-custom.groovy`. Run
+`bash run-regression-test.sh --run -d external_table_p0/deltalake -s test_deltalake_uc`.
+The fixture keeps the latest ratified commit in `_staged_commits`, holds the numbered
+copy and its optional CRC aside, and reads the result through a fresh Spark Delta log.
+The Doris suite checks the same rows through both scheduling modes and checks that INSERT fails.
+
+For the Databricks external-table test, configure the storage owner's Azure Shared Key.
+One Doris catalog corresponds to one UC catalog, and each UC schema appears as a Doris database.
+
+```sql
+CREATE CATALOG delta_uc PROPERTIES (
+    'type' = 'deltalake',
+    'deltalake.catalog.type' = 'uc',
+    'deltalake.uc.uri' = 'https://<workspace-host>',
+    'deltalake.uc.catalog' = '<uc-catalog>',
+    'deltalake.uc.token' = '<uc-token>',
+    'deltalake.uc.storage.mode' = 'configured',
+    'azure.account_name' = '<storage-account>',
+    'azure.account_key' = '<account-key>'
+);
+```
+
+UC must authorize the external table's `READ` operation. The configured mode
+uses the storage account credentials on FE and BE. An access denial stops the query.
+For OAuth M2M, supply `deltalake.uc.oauth.client-id`, `deltalake.uc.oauth.client-secret`
+and `deltalake.uc.oauth.token-uri` in place of the static token. The default storage
+mode, `vended`, supports table-scoped S3 session credentials. Live validation of
+Databricks with a configured ADLS Shared Key is pending. UC-vended Azure SAS
+requires FE and BE support before it can be validated.
 
 For a Delta-only local run, use the same template and preparation script without
 starting the existing Iceberg services or downloading their data archive:

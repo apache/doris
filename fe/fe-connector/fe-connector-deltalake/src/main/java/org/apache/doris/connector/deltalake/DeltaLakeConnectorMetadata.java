@@ -59,6 +59,12 @@ final class DeltaLakeConnectorMetadata implements ConnectorMetadata {
     }
 
     @Override
+    public boolean supportsCastPredicatePushdown(ConnectorSession session) {
+        // CAST(123.45 AS BIGINT) matches 123. The unwrapped decimal predicate would skip its file.
+        return false;
+    }
+
+    @Override
     public List<String> listDatabaseNames(ConnectorSession session) {
         return runtime.execute(runtime.resolver::listDatabases);
     }
@@ -76,12 +82,12 @@ final class DeltaLakeConnectorMetadata implements ConnectorMetadata {
     @Override
     public Optional<ConnectorTableHandle> getTableHandle(ConnectorSession session, String database, String table) {
         return DeltaLakeStatementScope.resolve(session, database, table, () -> runtime.execute(() -> {
-            Optional<String> location = runtime.resolver.tableLocation(database, table);
+            Optional<DeltaLakeTableReference> location = runtime.resolver.tableLocation(database, table);
             if (location.isEmpty()) {
                 return Optional.empty();
             }
-            Snapshot snapshot = snapshots.latest(session, database, table, location.get(), runtime.engine);
-            return Optional.of(new DeltaLakeTableHandle(database, table, snapshot));
+            Snapshot snapshot = snapshots.latest(session, database, table, location.get(), runtime);
+            return Optional.of(new DeltaLakeTableHandle(database, table, location.get(), snapshot));
         })).map(handle -> handle);
     }
 
@@ -89,7 +95,7 @@ final class DeltaLakeConnectorMetadata implements ConnectorMetadata {
     public ConnectorTableSchema getTableSchema(ConnectorSession session, ConnectorTableHandle handle) {
         DeltaLakeTableHandle delta = (DeltaLakeTableHandle) handle;
         return runtime.execute(() -> DeltaLakeSchemaBuilder.build(delta.getTable(),
-                delta.snapshot(runtime.engine), properties));
+                delta.snapshot(runtime), properties));
     }
 
     @Override
@@ -129,13 +135,14 @@ final class DeltaLakeConnectorMetadata implements ConnectorMetadata {
     public List<ConnectorPartitionInfo> listPartitions(ConnectorSession session, ConnectorTableHandle handle,
             Optional<ConnectorExpression> filter) {
         return runtime.execute(() -> {
-            Snapshot snapshot = ((DeltaLakeTableHandle) handle).snapshot(runtime.engine);
+            DeltaLakeTableHandle delta = (DeltaLakeTableHandle) handle;
+            Snapshot snapshot = delta.snapshot(runtime);
             if (snapshot.getPartitionColumnNames().isEmpty()) {
                 return Collections.emptyList();
             }
             Map<String, ConnectorPartitionInfo> partitions = new LinkedHashMap<>();
             long[] files = {0};
-            DeltaLakeScanFiles.forEach(snapshot, runtime.engine, false, row -> {
+            DeltaLakeScanFiles.forEach(snapshot, runtime.engine(delta.reference()), false, row -> {
                 files[0]++;
                 Map<String, String> values = DeltaLakePartitionValues.normalize(
                         snapshot, DeltaKernelCompat.partitionValues(row));
@@ -170,7 +177,7 @@ final class DeltaLakeConnectorMetadata implements ConnectorMetadata {
         if (!delta.getTableId().equals(snapshot.getProperties().get(TABLE_ID))) {
             throw new DorisConnectorException("Delta snapshot belongs to another table: " + delta.getPath());
         }
-        return runtime.execute(() -> delta.atVersion(runtime.engine, snapshot.getSnapshotId()));
+        return runtime.execute(() -> delta.atVersion(runtime, snapshot.getSnapshotId()));
     }
 
     @Override

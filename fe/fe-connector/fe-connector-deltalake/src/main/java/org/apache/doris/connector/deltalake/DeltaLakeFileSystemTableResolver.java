@@ -65,9 +65,9 @@ final class DeltaLakeFileSystemTableResolver implements DeltaLakeTableResolver {
     }
 
     @Override
-    public Optional<String> tableLocation(String database, String table) throws IOException {
+    public Optional<DeltaLakeTableReference> tableLocation(String database, String table) throws IOException {
         Path path = child(child(warehouse, database), table);
-        return hasDeltaLog(path) ? Optional.of(fileIO.resolvePath(path.toString()))
+        return hasDeltaLog(path) ? Optional.of(DeltaLakeTableReference.filesystem(fileIO.resolvePath(path.toString())))
                 : Optional.empty();
     }
 

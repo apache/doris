@@ -50,8 +50,12 @@ final class DeltaLakeFeatureCheck {
     private DeltaLakeFeatureCheck() {
     }
 
-    static void check(Snapshot snapshot) {
-        check(snapshot.getPath(), DeltaKernelCompat.readerFeatures(snapshot));
+    static void check(Snapshot snapshot, boolean managed) {
+        Set<String> features = new TreeSet<>(DeltaKernelCompat.readerFeatures(snapshot));
+        if (managed) {
+            features.remove("catalogManaged");
+        }
+        check(snapshot.getPath(), features);
         checkWidening(snapshot.getSchema(), snapshot.getPath());
     }
 

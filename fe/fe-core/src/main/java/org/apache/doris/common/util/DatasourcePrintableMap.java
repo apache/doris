@@ -79,6 +79,8 @@ public class DatasourcePrintableMap<K, V> extends BasicPrintableMap<K, V> {
         // uneven and must NOT be relied on: iceberg.rest.secret-access-key aliases the (sensitive) S3 secret
         // key, but iceberg.rest.session-token aliases the S3 session-token field which is NOT sensitive, so
         // omitting it here would silently unmask it. Keep in sync with the connector's sensitive REST keys.
+        SENSITIVE_KEY.add("deltalake.uc.token");
+        SENSITIVE_KEY.add("deltalake.uc.oauth.client-secret");
         SENSITIVE_KEY.add("iceberg.rest.oauth2.token");
         SENSITIVE_KEY.add("iceberg.rest.oauth2.credential");
         SENSITIVE_KEY.add("iceberg.rest.secret-access-key");

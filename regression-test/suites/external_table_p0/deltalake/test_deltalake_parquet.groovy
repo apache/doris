@@ -23,7 +23,6 @@ suite("test_deltalake_parquet", "p0,external") {
     }
     String host = context.config.otherConfigs.get("externalEnvIp")
     String minioPort = context.config.otherConfigs.get("deltalakeMinioPort")
-    String hmsPort = context.config.otherConfigs.get("deltalakeHmsPort")
     String warehouse = context.config.otherConfigs.get("deltalakeWarehouse")
     def profileAction = new ProfileAction(context)
     def counterValues = { String profile, String counter ->
@@ -41,35 +40,32 @@ suite("test_deltalake_parquet", "p0,external") {
     }
     sql "set enable_profile=true"
     sql "set enable_sql_cache=false"
-    ["filesystem", "hms"].each { String metastore ->
-        String catalog = "test_deltalake_parquet_${metastore}"
-        sql "drop catalog if exists ${catalog}"
-        sql """create catalog ${catalog} properties (
-            'type'='deltalake', 'deltalake.catalog.type'='${metastore}', 'warehouse'='${warehouse}',
-            'hive.metastore.uris'='thrift://${host}:${hmsPort}',
-            's3.endpoint'='http://${host}:${minioPort}', 's3.region'='us-east-1',
-            's3.access_key'='admin', 's3.secret_key'='password', 'use_path_style'='true'
-        )"""
-        ["none", "name", "id"].each { String mapping ->
-            String column = mapping == "none" ? "id" : "renamed"
-            String table = "${catalog}.delta_m1.parquet_pruning_${mapping}"
-            String predicate = "${column} >= 100 and ${column} < 120"
-            // The one file overlaps this predicate, so Kernel cannot prune the file itself.
-            explain {
-                sql "select ${column}, length(payload) from ${table} where ${predicate}"
-                contains "inputSplitNum=1"
-            }
-            String token = UUID.randomUUID().toString()
-            "order_qt_${metastore}_${mapping}"("""
-                select /* ${token} */ ${column}, length(payload)
-                from ${table} where ${predicate} order by ${column}
-            """)
-            String profile = profileAction.getProfileBySql(token,
-                    ["RowGroupsFilteredByMinMax", "FilteredRowsByPage", "PageIndexReadCalls"])
-            ["RowGroupsFilteredByMinMax", "FilteredRowsByPage", "PageIndexReadCalls"].each { String counter ->
-                assertTrue(counterValues(profile, counter).sum(0L) > 0L,
-                        "${metastore}/${mapping}: ${counter} did not show Parquet pruning; ${profile}")
-            }
+    String catalog = "test_deltalake_parquet_filesystem"
+    sql "drop catalog if exists ${catalog}"
+    sql """create catalog ${catalog} properties (
+        'type'='deltalake', 'deltalake.catalog.type'='filesystem', 'warehouse'='${warehouse}',
+        's3.endpoint'='http://${host}:${minioPort}', 's3.region'='us-east-1',
+        's3.access_key'='admin', 's3.secret_key'='password', 'use_path_style'='true'
+    )"""
+    ["none", "name", "id"].each { String mapping ->
+        String column = mapping == "none" ? "id" : "renamed"
+        String table = "${catalog}.delta_m1.parquet_pruning_${mapping}"
+        String predicate = "${column} >= 100 and ${column} < 120"
+        // The one file overlaps this predicate, so Kernel cannot prune the file itself.
+        explain {
+            sql "select ${column}, length(payload) from ${table} where ${predicate}"
+            contains "inputSplitNum=1"
+        }
+        String token = UUID.randomUUID().toString()
+        "order_qt_filesystem_${mapping}"("""
+            select /* ${token} */ ${column}, length(payload)
+            from ${table} where ${predicate} order by ${column}
+        """)
+        String profile = profileAction.getProfileBySql(token,
+                ["RowGroupsFilteredByMinMax", "FilteredRowsByPage", "PageIndexReadCalls"])
+        ["RowGroupsFilteredByMinMax", "FilteredRowsByPage", "PageIndexReadCalls"].each { String counter ->
+            assertTrue(counterValues(profile, counter).sum(0L) > 0L,
+                    "filesystem/${mapping}: ${counter} did not show Parquet pruning; ${profile}")
         }
     }
 }

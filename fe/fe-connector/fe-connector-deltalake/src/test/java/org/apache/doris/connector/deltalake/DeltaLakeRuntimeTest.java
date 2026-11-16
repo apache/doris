@@ -18,7 +18,6 @@
 
 package org.apache.doris.connector.deltalake;
 
-import org.apache.doris.connector.metastore.spi.AbstractHmsMetaStoreProperties;
 import org.apache.doris.connector.spi.ConnectorStorageContext;
 import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.filesystem.FileSystemType;
@@ -56,22 +55,6 @@ class DeltaLakeRuntimeTest {
         Assertions.assertEquals("true", conf.get("fs.s3a.path.style.access"));
         Assertions.assertEquals("1234", conf.get("dfs.client.socket-timeout"));
         Assertions.assertSame(DeltaLakeRuntime.class.getClassLoader(), conf.getClassLoader());
-    }
-
-    @Test
-    void hmsSimpleIdentityDoesNotUseStorageUsername() throws Exception {
-        DeltaLakeCatalogProperties properties = DeltaLakeCatalogProperties.of(Map.of(
-                "deltalake.catalog.type", "hms", "hive.metastore.uris", "thrift://localhost:9083",
-                "hive.metastore.authentication.type", "simple", "hive.metastore.username", "delta-metastore",
-                "hadoop.username", "delta-storage"));
-        Assertions.assertEquals("delta-metastore", DeltaLakeRuntime.hmsAuthenticator(
-                (AbstractHmsMetaStoreProperties) properties.getMetastore()).getUGI().getUserName());
-    }
-
-    @Test
-    void rejectsInvalidPoolSizeBeforeConnecting() {
-        Assertions.assertThrows(IllegalArgumentException.class, () -> DeltaLakeCatalogProperties.of(
-                Map.of("warehouse", "/warehouse", "hive.metastore.client.pool.size", "-1")));
     }
 
     @Test

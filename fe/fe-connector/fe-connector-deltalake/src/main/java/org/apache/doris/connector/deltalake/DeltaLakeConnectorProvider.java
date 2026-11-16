@@ -18,9 +18,11 @@
 
 package org.apache.doris.connector.deltalake;
 
+import org.apache.doris.connector.metastore.deltalake.uc.UnityCatalogProperties;
 import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorProvider;
+import org.apache.doris.connector.spi.ConnectorSecuritySurface;
 
 import java.util.Map;
 
@@ -38,6 +40,12 @@ public final class DeltaLakeConnectorProvider implements ConnectorProvider {
     @Override
     public void validateProperties(Map<String, String> properties) {
         DeltaLakeCatalogProperties.of(properties);
+    }
+
+    @Override
+    public ConnectorSecuritySurface securitySurface() {
+        return ConnectorSecuritySurface.ofSsrfEndpoints(
+                UnityCatalogProperties.URI_KEY, UnityCatalogProperties.TOKEN_URI);
     }
 
     @Override

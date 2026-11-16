@@ -56,14 +56,14 @@ class DeltaLakeSnapshotPinTest {
         Snapshot latest = TableManager.loadSnapshot(table.toString()).build(engine);
         Assertions.assertEquals(1, latest.getVersion());
         Assertions.assertEquals(2, latest.getSchema().length());
-        Assertions.assertSame(first, handle.snapshot(engine));
+        Assertions.assertSame(first, handle.snapshot(engine, null));
 
         DeltaLakeTableHandle restored = roundTrip(handle);
-        Assertions.assertEquals(0, restored.snapshot(engine).getVersion());
-        Assertions.assertEquals(1, restored.snapshot(engine).getSchema().length());
+        Assertions.assertEquals(0, restored.snapshot(engine, null).getVersion());
+        Assertions.assertEquals(1, restored.snapshot(engine, null).getSchema().length());
         DeltaLakeCatalogProperties properties =
                 DeltaLakeCatalogProperties.of(Collections.singletonMap("warehouse", table.toString()));
-        ConnectorTableSchema schema = DeltaLakeSchemaBuilder.build("table", restored.snapshot(engine), properties);
+        ConnectorTableSchema schema = DeltaLakeSchemaBuilder.build("table", restored.snapshot(engine, null), properties);
         Assertions.assertEquals("ID", schema.getColumns().get(0).getName());
         Assertions.assertEquals("BIGINT", schema.getColumns().get(0).getType().getTypeName());
         Assertions.assertEquals(first.getPath(), schema.getProperties().get(ConnectorTableSchema.SHOW_LOCATION_KEY));
@@ -75,7 +75,7 @@ class DeltaLakeSnapshotPinTest {
         DeltaLakeTableHandle handle = roundTrip(new DeltaLakeTableHandle("db", "table",
                 TableManager.loadSnapshot(table.toString()).build(engine)));
         commit(0, "replacement", new StructType().add("id", LongType.LONG));
-        Assertions.assertThrows(DorisConnectorException.class, () -> handle.snapshot(engine));
+        Assertions.assertThrows(DorisConnectorException.class, () -> handle.snapshot(engine, null));
     }
 
     private void commit(long version, String id, StructType schema) throws Exception {

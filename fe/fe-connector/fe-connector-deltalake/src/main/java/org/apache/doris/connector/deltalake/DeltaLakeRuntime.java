@@ -18,20 +18,13 @@
 
 package org.apache.doris.connector.deltalake;
 
-import org.apache.doris.connector.hms.HmsClient;
-import org.apache.doris.connector.hms.HmsClientConfig;
 import org.apache.doris.connector.hms.HmsConfHelper;
-import org.apache.doris.connector.hms.ThriftHmsClient;
 import org.apache.doris.connector.metastore.FileSystemMetaStoreProperties;
-import org.apache.doris.connector.metastore.spi.AbstractHmsMetaStoreProperties;
+import org.apache.doris.connector.metastore.deltalake.uc.UnityCatalogProperties;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.filesystem.properties.StorageProperties;
-import org.apache.doris.kerberos.AuthType;
-import org.apache.doris.kerberos.AuthenticationConfig;
 import org.apache.doris.kerberos.HadoopAuthenticator;
-import org.apache.doris.kerberos.KerberosAuthSpec;
-import org.apache.doris.kerberos.KerberosAuthenticationConfig;
 
 import io.delta.kernel.defaults.engine.DefaultEngine;
 import io.delta.kernel.engine.Engine;
@@ -40,16 +33,14 @@ import org.apache.hadoop.conf.Configuration;
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Optional;
 import java.util.concurrent.Callable;
 
-/** Lazily built plugin resources; constructing catalog properties never opens storage or HMS. */
+/** Lazily built plugin resources; constructing catalog properties never opens storage or Unity Catalog. */
 final class DeltaLakeRuntime implements AutoCloseable {
     final Engine engine;
     final DeltaLakeTableResolver resolver;
     final ConnectorContext storageContext;
     private final DeltaLakeFileIO fileIO;
-    private final HmsClient hms;
 
     DeltaLakeRuntime(DeltaLakeCatalogProperties properties, ConnectorContext context) {
         HmsConfHelper.initializeHadoopConfigDir(context);
@@ -58,23 +49,10 @@ final class DeltaLakeRuntime implements AutoCloseable {
         storageContext = new TcclPinningConnectorContext(context, () -> storageAuth);
         fileIO = new DeltaLakeFileIO(configuration, storageContext);
         engine = DefaultEngine.create(fileIO);
-        if (DeltaLakeCatalogProperties.HMS.equals(properties.getCatalogType())) {
-            AbstractHmsMetaStoreProperties metastore = (AbstractHmsMetaStoreProperties) properties.getMetastore();
-            HadoopAuthenticator hmsAuth = hmsAuthenticator(metastore);
-            ConnectorContext hmsContext = new TcclPinningConnectorContext(context, () -> hmsAuth);
-            HmsClientConfig config = new HmsClientConfig(metastore.getConfResources(),
-                    HmsConfHelper.mergeCatalogProperties(properties.getRaw(),
-                            metastore.toHiveConfOverrides(HmsConfHelper.metastoreClientTimeoutSecond(context))),
-                    properties.getHmsClientPoolSize());
-            hms = new ThriftHmsClient(config, new ThriftHmsClient.AuthAction() {
-                @Override
-                public <T> T execute(Callable<T> action) throws Exception {
-                    return hmsContext.executeAuthenticated(action);
-                }
-            });
-            resolver = new DeltaLakeHmsTableResolver(hms);
+        if (DeltaLakeCatalogProperties.UC.equals(properties.getCatalogType())) {
+            resolver = new DeltaLakeUnityCatalog((UnityCatalogProperties) properties.getMetastore(),
+                    configuration, storageContext);
         } else {
-            hms = null;
             resolver = new DeltaLakeFileSystemTableResolver(
                     ((FileSystemMetaStoreProperties) properties.getMetastore()).getWarehouse(), fileIO);
         }
@@ -105,23 +83,15 @@ final class DeltaLakeRuntime implements AutoCloseable {
         return kerberos || explicitUser ? HadoopAuthenticator.getHadoopAuthenticator(configuration) : null;
     }
 
-    static HadoopAuthenticator hmsAuthenticator(AbstractHmsMetaStoreProperties properties) {
-        Configuration configuration = HmsConfHelper.createHadoopConfWithResources(
-                properties.getConfResources(), properties.toHiveConfOverrides(""));
-        Optional<KerberosAuthSpec> kerberos = properties.kerberos();
-        if (kerberos.isPresent() && kerberos.get().hasCredentials()) {
-            KerberosAuthSpec spec = kerberos.get();
-            configuration.set("hadoop.security.authentication", "kerberos");
-            configuration.set("hive.metastore.sasl.enabled", "true");
-            return HadoopAuthenticator.getHadoopAuthenticator(
-                    new KerberosAuthenticationConfig(spec.getPrincipal(), spec.getKeytab(), configuration));
-        }
-        if (properties.getAuthType() == AuthType.KERBEROS) {
-            return null;
-        }
-        // HMS SIMPLE user selection belongs to the metastore, not to the storage identity.
-        return HadoopAuthenticator.getHadoopAuthenticator(
-                AuthenticationConfig.getSimpleAuthenticationConfig(configuration));
+    Engine engine(DeltaLakeTableReference reference) {
+        return resolver instanceof DeltaLakeUnityCatalog ? ((DeltaLakeUnityCatalog) resolver).engine(reference, engine)
+                : engine;
+    }
+
+    Map<String, String> backendProperties(DeltaLakeTableReference reference) throws IOException {
+        Map<String, String> configured = storageContext.getStorageContext().getBackendStorageProperties();
+        return resolver instanceof DeltaLakeUnityCatalog
+                ? ((DeltaLakeUnityCatalog) resolver).backendProperties(reference, configured) : configured;
     }
 
     <T> T execute(Callable<T> action) {
@@ -141,9 +111,7 @@ final class DeltaLakeRuntime implements AutoCloseable {
 
     @Override
     public void close() throws IOException {
-        // A null HMS client is valid for a filesystem catalog. Try-with-resources also preserves
-        // both failures if closing the filesystem and the HMS pool each reports an error.
-        try (HmsClient ownedHms = hms) {
+        try (DeltaLakeTableResolver owned = resolver) {
             fileIO.close();
         }
     }

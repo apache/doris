@@ -78,7 +78,7 @@ final class DeltaLakeStatisticsCache {
     Optional<ConnectorTableStatistics> get(ConnectorSession session, DeltaLakeTableHandle handle,
             DeltaLakeRuntime runtime) {
         Optional<ConnectorTableStatistics> fallback =
-                DeltaKernelCompat.tableStatistics(handle.snapshot(runtime.engine));
+                DeltaKernelCompat.tableStatistics(handle.snapshot(runtime));
         if (fallback.isPresent() && fallback.get().getRowCount() == 0) {
             return fallback;
         }
@@ -142,7 +142,8 @@ final class DeltaLakeStatisticsCache {
 
     private static Callable<Statistics> loader(DeltaLakeTableHandle handle, DeltaLakeRuntime runtime) {
         DeltaLakeTableHandle coordinates = handle.withoutSnapshot();
-        return () -> runtime.execute(() -> collect(coordinates.snapshot(runtime.engine), runtime.engine));
+        return () -> runtime.execute(() -> collect(
+                coordinates.snapshot(runtime), runtime.engine(coordinates.reference())));
     }
 
     private Optional<Statistics> completed(SnapshotKey key, Load load) {
@@ -164,7 +165,6 @@ final class DeltaLakeStatisticsCache {
     }
 
     static Statistics collect(Snapshot snapshot, Engine engine) throws IOException {
-        DeltaLakeFeatureCheck.check(snapshot);
         DeltaLakeRowCount rows = new DeltaLakeRowCount();
         long[] bytes = {0};
         long[] files = {0};
