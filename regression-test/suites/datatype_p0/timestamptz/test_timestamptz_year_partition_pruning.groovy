@@ -26,7 +26,7 @@ suite("test_timestamptz_year_partition_pruning") {
             PARTITION leap_day VALUES [('2024-02-28 12:00:00 +00:00'), ('2024-03-01 00:00:00 +00:00')),
             PARTITION dst_overlap VALUES [('2024-11-03 05:45:00 +00:00'), ('2024-11-03 06:45:00 +00:00')),
             PARTITION dst_gap VALUES [('2023-03-10 07:10:00.900000 +00:00'),
-                                      ('2023-03-10 07:50:00.900000 +00:00'))
+                                      ('2023-03-10 08:10:00.900000 +00:00'))
         )
         DISTRIBUTED BY HASH(ts) BUCKETS 1
         PROPERTIES ('replication_num' = '1')
@@ -58,13 +58,14 @@ suite("test_timestamptz_year_partition_pruning") {
         SELECT ts FROM test_timestamptz_year_partition_pruning
         WHERE years_sub(ts, -1) = CAST('2025-11-03 06:15:00 +00:00' AS TIMESTAMPTZ(6))
     """
-    // Gap conversion clamps seconds to the transition and preserves the fraction.
+    // The gap shifts local 02:10 forward; local 03:10 is already outside the gap.
+    // Both endpoints become 07:10:00.900000 UTC, below the interior match at 07:30:00.100000.
     order_qt_gap_add """
         SELECT ts FROM test_timestamptz_year_partition_pruning
-        WHERE years_add(ts, 1) = CAST('2024-03-10 07:00:00.100000 +00:00' AS TIMESTAMPTZ(6))
+        WHERE years_add(ts, 1) = CAST('2024-03-10 07:30:00.100000 +00:00' AS TIMESTAMPTZ(6))
     """
     order_qt_gap_sub """
         SELECT ts FROM test_timestamptz_year_partition_pruning
-        WHERE years_sub(ts, -1) = CAST('2024-03-10 07:00:00.100000 +00:00' AS TIMESTAMPTZ(6))
+        WHERE years_sub(ts, -1) = CAST('2024-03-10 07:30:00.100000 +00:00' AS TIMESTAMPTZ(6))
     """
 }

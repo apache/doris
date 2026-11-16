@@ -242,11 +242,11 @@ TEST(VTimestampFunctionsTest, timestamptz_years_keep_dst_policy) {
     utc.unchecked_set_time(2024, 11, 3, 6, 30, 0, 123456);
     EXPECT_EQ(Sub::execute(input, 1, &context), TimestampTzValue(utc));
 
-    // The target 2024-03-10 02:30 does not exist in New York. Use the existing
-    // gap rule: select 03:00 and keep the fraction, which is 07:00 UTC.
+    // The target 2024-03-10 02:30 does not exist in New York. Move forward by
+    // the one-hour gap to 03:30 and keep the fraction, which is 07:30 UTC.
     utc.unchecked_set_time(2023, 3, 10, 7, 30, 0, 123456);
     input = TimestampTzValue(utc);
-    utc.unchecked_set_time(2024, 3, 10, 7, 0, 0, 123456);
+    utc.unchecked_set_time(2024, 3, 10, 7, 30, 0, 123456);
     EXPECT_EQ(Add::execute(input, 1, &context), TimestampTzValue(utc));
     EXPECT_EQ(Sub::execute(input, -1, &context), TimestampTzValue(utc));
 }

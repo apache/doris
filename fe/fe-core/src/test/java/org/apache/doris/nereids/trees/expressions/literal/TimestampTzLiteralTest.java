@@ -410,12 +410,12 @@ class TimestampTzLiteralTest {
                     "2024-11-03 01:30:00.123456 -05:00");
             Assertions.assertEquals(repeated, repeated.plusYears(0));
 
-            // The target 02:30 is in the DST gap. Match the BE rule: use 03:00
-            // at the transition and keep the fraction.
+            // The target 02:30 is in the DST gap. Match the BE rule: move forward
+            // by the one-hour gap to 03:30 and keep the fraction.
             TimestampTzLiteral beforeGap = new TimestampTzLiteral(TimeStampTzType.of(6),
                     "2023-03-10 02:30:00.123456 -05:00");
             TimestampTzLiteral expected = new TimestampTzLiteral(TimeStampTzType.of(6),
-                    "2024-03-10 03:00:00.123456 -04:00");
+                    "2024-03-10 03:30:00.123456 -04:00");
             Assertions.assertEquals(expected, beforeGap.plusYears(1));
         } finally {
             ConnectContext.remove();
