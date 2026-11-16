@@ -246,7 +246,12 @@ public:
             return false;
         }
 
-        if constexpr (PT == PredicateType::LT) {
+        if constexpr (PT == PredicateType::EQ) {
+            // A constant segment (e.g. delete_sign = 0) needs no residual equality filter,
+            // which would otherwise force ANN Top-N to fall back to brute force.
+            return !_opposite && Compare::equal(zone_map.min_value.template get<Type>(), _value) &&
+                   Compare::equal(zone_map.max_value.template get<Type>(), _value);
+        } else if constexpr (PT == PredicateType::LT) {
             return _value > zone_map.max_value.template get<Type>();
         } else if constexpr (PT == PredicateType::LE) {
             return _value >= zone_map.max_value.template get<Type>();
