@@ -33,6 +33,7 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/metrics/doris_metrics.h"
+#include "cpp/sync_point.h"
 #include "io/fs/local_file_system.h"
 #include "storage/data_dir.h"
 #include "storage/olap_common.h"
@@ -190,14 +191,24 @@ Status EngineStorageMigrationTask::_reload_tablet(const std::string& full_path) 
 // if the size less than threshold, return true
 bool EngineStorageMigrationTask::_is_rowsets_size_less_than_threshold(
         const std::vector<RowsetSharedPtr>& consistent_rowsets) {
-    size_t total_size = 0;
+    constexpr int64_t bytes_per_mb = 1024 * 1024;
+    int64_t remaining_bytes =
+            static_cast<int64_t>(config::migration_remaining_size_threshold_mb) * bytes_per_mb;
+    // Zero disables locked tail copying; negative settings must not become unsigned budgets.
+    if (remaining_bytes <= 0) {
+        return false;
+    }
     for (const auto& rs : consistent_rowsets) {
-        total_size += rs->index_disk_size() + rs->data_disk_size();
+        for (int64_t size : {rs->index_disk_size(), rs->data_disk_size()}) {
+            // Deduct each file category separately to avoid overflowing either a rowset sum
+            // or the accumulated size. Equality still exceeds the strict less-than budget.
+            if (size >= remaining_bytes) {
+                return false;
+            }
+            remaining_bytes -= size;
+        }
     }
-    if (total_size < config::migration_remaining_size_threshold_mb) {
-        return true;
-    }
-    return false;
+    return true;
 }
 
 Status EngineStorageMigrationTask::_migrate() {
@@ -273,6 +284,7 @@ Status EngineStorageMigrationTask::_migrate() {
         if (!res.ok()) {
             break;
         }
+        TEST_SYNC_POINT("EngineStorageMigrationTask::_migrate:after_copy");
         std::unique_lock<std::shared_timed_mutex> migration_wlock;
         res = _check_running_txns_until_timeout(&migration_wlock);
         if (!res.ok()) {
