@@ -226,9 +226,8 @@ std::unique_ptr<PrimitiveType> Types::from_primitive_string(const std::string& t
                                                "Spatial edge algorithm must not be empty");
                     }
                     std::string lower_candidate;
-                    std::transform(candidate.begin(), candidate.end(),
-                                   std::back_inserter(lower_candidate),
-                                   [](unsigned char c) { return std::tolower(c); });
+                    std::ranges::transform(candidate, std::back_inserter(lower_candidate),
+                                           [](unsigned char c) { return std::tolower(c); });
                     if (lower_candidate == "spherical" || lower_candidate == "vincenty" ||
                         lower_candidate == "thomas" || lower_candidate == "andoyer" ||
                         lower_candidate == "karney") {

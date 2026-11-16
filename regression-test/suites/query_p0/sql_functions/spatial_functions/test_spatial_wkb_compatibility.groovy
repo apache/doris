@@ -55,6 +55,29 @@ suite("test_spatial_wkb_compatibility") {
                 else '010100000000000000008056c00000000000804640' end) b,
             ST_GeogFromWKB('010100000000000000000000000000000000004740') n
             from numbers("number" = "2")) shapes"""
+
+    // At V=(0,45), A=(90,delta), B=(90,0), the clockwise angle is
+    // atan(tan(delta*pi/180)/sqrt(2)). Retain tiny positive angles through SQL binding and execution.
+    def tangentCancellationInputs = [
+        ['1e-17', '0101000000000000000080564097d44646f50e673c'],
+        ['1e-16', '01010000000000000000805640bc89d897b2d29c3c'],
+        ['1e-14', '010100000000000000008056409b2ba1869b84063d'],
+        ['1e-9', '0101000000000000000080564095d626e80b2e113e']
+    ]
+    def tangentCancellationRows = tangentCancellationInputs.withIndex().collect { input, id ->
+        "select ${id} id, cast(${input[0]} as double) delta, " +
+                "ST_GeogFromWKB('${input[1]}') a"
+    }.join(" union all ")
+    order_qt_geography_tangent_cancellation """select id, forward_angle > 0,
+        abs(forward_angle / expected_angle - 1) < 1e-12,
+        reverse_angle < 2*pi(), abs(reverse_angle - (2*pi()-expected_angle)) < 2e-14
+        from (select id, ST_Angle(a,v,b) forward_angle, ST_Angle(b,v,a) reverse_angle,
+            atan(tan(delta*pi()/180)/sqrt(2.0)) expected_angle
+            from (select id, delta, a,
+                ST_GeogFromWKB('010100000000000000000000000000000000804640') v,
+                ST_GeogFromWKB('010100000000000000008056400000000000000000') b
+                from (${tangentCancellationRows}) input_rows) shapes) angles order by id"""
+
     // Recognized default CRS case aliases retain the same calculation and write identity.
     qt_default_geography_crs_case """select
         ST_Distance(cast(ST_GeogFromWKB('0101000000000000000000F03F0000000000000040')

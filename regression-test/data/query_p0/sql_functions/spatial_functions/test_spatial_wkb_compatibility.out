@@ -36,6 +36,12 @@ true	false	true	true	true
 0	0.955316618125	0.955316618125
 1	5.327868689055	5.327868689055
 
+-- !geography_tangent_cancellation --
+0	true	true	true	true
+1	true	true	true	true
+2	true	true	true	true
+3	true	true	true	true
+
 -- !default_geography_crs_case --
 0	POINT (1 2)
 

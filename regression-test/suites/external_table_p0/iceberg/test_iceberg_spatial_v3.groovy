@@ -2032,4 +2032,23 @@ public class CreateIcebergSpatialV3Table {
         """select cardinality(g_map), element_at(map_values(g_map),1) is null
             from spatial_write_cast_null_containers where id = 999""",
         """select 1, true""")
+
+    // Keys/count-only sort expressions may observe the same producer while NULL map values
+    // acquire the destination spatial identity. Check the actual LIMIT winner and written values.
+    [[column: "g_map", offset: 2100], [column: "gg_map", offset: 2200]].each { target ->
+        sql """insert into spatial_write_cast_null_containers(id,${target.column})
+            select id + ${target.offset} as id,
+                map(cast(id as string),cast(null as int)) as m
+            from geometry_values
+            order by cardinality(m) + size(m) + size(map_keys(m))
+                + case when map_contains_key(m,'ordinary-key') then 1 else 0 end,
+                id desc limit 1"""
+        check_sqls_result_equal(
+            """select id, cardinality(${target.column}), map_keys(${target.column}),
+                ${target.column}[cast(id - ${target.offset} as string)] is null
+                from spatial_write_cast_null_containers
+                where id >= ${target.offset} and ${target.column} is not null""",
+            """select max(id) + ${target.offset}, 1, array(cast(max(id) as string)), true
+                from geometry_values""")
+    }
 }

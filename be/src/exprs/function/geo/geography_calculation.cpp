@@ -1186,8 +1186,6 @@ static Status geography_check_polygon_interiors(std::string_view name, const S2S
     return Status::OK();
 }
 
-static S1ChordAngle geography_conversion_error();
-
 // Preserve the determinant of the original degree values for polygon side admission
 // and crossing certificates. A point one ULP outside an edge can move to the other
 // side when independently converted to binary64 S2 points.
@@ -1990,7 +1988,8 @@ Status geography_clockwise_angle(const GeoCoordinate& start, const GeoCoordinate
 
 #ifdef BE_TEST
 std::array<double, 6> geography_portable_arc_for_test(double ax, double ay, double bx, double by) {
-    const GeographyRawArc<boost::multiprecision::cpp_bin_float_quad> arc({ax, ay}, {bx, by});
+    const GeographyRawArc<boost::multiprecision::cpp_bin_float_quad> arc({.x = ax, .y = ay},
+                                                                         {.x = bx, .y = by});
     return {arc.normal.x(),   arc.normal.y(),   arc.normal.z(),
             arc.midpoint.x(), arc.midpoint.y(), arc.midpoint.z()};
 }
@@ -2110,7 +2109,7 @@ double geography_area(const GeoShape& shape, StringRef wkb, bool square_meters) 
     if (steradians < 0) {
         steradians += 4 * geography_pi<GeographyFloat>();
     }
-    const double area = static_cast<double>(steradians);
+    const auto area = static_cast<double>(steradians);
     return square_meters ? S2Earth::SteradiansToSquareMeters(area)
                          : S2Earth::SteradiansToSquareKm(area);
 }

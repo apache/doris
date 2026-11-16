@@ -825,13 +825,14 @@ static std::string geography_test_hex(const std::string& wkt) {
     return hex.str();
 }
 
-static void expect_geography_relation(const std::string& name, const std::string& left,
-                                      const std::string& right, bool expected) {
-    SCOPED_TRACE(name + "(" + left + ", " + right + ")");
+static void expect_geography_relation(const std::string& name, const std::string& first_wkt,
+                                      const std::string& second_wkt, bool expected) {
+    SCOPED_TRACE(name + "(" + first_wkt + ", " + second_wkt + ")");
     Block block;
     const auto type = make_nullable(std::make_shared<DataTypeUInt8>());
-    ASSERT_TRUE(execute_geography_test(name, {geography_test_hex(left), geography_test_hex(right)},
-                                       type, &block)
+    ASSERT_TRUE(execute_geography_test(
+                        name, {geography_test_hex(first_wkt), geography_test_hex(second_wkt)}, type,
+                        &block)
                         .ok());
     EXPECT_EQ((*block.get_by_position(2).column)[0].get<TYPE_BOOLEAN>(), expected);
 }
@@ -1041,13 +1042,14 @@ TEST(VGeoFunctionsTest, GeographyPolygonRawBoundariesRetainEquivalentRegions) {
 }
 
 static void expect_rounded_polygon_interior_error(const std::string& function,
-                                                  const std::string& left,
-                                                  const std::string& right) {
-    SCOPED_TRACE(function + "(" + left + ", " + right + ")");
+                                                  const std::string& first_wkt,
+                                                  const std::string& second_wkt) {
+    SCOPED_TRACE(function + "(" + first_wkt + ", " + second_wkt + ")");
     Block block;
     const auto type = make_nullable(std::make_shared<DataTypeUInt8>());
     const auto status = execute_geography_test(
-            function, {geography_test_hex(left), geography_test_hex(right)}, type, &block);
+            function, {geography_test_hex(first_wkt), geography_test_hex(second_wkt)}, type,
+            &block);
     EXPECT_FALSE(status.ok())
             << "unexpected boolean "
             << (status.ok() ? (*block.get_by_position(2).column)[0].get<TYPE_BOOLEAN>() : false);

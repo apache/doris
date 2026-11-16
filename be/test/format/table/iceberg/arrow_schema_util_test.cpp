@@ -155,6 +155,41 @@ TEST(ArrowSchemaUtilTest, IcebergParquetWriterPreservesUuidLogicalAnnotations) {
 
 const std::string_view pfid = "PARQUET:field_id";
 
+static void expect_spatial_parquet_metadata(
+        const std::shared_ptr<::parquet::FileMetaData>& metadata, const std::string& schema_json) {
+    ASSERT_EQ(metadata->schema()->group_node()->field_count(), 3);
+    const auto* const shape = metadata->schema()->Column(0);
+    const auto* const place = metadata->schema()->Column(1);
+    EXPECT_TRUE(shape->logical_type()->is_geometry());
+    EXPECT_EQ("EPSG:3857",
+              static_cast<const ::parquet::GeometryLogicalType&>(*shape->logical_type()).crs());
+    EXPECT_TRUE(place->logical_type()->is_geography());
+    EXPECT_EQ("OGC:CRS84",
+              static_cast<const ::parquet::GeographyLogicalType&>(*place->logical_type()).crs());
+    const auto& footer = metadata->key_value_metadata();
+    ASSERT_NE(footer, nullptr);
+    const auto iceberg_metadata = footer->Get("iceberg.schema");
+    ASSERT_TRUE(iceberg_metadata.ok()) << iceberg_metadata.status();
+    EXPECT_EQ(*iceberg_metadata, schema_json);
+    EXPECT_TRUE(footer->Contains("ARROW:schema"));
+}
+
+static void expect_arrow_variant_metadata(const std::string& path) {
+    // Arrow's default reader uses the embedded schema to restore the ordinary Variant field.
+    ASSERT_TRUE(register_arrow_variant_extension().ok());
+    auto input = arrow::io::ReadableFile::Open(path).ValueOrDie();
+    auto arrow_reader = ::parquet::arrow::OpenFile(input, arrow::default_memory_pool());
+    ASSERT_TRUE(arrow_reader.ok()) << arrow_reader.status();
+    std::shared_ptr<arrow::Schema> result_schema;
+    const auto status = (*arrow_reader)->GetSchema(&result_schema);
+    ASSERT_TRUE(status.ok()) << status;
+    const auto payload_field = result_schema->GetFieldByName("payload");
+    ASSERT_NE(payload_field, nullptr);
+    ASSERT_EQ(payload_field->type()->id(), arrow::Type::EXTENSION);
+    const auto& extension = static_cast<const arrow::ExtensionType&>(*payload_field->type());
+    EXPECT_EQ(extension.extension_name(), "arrow.parquet.variant");
+}
+
 TEST(ArrowSchemaUtilTest, IcebergParquetWriterPreservesSpatialLogicalAnnotations) {
     auto* env = ExecEnv::GetInstance();
     auto* previous_pool = env->_arrow_memory_pool;
@@ -207,35 +242,9 @@ TEST(ArrowSchemaUtilTest, IcebergParquetWriterPreservesSpatialLogicalAnnotations
 
     auto reader = ::parquet::ParquetFileReader::OpenFile(path, false);
     const auto metadata = reader->metadata();
-    ASSERT_EQ(metadata->schema()->group_node()->field_count(), 3);
-    const auto* const shape = metadata->schema()->Column(0);
-    const auto* const place = metadata->schema()->Column(1);
-    EXPECT_TRUE(shape->logical_type()->is_geometry());
-    EXPECT_EQ("EPSG:3857",
-              static_cast<const ::parquet::GeometryLogicalType&>(*shape->logical_type()).crs());
-    EXPECT_TRUE(place->logical_type()->is_geography());
-    EXPECT_EQ("OGC:CRS84",
-              static_cast<const ::parquet::GeographyLogicalType&>(*place->logical_type()).crs());
-    const auto& footer = metadata->key_value_metadata();
-    ASSERT_NE(footer, nullptr);
-    const auto iceberg_metadata = footer->Get("iceberg.schema");
-    ASSERT_TRUE(iceberg_metadata.ok()) << iceberg_metadata.status();
-    EXPECT_EQ(*iceberg_metadata, schema_json);
-    EXPECT_TRUE(footer->Contains("ARROW:schema"));
+    ASSERT_NO_FATAL_FAILURE(expect_spatial_parquet_metadata(metadata, schema_json));
 
-    // Arrow's default reader uses the embedded schema to restore the ordinary Variant field.
-    ASSERT_TRUE(register_arrow_variant_extension().ok());
-    auto input = arrow::io::ReadableFile::Open(path).ValueOrDie();
-    auto arrow_reader = ::parquet::arrow::OpenFile(input, arrow::default_memory_pool());
-    ASSERT_TRUE(arrow_reader.ok()) << arrow_reader.status();
-    std::shared_ptr<arrow::Schema> result_schema;
-    const auto status = (*arrow_reader)->GetSchema(&result_schema);
-    ASSERT_TRUE(status.ok()) << status;
-    const auto payload_field = result_schema->GetFieldByName("payload");
-    ASSERT_NE(payload_field, nullptr);
-    ASSERT_EQ(payload_field->type()->id(), arrow::Type::EXTENSION);
-    const auto& extension = static_cast<const arrow::ExtensionType&>(*payload_field->type());
-    EXPECT_EQ(extension.extension_name(), "arrow.parquet.variant");
+    ASSERT_NO_FATAL_FAILURE(expect_arrow_variant_metadata(path));
 }
 
 TEST(ArrowSchemaUtilTest, test_simple_field) {
