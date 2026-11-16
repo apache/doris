@@ -28,6 +28,7 @@ import org.apache.doris.nereids.types.coercion.FractionalType;
 import org.apache.doris.nereids.types.coercion.IntegralType;
 import org.apache.doris.nereids.types.coercion.NumericType;
 import org.apache.doris.nereids.types.coercion.ScaleTimeType;
+import org.apache.doris.thrift.TVariantSerializeType;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
@@ -72,6 +73,25 @@ public class DataTypeTest {
         Assertions.assertEquals(VarcharType.SYSTEM_DEFAULT.hashCode(), varcharType4.hashCode());
         Assertions.assertEquals(VarcharType.SYSTEM_DEFAULT, varcharType5);
         Assertions.assertEquals(VarcharType.SYSTEM_DEFAULT.hashCode(), varcharType5.hashCode());
+    }
+
+    @Test
+    public void testVariantTypeEqualityComparesSerializeTypeOnlyForCountZero() {
+        VariantType v1Zero = new VariantType(ImmutableList.of(), 0, false, 10000, 0, false, 0L, 64, false,
+                TVariantSerializeType.V1);
+        VariantType v2Zero = new VariantType(ImmutableList.of(), 0, false, 10000, 0, false, 0L, 64, false,
+                TVariantSerializeType.V2);
+        Assertions.assertNotEquals(v1Zero, v2Zero);
+        VariantType v1Counted = new VariantType(ImmutableList.of(), 2048, false, 10000, 0, false, 0L, 64, false,
+                TVariantSerializeType.V1);
+        VariantType v2Counted = new VariantType(ImmutableList.of(), 2048, false, 10000, 0, false, 0L, 64, false,
+                TVariantSerializeType.V2);
+        Assertions.assertEquals(v1Counted, v2Counted);
+        Assertions.assertEquals(v1Counted.hashCode(), v2Counted.hashCode());
+        Assertions.assertNotEquals(v1Counted, v1Zero);
+        // the catalog round trip keeps the serialize type
+        Assertions.assertEquals(TVariantSerializeType.V2,
+                ((VariantType) DataType.fromCatalogType(v2Zero.toCatalogDataType())).getVariantSerializeType());
     }
 
     @Test

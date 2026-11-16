@@ -21,6 +21,7 @@ import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.common.Config;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.load.NereidsLoadTaskInfo.NereidsImportColumnDescs;
@@ -67,16 +68,25 @@ public class VariantLoadParseInjectionTest extends TestWithFeService {
     public void runBeforeAll() throws Exception {
         createDatabase(DATABASE);
         connectContext.setDatabase(DATABASE);
-        createTable("create table " + TABLE + " (\n"
-                + "    k int,\n"
-                + "    v variant<properties(\"variant_max_subcolumns_count\"=\"2048\",\n"
-                + "        \"variant_enable_typed_paths_to_sparse\"=\"true\",\n"
-                + "        \"variant_max_sparse_column_statistics_size\"=\"321\",\n"
-                + "        \"variant_sparse_hash_shard_count\"=\"4\")>\n"
-                + ")\n"
-                + "duplicate key(k)\n"
-                + "distributed by hash(k) buckets 1\n"
-                + "properties(\"replication_num\"=\"1\")");
+        // typed paths to sparse is internal now: a column takes `true` only from the session variable, which the
+        // parser reads with debug points enabled
+        boolean originalEnableDebugPoints = Config.enable_debug_points;
+        try {
+            Config.enable_debug_points = true;
+            connectContext.getSessionVariable().defaultEnableTypedPathsToSparse = true;
+            createTable("create table " + TABLE + " (\n"
+                    + "    k int,\n"
+                    + "    v variant<properties(\"variant_max_subcolumns_count\"=\"2048\",\n"
+                    + "        \"variant_max_sparse_column_statistics_size\"=\"321\",\n"
+                    + "        \"variant_sparse_hash_shard_count\"=\"4\")>\n"
+                    + ")\n"
+                    + "duplicate key(k)\n"
+                    + "distributed by hash(k) buckets 1\n"
+                    + "properties(\"replication_num\"=\"1\")");
+        } finally {
+            Config.enable_debug_points = originalEnableDebugPoints;
+            connectContext.getSessionVariable().defaultEnableTypedPathsToSparse = false;
+        }
     }
 
     @Test

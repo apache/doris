@@ -20,9 +20,10 @@ import org.apache.doris.regression.action.ProfileAction
 suite("dotted_key_escape_index_profile", "p0") {
     sql "set default_variant_enable_doc_mode=false"
     sql "drop table if exists dotted_key_escape_index_profile"
+    // every path a subcolumn with its index: a count of 0 keeps the dynamic paths sparse on a new column
     sql """create table dotted_key_escape_index_profile(id int,v variant<properties(
         "variant_enable_nested_group"="false",
-        "variant_max_subcolumns_count"="0")>,index idx_v(v) using inverted)
+        "variant_max_subcolumns_count"="2048")>,index idx_v(v) using inverted)
         duplicate key(id) distributed by hash(id) buckets 1
         properties("variant_escape_dots_in_keys"="true", "replication_num"="1", "inverted_index_storage_format"="V2")"""
     // Keep matching and nonmatching values in one segment so zone maps cannot

@@ -26,7 +26,7 @@ suite("regression_test_variant_doc_mode", "p0"){
     sql """
         CREATE TABLE IF NOT EXISTS ${table_min0} (
             k bigint,
-            v variant<properties("variant_enable_doc_mode"="true","variant_doc_materialization_min_rows"="0")>
+            v variant<properties("variant_enable_doc_mode"="true","variant_subcolumn_extraction_min_rows"="0")>
         )
         DUPLICATE KEY(`k`)
         DISTRIBUTED BY HASH(k) BUCKETS 1
@@ -35,7 +35,7 @@ suite("regression_test_variant_doc_mode", "p0"){
     def show_create_min0 = sql """ show create table ${table_min0} """
     logger.info("show_create_min0: " + show_create_min0.toString())
     assertTrue(show_create_min0.toString().contains("variant_enable_doc_mode"))
-    assertTrue(show_create_min0.toString().contains("variant_doc_materialization_min_rows"))
+    assertTrue(show_create_min0.toString().contains("variant_subcolumn_extraction_min_rows"))
     assertTrue(show_create_min0.toString().contains("\"0\"") || show_create_min0.toString().contains("= 0"))
 
     // multiple inserts to generate multiple rowsets
@@ -87,7 +87,7 @@ suite("regression_test_variant_doc_mode", "p0"){
     sql """
         CREATE TABLE IF NOT EXISTS ${table_ins} (
             k bigint,
-            v variant<properties("variant_enable_doc_mode"="true","variant_doc_materialization_min_rows"="0")>
+            v variant<properties("variant_enable_doc_mode"="true","variant_subcolumn_extraction_min_rows"="0")>
         )
         DUPLICATE KEY(`k`)
         DISTRIBUTED BY HASH(k) BUCKETS 1
@@ -134,7 +134,7 @@ suite("regression_test_variant_doc_mode", "p0"){
     sql """ create table ${table_like} like ${table_min0} """
     def show_create_like = sql """ show create table ${table_like} """
     assertTrue(show_create_like.toString().contains("variant_enable_doc_mode"))
-    assertTrue(show_create_like.toString().contains("variant_doc_materialization_min_rows"))
+    assertTrue(show_create_like.toString().contains("variant_subcolumn_extraction_min_rows"))
     assertTrue(show_create_like.toString().contains("\"0\"") || show_create_like.toString().contains("= 0"))
     logger.info("show_create_like: " + show_create_like.toString())
 
@@ -172,14 +172,14 @@ suite("regression_test_variant_doc_mode", "p0"){
 
     // ----------------------------
     // Case D: doc_mode + min_rows very large
-    // Covers: different variant_doc_materialization_min_rows behavior, compaction consistency
+    // Covers: different variant_subcolumn_extraction_min_rows behavior, compaction consistency
     // ----------------------------
     def table_min_big = "doc_mode_min_big"
     sql """ DROP TABLE IF EXISTS ${table_min_big} """
     sql """
         CREATE TABLE IF NOT EXISTS ${table_min_big} (
             k bigint,
-            v variant<properties("variant_enable_doc_mode"="true","variant_doc_materialization_min_rows"="10000000")>
+            v variant<properties("variant_enable_doc_mode"="true","variant_subcolumn_extraction_min_rows"="10000000")>
         )
         DUPLICATE KEY(`k`)
         DISTRIBUTED BY HASH(k) BUCKETS 1
@@ -187,7 +187,7 @@ suite("regression_test_variant_doc_mode", "p0"){
     """
     def show_create_min_big = sql """ show create table ${table_min_big} """
     assertTrue(show_create_min_big.toString().contains("variant_enable_doc_mode"))
-    assertTrue(show_create_min_big.toString().contains("variant_doc_materialization_min_rows"))
+    assertTrue(show_create_min_big.toString().contains("variant_subcolumn_extraction_min_rows"))
     assertTrue(show_create_min_big.toString().contains("10000000"))
 
     sql """insert into ${table_min_big} values
@@ -236,21 +236,21 @@ suite("regression_test_variant_doc_mode", "p0"){
     // Case E: session default min_rows != column properties (override)
     // Covers: column properties override session variable
     // ----------------------------
-    sql """ set default_variant_doc_materialization_min_rows = 10000000 """
+    sql """ set default_variant_subcolumn_extraction_min_rows = 10000000 """
     def table_override = "doc_mode_override_min0"
     sql """ DROP TABLE IF EXISTS ${table_override} """
     // column explicitly sets min_rows=0, should override session default
     sql """
         CREATE TABLE IF NOT EXISTS ${table_override} (
             k bigint,
-            v variant<properties("variant_enable_doc_mode"="true","variant_doc_materialization_min_rows"="0")>
+            v variant<properties("variant_enable_doc_mode"="true","variant_subcolumn_extraction_min_rows"="0")>
         )
         DUPLICATE KEY(`k`)
         DISTRIBUTED BY HASH(k) BUCKETS 1
         PROPERTIES("replication_num" = "1", "disable_auto_compaction" = "true");
     """
     def show_create_override = sql """ show create table ${table_override} """
-    assertTrue(show_create_override.toString().contains("variant_doc_materialization_min_rows"))
+    assertTrue(show_create_override.toString().contains("variant_subcolumn_extraction_min_rows"))
     assertTrue(show_create_override.toString().contains("\"0\"") || show_create_override.toString().contains("= 0"))
 
     sql """insert into ${table_override} values
@@ -294,5 +294,5 @@ suite("regression_test_variant_doc_mode", "p0"){
     assertEquals(before_min0, before_override)
 
     // best-effort reset
-    sql """ set default_variant_doc_materialization_min_rows = 0 """
+    sql """ set default_variant_subcolumn_extraction_min_rows = 0 """
 }

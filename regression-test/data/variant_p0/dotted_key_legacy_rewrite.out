@@ -6,28 +6,28 @@
 -- !source_schema --
 id	int	Yes	true	\N	
 padding	int	Yes	false	0	NONE
-v	variant<PROPERTIES ("variant_max_subcolumns_count" = "0","variant_enable_typed_paths_to_sparse" = "false","variant_max_sparse_column_statistics_size" = "10000","variant_sparse_hash_shard_count" = "1")>	Yes	false	\N	NONE
+v	variant<PROPERTIES ("variant_max_subcolumns_count" = "2048","variant_max_sparse_column_statistics_size" = "10000","variant_subcolumn_extraction_min_rows" = "0","variant_sparse_hash_shard_count" = "1")>	Yes	false	\N	NONE
 v.a	bigint	Yes	false	\N	NONE
 v.a.b	bigint	Yes	false	\N	NONE
 
 -- !heavy_before_schema --
 id	int	Yes	true	\N	
 padding	int	Yes	false	0	NONE
-v	variant<PROPERTIES ("variant_max_subcolumns_count" = "0","variant_enable_typed_paths_to_sparse" = "false","variant_max_sparse_column_statistics_size" = "10000","variant_sparse_hash_shard_count" = "1")>	Yes	false	\N	NONE
+v	variant<PROPERTIES ("variant_max_subcolumns_count" = "2048","variant_max_sparse_column_statistics_size" = "10000","variant_subcolumn_extraction_min_rows" = "0","variant_sparse_hash_shard_count" = "1")>	Yes	false	\N	NONE
 v.a	bigint	Yes	false	\N	NONE
 v.a.b	bigint	Yes	false	\N	NONE
 
 -- !vertical_before_schema --
 id	int	Yes	true	\N	
 padding	int	Yes	false	0	NONE
-v	variant<PROPERTIES ("variant_max_subcolumns_count" = "0","variant_enable_typed_paths_to_sparse" = "false","variant_max_sparse_column_statistics_size" = "10000","variant_sparse_hash_shard_count" = "1")>	Yes	false	\N	NONE
+v	variant<PROPERTIES ("variant_max_subcolumns_count" = "2048","variant_max_sparse_column_statistics_size" = "10000","variant_subcolumn_extraction_min_rows" = "0","variant_sparse_hash_shard_count" = "1")>	Yes	false	\N	NONE
 v.a	bigint	Yes	false	\N	NONE
 v.a.b	bigint	Yes	false	\N	NONE
 
 -- !whole_before_schema --
 id	int	Yes	true	\N	
 padding	int	Yes	false	0	NONE
-v	variant<PROPERTIES ("variant_max_subcolumns_count" = "0","variant_enable_typed_paths_to_sparse" = "false","variant_max_sparse_column_statistics_size" = "10000","variant_sparse_hash_shard_count" = "1")>	Yes	false	\N	NONE
+v	variant<PROPERTIES ("variant_max_subcolumns_count" = "2048","variant_max_sparse_column_statistics_size" = "10000","variant_subcolumn_extraction_min_rows" = "0","variant_sparse_hash_shard_count" = "1")>	Yes	false	\N	NONE
 v.a	bigint	Yes	false	\N	NONE
 v.a.b	bigint	Yes	false	\N	NONE
 
@@ -50,7 +50,7 @@ v.a.b	bigint	Yes	false	\N	NONE
 -- !insert_select_schema --
 id	int	Yes	true	\N	
 padding	int	Yes	false	0	NONE
-v	variant<PROPERTIES ("variant_max_subcolumns_count" = "0","variant_enable_typed_paths_to_sparse" = "false","variant_max_sparse_column_statistics_size" = "10000","variant_sparse_hash_shard_count" = "1")>	Yes	false	\N	NONE
+v	variant<PROPERTIES ("variant_max_subcolumns_count" = "2048","variant_max_sparse_column_statistics_size" = "10000","variant_subcolumn_extraction_min_rows" = "0","variant_sparse_hash_shard_count" = "1")>	Yes	false	\N	NONE
 v.a.b	bigint	Yes	false	\N	NONE
 
 -- !insert_select --
@@ -60,7 +60,7 @@ v.a.b	bigint	Yes	false	\N	NONE
 -- !heavy_after_schema --
 id	int	Yes	true	\N	
 padding	bigint	Yes	false	0	NONE
-v	variant<PROPERTIES ("variant_max_subcolumns_count" = "0","variant_enable_typed_paths_to_sparse" = "false","variant_max_sparse_column_statistics_size" = "10000","variant_sparse_hash_shard_count" = "1")>	Yes	false	\N	NONE
+v	variant<PROPERTIES ("variant_max_subcolumns_count" = "2048","variant_max_sparse_column_statistics_size" = "10000","variant_subcolumn_extraction_min_rows" = "0","variant_sparse_hash_shard_count" = "1")>	Yes	false	\N	NONE
 v.a.b	bigint	Yes	false	\N	NONE
 
 -- !heavy_after --
@@ -70,7 +70,7 @@ v.a.b	bigint	Yes	false	\N	NONE
 -- !vertical_after_schema --
 id	int	Yes	true	\N	
 padding	int	Yes	false	0	NONE
-v	variant<PROPERTIES ("variant_max_subcolumns_count" = "0","variant_enable_typed_paths_to_sparse" = "false","variant_max_sparse_column_statistics_size" = "10000","variant_sparse_hash_shard_count" = "1")>	Yes	false	\N	NONE
+v	variant<PROPERTIES ("variant_max_subcolumns_count" = "2048","variant_max_sparse_column_statistics_size" = "10000","variant_subcolumn_extraction_min_rows" = "0","variant_sparse_hash_shard_count" = "1")>	Yes	false	\N	NONE
 v.a	bigint	Yes	false	\N	NONE
 v.a.b	bigint	Yes	false	\N	NONE
 
@@ -81,7 +81,7 @@ v.a.b	bigint	Yes	false	\N	NONE
 -- !whole_after_schema --
 id	int	Yes	true	\N	
 padding	int	Yes	false	0	NONE
-v	variant<PROPERTIES ("variant_max_subcolumns_count" = "0","variant_enable_typed_paths_to_sparse" = "false","variant_max_sparse_column_statistics_size" = "10000","variant_sparse_hash_shard_count" = "1")>	Yes	false	\N	NONE
+v	variant<PROPERTIES ("variant_max_subcolumns_count" = "2048","variant_max_sparse_column_statistics_size" = "10000","variant_subcolumn_extraction_min_rows" = "0","variant_sparse_hash_shard_count" = "1")>	Yes	false	\N	NONE
 v.a.b	bigint	Yes	false	\N	NONE
 
 -- !whole_after --

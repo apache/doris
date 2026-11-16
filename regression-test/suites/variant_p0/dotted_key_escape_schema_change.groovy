@@ -24,7 +24,7 @@ suite("dotted_key_escape_schema_change", "p0") {
     sql "set batch_size=1024"
     sql "set default_variant_enable_doc_mode=false"
     sql "set default_variant_enable_nested_group=false"
-    sql "set default_variant_max_subcolumns_count=0"
+    sql "set default_variant_max_subcolumns_count=2048"
     sql "set default_variant_enable_typed_paths_to_sparse=false"
     sql "set default_variant_max_sparse_column_statistics_size=10000"
     sql "set enable_unique_key_partial_update=false"
@@ -37,7 +37,7 @@ suite("dotted_key_escape_schema_change", "p0") {
     for (def storageFormat : ["V2", "V3"]) {
         for (def docMode : [false, true]) {
             def layout = docMode
-                    ? '"variant_enable_doc_mode"="true", "variant_doc_hash_shard_count"="3", "variant_doc_materialization_min_rows"="1"'
+                    ? '"variant_enable_doc_mode"="true", "variant_sparse_hash_shard_count"="3", "variant_subcolumn_extraction_min_rows"="1"'
                     : '"variant_max_subcolumns_count"="1", "variant_sparse_hash_shard_count"="3"'
 
             String name = "dotted_key_escape_schema_change_${storageFormat}_${docMode}"

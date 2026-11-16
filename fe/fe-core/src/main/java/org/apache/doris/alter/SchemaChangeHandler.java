@@ -59,6 +59,7 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletBinlogConfig;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
+import org.apache.doris.catalog.VariantType;
 import org.apache.doris.catalog.info.ColumnPosition;
 import org.apache.doris.catalog.info.IndexType;
 import org.apache.doris.cloud.qe.ComputeGroupException;
@@ -1008,6 +1009,13 @@ public class SchemaChangeHandler extends AlterHandler {
             if (col.getName().equalsIgnoreCase(newColName)) {
                 modColIndex = i;
                 found = true;
+                // A restated definition parses as V2 and cannot state variant_enable_typed_paths_to_sparse, but the
+                // column keeps the layout its data is stored with.
+                if (col.getType().isVariantType() && modColumn.getType().isVariantType()) {
+                    modColumn.setType(((VariantType) modColumn.getType())
+                            .withSerializeType(col.getVariantSerializeType())
+                            .withEnableTypedPathsToSparse(col.getVariantEnableTypedPathsToSparse()));
+                }
                 if (!col.equals(modColumn)) {
                     typeChanged = true;
                     // TODO:the case where columnPos is not empty has not been considered

@@ -16,6 +16,8 @@
 // under the License.
 
 suite("dotted_key_escape_layout_switch", "p0,nonConcurrent") {
+    // the layout depends on the row threshold and DESC prints it, which fuzzy mode picks at random
+    sql "set default_variant_subcolumn_extraction_min_rows = 0"
     sql "set default_variant_enable_doc_mode=false"
     sql "set describe_extend_variant_column=true"
     [1, 2].each { width ->
@@ -58,8 +60,9 @@ suite("dotted_key_escape_layout_switch", "p0,nonConcurrent") {
                 from information_schema.rowsets where TABLET_ID=${tablet} and NUM_SEGMENTS>0"""
         }
     }
-    // Zero means unlimited. The finite-cap branch must retain a sparse path too.
-    [0, 2].each { cap ->
+    // 2048 extracts every path (0 would keep them all sparse on a new column). The finite-cap branch must
+    // retain a sparse path too.
+    [2048, 2].each { cap ->
         [1, 2].each { width ->
             sql "drop table if exists dotted_key_escape_cap"
             sql """create table dotted_key_escape_cap(id int, v variant<properties(

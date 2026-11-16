@@ -79,6 +79,8 @@ public:
         int32_t doc_hash_shard_count = 64;
 
         bool enable_nested_group = false;
+
+        VariantSerializeTypePB serialize_type = VariantSerializeTypePB::VARIANT_SERIALIZE_V1;
     };
 
     TabletColumn();
@@ -283,6 +285,10 @@ public:
     bool variant_enable_nested_group() const { return _variant.enable_nested_group; }
 
     void set_variant_enable_nested_group(bool val) { _variant.enable_nested_group = val; }
+
+    VariantSerializeTypePB variant_serialize_type() const { return _variant.serialize_type; }
+
+    void set_variant_serialize_type(VariantSerializeTypePB val) { _variant.serialize_type = val; }
 
     bool is_decimal() const { return _is_decimal; }
 

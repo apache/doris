@@ -232,8 +232,7 @@ public class VariableMgrTest extends TestWithFeService {
                     SessionVariable.DEFAULT_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE,
                     SessionVariable.DEFAULT_VARIANT_SPARSE_HASH_SHARD_COUNT,
                     SessionVariable.DEFAULT_VARIANT_ENABLE_DOC_MODE,
-                    SessionVariable.DEFAULT_VARIANT_DOC_MATERIALIZATION_MIN_ROWS,
-                    SessionVariable.DEFAULT_VARIANT_DOC_HASH_SHARD_COUNT,
+                    SessionVariable.DEFAULT_VARIANT_SUBCOLUMN_EXTRACTION_MIN_ROWS,
                     SessionVariable.DEFAULT_VARIANT_ENABLE_NESTED_GROUP}) {
                 Assertions.assertNull(VariableMgr.getShownVarContext(name), name);
 

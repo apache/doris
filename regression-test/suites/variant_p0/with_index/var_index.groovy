@@ -19,6 +19,7 @@ suite("regression_test_variant_var_index", "p0, nonConcurrent"){
     def variantV2Function = "parse_to_variant"
     def table_name = "var_index"
     sql """ set default_variant_enable_typed_paths_to_sparse = false """
+    sql """ set default_variant_subcolumn_extraction_min_rows = 0 """
     sql """ set default_variant_enable_doc_mode = false """
     sql "DROP TABLE IF EXISTS var_index"
     sql """
@@ -58,7 +59,7 @@ suite("regression_test_variant_var_index", "p0, nonConcurrent"){
     sql """
     CREATE TABLE IF NOT EXISTS ${table_name} (
         k bigint,
-        v variant<properties("variant_max_subcolumns_count" = "0")>,
+        v variant<properties("variant_max_subcolumns_count" = "2048")>,
         INDEX idx_var(v) USING INVERTED  PROPERTIES("parser" = "english") COMMENT '',
         INDEX idx_var2(v) USING INVERTED
     )

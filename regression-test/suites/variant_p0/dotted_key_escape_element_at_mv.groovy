@@ -25,7 +25,7 @@ suite("dotted_key_escape_element_at_mv", "p0") {
     sql "set batch_size=1024"
     sql "set default_variant_enable_doc_mode=false"
     sql "set default_variant_enable_nested_group=false"
-    sql "set default_variant_max_subcolumns_count=0"
+    sql "set default_variant_max_subcolumns_count=2048"
     sql "set default_variant_enable_typed_paths_to_sparse=false"
     sql "set default_variant_max_sparse_column_statistics_size=10000"
     sql "set enable_unique_key_partial_update=false"

@@ -20,8 +20,8 @@ suite("test_variant_predefine_doc_value", "nonConcurrent"){
     def enableVariantV2 = true
     def deprecatedFlattenNested = enableVariantV2 ? "false" : "true"
     sql """ set default_variant_enable_doc_mode = true """
-    sql """ set default_variant_doc_materialization_min_rows = 0 """
-    //sql """ set default_variant_doc_hash_shard_count = 0"""
+    sql """ set default_variant_subcolumn_extraction_min_rows = 0 """
+    //sql """ set default_variant_sparse_hash_shard_count = 0"""
     sql """DROP TABLE IF EXISTS test_predefine"""
     sql """ set enable_variant_flatten_nested = true """
     sql """
@@ -107,7 +107,7 @@ suite("test_variant_predefine_doc_value", "nonConcurrent"){
                 'float_':double,
                 'boolean_':boolean,
                 'varchar_': text,
-                properties("variant_enable_doc_mode" = "true", "variant_doc_materialization_min_rows" = "0")
+                properties("variant_enable_doc_mode" = "true", "variant_subcolumn_extraction_min_rows" = "0")
             > NULL
         ) ENGINE=OLAP DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 2
         PROPERTIES ( "replication_allocation" = "tag.location.default: 1");

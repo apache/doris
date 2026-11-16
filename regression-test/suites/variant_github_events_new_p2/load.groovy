@@ -45,13 +45,15 @@ suite("regression_test_variant_github_events_p2", "p2"){
         }
     }
     boolean enable_typed_paths_to_sparse = new Random().nextBoolean()
+    // typed paths to sparse is internal: only the session variable sets it
+    sql "set default_variant_enable_typed_paths_to_sparse = ${enable_typed_paths_to_sparse}"
     def table_name = "github_events"
     sql """DROP TABLE IF EXISTS ${table_name}"""
     table_name = "github_events"
     sql """
         CREATE TABLE IF NOT EXISTS ${table_name} (
             k bigint,
-            v variant<'payload.pull_request.head.repo.topics' : array<text>, properties("variant_enable_typed_paths_to_sparse" = "${enable_typed_paths_to_sparse}")>,
+            v variant<'payload.pull_request.head.repo.topics' : array<text>>,
             INDEX idx_var(v) USING INVERTED COMMENT ''
         )
         DUPLICATE KEY(`k`)
@@ -137,7 +139,7 @@ suite("regression_test_variant_github_events_p2", "p2"){
             }
         }
     }
-    sql """ALTER TABLE github_events ADD COLUMN v2 variant<properties("variant_enable_typed_paths_to_sparse" = "${enable_typed_paths_to_sparse}")> DEFAULT NULL"""
+    sql """ALTER TABLE github_events ADD COLUMN v2 variant DEFAULT NULL"""
     for(int t = 0; t <= 10; t += 1){
         long k = 9223372036854775107 + t
         sql """INSERT INTO github_events VALUES (${k}, '{"aaaa" : 1234, "bbbb" : "11ssss"}', '{"xxxx" : 1234, "yyyy" : [1.111]}')"""

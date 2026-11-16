@@ -33,6 +33,7 @@ suite("test_variant_v2_snii_index", "p0,nonConcurrent") {
         // "Conversion from Variant(max subcolumns count = 0) to Variant(... = 2048)".
         sql """ set default_variant_max_subcolumns_count = 0 """
         sql """ set default_variant_enable_doc_mode = false """
+        sql """ set default_variant_enable_typed_paths_to_sparse = false """
         sql """ set enable_segment_limit_pushdown = true """
 
         sql "DROP TABLE IF EXISTS ${tblName}"

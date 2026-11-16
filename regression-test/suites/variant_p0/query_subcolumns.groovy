@@ -34,6 +34,7 @@ suite("regression_test_query_subcolumns", "nonConcurrent"){
     sql """ set enable_segment_limit_pushdown = true; """
     sql "set enable_match_without_inverted_index = false"
     sql "set default_variant_enable_doc_mode = false"
+    sql "set default_variant_subcolumn_extraction_min_rows = 0"
     for (int i = 0; i < 5; i++) {
         int max_subcolumns_count = Math.floor(Math.random() * 10)
         // int max_subcolumns_count =1

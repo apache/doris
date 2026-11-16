@@ -20,7 +20,7 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 suite("variant_delete_and_update_doc_value", "p0"){
     def variantV2Function = "parse_to_variant"
     sql """ set default_variant_enable_doc_mode = true """
-    sql """ set default_variant_doc_materialization_min_rows = 10000 """
+    sql """ set default_variant_subcolumn_extraction_min_rows = 10000 """
     // MOR
     def table_name = "var_delete_update"
     sql "DROP TABLE IF EXISTS ${table_name}"
