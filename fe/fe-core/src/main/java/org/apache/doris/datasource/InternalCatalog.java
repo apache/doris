@@ -613,7 +613,6 @@ public class InternalCatalog implements CatalogIf<Database> {
         if (!tryLock(false)) {
             throw new DdlException("Failed to acquire catalog lock. Try again");
         }
-        Database db;
         try {
             // check is new db with same name already exist
             String targetDbName = Strings.isNullOrEmpty(newDbName) ? dbName : newDbName;
@@ -621,7 +620,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 throw new DdlException("Database[" + targetDbName + "] already exist.");
             }
 
-            db = Env.getCurrentRecycleBin().recoverDatabase(dbName, dbId);
+            Database db = Env.getCurrentRecycleBin().recoverDatabase(dbName, dbId);
             db.writeLock();
             List<Table> tableList = db.getTablesOnIdOrder();
             MetaLockUtils.writeLockTables(tableList);
@@ -641,10 +640,10 @@ public class InternalCatalog implements CatalogIf<Database> {
                 MetaLockUtils.writeUnlockTables(tableList);
                 db.writeUnlock();
             }
+            LOG.info("recover database[{}]", db.getId());
         } finally {
             unlock();
         }
-        LOG.info("recover database[{}]", db.getId());
     }
 
     public void recoverTable(String dbName, String tableName, String newTableName, long tableId) throws DdlException {
