@@ -83,9 +83,33 @@ import java.util.stream.Collectors;
  * Util for plan
  */
 public class PlanUtils {
+    /** Create a filter, merging predicates into a directly adjacent logical filter. */
     public static Optional<LogicalFilter<? extends Plan>> filter(Set<Expression> predicates, Plan plan) {
         if (predicates.isEmpty()) {
             return Optional.empty();
+        }
+        if (plan instanceof LogicalFilter) {
+            LogicalFilter<?> filter = (LogicalFilter<?>) plan;
+            Map<Expression, Expression> conjuncts = Maps.newLinkedHashMapWithExpectedSize(
+                    filter.getConjuncts().size() + predicates.size());
+            for (Expression predicate : filter.getConjuncts()) {
+                conjuncts.put(predicate, predicate);
+            }
+            boolean changed = false;
+            for (Expression predicate : predicates) {
+                Expression existing = conjuncts.get(predicate);
+                // Original SQL predicates take precedence over equal inferred predicates.
+                if (existing == null || (ExpressionUtils.isInferred(existing)
+                        && !ExpressionUtils.isInferred(predicate))) {
+                    conjuncts.put(predicate, predicate);
+                    changed = true;
+                }
+            }
+            if (!changed) {
+                return Optional.of(filter);
+            }
+            predicates = ImmutableSet.copyOf(conjuncts.values());
+            plan = filter.child();
         }
         return Optional.of(new LogicalFilter<>(predicates, plan));
     }
