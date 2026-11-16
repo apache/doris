@@ -24,12 +24,8 @@
 
 #include "core/arena.h"
 #include "core/column/column_const.h"
-#include "core/column/column_file.h"
 #include "core/column/column_nullable.h"
-#include "core/column/column_struct.h"
 #include "core/data_type/data_type_file.h"
-#include "core/data_type/data_type_nullable.h"
-#include "core/data_type/data_type_struct.h"
 #include "core/data_type_serde/data_type_nullable_serde.h"
 #include "core/string_buffer.hpp"
 #include "util/jsonb_utils.h"
@@ -71,17 +67,6 @@ protected:
         }
         buffer.commit();
         return output->get_data_at(0).to_string();
-    }
-
-    static void expect_bytes(const IColumn& column, size_t row, const std::string* expected) {
-        auto field = column[row];
-        ASSERT_EQ(field.get_type(), TYPE_FILE);
-        const auto& fields = field.get<TYPE_FILE>();
-        ASSERT_EQ(fields.size(), 6);
-        ASSERT_EQ(fields[5].is_null(), expected == nullptr);
-        if (expected) {
-            EXPECT_EQ(fields[5].get<TYPE_VARBINARY>().to_string_ref().to_string(), *expected);
-        }
     }
 };
 
@@ -186,65 +171,13 @@ TEST_F(DataTypeFileSerDeTest, FormatOutputPreservesNullEmptyAndPaddedBase64) {
     EXPECT_EQ(text(*constant, 2, true), public_json());
 }
 
-TEST_F(DataTypeFileSerDeTest, ProtobufPreservesFileIdentityInlineAndOuterNullMask) {
-    const std::string bytes("\0\xffinline", 8);
-    auto source = ColumnNullable::create(type.create_column(), ColumnUInt8::create());
-    source->insert_default();
-    source->insert(value(&bytes));
-    source->insert(value());
-    DataTypeNullableSerDe nullable(std::make_shared<DataTypeFileSerDe>(), 1);
-    PValues pb;
-    ASSERT_TRUE(nullable.write_column_to_pb(*source, pb, 0, 3).ok());
-    EXPECT_EQ(pb.type().id(), PGenericType::FILE);
-    ASSERT_EQ(pb.child_element_size(), 6);
-    EXPECT_EQ(pb.child_element(5).type().id(), PGenericType::VARBINARY);
-    auto restored = ColumnNullable::create(type.create_column(), ColumnUInt8::create());
-    ASSERT_TRUE(nullable.read_column_from_pb(*restored, pb).ok());
-    ASSERT_EQ(restored->size(), 3);
-    EXPECT_TRUE(restored->is_null_at(0));
-    EXPECT_FALSE(restored->is_null_at(1));
-    expect_bytes(restored->get_nested_column(), 1, &bytes);
-    expect_bytes(restored->get_nested_column(), 2, nullptr);
-    pb.mutable_type()->set_id(PGenericType::STRUCT);
-    EXPECT_FALSE(nullable.read_column_from_pb(*restored, pb).ok());
-    EXPECT_EQ(restored->size(), 3);
-}
-
-TEST_F(DataTypeFileSerDeTest, ProtobufShapeValidationIsAtomicForAllSixChildren) {
-    auto source = type.create_column();
-    source->insert(value());
-    PValues pb;
-    ASSERT_TRUE(serde.write_column_to_pb(*source, pb, 0, 1).ok());
-    auto restored = type.create_column();
-    restored->insert(value());
-    pb.mutable_child_element(2)->clear_int64_value();
-    EXPECT_FALSE(serde.read_column_from_pb(*restored, pb).ok());
-    EXPECT_EQ(restored->size(), 1);
-    pb.mutable_child_element(2)->add_int64_value(1024);
-    pb.mutable_child_element(5)->clear_bytes_value();
-    EXPECT_FALSE(serde.read_column_from_pb(*restored, pb).ok());
-    EXPECT_EQ(restored->size(), 1);
-}
-
-TEST_F(DataTypeFileSerDeTest, ProtobufPreservesNullableParentWithNonNullableFileChild) {
-    const auto outer_type = make_nullable(std::make_shared<DataTypeStruct>(
-            DataTypes {std::make_shared<DataTypeFile>()}, Strings {"payload"}));
-    const auto outer_serde = outer_type->get_serde();
-    auto source = outer_type->create_column();
-    source->insert_default();
-    source->insert(Field::create_field<TYPE_STRUCT>(Struct {value()}));
-    PValues pb;
-    ASSERT_TRUE(outer_serde->write_column_to_pb(*source, pb, 0, 2).ok());
-    ASSERT_FALSE(pb.child_element(0).has_null());
-    auto restored = outer_type->create_column();
-    ASSERT_TRUE(outer_serde->read_column_from_pb(*restored, pb).ok());
-    ASSERT_EQ(restored->size(), 2);
-    EXPECT_TRUE(restored->is_null_at(0));
-    EXPECT_FALSE(restored->is_null_at(1));
-    const auto& parent = assert_cast<const ColumnNullable&>(*restored);
-    const auto& structure = assert_cast<const ColumnStruct&>(parent.get_nested_column());
-    EXPECT_TRUE(structure.get_column(0)[0].get<TYPE_FILE>()[0].is_null());
-    EXPECT_EQ(structure.get_column(0)[1], value());
+TEST_F(DataTypeFileSerDeTest, ProtobufNotSupported) {
+    auto column = type.create_column();
+    column->insert(value());
+    PValues values;
+    EXPECT_EQ(serde.write_column_to_pb(*column, values, 0, 1).code(),
+              ErrorCode::NOT_IMPLEMENTED_ERROR);
+    EXPECT_EQ(serde.read_column_from_pb(*column, values).code(), ErrorCode::NOT_IMPLEMENTED_ERROR);
 }
 
 TEST_F(DataTypeFileSerDeTest, ArrowConversionIsUnsupported) {

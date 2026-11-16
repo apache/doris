@@ -17,7 +17,6 @@
 
 #include "core/data_type_serde/data_type_file_serde.h"
 
-#include <gen_cpp/types.pb.h>
 #include <rapidjson/document.h>
 
 #include <algorithm>
@@ -56,14 +55,6 @@ void write_base64(StringRef bytes, BufferWritable& bw) {
     bw.write('"');
 }
 
-Status check_pb_null_map(const PValues& value, int rows) {
-    if ((value.has_null() && value.null_map_size() != rows) ||
-        (!value.has_null() && value.null_map_size() != 0)) {
-        return Status::InvalidArgument("FILE protobuf null map does not match row count {}", rows);
-    }
-    return Status::OK();
-}
-
 } // namespace
 
 DataTypeFileSerDe::DataTypeFileSerDe(int nesting_level) : DataTypeSerDe(nesting_level) {
@@ -94,7 +85,7 @@ void DataTypeFileSerDe::_write_json(const IColumn& column, int64_t row, BufferWr
         const auto& child = assert_cast<const ColumnNullable&>(file.get_column(i));
         if (child.is_null_at(index)) {
             bw.write("null", 4);
-        } else if (i == 1 || i == 2) {
+        } else if (i == DataTypeFile::OFFSET_FIELD_INDEX || i == DataTypeFile::SIZE_FIELD_INDEX) {
             bw.write_number(child.get_nested_column().get_int(index));
         } else {
             const auto bytes = child.get_nested_column().get_data_at(index);
@@ -163,7 +154,7 @@ Status DataTypeFileSerDe::deserialize_one_cell_from_json(IColumn& column, Slice&
         if (field.IsNull()) {
             continue;
         }
-        if (i == 1 || i == 2) {
+        if (i == DataTypeFile::OFFSET_FIELD_INDEX || i == DataTypeFile::SIZE_FIELD_INDEX) {
             value[i] = Field::create_field<TYPE_BIGINT>(field.GetInt64());
         } else if (i == INLINE_FIELD_INDEX) {
             const auto encoded_size = field.GetStringLength();
@@ -230,50 +221,6 @@ Status DataTypeFileSerDe::serialize_column_to_jsonb(const IColumn& column, int64
     if (!writer.writeEndObject()) {
         return Status::InternalError("Cannot end FILE JSON object");
     }
-    return Status::OK();
-}
-
-Status DataTypeFileSerDe::write_column_to_pb(const IColumn& column, PValues& result, int64_t start,
-                                             int64_t end) const {
-    const auto& file = assert_cast<const ColumnFile&>(column);
-    result.mutable_type()->set_id(PGenericType::FILE);
-    for (size_t i = 0; i < FILE_FIELDS; ++i) {
-        RETURN_IF_ERROR(_element_serdes[i]->write_column_to_pb(
-                file.get_column(i), *result.add_child_element(), start, end));
-    }
-    return Status::OK();
-}
-
-Status DataTypeFileSerDe::read_column_from_pb(IColumn& column, const PValues& arg) const {
-    if (arg.type().id() != PGenericType::FILE ||
-        std::cmp_not_equal(arg.child_element_size(), FILE_FIELDS)) {
-        return Status::InvalidArgument("Expected FILE protobuf with six children");
-    }
-    const int rows = arg.child_element(0).string_value_size();
-    RETURN_IF_ERROR(check_pb_null_map(arg, rows));
-    for (size_t i = 0; i < FILE_FIELDS; ++i) {
-        const auto& child = arg.child_element(cast_set<int>(i));
-        const bool integer = i == 1 || i == 2;
-        auto expected_type = integer ? PGenericType::INT64 : PGenericType::STRING;
-        auto count = integer ? child.int64_value_size() : child.string_value_size();
-        if (i == INLINE_FIELD_INDEX) {
-            expected_type = PGenericType::VARBINARY;
-            count = child.bytes_value_size();
-        }
-        if (child.type().id() != expected_type || count != rows) {
-            return Status::InvalidArgument("Invalid FILE protobuf child {} type or row count",
-                                           _names[i]);
-        }
-        RETURN_IF_ERROR(check_pb_null_map(child, rows));
-    }
-    auto decoded = column.clone_empty();
-    auto& file = assert_cast<ColumnFile&>(*decoded);
-    for (size_t i = 0; i < FILE_FIELDS; ++i) {
-        RETURN_IF_ERROR(_element_serdes[i]->read_column_from_pb(
-                file.get_column(i), arg.child_element(cast_set<int>(i))));
-    }
-    // Internal protobuf transport restores values without repeating input validation.
-    column.insert_range_from(file, 0, rows);
     return Status::OK();
 }
 

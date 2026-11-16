@@ -24,19 +24,34 @@ import org.apache.doris.nereids.types.coercion.ComplexDataType;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 
 /** The logical FILE leaf; its fixed physical children do not add SQL nesting depth. */
 public final class FileType extends DataType implements ComplexDataType, NestedColumnPrunable {
     public static final FileType INSTANCE = new FileType();
 
+    private final List<StructField> fields;
+
     private FileType() {
+        fields = Type.FILE.getFields().stream()
+                .map(field -> new StructField(field.getName(), DataType.fromCatalogType(field.getType()), true, ""))
+                .collect(ImmutableList.toImmutableList());
     }
 
     public List<StructField> getFields() {
-        return Type.FILE.getFields().stream()
-                .map(field -> new StructField(field.getName(), DataType.fromCatalogType(field.getType()), true, ""))
-                .collect(ImmutableList.toImmutableList());
+        return fields;
+    }
+
+    /** Get a canonical field by its case-insensitive name. */
+    public StructField getField(String name) {
+        String normalized = name.toLowerCase(Locale.ROOT);
+        for (StructField field : fields) {
+            if (field.getName().equals(normalized)) {
+                return field;
+            }
+        }
+        return null;
     }
 
     public StructType publicStructType() {

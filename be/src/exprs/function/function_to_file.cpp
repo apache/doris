@@ -174,11 +174,13 @@ Status FunctionToFile::execute_impl(FunctionContext* context, Block& block,
         }
         auto content_type = to_file_content_type(s3_uri.get_key(), metadata);
         File value(DataTypeFile::FIELD_COUNT);
-        value[0] = Field::create_field<TYPE_STRING>(uri);
-        value[2] = Field::create_field<TYPE_BIGINT>(metadata.size);
-        value[3] = Field::create_field<TYPE_STRING>(std::move(content_type));
+        value[DataTypeFile::URI_FIELD_INDEX] = Field::create_field<TYPE_STRING>(uri);
+        value[DataTypeFile::SIZE_FIELD_INDEX] = Field::create_field<TYPE_BIGINT>(metadata.size);
+        value[DataTypeFile::CONTENT_TYPE_FIELD_INDEX] =
+                Field::create_field<TYPE_STRING>(std::move(content_type));
         if (metadata.checksum) {
-            value[4] = Field::create_field<TYPE_STRING>(*metadata.checksum);
+            value[DataTypeFile::CHECKSUM_FIELD_INDEX] =
+                    Field::create_field<TYPE_STRING>(*metadata.checksum);
         }
         output->insert(Field::create_field<TYPE_FILE>(std::move(value)));
     }

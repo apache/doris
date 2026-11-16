@@ -26,6 +26,7 @@
 #include "core/column/column_varbinary.h"
 #include "core/column/column_vector.h"
 #include "core/column/columns_common.h"
+#include "core/data_type/data_type_file.h"
 #include "core/data_type/primitive_type.h"
 #include "core/field.h"
 
@@ -61,9 +62,9 @@ void ColumnFile::sanity_check() const {
         const auto* child = assert_cast<const ColumnNullable*>(_columns[i].get());
         const auto& nested = child->get_nested_column();
         bool expected_type;
-        if (i == 1 || i == 2) {
+        if (i == DataTypeFile::OFFSET_FIELD_INDEX || i == DataTypeFile::SIZE_FIELD_INDEX) {
             expected_type = dynamic_cast<const ColumnInt64*>(&nested) != nullptr;
-        } else if (i == 5) {
+        } else if (i == DataTypeFile::INLINE_FIELD_INDEX) {
             expected_type = dynamic_cast<const ColumnVarbinary*>(&nested) != nullptr;
         } else {
             // Both string offset widths represent the same physical child type.
@@ -212,12 +213,12 @@ ColumnPtr ColumnFile::filter(const Filter& filter, ssize_t result_size_hint) con
 
 size_t ColumnFile::filter(const Filter& filter) {
     column_match_filter_size(size(), filter.size());
-    const size_t result_size = _columns[0]->filter(filter);
-    for (size_t i = 1; i < NUM_CHILDREN - 1; ++i) {
+    const size_t result_size = _columns.front()->filter(filter);
+    for (size_t i = 1; i < DataTypeFile::INLINE_FIELD_INDEX; ++i) {
         const size_t child_size = _columns[i]->filter(filter);
         DCHECK_EQ(child_size, result_size);
     }
-    auto& inline_column = assert_cast<ColumnNullable&>(*_columns[NUM_CHILDREN - 1]);
+    auto& inline_column = assert_cast<ColumnNullable&>(*_columns[DataTypeFile::INLINE_FIELD_INDEX]);
     if (result_size == 0) {
         inline_column.clear();
         return 0;

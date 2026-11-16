@@ -45,9 +45,12 @@ public:
     Status write_column_to_mysql_binary(const IColumn& column, MysqlRowBinaryBuffer& row_buffer,
                                         int64_t row_idx, bool col_const,
                                         const FormatOptions& options) const override;
-    Status write_column_to_pb(const IColumn& column, PValues& result, int64_t start,
-                              int64_t end) const override;
-    Status read_column_from_pb(IColumn& column, const PValues& arg) const override;
+    Status write_column_to_pb(const IColumn&, PValues&, int64_t, int64_t) const override {
+        return Status::NotSupported("write_column_to_pb with type FILE");
+    }
+    Status read_column_from_pb(IColumn&, const PValues&) const override {
+        return Status::NotSupported("read_column_from_pb with type FILE");
+    }
     void write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& writer, Arena& arena,
                                  int32_t col_id, int64_t row_num,
                                  const FormatOptions& options) const override;

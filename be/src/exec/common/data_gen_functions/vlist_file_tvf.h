@@ -44,6 +44,8 @@ private:
     Status _fetch_next_page(RuntimeState* state);
 
     std::vector<size_t> _column_indices;
+    bool _need_path = false;
+    bool _need_file = false;
     std::map<std::string, std::string> _properties;
     ObjStoragePath _path;
     std::shared_ptr<io::ObjStorageFileSystem> _filesystem;
