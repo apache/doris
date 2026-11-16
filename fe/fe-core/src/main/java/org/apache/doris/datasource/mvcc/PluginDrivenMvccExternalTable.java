@@ -1127,10 +1127,9 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
             throw new AnalysisException("can not find partition: " + partitionName);
         }
         if (pin.isSnapshotIdFreshness()) {
-            // Range-view path with snapshot-id freshness pins the per-partition snapshot id (parity master
-            // IcebergExternalTable.getPartitionSnapshot -> MTMVSnapshotIdSnapshot). The connector pre-resolved
-            // the `<= 0 -> table snapshot id` fallback, so a non-empty table never carries a non-positive value.
-            return new MTMVSnapshotIdSnapshot(value);
+            // A live-entry partition version can miss removed files. Bind it to the same table snapshot
+            // that supplied this partition view, so a data commit invalidates the saved MV version.
+            return new MTMVSnapshotIdSnapshot(value, pin.getConnectorSnapshot().getSnapshotId());
         }
         if (pin.getConnectorSnapshot().isLastModifiedFreshness()) {
             // Last-modified connector (e.g. hive): the REAL per-partition modify time is not in the pin — the
@@ -1175,7 +1174,8 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
             Long value = pin.getNameToLastModifiedMillis().get(partitionName);
             if (value != null) {
                 snapshots.put(partitionName, pin.isSnapshotIdFreshness()
-                        ? new MTMVSnapshotIdSnapshot(value) : new MTMVTimestampSnapshot(value));
+                        ? new MTMVSnapshotIdSnapshot(value, pin.getConnectorSnapshot().getSnapshotId())
+                        : new MTMVTimestampSnapshot(value));
             }
         }
         return snapshots;
