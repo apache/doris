@@ -220,6 +220,26 @@ public class StatementContextPartitionPredicateSafetyTest {
     }
 
     @Test
+    public void spmFallbackStartsWithFreshPolicyStateAfterTheScopeReset() throws Exception {
+        try (Fixture fixture = new Fixture(Type.STRING, ordinaryUser(), List.of("x", "y"), "x")) {
+            fixture.bindMixed("h.p = 'x'");
+            fixture.statement.releasePlannerResources();
+            fixture.statement.setExternalMetadataPreloadResult(
+                    ExternalMetadataPreloadResult.executed(1, 1, 1));
+
+            fixture.statement.resetPlannerStateForReplan();
+
+            Assertions.assertFalse(fixture.statement.getExternalMetadataPreloadResult().isPresent(),
+                    "the fallback must repeat metadata preload for its own planning attempt");
+            Assertions.assertTrue(fixture.statement.getTables().isEmpty(),
+                    "the fallback must resolve the original statement's tables again");
+            Assertions.assertDoesNotThrow(fixture.statement::lock,
+                    "retiring the rewritten plan must not prevent planning the original statement");
+            Assertions.assertDoesNotThrow(() -> fixture.statement.preloadDeferredScanPartitionViewsBeforeLock(true));
+        }
+    }
+
+    @Test
     public void preparedNextContextDoesNotInheritPolicyProofs() throws Exception {
         try (Fixture fixture = new Fixture(Type.STRING, ordinaryUser(), List.of("x", "y"), "x")) {
             fixture.bindMixed("h.p = 'x'");
