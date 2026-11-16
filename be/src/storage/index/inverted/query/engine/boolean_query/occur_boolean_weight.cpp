@@ -485,12 +485,23 @@ index_query::TruthSet OccurBooleanWeight<ScoreCombinerPtrT>::listed_rows(
         return matched;
     };
 
-    // The required scorers cheapest first, then the clauses listing their rows.
-    std::ranges::stable_sort(must, [](const Clause& a, const Clause& b) {
-        const uint64_t a_cost = a.scorer == nullptr ? UINT64_MAX : a.scorer->cost();
-        const uint64_t b_cost = b.scorer == nullptr ? UINT64_MAX : b.scorer->cost();
-        return a_cost < b_cost;
-    });
+    // The required clauses from the fewest estimated rows up, so the rarest narrows the rows
+    // the others read, whatever order the query wrote them in.
+    if (must.size() > 1) {
+        std::vector<std::pair<uint64_t, size_t>> order;
+        order.reserve(must.size());
+        for (size_t i = 0; i < must.size(); ++i) {
+            order.emplace_back(
+                    _sub_weights[must[i].index].second->estimate_rows(context, must[i].key), i);
+        }
+        std::ranges::stable_sort(order, {}, &std::pair<uint64_t, size_t>::first);
+        std::vector<Clause> sorted;
+        sorted.reserve(must.size());
+        for (const auto& entry : order) {
+            sorted.push_back(std::move(must[entry.second]));
+        }
+        must = std::move(sorted);
+    }
     for (Clause& clause : must) {
         if (rows.isEmpty()) {
             return result;
@@ -515,6 +526,35 @@ index_query::TruthSet OccurBooleanWeight<ScoreCombinerPtrT>::listed_rows(
     }
     result.true_rows = std::move(rows);
     return result;
+}
+
+template <typename ScoreCombinerPtrT>
+uint64_t OccurBooleanWeight<ScoreCombinerPtrT>::estimate_rows(const QueryExecutionContext& context,
+                                                              const std::string& binding_key) {
+    const uint64_t all = context.segment_num_rows;
+    uint64_t must = all;
+    bool has_must = false;
+    uint64_t should = 0;
+    bool has_should = false;
+    for (size_t i = 0; i < _sub_weights.size(); ++i) {
+        const auto& [occur, weight] = _sub_weights[i];
+        if (occur == Occur::MUST_NOT) {
+            continue;
+        }
+        const auto& key = _binding_keys[i].empty() ? binding_key : _binding_keys[i];
+        const uint64_t rows = weight->estimate_rows(context, key);
+        if (occur == Occur::MUST) {
+            must = std::min(must, rows);
+            has_must = true;
+        } else {
+            should = std::min(all, should + rows);
+            has_should = true;
+        }
+    }
+    if (has_must) {
+        return _minimum_number_should_match > 0 && has_should ? std::min(must, should) : must;
+    }
+    return has_should ? should : 0;
 }
 
 template class OccurBooleanWeight<SumCombinerPtr>;

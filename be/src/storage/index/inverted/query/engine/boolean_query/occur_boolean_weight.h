@@ -71,6 +71,9 @@ public:
     index_query::TruthSet listed_rows(const QueryExecutionContext& context,
                                       const std::string& binding_key,
                                       const roaring::Roaring* candidates) override;
+    // The rarest required clause, or else the SHOULD clauses together.
+    uint64_t estimate_rows(const QueryExecutionContext& context,
+                           const std::string& binding_key) override;
 
 private:
     std::unordered_map<Occur, std::vector<ScorerPtr>> per_occur_scorers(

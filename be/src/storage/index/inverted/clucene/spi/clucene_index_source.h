@@ -18,6 +18,8 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
+#include <map>
 #include <memory>
 #include <span>
 #include <string>
@@ -79,6 +81,10 @@ private:
     std::wstring _field;
     const io::IOContext* _io_ctx;
     std::vector<ReaderPartition> _partitions;
+    // The document count of each term asked for. A source serves one evaluation over an index
+    // that does not change, and the cost estimates of a query ask about the same words again:
+    // a word several phrases share, or a group estimated at each level that orders it.
+    std::map<std::string, uint64_t, std::less<>> _doc_freqs;
 };
 
 // A reader owned elsewhere, as the shared pointer the sources take.

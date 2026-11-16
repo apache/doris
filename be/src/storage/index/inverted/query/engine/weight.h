@@ -115,6 +115,15 @@ public:
         throw Exception(ErrorCode::INTERNAL_ERROR, "this weight does not list its rows");
     }
 
+    // About how many rows of the segment the weight matches, from the term dictionary and
+    // without reading postings. A conjunction reads the clauses listing their rows from the
+    // smallest estimate up. A weight that cannot tell says every row.
+    virtual uint64_t estimate_rows(const QueryExecutionContext& context,
+                                   const std::string& binding_key) {
+        (void)binding_key;
+        return context.segment_num_rows;
+    }
+
 protected:
     const FieldBindingContext* get_field_binding(const QueryExecutionContext& ctx,
                                                  const std::string& binding_key) const {

@@ -39,6 +39,11 @@ public:
                                     context.null_resolver);
     }
 
+    uint64_t estimate_rows(const QueryExecutionContext& /*context*/,
+                           const std::string& /*binding_key*/) override {
+        return 0;
+    }
+
 private:
     std::wstring _field;
 };

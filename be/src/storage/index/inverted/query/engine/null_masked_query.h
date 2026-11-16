@@ -123,6 +123,11 @@ public:
         return _inner->lists_rows(context, binding_key);
     }
 
+    uint64_t estimate_rows(const QueryExecutionContext& context,
+                           const std::string& binding_key) override {
+        return _inner->estimate_rows(context, binding_key);
+    }
+
     index_query::TruthSet listed_rows(const QueryExecutionContext& context,
                                       const std::string& binding_key,
                                       const roaring::Roaring* candidates) override {

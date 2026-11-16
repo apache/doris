@@ -41,6 +41,11 @@ public:
         return std::make_shared<BitSetScorer>(std::move(bitmap), _null_bitmap);
     }
 
+    uint64_t estimate_rows(const QueryExecutionContext& /*context*/,
+                           const std::string& /*binding_key*/) override {
+        return _bitmap == nullptr ? 0 : _bitmap->cardinality();
+    }
+
 private:
     std::shared_ptr<roaring::Roaring> _bitmap;
     std::shared_ptr<roaring::Roaring> _null_bitmap;

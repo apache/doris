@@ -70,6 +70,17 @@ public:
                 std::move(result));
     }
 
+    uint64_t estimate_rows(const QueryExecutionContext& ctx,
+                           const std::string& binding_key) override {
+        auto source = lookup_source(_field, ctx, binding_key);
+        if (!source) {
+            return 0;
+        }
+        uint64_t rows = 0;
+        THROW_IF_ERROR(source->doc_freq(_term, &rows));
+        return rows;
+    }
+
     const std::wstring& field() const { return _field; }
     const std::string& term() const { return _term; }
     const index_query::ScoringContextPtr<float>& similarity() const { return _similarity; }

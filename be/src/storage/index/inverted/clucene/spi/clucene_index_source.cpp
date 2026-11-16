@@ -118,9 +118,14 @@ Status CluceneIndexSource::scoring_stats(index_query::IndexScoringStats* out) co
 }
 
 Status CluceneIndexSource::doc_freq(std::string_view term, uint64_t* out) {
+    if (const auto it = _doc_freqs.find(term); it != _doc_freqs.end()) {
+        *out = it->second;
+        return Status::OK();
+    }
     try {
         auto iter = TermIterator::create(_io_ctx, false, _reader.get(), _field, std::string(term));
         *out = iter->doc_freq();
+        _doc_freqs.emplace(term, *out);
         return Status::OK();
     } catch (const CLuceneError& error) {
         return clucene_error_status(error.what());

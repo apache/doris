@@ -316,6 +316,26 @@ public:
         return lookup_source(_group->field(), ctx, binding_key) != nullptr;
     }
 
+    // Each phrase matches at most the rows of its rarest word.
+    uint64_t estimate_rows(const QueryExecutionContext& ctx,
+                           const std::string& binding_key) override {
+        auto source = lookup_source(_group->field(), ctx, binding_key);
+        if (!source) {
+            return 0;
+        }
+        uint64_t rows = 0;
+        for (const PhraseSetPhrase& phrase : _group->phrases()) {
+            uint64_t rarest = ctx.segment_num_rows;
+            for (const TermInfo& clause : phrase.clauses) {
+                uint64_t word_rows = 0;
+                THROW_IF_ERROR(source->doc_freq(clause.get_single_term(), &word_rows));
+                rarest = std::min(rarest, word_rows);
+            }
+            rows += rarest;
+        }
+        return std::min<uint64_t>(rows, ctx.segment_num_rows);
+    }
+
     index_query::TruthSet listed_rows(const QueryExecutionContext& ctx,
                                       const std::string& binding_key,
                                       const roaring::Roaring* candidates) override {

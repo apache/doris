@@ -74,6 +74,22 @@ public:
         return evaluate_children(context, candidates);
     }
 
+    // AND matches at most its rarest clause, OR at most all its clauses together.
+    uint64_t estimate_rows(const QueryExecutionContext& context,
+                           const std::string& /*binding_key*/) override {
+        const uint64_t all = context.segment_num_rows;
+        if (_type == OperatorType::OP_NOT) {
+            return all;
+        }
+        uint64_t rows = _type == OperatorType::OP_AND ? all : 0;
+        for (size_t i = 0; i < _sub_weights.size(); ++i) {
+            const uint64_t clause = _sub_weights[i]->estimate_rows(context, _binding_keys[i]);
+            rows = _type == OperatorType::OP_AND ? std::min(rows, clause)
+                                                 : std::min(all, rows + clause);
+        }
+        return rows;
+    }
+
     ScorerPtr scorer(const QueryExecutionContext& context) override {
         if (_is_do_nothing_combiner()) {
             return build_three_value_scorer(context);
@@ -375,6 +391,20 @@ private:
                     {.cost = group.cheapest_doc_freq(), .scorer = nullptr, .group = &group});
         }
         std::ranges::stable_sort(steps, {}, &Step::cost);
+        // The clauses listing their rows from the fewest estimated rows up.
+        if (listing.size() > 1) {
+            std::vector<std::pair<uint64_t, size_t>> order;
+            order.reserve(listing.size());
+            for (const size_t clause : listing) {
+                order.emplace_back(
+                        _sub_weights[clause]->estimate_rows(context, _binding_keys[clause]),
+                        clause);
+            }
+            std::ranges::stable_sort(order, {}, &std::pair<uint64_t, size_t>::first);
+            for (size_t i = 0; i < order.size(); ++i) {
+                listing[i] = order[i].second;
+            }
+        }
         roaring::Roaring possible;
         const roaring::Roaring* candidates = nullptr;
         if (initial != nullptr) {

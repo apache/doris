@@ -116,6 +116,29 @@ index_query::TruthSet SlotPhraseWeight::listed_rows(const QueryExecutionContext&
     return result;
 }
 
+uint64_t SlotPhraseWeight::estimate_rows(const QueryExecutionContext& ctx,
+                                         const std::string& binding_key) {
+    auto source = lookup_source(_field, ctx, binding_key);
+    if (!source) {
+        return 0;
+    }
+    uint64_t rarest = ctx.segment_num_rows;
+    for (const PhraseSlot& slot : _slots()) {
+        // An expanded slot's terms are not known before it expands.
+        if (slot.expand.has_value()) {
+            continue;
+        }
+        uint64_t rows = 0;
+        for (const std::string& term : slot.terms) {
+            uint64_t term_rows = 0;
+            THROW_IF_ERROR(source->doc_freq(term, &term_rows));
+            rows += term_rows;
+        }
+        rarest = std::min(rarest, rows);
+    }
+    return rarest;
+}
+
 PhraseWeight::PhraseWeight(std::wstring field, std::vector<TermInfo> term_infos,
                            index_query::PhraseQueryOptions options,
                            index_query::ScoringContextPtr<float> similarity, bool enable_scoring,

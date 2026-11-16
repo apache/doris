@@ -54,6 +54,9 @@ public:
     index_query::TruthSet listed_rows(const QueryExecutionContext& ctx,
                                       const std::string& binding_key,
                                       const roaring::Roaring* candidates) override;
+    // The rows of its rarest slot.
+    uint64_t estimate_rows(const QueryExecutionContext& ctx,
+                           const std::string& binding_key) override;
 
 protected:
     SlotPhraseWeight(std::wstring field, index_query::PhraseQueryOptions options,
