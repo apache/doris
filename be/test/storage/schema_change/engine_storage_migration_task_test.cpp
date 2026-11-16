@@ -28,6 +28,8 @@
 
 #include <algorithm>
 #include <cstdlib>
+#include <future>
+#include <limits>
 #include <map>
 #include <memory>
 #include <set>
@@ -38,17 +40,21 @@
 #include "common/config.h"
 #include "common/object_pool.h"
 #include "core/data_type/define_primitive_type.h"
+#include "cpp/sync_point.h"
 #include "gtest/gtest_pred_impl.h"
+#include "io/cache/block_file_cache_factory.h"
 #include "io/fs/local_file_system.h"
 #include "load/delta_writer/delta_writer.h"
 #include "load/memtable/memtable_memory_limiter.h"
 #include "runtime/descriptor_helper.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
+#include "runtime/thread_context.h"
 #include "storage/data_dir.h"
 #include "storage/olap_common.h"
 #include "storage/olap_define.h"
 #include "storage/options.h"
+#include "storage/rowset/rowset_writer.h"
 #include "storage/rowset_builder.h"
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet.h"
@@ -56,7 +62,9 @@
 #include "storage/tablet_info.h"
 #include "storage/task/engine_publish_version_task.h"
 #include "storage/txn/txn_manager.h"
+#include "testutil/column_helper.h"
 #include "testutil/creators.h"
+#include "testutil/mock_rowset.h"
 
 namespace doris {
 class OlapMeta;
@@ -64,6 +72,8 @@ class OlapMeta;
 static const uint32_t MAX_PATH_LEN = 1024;
 
 static StorageEngine* engine_ref = nullptr;
+static std::unique_ptr<io::FileCacheFactory> file_cache_factory;
+static io::FileCacheFactory* previous_file_cache_factory = nullptr;
 static std::string path1;
 static std::string path2;
 
@@ -93,6 +103,12 @@ static void set_up() {
     Status s = engine->open();
     EXPECT_TRUE(s.ok()) << s;
     ExecEnv* exec_env = doris::ExecEnv::GetInstance();
+    previous_file_cache_factory = exec_env->file_cache_factory();
+    file_cache_factory = std::make_unique<io::FileCacheFactory>();
+    exec_env->set_file_cache_factory(file_cache_factory.get());
+    auto cache_settings = io::get_file_cache_settings(1024 * 1024, 0, 80, 10, 10, 0, "memory");
+    st = file_cache_factory->create_file_cache("memory", cache_settings);
+    ASSERT_TRUE(st.ok()) << st;
     exec_env->set_memtable_memory_limiter(new MemTableMemoryLimiter());
     exec_env->set_storage_engine(std::move(engine));
 }
@@ -102,6 +118,9 @@ static void tear_down() {
     exec_env->set_memtable_memory_limiter(nullptr);
     engine_ref = nullptr;
     exec_env->set_storage_engine(nullptr);
+    exec_env->set_file_cache_factory(previous_file_cache_factory);
+    file_cache_factory.reset();
+    previous_file_cache_factory = nullptr;
     EXPECT_EQ(system("rm -rf ./data_test_1"), 0);
     EXPECT_EQ(system("rm -rf ./data_test_2"), 0);
     EXPECT_TRUE(io::global_local_filesystem()
@@ -267,6 +286,37 @@ protected:
         return migration_task.execute();
     }
 
+    static Status load_and_publish(const TabletSharedPtr& tablet, int64_t txn_id, int64_t version) {
+        RowsetSharedPtr rowset;
+        {
+            auto tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::LOAD,
+                                                            "MigrationConcurrentLoad");
+            SCOPED_ATTACH_TASK(tracker);
+            WriteRequest request;
+            request.tablet_id = tablet->tablet_id();
+            request.schema_hash = tablet->schema_hash();
+            request.partition_id = tablet->partition_id();
+            request.txn_id = txn_id;
+            request.table_schema_param = std::make_shared<OlapTableSchemaParam>();
+            RuntimeProfile profile("MigrationConcurrentLoad");
+            RowsetBuilder builder(*engine_ref, request, &profile);
+            RETURN_IF_ERROR(builder.init());
+            auto block = ColumnHelper::create_block<DataTypeInt32>({1}, {2});
+            RETURN_IF_ERROR(builder.rowset_writer()->add_block(&block));
+            RETURN_IF_ERROR(builder.rowset_writer()->flush());
+            RETURN_IF_ERROR(builder.build_rowset());
+            RETURN_IF_ERROR(builder.commit_txn());
+            rowset = builder.rowset();
+        }
+
+        // TabletPublishTxnTask::handle attaches its own mem tracker.
+        TabletPublishTxnTask publish_task(*engine_ref, nullptr, tablet, rowset, {},
+                                          tablet->partition_id(), txn_id, Version(version, version),
+                                          tablet->get_tablet_info(), 0);
+        publish_task.handle();
+        return publish_task.result();
+    }
+
     static void assert_related_transaction(const ChangelogGroupLoadContext& context,
                                            bool expected) {
         int64_t found_partition_id = -1;
@@ -317,6 +367,116 @@ protected:
         ASSERT_TRUE(status.ok()) << status;
     }
 };
+
+TEST_F(TestEngineStorageMigrationTask, remaining_size_budget) {
+    const auto old_threshold = config::migration_remaining_size_threshold_mb;
+    Defer restore_config {[&] { config::migration_remaining_size_threshold_mb = old_threshold; }};
+    EngineStorageMigrationTask task(*engine_ref, nullptr, nullptr);
+    constexpr int64_t mb = 1024 * 1024;
+    constexpr auto max_mb = std::numeric_limits<int32_t>::max();
+    constexpr auto max_size = std::numeric_limits<int64_t>::max();
+    struct TestCase {
+        const char* name;
+        int32_t threshold_mb;
+        // Data bytes and index bytes for each ordinary rowset.
+        std::vector<std::pair<int64_t, int64_t>> sizes;
+        bool below_threshold;
+    };
+    const std::vector<TestCase> cases {
+            {"zero_empty", 0, {}, false},
+            {"zero_empty_rowset", 0, {{0, 0}}, false},
+            {"zero_nonempty", 0, {{1, 0}}, false},
+            {"negative_disabled", -1, {{1, 0}}, false},
+            {"one_mb_empty", 1, {}, true},
+            {"one_mb_zero_rowset", 1, {{0, 0}}, true},
+            {"one_mb_below", 1, {{mb - 2, 1}}, true},
+            {"one_mb_equal", 1, {{mb - 1, 1}}, false},
+            {"one_mb_above", 1, {{mb, 1}}, false},
+            {"default_below", 10, {{10 * mb - 1, 0}}, true},
+            {"default_equal", 10, {{10 * mb, 0}}, false},
+            {"multiple_below", 1, {{mb / 2, 1}, {mb / 2 - 3, 1}}, true},
+            {"multiple_equal", 1, {{mb / 2, 1}, {mb / 2 - 2, 1}}, false},
+            {"multiple_above", 1, {{mb / 2, 1}, {mb / 2 - 1, 1}}, false},
+            {"wide_conversion_below", max_mb, {{int64_t(max_mb) * mb - 1, 0}}, true},
+            {"wide_conversion_equal", max_mb, {{int64_t(max_mb) * mb, 0}}, false},
+            {"rowset_sum_overflow", 1, {{max_size, max_size}}, false},
+            {"total_sum_overflow", 1, {{max_size, 0}, {max_size, 0}, {3, 0}}, false},
+            {"negative_index_size", 1, {{0, -1}}, false},
+            {"min_index_size", 1, {{0, std::numeric_limits<int64_t>::min()}}, false},
+    };
+    for (const auto& test_case : cases) {
+        SCOPED_TRACE(test_case.name);
+        config::migration_remaining_size_threshold_mb = test_case.threshold_mb;
+        std::vector<RowsetSharedPtr> rowsets;
+        for (const auto& [data_size, index_size] : test_case.sizes) {
+            auto meta = std::make_shared<RowsetMeta>();
+            meta->set_data_disk_size(data_size);
+            meta->set_index_disk_size(index_size);
+            RowsetSharedPtr rowset;
+            ASSERT_TRUE(MockRowset::create_rowset(nullptr, meta, &rowset).ok());
+            rowsets.push_back(std::move(rowset));
+        }
+        EXPECT_EQ(task._is_rowsets_size_less_than_threshold(rowsets), test_case.below_threshold);
+    }
+}
+
+TEST_F(TestEngineStorageMigrationTask, ordinary_table_finishes_with_concurrent_load) {
+    const auto old_threshold = config::migration_remaining_size_threshold_mb;
+    config::migration_remaining_size_threshold_mb = 1;
+    Defer restore_config {[&] { config::migration_remaining_size_threshold_mb = old_threshold; }};
+    auto request = testutil::create_tablet_request(
+            13005, 270068377, 10001, 1, TKeysType::DUP_KEYS,
+            {{"k", TPrimitiveType::INT, true}, {"v", TPrimitiveType::INT, false}});
+    RuntimeProfile profile("CreateMigrationTablet");
+    auto status = engine_ref->create_tablet(request, &profile);
+    ASSERT_TRUE(status.ok()) << status;
+    auto tablet = engine_ref->tablet_manager()->get_tablet(request.tablet_id);
+    ASSERT_NE(tablet, nullptr);
+    auto* dest_store = other_store(tablet);
+
+    auto* sync_point = SyncPoint::get_instance();
+    SyncPoint::CallbackGuard copy_guard;
+    int unlocked_copy_rounds = 0;
+    sync_point->set_call_back(
+            "EngineStorageMigrationTask::_migrate:after_copy",
+            [&](auto&&) {
+                ++unlocked_copy_rounds;
+                // Publish during every unlocked round. Cap the loads so the buggy implementation
+                // also terminates, but needs extra rounds instead of finishing with the first tail.
+                if (unlocked_copy_rounds <= 3) {
+                    auto load =
+                            std::async(std::launch::async, [tablet, round = unlocked_copy_rounds] {
+                                return load_and_publish(tablet, 23005 + round, 1 + round);
+                            });
+                    auto load_status = load.get();
+                    ASSERT_TRUE(load_status.ok()) << load_status;
+                    auto rowset = tablet->get_rowset_by_version(
+                            Version(1 + unlocked_copy_rounds, 1 + unlocked_copy_rounds));
+                    ASSERT_NE(rowset, nullptr);
+                    EXPECT_GT(rowset->data_disk_size() + rowset->index_disk_size(), 1);
+                    EXPECT_LT(rowset->data_disk_size() + rowset->index_disk_size(), 1024 * 1024);
+                }
+            },
+            &copy_guard);
+    sync_point->enable_processing();
+    Defer disable_sync_points {[&] { sync_point->disable_processing(); }};
+
+    status = migrate(tablet, dest_store);
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_EQ(unlocked_copy_rounds, 1);
+    auto migrated = engine_ref->tablet_manager()->get_tablet(request.tablet_id);
+    ASSERT_NE(migrated, nullptr);
+    EXPECT_NE(migrated.get(), tablet.get());
+    EXPECT_EQ(migrated->data_dir(), dest_store);
+    EXPECT_EQ(migrated->num_rows(), 1);
+    auto rowset = migrated->get_rowset_by_version(Version(2, 2));
+    ASSERT_NE(rowset, nullptr);
+    EXPECT_TRUE(rowset->check_file_exist().ok());
+
+    status =
+            engine_ref->tablet_manager()->drop_tablet(request.tablet_id, request.replica_id, false);
+    EXPECT_TRUE(status.ok()) << status;
+}
 
 // The two-way migration scenario intentionally keeps setup, publish, and both migrations together.
 // NOLINTNEXTLINE(readability-function-size, readability-function-cognitive-complexity)
