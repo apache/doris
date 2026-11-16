@@ -17,6 +17,7 @@
 
 #include "storage/index/inverted/query/engine/collect/doc_set_collector.h"
 
+#include "common/check.h"
 #include "storage/index/inverted/query/engine/complete_null_bitmap.h"
 
 namespace doris::segment_v2::inverted_index::query_v2 {
@@ -25,12 +26,15 @@ void collect_multi_segment_doc_set(const WeightPtr& weight, const QueryExecution
                                    const std::string& binding_key,
                                    const std::shared_ptr<roaring::Roaring>& roaring,
                                    const CollectionSimilarityPtr& similarity, bool enable_scoring,
-                                   roaring::Roaring* null_rows) {
+                                   roaring::Roaring* null_rows,
+                                   const roaring::Roaring* candidates) {
     if (context.segment_num_rows == 0) {
         return;
     }
+    // Candidates restrict an unscored collection only; the caller reads its rows within them.
+    DORIS_CHECK(candidates == nullptr || !enable_scoring);
     if (!enable_scoring && weight->lists_rows(context, binding_key)) {
-        auto rows = weight->listed_rows(context, binding_key, nullptr);
+        auto rows = weight->listed_rows(context, binding_key, candidates);
         *roaring |= rows.true_rows;
         if (null_rows != nullptr) {
             *null_rows |= rows.null_rows;
@@ -49,6 +53,8 @@ void collect_multi_segment_doc_set(const WeightPtr& weight, const QueryExecution
     }
     if (enable_scoring && similarity != nullptr) {
         *roaring |= collect_scored_rows(scorer, 0, *similarity);
+    } else if (candidates != nullptr) {
+        *roaring |= collect_truth_set(scorer, context.null_resolver, candidates).true_rows;
     } else {
         collect_true_rows(scorer, roaring.get());
     }

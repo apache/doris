@@ -30,6 +30,7 @@
 #include "storage/index/inverted/query/engine/bit_set_query/bit_set_scorer.h"
 #include "storage/index/inverted/query/engine/boolean_query/boolean_query_builder.h"
 #include "storage/index/inverted/query/engine/boolean_query/operator.h"
+#include "storage/index/inverted/query/engine/collect/doc_set_collector.h"
 #include "storage/index/inverted/query/engine/null_bitmap_test_util.h"
 
 namespace doris::segment_v2::inverted_index::query_v2 {
@@ -556,6 +557,33 @@ TEST(BooleanTruthContractTest, OptionalShouldBesideARequiredClauseIsTwoValued) {
             EXPECT_EQ(actual, expected);
             EXPECT_FALSE(scorer->has_null_bitmap());
         }
+    }
+}
+
+// An unscored collection given candidates keeps exactly the matches among them, for a weight
+// that lists its rows and for one that only has a scorer.
+TEST(BooleanTruthContractTest, CollectionWithinCandidatesKeepsTheirMatches) {
+    constexpr uint32_t row_count = 1000;
+    TruthRows rows;
+    for (uint32_t doc = 0; doc < row_count; doc += 3) {
+        rows.true_rows->add(doc);
+    }
+    roaring::Roaring candidates;
+    for (uint32_t doc = 0; doc < row_count; doc += 7) {
+        candidates.add(doc);
+    }
+    OperatorBooleanQueryBuilder builder(OperatorType::OP_AND);
+    builder.add(std::make_shared<BitSetQuery>(rows.true_rows));
+    builder.add(std::make_shared<BitSetQuery>(rows.true_rows));
+    const std::array<QueryPtr, 2> queries = {builder.build(),
+                                             std::make_shared<ForwardOnlyQuery>(rows, 1.0F)};
+    for (const auto& query : queries) {
+        QueryExecutionContext context;
+        context.segment_num_rows = row_count;
+        auto collected = std::make_shared<roaring::Roaring>();
+        collect_multi_segment_doc_set(query->weight(false), context, "", collected, nullptr,
+                                      /*enable_scoring=*/false, nullptr, &candidates);
+        EXPECT_EQ(*collected, *rows.true_rows & candidates);
     }
 }
 
