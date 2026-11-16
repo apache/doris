@@ -22,6 +22,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.OrderKey;
+import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.ArrayItemReference;
@@ -50,7 +51,9 @@ import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
+import org.apache.doris.nereids.trees.plans.AggPhase;
 import org.apache.doris.nereids.trees.plans.JoinType;
+import org.apache.doris.nereids.trees.plans.LimitPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.algebra.Except;
@@ -81,9 +84,14 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalGenerate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterialize;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterializeOlapScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.MutableState;
 import org.apache.doris.qe.ConnectContext;
@@ -101,6 +109,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -768,10 +777,209 @@ public class GroupStructInfo {
     }
 
     /**
-     * The description of a group: computed once per query and memoized on the group (see
-     * {@link Group#getOrComputeHboStructInfo}), so that a parent composes the description of its
-     * children instead of describing their sub trees again.
+     * Describe a selected physical subtree without accessing Memo, group ids or HBO plan caches.
+     * Suitable for detached profile copies. The caller supplies the execution's session context while
+     * building and materializing the result (expression identity can depend on time zone and locale).
+     * Partial aggregation roots and physical transformations whose logical identity cannot be recovered
+     * are reported as invalid, rather than publishing an entry under an approximate key.
      */
+    public static GroupStructInfo fromPhysicalPlan(PhysicalPlan plan) {
+        // SplitLimit runs before Memo construction, so a local limit is part of a parent's
+        // logical identity. Its own per-instance row count is not a logical cardinality sample.
+        if (plan instanceof PhysicalLimit && ((PhysicalLimit<?>) plan).getPhase() == LimitPhase.LOCAL) {
+            return invalidStructInfo("unsupported=local limit cardinality");
+        }
+        Ctx ctx = new Ctx();
+        ctx.physicalVisited = Collections.newSetFromMap(new IdentityHashMap<>());
+        return describePhysical(plan, ctx);
+    }
+
+    private static GroupStructInfo describePhysical(PhysicalPlan plan, Ctx ctx) {
+        if (!ctx.physicalVisited.add(plan)) {
+            return invalidStructInfo("sharing=physical plan reached twice");
+        }
+        if (plan instanceof PhysicalLazyMaterializeOlapScan) {
+            return describePhysical(((PhysicalLazyMaterializeOlapScan) plan).getScan(), ctx);
+        }
+        Plan semanticPlan = plan;
+        if (plan instanceof PhysicalTopN) {
+            PhysicalTopN<?> topN = (PhysicalTopN<?>) plan;
+            if (topN.getSortPhase().isLocal()) {
+                return invalidStructInfo("unsupported=local topn cardinality");
+            }
+            Plan child = withoutDistribute(topN.child());
+            if (child instanceof PhysicalTopN && ((PhysicalTopN<?>) child).getSortPhase().isLocal()) {
+                PhysicalTopN<?> local = (PhysicalTopN<?>) child;
+                if (local.getOffset() != 0 || local.getLimit() != topN.getLimit() + topN.getOffset()
+                        || !local.getOrderKeys().equals(topN.getOrderKeys())) {
+                    return invalidStructInfo("unsupported=topn stages differ");
+                }
+                semanticPlan = topN.withChildren(Collections.singletonList(local.child()));
+            }
+        }
+        if (plan instanceof PhysicalHashAggregate) {
+            PhysicalHashAggregate<?> aggregate = (PhysicalHashAggregate<?>) plan;
+            if (aggregate.getAggMode().productAggregateBuffer) {
+                return invalidStructInfo(PARTIAL_STAGE_REASON);
+            }
+            if (aggregate.getAggPhase() == AggPhase.DISTINCT_LOCAL
+                    || aggregate.getAggPhase() == AggPhase.DISTINCT_GLOBAL) {
+                return invalidStructInfo("unsupported=distinct aggregation stages");
+            }
+            if (aggregate.getAggMode().consumeAggregateBuffer) {
+                // The merge stage describes one logical aggregate, not an aggregate of partial groups.
+                // Only bypass the matching producer; an independent nested aggregation stays a boundary.
+                Plan producer = withoutDistribute(aggregate.child());
+                if (!(producer instanceof PhysicalHashAggregate)
+                        || !((PhysicalHashAggregate<?>) producer).getAggMode().productAggregateBuffer) {
+                    return invalidStructInfo("unsupported=aggregate buffer producer");
+                }
+                PhysicalHashAggregate<?> local = (PhysicalHashAggregate<?>) producer;
+                if (local.getAggPhase() != AggPhase.LOCAL
+                        || !aggregate.getGroupByExpressions().equals(local.getGroupByExpressions())) {
+                    return invalidStructInfo("unsupported=aggregate grouping changed between stages");
+                }
+                semanticPlan = aggregate.withChildren(Collections.singletonList(local.child()));
+            }
+        }
+        Node root = buildNode(semanticPlan, new PhysicalInput((PhysicalPlan) semanticPlan), ctx);
+        if (root == null || !ctx.valid) {
+            return invalidStructInfo(ctx.reason);
+        }
+        applyColumnDefinitions(semanticPlan, root);
+        GroupStructInfo result = ofNode(root);
+        int maxScans = hboMaxScansPerGroup();
+        if (maxScans > 0 && result.getScans().size() > maxScans) {
+            return invalidStructInfo("subtree scans=" + result.getScans().size()
+                    + " > hbo_max_scans_per_group=" + maxScans);
+        }
+        return result;
+    }
+
+    private static Plan withoutDistribute(Plan plan) {
+        while (plan instanceof PhysicalDistribute) {
+            plan = plan.child(0);
+        }
+        return plan;
+    }
+
+    /** Child traversal is the only distinction between Memo and detached physical inputs. */
+    private interface BuildInput {
+        Plan getPlan();
+
+        int arity();
+
+        GroupStructInfo describeChild(int index, Ctx ctx);
+
+        Node joinChain(Join join, Ctx ctx);
+    }
+
+    private static final class MemoInput implements BuildInput {
+        private final GroupExpression expression;
+
+        private MemoInput(GroupExpression expression) {
+            this.expression = expression;
+        }
+
+        @Override
+        public Plan getPlan() {
+            return expression.getPlan();
+        }
+
+        @Override
+        public int arity() {
+            return expression.arity();
+        }
+
+        @Override
+        public GroupStructInfo describeChild(int index, Ctx ctx) {
+            GroupStructInfo child = describeGroup(expression.child(index), ctx);
+            if (!child.isValid()) {
+                invalid(ctx, child.getSkipReason());
+                return null;
+            }
+            return child;
+        }
+
+        @Override
+        public Node joinChain(Join join, Ctx ctx) {
+            return joinChainNode(join, expression, ctx);
+        }
+    }
+
+    private static final class PhysicalInput implements BuildInput {
+        private final PhysicalPlan plan;
+
+        private PhysicalInput(PhysicalPlan plan) {
+            this.plan = plan;
+        }
+
+        @Override
+        public Plan getPlan() {
+            return plan;
+        }
+
+        @Override
+        public int arity() {
+            return plan.arity();
+        }
+
+        @Override
+        public GroupStructInfo describeChild(int index, Ctx ctx) {
+            GroupStructInfo child = describePhysical((PhysicalPlan) plan.child(index), ctx);
+            if (!child.isValid()) {
+                invalid(ctx, child.getSkipReason());
+                return null;
+            }
+            return child;
+        }
+
+        @Override
+        public Node joinChain(Join join, Ctx ctx) {
+            List<Expression> conditions = joinConditions(join);
+            List<Leaf> leaves = new ArrayList<>();
+            for (Plan child : plan.children()) {
+                collectPhysicalChain((PhysicalPlan) child, conditions, leaves, ctx);
+            }
+            if (!ctx.valid) {
+                return null;
+            }
+            leaves.sort(Comparator.comparing(Leaf::sortKey));
+            Node node = new Node(Kind.JOIN);
+            node.flattenable = true;
+            node.conditions = conditions;
+            for (Leaf leaf : leaves) {
+                node.children.add(new Child(leaf.getLeaf().root(), false));
+            }
+            return node;
+        }
+    }
+
+    private static void collectPhysicalChain(PhysicalPlan plan, List<Expression> conditions,
+            List<Leaf> leaves, Ctx ctx) {
+        if (plan instanceof Join && isFlattenableJoinType(((Join) plan).getJoinType())) {
+            if (!ctx.physicalVisited.add(plan)) {
+                invalid(ctx, "sharing=physical join reached twice");
+                return;
+            }
+            mergeConditions(conditions, joinConditions((Join) plan));
+            for (Plan child : plan.children()) {
+                collectPhysicalChain((PhysicalPlan) child, conditions, leaves, ctx);
+            }
+        } else if (plan instanceof PhysicalDistribute
+                || plan instanceof Sort && !(plan instanceof TopN) || isTransparentProject(plan)) {
+            collectPhysicalChain((PhysicalPlan) plan.child(0), conditions, leaves, ctx);
+        } else {
+            GroupStructInfo leaf = describePhysical(plan, ctx);
+            if (!leaf.isValid()) {
+                invalid(ctx, leaf.getSkipReason());
+                return;
+            }
+            leaves.add(new Leaf(leaf));
+        }
+    }
+
+    /** Build from the representative expressions of a Memo group. */
     public static GroupStructInfo of(Group group) {
         return describeGroup(group);
     }
@@ -894,7 +1102,7 @@ public class GroupStructInfo {
     private static GroupStructInfo describeExpression(Group group, GroupExpression ge, Ctx ctx) {
         Node root;
         try {
-            root = buildNode(ge.getPlan(), ge, ctx);
+            root = buildNode(ge.getPlan(), new MemoInput(ge), ctx);
             if (root != null) {
                 applyColumnDefinitions(ge.getPlan(), root);
             }
@@ -963,8 +1171,15 @@ public class GroupStructInfo {
         Map<ExprId, Expression> definitions = new LinkedHashMap<>();
         for (NamedExpression output : aggregate.getOutputExpressions()) {
             if (output instanceof Alias) {
-                definitions.put(output.getExprId(),
-                        resolveColumnDefinitions(((Alias) output).child(), childDefinitions));
+                Expression definition = ((Alias) output).child();
+                if (aggregate instanceof PhysicalHashAggregate) {
+                    // AggregateExpression carries execution phase/buffer arguments. Its function keeps
+                    // the original logical arguments, which are the identity a HAVING predicate needs.
+                    definition = definition.rewriteDownShortCircuit(
+                            expression -> expression instanceof AggregateExpression
+                                    ? ((AggregateExpression) expression).getFunction() : expression);
+                }
+                definitions.put(output.getExprId(), resolveColumnDefinitions(definition, childDefinitions));
             }
         }
         return Collections.unmodifiableMap(definitions);
@@ -1196,24 +1411,6 @@ public class GroupStructInfo {
             }
         }
         return null;
-    }
-
-    /**
-     * Step 1 of a node build: describe one child of this node. The child is described once per query -
-     * its memoized description is returned - and a child which cannot be described invalidates this
-     * node with the reason of the child, so that the first reason of the failing sub tree is the one
-     * which is reported.
-     */
-    private static GroupStructInfo describeChild(GroupExpression ge, int index, Ctx ctx) {
-        if (!ctx.valid) {
-            return null;
-        }
-        GroupStructInfo child = describeGroup(ge.child(index), ctx);
-        if (!child.isValid()) {
-            invalid(ctx, child.getSkipReason());
-            return null;
-        }
-        return child;
     }
 
     /**
@@ -1564,15 +1761,15 @@ public class GroupStructInfo {
         }
     }
 
-    // ---------------------------------------------------------------- build (memo level)
+    // ---------------------------------------------------------------- build (shared node descriptions)
 
     /**
      * Build the description of one node. Every branch follows the same three steps: the node's own
-     * information is collected as objects, its children are described by {@link #describeChild} (the
-     * memoized description of a child group, never its sub tree again), and both are put into a
+     * information is collected as objects, its children are described through {@link BuildInput}
+     * (Memo inputs reuse the cached description of each child group), and both are put into a
      * {@link Node} - the rendering happens later and elsewhere.
      */
-    private static Node buildNode(Plan plan, GroupExpression ge, Ctx ctx) {
+    private static Node buildNode(Plan plan, BuildInput ge, Ctx ctx) {
         if (!ctx.valid) {
             return null;
         }
@@ -1706,7 +1903,8 @@ public class GroupStructInfo {
         if (plan instanceof Union || plan instanceof Intersect || plan instanceof Except) {
             return setOperationNode(plan, (SetOperation) plan, ge, ctx);
         }
-        if (plan instanceof PhysicalDistribute || plan instanceof PhysicalAssertNumRows
+        if (plan instanceof PhysicalDistribute || plan instanceof PhysicalLazyMaterialize
+                || plan instanceof PhysicalAssertNumRows
                 || plan instanceof Project || plan instanceof Sort) {
             // an enforcer, a project and a sort are transparent for structure matching: none of them
             // changes the number of rows, so the nodes above them are described by the shape below and
@@ -1742,7 +1940,7 @@ public class GroupStructInfo {
     }
 
     /** A filter or an aggregation: a header made of its conditions, then its single child. */
-    private static Node conditionsNode(Kind kind, Collection<Expression> conditions, GroupExpression ge,
+    private static Node conditionsNode(Kind kind, Collection<Expression> conditions, BuildInput ge,
             Ctx ctx) {
         if (ge.arity() != 1) {
             return invalidNode("arity=" + ge.arity() + " of " + ge.getPlan().getClass().getSimpleName(), ctx);
@@ -1759,7 +1957,7 @@ public class GroupStructInfo {
      * the chain (the first sub tree which is not part of it), while an outer / semi / anti / asof join
      * keeps its type and the memo order of its two sides, because it cannot be reassociated.
      */
-    private static Node joinNode(Join join, GroupExpression ge, Ctx ctx) {
+    private static Node joinNode(Join join, BuildInput ge, Ctx ctx) {
         if (!isFlattenableJoinType(join.getJoinType())) {
             Node node = new Node(Kind.JOIN);
             node.joinType = join.getJoinType();
@@ -1778,7 +1976,7 @@ public class GroupStructInfo {
             }
             return node;
         }
-        return joinChainNode(join, ge, ctx);
+        return ge.joinChain(join, ctx);
     }
 
     /**
@@ -1820,7 +2018,7 @@ public class GroupStructInfo {
      * The branches are sorted - the memo may reorder them - together with their mapping, because the
      * mapping belongs to one branch and two branches of the same shape can still feed different columns.
      */
-    private static Node setOperationNode(Plan plan, SetOperation setOperation, GroupExpression ge, Ctx ctx) {
+    private static Node setOperationNode(Plan plan, SetOperation setOperation, BuildInput ge, Ctx ctx) {
         Node node = new Node(Kind.SET_OPERATION);
         node.setOperationPlan = plan;
         node.setOperation = setOperation;
@@ -1916,7 +2114,7 @@ public class GroupStructInfo {
     }
 
     /** A node which only composes the child at {@code index} (an enforcer, a project, a CTE edge). */
-    private static Node passthroughNode(GroupExpression ge, int index, Ctx ctx) {
+    private static Node passthroughNode(BuildInput ge, int index, Ctx ctx) {
         Node node = new Node(Kind.PASSTHROUGH);
         node.children = children(ge, ctx, index);
         return node.children == null ? null : node;
@@ -2024,10 +2222,10 @@ public class GroupStructInfo {
     }
 
     /** The children at the given indexes, or null when one of them invalidates this node. */
-    private static List<Child> children(GroupExpression ge, Ctx ctx, int... indexes) {
+    private static List<Child> children(BuildInput ge, Ctx ctx, int... indexes) {
         List<Child> children = new ArrayList<>(indexes.length);
         for (int index : indexes) {
-            GroupStructInfo child = describeChild(ge, index, ctx);
+            GroupStructInfo child = ge.describeChild(index, ctx);
             if (child == null) {
                 return null;
             }
@@ -2452,12 +2650,11 @@ public class GroupStructInfo {
      * Step 1 for a node with an arbitrary number of children (a set operation): describe every branch in
      * memo order, or report the reason of the first branch which cannot be described.
      */
-    private static List<GroupStructInfo> describeBranches(GroupExpression ge, Ctx ctx) {
+    private static List<GroupStructInfo> describeBranches(BuildInput ge, Ctx ctx) {
         List<GroupStructInfo> branches = new ArrayList<>(ge.arity());
         for (int i = 0; i < ge.arity(); i++) {
-            GroupStructInfo branch = describeGroup(ge.child(i), ctx);
-            if (!branch.isValid()) {
-                invalid(ctx, branch.getSkipReason());
+            GroupStructInfo branch = ge.describeChild(i, ctx);
+            if (branch == null) {
                 return null;
             }
             branches.add(branch);
@@ -3407,6 +3604,8 @@ public class GroupStructInfo {
         /** why the description was refused: the first reason wins, it is shown by EXPLAIN */
         private String reason = "";
         private final Set<Group> visited = new HashSet<>();
+        // Allocated only by the detached physical entry point; Memo builds use visited above.
+        private Set<PhysicalPlan> physicalVisited;
     }
 
 }
