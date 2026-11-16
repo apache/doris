@@ -73,14 +73,18 @@ public:
     // at the other one unreachable.
     void set_density_permille(uint16_t density_permille);
 
-    // Bytes of scratch capacity this extractor keeps between calls. All three buffers are sized
-    // by the longest row seen so far and are never shrunk, so this is the extractor's steady
-    // resident cost -- which is what the SNII writer mirrors into its MemoryReporter. It is not
-    // the peak of one extract() call: `out` belongs to the caller and is counted there.
+    // Bytes of scratch capacity this extractor keeps between calls -- what the SNII writer
+    // mirrors into its MemoryReporter. All three buffers are sized by the rows extracted since the
+    // last release_oversized(). It is not the peak of one extract() call: `out` belongs to the
+    // caller and is counted there.
     size_t reserved_bytes() const {
         return _folded.capacity() + _is_boundary_at.capacity() +
                _dedupe_slots.capacity() * sizeof(uint32_t);
     }
+
+    // Between rows: releases each buffer above the high water mark, so one long row does not pin
+    // its scratch until the segment ends.
+    void release_oversized();
 
     // Boundary test for one byte pair. Compute the deterministic hash on demand: tokenizers
     // are created per indexed value, so enumerating all 65536 pairs in the constructor would
