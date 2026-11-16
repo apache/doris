@@ -1937,6 +1937,8 @@ struct TTopnFilterDesc {
   3: required bool null_first 
   // scan node id -> expr on scan node
   4: required map<Types.TPlanNodeId, Exprs.TExpr> target_node_id_to_target_expr
+  // Stable TopN semantics and the complete input snapshot. Zero/absent disables caching.
+  5: optional i64 condition_cache_digest
 }
 
 // Specification of a runtime filter.

@@ -237,15 +237,25 @@ Status ScanLocalState<Derived>::open(RuntimeState* state) {
         RETURN_IF_ERROR(_on_runtime_filter_update(new_conjuncts));
     }
 
-    // Disable condition cache in topn filter valid. TODO:: Try to support the topn filter in condition cache
-    if (p._enable_condition_cache && state->query_options().condition_cache_digest &&
-        p._topn_filter_source_node_ids.empty()) {
+    if (p._enable_condition_cache && state->query_options().condition_cache_digest) {
         _condition_cache_digest = state->query_options().condition_cache_digest;
+        if (!p._topn_filter_source_node_ids.empty()) {
+            // A late join RF can change the candidates supporting a TopN boundary. Check the
+            // planned filters, including those that have not arrived at open().
+            if (p._topn_filter_source_node_ids.size() != 1 || !p.runtime_filter_descs().empty()) {
+                _condition_cache_digest = 0;
+            } else {
+                _condition_cache_digest =
+                        state->get_query_ctx()
+                                ->get_runtime_predicate(p._topn_filter_source_node_ids.front())
+                                .condition_cache_digest(_condition_cache_digest);
+            }
+        }
         for (auto& conjunct : _conjuncts) {
-            _condition_cache_digest = conjunct->get_digest(_condition_cache_digest);
             if (!_condition_cache_digest) {
                 break;
             }
+            _condition_cache_digest = conjunct->get_digest(_condition_cache_digest);
         }
     } else {
         _condition_cache_digest = 0;

@@ -26,11 +26,15 @@
 #include "storage/predicate/accept_null_predicate.h"
 #include "storage/predicate/column_predicate.h"
 #include "storage/predicate/predicate_creator.h"
+#include "util/hash_util.hpp"
 
 namespace doris {
 
 RuntimePredicate::RuntimePredicate(const TTopnFilterDesc& desc)
-        : _nulls_first(desc.null_first), _is_asc(desc.is_asc) {
+        : _nulls_first(desc.null_first),
+          _is_asc(desc.is_asc),
+          _condition_cache_digest(desc.__isset.condition_cache_digest ? desc.condition_cache_digest
+                                                                      : 0) {
     DCHECK(!desc.target_node_id_to_target_expr.empty());
     for (auto p : desc.target_node_id_to_target_expr) {
         _contexts[p.first].expr = p.second;
@@ -53,6 +57,13 @@ RuntimePredicate::RuntimePredicate(const TTopnFilterDesc& desc)
     // since values that < min_top_value are less than any value in current topn values
     _pred_constructor = _is_asc ? create_comparison_predicate<PredicateType::LE>
                                 : create_comparison_predicate<PredicateType::GE>;
+}
+
+uint64_t RuntimePredicate::condition_cache_digest(uint64_t seed) const {
+    return seed == 0 || _condition_cache_digest == 0
+                   ? 0
+                   : HashUtil::hash64(&_condition_cache_digest, sizeof(_condition_cache_digest),
+                                      seed);
 }
 
 Status RuntimePredicate::init_target(

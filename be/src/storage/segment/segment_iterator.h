@@ -225,7 +225,6 @@ private:
                                                  std::vector<rowid_t>& rowid_vector,
                                                  uint16_t* sel_rowid_idx, size_t select_size,
                                                  MutableColumns* mutable_columns,
-                                                 bool init_condition_cache = false,
                                                  bool read_for_predicate = false);
     [[nodiscard]] Status _read_lazy_pruned_columns(Block* block);
 
