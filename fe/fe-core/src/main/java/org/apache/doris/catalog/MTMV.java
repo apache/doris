@@ -611,8 +611,8 @@ public class MTMV extends OlapTable {
      */
     private boolean keepsMinMaxTopKState() {
         for (Column column : getColumns()) {
-            if (IvmUtil.isIvmMinMaxTopKStateColumn(column.getName(), IvmAggStateKey.MIN_TOPK.name())
-                    || IvmUtil.isIvmMinMaxTopKStateColumn(column.getName(),
+            if (IvmUtil.isIvmAggStateColumn(column.getName(), IvmAggStateKey.MIN_TOPK.name())
+                    || IvmUtil.isIvmAggStateColumn(column.getName(),
                             IvmAggStateKey.MAX_TOPK.name())) {
                 return true;
             }

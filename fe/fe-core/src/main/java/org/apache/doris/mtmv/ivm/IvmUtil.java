@@ -241,13 +241,13 @@ public class IvmUtil {
     }
 
     /**
-     * Whether {@code columnName} is the hidden state column of one MIN/MAX top-K aggregate state,
+     * Whether {@code columnName} is a hidden aggregate state column of the given {@code stateType},
      * e.g. {@code __DORIS_IVM_AGG_1_MIN_TOPK_COL__}.
      *
-     * <p>The state key is matched exactly, so the bound columns ({@code MIN_TOPK_BOUND}) and the
-     * other aggregate states ({@code SUM}, {@code COUNT}) do not match.
+     * <p>The state key is matched exactly: {@code MIN_TOPK} does not match
+     * {@code MIN_TOPK_BOUND}, {@code SUM}, or {@code COUNT}.
      */
-    public static boolean isIvmMinMaxTopKStateColumn(String columnName, String stateType) {
+    public static boolean isIvmAggStateColumn(String columnName, String stateType) {
         return columnName != null
                 && columnName.startsWith(Column.IVM_HIDDEN_COLUMN_PREFIX + "AGG_")
                 && columnName.endsWith("_" + stateType + "_COL__");
