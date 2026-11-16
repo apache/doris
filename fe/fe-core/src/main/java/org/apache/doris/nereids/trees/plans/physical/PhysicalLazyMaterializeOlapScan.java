@@ -72,6 +72,13 @@ public class PhysicalLazyMaterializeOlapScan extends PhysicalOlapScan {
     }
 
     @Override
+    public void setStatistics(Statistics statistics) {
+        super.setStatistics(statistics);
+        // Actual rows are updated on the wrapper, but rendered by the embedded scan.
+        scan.setStatistics(statistics);
+    }
+
+    @Override
     public AbstractPhysicalPlan copyForProfile(Function<Plan, Plan> copyPlan) {
         PhysicalOlapScan copiedScan = (PhysicalOlapScan) copyPlan.apply(scan);
         return AbstractPlan.copyWithSameId(this, () -> new PhysicalLazyMaterializeOlapScan(

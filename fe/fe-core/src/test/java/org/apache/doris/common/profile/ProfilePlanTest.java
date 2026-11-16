@@ -30,6 +30,7 @@ import org.apache.doris.nereids.memo.GroupId;
 import org.apache.doris.nereids.processor.post.materialize.MaterializeSource;
 import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -40,6 +41,7 @@ import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PreAggStatus;
+import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
@@ -50,6 +52,9 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterializeTVFS
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlanShallowCopier;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalRecursiveUnion;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalRecursiveUnionAnchor;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalRecursiveUnionProducer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSqlCache;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate.PushDownAggOp;
@@ -128,6 +133,29 @@ class ProfilePlanTest {
     }
 
     @Test
+    void testCloneRecursiveCteChildren() throws Exception {
+        PhysicalOlapScan left = scan("db", "t", List.of(a), Map.of(a, known));
+        PhysicalOlapScan right = scan("db", "u", List.of(a), Map.of(a, known));
+        PhysicalRecursiveUnion<Plan, Plan> union = new PhysicalRecursiveUnion<>("cte", Qualifier.ALL,
+                List.of(a), List.of(List.of(a), List.of(a)), left.getLogicalProperties(), left, right);
+        PhysicalRecursiveUnionProducer<Plan> producer = new PhysicalRecursiveUnionProducer<>(
+                "cte", union.getLogicalProperties(), union);
+        PhysicalRecursiveUnionAnchor<Plan> anchor = new PhysicalRecursiveUnionAnchor<>(
+                new CTEId(1), Optional.empty(), producer.getLogicalProperties(), producer);
+        PhysicalPlan copy = PhysicalPlanShallowCopier.copy(anchor);
+        Assertions.assertEquals(anchor.treeString(), copy.treeString());
+        assertNoMemoReferences(copy, Set.of(anchor, producer, union, left, right));
+        PhysicalOlapScan copiedLeft = (PhysicalOlapScan) copy.child(0).child(0).child(0);
+        PhysicalOlapScan copiedRight = (PhysicalOlapScan) copy.child(0).child(0).child(1);
+        copiedLeft.updateActualRowCount(42);
+        copiedRight.updateActualRowCount(84);
+        Assertions.assertEquals(-1, left.getStats().getActualRowCount());
+        Assertions.assertEquals(-1, right.getStats().getActualRowCount());
+        Assertions.assertTrue(copy.treeString().contains("actualRows=42"));
+        Assertions.assertTrue(copy.treeString().contains("actualRows=84"));
+    }
+
+    @Test
     void testCloneEmbeddedScans() throws Exception {
         PhysicalOlapScan scan = scan("db", "t", List.of(a), Map.of(a, known));
         SlotReference rowId = new SlotReference("row_id", IntegerType.INSTANCE);
@@ -136,6 +164,10 @@ class ProfilePlanTest {
         Assertions.assertEquals(lazy.treeString(), lazyCopy.treeString());
         Assertions.assertNotSame(scan, ((PhysicalLazyMaterializeOlapScan) lazyCopy).getScan());
         assertNoMemoReferences(lazyCopy, Set.of(scan, lazy));
+        ((PhysicalLazyMaterializeOlapScan) lazyCopy).updateActualRowCount(84);
+        Assertions.assertTrue(lazyCopy.treeString().contains("actualRows=84"));
+        Assertions.assertEquals(-1, lazy.getStats().getActualRowCount());
+        Assertions.assertSame(lazyCopy.getStats(), ((PhysicalLazyMaterializeOlapScan) lazyCopy).getScan().getStats());
 
         PhysicalStorageLayerAggregate aggregate = new PhysicalStorageLayerAggregate(scan, PushDownAggOp.COUNT);
         PhysicalStorageLayerAggregate aggregateCopy = (PhysicalStorageLayerAggregate)
@@ -153,6 +185,7 @@ class ProfilePlanTest {
         PhysicalFileScan file = new PhysicalFileScan(StatementScopeIdGenerator.newRelationId(), table,
                 List.of("catalog", "db"), null, Optional.empty(), properties, SelectedPartitions.NOT_PRUNED,
                 Optional.empty(), Optional.empty(), List.of(a), Optional.empty());
+        file.setStatistics(new Statistics(100, Map.of(a, known)));
         SlotReference rowId = new SlotReference("row_id", IntegerType.INSTANCE);
         PhysicalLazyMaterializeFileScan lazyFile = new PhysicalLazyMaterializeFileScan(file, rowId, List.of());
         PhysicalLazyMaterializeFileScan fileCopy =
@@ -160,6 +193,9 @@ class ProfilePlanTest {
         Assertions.assertEquals(lazyFile.treeString(), fileCopy.treeString());
         Assertions.assertEquals(lazyFile.getId(), fileCopy.getId());
         assertNoMemoReferences(fileCopy, Set.of(file, lazyFile));
+        fileCopy.updateActualRowCount(84);
+        Assertions.assertTrue(fileCopy.treeString().contains("actualRows=84"));
+        Assertions.assertEquals(-1, file.getStats().getActualRowCount());
 
         TableValuedFunction function = Mockito.mock(TableValuedFunction.class);
         FunctionGenTable tvfTable = Mockito.mock(FunctionGenTable.class);
