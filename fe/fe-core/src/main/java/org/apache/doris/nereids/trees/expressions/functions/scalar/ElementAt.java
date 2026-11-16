@@ -147,7 +147,8 @@ public class ElementAt extends ScalarFunction
                 return ImmutableList.of(VARIANT_KEY_SIGNATURE);
             }
         } else if (arg0Type.isFileType()) {
-            return ImmutableList.of(FunctionSignature.ret(structFieldType(((FileType) arg0Type).publicStructType()))
+            String name = ((StringLikeLiteral) getArgument(1)).getStringValue();
+            return ImmutableList.of(FunctionSignature.ret(namedFieldType(((FileType) arg0Type).getField(name), name))
                     .args(arg0Type, child(1).getDataType()));
         }
         return SIGNATURES;
@@ -164,15 +165,18 @@ public class ElementAt extends ScalarFunction
             return structType.getFields().get(offset - 1).getDataType();
         } else if (field instanceof StringLikeLiteral) {
             String name = ((StringLikeLiteral) field).getStringValue();
-            StructField structField = structType.getField(name);
-            if (structField == null) {
-                throw new AnalysisException("the specified field name " + name + " was not found: " + this.toSql());
-            }
-            return structField.getDataType();
+            return namedFieldType(structType.getField(name), name);
         } else {
             throw new AnalysisException("element_at over a struct only allows a constant int or"
                     + " string second parameter: " + this.toSql());
         }
+    }
+
+    private DataType namedFieldType(StructField field, String name) {
+        if (field == null) {
+            throw new AnalysisException("the specified field name " + name + " was not found: " + this.toSql());
+        }
+        return field.getDataType();
     }
 
     @Override

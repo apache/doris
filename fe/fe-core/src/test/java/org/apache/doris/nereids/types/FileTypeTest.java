@@ -83,6 +83,20 @@ public class FileTypeTest {
     }
 
     @Test
+    public void testPublicStructFieldMapIsIndependent() {
+        FileType file = FileType.INSTANCE;
+        StructType first = file.publicStructType();
+        first.getNameToFields().clear();
+        StructType second = file.publicStructType();
+        Assertions.assertNotNull(second.getField("URI"));
+        Assertions.assertEquals(StringType.INSTANCE, file.getField("URI").getDataType());
+        Assertions.assertEquals(BigIntType.INSTANCE, file.getField("size").getDataType());
+        Assertions.assertNull(file.getField("unknown"));
+        Assertions.assertEquals(6, file.getFields().size());
+        Assertions.assertEquals(7, file.toCatalogDataType().toThrift().getTypesSize());
+    }
+
+    @Test
     public void testNestedParsingAndNoParameters() {
         fileType();
         for (String sql : Arrays.asList("ARRAY<FILE>", "MAP<STRING,FILE>", "STRUCT<f:ARRAY<FILE>>")) {

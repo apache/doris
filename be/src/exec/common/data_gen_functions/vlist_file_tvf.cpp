@@ -51,10 +51,14 @@ Status VListFileTVF::set_scan_ranges(const std::vector<TScanRangeParams>& scan_r
     _path.delimiter = params.recursive ? "" : "/";
     static constexpr std::array<std::string_view, 3> NAMES {"path", "size", "file"};
     _column_indices.clear();
+    _need_path = false;
+    _need_file = false;
     for (const auto* slot : _tuple_desc->slots()) {
         const auto* const field = std::ranges::find(NAMES, slot->col_name());
         DCHECK(field != NAMES.end());
         _column_indices.push_back(std::distance(NAMES.begin(), field));
+        _need_path |= *field == "path";
+        _need_file |= *field == "file";
     }
     return Status::OK();
 }
@@ -127,12 +131,14 @@ Status VListFileTVF::get_next(RuntimeState* state, Block* block, bool* eos) {
         if (!is_directory && object.size < 0) {
             return Status::InvalidArgument("FILE size must be nonnegative");
         }
-        std::array<Field, 3> fields {
-                Field::create_field<TYPE_STRING>("s3://" + _path.bucket + "/" + object.key),
-                Field::create_field<TYPE_BIGINT>(is_directory ? 0 : object.size), Field()};
-        if (!is_directory) {
+        std::array<Field, 3> fields;
+        if (_need_path || (_need_file && !is_directory)) {
+            fields[0] = Field::create_field<TYPE_STRING>("s3://" + _path.bucket + "/" + object.key);
+        }
+        fields[1] = Field::create_field<TYPE_BIGINT>(is_directory ? 0 : object.size);
+        if (_need_file && !is_directory) {
             File value(DataTypeFile::FIELD_COUNT);
-            value[0] = fields[0];
+            value[0] = _need_path ? fields[0] : std::move(fields[0]);
             value[2] = fields[1];
             value[3] = Field::create_field<TYPE_STRING>(
                     std::string(infer_file_content_type_from_name(object.key)));

@@ -226,6 +226,31 @@ TEST_F(DataTypeFileSerDeTest, ProtobufShapeValidationIsAtomicForAllSixChildren) 
     EXPECT_EQ(restored->size(), 1);
 }
 
+TEST_F(DataTypeFileSerDeTest, ProtobufAppendsToExistingNullableRows) {
+    const std::string bytes(8192, '\xff');
+    auto source = ColumnNullable::create(type.create_column(), ColumnUInt8::create());
+    source->insert(value(&bytes));
+    source->insert_default();
+    DataTypeNullableSerDe nullable(std::make_shared<DataTypeFileSerDe>(), 1);
+    PValues pb;
+    ASSERT_TRUE(nullable.write_column_to_pb(*source, pb, 0, 2).ok());
+    auto restored = ColumnNullable::create(type.create_column(), ColumnUInt8::create());
+    restored->insert(value());
+    for (size_t batch = 0; batch < 2; ++batch) {
+        ASSERT_TRUE(nullable.read_column_from_pb(*restored, pb).ok());
+    }
+    source->clear();
+    pb.Clear();
+    ASSERT_EQ(restored->size(), 5);
+    EXPECT_EQ((*restored)[0], value());
+    for (size_t row : {1, 3}) {
+        EXPECT_FALSE(restored->is_null_at(row));
+        expect_bytes(restored->get_nested_column(), row, &bytes);
+        EXPECT_TRUE(restored->is_null_at(row + 1));
+    }
+    restored->sanity_check();
+}
+
 TEST_F(DataTypeFileSerDeTest, ProtobufPreservesNullableParentWithNonNullableFileChild) {
     const auto outer_type = make_nullable(std::make_shared<DataTypeStruct>(
             DataTypes {std::make_shared<DataTypeFile>()}, Strings {"payload"}));

@@ -216,9 +216,14 @@ public class PlanTranslatorContext {
         this.descTable = descTable;
     }
 
+    public void registerS3Resource(String resourceName) {
+        s3Resources.computeIfAbsent(resourceName,
+                name -> S3Resource.checkResource(name, connectContext).toThrift());
+    }
+
     public TS3Resource getOrRegisterS3Resource(String resourceName) {
-        return s3Resources.computeIfAbsent(resourceName,
-                name -> S3Resource.checkResource(name, connectContext).toThrift()).deepCopy();
+        registerS3Resource(resourceName);
+        return s3Resources.get(resourceName).deepCopy();
     }
 
     public Map<String, TS3Resource> getS3Resources() {

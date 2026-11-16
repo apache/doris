@@ -199,7 +199,7 @@ TEST_F(FileExprTest, BinaryGetterPreservesParentNullsAndSharesPayload) {
     EXPECT_FALSE(source.is_null_at(1));
 }
 
-TEST_F(FileExprTest, BinaryGetterInsertsNullForMissingInline) {
+TEST_F(FileExprTest, BinaryGetterSharesPayloadWithMissingInline) {
     const std::string bytes("\0\xff\x80", 3);
     auto value = file_value();
     value.get<TYPE_FILE>()[5] = Field::create_field<TYPE_VARBINARY>(StringView(bytes));
@@ -221,7 +221,7 @@ TEST_F(FileExprTest, BinaryGetterInsertsNullForMissingInline) {
     const auto& output = assert_cast<const ColumnNullable&>(*block.get_by_position(1).column);
     EXPECT_EQ(output[0].get<TYPE_VARBINARY>().str(), bytes);
     EXPECT_TRUE(output.is_null_at(1));
-    EXPECT_TRUE(output.get_nested_column()[1].get<TYPE_VARBINARY>().empty());
+    EXPECT_EQ(output.get_nested_column_ptr(), inline_column.get_nested_column_ptr());
     EXPECT_FALSE(output.is_null_at(2));
     EXPECT_TRUE(output[2].get<TYPE_VARBINARY>().empty());
     EXPECT_EQ(inline_column.get_nested_column()[1].get<TYPE_VARBINARY>().str(), bytes);

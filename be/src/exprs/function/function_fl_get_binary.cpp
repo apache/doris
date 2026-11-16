@@ -36,26 +36,11 @@ public:
     }
 
     Status execute_impl(FunctionContext*, Block& block, const ColumnNumbers& arguments,
-                        uint32_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t) const override {
         const auto& file =
                 assert_cast<const ColumnFile&>(*block.get_by_position(arguments[0]).column);
         const auto& inline_column = file.get_column_ptr(DataTypeFile::INLINE_FIELD_INDEX);
-        if (!inline_column->has_null()) {
-            block.replace_by_position(result, inline_column);
-            return Status::OK();
-        }
-
-        auto result_column = inline_column->clone_empty();
-        result_column->reserve(input_rows_count);
-        for (size_t row = 0; row < input_rows_count; ++row) {
-            if (!inline_column->is_null_at(row)) {
-                result_column->insert_from(*inline_column, row);
-            } else {
-                // TODO: Read the remote file's binary contents and store them in the FILE value.
-                result_column->insert_default();
-            }
-        }
-        block.replace_by_position(result, std::move(result_column));
+        block.replace_by_position(result, inline_column);
         return Status::OK();
     }
 };

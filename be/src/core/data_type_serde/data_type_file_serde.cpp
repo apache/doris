@@ -266,14 +266,11 @@ Status DataTypeFileSerDe::read_column_from_pb(IColumn& column, const PValues& ar
         }
         RETURN_IF_ERROR(check_pb_null_map(child, rows));
     }
-    auto decoded = column.clone_empty();
-    auto& file = assert_cast<ColumnFile&>(*decoded);
+    auto& file = assert_cast<ColumnFile&>(column);
     for (size_t i = 0; i < FILE_FIELDS; ++i) {
         RETURN_IF_ERROR(_element_serdes[i]->read_column_from_pb(
                 file.get_column(i), arg.child_element(cast_set<int>(i))));
     }
-    // Internal protobuf transport restores values without repeating input validation.
-    column.insert_range_from(file, 0, rows);
     return Status::OK();
 }
 
