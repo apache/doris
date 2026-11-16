@@ -2011,9 +2011,16 @@ bool SegmentIterator::_need_read_data(ColumnId cid) {
         return true;
     }
     const auto& column = *_schema->column(cid);
-    // Different subcolumns may share the same parent_unique_id, so we choose to abandon this optimization.
+    // The subcolumns of a variant share its unique id, so the output set cannot tell an output
+    // subcolumn from a filter-only one. Read every subcolumn of a variant that has any output
+    // column; one whose variant has none (e.g. read only by SEARCH) is decided below like any
+    // other column.
+    // Virtual columns read their inputs outside the output set, so a scan with any keeps
+    // reading every subcolumn.
     if (column.is_extracted_column() &&
-        _opts.push_down_agg_type_opt != TPushAggOp::COUNT_ON_INDEX) {
+        _opts.push_down_agg_type_opt != TPushAggOp::COUNT_ON_INDEX &&
+        (column.parent_unique_id() < 0 || !_virtual_column_exprs.empty() ||
+         _output_column_uids.contains(column.parent_unique_id()))) {
         return true;
     }
     int32_t unique_id = column.unique_id();
@@ -3774,6 +3781,17 @@ void SegmentIterator::_calculate_common_expr_index_exec_status() {
             continue;
         }
         _common_expr_to_slotref_map[root_expr_ctx.get()] = std::unordered_map<ColumnId, VExpr*>();
+
+        // A conjunct that is a column, or a cast of one, reads the column itself and no index
+        // answers it, so the column keeps its data even when the index answers every other
+        // conjunct on it. The walk below records slots by the parent they sit under, which a
+        // root has none of.
+        if (const auto root_column = VExpr::expr_without_cast(root_expr);
+            root_column->is_slot_ref()) {
+            const auto* slot_ref = assert_cast<const VSlotRef*>(root_column.get());
+            _common_expr_index_exec_status[cast_set<ColumnId>(slot_ref->column_id())]
+                                          [root_expr.get()] = false;
+        }
 
         std::stack<VExprSPtr> stack;
         stack.emplace(root_expr);
