@@ -847,12 +847,10 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         boolean ignoreJni = IGNORE_SPLIT_TYPE_JNI.equals(ignoreSplitType);
         boolean ignoreNative = IGNORE_SPLIT_TYPE_NATIVE.equals(ignoreSplitType);
 
-        if (optionsPin && Arrays.stream(projected).anyMatch(index -> index < 0)) {
-            // Only an @options read can bind against a schema the scan table does not have: its snapshot
-            // is chosen per relation, so a column bound from one version may be absent from the version
-            // this scan resolves. Dropping it (what the filter above does for every other path, where the
-            // two schemas agree by construction) would silently shift every later projection index by one
-            // and hand BE the wrong column. Fail loud instead.
+        if ((optionsPin || PaimonSchemaPin.isHistoricalSnapshot(pinnedOptions))
+                && Arrays.stream(projected).anyMatch(index -> index < 0)) {
+            // A snapshot is selected per relation. Dropping a bound field missing from the scan schema
+            // would shift the projection indices and could hand BE the wrong column.
             throw new DorisConnectorException("Paimon scan schema does not contain all bound Doris columns.");
         }
 
@@ -889,6 +887,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         List<Split> paimonSplits = fileCreationTime.isPresent()
                 ? planFileCreationTimeSplits(table, pinnedOptions, predicates, fileCreationTime.get())
                 : planSplits(scan);
+        validateHistoricalSnapshot(paimonHandle, table);
         stashScanProfile(session, table, paimonHandle, metricRegistry);
 
         String defaultFileFormat = table.options().getOrDefault(
@@ -1357,7 +1356,17 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             }
         }
 
+        validateHistoricalSnapshot(paimonHandle, table);
         return props;
+    }
+
+    private void validateHistoricalSnapshot(PaimonTableHandle handle, Table table) {
+        if (!handle.isSystemTable() && PaimonSchemaPin.isHistoricalSnapshot(handle.getScanOptions())) {
+            withBoundSchemaAuthentication(handle, () -> {
+                PaimonSchemaPin.validate(table, handle.getScanOptions());
+                return null;
+            });
+        }
     }
 
     static boolean containsTimestampType(DataType type) {
@@ -2903,18 +2912,16 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         // stay paimon-cased (legacy PaimonUtil.getSchemaInfo). NOT memoized: it reads the LIVE
         // table.schema()/latest() and is keyed off the requested columns, not a committed schema id.
         history.add(buildSchemaInfo(CURRENT_SCHEMA_ID,
-                resolveCurrentSchemaFields(fileStoreTable, schemaManager, columns), false));
-        // One entry per committed schema id so every native file's schema_id resolves. The EMISSION is
-        // unchanged (still every listAllIds() id -> the dict always covers any file's schema_id -> no
-        // BE-crash risk); only the per-id field READ is memoized (FIX-B-R2-be). A committed schemaId's
-        // schema-<id> file is write-once, so the (handle, schemaId) cache value is immutable; the loader
-        // keeps the DIRECT read (not catalogOps.schemaAt) and a read that throws propagates uncached
-        // (fail-loud, mirroring legacy putHistorySchemaInfo).
+                resolveCurrentSchemaFields(fileStoreTable, schemaManager, columns,
+                        PaimonSchemaPin.isHistoricalSnapshot(handle.getScanOptions())), false));
+        // Fast-forward can replace file schemas at the same paths. Historical scans key their
+        // dictionary entries by the captured snapshot generation as well as the file schema ID.
+        Map<String, String> coordinates = PaimonSchemaPin.isHistoricalSnapshot(handle.getScanOptions())
+                ? PaimonSchemaPin.coordinates(handle.getScanOptions()) : Collections.emptyMap();
         for (Long schemaId : schemaManager.listAllIds()) {
-            List<DataField> fields = schemaAtMemo.getOrLoad(handle, schemaId, () -> {
+            List<DataField> fields = schemaAtMemo.getOrLoad(handle, schemaId, coordinates, () -> {
                 TableSchema ts = schemaManager.schema(schemaId);
-                return new PaimonCatalogOps.PaimonSchemaSnapshot(
-                        ts.fields(), ts.partitionKeys(), ts.primaryKeys());
+                return new PaimonCatalogOps.PaimonSchemaSnapshot(ts);
             }).fields();
             history.add(buildSchemaInfo(schemaId, fields, false));
         }
@@ -2936,7 +2943,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
      * inconsistency) rather than silently dropping it.
      */
     private static List<DataField> resolveCurrentSchemaFields(FileStoreTable table,
-            SchemaManager schemaManager, List<ConnectorColumnHandle> columns) {
+            SchemaManager schemaManager, List<ConnectorColumnHandle> columns, boolean historical) {
         List<String> columnNames = new ArrayList<>(columns == null ? 0 : columns.size());
         if (columns != null) {
             for (ConnectorColumnHandle handle : columns) {
@@ -2946,8 +2953,8 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                 }
             }
         }
-        List<DataField> latestFields = schemaManager.latest()
-                .map(TableSchema::fields).orElse(Collections.emptyList());
+        List<DataField> latestFields = historical ? Collections.emptyList()
+                : schemaManager.latest().map(TableSchema::fields).orElse(Collections.emptyList());
         return selectCurrentSchemaFields(table.schema().fields(), latestFields, columnNames);
     }
 

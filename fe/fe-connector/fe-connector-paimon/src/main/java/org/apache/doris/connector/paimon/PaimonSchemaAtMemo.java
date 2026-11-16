@@ -25,6 +25,7 @@ import org.apache.doris.connector.cache.MetaCacheSizeEstimators;
 import org.apache.doris.connector.cache.ScopePath;
 
 import java.util.Collections;
+import java.util.Map;
 import java.util.Objects;
 import java.util.function.Supplier;
 
@@ -38,19 +39,9 @@ import java.util.function.Supplier;
  * into the metadata so the at-snapshot resolve can consult/populate it. It is cleared wholesale on
  * REFRESH CATALOG (the connector is rebuilt → a fresh empty memo).
  *
- * <p><b>Value =</b> the raw {@link PaimonCatalogOps.PaimonSchemaSnapshot} (fields + partition-key +
- * primary-key name lists) — the exact output of the {@link PaimonCatalogOps#schemaAt} schema-file read,
- * which is a <i>pure function</i> of {@code (table-identity, schemaId)} because a committed paimon
- * schemaId's schema content is write-once. The built {@code ConnectorTableSchema} is deliberately NOT
- * cached: it embeds the live {@code coreOptions()} of the table, which are not keyed by schemaId and could
- * go stale — so the metadata rebuilds it fresh per query from the live table while only the schema read is
- * memoized. The single behavioral delta vs the pre-fix path is therefore "the {@code schemaAt} read is
- * skipped on a repeat"; everything else is unchanged.
- *
- * <p><b>No performance regression (by construction):</b> on a miss the loader runs exactly as before plus
- * an O(1) put; on a hit the {@code schemaAt} read is skipped (strictly faster); on overflow/eviction or a
- * concurrent same-key double-load the value is simply re-read (= the pre-fix behavior). The value is
- * immutable, so a cached entry is safe to share across queries and a flush never yields a stale read.
+ * <p>The historical snapshot generation is part of the cache key because fast-forward can
+ * replace a schema file with a different schema at the same ID. Keep only schema fields and
+ * keys here, and apply the effective table options when building the relation.
  */
 final class PaimonSchemaAtMemo {
 
@@ -88,7 +79,12 @@ final class PaimonSchemaAtMemo {
      */
     PaimonCatalogOps.PaimonSchemaSnapshot getOrLoad(PaimonTableHandle handle, long schemaId,
             Supplier<PaimonCatalogOps.PaimonSchemaSnapshot> loader) {
-        MemoKey key = new MemoKey(handle, schemaId);
+        return getOrLoad(handle, schemaId, Collections.emptyMap(), loader);
+    }
+
+    PaimonCatalogOps.PaimonSchemaSnapshot getOrLoad(PaimonTableHandle handle, long schemaId,
+            Map<String, String> generation, Supplier<PaimonCatalogOps.PaimonSchemaSnapshot> loader) {
+        MemoKey key = new MemoKey(handle, schemaId, generation);
         return cache.get(key, ignored -> loader.get());
     }
 
@@ -125,7 +121,7 @@ final class PaimonSchemaAtMemo {
     }
 
     /**
-     * Cache key = the handle's identity (db, table, sysTableName, branchName) plus the pinned schemaId.
+     * Cache key = table and branch identity, schema ID and its snapshot generation when available.
      *
      * <p>The four identity fields MIRROR {@link PaimonTableHandle#equals}/{@link PaimonTableHandle#hashCode}
      * (PaimonTableHandle:233-240). They are stored as extracted values rather than a retained
@@ -139,13 +135,15 @@ final class PaimonSchemaAtMemo {
         private final String sysTableName;
         private final String branchName;
         private final long schemaId;
+        private final Map<String, String> generation;
 
-        MemoKey(PaimonTableHandle handle, long schemaId) {
+        MemoKey(PaimonTableHandle handle, long schemaId, Map<String, String> generation) {
             this.databaseName = handle.getDatabaseName();
             this.tableName = handle.getTableName();
             this.sysTableName = handle.getSysTableName();
             this.branchName = handle.getBranchName();
             this.schemaId = schemaId;
+            this.generation = Map.copyOf(generation);
         }
 
         @Override
@@ -158,6 +156,7 @@ final class PaimonSchemaAtMemo {
             }
             MemoKey that = (MemoKey) o;
             return schemaId == that.schemaId
+                    && generation.equals(that.generation)
                     && databaseName.equals(that.databaseName)
                     && tableName.equals(that.tableName)
                     && Objects.equals(sysTableName, that.sysTableName)
@@ -166,7 +165,7 @@ final class PaimonSchemaAtMemo {
 
         @Override
         public int hashCode() {
-            return Objects.hash(databaseName, tableName, sysTableName, branchName, schemaId);
+            return Objects.hash(databaseName, tableName, sysTableName, branchName, schemaId, generation);
         }
     }
 }

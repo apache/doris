@@ -18,6 +18,7 @@
 package org.apache.doris.connector.paimon;
 
 import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
 
 import com.google.common.hash.Hashing;
 import org.apache.paimon.Snapshot;
@@ -30,17 +31,45 @@ import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.utils.SnapshotManager;
 
+import java.io.FileNotFoundException;
 import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
 import java.util.function.LongSupplier;
 
 /** Immutable file coordinates carried by the MVCC pin, including across INSERT planning attempts. */
 final class PaimonSchemaPin {
     private static final String PREFIX = "doris.internal.paimon.schema-pin.";
 
+    private static final String HISTORICAL_SNAPSHOT = PREFIX + "historical";
+
     private PaimonSchemaPin() {}
+
+    static Optional<ConnectorMvccSnapshot> historicalSnapshot(DataTable table, long snapshotId) {
+        SnapshotManager manager = table.snapshotManager();
+        Snapshot selected;
+        try {
+            selected = SnapshotManager.tryFromPath(manager.fileIO(), manager.snapshotPath(snapshotId));
+        } catch (FileNotFoundException e) {
+            return Optional.empty();
+        }
+        long schemaId = selected.schemaId();
+        Map<String, String> coordinates = capture(table, schemaId, snapshotId);
+        coordinates.put(HISTORICAL_SNAPSHOT, Boolean.TRUE.toString());
+        // Fast-forward can replace a snapshot at the very same path during capture.
+        if (!digest(selected.toJson()).equals(coordinates.get(PREFIX + "snapshot"))) {
+            throw changed();
+        }
+        return Optional.of(ConnectorMvccSnapshot.builder().snapshotId(snapshotId).schemaId(schemaId)
+                .properties(PaimonScanParams.pinOptionsToSnapshot(Collections.emptyMap(), snapshotId))
+                .properties(coordinates).build());
+    }
+
+    static boolean isHistoricalSnapshot(Map<String, String> options) {
+        return options.containsKey(HISTORICAL_SNAPSHOT);
+    }
 
     static Map<String, String> capture(Table table, long schemaId, long snapshotId) {
         Map<String, String> pin = new HashMap<>();
@@ -119,9 +148,17 @@ final class PaimonSchemaPin {
             String snapshotId = pin.get(PREFIX + path + "snapshot-id");
             if (snapshotId != null) {
                 long id = Long.parseLong(snapshotId);
-                if (!data.snapshotManager().snapshotExists(id)
-                        || !pin.get(PREFIX + path + "snapshot").equals(snapshotDigest(data, id))) {
+                SnapshotManager manager = data.snapshotManager();
+                String expected = pin.get(PREFIX + path + "snapshot");
+                if (!manager.snapshotExists(id) || !expected.equals(snapshotDigest(data, id))) {
                     throw changed();
+                }
+                if (isHistoricalSnapshot(pin) && !expected.equals(digest(manager.snapshot(id).toJson()))) {
+                    // The SDK also caches snapshots by path. It must not plan with the replaced file.
+                    manager.invalidateCache();
+                    if (!expected.equals(digest(manager.snapshot(id).toJson()))) {
+                        throw changed();
+                    }
                 }
             }
         }
@@ -185,13 +222,31 @@ final class PaimonSchemaPin {
         return manager.toSchemaPath(schema.id()) + "\n" + schemaDigest(schema);
     }
 
+    static boolean matchesStoredSchema(FileStoreTable table) {
+        if (table instanceof FallbackReadFileStoreTable) {
+            FallbackReadFileStoreTable pair = (FallbackReadFileStoreTable) table;
+            return matchesStoredSchema(pair.wrapped()) && matchesStoredSchema(pair.other());
+        }
+        TableSchema retained = table.schema();
+        try {
+            return sameSchema(retained, table.schemaManager().tryGetSchema(retained.id()));
+        } catch (FileNotFoundException e) {
+            // A fast-forward can remove the cached base schema entirely.
+            return false;
+        }
+    }
+
     static void validateRetainedSchema(TableSchema retained, TableSchema persisted) {
         // Dynamic copies legitimately overlay options, but preserve the schema's structural metadata
         // and creation timestamp. Compare those against the same ID's physical history, not latest.
-        if (!schemaDigest(retained.copy(Collections.emptyMap()))
-                .equals(schemaDigest(persisted.copy(Collections.emptyMap())))) {
+        if (!sameSchema(retained, persisted)) {
             throw changed();
         }
+    }
+
+    private static boolean sameSchema(TableSchema retained, TableSchema persisted) {
+        return schemaDigest(retained.copy(Collections.emptyMap()))
+                .equals(schemaDigest(persisted.copy(Collections.emptyMap())));
     }
 
     static String schemaDigest(TableSchema schema) {

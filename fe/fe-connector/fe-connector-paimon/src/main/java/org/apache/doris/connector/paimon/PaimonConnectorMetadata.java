@@ -662,7 +662,17 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
                     () -> readMetadataAuthenticated(() -> catalogOps.schemaAt(table, schemaId)));
         }
         return readMetadataAuthenticated(() -> {
-            PaimonSchemaPin.validate(table, handle.getScanOptions());
+            Map<String, String> options = handle.getScanOptions();
+            PaimonSchemaPin.validate(table, options);
+            if (PaimonSchemaPin.isHistoricalSnapshot(options)) {
+                // A statement can read several versions of the same table. The latest-schema pin
+                // is keyed by table and branch, so historical relations use their own coordinates.
+                PaimonCatalogOps.PaimonSchemaSnapshot schema = schemaAtMemo.getOrLoad(
+                        handle, schemaId, PaimonSchemaPin.coordinates(options),
+                        () -> catalogOps.schemaAt(table, schemaId));
+                PaimonSchemaPin.validateSchema(schema, options);
+                return schema;
+            }
             // INSERT replanning can replace this scope while retaining the source pin. Rehydrate
             // the exact schema in the new scope without using the catalog's historical memo.
             StatementPin pin = statementPins.computeIfAbsent(handle, ignored -> new StatementPin(
@@ -750,16 +760,9 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
         Table table = resolveTable(paimonHandle);
         switch (spec.getKind()) {
             case SNAPSHOT_ID: {
-                long id = Long.parseLong(spec.getStringValue());
-                if (!catalogOps.snapshotExists(table, id)) {
-                    return Optional.empty();
-                }
-                long schemaId = catalogOps.snapshotSchemaId(table, id).orElse(-1L);
-                return Optional.of(ConnectorMvccSnapshot.builder()
-                        .snapshotId(id)
-                        .schemaId(schemaId)
-                        .property(CoreOptions.SCAN_SNAPSHOT_ID.key(), String.valueOf(id))
-                        .build());
+                long snapshotId = Long.parseLong(spec.getStringValue());
+                return catalogOps.snapshotExists(table, snapshotId)
+                        ? catalogOps.historicalSnapshot(table, snapshotId) : Optional.empty();
             }
             case TIMESTAMP: {
                 long millis = parseTimestampMillis(session, spec);
@@ -767,13 +770,7 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
                 if (!id.isPresent()) {
                     return Optional.empty();
                 }
-                long snapshotId = id.getAsLong();
-                long schemaId = catalogOps.snapshotSchemaId(table, snapshotId).orElse(-1L);
-                return Optional.of(ConnectorMvccSnapshot.builder()
-                        .snapshotId(snapshotId)
-                        .schemaId(schemaId)
-                        .property(CoreOptions.SCAN_SNAPSHOT_ID.key(), String.valueOf(snapshotId))
-                        .build());
+                return catalogOps.historicalSnapshot(table, id.getAsLong());
             }
             // Non-numeric FOR VERSION AS OF resolves as a TAG in paimon (legacy parity:
             // PaimonExternalTable.getPaimonSnapshotCacheValue treats a non-digital FOR VERSION AS OF
@@ -887,6 +884,13 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
                 long pinnedId = usesStatementFence
                         ? spec.getLatestSnapshotFence().getAsLong()
                         : pinnedSnapshotId(table, resolved);
+                if (!usesStatementFence && resolved.containsKey(CoreOptions.SCAN_SNAPSHOT_ID.key())) {
+                    Optional<ConnectorMvccSnapshot> selected = catalogOps.historicalSnapshot(table, pinnedId);
+                    return selected.map(pin -> ConnectorMvccSnapshot.builder()
+                            .snapshotId(pin.getSnapshotId()).schemaId(pin.getSchemaId())
+                            .properties(PaimonScanParams.markAsOptions(resolved))
+                            .properties(pin.getProperties()).build());
+                }
                 // The statement fence pins data visibility, not schema time travel. Planning-only
                 // aliases must retain the latest-schema projection used by the plain relation.
                 StatementPin pin = usesStatementFence ? statementPin(paimonHandle, table, pinnedId) : null;
@@ -1774,7 +1778,9 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
                 paimonHandle.getScanOptions(), PaimonTableOptions.extractCompatible(catalogProperties.getRaw()));
         boolean optionsPin = PaimonScanParams.isOptionsPin(scanOptions);
         Table table;
-        if (optionsPin) {
+        if (PaimonSchemaPin.isHistoricalSnapshot(scanOptions)) {
+            table = PaimonScanParams.applyOptionsWithoutTimeTravel((FileStoreTable) resolvedTable, scanOptions);
+        } else if (optionsPin) {
             table = PaimonScanParams.applyOptions(resolvedTable, scanOptions);
         } else {
             String snapshotId = scanOptions.get(CoreOptions.SCAN_SNAPSHOT_ID.key());
@@ -1976,9 +1982,13 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
             }
             Table table = resolveTable(pinned);
             if (scanOptions != null && !scanOptions.isEmpty() && !pinned.isSystemTable()) {
-                table = PaimonScanParams.isOptionsPin(scanOptions)
-                        ? PaimonScanParams.applyOptions(table, scanOptions)
-                        : PaimonScanParams.copyWithHistoricalSchema(table, scanOptions);
+                if (PaimonSchemaPin.isHistoricalSnapshot(scanOptions)) {
+                    table = PaimonScanParams.applyOptionsWithoutTimeTravel((FileStoreTable) table, scanOptions);
+                } else {
+                    table = PaimonScanParams.isOptionsPin(scanOptions)
+                            ? PaimonScanParams.applyOptions(table, scanOptions)
+                            : PaimonScanParams.copyWithHistoricalSchema(table, scanOptions);
+                }
             }
             table = PaimonReaderOptions.runtimeSafeTable(table);
             table = runtimeSafeSystemTable(pinned, table, scanOptions);

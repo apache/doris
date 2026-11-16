@@ -20,6 +20,7 @@ package org.apache.doris.connector.paimon;
 import org.apache.doris.connector.spi.ConnectorContext;
 
 import org.apache.paimon.catalog.Identifier;
+import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
 
 /**
@@ -65,7 +66,8 @@ final class PaimonTableResolver {
     static Table resolve(PaimonCatalogOps catalogOps, PaimonTableHandle handle)
             throws org.apache.paimon.catalog.Catalog.TableNotExistException {
         Table table = handle.getPaimonTable();
-        if (table != null) {
+        boolean historical = PaimonSchemaPin.isHistoricalSnapshot(handle.getScanOptions());
+        if (table != null && !historical) {
             return table;
         }
         // Fallback reload. A sys handle MUST reload via the 4-arg sys Identifier so the SYSTEM
@@ -84,7 +86,14 @@ final class PaimonTableResolver {
         } else {
             id = Identifier.create(handle.getDatabaseName(), handle.getTableName());
         }
-        return catalogOps.getTable(id);
+        Table resolved = table == null ? catalogOps.getTable(id) : table;
+        if (historical && resolved instanceof FileStoreTable
+                && !PaimonSchemaPin.matchesStoredSchema((FileStoreTable) resolved)) {
+            // The cached base table may itself describe the replaced version. Restore the bound
+            // history only after reloading the base table and its catalog options.
+            return catalogOps.reloadTable(id);
+        }
+        return resolved;
     }
 
     static Table resolveSystemSource(

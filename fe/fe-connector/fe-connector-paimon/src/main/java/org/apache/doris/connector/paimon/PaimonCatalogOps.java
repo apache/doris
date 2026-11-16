@@ -17,6 +17,8 @@
 
 package org.apache.doris.connector.paimon;
 
+import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
+
 import org.apache.paimon.CoreOptions;
 import org.apache.paimon.Snapshot;
 import org.apache.paimon.catalog.Catalog;
@@ -70,6 +72,10 @@ public interface PaimonCatalogOps {
     List<String> listTables(String databaseName) throws Catalog.DatabaseNotExistException;
 
     Table getTable(Identifier identifier) throws Catalog.TableNotExistException;
+
+    default Table reloadTable(Identifier identifier) throws Catalog.TableNotExistException {
+        return getTable(identifier);
+    }
 
     List<Partition> listPartitions(Identifier identifier, Table table) throws Catalog.TableNotExistException;
 
@@ -128,6 +134,12 @@ public interface PaimonCatalogOps {
      * for snapshot-id / timestamp time-travel so schema-at-snapshot reads pick the historical schema.
      */
     OptionalLong snapshotSchemaId(Table table, long snapshotId);
+
+    default Optional<ConnectorMvccSnapshot> historicalSnapshot(Table table, long snapshotId) {
+        return Optional.of(ConnectorMvccSnapshot.builder().snapshotId(snapshotId)
+                .schemaId(snapshotSchemaId(table, snapshotId).orElse(-1L))
+                .property(CoreOptions.SCAN_SNAPSHOT_ID.key(), Long.toString(snapshotId)).build());
+    }
 
     /**
      * Resolves the named tag to its snapshot id + schema id ({@code tagManager().get(tagName)};
@@ -227,7 +239,7 @@ public interface PaimonCatalogOps {
             this(schemaId, fields, partitionKeys, primaryKeys, null);
         }
 
-        private PaimonSchemaSnapshot(TableSchema schema) {
+        PaimonSchemaSnapshot(TableSchema schema) {
             this(schema.id(), schema.fields(), schema.partitionKeys(), schema.primaryKeys(),
                     PaimonSchemaPin.schemaDigest(schema));
         }
@@ -316,6 +328,12 @@ public interface PaimonCatalogOps {
         }
 
         @Override
+        public Table reloadTable(Identifier identifier) throws Catalog.TableNotExistException {
+            catalog.invalidateTable(identifier);
+            return getTable(identifier);
+        }
+
+        @Override
         public List<Partition> listPartitions(Identifier identifier, Table table)
                 throws Catalog.TableNotExistException {
             RESTCatalog restCatalog = restCatalog(catalog);
@@ -399,6 +417,11 @@ public interface PaimonCatalogOps {
             // returns the Snapshot whose schemaId is the version pinned for schema-at-snapshot.
             Snapshot snapshot = ((DataTable) table).snapshotManager().snapshot(snapshotId);
             return snapshot == null ? OptionalLong.empty() : OptionalLong.of(snapshot.schemaId());
+        }
+
+        @Override
+        public Optional<ConnectorMvccSnapshot> historicalSnapshot(Table table, long snapshotId) {
+            return PaimonSchemaPin.historicalSnapshot((DataTable) table, snapshotId);
         }
 
         @Override

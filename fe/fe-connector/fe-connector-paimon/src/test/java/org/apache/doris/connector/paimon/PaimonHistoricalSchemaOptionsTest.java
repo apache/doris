@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector.paimon;
 
+import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
 import org.apache.doris.connector.spi.mvcc.ConnectorTimeTravelSpec;
 
@@ -41,6 +42,7 @@ import org.apache.paimon.table.sink.BatchWriteBuilder;
 import org.apache.paimon.table.source.Split;
 import org.apache.paimon.table.system.SystemTableLoader;
 import org.apache.paimon.types.DataTypes;
+import org.apache.paimon.utils.FileSystemBranchManager;
 import org.apache.paimon.utils.InstantiationUtil;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -55,6 +57,44 @@ import java.util.List;
 import java.util.Map;
 
 public class PaimonHistoricalSchemaOptionsTest {
+    @Test
+    public void historicalPinDetectsReplacementAtSameSnapshotAndSchemaIds(@TempDir Path warehouse)
+            throws Exception {
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            Identifier mainId = Identifier.create("db", "timeline");
+            Identifier devId = new Identifier("db", "timeline", "dev");
+            catalog.createDatabase("db", false);
+            catalog.createTable(mainId, Schema.newBuilder().column("id", DataTypes.INT().notNull())
+                    .column("metric", DataTypes.INT()).primaryKey("id")
+                    .option("bucket", "1").option("file.format", "parquet").build(), false);
+            FileStoreTable initial = (FileStoreTable) catalog.getTable(mainId);
+            append(initial, GenericRow.of(1, 10));
+            initial.createTag("base", 1L);
+            initial.createBranch("dev", "base");
+
+            catalog.alterTable(mainId, Collections.singletonList(SchemaChange.renameColumn("metric", "main_metric")),
+                    false);
+            catalog.alterTable(devId, Collections.singletonList(SchemaChange.renameColumn("metric", "dev_metric")),
+                    false);
+            FileStoreTable main = (FileStoreTable) catalog.getTable(mainId);
+            append(main, GenericRow.of(2, 20));
+            append((FileStoreTable) catalog.getTable(devId), GenericRow.of(3, 30));
+            ConnectorMvccSnapshot oldPin = PaimonSchemaPin.historicalSnapshot(main, 2L).orElseThrow();
+            PaimonSchemaPin.validate(main, oldPin.getProperties());
+
+            ((FileSystemBranchManager) main.branchManager()).fastForward("dev");
+            FileStoreTable replacement = (FileStoreTable) catalog.getTable(mainId);
+            ConnectorMvccSnapshot newPin = PaimonSchemaPin.historicalSnapshot(replacement, 2L).orElseThrow();
+            Assertions.assertEquals(oldPin.getSnapshotId(), newPin.getSnapshotId());
+            Assertions.assertEquals(oldPin.getSchemaId(), newPin.getSchemaId());
+            DorisConnectorException changed = Assertions.assertThrows(DorisConnectorException.class,
+                    () -> PaimonSchemaPin.validate(replacement, oldPin.getProperties()));
+            Assertions.assertTrue(changed.getMessage().contains("retry the statement"));
+            PaimonSchemaPin.validate(replacement, newPin.getProperties());
+        }
+    }
+
     @Test
     public void snapshotReadDoesNotRestoreRemovedStartupMode(@TempDir Path warehouse) throws Exception {
         try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
