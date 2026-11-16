@@ -423,6 +423,7 @@ public:
 
     virtual bool can_push_down_to_index() const { return false; }
     virtual bool equals(const VExpr& other);
+    int32_t file_scan_conjunct_id() const { return _file_scan_conjunct_id; }
     void set_index_unique_id(uint32_t index_unique_id) { _index_unique_id = index_unique_id; }
     uint32_t index_unique_id() const { return _index_unique_id; }
 
@@ -513,6 +514,8 @@ protected:
                                 const FunctionBasePtr& function) const;
 
     TExprNodeType::type _node_type;
+    // Assigned only to original static file-scan conjunct roots, never to runtime predicates.
+    int32_t _file_scan_conjunct_id = -1;
     // Used to check what opcode
     TExprOpcode::type _opcode;
     DataTypePtr _data_type;

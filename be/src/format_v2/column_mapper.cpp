@@ -2345,6 +2345,18 @@ Status TableColumnMapper::_create_mapping_for_column(const ColumnDefinition& tab
     mapping->table_column_name = table_column.name;
     mapping->table_type = table_column.type;
     mapping->variant_access_paths = table_column.variant_access_paths;
+    if (std::ranges::find(_options.unused_columns, global_index) != _options.unused_columns.end()) {
+        DCHECK(table_column.is_filter_only);
+        // The table block retains FE slot ordinals even when the last consumer was a predicate
+        // proved TRUE by this file's partition. The placeholder must never escape a projection.
+        // Use a typed column default so non-nullable slots get a valid value, e.g. INT -> 0,
+        // while nullable slots get NULL. IDataType exposes defaults through its column API.
+        Field default_value;
+        mapping->table_type->create_column_const_with_default_value(1)->get(0, default_value);
+        _set_constant_mapping(mapping, VExprContext::create_shared(VLiteral::create_shared(
+                                               mapping->table_type, default_value)));
+        return Status::OK();
+    }
     const auto iceberg_metadata_type = [&] {
         if (!_options.enable_iceberg_metadata_virtual_columns || !table_column.is_synthesized) {
             return TableVirtualColumnType::INVALID;
