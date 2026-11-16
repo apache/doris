@@ -234,6 +234,25 @@ protected:
     }
 };
 
+#if defined(THREAD_SANITIZER)
+// TSan intentionally has no PHDR cache. Neither malformed nor valid requests may abort the BE;
+// the valid request must be rejected before a remote thread receives the unwind signal.
+TEST_F(BeThreadStackActionTest, TSanRejectsCaptureWithoutAborting) {
+    long http_status = 0;
+    std::string body;
+    ASSERT_TRUE(do_get("/api/stack_trace?thread_id=abc", &http_status, &body).ok());
+    EXPECT_EQ(400, http_status);
+    EXPECT_THAT(body, testing::HasSubstr("invalid thread_id: abc"));
+
+    ASSERT_TRUE(do_get("/api/stack_trace", &http_status, &body).ok());
+    EXPECT_EQ(500, http_status);
+    EXPECT_THAT(body, testing::HasSubstr("lock-free PHDR cache is unavailable"));
+
+    ASSERT_TRUE(do_get("/api/stack_trace?thread_id=abc", &http_status, &body).ok());
+    EXPECT_EQ(400, http_status);
+}
+#endif
+
 // Covers explicit thread_id filtering and back-to-back remote signal captures: multiple TIDs must
 // be sampled exactly once, without falling back to full-process enumeration or timing out the next
 // capture because the previous handler has not fully released its latch yet.
