@@ -60,6 +60,15 @@ public class TypeTest {
         Assertions.assertTrue(Type.VARIANT.supportSubType(ScalarType.createDatetimeV2Type(6)));
     }
 
+    @Test
+    public void testTimestampTzThriftKeepsScale() {
+        // A type descriptor must retain its scale without a literal value to infer it from.
+        for (int scale : new int[] {0, 3, 6}) {
+            ScalarType type = ScalarType.createTimeStampTzType(scale);
+            Assertions.assertEquals(type, Type.fromThrift(type.toThrift()));
+        }
+    }
+
     // ===================== ArrayType =====================
     @Test
     public void testArrayOfArrayExactMatch() {
