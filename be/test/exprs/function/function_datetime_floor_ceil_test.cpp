@@ -246,6 +246,55 @@ TEST(TimestampTzFloorTest, SelectNearestGapBoundary) {
     }
 }
 
+TEST(TimestampTzFloorTest, InstantBoundsInOverlap) {
+    const TestCase cases[] = {
+            // DAY uses the first occurrence, so 05:30Z cannot ceil an input at 06:15Z.
+            {.zone = "America/New_York",
+             .function = "day_ceil",
+             .input = make_timestamptz(2024, 11, 3, 6, 15, 0, 0),
+             .origin = make_timestamptz(2024, 11, 2, 5, 30, 0, 0),
+             .expected = make_timestamptz(2024, 11, 4, 6, 30, 0, 0)},
+            {.zone = "America/New_York",
+             .function = "day_ceil",
+             .input = make_timestamptz(2024, 11, 3, 5, 15, 0, 0),
+             .origin = make_timestamptz(2024, 11, 2, 5, 30, 0, 0),
+             .expected = make_timestamptz(2024, 11, 3, 5, 30, 0, 0)},
+            {.zone = "America/New_York",
+             .function = "day_ceil",
+             .input = make_timestamptz(2024, 11, 3, 5, 30, 0, 0),
+             .origin = make_timestamptz(2024, 11, 2, 5, 30, 0, 0),
+             .expected = make_timestamptz(2024, 11, 3, 5, 30, 0, 0)},
+            {.zone = "America/New_York",
+             .function = "day_ceil",
+             .input = make_timestamptz(2024, 11, 3, 6, 30, 0, 0),
+             .origin = make_timestamptz(2024, 11, 2, 5, 30, 0, 0),
+             .expected = make_timestamptz(2024, 11, 4, 6, 30, 0, 0)},
+            {.zone = "America/New_York",
+             .function = "day_floor",
+             .input = make_timestamptz(2024, 11, 3, 6, 45, 0, 0),
+             .origin = make_timestamptz(2024, 11, 2, 5, 30, 0, 0),
+             .expected = make_timestamptz(2024, 11, 3, 5, 30, 0, 0)},
+            {.zone = "America/New_York",
+             .function = "day_ceil",
+             .period = 2,
+             .input = make_timestamptz(2024, 11, 3, 6, 15, 0, 0),
+             .origin = make_timestamptz(2024, 11, 1, 5, 30, 0, 0),
+             .expected = make_timestamptz(2024, 11, 5, 6, 30, 0, 0)},
+            // September clips July 31 to day 30. Advance from July 31 to retain October 31.
+            {.zone = "Asia/Amman",
+             .function = "month_ceil",
+             .input = make_timestamptz(2005, 9, 29, 22, 15, 0, 0),
+             .origin = make_timestamptz(2005, 7, 30, 21, 30, 0, 0),
+             .expected = make_timestamptz(2005, 10, 30, 22, 30, 0, 0)},
+    };
+    for (const auto& c : cases) {
+        for (int constants = 0; constants < 4; ++constants) {
+            check_round(c, constants, 1);
+            check_round(c, constants, 2);
+        }
+    }
+}
+
 TEST(TimestampTzFloorTest, FutureRulesAndYearLimit) {
     const TestCase cases[] = {
             {.zone = "Australia/Lord_Howe",

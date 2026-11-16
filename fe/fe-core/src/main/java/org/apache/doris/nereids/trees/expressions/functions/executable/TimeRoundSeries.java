@@ -59,15 +59,20 @@ public class TimeRoundSeries {
     private static LocalDateTime getDateCeilOrFloor(DATE tag, LocalDateTime date, int period,
             LocalDateTime origin, boolean getCeil) {
         return DateTimeV2Literal.fromJavaDateType(
-                getCalendarBoundary(tag, date, period, origin, getCeil), 6).toJavaDateType();
+                getCalendarBoundary(tag, date, period, origin, getCeil, 0), 6).toJavaDateType();
     }
 
     // A candidate can exceed the Doris year range. Check that range after the
     // calendar calculation, so a gap search can still find a valid boundary.
     private static LocalDateTime getOptionalCalendarBoundary(DATE tag, LocalDateTime date, int period,
             LocalDateTime origin, boolean getCeil) {
+        return getOptionalCalendarBoundary(tag, date, period, origin, getCeil, 0);
+    }
+
+    private static LocalDateTime getOptionalCalendarBoundary(DATE tag, LocalDateTime date, int period,
+            LocalDateTime origin, boolean getCeil, long stepOffset) {
         try {
-            LocalDateTime boundary = getCalendarBoundary(tag, date, period, origin, getCeil);
+            LocalDateTime boundary = getCalendarBoundary(tag, date, period, origin, getCeil, stepOffset);
             return DateTimeV2Literal.isDateOutOfRange(boundary) ? null : boundary;
         } catch (DateTimeException e) {
             // An Integer.MAX_VALUE year period can exceed Java's year range too.
@@ -77,7 +82,7 @@ public class TimeRoundSeries {
 
     // Use the same local calendar calculation as BE time_round_two_args.
     private static LocalDateTime getCalendarBoundary(DATE tag, LocalDateTime date, int period, LocalDateTime origin,
-            boolean getCeil) {
+            boolean getCeil, long stepOffset) {
         if (period < 1) {
             throw new AnalysisException("Operation " + tag.name().toLowerCase()
                     + (getCeil ? "_ceil" : "_floor") + " of " + period + " out of range");
@@ -147,6 +152,7 @@ public class TimeRoundSeries {
         if (getCeil) {
             step = step + (deltaInsidePeriod == 0 ? 0 : period);
         }
+        step += stepOffset;
         LocalDateTime startTime = start.toJavaDateType();
         switch (tag) {
             case YEAR:
@@ -200,16 +206,19 @@ public class TimeRoundSeries {
 
         Instant input = utcDate.toInstant(ZoneOffset.UTC);
         Instant selected = null;
+        long stepOffset = 0;
         LocalDateTime localResult = getOptionalCalendarBoundary(tag, localDate, period, localOrigin, getCeil);
         // On Lord Howe, the 02:15 gap candidate becomes 02:45, after input 02:35.
-        // Recompute each candidate from the original calendar origin.
+        // In New York's overlap, the DAY ceil 01:30 resolves to 05:30Z, before input 01:15-05:00.
+        // Adjust the step from the original origin: a clipped month-end must retain its original day.
         while (localResult != null) {
             Instant candidate = DateUtils.convertLocalToInstant(localResult, zoneId, preferredOffset);
-            if (getCeil || !candidate.isAfter(input)) {
+            if (getCeil ? !candidate.isBefore(input) : !candidate.isAfter(input)) {
                 selected = candidate;
                 break;
             }
-            localResult = getOptionalCalendarBoundary(tag, localResult.minusNanos(1000), period, localOrigin, false);
+            stepOffset += getCeil ? period : -period;
+            localResult = getOptionalCalendarBoundary(tag, localDate, period, localOrigin, getCeil, stepOffset);
         }
         // A local ceil in year 10000 can coexist with a shifted gap boundary in 9999.
         // Search the gap before reporting an out-of-range result.

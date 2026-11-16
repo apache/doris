@@ -115,6 +115,23 @@ suite("test_timestamptz_dst_gap") {
                                    CAST('2824-10-05 02:15:00.123456+10:30' AS TIMESTAMPTZ(6)))
             """
             sql "SET time_zone = 'America/New_York'"
+            // DAY resolves 01:30 to its first occurrence (05:30Z), before the second 01:15 (06:15Z).
+            // Both FE folding and BE execution must advance ceil to the next day's boundary.
+            order_qt_overlap_day_bound """
+                SELECT day_ceil(t, 1, o),
+                       day_floor(t, 1, o) <= t, day_ceil(t, 1, o) >= t,
+                       day_ceil(t, 1, o) = CAST('2024-11-04 01:30:00-05:00' AS TIMESTAMPTZ(6))
+                FROM (SELECT CAST('2024-11-03 01:15:00-05:00' AS TIMESTAMPTZ(6)) AS t,
+                             CAST('2024-11-02 01:30:00-04:00' AS TIMESTAMPTZ(6)) AS o) s
+            """
+            order_qt_overlap_day_controls """
+                SELECT day_ceil(CAST('2024-11-03 01:15:00-04:00' AS TIMESTAMPTZ(6)), 1, o),
+                       day_ceil(CAST('2024-11-03 01:30:00-04:00' AS TIMESTAMPTZ(6)), 1, o),
+                       day_ceil(CAST('2024-11-03 01:30:00-05:00' AS TIMESTAMPTZ(6)), 1, o),
+                       day_ceil(CAST('2024-11-03 01:15:00-05:00' AS TIMESTAMPTZ(6)), 2,
+                                CAST('2024-11-01 01:30:00-04:00' AS TIMESTAMPTZ(6)))
+                FROM (SELECT CAST('2024-11-02 01:30:00-04:00' AS TIMESTAMPTZ(6)) AS o) s
+            """
             order_qt_gap_year_limit """
                 SELECT year_ceil(t, 1, o), year_ceil(boundary, 1, o)
                 FROM (SELECT CAST('9999-03-14 03:15:00.123456-04:00' AS TIMESTAMPTZ(6)) AS t,
@@ -126,6 +143,14 @@ suite("test_timestamptz_dst_gap") {
                                         CAST('9998-03-14 02:30:00.123456-04:00' AS TIMESTAMPTZ(6)))"""
                 exception "out of range"
             }
+            sql "SET time_zone = 'Asia/Amman'"
+            // Recompute October from July 31, not from the clipped September 30 candidate.
+            order_qt_overlap_month_origin """
+                SELECT month_ceil(t, 1, o), month_ceil(t, 1, o) >= t,
+                       month_ceil(t, 1, o) = CAST('2005-10-31 00:30:00+02:00' AS TIMESTAMPTZ(6))
+                FROM (SELECT CAST('2005-09-30 00:15:00+02:00' AS TIMESTAMPTZ(6)) AS t,
+                             CAST('2005-07-31 00:30:00+03:00' AS TIMESTAMPTZ(6)) AS o) s
+            """
             sql "SET time_zone = 'Africa/Monrovia'"
             // Floor selects an earlier boundary. Truncation still resets local fields, then shifts the gap.
             order_qt_gap_minute_floor """

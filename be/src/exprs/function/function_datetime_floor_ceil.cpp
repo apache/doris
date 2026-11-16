@@ -1375,8 +1375,8 @@ struct DateTimeFloorCeilCore {
         int64_t step = diff - delta_inside_period +
                        (Flag::Type == FLOOR ? 0 : (delta_inside_period == 0 ? 0 : period));
         if constexpr (need_tz_conversion) {
-            // Keep the original calendar fields when selecting an earlier period.
-            // Subtracting a month from an adjusted day can change the origin's day.
+            // Keep the original calendar fields when selecting an adjacent period.
+            // Adding/subtracting a month from an adjusted day can change the origin's day.
             const DateV2Value<DateTimeV2ValueType> round_origin(ts_res.to_date_int_val());
             int preferred_offset = 0;
             if constexpr (Flag::Unit == HOUR || Flag::Unit == MINUTE) {
@@ -1398,14 +1398,12 @@ struct DateTimeFloorCeilCore {
                 return candidate;
             };
             auto selected = resolve();
-            if constexpr (Flag::Type == FLOOR) {
-                // A gap can move the candidate after the input. On Lord Howe on
-                // 2024-10-06, 02:15 becomes 02:45, which is after input 02:35.
-                // Select an earlier period until the resolved result is a floor.
-                while (selected && *selected > ts_arg) {
-                    step -= period;
-                    selected = resolve();
-                }
+            // A gap can move a floor past the input (Lord Howe: 02:15 becomes 02:45).
+            // An overlap can move a ceil before it: New York's 2024-11-03 DAY boundary
+            // 01:30 resolves to 05:30Z, before input 01:15-05:00 (06:15Z).
+            while (selected && (Flag::Type == FLOOR ? *selected > ts_arg : *selected < ts_arg)) {
+                step += Flag::Type == FLOOR ? -period : period;
+                selected = resolve();
             }
             if constexpr (correct_gaps) {
                 select_nearest_gap_boundary(ts_arg, period, round_origin, selected, context);

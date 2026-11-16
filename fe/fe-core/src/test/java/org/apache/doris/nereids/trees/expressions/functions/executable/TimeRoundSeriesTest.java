@@ -28,6 +28,53 @@ import org.junit.jupiter.api.Test;
 
 class TimeRoundSeriesTest {
     @Test
+    void testTimestampTzCeilKeepsItsInstantBoundInOverlap() {
+        ConnectContext context = new ConnectContext();
+        context.setThreadLocalInfo();
+        try {
+            context.getSessionVariable().setTimeZone("America/New_York");
+            TimeStampTzType type = TimeStampTzType.of(6);
+            TimestampTzLiteral origin = new TimestampTzLiteral(type, "2024-11-02 01:30:00-04:00");
+            TimestampTzLiteral first = new TimestampTzLiteral(type, "2024-11-03 01:30:00-04:00");
+            TimestampTzLiteral next = new TimestampTzLiteral(type, "2024-11-04 01:30:00-05:00");
+            IntegerLiteral period = new IntegerLiteral(1);
+
+            // DAY boundaries choose the first occurrence: 05:30Z is before the 06:15Z input.
+            Assertions.assertEquals(next, TimeRoundSeries.dayCeil(
+                    new TimestampTzLiteral(type, "2024-11-03 01:15:00-05:00"), period, origin));
+            Assertions.assertEquals(first, TimeRoundSeries.dayCeil(
+                    new TimestampTzLiteral(type, "2024-11-03 01:15:00-04:00"), period, origin));
+            Assertions.assertEquals(first, TimeRoundSeries.dayCeil(first, period, origin));
+            Assertions.assertEquals(next, TimeRoundSeries.dayCeil(
+                    new TimestampTzLiteral(type, "2024-11-03 01:30:00-05:00"), period, origin));
+            Assertions.assertEquals(first, TimeRoundSeries.dayFloor(
+                    new TimestampTzLiteral(type, "2024-11-03 01:45:00-05:00"), period, origin));
+            Assertions.assertEquals(new TimestampTzLiteral(type, "2024-11-05 01:30:00-05:00"),
+                    TimeRoundSeries.dayCeil(new TimestampTzLiteral(type, "2024-11-03 01:15:00-05:00"),
+                            new IntegerLiteral(2), new TimestampTzLiteral(type, "2024-11-01 01:30:00-04:00")));
+        } finally {
+            ConnectContext.remove();
+        }
+    }
+
+    @Test
+    void testTimestampTzMonthCeilKeepsOriginalDayAfterOverlap() {
+        ConnectContext context = new ConnectContext();
+        context.setThreadLocalInfo();
+        try {
+            context.getSessionVariable().setTimeZone("Asia/Amman");
+            TimeStampTzType type = TimeStampTzType.of(6);
+            // July 31 produces September 30 in the overlap. The next boundary is October 31,
+            // not October 30: calculate it from the original origin, not the clipped candidate.
+            Assertions.assertEquals(new TimestampTzLiteral(type, "2005-10-31 00:30:00+02:00"),
+                    TimeRoundSeries.monthCeil(new TimestampTzLiteral(type, "2005-09-30 00:15:00+02:00"),
+                            new IntegerLiteral(1), new TimestampTzLiteral(type, "2005-07-31 00:30:00+03:00")));
+        } finally {
+            ConnectContext.remove();
+        }
+    }
+
+    @Test
     void testTimestampTzFloorKeepsItsInstantBound() {
         ConnectContext context = new ConnectContext();
         context.setThreadLocalInfo();
