@@ -127,6 +127,7 @@ TEST_F(TabletSchemaTest, test_tablet_column_init_from_pb) {
     column_pb.set_variant_max_subcolumns_count(100);
     column_pb.set_pattern_type(PatternTypePB::MATCH_NAME_GLOB);
     column_pb.set_variant_enable_typed_paths_to_sparse(true);
+    column_pb.set_variant_serialize_type(VariantSerializeTypePB::VARIANT_SERIALIZE_V2);
 
     TabletColumn tablet_column;
     tablet_column.init_from_pb(column_pb);
@@ -145,6 +146,30 @@ TEST_F(TabletSchemaTest, test_tablet_column_init_from_pb) {
     EXPECT_EQ(100, tablet_column.variant_max_subcolumns_count());
     EXPECT_EQ(PatternTypePB::MATCH_NAME_GLOB, tablet_column.pattern_type());
     EXPECT_TRUE(tablet_column.variant_enable_typed_paths_to_sparse());
+    EXPECT_EQ(VariantSerializeTypePB::VARIANT_SERIALIZE_V2, tablet_column.variant_serialize_type());
+}
+
+TEST_F(TabletSchemaTest, test_tablet_column_variant_serialize_type_defaults_to_v1) {
+    // A ColumnPB persisted before the field existed carries no serialize type.
+    ColumnPB column_pb;
+    column_pb.set_unique_id(1002);
+    column_pb.set_name("v");
+    column_pb.set_type("VARIANT");
+    column_pb.set_variant_max_subcolumns_count(0);
+    TabletColumn from_pb;
+    from_pb.init_from_pb(column_pb);
+    EXPECT_EQ(VariantSerializeTypePB::VARIANT_SERIALIZE_V1, from_pb.variant_serialize_type());
+
+    // A TColumn from an FE that does not set the field leaves the thrift default, V1.
+    TColumn tcolumn;
+    tcolumn.__set_column_name("v");
+    TColumnType column_type;
+    column_type.__set_type(TPrimitiveType::VARIANT);
+    column_type.__set_variant_max_subcolumns_count(0);
+    tcolumn.__set_column_type(column_type);
+    TabletColumn from_thrift;
+    from_thrift.init_from_thrift(tcolumn);
+    EXPECT_EQ(VariantSerializeTypePB::VARIANT_SERIALIZE_V1, from_thrift.variant_serialize_type());
 }
 
 TEST_F(TabletSchemaTest, test_tablet_column_type_does_not_depend_on_frac) {
@@ -181,6 +206,7 @@ TEST_F(TabletSchemaTest, test_tablet_column_init_from_thrift) {
     tcolumn.__set_visible(false);
     tcolumn.__set_default_value("default_test");
     tcolumn.__set_variant_enable_typed_paths_to_sparse(false);
+    tcolumn.__set_variant_serialize_type(TVariantSerializeType::V2);
     tcolumn.__set_pattern_type(TPatternType::MATCH_NAME_GLOB);
 
     TabletColumn tablet_column;
@@ -197,6 +223,7 @@ TEST_F(TabletSchemaTest, test_tablet_column_init_from_thrift) {
     EXPECT_TRUE(tablet_column.has_default_value());
     EXPECT_EQ("default_test", tablet_column.default_value());
     EXPECT_FALSE(tablet_column.variant_enable_typed_paths_to_sparse());
+    EXPECT_EQ(VariantSerializeTypePB::VARIANT_SERIALIZE_V2, tablet_column.variant_serialize_type());
 }
 
 TEST_F(TabletSchemaTest, test_tablet_index_init_from_pb) {
@@ -592,9 +619,11 @@ TEST_F(TabletSchemaTest, test_tablet_column_protobuf_roundtrip) {
     original.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
     original.set_is_nullable(true);
     original.set_variant_max_subcolumns_count(500);
+    original.set_variant_serialize_type(VariantSerializeTypePB::VARIANT_SERIALIZE_V2);
 
     ColumnPB column_pb;
     original.to_schema_pb(&column_pb);
+    EXPECT_EQ(VariantSerializeTypePB::VARIANT_SERIALIZE_V2, column_pb.variant_serialize_type());
 
     TabletColumn deserialized;
     deserialized.init_from_pb(column_pb);
@@ -607,6 +636,7 @@ TEST_F(TabletSchemaTest, test_tablet_column_protobuf_roundtrip) {
     EXPECT_EQ(original.pattern_type(), deserialized.pattern_type());
     EXPECT_EQ(original.variant_enable_typed_paths_to_sparse(),
               deserialized.variant_enable_typed_paths_to_sparse());
+    EXPECT_EQ(original.variant_serialize_type(), deserialized.variant_serialize_type());
 }
 
 // remove_index() rebuilds the (index_type, col_uid, suffix) -> position lookup

@@ -16,6 +16,7 @@
 // under the License.
 
 suite("test_changelog_multi_segment", "nonConcurrent") {
+    sql "set default_variant_enable_doc_mode = false"
     sql "DROP TABLE IF EXISTS test_mow_multi_segment_with_changelog FORCE"
 
     sql """
@@ -24,7 +25,8 @@ suite("test_changelog_multi_segment", "nonConcurrent") {
             k2 INT,
             k3 INT,
             v1 INT,
-            v2 STRING
+            v2 STRING,
+            jv VARIANT NULL
         )
         UNIQUE KEY(k1, k2, k3)
         DISTRIBUTED BY HASH(k1) BUCKETS 1
@@ -72,7 +74,7 @@ suite("test_changelog_multi_segment", "nonConcurrent") {
             streamLoad {
                 table "test_mow_multi_segment_with_changelog"
                 set 'column_separator', ','
-                set 'columns', 'k1,k2,k3,v1,v2,seq'
+                set 'columns', "k1,k2,k3,v1,v2,seq,jv=parse_to_variant(concat('{\"k\":', k1, ',\"d\":{\"row\":\"', v1, '\"}}'))"
                 set 'function_column.sequence_col', 'seq'
                 inputStream new ByteArrayInputStream(overlappingLoadContent.getBytes())
                 time 60000
@@ -97,7 +99,10 @@ suite("test_changelog_multi_segment", "nonConcurrent") {
                        v1,
                        v2,
                        __DORIS_CHANGELOG_BEFORE_v1__,
-                       __DORIS_CHANGELOG_BEFORE_v2__
+                       __DORIS_CHANGELOG_BEFORE_v2__,
+                       jv,
+                       __DORIS_CHANGELOG_BEFORE_jv__,
+                       jv['d']['row']
                 FROM changelog("table" = "test_mow_multi_segment_with_changelog")
                 WHERE k1 IN (1, 3000, 5000)
                 ORDER BY __DORIS_CHANGELOG_TSO__, __DORIS_CHANGELOG_LSN__
@@ -119,7 +124,7 @@ suite("test_changelog_multi_segment", "nonConcurrent") {
             streamLoad {
                 table "test_mow_multi_segment_with_changelog"
                 set 'column_separator', ','
-                set 'columns', 'k1,k2,k3,v1,v2,seq'
+                set 'columns', "k1,k2,k3,v1,v2,seq,jv=parse_to_variant(concat('{\"k\":', k1, ',\"d\":{\"row\":\"', v1, '\"}}'))"
                 set 'function_column.sequence_col', 'seq'
                 inputStream new ByteArrayInputStream(sequenceLoadContent.getBytes())
                 time 60000
@@ -144,7 +149,10 @@ suite("test_changelog_multi_segment", "nonConcurrent") {
                        v1,
                        v2,
                        __DORIS_CHANGELOG_BEFORE_v1__,
-                       __DORIS_CHANGELOG_BEFORE_v2__
+                       __DORIS_CHANGELOG_BEFORE_v2__,
+                       jv,
+                       __DORIS_CHANGELOG_BEFORE_jv__,
+                       jv['d']['row']
                 FROM changelog("table" = "test_mow_multi_segment_with_changelog")
                 WHERE k1 IN (1, 3000, 5000)
                 ORDER BY __DORIS_CHANGELOG_TSO__, __DORIS_CHANGELOG_LSN__
@@ -200,7 +208,10 @@ suite("test_changelog_multi_segment", "nonConcurrent") {
                        v1,
                        v2,
                        __DORIS_CHANGELOG_BEFORE_v1__,
-                       __DORIS_CHANGELOG_BEFORE_v2__
+                       __DORIS_CHANGELOG_BEFORE_v2__,
+                       jv,
+                       __DORIS_CHANGELOG_BEFORE_jv__,
+                       jv['d']['row']
                 FROM changelog("table" = "test_mow_multi_segment_with_changelog")
                 WHERE k1 IN (1, 3000, 5000)
                 ORDER BY __DORIS_CHANGELOG_TSO__, __DORIS_CHANGELOG_LSN__
@@ -217,7 +228,10 @@ suite("test_changelog_multi_segment", "nonConcurrent") {
                        v1,
                        v2,
                        __DORIS_CHANGELOG_BEFORE_v1__,
-                       __DORIS_CHANGELOG_BEFORE_v2__
+                       __DORIS_CHANGELOG_BEFORE_v2__,
+                       jv,
+                       __DORIS_CHANGELOG_BEFORE_jv__,
+                       jv['d']['row']
                 FROM changelog("table" = "test_mow_multi_segment_with_changelog")
                 WHERE k1 IN (1, 3000, 5000)
                 ORDER BY __DORIS_CHANGELOG_TSO__, __DORIS_CHANGELOG_LSN__

@@ -16,13 +16,15 @@
 // under the License.
 
 suite("test_changelog_auto_partition", "nonConcurrent") {
+    sql "set default_variant_enable_doc_mode = false"
     sql "DROP TABLE IF EXISTS test_changelog_auto_partition FORCE"
 
     sql """
         CREATE TABLE test_changelog_auto_partition (
             event_date DATE NOT NULL,
             id INT,
-            value STRING
+            value STRING,
+            jv VARIANT NULL
         )
         DUPLICATE KEY(event_date, id)
         AUTO PARTITION BY RANGE (date_trunc(event_date, 'day')) ()
@@ -35,18 +37,22 @@ suite("test_changelog_auto_partition", "nonConcurrent") {
 
     sql """
         INSERT INTO test_changelog_auto_partition VALUES
-            ('2026-08-10', 1, 'first'),
-            ('2026-08-11', 2, 'second')
+            ('2026-08-10', 1, 'first', parse_to_variant('{"k": "2026-08-10", "d": {"row": "2026-08-10 1 first"}}')),
+            ('2026-08-11', 2, 'second', parse_to_variant('{"k": "2026-08-11", "d": {"row": "2026-08-11 2 second"}}'))
     """
 
     order_qt_auto_partition_data """
-        SELECT event_date, id, value
+        SELECT event_date, id, value,
+               jv,
+               jv['d']['row']
         FROM test_changelog_auto_partition
         ORDER BY event_date, id
     """
 
     order_qt_auto_partition_changelog """
-        SELECT __DORIS_CHANGELOG_OP__, event_date, id, value
+        SELECT __DORIS_CHANGELOG_OP__, event_date, id, value,
+               jv,
+               jv['d']['row']
         FROM changelog("table" = "test_changelog_auto_partition")
         ORDER BY event_date, id
     """

@@ -58,7 +58,7 @@ suite("regression_test_variant_var_index", "p0, nonConcurrent"){
     sql """
     CREATE TABLE IF NOT EXISTS ${table_name} (
         k bigint,
-        v variant<properties("variant_max_subcolumns_count" = "0")>,
+        v variant<properties("variant_max_subcolumns_count" = "2048")>,
         INDEX idx_var(v) USING INVERTED  PROPERTIES("parser" = "english") COMMENT '',
         INDEX idx_var2(v) USING INVERTED
     )

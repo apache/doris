@@ -854,8 +854,14 @@ Status VariantCompactionUtil::aggregate_variant_extended_info(
 
 // get the subpaths and sparse paths for the variant column
 void VariantCompactionUtil::get_subpaths(int32_t max_subcolumns_count,
+                                         VariantSerializeTypePB serialize_type,
                                          const PathToNoneNullValues& stats,
                                          VariantCompactionPaths& paths_set_info) {
+    // Count 0 means no limit under V1, and no dynamic subcolumn under V2 (every path stays sparse).
+    if (max_subcolumns_count == 0 &&
+        serialize_type == VariantSerializeTypePB::VARIANT_SERIALIZE_V2) {
+        return;
+    }
     // max_subcolumns_count is 0 means no limit
     if (max_subcolumns_count > 0 && stats.size() > max_subcolumns_count) {
         std::vector<std::pair<size_t, std::string_view>> paths_with_sizes;
@@ -919,8 +925,9 @@ Status VariantCompactionUtil::check_path_stats(const std::vector<RowsetSharedPtr
         }
     }
 #endif
-    // only check path stats for dup_keys since the rows may be merged in other models
-    if (tablet->keys_type() != KeysType::DUP_KEYS) {
+    // only check path stats for dup_keys since the rows may be merged in other models; a changelog
+    // tablet is dup_keys, but its compaction drops the rows its delete bitmap marks
+    if (tablet->keys_type() != KeysType::DUP_KEYS || tablet->is_changelog_tablet()) {
         return Status::OK();
     }
     // if there is a delete predicate in the input rowsets, we skip the path stats check
@@ -1233,8 +1240,8 @@ Status VariantCompactionUtil::get_extended_compaction_schema(
                                                       output_schema, paths_set_info));
 
         // 3. get the subpaths
-        get_subpaths(column->variant_max_subcolumns_count(), extended_info.path_to_none_null_values,
-                     paths_set_info);
+        get_subpaths(column->variant_max_subcolumns_count(), column->variant_serialize_type(),
+                     extended_info.path_to_none_null_values, paths_set_info);
 
         // 4. append subcolumns
         if (column->variant_max_subcolumns_count() > 0 || !column->get_sub_columns().empty()) {
@@ -1243,8 +1250,8 @@ Status VariantCompactionUtil::get_extended_compaction_schema(
                                                     extended_info.sparse_paths, output_schema);
         }
         // variant_max_subcolumns_count == 0 and no typed paths materialized
-        // it means that all subcolumns are materialized, may be from old data
-        else {
+        // under V1 it means that all subcolumns are materialized, may be from old data
+        else if (column->variant_serialize_type() == VariantSerializeTypePB::VARIANT_SERIALIZE_V1) {
             get_compaction_subcolumns_from_data_types(paths_set_info, column, target,
                                                       extended_info.path_to_data_types,
                                                       output_schema);

@@ -61,6 +61,8 @@ import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.commands.RefreshMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.AddColumnOp;
+import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateIndexOp;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition;
@@ -82,6 +84,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.thrift.TVariantSerializeType;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
@@ -1714,6 +1717,67 @@ public class NereidsParserTest extends ParserTestBase {
                 (org.apache.doris.nereids.types.VariantType) createTableCommand.getCreateTableInfo()
                         .getColumnDefinitions().get(1).getType();
         Assertions.assertTrue(variantType.getEnableNestedGroup());
+    }
+
+    @Test
+    public void testVariantPropertyCombinations() {
+        // The combinations BE VariantCompactionSchemaMatrixTest covers all parse; the conflicting ones do not.
+        NereidsParser parser = new NereidsParser();
+        List<String> allowed = new ArrayList<>();
+        for (String template : new String[] {"", "'t':INT, "}) {
+            String head = "variant<" + template + "PROPERTIES(";
+            for (int count : new int[] {0, 3, 100}) {
+                for (boolean toSparse : new boolean[] {false, true}) {
+                    for (int shards : new int[] {0, 2}) {
+                        allowed.add(head + "\"variant_max_subcolumns_count\" = \"" + count
+                                + "\", \"variant_enable_typed_paths_to_sparse\" = \"" + toSparse
+                                + "\", \"variant_sparse_hash_shard_count\" = \"" + shards + "\")>");
+                    }
+                }
+            }
+            for (int minRows : new int[] {0, 100}) {
+                for (int docShards : new int[] {1, 2}) {
+                    allowed.add(head + "\"variant_enable_doc_mode\" = \"true\", "
+                            + "\"variant_doc_materialization_min_rows\" = \"" + minRows
+                            + "\", \"variant_doc_hash_shard_count\" = \"" + docShards + "\")>");
+                }
+            }
+            allowed.add(head + "\"variant_enable_nested_group\" = \"true\", "
+                    + "\"variant_max_subcolumns_count\" = \"0\")>");
+        }
+        for (String type : allowed) {
+            Assertions.assertDoesNotThrow(() -> parser.parseDataType(type), type);
+        }
+        String doc = "\"variant_enable_doc_mode\" = \"true\"";
+        String[] rejected = {
+                "variant<PROPERTIES(" + doc + ", \"variant_max_subcolumns_count\" = \"0\")>",
+                "variant<PROPERTIES(" + doc + ", \"variant_enable_typed_paths_to_sparse\" = \"true\")>",
+                "variant<PROPERTIES(" + doc + ", \"variant_sparse_hash_shard_count\" = \"2\")>",
+                "variant<PROPERTIES(" + doc + ", \"variant_enable_nested_group\" = \"true\")>",
+                "variant<PROPERTIES(\"variant_enable_nested_group\" = \"true\", "
+                        + "\"variant_max_subcolumns_count\" = \"3\")>"};
+        for (String type : rejected) {
+            Assertions.assertThrows(Exception.class, () -> parser.parseDataType(type), type);
+        }
+    }
+
+    @Test
+    public void testVariantSerializeTypeIsInternal() {
+        NereidsParser parser = new NereidsParser();
+        List<ColumnDefinition> columns = ((CreateTableCommand) parser.parseSingle("CREATE TABLE t_variant_st "
+                + "(k1 INT, v VARIANT) "
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1")).getCreateTableInfo().getColumnDefinitions();
+        Assertions.assertEquals(TVariantSerializeType.V2,
+                ((org.apache.doris.nereids.types.VariantType) columns.get(1).getType()).getVariantSerializeType());
+
+        AlterTableCommand alter = (AlterTableCommand) parser.parseSingle("ALTER TABLE t ADD COLUMN v VARIANT");
+        Assertions.assertEquals(TVariantSerializeType.V2, ((org.apache.doris.nereids.types.VariantType)
+                ((AddColumnOp) alter.getOps().get(0)).getColumnDef().getType()).getVariantSerializeType());
+
+        NotSupportedException exception = Assertions.assertThrowsExactly(NotSupportedException.class,
+                () -> parser.parseSingle("CREATE TABLE t_variant_st (k1 INT, v VARIANT<PROPERTIES("
+                        + "\"variant_serialize_type\" = \"v1\")>) DISTRIBUTED BY HASH(k1) BUCKETS 1"));
+        Assertions.assertTrue(exception.getMessage().contains("only support for"), exception.getMessage());
     }
 
     @Test

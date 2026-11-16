@@ -16,6 +16,7 @@
 // under the License.
 
 suite("test_changelog_mow_light_delete", "nonConcurrent") {
+    sql "set default_variant_enable_doc_mode = false"
     sql "DROP TABLE IF EXISTS test_changelog_mow_light_delete_without_history FORCE"
     sql "DROP TABLE IF EXISTS test_changelog_mow_light_delete_with_history FORCE"
     sql "DROP TABLE IF EXISTS test_changelog_dup_delete FORCE"
@@ -23,7 +24,8 @@ suite("test_changelog_mow_light_delete", "nonConcurrent") {
     sql """
         CREATE TABLE test_changelog_mow_light_delete_without_history (
             k INT,
-            v STRING
+            v STRING,
+            jv VARIANT NULL
         )
         UNIQUE KEY(k)
         DISTRIBUTED BY HASH(k) BUCKETS 1
@@ -36,16 +38,20 @@ suite("test_changelog_mow_light_delete", "nonConcurrent") {
         )
     """
 
-    sql "INSERT INTO test_changelog_mow_light_delete_without_history VALUES (1, 'one'), (2, 'two')"
+    sql "INSERT INTO test_changelog_mow_light_delete_without_history VALUES (1, 'one', parse_to_variant('{\"k\": 1, \"d\": {\"row\": \"1 one\"}}')), (2, 'two', parse_to_variant('{\"k\": 2, \"d\": {\"row\": \"2 two\"}}'))"
     sql "DELETE FROM test_changelog_mow_light_delete_without_history WHERE k = 1"
 
     order_qt_without_history_base """
-        SELECT k, v
+        SELECT k, v,
+               jv,
+               jv['d']['row']
         FROM test_changelog_mow_light_delete_without_history
     """
 
     qt_without_history_changelog """
-        SELECT __DORIS_CHANGELOG_OP__ AS op, k, v
+        SELECT __DORIS_CHANGELOG_OP__ AS op, k, v,
+               jv,
+               jv['d']['row']
         FROM changelog("table" = "test_changelog_mow_light_delete_without_history")
         ORDER BY __DORIS_CHANGELOG_TSO__, __DORIS_CHANGELOG_LSN__
     """
@@ -53,7 +59,8 @@ suite("test_changelog_mow_light_delete", "nonConcurrent") {
     sql """
         CREATE TABLE test_changelog_mow_light_delete_with_history (
             k INT,
-            v STRING
+            v STRING,
+            jv VARIANT NULL
         )
         UNIQUE KEY(k)
         DISTRIBUTED BY HASH(k) BUCKETS 1
@@ -66,16 +73,21 @@ suite("test_changelog_mow_light_delete", "nonConcurrent") {
         )
     """
 
-    sql "INSERT INTO test_changelog_mow_light_delete_with_history VALUES (1, 'one'), (2, 'two')"
+    sql "INSERT INTO test_changelog_mow_light_delete_with_history VALUES (1, 'one', parse_to_variant('{\"k\": 1, \"d\": {\"row\": \"1 one\"}}')), (2, 'two', parse_to_variant('{\"k\": 2, \"d\": {\"row\": \"2 two\"}}'))"
     sql "DELETE FROM test_changelog_mow_light_delete_with_history WHERE k = 1"
 
     order_qt_with_history_base """
-        SELECT k, v
+        SELECT k, v,
+               jv,
+               jv['d']['row']
         FROM test_changelog_mow_light_delete_with_history
     """
 
     qt_with_history_changelog """
-        SELECT __DORIS_CHANGELOG_OP__ AS op, k, v, __DORIS_CHANGELOG_BEFORE_v__
+        SELECT __DORIS_CHANGELOG_OP__ AS op, k, v, __DORIS_CHANGELOG_BEFORE_v__,
+               jv,
+               __DORIS_CHANGELOG_BEFORE_jv__,
+               jv['d']['row']
         FROM changelog("table" = "test_changelog_mow_light_delete_with_history")
         ORDER BY __DORIS_CHANGELOG_TSO__, __DORIS_CHANGELOG_LSN__
     """
@@ -83,7 +95,8 @@ suite("test_changelog_mow_light_delete", "nonConcurrent") {
     sql """
         CREATE TABLE test_changelog_dup_delete (
             k INT,
-            v STRING
+            v STRING,
+            jv VARIANT NULL
         )
         DUPLICATE KEY(k)
         DISTRIBUTED BY HASH(k) BUCKETS 1
@@ -93,7 +106,7 @@ suite("test_changelog_mow_light_delete", "nonConcurrent") {
         )
     """
 
-    sql "INSERT INTO test_changelog_dup_delete VALUES (1, 'one')"
+    sql "INSERT INTO test_changelog_dup_delete VALUES (1, 'one', parse_to_variant('{\"k\": 1, \"d\": {\"row\": \"1 one\"}}'))"
     test {
         sql "DELETE FROM test_changelog_dup_delete WHERE k = 1"
         exception "DELETE with predicates is not supported when changelog is enabled"

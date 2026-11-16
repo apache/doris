@@ -2560,8 +2560,6 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
             if (!column.isVisible() && !column.isKey()) {
                 continue;
             }
-            Preconditions.checkState(!column.getType().isVariantType(),
-                    "changelog does not support VARIANT column: " + column.getName());
             Preconditions.checkState(!column.isAutoInc(),
                     "changelog does not support AUTO_INCREMENT column: " + column.getName());
             if (column.isKey()) {
