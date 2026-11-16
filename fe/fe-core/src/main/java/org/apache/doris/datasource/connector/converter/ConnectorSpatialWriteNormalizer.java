@@ -574,7 +574,7 @@ public final class ConnectorSpatialWriteNormalizer {
         return canRetargetSpatialNulls(value, target, false);
     }
 
-    /** Proves spatial NULLs, allowing unchanged ordinary expressions and matching slots in the same producer. */
+    /** Proves spatial NULLs, allowing unchanged expressions with matching types in the same producer. */
     private static boolean canRetargetSpatialNulls(Expression value, DataType target, boolean sameProducer) {
         if (!target.toCatalogDataType().typeContainsSpatialType()) {
             return sameProducer || isLiteralConstruction(value) || (value.getClass() == Cast.class
@@ -583,16 +583,16 @@ public final class ConnectorSpatialWriteNormalizer {
         if (value.isNullLiteral()) {
             return true;
         }
-        if (sameProducer && (target instanceof GeometryType || target instanceof GeographyType)
-                && value instanceof SlotReference && value.getDataType().equals(target)) {
-            return true;
-        }
         if (value.getClass() == Cast.class) {
             Cast cast = (Cast) value;
             // A text bridge or incompatible container shape must retain its cast error.
             return sameSpatialContainerShape(cast.getDataType(), target)
                     && canRetargetSpatialNulls(cast.child(),
                             spatialLiteralType(cast.getDataType(), target), sameProducer);
+        }
+        if (sameProducer && (target instanceof GeometryType || target instanceof GeographyType)
+                && !value.hasUnbound() && value.getDataType().equals(target)) {
+            return true;
         }
         String constructor = "";
         if (value instanceof UnboundFunction) {

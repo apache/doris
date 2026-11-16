@@ -31,15 +31,19 @@ import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
 import org.apache.doris.nereids.rules.rewrite.MergeProjectable;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.CTEId;
+import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Array;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Cardinality;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateMap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateNamedStruct;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeogFromWKB;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.StGeometryFromWKBTyped;
 import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.MapLiteral;
@@ -665,6 +669,40 @@ public class ConnectorSpatialWriteNormalizerTest {
             Assertions.assertSame(geom, rewritten.child(1));
             Assertions.assertTrue(rewritten.child(3).isNullLiteral());
             Assertions.assertEquals(DataType.fromCatalogType(geometry), rewritten.child(3).getDataType());
+        }
+    }
+
+    @Test
+    public void testDirectProjectKeepsBoundSpatialExpressionsWhenRetaggingNull() {
+        try (AutoCloseConnectContext context = new AutoCloseConnectContext(new ConnectContext())) {
+            for (Type spatial : ImmutableList.of(ScalarType.createGeometryType("OGC:CRS84"),
+                    ScalarType.createGeographyType("OGC:CRS84", "spherical"))) {
+                LogicalPlan input = new LogicalOneRowRelation(new RelationId(1), ImmutableList.of(
+                        new Alias(new SlotReference("wkb", StringType.INSTANCE), "wkb"),
+                        new Alias(new SlotReference("condition", BooleanType.INSTANCE), "condition")));
+                SlotReference wkb = (SlotReference) input.getOutput().get(0);
+                Expression constructor = spatial.equals(ScalarType.createGeometryType("OGC:CRS84"))
+                        ? new StGeometryFromWKBTyped(wkb) : new StGeogFromWKB(wkb);
+                Expression condition = input.getOutput().get(1);
+                Expression conditional = new CaseWhen(
+                        ImmutableList.of(new WhenClause(condition, constructor)), constructor);
+                Type target = new StructType(new StructField("shape", spatial), new StructField("extra", spatial));
+                for (Expression value : ImmutableList.of(constructor, conditional)) {
+                    Alias payload = new Alias(new CreateNamedStruct(new StringLiteral("shape"), value,
+                            new StringLiteral("extra"), new Cast(NullLiteral.INSTANCE, IntegerType.INSTANCE)),
+                            "payload");
+                    LogicalProject<?> project = new LogicalProject<>(ImmutableList.of(payload), input);
+                    LogicalPlan normalized = ConnectorSpatialWriteNormalizer.normalize(
+                            ImmutableList.of(new Column("payload", target)), project, new CTEContext());
+                    Assertions.assertSame(input, normalized.child(0));
+                    Expression rewritten = ((LogicalProject<?>) normalized).getProjects().get(0).child(0);
+                    Assertions.assertSame(value, rewritten.child(1));
+                    Assertions.assertTrue(rewritten.child(3).isNullLiteral());
+                    Assertions.assertEquals(DataType.fromCatalogType(spatial), rewritten.child(3).getDataType());
+                    Assertions.assertEquals(DataType.fromCatalogType(target), rewritten.getDataType());
+                    Assertions.assertNotEquals(payload.getExprId(), normalized.getOutput().get(0).getExprId());
+                }
+            }
         }
     }
 

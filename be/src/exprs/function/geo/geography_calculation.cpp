@@ -1908,55 +1908,76 @@ bool geography_bearing(const GeoCoordinate& from, const GeoCoordinate& to, doubl
     return geography_bearing_impl<GeographyFloat>(from, to, bearing);
 }
 
-static GeographyFloat geography_relative_cross(const GeoCoordinate& start,
-                                               const GeoCoordinate& vertex,
-                                               const GeoCoordinate& end,
-                                               const GeographyTangent<GeographyFloat>& first,
-                                               const GeographyTangent<GeographyFloat>& last) {
+template <typename Float>
+static Status geography_relative_cross(const GeoCoordinate& start, const GeoCoordinate& vertex,
+                                       const GeoCoordinate& end,
+                                       const GeographyTangent<Float>& first,
+                                       const GeographyTangent<Float>& last, Float* result) {
     using std::abs;
-    const GeographyFloat eastward = first.north * last.east;
-    const GeographyFloat westward = first.east * last.north;
-    const GeographyFloat cross = eastward - westward;
-    const GeographyFloat error = 64 * std::numeric_limits<GeographyFloat>::epsilon();
+    const Float eastward = first.north * last.east;
+    const Float westward = first.east * last.north;
+    const Float cross = eastward - westward;
+    const Float error = 64 * std::numeric_limits<Float>::epsilon();
     if (abs(cross) > error * (abs(eastward) + abs(westward))) {
-        return cross;
+        *result = cross;
+        return Status::OK();
     }
     const auto [ax, ay] = geography_point_coordinate(start);
     const auto [bx, by] = geography_point_coordinate(end);
     if (ax == bx && ay == by) {
-        return 0;
+        *result = 0;
+        return Status::OK();
     }
-    // -(start × end) · vertex is the same signed numerator. Compute the normal
-    // from raw endpoint differences when rounded tangent products nearly cancel.
-    const auto [sin_half, cos_half] = geography_degree_sincos(bx, -ax, true);
-    const auto [nx, ny, nz] = geography_raw_normal(
-            GeoCoordinate {.x = ax, .y = ay}, GeoCoordinate {.x = bx, .y = by}, sin_half, cos_half);
     const auto [vx, vy] = geography_point_coordinate(vertex);
-    const auto [sin_lat, cos_lat] = geography_degree_sincos(vy);
-    if (ay == 0 && by == 0) {
-        // The equatorial normal has only a z component, so this product has no cancellation.
-        return -nz * sin_lat;
+    // Expand -(start × end) · vertex with half-angle identities. In particular, when
+    // all latitudes match, only t3 remains, without subtracting rounded O(1) terms.
+    // Keep each degree difference as two DOUBLE inputs to preserve tiny ordinates.
+    const Float cos_b = geography_degree_sincos<Float>(by).second;
+    const Float cos_v = geography_degree_sincos<Float>(vy).second;
+    const Float t1 = cos_b * geography_degree_sincos<Float>(vy, -ay).first *
+                     geography_degree_sincos<Float>(bx, -ax).first;
+    const Float t2 = -cos_v * geography_degree_sincos<Float>(by, -ay).first *
+                     geography_degree_sincos<Float>(vx, -ax).first;
+    const Float t3 = 4 * geography_degree_sincos<Float>(ay).first * cos_b * cos_v *
+                     geography_degree_sincos<Float>(bx, -ax, true).first *
+                     geography_degree_sincos<Float>(vx, -ax, true).first *
+                     geography_degree_sincos<Float>(vx, -bx, true).first;
+    const Float residual = -(t1 + t2 + t3);
+    // Bound the products and trigonometric terms as well as the final cancellation.
+    if (abs(residual) > error * (abs(t1) + abs(t2) + abs(t3))) {
+        *result = residual;
+        return Status::OK();
     }
-    const auto [sin_lon, cos_lon] = geography_degree_sincos(vx, -ax);
-    const GeographyFloat residual = -cos_lat * (nx * (cos_lon * cos_half + sin_lon * sin_half) +
-                                                ny * (sin_lon * cos_half - cos_lon * sin_half)) -
-                                    nz * sin_lat;
-    return abs(residual) > error * (abs(nx) + abs(ny) + abs(nz)) ? residual : cross;
+    if (geography_common_great_circle(start, vertex, end)) {
+        *result = 0;
+        return Status::OK();
+    }
+    return Status::NotSupported("ST_Angle does not support ambiguous spherical angle");
 }
 
-bool geography_clockwise_angle(const GeoCoordinate& start, const GeoCoordinate& vertex,
-                               const GeoCoordinate& end, double* angle) {
-    GeographyTangent<GeographyFloat> first;
-    GeographyTangent<GeographyFloat> last;
+template <typename Float>
+static Status geography_clockwise_angle_impl(const GeoCoordinate& start,
+                                             const GeoCoordinate& vertex, const GeoCoordinate& end,
+                                             double* angle, bool* computed) {
+    *computed = false;
+    GeographyTangent<Float> first;
+    GeographyTangent<Float> last;
     if (!geography_tangent(vertex, start, &first) || !geography_tangent(vertex, end, &last)) {
-        return false;
+        return Status::OK();
     }
     // Compute the relative bearing before any rounding of absolute angles.
-    const GeographyFloat cross = geography_relative_cross(start, vertex, end, first, last);
-    const GeographyFloat dot = first.north * last.north + first.east * last.east;
+    Float cross;
+    RETURN_IF_ERROR(geography_relative_cross(start, vertex, end, first, last, &cross));
+    const Float dot = first.north * last.north + first.east * last.east;
     using std::atan2;
-    *angle = geography_positive_angle<GeographyFloat>(atan2(cross, dot));
-    return true;
+    *angle = geography_positive_angle<Float>(atan2(cross, dot));
+    *computed = true;
+    return Status::OK();
+}
+
+Status geography_clockwise_angle(const GeoCoordinate& start, const GeoCoordinate& vertex,
+                                 const GeoCoordinate& end, double* angle, bool* computed) {
+    return geography_clockwise_angle_impl<GeographyFloat>(start, vertex, end, angle, computed);
 }
 
 #ifdef BE_TEST
@@ -1964,6 +1985,13 @@ std::array<double, 6> geography_portable_arc_for_test(double ax, double ay, doub
     const GeographyRawArc<boost::multiprecision::cpp_bin_float_quad> arc({ax, ay}, {bx, by});
     return {arc.normal.x(),   arc.normal.y(),   arc.normal.z(),
             arc.midpoint.x(), arc.midpoint.y(), arc.midpoint.z()};
+}
+
+Status geography_portable_angle_for_test(StringRef start, StringRef vertex, StringRef end,
+                                         double* angle, bool* computed) {
+    return geography_clockwise_angle_impl<boost::multiprecision::cpp_bin_float_quad>(
+            geography_raw_point_coordinate(start), geography_raw_point_coordinate(vertex),
+            geography_raw_point_coordinate(end), angle, computed);
 }
 
 bool geography_portable_bearing_for_test(StringRef from, StringRef to, double* bearing) {

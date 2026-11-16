@@ -370,6 +370,18 @@ static void check_geography_direction(const std::string& name, const Strings& ar
     const double angle =
             assert_cast<const ColumnFloat64&>(result.get_nested_column()).get_data()[0];
     EXPECT_NEAR(angle, expected, tolerance);
+    if (name == "st_angle") {
+        const auto start = spatial_test_wkb(arguments[0]);
+        const auto vertex = spatial_test_wkb(arguments[1]);
+        const auto end = spatial_test_wkb(arguments[2]);
+        double portable = 0;
+        bool computed = false;
+        ASSERT_TRUE(geography_portable_angle_for_test(StringRef(start), StringRef(vertex),
+                                                      StringRef(end), &portable, &computed)
+                            .ok());
+        ASSERT_TRUE(computed);
+        EXPECT_NEAR(portable, expected, tolerance);
+    }
 }
 
 TEST(VGeoFunctionsTest, GeographyBearingAndAnglePreserveSmallDirections) {
@@ -411,6 +423,65 @@ TEST(VGeoFunctionsTest, GeographyAnglePreservesTinyTurnBetweenEquatorialEndpoint
     const std::string b = "010100000000000000000000000000000000000000";
     check_geography_direction("st_angle", {a, vertex, b}, 1.000101545326e-200, 1e-212);
     check_geography_direction("st_angle", {b, vertex, a}, std::nextafter(2 * M_PI, 0.0), 0);
+}
+
+TEST(VGeoFunctionsTest, GeographyAnglePreservesTinyTurnBetweenNonequatorialEndpoints) {
+    const std::string a = "010100000030058ee42eff2b2b30058ee42eff2b2b";
+    const std::string vertex = "0101000000000000000000f0bf30058ee42eff2b2b";
+    const std::string b = "0101000000000000000000000030058ee42eff2b2b";
+    // Independent high-precision bearings of the original DOUBLE coordinates.
+    check_geography_direction("st_angle", {a, vertex, b}, 1.523203094538092e-204, 1e-216);
+    check_geography_direction("st_angle", {b, vertex, a}, std::nextafter(2 * M_PI, 0.0), 0);
+
+    const std::string north_a = "010100000030058ee42eff2b2b0000000000804640";
+    const std::string north_vertex = "0101000000000000000000f0bf0000000000804640";
+    const std::string north_b = "010100000000000000000000000000000000804640";
+    check_geography_direction("st_angle", {north_a, north_vertex, north_b}, 6.170905712149529e-103,
+                              1e-115);
+    check_geography_direction("st_angle", {north_b, north_vertex, north_a},
+                              std::nextafter(2 * M_PI, 0.0), 0);
+    const std::string south_a = "010100000030058ee42eff2b2b00000000008046c0";
+    const std::string south_vertex = "0101000000000000000000f0bf00000000008046c0";
+    const std::string south_b = "0101000000000000000000000000000000008046c0";
+    check_geography_direction("st_angle", {south_a, south_vertex, south_b},
+                              std::nextafter(2 * M_PI, 0.0), 0);
+    check_geography_direction("st_angle", {south_b, south_vertex, south_a}, 6.170905712149529e-103,
+                              1e-115);
+}
+
+TEST(VGeoFunctionsTest, GeographyAngleKeepsExactGreatCircleDirections) {
+    // These degree coordinates are exactly coplanar, although rounded vector products differ.
+    const std::string a = "0101000000000000000080464000000000008046c0";      // (45,-45)
+    const std::string middle = "010100000000000000008056400000000000000000"; // (90,0)
+    const std::string b = "01010000000000000000e060400000000000804640";      // (135,45)
+    check_geography_direction("st_angle", {a, b, middle}, 0, 0);
+    check_geography_direction("st_angle", {middle, b, a}, 0, 0);
+    check_geography_direction("st_angle", {b, a, middle}, 0, 0);
+    check_geography_direction("st_angle", {middle, a, b}, 0, 0);
+    check_geography_direction("st_angle", {a, middle, b}, M_PI, 0);
+    check_geography_direction("st_angle", {b, middle, a}, M_PI, 0);
+}
+
+TEST(VGeoFunctionsTest, GeographyAngleRejectsUnresolvedGreatCircleDirection) {
+    const Strings arguments {"0101000000000000000080464000000000008046c0",
+                             "01010000000000000000e060400000000000804640",
+                             "0101000000000000000080564030058ee42eff2b2b"};
+    Block block;
+    const auto status = execute_geography_test(
+            "st_angle", arguments, make_nullable(std::make_shared<DataTypeFloat64>()), &block);
+    ASSERT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("ambiguous spherical angle"), std::string::npos);
+
+    const auto start = spatial_test_wkb(arguments[0]);
+    const auto vertex = spatial_test_wkb(arguments[1]);
+    const auto end = spatial_test_wkb(arguments[2]);
+    double angle = 0;
+    bool computed = true;
+    const auto portable_status = geography_portable_angle_for_test(
+            StringRef(start), StringRef(vertex), StringRef(end), &angle, &computed);
+    EXPECT_FALSE(portable_status.ok());
+    EXPECT_FALSE(computed);
+    EXPECT_NE(portable_status.to_string().find("ambiguous spherical angle"), std::string::npos);
 }
 
 TEST(VGeoFunctionsTest, GeographyAreaPreservesNullableEvaluation) {
