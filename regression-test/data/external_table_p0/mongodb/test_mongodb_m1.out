@@ -163,6 +163,16 @@ true	3	123.45
 -- !timeseries_false --
 a	3	2
 
+-- !array_not_null_false --
+1	["red", "blue"]
+2	[]
+3	[null, "中文"]
+
+-- !json_not_null_false --
+1	["red","blue"]
+2	[]
+3	[null,"中文"]
+
 -- !paths_false --
 1	10	a.b
 2	\N	value
@@ -330,6 +340,16 @@ true	3	123.45
 
 -- !timeseries_true --
 a	3	2
+
+-- !array_not_null_true --
+1	["red", "blue"]
+2	[]
+3	[null, "中文"]
+
+-- !json_not_null_true --
+1	["red","blue"]
+2	[]
+3	[null,"中文"]
 
 -- !paths_true --
 1	10	a.b

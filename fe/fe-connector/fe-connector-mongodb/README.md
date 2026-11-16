@@ -111,7 +111,7 @@ conversion errors. Standard views keep SQL predicates local and retain their own
 Collections and time-series scans with candidates use simple collation.
 
 Supported candidates include scalar-root integer/boolean/string/Decimal128 comparisons,
-UTC BSON Date ranges (including time-series time fields), positive IN, BETWEEN, IS NOT NULL,
+UTC BSON Date ranges (including time-series time fields), positive IN, BETWEEN, scalar IS NOT NULL,
 and safe AND/OR combinations. Numeric comparisons keep their BSON type and exact precision;
 integer mappings without source tags, DOUBLE/NaN, NOT/!=/NOT IN, IS NULL under mismatch-to-NULL,
 functions, CAST/TRY_CAST, and nested/array paths remain local. An OR requires a safe candidate

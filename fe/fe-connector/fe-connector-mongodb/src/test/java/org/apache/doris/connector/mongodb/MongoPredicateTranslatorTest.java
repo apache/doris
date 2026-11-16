@@ -261,4 +261,13 @@ class MongoPredicateTranslatorTest {
         Assertions.assertEquals(MongoPredicateTranslator.Kind.SUPERSET, translate(schema, filter).kind());
     }
 
+    @Test
+    void arrayAndJsonIsNotNullCannotUseMongoArrayElementNullSemantics() {
+        for (String type : List.of("ARRAY<STRING>", "JSON")) {
+            var schema = schema(type, "array");
+            var predicate = new ConnectorIsNull(column(schema), true);
+            Assertions.assertEquals(MongoPredicateTranslator.Kind.UNSUPPORTED, translate(schema, predicate).kind());
+        }
+    }
+
 }

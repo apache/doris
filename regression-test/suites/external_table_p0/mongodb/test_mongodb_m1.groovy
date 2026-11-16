@@ -41,6 +41,8 @@ suite("test_mongodb_m1", "p0,external") {
         "doris_mongodb_m1.collated": [columns: [fields[0], fields[2]]],
         "doris_mongodb_m1.paths": [columns: [fields[0], col("child", "BIGINT", ["long"], ["a", "b"]),
             col("literal", "STRING", ["string"], ["literal.dot"])]],
+        "doris_mongodb_native.typed_records": [columns: [fields[0], col("tags", "ARRAY<STRING>", ["array"]),
+            col("json_tags", "JSON", ["array"], ["tags"])]],
         "doris_mongodb_native.record_view": [columns: [fields[0], col("label", "STRING", ["string"])]],
         "doris_mongodb_native.measurements": [columns: [fields[5], col("device", "STRING", ["string"]),
             col("value", "INT", ["int"])]]]
@@ -83,6 +85,10 @@ suite("test_mongodb_m1", "p0,external") {
         "order_qt_timeseries_${enabled}" """SELECT device, sum(value), count(*)
             FROM mongodb_m1_null.doris_mongodb_native.measurements
             WHERE observed >= '2024-01-01 00:00:00.001' AND observed < '2024-01-02 00:00:00' GROUP BY device"""
+        "order_qt_array_not_null_${enabled}" """SELECT seq, tags
+            FROM mongodb_m1_null.doris_mongodb_native.typed_records WHERE tags IS NOT NULL"""
+        "order_qt_json_not_null_${enabled}" """SELECT seq, cast(json_tags AS STRING)
+            FROM mongodb_m1_null.doris_mongodb_native.typed_records WHERE json_tags IS NOT NULL"""
         "order_qt_paths_${enabled}" "SELECT seq, child, literal FROM paths"
         test {
             sql "SELECT seq, n FROM mongodb_m1_error.doris_mongodb_m1.dirty WHERE seq = 1"

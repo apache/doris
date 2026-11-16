@@ -157,7 +157,14 @@ final class MongoPredicateTranslator {
         }
         if (expression instanceof ConnectorIsNull isNull && isNull.isNegated()) {
             MongoSchema.Binding binding = binding(isNull.getOperand());
-            return binding == null ? Result.unsupported() : candidate(binding, "$ne", null);
+            if (binding == null || !Set.of("BOOLEAN", "TINYINT", "SMALLINT", "INT", "BIGINT", "LARGEINT",
+                    "FLOAT", "DOUBLE", "STRING", "VARBINARY", "DATETIMEV2", "DECIMALV3")
+                    .contains(binding.column().getType().getTypeName())) {
+                return Result.unsupported();
+            }
+            // MongoDB's $ne:null rejects arrays containing null. ARRAY[NULL] (or JSON [null])
+            // is a non-NULL SQL value, so complex targets must keep this predicate entirely local.
+            return candidate(binding, "$ne", null);
         }
         if (expression instanceof ConnectorLike predicate && like
                 && predicate.getOperator() == ConnectorLike.Operator.LIKE
