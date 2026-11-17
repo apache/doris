@@ -61,7 +61,8 @@ public final class IcebergRestMetaStoreProperties extends AbstractMetaStorePrope
     private static final String TOKEN_MODE_ACCESS_TOKEN = "access_token";
     private static final String TOKEN_MODE_TOKEN_EXCHANGE = "token_exchange";
 
-    @ConnectorProperty(names = {"iceberg.rest.uri", "uri"}, required = false,
+    // Connection URIs can embed credentials without a separate password property.
+    @ConnectorProperty(names = {"iceberg.rest.uri", "uri"}, required = false, sensitive = true,
             description = "The endpoint of the iceberg rest catalog service.")
     private String uri = "";
 

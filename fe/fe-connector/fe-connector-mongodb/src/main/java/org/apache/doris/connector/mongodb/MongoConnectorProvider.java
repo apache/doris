@@ -21,6 +21,7 @@ import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorProvider;
 import org.apache.doris.connector.spi.ConnectorSecuritySurface;
+import org.apache.doris.foundation.property.ConnectorPropertiesUtils;
 
 import java.util.Map;
 
@@ -37,7 +38,8 @@ public final class MongoConnectorProvider implements ConnectorProvider {
 
     @Override
     public ConnectorSecuritySurface securitySurface() {
-        return ConnectorSecuritySurface.ofSsrfEndpoints("mongodb.uri");
+        return ConnectorSecuritySurface.ofSsrfEndpoints("mongodb.uri")
+                .withSensitiveKeys(ConnectorPropertiesUtils.getSensitiveKeys(MongoCatalogProperties.class));
     }
 
     @Override

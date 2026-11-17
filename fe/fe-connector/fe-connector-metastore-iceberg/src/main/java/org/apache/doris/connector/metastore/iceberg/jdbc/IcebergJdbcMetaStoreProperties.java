@@ -35,7 +35,8 @@ import java.util.Map;
  */
 public final class IcebergJdbcMetaStoreProperties extends AbstractMetaStoreProperties {
 
-    @ConnectorProperty(names = {"uri", "iceberg.jdbc.uri"}, required = false,
+    // Connection URIs can embed credentials without a separate password property.
+    @ConnectorProperty(names = {"uri", "iceberg.jdbc.uri"}, required = false, sensitive = true,
             description = "JDBC connection URI for the Iceberg JDBC catalog.")
     private String uri = "";
 

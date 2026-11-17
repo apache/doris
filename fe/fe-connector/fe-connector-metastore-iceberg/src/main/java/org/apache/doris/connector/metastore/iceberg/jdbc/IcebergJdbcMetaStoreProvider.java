@@ -38,12 +38,12 @@ public final class IcebergJdbcMetaStoreProvider implements MetaStoreProvider<Ice
     }
 
     @Override
-    public String name() {
-        return "JDBC";
+    public Set<String> sensitivePropertyKeys() {
+        return ConnectorPropertiesUtils.getSensitiveKeys(IcebergJdbcMetaStoreProperties.class);
     }
 
     @Override
-    public Set<String> sensitivePropertyKeys() {
-        return ConnectorPropertiesUtils.getSensitiveKeys(IcebergJdbcMetaStoreProperties.class);
+    public String name() {
+        return "JDBC";
     }
 }

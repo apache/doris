@@ -131,23 +131,15 @@ public interface ConnectorProvider extends PluginFactory {
 
     /**
      * The security-sensitive property surface of this connector: the user-supplied property keys the
-     * engine's CREATE / ALTER CATALOG security gates must police (SSRF endpoints, jdbc driver_url). The
-     * engine looks this up by type (without initializing a connector) so those gates stay connector-agnostic
-     * — it never hard-codes a catalog type's property names. Default {@link ConnectorSecuritySurface#EMPTY}:
-     * a connector that names no network endpoint and loads no driver jar needs nothing policed.
+     * engine's CREATE / ALTER CATALOG security gates must police (SSRF endpoints, jdbc driver_url), and the
+     * keys, or key namespaces, whose secret values it must mask when it shows catalog properties. The engine
+     * looks this up by type (without initializing a connector) so those policies stay connector-agnostic — it
+     * never hard-codes a catalog type's property names; the secrets are read once, when the provider is
+     * registered. Default {@link ConnectorSecuritySurface#EMPTY}: a connector that names no network
+     * endpoint, loads no driver jar and takes no secret needs nothing policed.
      */
     default ConnectorSecuritySurface securitySurface() {
         return ConnectorSecuritySurface.EMPTY;
-    }
-
-    /**
-     * All sensitive property aliases this plugin can store in a catalog, including its metastore backends.
-     * The engine registers these at plugin discovery, before catalogs are displayed, so every
-     * catalog display can mask them without creating a connector or binding catalog properties.
-     * Implementations must only inspect property declarations; they must not access external services.
-     */
-    default Set<String> sensitivePropertyKeys() {
-        return Collections.emptySet();
     }
 
     /**

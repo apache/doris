@@ -42,11 +42,6 @@ public class PaimonConnectorProvider implements ConnectorProvider {
     }
 
     @Override
-    public Set<String> sensitivePropertyKeys() {
-        return MetaStoreProviders.sensitivePropertyKeys();
-    }
-
-    @Override
     public Connector create(Map<String, String> properties, ConnectorContext context) {
         return new PaimonConnector(properties, context);
     }
@@ -108,8 +103,10 @@ public class PaimonConnectorProvider implements ConnectorProvider {
     public ConnectorSecuritySurface securitySurface() {
         // paimon.jdbc.driver_url (documented alias: jdbc.driver_url) is a jar the connector loads, but only
         // live on a jdbc-flavored catalog (paimon.catalog.type = jdbc); otherwise it is dead config.
+        // The secrets are those of every metastore flavor: the engine masks by key name alone.
         return ConnectorSecuritySurface.ofJdbcDriverUrls(
-                "paimon.catalog.type", "paimon.jdbc.driver_url", "jdbc.driver_url");
+                "paimon.catalog.type", "paimon.jdbc.driver_url", "jdbc.driver_url")
+                .withSensitiveKeys(MetaStoreProviders.sensitivePropertyKeys());
     }
 
 }

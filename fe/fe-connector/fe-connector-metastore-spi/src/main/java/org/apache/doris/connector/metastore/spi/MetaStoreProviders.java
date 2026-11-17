@@ -44,8 +44,8 @@ public final class MetaStoreProviders {
     private static List<MetaStoreProvider> load() {
         List<MetaStoreProvider> list = new ArrayList<>();
         // Use the SPI interface's own defining classloader, not the thread-context classloader.
-        // Discovery runs at plugin startup and may also be triggered during catalog validation.
-        // Both calls cross the plugin boundary from an FE thread whose TCCL may still be
+        // At CREATE CATALOG time this static initializer is first triggered from
+        // PaimonConnectorProvider.validateProperties, which runs on an FE worker thread whose TCCL is
         // the FE app loader. fe-core does not depend on fe-connector-metastore-spi, so the providers and
         // their META-INF/services file live only inside the connector plugin's (child) classloader; a
         // 1-arg ServiceLoader.load (TCCL) therefore finds nothing and caches an empty list process-wide.
@@ -101,17 +101,21 @@ public final class MetaStoreProviders {
                         + registeredNames());
     }
 
-    /** Names of the registered providers (for diagnostics). */
-    public static List<String> registeredNames() {
-        return PROVIDERS.stream().map(MetaStoreProvider::name).collect(Collectors.toList());
-    }
-
-    /** All sensitive aliases from this plugin's discovered backends, without binding a catalog. */
+    /**
+     * The sensitive property keys of every registered backend ({@link MetaStoreProvider#sensitivePropertyKeys}).
+     * A connector declares them on its {@code ConnectorSecuritySurface}: a catalog may name any backend, so
+     * the engine has to mask the secrets of all of them.
+     */
     public static Set<String> sensitivePropertyKeys() {
         Set<String> keys = new HashSet<>();
-        for (MetaStoreProvider<?> provider : PROVIDERS) {
+        for (MetaStoreProvider provider : PROVIDERS) {
             keys.addAll(provider.sensitivePropertyKeys());
         }
         return keys;
+    }
+
+    /** Names of the registered providers (for diagnostics). */
+    public static List<String> registeredNames() {
+        return PROVIDERS.stream().map(MetaStoreProvider::name).collect(Collectors.toList());
     }
 }

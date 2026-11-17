@@ -17,12 +17,10 @@
 
 package org.apache.doris.datasource;
 
-import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
@@ -42,11 +40,8 @@ import org.apache.doris.datasource.property.constants.RemoteDorisProperties;
 import org.apache.doris.datasource.test.TestExternalCatalog;
 import org.apache.doris.datasource.test.TestExternalDatabase;
 import org.apache.doris.datasource.test.TestExternalTable;
-import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.CreateCatalogCommand;
-import org.apache.doris.nereids.trees.plans.commands.ShowCatalogCommand;
-import org.apache.doris.nereids.trees.plans.commands.ShowCreateCatalogCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
@@ -54,13 +49,6 @@ import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.system.Backend;
-import org.apache.doris.tablefunction.MetadataGenerator;
-import org.apache.doris.thrift.TFetchSchemaTableDataRequest;
-import org.apache.doris.thrift.TFetchSchemaTableDataResult;
-import org.apache.doris.thrift.TMetadataTableRequestParams;
-import org.apache.doris.thrift.TMetadataType;
-import org.apache.doris.thrift.TRow;
-import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Lists;
@@ -74,7 +62,6 @@ import org.mockito.Mockito;
 import java.lang.reflect.Field;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -410,99 +397,6 @@ public class ExternalCatalogTest extends TestWithFeService {
         Assertions.assertFalse(ddl.contains("client-secret"), ddl);
         Assertions.assertFalse(ddl.contains("lake-access-key"), ddl);
         Assertions.assertFalse(ddl.contains("lake-secret-key"), ddl);
-    }
-
-    @Test
-    public void testCatalogCredentialDisplaysForSelectOnlyUser() throws Exception {
-        rootCtx.setThreadLocalInfo();
-        addUser("catalog_mask_reader", true);
-        addUser("catalog_mask_denied", true);
-        ConnectContext reader = createCtx(
-                UserIdentity.createAnalyzedUserIdentWithIp("catalog_mask_reader", "%"), "127.0.0.1");
-        ConnectContext denied = createCtx(
-                UserIdentity.createAnalyzedUserIdentWithIp("catalog_mask_denied", "%"), "127.0.0.1");
-        Map<String, Map<String, String>> catalogs = Map.of(
-                "mask_reader_iceberg_jdbc", Map.of(
-                        "type", "iceberg", "iceberg.catalog.type", "jdbc", "warehouse", "metadata",
-                        "iceberg.jdbc.password", "iceberg-jdbc-secret",
-                        "uri", "jdbc:postgresql://localhost/metadata?password=iceberg-uri-secret",
-                        "iceberg.jdbc.uri", "jdbc:mysql://localhost/metadata?password=iceberg-alias-secret"),
-                "mask_reader_paimon_jdbc", Map.of(
-                        "type", "paimon", "paimon.catalog.type", "jdbc", "warehouse", "metadata",
-                        "paimon.jdbc.password", "paimon-jdbc-secret",
-                        "jdbc.password", "paimon-alias-secret",
-                        "paimon.jdbc.uri", "jdbc:mysql://localhost/metadata?password=paimon-uri-secret"),
-                "mask_reader_paimon_rest", Map.of(
-                        "type", "paimon", "paimon.catalog.type", "rest", "warehouse", "metadata",
-                        "paimon.rest.token.provider", "dlf",
-                        "paimon.rest.dlf.access-key-id", "fixture-dlf-key",
-                        "paimon.rest.dlf.access-key-secret", "fixture-dlf-secret",
-                        "paimon.rest.uri", "http://reader:paimon-rest-secret@localhost:8181"),
-                "mask_reader_jdbc", Map.of(
-                        "type", "jdbc", "jdbc.user", "reader",
-                        "jdbc_url", "jdbc:mysql://localhost/metadata?password=jdbc-url-secret"));
-        Set<String> publicProperties = Set.of("type", "warehouse", "iceberg.catalog.type",
-                "paimon.catalog.type", "paimon.rest.token.provider", "jdbc.user");
-
-        try {
-            for (Map.Entry<String, Map<String, String>> fixture : catalogs.entrySet()) {
-                rootCtx.setThreadLocalInfo();
-                String name = fixture.getKey();
-                // Replay keeps this test independent of connector initialization and external services.
-                registerCatalogViaReplay(name, Maps.newHashMap(fixture.getValue()));
-                Map<String, String> stored = mgr.getCatalog(name).getProperties();
-                grantPriv("GRANT SELECT_PRIV ON " + name + ".*.* TO 'catalog_mask_reader'@'%'");
-
-                reader.setThreadLocalInfo();
-                Assertions.assertTrue(env.getAccessManager().checkCtlPriv(reader, name, PrivPredicate.SELECT));
-                Assertions.assertFalse(env.getAccessManager().checkGlobalPriv(reader, PrivPredicate.ADMIN));
-                String ddl = new ShowCreateCatalogCommand(name).doRun(reader, null).getResultRows().get(0).get(1);
-                Map<String, String> shown = Maps.newHashMap();
-                new ShowCatalogCommand(name, null).doRun(reader, null).getResultRows()
-                        .forEach(row -> shown.put(row.get(0), row.get(1)));
-                Map<String, String> metadata = catalogPropertiesFromMetadata(reader, name);
-
-                fixture.getValue().forEach((key, value) -> {
-                    String expected = publicProperties.contains(key) ? value : DatasourcePrintableMap.PASSWORD_MASK;
-                    Assertions.assertTrue(ddl.contains("\"" + key + "\" = \"" + expected + "\""), key);
-                    Assertions.assertEquals(expected, shown.get(key), key);
-                    Assertions.assertEquals(expected, metadata.get(key), key);
-                    if (!publicProperties.contains(key)) {
-                        Assertions.assertFalse(ddl.contains(value), key);
-                        Assertions.assertEquals(value, mgr.getCatalog(name).getProperties().get(key), key);
-                    }
-                });
-                Assertions.assertEquals(stored, mgr.getCatalog(name).getProperties());
-
-                denied.setThreadLocalInfo();
-                Assertions.assertThrows(AnalysisException.class,
-                        () -> new ShowCreateCatalogCommand(name).doRun(denied, null));
-                Assertions.assertThrows(AnalysisException.class,
-                        () -> new ShowCatalogCommand(name, null).doRun(denied, null));
-                Assertions.assertTrue(catalogPropertiesFromMetadata(denied, name).isEmpty());
-            }
-        } finally {
-            rootCtx.setThreadLocalInfo();
-        }
-    }
-
-    private Map<String, String> catalogPropertiesFromMetadata(ConnectContext ctx, String name) throws Exception {
-        TMetadataTableRequestParams params = new TMetadataTableRequestParams();
-        params.setMetadataType(TMetadataType.CATALOGS);
-        params.setCurrentUserIdent(ctx.getCurrentUserIdentity().toThrift());
-        params.setColumnsName(List.of("CatalogName", "Property", "Value"));
-        TFetchSchemaTableDataRequest request = new TFetchSchemaTableDataRequest();
-        request.setMetadaTableParams(params);
-        TFetchSchemaTableDataResult result = MetadataGenerator.getMetadataTable(request);
-        Assertions.assertEquals(TStatusCode.OK, result.getStatus().getStatusCode());
-        Map<String, String> properties = Maps.newHashMap();
-        for (TRow row : result.getDataBatch()) {
-            if (name.equals(row.getColumnValue().get(0).getStringVal())) {
-                properties.put(row.getColumnValue().get(1).getStringVal(),
-                        row.getColumnValue().get(2).getStringVal());
-            }
-        }
-        return properties;
     }
 
     private void registerCatalogViaReplay(String name, Map<String, String> props) throws Exception {

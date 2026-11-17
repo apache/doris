@@ -38,7 +38,8 @@ import java.util.Map;
 public final class PaimonJdbcMetaStoreProperties extends AbstractMetaStoreProperties
         implements JdbcMetaStoreProperties {
 
-    @ConnectorProperty(names = {"uri", "paimon.jdbc.uri"}, required = false,
+    // Connection URIs can embed credentials without a separate password property.
+    @ConnectorProperty(names = {"uri", "paimon.jdbc.uri"}, required = false, sensitive = true,
             description = "The JDBC connection URI.")
     private String uri = "";
 

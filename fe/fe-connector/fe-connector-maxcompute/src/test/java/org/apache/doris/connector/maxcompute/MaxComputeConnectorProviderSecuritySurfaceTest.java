@@ -15,21 +15,28 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.connector.hudi;
+package org.apache.doris.connector.maxcompute;
+
+import org.apache.doris.connector.spi.ConnectorSecuritySurface;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-import java.util.Set;
+import java.util.Arrays;
+import java.util.HashSet;
 
-public class HudiSensitivePropertyKeysTest {
+/**
+ * Pins the MaxCompute connector's secrets: the properties it marks sensitive, the access key pair. Before
+ * the connector declared them, fe-core masked only {@code mc.secret_key} and SHOW CREATE CATALOG printed
+ * {@code mc.access_key} in clear.
+ */
+public class MaxComputeConnectorProviderSecuritySurfaceTest {
+
     @Test
-    public void exposesMetastoreAliasesWithoutCreatingConnector() {
-        Set<String> keys = new HudiConnectorProvider().sensitivePropertyKeys();
-        Assertions.assertTrue(keys.containsAll(Set.of(
-                "hive.metastore.client.keytab",
-                "hadoop.kerberos.keytab")), keys.toString());
-        Assertions.assertFalse(keys.contains("warehouse"));
-        Assertions.assertFalse(keys.contains("type"));
+    public void declaresTheAccessKeyPair() {
+        ConnectorSecuritySurface surface = new MaxComputeConnectorProvider().securitySurface();
+        Assertions.assertEquals(new HashSet<>(Arrays.asList(MCCatalogProperties.ACCESS_KEY,
+                MCCatalogProperties.SECRET_KEY)), new HashSet<>(surface.sensitiveKeys()));
+        Assertions.assertTrue(surface.sensitiveKeyPrefixes().isEmpty());
     }
 }

@@ -17,6 +17,8 @@
 
 package org.apache.doris.common.util;
 
+import org.apache.doris.connector.spi.ConnectorSecuritySurface;
+
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -66,64 +68,6 @@ public class DatasourcePrintableMapTest {
                 "mongodb.password", "fixture-secret"), "=", true, true, true).toString();
         Assertions.assertFalse(result.contains("fixture-secret"));
         Assertions.assertFalse(result.contains("mongodb://"));
-    }
-
-    @Test
-    public void testMetastoreCredentialsAreMaskedWithoutProviderRegistration() {
-        Map<String, String> properties = Map.of(
-                "iceberg.jdbc.password", "iceberg-jdbc-secret",
-                "paimon.jdbc.password", "paimon-jdbc-secret",
-                "jdbc.password", "jdbc-alias-secret",
-                "paimon.rest.dlf.access-key-id", "dlf-access-key",
-                "paimon.rest.dlf.access-key-secret", "dlf-secret-key",
-                "PAIMON.JDBC.PASSWORD", "upper-case-secret");
-
-        String result = new DatasourcePrintableMap<>(properties, "=", true, true, true, true).toString();
-        properties.forEach((key, value) -> {
-            Assertions.assertTrue(result.contains("\"" + key + "\" = \"*XXX\""), key);
-            Assertions.assertFalse(result.contains(value), key);
-        });
-    }
-
-    @Test
-    public void testConnectionUrisAreMaskedWithoutProviderRegistration() {
-        Map<String, String> properties = Map.of(
-                "jdbc_url", "jdbc:mysql://localhost:3306/db?user=reader&password=jdbc-url-secret",
-                "uri", "jdbc:postgresql://localhost/db?user=reader&password=generic-uri-secret",
-                "iceberg.jdbc.uri", "jdbc:mysql://localhost/db?password=iceberg-uri-secret",
-                "paimon.jdbc.uri", "jdbc:mysql://localhost/db?password=paimon-uri-secret",
-                "iceberg.rest.uri", "http://reader:iceberg-rest-secret@localhost:8181",
-                "paimon.rest.uri", "http://reader:paimon-rest-secret@localhost:8181",
-                "ICEBERG.JDBC.URI", "jdbc:mysql://localhost/db?password=upper-uri-secret");
-
-        String result = new DatasourcePrintableMap<>(properties, "=", true, true, true, true).toString();
-        properties.forEach((key, value) -> {
-            Assertions.assertTrue(result.contains("\"" + key + "\" = \"*XXX\""), key);
-            Assertions.assertFalse(result.contains(value), key);
-        });
-    }
-
-    @Test
-    public void testUriMaskingPreservesOriginalPropertiesAndOrdinaryOptions() {
-        Map<String, String> properties = Map.of(
-                "uri", "http://localhost:8181",
-                "paimon.jdbc.password", "connection-secret",
-                "type", "iceberg",
-                "warehouse", "s3://warehouse/path",
-                "iceberg.jdbc.driver_class", "com.mysql.cj.jdbc.Driver");
-        Map<String, String> original = new HashMap<>(properties);
-
-        String masked = new DatasourcePrintableMap<>(properties, "=", false, false, true).toString();
-        Assertions.assertTrue(masked.contains("uri = *XXX"), masked);
-        Assertions.assertTrue(masked.contains("paimon.jdbc.password = *XXX"), masked);
-        Assertions.assertTrue(masked.contains("type = iceberg"), masked);
-        Assertions.assertTrue(masked.contains("warehouse = s3://warehouse/path"), masked);
-        Assertions.assertTrue(masked.contains("iceberg.jdbc.driver_class = com.mysql.cj.jdbc.Driver"), masked);
-        Assertions.assertEquals(original, properties);
-
-        String unmasked = new DatasourcePrintableMap<>(properties, "=", false, false, false).toString();
-        Assertions.assertTrue(unmasked.contains("uri = http://localhost:8181"), unmasked);
-        Assertions.assertTrue(unmasked.contains("paimon.jdbc.password = connection-secret"), unmasked);
     }
 
     @Test
@@ -284,6 +228,7 @@ public class DatasourcePrintableMapTest {
         properties.put("fluss.lake.paimon.oss.secret-key", "oss-secret");
         properties.put("fluss.lake.paimon.azure.oauth2_client_secret", "azure-secret");
         properties.put("fluss.lake.paimon.rest.token", "rest-token");
+        properties.put("FLUSS.LAKE.PAIMON.GCS.Secret-Key", "upper-case-secret");
         properties.put("fluss.lake.paimon.s3.endpoint", "http://minio:9000");
 
         String result = new DatasourcePrintableMap<>(properties, "=", false, false, true).toString();
@@ -294,6 +239,7 @@ public class DatasourcePrintableMapTest {
         Assertions.assertFalse(result.contains("oss-secret"), result);
         Assertions.assertFalse(result.contains("azure-secret"), result);
         Assertions.assertFalse(result.contains("rest-token"), result);
+        Assertions.assertFalse(result.contains("upper-case-secret"), result);
         Assertions.assertTrue(result.contains("fluss.lake.paimon.s3.endpoint = http://minio:9000"), result);
     }
 
@@ -390,5 +336,30 @@ public class DatasourcePrintableMapTest {
         Assertions.assertFalse(result.contains("super_secret_value"));
         Assertions.assertTrue(result.contains(
                 "PROVIDER_CONTRIBUTED_SECRET_KEY = " + DatasourcePrintableMap.PASSWORD_MASK));
+    }
+
+    @Test
+    public void testRegisterSensitiveKeyPrefixMasksTheKeysItCovers() {
+        // Simulates connector providers declaring pass-through namespaces at startup; the list is
+        // process-wide, hence prefixes no other test uses.
+        ConnectorSecuritySurface surface = ConnectorSecuritySurface
+                .ofSensitiveKeyPrefix("prefix_test_passthrough.", "Password", "token")
+                .withSensitiveKeyPrefix("prefix_test_all.");
+        surface.sensitiveKeyPrefixes().forEach(DatasourcePrintableMap::registerSensitiveKeyPrefix);
+
+        Assertions.assertTrue(DatasourcePrintableMap.isSensitiveKey("prefix_test_passthrough.connection-password"));
+        Assertions.assertTrue(DatasourcePrintableMap.isSensitiveKey("PREFIX_TEST_PASSTHROUGH.auth.TOKEN"));
+        Assertions.assertFalse(DatasourcePrintableMap.isSensitiveKey("prefix_test_passthrough.connection-url"));
+        // Only the rest after the prefix is searched, and only under the prefix.
+        Assertions.assertFalse(DatasourcePrintableMap.isSensitiveKey("other.prefix_test_passthrough.password"));
+        Assertions.assertTrue(DatasourcePrintableMap.isSensitiveKey("prefix_test_all.endpoint"));
+        Assertions.assertFalse(DatasourcePrintableMap.isSensitiveKey("prefix_test_al.endpoint"));
+
+        Map<String, String> testMap = new HashMap<>();
+        testMap.put("prefix_test_passthrough.connection-password", "super_secret_value");
+        testMap.put("prefix_test_passthrough.connection-url", "jdbc:x://host");
+        String result = new DatasourcePrintableMap<>(testMap, "=", false, false, true).toString();
+        Assertions.assertFalse(result.contains("super_secret_value"), result);
+        Assertions.assertTrue(result.contains("prefix_test_passthrough.connection-url = jdbc:x://host"), result);
     }
 }

@@ -15,23 +15,23 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.connector.iceberg;
+#pragma once
 
-import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.Test;
+#ifdef __APPLE__
+#include <pthread.h>
+#else
+#include <sys/prctl.h>
+#endif
 
-import java.util.Set;
+namespace doris::cloud {
 
-public class IcebergSensitivePropertyKeysTest {
-    @Test
-    public void exposesMetastoreAliasesWithoutCreatingConnector() {
-        Set<String> keys = new IcebergConnectorProvider().sensitivePropertyKeys();
-        Assertions.assertTrue(keys.containsAll(Set.of(
-                "hive.metastore.client.keytab",
-                "hadoop.kerberos.keytab",
-                "iceberg.jdbc.password",
-                "iceberg.rest.oauth2.credential")), keys.toString());
-        Assertions.assertFalse(keys.contains("warehouse"));
-        Assertions.assertFalse(keys.contains("type"));
-    }
+// Like BE's Thread::set_self_name, this must be called from the thread being named.
+inline int set_current_thread_name(const char* name) {
+#ifdef __APPLE__
+    return pthread_setname_np(name);
+#else
+    return prctl(PR_SET_NAME, name);
+#endif
 }
+
+} // namespace doris::cloud

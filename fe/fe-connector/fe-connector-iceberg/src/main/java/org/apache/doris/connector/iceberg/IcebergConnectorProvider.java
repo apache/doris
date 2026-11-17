@@ -45,11 +45,6 @@ public class IcebergConnectorProvider implements ConnectorProvider {
     }
 
     @Override
-    public Set<String> sensitivePropertyKeys() {
-        return MetaStoreProviders.sensitivePropertyKeys();
-    }
-
-    @Override
     public Connector create(Map<String, String> properties, ConnectorContext context) {
         return new IcebergConnector(properties, context);
     }
@@ -96,6 +91,8 @@ public class IcebergConnectorProvider implements ConnectorProvider {
     public ConnectorSecuritySurface securitySurface() {
         // iceberg.jdbc.driver_url is a jar the connector loads, but only live on a jdbc-flavored catalog
         // (iceberg.catalog.type = jdbc); on a REST/HMS/... catalog it is dead config the gate must not touch.
-        return ConnectorSecuritySurface.ofJdbcDriverUrls("iceberg.catalog.type", "iceberg.jdbc.driver_url");
+        // The secrets are those of every metastore flavor: the engine masks by key name alone.
+        return ConnectorSecuritySurface.ofJdbcDriverUrls("iceberg.catalog.type", "iceberg.jdbc.driver_url")
+                .withSensitiveKeys(MetaStoreProviders.sensitivePropertyKeys());
     }
 }

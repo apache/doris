@@ -31,6 +31,7 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_time.h"
+#include "core/data_type/data_type_timestamptz.h"
 #include "core/types.h"
 #include "core/value/time_value.h"
 #include "core/value/timestamptz_value.h"
@@ -38,11 +39,74 @@
 #include "exprs/function/date_time_transforms.h"
 #include "exprs/function/function_date_or_datetime_computation.h"
 #include "exprs/function/function_test_util.h"
+#include "testutil/datetime_ut_util.h"
 #include "testutil/mock/mock_runtime_state.h"
 #include "util/timezone_utils.h"
 
 namespace doris {
 using namespace ut_type;
+
+TEST(VTimestampFunctionsTest, timestamptz_calendar_day_dispatch) {
+    MockRuntimeState state;
+    ASSERT_TRUE(cctz::load_time_zone("America/New_York", &state._timezone_obj));
+    FunctionContext context;
+    context._state = &state;
+    const auto spring = make_timestamptz(2024, 3, 9, 17, 0, 0, 123456);
+    const auto autumn = make_timestamptz(2024, 11, 2, 16, 0, 0, 123456);
+    using TimestampColumn = ColumnVector<TYPE_TIMESTAMPTZ>;
+    FunctionDateOrDateTimeComputation<AddDaysImpl<TYPE_TIMESTAMPTZ>> function;
+    // Exercise vector/vector, vector/constant and constant/vector with nullable inputs.
+    for (const bool left_const : {false, true}) {
+        for (const bool right_const : {false, true}) {
+            // The default IFunction wrapper materializes the constant/constant case.
+            if (left_const && right_const) {
+                continue;
+            }
+            auto timestamps = TimestampColumn::create();
+            timestamps->insert_value(spring);
+            timestamps->insert_value(autumn);
+            // An invalid nested timestamp must never be evaluated for a NULL row.
+            timestamps->insert_value(TimestampTzValue(0));
+            auto null_map = ColumnBool::create(3, 0);
+            null_map->get_data()[2] = 1;
+            ColumnPtr left = ColumnNullable::create(std::move(timestamps), std::move(null_map));
+            auto deltas = ColumnInt32::create();
+            deltas->insert_value(1);
+            deltas->insert_value(-1);
+            deltas->insert_value(1);
+            ColumnPtr right = deltas->get_ptr();
+            if (left_const) {
+                left = ColumnConst::create(left->clone_resized(1), 3);
+            }
+            if (right_const) {
+                right = ColumnConst::create(right->clone_resized(1), 3);
+            }
+            const auto type = make_nullable(std::make_shared<DataTypeTimeStampTz>(6));
+            Block block {{left, type, "ts"},
+                         {right, std::make_shared<DataTypeInt32>(), "days"},
+                         {nullptr, type, "result"}};
+            ASSERT_TRUE(function.execute_impl(&context, block, {0, 1}, 2, 3).ok());
+            const auto& result =
+                    assert_cast<const ColumnNullable&>(*block.get_by_position(2).column);
+            const auto& values = assert_cast<const TimestampColumn&>(result.get_nested_column());
+            for (size_t row = 0; row < 3; ++row) {
+                if (!left_const && row == 2) {
+                    EXPECT_TRUE(result.is_null_at(row));
+                    continue;
+                }
+                auto expected = left_const || row == 0 ? spring : autumn;
+                ASSERT_TRUE(expected.date_add_days(right_const || row != 1 ? 1 : -1,
+                                                   state._timezone_obj));
+                EXPECT_EQ(values.get_data()[row], expected);
+            }
+        }
+    }
+    EXPECT_EQ(AddHoursImpl<TYPE_TIMESTAMPTZ>::execute(spring, 24, state._timezone_obj),
+              make_timestamptz(2024, 3, 10, 17, 0, 0, 123456));
+    EXPECT_EQ(SubtractDaysImpl<TYPE_TIMESTAMPTZ>::execute(
+                      make_timestamptz(2024, 3, 10, 16, 0, 0, 123456), 1, state._timezone_obj),
+              spring);
+}
 
 TEST(VTimestampFunctionsTest, iso8601_preserves_negative_subhour_offset) {
     MockRuntimeState state;

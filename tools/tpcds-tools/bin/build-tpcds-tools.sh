@@ -57,7 +57,8 @@ fi
 
 # compile tpcds-dsdgen
 cd "${TPCDS_DBGEN_DIR}/"
-make >/dev/null
+# TPC-DS 3.2.0 uses K&R function definitions, which GCC 15 rejects by default.
+make LINUX_CFLAGS="-g -Wall -std=gnu89" >/dev/null
 cd -
 
 # check

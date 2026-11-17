@@ -17,12 +17,13 @@
 
 package org.apache.doris.connector.metastore.iceberg.jdbc;
 
+import org.apache.doris.foundation.property.ConnectorPropertiesUtils;
+
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Set;
 
 /**
  * Parity for the iceberg JDBC backend (legacy {@code IcebergJdbcMetaStoreProperties} required props +
@@ -41,12 +42,6 @@ public class IcebergJdbcMetaStorePropertiesTest {
     private static String validateError(Map<String, String> raw) {
         return Assertions.assertThrows(IllegalArgumentException.class,
                 () -> IcebergJdbcMetaStoreProperties.of(raw).validate()).getMessage();
-    }
-
-    @Test
-    public void providerExportsSensitivePasswordWithoutBinding() {
-        Assertions.assertEquals(Set.of("iceberg.jdbc.password"),
-                new IcebergJdbcMetaStoreProvider().sensitivePropertyKeys());
     }
 
     @Test
@@ -73,4 +68,17 @@ public class IcebergJdbcMetaStorePropertiesTest {
                 "iceberg.jdbc.uri", "jdbc:postgresql://h/db", "iceberg.jdbc.catalog_name", "c",
                 "warehouse", "s3://b/wh")).validate();
     }
+
+    @Test
+    public void uriAliasesAreMaskedWithoutChangingConnectionValues() {
+        String uri = "jdbc:postgresql://localhost/db?user=reader&password=fixture-uri-secret";
+        for (String key : new String[] {"uri", "iceberg.jdbc.uri"}) {
+            Map<String, String> raw = raw(key, uri);
+            IcebergJdbcMetaStoreProperties props = IcebergJdbcMetaStoreProperties.of(raw);
+            Assertions.assertEquals(uri, props.getUri());
+            Assertions.assertEquals(uri, raw.get(key));
+            Assertions.assertFalse(ConnectorPropertiesUtils.toMaskedString(props).contains("fixture-uri-secret"));
+        }
+    }
+
 }

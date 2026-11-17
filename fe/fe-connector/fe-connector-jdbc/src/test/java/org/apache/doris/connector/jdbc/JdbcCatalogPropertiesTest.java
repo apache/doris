@@ -269,6 +269,20 @@ class JdbcCatalogPropertiesTest {
         Assertions.assertTrue(rendered.contains("password=***"), "got: " + rendered);
     }
 
+    @Test
+    void urlsAreMaskedWithoutChangingConnectionValues() {
+        String uri = "jdbc:mysql://localhost/db?user=reader&password=fixture-uri-secret";
+        for (String key : new String[] {"jdbc_url", "jdbc.jdbc_url"}) {
+            Map<String, String> raw = minimal();
+            raw.remove(JdbcCatalogProperties.JDBC_URL);
+            raw.put(key, uri);
+            JdbcCatalogProperties props = JdbcCatalogProperties.of(raw);
+            Assertions.assertEquals(uri, props.getJdbcUrl());
+            Assertions.assertEquals(uri, raw.get(key));
+            Assertions.assertFalse(props.toString().contains("fixture-uri-secret"));
+        }
+    }
+
     // ---- driver_url mandatory security rule: statement-side rejects, of()-side must not ----
 
     @Test

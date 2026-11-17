@@ -420,6 +420,10 @@ struct TFunction {
   17: optional TDictFunction dict_function
   18: optional string runtime_version
   19: optional string function_code
+
+  // New FE sends true for Python functions; absent fields preserve the legacy DATETIME mapping.
+  // Keep this field id reserved after removing the compatibility option.
+  2000: optional bool enable_python_udf_arrow_time_v2 = false
 }
 
 enum TJdbcOperation {
