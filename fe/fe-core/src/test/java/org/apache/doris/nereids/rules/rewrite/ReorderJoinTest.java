@@ -126,16 +126,20 @@ class ReorderJoinTest implements MemoPatternMatchSupported {
     @Test
     public void testConsecutiveFiltersAtRootWithVolatilePredicate() {
         Expression volatilePredicate = new EqualTo(scan1.getOutput().get(0), new Random());
+        Expression leftPredicate = new IsNull(scan1.getOutput().get(0));
+        Expression rightPredicate = new IsNull(scan2.getOutput().get(0));
         LogicalPlan plan = new LogicalPlanBuilder(scan1)
                 .join(scan2, JoinType.LEFT_OUTER_JOIN, Pair.of(0, 0))
-                .filter(new IsNull(scan2.getOutput().get(0)))
-                .filter(new IsNull(scan1.getOutput().get(0)))
+                .filter(rightPredicate)
+                .filter(leftPredicate)
                 .filter(volatilePredicate)
                 .build();
         applyReorderJoinBatch(plan, new ReorderJoin())
-                .matchesFromRoot(logicalFilter(
-                        logicalFilter(logicalJoin(logicalFilter(logicalOlapScan()), logicalOlapScan())))
-                        .when(filter -> filter.getConjuncts().equals(ImmutableSet.of(volatilePredicate))));
+                .matchesFromRoot(logicalFilter(logicalJoin(
+                        logicalFilter(logicalOlapScan()).when(filter -> filter.getConjuncts()
+                                .equals(ImmutableSet.of(leftPredicate))), logicalOlapScan()))
+                        .when(filter -> filter.getConjuncts()
+                                .equals(ImmutableSet.of(volatilePredicate, rightPredicate))));
     }
 
     @Test
@@ -183,20 +187,30 @@ class ReorderJoinTest implements MemoPatternMatchSupported {
     }
 
     @Test
-    public void testRepeatedReorderWithGeneratedConsecutiveFilters() {
-        LogicalPlan plan = nestedLeftJoinWithNullFilters();
+    public void testRepeatedReorderWithConsecutiveFilters() {
+        LogicalPlan plan = new LogicalPlanBuilder(scan1)
+                .join(scan2, JoinType.LEFT_OUTER_JOIN, Pair.of(0, 0))
+                .filter(new IsNull(scan2.getOutput().get(0)))
+                .filter(new IsNull(scan1.getOutput().get(0)))
+                .join(scan3, JoinType.LEFT_OUTER_JOIN, Pair.of(0, 0))
+                .filter(new IsNull(scan3.getOutput().get(0)))
+                .build();
+        Assertions.assertTrue(plan.anyMatch(node -> node instanceof LogicalFilter
+                && node.child(0) instanceof LogicalFilter));
         ReorderJoin reorderJoin = new ReorderJoin();
         Map<Plan, DistributeHint> hints = new HashMap<>();
         MultiJoin multiJoin = (MultiJoin) reorderJoin.joinToMultiJoin(plan, hints);
         Plan first = reorderJoin.multiJoinToJoin(multiJoin, hints);
         Assertions.assertInstanceOf(LogicalFilter.class, first.child(0).child(0));
-        Assertions.assertInstanceOf(LogicalFilter.class, first.child(0).child(0).child(0));
+        Assertions.assertFalse(first.anyMatch(node -> node instanceof LogicalFilter
+                && node.child(0) instanceof LogicalFilter));
 
         hints.clear();
         MultiJoin repeatedMultiJoin = (MultiJoin) reorderJoin.joinToMultiJoin(first, hints);
         Plan repeated = reorderJoin.multiJoinToJoin(repeatedMultiJoin, hints);
         Assertions.assertFalse(repeated.anyMatch(node -> node instanceof LogicalFilter
                 && node.child(0) instanceof LogicalFilter));
+        Assertions.assertTrue(first.deepEquals(repeated));
         Assertions.assertEquals(plan.getOutput(), repeated.getOutput());
     }
 
@@ -227,24 +241,28 @@ class ReorderJoinTest implements MemoPatternMatchSupported {
     @Test
     public void testTopDownBatchWithVolatileJoinCondition() {
         Expression volatileOn = new EqualTo(scan2.getOutput().get(0), new Random());
+        Expression volatilePredicate = new EqualTo(scan1.getOutput().get(0), new Random());
+        Expression leftPredicate = new IsNull(scan1.getOutput().get(0));
         LogicalPlan filteredJoin = new LogicalPlanBuilder(scan1)
                 .join(scan2, JoinType.LEFT_OUTER_JOIN,
                         ImmutableList.of(new EqualTo(scan1.getOutput().get(0), scan2.getOutput().get(0))),
                         ImmutableList.of(volatileOn))
-                .filter(new EqualTo(scan1.getOutput().get(0), new Random()))
+                .filter(volatilePredicate)
                 .build();
         LogicalPlan plan = new LogicalPlanBuilder(filteredJoin)
                 .join(scan3, JoinType.LEFT_OUTER_JOIN, Pair.of(0, 0))
-                .filter(ImmutableSet.of(new IsNull(scan1.getOutput().get(0)), new IsNull(scan3.getOutput().get(0))))
+                .filter(ImmutableSet.of(leftPredicate, new IsNull(scan3.getOutput().get(0))))
                 .build();
 
-        // The parent pushes a filter onto the volatile child filter before descending into that chain.
+        // PlanUtils merges the predicate pushed by the parent into the existing volatile filter.
         PlanChecker checker = applyReorderJoinBatch(plan,
                 new ReorderJoin(), new PushFilterInsideJoin(), new FindHashConditionForJoin(),
                 new ConvertInnerOrCrossJoin(), new EliminateNullAwareLeftAntiJoin());
         checker.matchesFromRoot(logicalFilter(logicalJoin(
-                logicalFilter(logicalFilter(logicalJoin().when(join -> join.getOtherJoinConjuncts()
-                        .equals(ImmutableList.of(volatileOn))))), logicalOlapScan())));
+                logicalFilter(logicalJoin().when(join -> join.getOtherJoinConjuncts()
+                        .equals(ImmutableList.of(volatileOn))))
+                        .when(filter -> filter.getConjuncts().equals(ImmutableSet.of(volatilePredicate, leftPredicate))),
+                logicalOlapScan())));
         Assertions.assertEquals(plan.getOutput(), checker.getPlan().getOutput());
 
         PlanChecker mergedChecker = applyReorderJoinBatch(plan,
@@ -252,8 +270,17 @@ class ReorderJoinTest implements MemoPatternMatchSupported {
                 new ConvertInnerOrCrossJoin(), new EliminateNullAwareLeftAntiJoin());
         mergedChecker.matchesFromRoot(logicalFilter(logicalJoin(
                 logicalFilter(logicalJoin().when(join -> join.getOtherJoinConjuncts()
-                        .equals(ImmutableList.of(volatileOn)))), logicalOlapScan())));
+                        .equals(ImmutableList.of(volatileOn))))
+                        .when(filter -> filter.getConjuncts().equals(ImmutableSet.of(volatilePredicate, leftPredicate))),
+                logicalOlapScan())));
         Assertions.assertEquals(plan.getOutput(), mergedChecker.getPlan().getOutput());
+
+        // Keep an explicit chain to exercise rule-entry merging independently of PlanUtils normalization.
+        LogicalPlan filterChain = new LogicalPlanBuilder(filteredJoin).filter(leftPredicate).build();
+        PlanChecker chainChecker = applyReorderJoinBatch(filterChain, new ReorderJoin());
+        chainChecker.matchesFromRoot(logicalFilter(logicalFilter(logicalJoin()
+                .when(join -> join.getOtherJoinConjuncts().equals(ImmutableList.of(volatileOn))))));
+        Assertions.assertTrue(filterChain.deepEquals(chainChecker.getPlan()));
     }
 
     private PlanChecker applyReorderJoinBatch(LogicalPlan plan, RuleFactory... rules) {
