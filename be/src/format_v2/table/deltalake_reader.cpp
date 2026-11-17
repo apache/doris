@@ -30,10 +30,10 @@ namespace doris::format::deltalake {
 
 namespace {
 
-bool has_parquet_field_id(const ColumnDefinition& column) {
+bool has_data_field_id(const ColumnDefinition& column) {
     return column.column_type == ColumnType::DATA_COLUMN &&
            (column.has_identifier_field_id() ||
-            std::ranges::any_of(column.children, has_parquet_field_id));
+            std::ranges::any_of(column.children, has_data_field_id));
 }
 
 void clear_parquet_field_ids(std::vector<ColumnDefinition>& columns) {
@@ -111,10 +111,10 @@ Status DeltaReader::annotate_file_schema(std::vector<ColumnDefinition>* file_sch
         case TDeltaLakeColumnMappingMode::ID:
             // A file containing ID 3 has no value for ID 7, even if both have the same name.
             // Spark rejects an entirely untagged footer when the scan requests a field by ID.
-            if (!std::ranges::any_of(*file_schema, has_parquet_field_id) &&
+            if (!std::ranges::any_of(*file_schema, has_data_field_id) &&
                 std::ranges::any_of(_projected_columns, [](const auto& column) {
                     return !column.is_partition_key && !column.is_synthesized &&
-                           has_parquet_field_id(column);
+                           has_data_field_id(column);
                 })) {
                 return Status::DataQualityError("Delta id mapping requires Parquet field IDs in {}",
                                                 _current_file_range_desc.path);
