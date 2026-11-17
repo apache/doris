@@ -113,9 +113,12 @@ final class MongoDriverCatalogClient implements MongoCatalogClient {
     public MongoSnapshot.Source snapshotSource(long timeoutMs) {
         long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMs);
         try {
+            // hello identifies replica-set versus mongos routing and reports protocol capabilities.
             Document hello = snapshotDatabase("admin", deadline).runCommand(new Document("hello", 1));
             int wireVersion = hello.getInteger("maxWireVersion", 0);
             if ("isdbgrid".equals(hello.getString("msg"))) {
+                // config.version._id=1 holds the clusterId shared by all routers of this deployment.
+                // Inclusion projection keeps only that identity; no data rows are used to identify a cluster.
                 Document version = snapshotDatabase("config", deadline).getCollection("version")
                         .find(new Document("_id", 1)).projection(new Document("clusterId", 1)).limit(1).first();
                 ObjectId identity = version == null ? null : version.getObjectId("clusterId");
@@ -127,6 +130,8 @@ final class MongoDriverCatalogClient implements MongoCatalogClient {
             if (!hello.containsKey("setName")) {
                 throw new IllegalArgumentException("MongoDB snapshot reads require a replica set or mongos");
             }
+            // Read the durable replica-set identity and config.version. Neither hello.setName nor
+            // hello.topologyVersion alone identifies a deployment/configuration across connections.
             Document config = snapshotDatabase("admin", deadline).runCommand(new Document("replSetGetConfig", 1))
                     .get("config", Document.class);
             ObjectId identity = config == null ? null : config.get("settings", new Document())
@@ -147,6 +152,11 @@ final class MongoDriverCatalogClient implements MongoCatalogClient {
         // A constant projection bounds the probe payload independently of source document size.
         // MongoDB 7 time-series rewrites can ignore singleBatch. The driver's server-bound cursor
         // must close before its snapshot session, including when routers differ or selection fails.
+        // snapshot(true) requests MongoDB-selected snapshot visibility; causal consistency is disabled
+        // so this fresh probe does not add an afterClusterTime requirement from earlier operations.
+        // find uses an empty filter on the public namespace. Exclude _id and return only $literal=1,
+        // with limit=1/batchSize=1, to discover T without transferring a potentially large source row.
+        // The driver may request an extra wire batch slot to exhaust a limit-one cursor.
         try (ClientSession session = client.startSession(ClientSessionOptions.builder()
                 .causallyConsistent(false).snapshot(true).build());
                 MongoCursor<Document> cursor = snapshotDatabase(database, deadline).getCollection(collection)
@@ -172,6 +182,8 @@ final class MongoDriverCatalogClient implements MongoCatalogClient {
         if (remaining <= 0) {
             throw new DorisConnectorException("MongoDB snapshot planning deadline exceeded");
         }
+        // CSOT covers server selection/network/command time and supplies the wire maxTimeMS;
+        // hand-adding maxTimeMS to a raw command would create a duplicate BSON field.
         return metadataDatabase(database).withTimeout(Math.max(1, TimeUnit.NANOSECONDS.toMillis(remaining)),
                 TimeUnit.MILLISECONDS);
     }

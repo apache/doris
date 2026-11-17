@@ -65,7 +65,10 @@ final class MongoSnapshot {
                 + ":" + properties.configurationVersion(), () -> client.get().snapshotSource(state.remainingMillis()));
         BsonTimestamp time = state.pin(source, () -> client.get().selectSnapshot(table.getDatabase(), table.getName(),
                 preference, state.remainingMillis()));
+        // Copy plain values into each range. Driver sessions/cursors stay local, and neither BE nor
+        // a different catalog should mutate the statement's selected timestamp or source identity.
         TMongoSnapshot result = new TMongoSnapshot();
+        // BSON Timestamp has unsigned 32-bit seconds and an ordering counter, not date milliseconds.
         result.setTimestampSeconds(Integer.toUnsignedLong(time.getTime()));
         result.setTimestampIncrement(Integer.toUnsignedLong(time.getInc()));
         result.setSourceKind(source.kind());

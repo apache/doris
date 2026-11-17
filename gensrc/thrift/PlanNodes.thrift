@@ -663,16 +663,25 @@ struct TLanceFileDesc {
 
 // A statement-wide source snapshot. Sessions and cursors remain local to each driver owner.
 struct TMongoSnapshot {
+    // Seconds component of the server-selected BSON Timestamp T, not a BSON Date or a client clock.
+    // Both Timestamp components are unsigned 32-bit values carried in i64 to preserve their full range.
     1: optional i64 timestamp_seconds
+    // Ordering counter within the same second; this is not a fractional-second duration.
     2: optional i64 timestamp_increment
     // "replica_set" or "mongos", qualified independently of the collection's object kind.
     3: optional string source_kind
-    // Replica-set settings.replicaSetId or sharded-cluster config.version.clusterId, as hex.
+    // Replica-set settings.replicaSetId or sharded-cluster config.version.clusterId, as 24-digit hex.
+    // Identifies the source deployment; the namespace UUID is carried separately in TMongoScanDesc.
     4: optional string source_id
-    // Replica-set configuration version; zero for mongos, whose clusterId survives router changes.
+    // replSetGetConfig.config.version, not hello.topologyVersion or an election term.
+    // Zero for mongos, whose shared clusterId allows scans through different routers.
     5: optional i64 topology_version
+    // hello.maxWireVersion: 21 for MongoDB 7.0, 25 for 8.0. BE rechecks this qualification pin.
     6: optional i32 max_wire_version
-    // Pinned public time-series options; absent for ordinary collections. Does not contain credentials.
+    // Public listCollections.options as canonical Extended JSON, preserving BSON value types.
+    // BE compares the definition before reading and at EOF. Without a public time-series UUID,
+    // this cannot detect drop/recreate with identical options; concurrent drop/rename is excluded.
+    // Absent for ordinary collections. Does not contain credentials.
     7: optional string timeseries_options_json
 }
 
@@ -722,6 +731,7 @@ struct TMongoScanDesc {
     17: optional i32 batch_size
     // Native scan lifetime in milliseconds, derived from session query_timeout; bounds pool waits
     // and driver operations and is also checked before/after advancing the cursor.
+    // Snapshot planning subtracts elapsed FE snapshot-selection/planning time before publishing it.
     18: optional i64 timeout_ms
     // Connection establishment timeout in milliseconds; bounded by timeout_ms when creating a pool.
     19: optional i32 connect_timeout_ms
@@ -729,7 +739,7 @@ struct TMongoScanDesc {
     20: optional i32 server_selection_timeout_ms
     // Socket I/O timeout in milliseconds; the leased client is bounded by the remaining scan time.
     21: optional i32 socket_timeout_ms
-    // Maximum simultaneously leased clients in this pool, keyed by catalog/configuration and
+    // Maximum simultaneously leased clients in this BE-local pool, keyed by catalog/configuration and
     // connection policy. This is not a query-wide or source-wide scanner-concurrency budget.
     22: optional i32 pool_max_clients
     // Typed BSON candidate filter; the Doris residual is retained. Absent means scan all documents.

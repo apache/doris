@@ -66,6 +66,8 @@ struct ClientPool {
     MongoPtr<mongoc_client_pool_t, mongoc_client_pool_destroy> pool;
 };
 
+// Share a pool within this BE; open() separately borrows an exclusive client from that pool.
+// The registry holds weak references, so the last stream owner releases the pool and its clients.
 Status acquire_pool(const TMongoScanDesc& d, std::shared_ptr<ClientPool>* result) {
     // Driver initialization is process-wide; cleanup while another scanner is alive is unsafe.
     static std::once_flag initialized;
@@ -212,6 +214,8 @@ Status validate_snapshot_descriptor(const TMongoScanDesc& d) {
     return Status::OK();
 }
 
+// Own the native I/O lifetime for one scan. next() exposes a borrowed document from libmongoc's
+// current batch; MongoFileReader copies its values before another next() or close() can invalidate it.
 class NativeMongoStream final : public MongoCursorStream {
 public:
     ~NativeMongoStream() override { close(); }
@@ -243,20 +247,26 @@ public:
         if (!_collection) {
             return Status::InvalidArgument("Invalid MongoDB namespace");
         }
+        // MongoDB enforces visibility for each read. Ordinary levels carry only a policy name;
+        // snapshot reads additionally need the common atClusterTime encoded below.
         ReadConcernPtr concern(mongoc_read_concern_new());
         if (!mongoc_read_concern_set_level(concern.get(), d.read_concern.c_str())) {
             return Status::InvalidArgument("Invalid MongoDB read concern");
         }
         mongoc_collection_set_read_concern(_collection.get(), concern.get());
         RETURN_IF_ERROR(configure_mongodb_read_preference(_collection.get(), d.read_preference));
+        // Typed source candidates; Doris still evaluates residuals.
         bson_t filter = BSON_INITIALIZER;
+        // Projection, collation, read concern and execution limits.
         bson_t options = BSON_INITIALIZER;
         Defer release_bson([&] {
             bson_destroy(&options);
             bson_destroy(&filter);
         });
         RETURN_IF_ERROR(build_mongodb_find_options(d, &filter, &options));
+        // Requested document count per wire batch; MongoDB's byte cap can return fewer documents.
         BSON_APPEND_INT32(&options, "batchSize", d.batch_size);
+        // Server execution budget for find; socket timeouts and the local deadline also bound waits.
         BSON_APPEND_INT64(&options, "maxTimeMS", remaining_ms());
         if (d.__isset.snapshot) {
             RETURN_IF_ERROR(open_snapshot_cursor(d, filter, options));
@@ -305,6 +315,7 @@ private:
     Status open_snapshot_cursor(const TMongoScanDesc& d, const bson_t& filter,
                                 const bson_t& options) {
         SessionOptionsPtr session_options(mongoc_session_opts_new());
+        // Each stream uses its own session. Causal afterClusterTime must not replace the fixed T.
         mongoc_session_opts_set_causal_consistency(session_options.get(), false);
         bson_error_t error {};
         _session.reset(mongoc_client_start_session(_client, session_options.get(), &error));
@@ -317,18 +328,25 @@ private:
         if (!server) {
             return mongo_error(error);
         }
+        // MongoDB find body sent to d.database.
         bson_t command = BSON_INITIALIZER;
+        // libmongoc routing/session context for this cursor.
         bson_t cursor_options = BSON_INITIALIZER;
         Defer release([&] {
             bson_destroy(&command);
             bson_destroy(&cursor_options);
         });
+        // find names the public logical namespace; filter preserves BSON numeric/date tags.
         BSON_APPEND_UTF8(&command, "find", d.collection.c_str());
         BSON_APPEND_DOCUMENT(&command, "filter", &filter);
+        // Add projection/collation, the shared readConcern, batchSize and maxTimeMS to the wire body.
         if (!bson_concat(&command, &options)) {
             return Status::InvalidArgument("MongoDB snapshot command exceeds BSON bounds");
         }
+        // serverId is a driver-local topology handle, not the cluster identity from TMongoSnapshot.
+        // Keeping it binds getMore/killCursors to the server/router that created the cursor.
         BSON_APPEND_INT32(&cursor_options, "serverId", mongoc_server_description_id(server.get()));
+        // Append the driver-local sessionId; libmongoc emits its wire lsid and retains it for getMore.
         if (!mongoc_client_session_append(_session.get(), &cursor_options, &error)) {
             return mongo_error(error);
         }
@@ -341,6 +359,7 @@ private:
             bson_destroy(&reply);
             return mongo_error(error);
         }
+        // The cursor factory needs this option to size subsequent getMore requests as well.
         BSON_APPEND_INT32(&cursor_options, "batchSize", d.batch_size);
         // The cursor factory consumes and destroys reply. Stack storage avoids leaking a bson_new
         // wrapper when the command helper initializes its overwritable reply storage as static.
@@ -569,6 +588,8 @@ Status build_mongodb_find_options(const TMongoScanDesc& d, bson_t* filter, bson_
     RETURN_IF_ERROR(validate_snapshot_descriptor(d));
     if (d.__isset.snapshot) {
         bson_t concern;
+        // level selects MongoDB snapshot visibility; atClusterTime makes every scan use the FE's T.
+        // Timestamp(seconds, increment) is an ordering token, not a millisecond Date value.
         BSON_APPEND_DOCUMENT_BEGIN(options, "readConcern", &concern);
         BSON_APPEND_UTF8(&concern, "level", "snapshot");
         BSON_APPEND_TIMESTAMP(&concern, "atClusterTime",
