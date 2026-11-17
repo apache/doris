@@ -5773,6 +5773,9 @@ public class IcebergScanPlanProviderTest {
         int manifestCount = 2 * workersInSdk + 3;
         Table table = createTable("sdk_cancel", SCHEMA, PartitionSpec.unpartitioned(),
                 ImmutableMap.of("format-version", "2", "write.format.default", "parquet"));
+        // On large hosts the worker count exceeds automatic manifest merging's threshold. Keep one
+        // manifest per append so this fixture can saturate every SDK worker before cancellation.
+        table.updateProperties().set(TableProperties.MANIFEST_MERGE_ENABLED, "false").commit();
         Map<Integer, ByteBuffer> bounds = Collections.singletonMap(1,
                 Conversions.toByteBuffer(Types.IntegerType.get(), 1));
         for (int i = 0; i < manifestCount; i++) {
@@ -5852,6 +5855,8 @@ public class IcebergScanPlanProviderTest {
         int workersInSdk = ThreadPools.WORKER_THREAD_POOL_SIZE;
         int manifestCount = 2 * workersInSdk + 3;
         Table table = threeFileTable(ImmutableMap.of("format-version", "2", "write.format.default", "parquet"));
+        // Automatic merging would collapse the queued reads when the SDK discovers many host CPUs.
+        table.updateProperties().set(TableProperties.MANIFEST_MERGE_ENABLED, "false").commit();
         for (int i = 0; i < manifestCount; i++) {
             table.newRowDelta().addDeletes(positionDeleteFile("/d/sdk-delete" + i + ".parquet",
                     FileFormat.PARQUET, null, null)).commit();

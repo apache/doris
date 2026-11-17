@@ -58,6 +58,15 @@ public class ManifestCacheValue {
                 : MetaCacheSizeEstimate.complete(0L);
     }
 
+    private ManifestCacheValue(ManifestCacheValue source, IcebergPartitionValueAdapter adapter) {
+        dataFiles = Lists.transform(source.dataFiles, adapter::adapt);
+        deleteFiles = Lists.transform(source.deleteFiles, adapter::adapt);
+        // Partition views preserve key metadata. Reclassifying them would eagerly adapt the entire
+        // manifest before a streaming scan can consume even its first file.
+        cacheable = source.cacheable;
+        sizeEstimate = MetaCacheSizeEstimate.complete(0L);
+    }
+
     public static ManifestCacheValue forDataFiles(List<DataFile> dataFiles) {
         return forDataFiles(dataFiles, false);
     }
@@ -86,8 +95,7 @@ public class ManifestCacheValue {
             return this;
         }
         IcebergPartitionValueAdapter adapter = new IcebergPartitionValueAdapter(partition.getPartitionType(), target);
-        return new ManifestCacheValue(Lists.transform(dataFiles, adapter::adapt),
-                Lists.transform(deleteFiles, adapter::adapt), false);
+        return new ManifestCacheValue(this, adapter);
     }
 
     public List<DataFile> getDataFiles() {
