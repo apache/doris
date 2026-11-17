@@ -89,6 +89,7 @@ public:
     void return_block(std::unique_ptr<Block>& block);
 
     TupleDescriptor* tuple_desc() { return _desc_tbl->get_tuple_descriptor(0); }
+    const TupleDescriptor* tuple_desc() const { return _desc_tbl->get_tuple_descriptor(0); }
 
     const VExprContextSPtrs& output_exprs() { return _output_exprs_ctxs; }
 
@@ -103,6 +104,11 @@ public:
     // delete sign idx in block
     int32_t delete_sign_idx() const { return _delete_sign_idx; }
 
+    // Point-query blocks use real typed columns. Materialize virtual slots
+    // explicitly after row-store decoding instead of relying on ColumnNothing
+    // as an implicit lazy-expression marker.
+    Status materialize_virtual_columns(Block* block) const;
+
 private:
     // caching TupleDescriptor, output_expr, etc...
     std::unique_ptr<RuntimeState> _runtime_state;
@@ -111,6 +117,7 @@ private:
     // prevent from allocte too many tmp blocks
     std::vector<std::unique_ptr<Block>> _block_pool;
     VExprContextSPtrs _output_exprs_ctxs;
+    std::unordered_map<int, VExprContextSPtr> _virtual_column_exprs;
     int64_t _create_timestamp = 0;
     DataTypeSerDeSPtrs _data_type_serdes;
     std::unordered_map<uint32_t, uint32_t> _col_uid_to_idx;

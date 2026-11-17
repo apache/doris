@@ -165,6 +165,22 @@ Status Reusable::init(const TDescriptorTable& t_desc_tbl, const std::vector<TExp
     // Prepare the exprs to run.
     RETURN_IF_ERROR(VExpr::prepare(_output_exprs_ctxs, _runtime_state.get(), row_desc));
     RETURN_IF_ERROR(VExpr::open(_output_exprs_ctxs, _runtime_state.get()));
+
+    // Prepare virtual-slot expressions independently. Point-query blocks contain
+    // real columns now, so they cannot use ColumnNothing to request evaluation.
+    for (int pos = 0; pos < tuple_desc()->slots().size(); ++pos) {
+        auto* slot = tuple_desc()->slots()[pos];
+        const auto& virtual_expr = slot->get_virtual_column_expr();
+        if (virtual_expr == nullptr) {
+            continue;
+        }
+        VExprContextSPtr expr_ctx;
+        RETURN_IF_ERROR(VExpr::create_expr_tree(*virtual_expr, expr_ctx));
+        RETURN_IF_ERROR(expr_ctx->prepare(_runtime_state.get(), row_desc));
+        RETURN_IF_ERROR(expr_ctx->open(_runtime_state.get()));
+        _virtual_column_exprs.emplace(pos, std::move(expr_ctx));
+    }
+
     _create_timestamp = butil::gettimeofday_ms();
     _data_type_serdes = create_data_type_serdes(tuple_desc()->slots());
     _col_default_values.resize(tuple_desc()->slots().size());
@@ -196,6 +212,21 @@ Status Reusable::init(const TDescriptorTable& t_desc_tbl, const std::vector<TExp
     get_missing_and_include_cids(schema, output_slot_descs, _row_store_column_ids,
                                  _missing_col_uids, _include_col_uids);
 
+    return Status::OK();
+}
+
+Status Reusable::materialize_virtual_columns(Block* block) const {
+    if (block->rows() == 0) {
+        return Status::OK();
+    }
+
+    for (const auto& [pos, expr_ctx] : _virtual_column_exprs) {
+        ColumnPtr result_column;
+        RETURN_IF_ERROR(expr_ctx->execute(block, result_column));
+        auto& target = block->get_by_position(pos);
+        target.column = std::move(result_column);
+        target.type = tuple_desc()->slots()[pos]->type();
+    }
     return Status::OK();
 }
 
@@ -730,6 +761,11 @@ Status PointQueryExecutor::_lookup_row_data() {
             }
         }
     }
+
+    // Virtual columns do not exist in the row store. Decode physical columns
+    // first, then materialize virtual expressions before output expressions run.
+    RETURN_IF_ERROR(_reusable->materialize_virtual_columns(_result_block.get()));
+
     // filter rows by delete sign
     if (_row_hits > 0 && _reusable->delete_sign_idx() != -1) {
         size_t filtered = 0;
