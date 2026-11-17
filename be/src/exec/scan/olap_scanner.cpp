@@ -726,7 +726,14 @@ Status OlapScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eof
     // Read one block from block reader
     // ATTN: Here we need to let the _get_block_impl method guarantee the semantics of the interface,
     // that is, eof can be set to true only when the returned block is empty.
-    RETURN_IF_ERROR(_tablet_reader->next_block_with_aggregation(block, eof));
+    auto res = _tablet_reader->next_block_with_aggregation(block, eof);
+    if (!res.ok()) {
+        // Some reads open no segment in init() and read their first rows here, so errors get the
+        // tablet and backend that _open_impl() appends to the errors of init().
+        res.append(". tablet=" + std::to_string(_tablet_reader_params.tablet->tablet_id()) +
+                   ", backend=" + BackendOptions::get_localhost());
+        return res;
+    }
     if (block->rows() > 0) {
         _tablet_reader_params.tablet->read_block_count.fetch_add(1, std::memory_order_relaxed);
         *eof = false;

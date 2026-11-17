@@ -44,6 +44,7 @@
 #include "storage/changelog.h"
 #include "storage/iterator/changelog_block_reader_utils.h"
 #include "storage/iterator/vcollect_iterator.h"
+#include "storage/iterator/vgeneric_iterators.h"
 #include "storage/olap_common.h"
 #include "storage/olap_define.h"
 #include "storage/row_ttl.h"
@@ -61,6 +62,31 @@ namespace doris {
 using namespace ErrorCode;
 
 static constexpr int32_t BLOCK_SIZE_CHECK_INTERVAL_ROWS = 64;
+
+namespace {
+
+// The rows of one rowset through its rowset reader: an input of the union of the rowsets of a
+// read (BlockReader::_init_rowsets_union).
+class RowsetReaderIterator final : public RowwiseIterator {
+public:
+    RowsetReaderIterator(RowsetReaderSharedPtr rs_reader, ReadSchemaSPtr read_schema)
+            : _rs_reader(std::move(rs_reader)), _read_schema(std::move(read_schema)) {}
+
+    // Nothing to open: the rowset reader opens its segments on its first next_batch().
+    Status init(const StorageReadOptions& /*opts*/) override { return Status::OK(); }
+
+    Status next_batch(Block* block) override { return _rs_reader->next_batch(block); }
+
+    const ReadSchema& schema() const override { return *_read_schema; }
+
+    void update_profile(RuntimeProfile* profile) override { _rs_reader->update_profile(profile); }
+
+private:
+    const RowsetReaderSharedPtr _rs_reader;
+    const ReadSchemaSPtr _read_schema;
+};
+
+} // namespace
 
 BlockReader::~BlockReader() {
     for (int i = 0; i < _agg_functions.size(); ++i) {
@@ -518,6 +544,44 @@ Status BlockReader::_init_collect_iter(const ReaderParams& read_params) {
     return Status::OK();
 }
 
+bool BlockReader::_unions_rowsets(const ReaderParams& read_params) const {
+    // A key TopN and a changelog MIN_DELTA or DETAIL scan are the queries that ask for key order.
+    return config::enable_new_block_iterator &&
+           read_params.reader_type == ReaderType::READER_QUERY &&
+           _tablet_schema->keys_type() == KeysType::DUP_KEYS && !read_params.read_orderby_key;
+}
+
+Status BlockReader::_init_rowsets_union(const ReaderParams& read_params) {
+    auto res = _capture_rs_readers(read_params);
+    if (!res.ok()) {
+        LOG(WARNING) << "fail to init reader when _capture_rs_readers. res:" << res
+                     << ", tablet_id:" << read_params.tablet->tablet_id()
+                     << ", schema_hash:" << read_params.tablet->schema_hash()
+                     << ", reader_type:" << int(read_params.reader_type)
+                     << ", version:" << read_params.version;
+        return res;
+    }
+
+    std::vector<RowwiseIteratorUPtr> rowsets;
+    RuntimeState* runtime_state = read_params.runtime_state;
+    SCOPED_RAW_TIMER(&_stats.block_reader_rs_readers_init_timer_ns);
+    for (const auto& rs_split : read_params.rs_splits) {
+        if (runtime_state != nullptr && runtime_state->is_cancelled()) {
+            return runtime_state->cancel_reason();
+        }
+        RETURN_IF_ERROR(rs_split.rs_reader->init(&_reader_context, rs_split));
+        // A pushed-down LIMIT is a row budget of every segment, applied after its filters.
+        if (_reader_context.general_read_limit > 0) {
+            rs_split.rs_reader->set_topn_limit(
+                    static_cast<size_t>(_reader_context.general_read_limit));
+        }
+        rowsets.push_back(std::make_unique<RowsetReaderIterator>(rs_split.rs_reader, _read_schema));
+    }
+    _rowsets_union = new_union_iterator(std::move(rowsets), _read_schema);
+    // Nothing is read yet: a rowset reader opens its segments on its first read.
+    return _rowsets_union->init(StorageReadOptions(_stats));
+}
+
 Status BlockReader::_init_agg_state(const ReaderParams& read_params) {
     if (_eof) {
         return Status::OK();
@@ -598,7 +662,11 @@ Status BlockReader::init(const ReaderParams& read_params) {
         }
     }
 
-    auto status = _init_collect_iter(read_params);
+    // With config::enable_new_block_iterator on, a DUP_KEYS query that does not ask for key order
+    // reads the union of its rowsets; every other read goes through VCollectIterator.
+    const bool unions_rowsets = _unions_rowsets(read_params);
+    auto status =
+            unions_rowsets ? _init_rowsets_union(read_params) : _init_collect_iter(read_params);
     if (!status.ok()) [[unlikely]] {
         if (!config::is_cloud_mode()) {
             static_cast<Tablet*>(_tablet.get())->report_error(status);
@@ -619,6 +687,10 @@ Status BlockReader::init(const ReaderParams& read_params) {
         return Status::OK();
     }
 
+    if (unions_rowsets) {
+        _next_block_func = &BlockReader::_rowsets_union_next_block;
+        return Status::OK();
+    }
     if (_direct_mode) {
         _next_block_func = &BlockReader::_direct_next_block;
         return Status::OK();
@@ -648,6 +720,15 @@ Status BlockReader::init(const ReaderParams& read_params) {
     _filter_delete_sign =
             _next_block_func == &BlockReader::_unique_key_next_block && _delete_sign_available;
 
+    return Status::OK();
+}
+
+Status BlockReader::_rowsets_union_next_block(Block* block, bool* eof) {
+    auto res = _rowsets_union->next_batch(block);
+    if (!res.ok() && !res.is<END_OF_FILE>()) [[unlikely]] {
+        return res;
+    }
+    *eof = res.is<END_OF_FILE>();
     return Status::OK();
 }
 

@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#pragma once
+
 #include <gen_cpp/PlanNodes_types.h>
 #include <glog/logging.h>
 #include <stddef.h>
