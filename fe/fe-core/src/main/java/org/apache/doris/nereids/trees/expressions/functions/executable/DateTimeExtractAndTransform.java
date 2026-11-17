@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.trees.expressions.functions.executable;
 
-import org.apache.doris.common.util.TimeZoneParser;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.expression.rules.SupportJavaDateFormatter;
 import org.apache.doris.nereids.trees.expressions.ExecFunction;
@@ -28,7 +27,6 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.FromSecond;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
@@ -164,7 +162,6 @@ public class DateTimeExtractAndTransform {
     public static Expression century(TimeStampNsLiteral date) {
         return new SmallIntLiteral((short) ((date.getYear() - 1) / 100 + 1));
     }
-
 
     /**
      * Executable datetime extract quarter
@@ -899,7 +896,7 @@ public class DateTimeExtractAndTransform {
 
     private static String getTimestamp(LocalDateTime dateTime, int scale) {
         LocalDateTime specialLowerBound = LocalDateTime.of(1970, 1, 1, 0, 0, 0);
-        Instant instant = DateTimeLiteral.convertLocalToInstantPreservingFraction(
+        Instant instant = DateUtils.convertLocalToInstant(
                 dateTime, DateUtils.getTimeZone());
         dateTime = LocalDateTime.ofInstant(instant, ZoneId.of("UTC+0"));
         if (dateTime.isBefore(specialLowerBound)) {
@@ -1095,24 +1092,15 @@ public class DateTimeExtractAndTransform {
      */
     @ExecFunction(name = "convert_tz")
     public static Expression convertTz(DateTimeV2Literal datetime, StringLikeLiteral fromTz, StringLikeLiteral toTz) {
-        return DateTimeV2Literal.fromJavaDateType(
-                convertTz(datetime.toJavaDateType(), fromTz, toTz), datetime.getDataType().getScale());
+        return datetime.inTimeZone(fromTz.getStringValue(), toTz.getStringValue());
     }
 
     @ExecFunction(name = "convert_tz")
     public static Expression convertTz(TimeStampNsLiteral datetime, StringLikeLiteral fromTz,
             StringLikeLiteral toTz) {
         return TimeStampNsLiteral.fromJavaDateType(
-                convertTz(datetime.toJavaDateType(), fromTz, toTz));
-    }
-
-    private static LocalDateTime convertTz(LocalDateTime datetime, StringLikeLiteral fromTz,
-            StringLikeLiteral toTz) {
-        ZoneId fromZone = TimeZoneParser.parse(fromTz.getStringValue(), TimeZoneParser.Usage.SESSION);
-        ZoneId toZone = TimeZoneParser.parse(toTz.getStringValue(), TimeZoneParser.Usage.SESSION);
-
-        Instant instant = DateTimeLiteral.convertLocalToInstant(datetime, fromZone);
-        return LocalDateTime.ofInstant(instant, toZone);
+                DateUtils.convertTimeZone(
+                        datetime.toJavaDateType(), fromTz.getStringValue(), toTz.getStringValue()));
     }
 
     @ExecFunction(name = "weekday")

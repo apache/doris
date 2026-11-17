@@ -150,8 +150,6 @@ public class InsertIntoTVFCommand extends Command implements ForwardWithSync, Ex
                 if (ctx.getConnectType() == ConnectType.MYSQL && ctx.getMysqlChannel() != null) {
                     ctx.getMysqlChannel().reset();
                 }
-                // Preserve external DML audit ownership from the resolved sink.
-                executor.setExternalDmlAuditCoordinator(coordinator);
                 coordinator.exec();
             }
             checkCanceled();
@@ -193,7 +191,6 @@ public class InsertIntoTVFCommand extends Command implements ForwardWithSync, Ex
             } finally {
                 synchronized (executionLock) {
                     activeCoordinator = null;
-                    executor.setCoord(null);
                 }
                 coordinator.close();
             }

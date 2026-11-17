@@ -228,6 +228,13 @@ LIBRDKAFKA_NAME=librdkafka-2.16.0.tar.gz
 LIBRDKAFKA_SOURCE=librdkafka-2.16.0
 LIBRDKAFKA_MD5SUM="6d2c62921241863d2bc95c58be27af6f"
 
+# MongoDB C Driver (libmongoc and libbson are released and built together).
+# 2.5.8 fixes malformed cursor namespaces and compressed-reply buffer leaks.
+MONGO_C_DRIVER_DOWNLOAD="https://github.com/mongodb/mongo-c-driver/releases/download/2.5.8/mongo-c-driver-2.5.8.tar.gz"
+MONGO_C_DRIVER_NAME=mongo-c-driver-2.5.8.tar.gz
+MONGO_C_DRIVER_SOURCE=mongo-c-driver-2.5.8
+MONGO_C_DRIVER_MD5SUM="e088246c56b3de5c658aff8e00f166ed"
+
 # zstd
 ZSTD_DOWNLOAD="https://github.com/facebook/zstd/releases/download/v1.5.7/zstd-1.5.7.tar.gz"
 ZSTD_NAME=zstd-1.5.7.tar.gz
@@ -275,7 +282,7 @@ ARROW_MD5SUM="66c53bd00baa79034bd2ca167beea436"
 ARROW_ADBC_DOWNLOAD="https://github.com/apache/arrow-adbc/archive/refs/tags/apache-arrow-adbc-24.tar.gz"
 ARROW_ADBC_NAME="apache-arrow-adbc-24.tar.gz"
 ARROW_ADBC_SOURCE="arrow-adbc-apache-arrow-adbc-24"
-ARROW_ADBC_MD5SUM="2b2a18e95c33bdfd2bfa33a8b57c78d6"
+ARROW_ADBC_MD5SUM="3d6aaf071d384fe8d3c12a9b5f62aa4e"
 
 # arrow-adbc Flight SQL driver, prebuilt.
 # Upstream writes this driver in Go and publishes no bare shared library, so it is
@@ -660,6 +667,7 @@ export TP_ARCHIVES=(
     'BRPC'
     'ROCKSDB'
     'CYRUS_SASL'
+    'MONGO_C_DRIVER'
     'LIBRDKAFKA'
     'FLATBUFFERS'
     'ARROW'

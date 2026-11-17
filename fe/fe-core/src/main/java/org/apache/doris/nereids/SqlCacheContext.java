@@ -28,6 +28,7 @@ import org.apache.doris.catalog.OlapTableWrapper;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.cache.SqlCacheMetadataVersions;
 import org.apache.doris.connector.spi.mvcc.ConnectorSqlCacheVersion;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.mvcc.MvccReadSelector;
@@ -48,6 +49,7 @@ import org.apache.doris.qe.cache.SqlCacheVersionProvider;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.thrift.TUniqueId;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -73,6 +75,7 @@ public class SqlCacheContext {
     private volatile TUniqueId queryId;
     // if contains udf/udaf/tableValuesFunction we can not process it and skip use sql cache
     private volatile boolean cannotProcessExpression;
+    private final SqlCacheMetadataVersions.Snapshot metadataVersions;
     private volatile String originSql;
     private volatile String physicalPlan;
     private volatile long latestPartitionId = -1;
@@ -114,7 +117,14 @@ public class SqlCacheContext {
     private Map<String, String> externalCatalogConfigs = Maps.newConcurrentMap();
 
     /** SqlCacheContext */
+    @VisibleForTesting
     public SqlCacheContext(UserIdentity userIdentity) {
+        this(userIdentity, new SqlCacheMetadataVersions().snapshot());
+    }
+
+    /** Create a cache candidate with revisions captured at statement creation. */
+    public SqlCacheContext(UserIdentity userIdentity, SqlCacheMetadataVersions.Snapshot metadataVersions) {
+        this.metadataVersions = metadataVersions;
         if (userIdentity == null) {
             ConnectContext connectContext = ConnectContext.get();
             if (connectContext != null) {
@@ -163,6 +173,10 @@ public class SqlCacheContext {
         return !containsCannotProcessExpression() && !hasUnsupportedTables();
     }
 
+    public boolean metadataVersionsMatch() {
+        return metadataVersions.isCurrent();
+    }
+
     /** computeAffectQueryResultVariables */
     public static String computeAffectQueryResultVariables(SessionVariable sessionVariable) {
         if (sessionVariable == null) {
@@ -205,6 +219,8 @@ public class SqlCacheContext {
             setCannotProcessExpression(true);
             return;
         }
+        metadataVersions.addTable(tableIf.getId(),
+                new FullTableName(catalog.getName(), database.getFullName(), tableIf.getName()));
         if (!catalog.isInternalCatalog() && !this.externalCatalogConfigs.containsKey(catalog.getName())) {
             this.externalCatalogConfigs.put(catalog.getName(), getCatalogConfigs(catalog));
         }
@@ -250,7 +266,9 @@ public class SqlCacheContext {
                         usedVariables.isEmpty() && tableIf.getType() == TableType.OLAP && tableIf instanceof OlapTable
                                 && !(tableIf instanceof OlapTableWrapper)
                                 && ((OlapTable) tableIf).isPartitionedTable()
-                                ? new OlapTableSqlCacheVersion((OlapTable) tableIf, version) : null
+                                ? new OlapTableSqlCacheVersion((OlapTable) tableIf, version) : null,
+                        tableIf instanceof OlapTable ? ((OlapTable) tableIf).getBaseIndexId() : -1L,
+                        tableIf instanceof OlapTable ? ((OlapTable) tableIf).getBaseSchemaVersion() : -1
                 )
         );
     }
@@ -270,6 +288,8 @@ public class SqlCacheContext {
             setCannotProcessExpression(true);
             return;
         }
+        metadataVersions.addTable(tableIf.getId(),
+                new FullTableName(catalog.getName(), database.getFullName(), tableIf.getName()));
         if (!catalog.isInternalCatalog() && !this.externalCatalogConfigs.containsKey(catalog.getName())) {
             this.externalCatalogConfigs.put(catalog.getName(), getCatalogConfigs(catalog));
         }
@@ -698,6 +718,13 @@ public class SqlCacheContext {
         public final TableType type;
         public final ConnectorSqlCacheVersion sqlCacheVersion;
         public final OlapTableSqlCacheVersion olapVersion;
+        public final long baseIndexId;
+        public final int schemaVersion;
+
+        public TableVersion(long id, long version, TableType type, ConnectorSqlCacheVersion sqlCacheVersion,
+                OlapTableSqlCacheVersion olapVersion) {
+            this(id, version, type, sqlCacheVersion, olapVersion, -1L, -1);
+        }
 
         public TableVersion(long id, long version, TableType type, ConnectorSqlCacheVersion sqlCacheVersion) {
             this(id, version, type, sqlCacheVersion, null);
@@ -712,7 +739,9 @@ public class SqlCacheContext {
             if (olapVersion != null && olapVersion.isUsable()) {
                 return olapVersion.getCacheKey();
             }
-            return sqlCacheVersion == null ? Long.toString(version) : "sql-cache:" + sqlCacheVersion.getVersion();
+            String dataVersion = sqlCacheVersion == null
+                    ? Long.toString(version) : "sql-cache:" + sqlCacheVersion.getVersion();
+            return schemaVersion < 0 ? dataVersion : dataVersion + ":schema:" + baseIndexId + ":" + schemaVersion;
         }
     }
 

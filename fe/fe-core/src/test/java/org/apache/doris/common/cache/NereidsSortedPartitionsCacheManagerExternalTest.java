@@ -35,6 +35,8 @@ import org.apache.doris.datasource.ExternalMetaCacheMgr;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.mvcc.PluginDrivenMvccExternalTable;
 import org.apache.doris.datasource.mvcc.PluginDrivenMvccSnapshot;
+import org.apache.doris.mtmv.MTMVRelationManager;
+import org.apache.doris.mtmv.MTMVService;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.rules.expression.rules.SortedPartitionRanges;
 import org.apache.doris.nereids.trees.plans.RelationId;
@@ -302,6 +304,7 @@ public class NereidsSortedPartitionsCacheManagerExternalTest {
     /** Supplies the legacy manager for tests that also cover generic ExternalTable delegation. */
     private static MockedStatic<Env> mockEnvWithRangesCacheManager(NereidsSortedPartitionsCacheManager rangesCacheMgr) {
         Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getSqlCacheManager()).thenReturn(new NereidsSqlCacheManager());
         Mockito.when(env.getSortedPartitionsCacheManager()).thenReturn(rangesCacheMgr);
         MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class);
         envStatic.when(Env::getCurrentEnv).thenReturn(env);
@@ -472,9 +475,7 @@ public class NereidsSortedPartitionsCacheManagerExternalTest {
 
     @Test
     public void testExternalMetaCacheMgrInvalidateTableDropsRangesCacheEntry() throws Exception {
-        // Drives the REAL ExternalMetaCacheMgr.invalidateTable(...) (the new call at
-        // ExternalMetaCacheMgr.java:217-220), not NereidsSortedPartitionsCacheManager directly, so the
-        // production wiring between the two managers is exercised end-to-end.
+        // Exercise ExternalMetaCacheMgr -> Env.onTableChanged -> the real sorted partitions cache.
         newLiveConnectContext();
         NereidsSortedPartitionsCacheManager rangesCacheMgr = new NereidsSortedPartitionsCacheManager();
         FakeExternalTable t = new FakeExternalTable(true);
@@ -484,19 +485,12 @@ public class NereidsSortedPartitionsCacheManagerExternalTest {
         Assertions.assertEquals(1, rangesCacheMgr.getPartitionCaches().estimatedSize(),
                 "one entry cached before invalidation");
 
-        long catalogId = 7L;
-        Env env = Mockito.mock(Env.class);
-        CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
-        CatalogIf catalog = Mockito.mock(CatalogIf.class);
-        Mockito.when(catalog.getName()).thenReturn(CTL);
-        Mockito.when(catalogMgr.getCatalog(catalogId)).thenReturn(catalog);
-        Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
-        Mockito.when(env.getSortedPartitionsCacheManager()).thenReturn(rangesCacheMgr);
+        Env env = newInvalidationEnv(rangesCacheMgr);
 
         ExternalMetaCacheMgr metaCacheMgr = new ExternalMetaCacheMgr(true);
         try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
             envStatic.when(Env::getCurrentEnv).thenReturn(env);
-            metaCacheMgr.invalidateTable(catalogId, 8L, DB, 9L, TBL);
+            metaCacheMgr.invalidateTable(CATALOG_ID, 8L, DB, 9L, TBL);
         }
 
         Assertions.assertEquals(0, rangesCacheMgr.getPartitionCaches().estimatedSize(),
@@ -504,19 +498,14 @@ public class NereidsSortedPartitionsCacheManagerExternalTest {
                         + "NereidsSortedPartitionsCacheManager entry");
     }
 
-    // ── db/catalog-level invalidation also drops Cache B (§10 completeness) ──
-    //
-    // invalidateTable (above) already drops the ranges cache; invalidateDb / invalidateCatalog /
-    // removeCatalog previously did NOT, so a db- or catalog-level REFRESH left STALE Cache B entries.
-    // Cache B has no db/catalog-scoped eviction key, so those coarse invalidations drop ALL entries
-    // (invalidateAll). Each test drives the REAL ExternalMetaCacheMgr method end-to-end.
+    // Database/catalog refresh and removal must also discard the affected ranges through the real wiring.
 
     /**
-     * Populates a live {@link NereidsSortedPartitionsCacheManager} with one entry, then runs {@code
-     * invalidation} against a REAL {@link ExternalMetaCacheMgr} (with a mocked {@code Env} wiring
-     * {@code getCatalogMgr}/{@code getSortedPartitionsCacheManager}) and asserts Cache B is emptied.
+     * Populates a live {@link NereidsSortedPartitionsCacheManager} with one entry and asserts that
+     * {@code invalidation} removes it through the real {@link ExternalMetaCacheMgr} and {@link Env}
+     * callbacks. Mocked getters supply the cache managers.
      */
-    private void assertDropsAllRangesCache(java.util.function.Consumer<ExternalMetaCacheMgr> invalidation)
+    private void assertDropsRangesCache(java.util.function.Consumer<ExternalMetaCacheMgr> invalidation)
             throws Exception {
         newLiveConnectContext();
         NereidsSortedPartitionsCacheManager rangesCacheMgr = new NereidsSortedPartitionsCacheManager();
@@ -527,13 +516,7 @@ public class NereidsSortedPartitionsCacheManagerExternalTest {
         Assertions.assertEquals(1, rangesCacheMgr.getPartitionCaches().estimatedSize(),
                 "one entry cached before invalidation");
 
-        Env env = Mockito.mock(Env.class);
-        CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
-        CatalogIf catalog = Mockito.mock(CatalogIf.class);
-        Mockito.when(catalog.getName()).thenReturn(CTL);
-        Mockito.when(catalogMgr.getCatalog(CATALOG_ID)).thenReturn(catalog);
-        Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
-        Mockito.when(env.getSortedPartitionsCacheManager()).thenReturn(rangesCacheMgr);
+        Env env = newInvalidationEnv(rangesCacheMgr);
 
         ExternalMetaCacheMgr metaCacheMgr = new ExternalMetaCacheMgr(true);
         try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
@@ -545,18 +528,33 @@ public class NereidsSortedPartitionsCacheManagerExternalTest {
                 "db/catalog-level invalidation must also drop the NereidsSortedPartitionsCacheManager entries");
     }
 
+    private static Env newInvalidationEnv(NereidsSortedPartitionsCacheManager rangesCacheMgr) {
+        Env env = Mockito.mock(Env.class, Mockito.CALLS_REAL_METHODS);
+        CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
+        CatalogIf catalog = Mockito.mock(CatalogIf.class);
+        Mockito.when(catalog.getName()).thenReturn(CTL);
+        Mockito.when(catalogMgr.getCatalog(CATALOG_ID)).thenReturn(catalog);
+        Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
+        Mockito.when(env.getSqlCacheManager()).thenReturn(Mockito.mock(NereidsSqlCacheManager.class));
+        Mockito.when(env.getSortedPartitionsCacheManager()).thenReturn(rangesCacheMgr);
+        MTMVService mtmvService = Mockito.mock(MTMVService.class);
+        Mockito.when(mtmvService.getRelationManager()).thenReturn(Mockito.mock(MTMVRelationManager.class));
+        Mockito.when(env.getMtmvService()).thenReturn(mtmvService);
+        return env;
+    }
+
     @Test
     public void testInvalidateDbDropsRangesCache() throws Exception {
-        assertDropsAllRangesCache(m -> m.invalidateDbMetadataCache(CATALOG_ID, DB));
+        assertDropsRangesCache(m -> m.invalidateDbMetadataCache(CATALOG_ID, DB));
     }
 
     @Test
     public void testInvalidateCatalogDropsRangesCache() throws Exception {
-        assertDropsAllRangesCache(m -> m.invalidateCatalog(CATALOG_ID));
+        assertDropsRangesCache(m -> m.invalidateCatalog(CATALOG_ID));
     }
 
     @Test
     public void testRemoveCatalogDropsRangesCache() throws Exception {
-        assertDropsAllRangesCache(m -> m.removeCatalog(CATALOG_ID));
+        assertDropsRangesCache(m -> m.removeCatalog(CATALOG_ID));
     }
 }

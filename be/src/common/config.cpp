@@ -1141,7 +1141,8 @@ DEFINE_Int32(min_s3_file_system_thread_num, "16");
 DEFINE_Int32(max_s3_file_system_thread_num, "64");
 
 DEFINE_Int32(min_peer_race_s3_thread_num, "0");
-DEFINE_Int32(max_peer_race_s3_thread_num, "32"); // aligned with default max_concurrent_peer_races
+// Effective max threads = max(this value, max_concurrent_peer_races); a smaller value has no effect.
+DEFINE_Int32(max_peer_race_s3_thread_num, "32");
 
 DEFINE_Bool(enable_time_lut, "true");
 
@@ -1235,6 +1236,26 @@ DEFINE_Validator(variant_max_json_key_length,
 DEFINE_Validator(variant_storage_parse_mode,
                  [](const int config) -> bool { return config >= 0 && config <= 2; });
 
+// Lance uses one BE-wide session so metadata/index caches and the optional Foyer data-file cache
+// can be shared by all Lance dataset readers.
+DEFINE_Int64(lance_index_cache_size_bytes, "10737418240");   // 10 GiB
+DEFINE_Int64(lance_metadata_cache_size_bytes, "1073741824"); // 1GB
+DEFINE_Bool(enable_lance_data_cache, "true");
+DEFINE_String(lance_data_cache_path, "${DORIS_HOME}/lance_data_cache");
+DEFINE_Int64(lance_data_cache_disk_capacity_bytes, "107374182400"); // 100GB
+DEFINE_Int64(lance_data_cache_read_block_size_bytes, "1048576");    // 1MB
+
+// I/O buffering budget per Lance scanner, not a cap on its total memory usage.
+// Runtime changes apply to newly created scanners.
+DEFINE_mInt64(lance_io_buffer_size_bytes, "2147483648"); // 2 GiB
+DEFINE_Validator(lance_io_buffer_size_bytes, [](int64_t value) { return value > 0; });
+
+// Read-ahead limits per Lance scanner. Runtime changes apply to newly created scanners.
+DEFINE_mInt32(lance_batch_readahead, "5");
+DEFINE_Validator(lance_batch_readahead, [](int32_t value) { return value > 0; });
+DEFINE_mInt32(lance_fragment_readahead, "5");
+DEFINE_Validator(lance_fragment_readahead, [](int32_t value) { return value > 0; });
+
 // block file cache
 DEFINE_Bool(enable_file_cache, "true");
 // ATTENTION: For test only. Keep this enabled in production.
@@ -1320,6 +1341,11 @@ DEFINE_mBool(file_cache_enable_only_warm_up_idx, "false");
 
 DEFINE_Int32(file_cache_downloader_thread_num_min, "32");
 DEFINE_Int32(file_cache_downloader_thread_num_max, "32");
+
+// Larger values favor remote reads when a query enables the file-cache IO adaptor.
+DEFINE_mDouble(file_cache_io_adaptor_skip_read_factor, "1.0");
+DEFINE_Validator(file_cache_io_adaptor_skip_read_factor,
+                 [](double v) { return std::isfinite(v) && v > 0; });
 
 // async file cache write
 DEFINE_mBool(enable_async_file_cache_write, "false");
@@ -2111,7 +2137,16 @@ DEFINE_mInt64(load_reader_max_block_bytes, "67108864");
 
 // Maximum number of OpenMP threads allowed for concurrent vector index builds.
 // -1 means auto: use 80% of the available CPU cores.
+// Auto sizing shares the CPU count captured on first use with ann_index_build_threads_per_task.
 DEFINE_Int32(omp_threads_limit, "-1");
+
+// OpenMP threads reserved by each ANN index train/add call, capped by omp_threads_limit.
+// -1 means auto: 1 thread below 32 available CPU cores, otherwise 4 threads.
+// The CPU count is captured once on first use and reused until BE restart.
+// A call waits until its entire reservation is available. Requires a BE restart.
+DEFINE_Int32(ann_index_build_threads_per_task, "-1");
+DEFINE_Validator(ann_index_build_threads_per_task,
+                 [](int32_t value) { return value == -1 || value > 0; });
 
 // The capacity of segment partial column cache, used to cache column readers for each segment.
 DEFINE_mInt32(max_segment_partial_column_cache_size, "100");
@@ -2148,9 +2183,9 @@ DEFINE_mInt32(concurrency_stats_dump_interval_ms, "100");
 DEFINE_Validator(concurrency_stats_dump_interval_ms,
                  [](const int32_t config) -> bool { return config >= 10; });
 
-DEFINE_mBool(cloud_mow_sync_rowsets_when_load_txn_begin, "true");
+DEFINE_mBool(cloud_mow_sync_rowsets_when_load_txn_begin, "false");
 
-DEFINE_mBool(enable_cloud_make_rs_visible_on_be, "false");
+DEFINE_mBool(enable_cloud_make_rs_visible_on_be, "true");
 DEFINE_mBool(enable_cloud_random_segment_id, "false");
 DEFINE_mInt32(file_handles_deplenish_frequency_times, "3");
 

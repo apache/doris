@@ -27,6 +27,7 @@
 #include "common/cast_set.h"
 #include "common/check.h"
 #include "common/config.h"
+#include "format_v2/parquet/parquet_crypto.h"
 #include "format_v2/parquet/parquet_statistics.h"
 #include "format_v2/parquet/reader/native/column_chunk_reader.h"
 #include "io/cache/cached_remote_file_reader.h"
@@ -46,8 +47,9 @@ namespace doris::format::parquet {
 
 constexpr size_t V2_PARQUET_FOOTER_SIZE = 8;
 
-NativeParquetMetadata::NativeParquetMetadata(tparquet::FileMetaData metadata, size_t parsed_size)
-        : _metadata(std::move(metadata)), _parsed_size(parsed_size) {
+NativeParquetMetadata::NativeParquetMetadata(tparquet::FileMetaData metadata, size_t parsed_size,
+                                             std::shared_ptr<const ParquetFileCrypto> crypto)
+        : _metadata(std::move(metadata)), _parsed_size(parsed_size), _crypto(std::move(crypto)) {
     ExecEnv::GetInstance()->parquet_meta_tracker()->consume(get_mem_size());
 }
 
@@ -201,7 +203,8 @@ Status parse_native_parquet_footer(io::FileReaderSPtr file,
                                    std::unique_ptr<NativeParquetMetadata>* metadata,
                                    size_t* footer_size, io::IOContext* io_ctx,
                                    bool enable_mapping_varbinary, bool enable_mapping_timestamp_tz,
-                                   bool preserve_binary_uuid) {
+                                   bool preserve_binary_uuid,
+                                   const TFileEncryptionInfo* encryption_info) {
     DORIS_CHECK(file != nullptr);
     DORIS_CHECK(metadata != nullptr);
     DORIS_CHECK(footer_size != nullptr);
@@ -220,8 +223,15 @@ Status parse_native_parquet_footer(io::FileReaderSPtr file,
                                   bytes_read);
     }
     const auto* magic = tail.data() + tail.size() - sizeof(V2_PARQUET_MAGIC);
-    if (memcmp(magic, V2_PARQUET_MAGIC, sizeof(V2_PARQUET_MAGIC)) != 0) {
+    const bool encrypted = memcmp(magic, "PARE", 4) == 0;
+    if (!encrypted && memcmp(magic, V2_PARQUET_MAGIC, sizeof(V2_PARQUET_MAGIC)) != 0) {
         return Status::Corruption("Invalid Parquet v2 footer magic in {}", file->path().native());
+    }
+    if (encrypted && encryption_info == nullptr) {
+        return Status::InvalidArgument("File encryption [MISSING_KEY]");
+    }
+    if (!encrypted && encryption_info != nullptr) {
+        return Status::NotSupported("File encryption [ENCRYPTED_FOOTER_REQUIRED]");
     }
 
     const uint32_t serialized_size =
@@ -229,6 +239,9 @@ Status parse_native_parquet_footer(io::FileReaderSPtr file,
     // Keep the dedicated metadata limit independent of RPC serialization limits, and enforce it
     // before allocation so file-controlled footer sizes cannot create unbounded memory pressure.
     RETURN_IF_ERROR(detail::validate_native_footer_size(serialized_size, file_size));
+    if (encrypted && serialized_size > MAX_ENCRYPTED_PARQUET_MODULE_BYTES) {
+        return Status::Corruption("File encryption [INVALID_METADATA_SIZE]");
+    }
     std::vector<uint8_t> serialized_metadata(serialized_size);
     if (serialized_size <= tail.size() - V2_PARQUET_FOOTER_SIZE) {
         const auto* metadata_start =
@@ -247,10 +260,35 @@ Status parse_native_parquet_footer(io::FileReaderSPtr file,
 
     uint32_t thrift_size = serialized_size;
     tparquet::FileMetaData thrift_metadata;
-    RETURN_IF_ERROR(deserialize_thrift_msg(serialized_metadata.data(), &thrift_size, true,
-                                           &thrift_metadata));
-    auto parsed =
-            std::make_unique<NativeParquetMetadata>(std::move(thrift_metadata), serialized_size);
+    std::shared_ptr<ParquetFileCrypto> crypto;
+    if (encrypted) {
+        tparquet::FileCryptoMetaData crypto_metadata;
+        RETURN_IF_ERROR(
+                deserialize_crypto_metadata(serialized_metadata, &thrift_size, &crypto_metadata));
+        RETURN_IF_ERROR(ParquetFileCrypto::create(*encryption_info, crypto_metadata, &crypto));
+        DorisVector<uint8_t> plaintext;
+        RETURN_IF_ERROR(crypto->decrypt_footer(std::span(serialized_metadata).subspan(thrift_size),
+                                               &plaintext));
+        uint32_t consumed = 0;
+        RETURN_IF_ERROR(deserialize_crypto_metadata(plaintext, &consumed, &thrift_metadata));
+        RETURN_IF_ERROR(validate_crypto_metadata_padding(plaintext, consumed));
+        for (size_t row = 0; row < thrift_metadata.row_groups.size(); ++row) {
+            const auto& group = thrift_metadata.row_groups[row];
+            const int ordinal = group.__isset.ordinal ? group.ordinal : static_cast<int>(row);
+            for (size_t column = 0; column < group.columns.size(); ++column) {
+                RETURN_IF_ERROR(ParquetFileCrypto::validate_column(group.columns[column], ordinal,
+                                                                   static_cast<int>(column)));
+            }
+        }
+    } else {
+        RETURN_IF_ERROR(deserialize_thrift_msg(serialized_metadata.data(), &thrift_size, true,
+                                               &thrift_metadata));
+        if (thrift_metadata.__isset.encryption_algorithm) {
+            return Status::NotSupported("File encryption [PLAINTEXT_FOOTER_UNSUPPORTED]");
+        }
+    }
+    auto parsed = std::make_unique<NativeParquetMetadata>(std::move(thrift_metadata),
+                                                          serialized_size, std::move(crypto));
     RETURN_IF_ERROR(parsed->init_schema(enable_mapping_varbinary, enable_mapping_timestamp_tz,
                                         preserve_binary_uuid));
     *footer_size = V2_PARQUET_FOOTER_SIZE + serialized_size;
@@ -271,7 +309,8 @@ std::string build_page_cache_file_key(const io::FileReader& file_reader,
 Status ParquetFileContext::open(io::FileReaderSPtr input_file_reader, io::IOContext* io_ctx,
                                 bool enable_page_cache, const io::FileDescription& file_description,
                                 bool enable_mapping_timestamp_tz, bool enable_mapping_varbinary,
-                                bool preserve_binary_uuid) {
+                                bool preserve_binary_uuid,
+                                const TFileEncryptionInfo* encryption_info) {
     DORIS_CHECK(input_file_reader != nullptr);
     contains_variant = false;
     if (detail::should_stage_small_http_file(input_file_reader->path().native(),
@@ -290,7 +329,11 @@ Status ParquetFileContext::open(io::FileReaderSPtr input_file_reader, io::IOCont
     // identical HDFS paths from different nameservices, while an unknown mutable version bypasses
     // both caches rather than reusing an overwritten file of the same size.
     auto* meta_cache = ExecEnv::GetInstance()->file_meta_cache();
-    auto meta_cache_key = build_page_cache_file_key(*native_file, file_description);
+    // A key from another scan must never authorize a decrypted footer-cache hit. Bypass both
+    // plaintext metadata/page caches until encrypted cache identities have their own contract.
+    auto meta_cache_key = encryption_info == nullptr
+                                  ? build_page_cache_file_key(*native_file, file_description)
+                                  : std::string();
     const bool has_stable_meta_cache_identity = !meta_cache_key.empty();
     if (has_stable_meta_cache_identity) {
         // The discriminator prevents a v1 metadata value from being cast as the v2-owned type;
@@ -308,7 +351,8 @@ Status ParquetFileContext::open(io::FileReaderSPtr input_file_reader, io::IOCont
     } else {
         auto footer_status = parse_native_parquet_footer(
                 native_file, &native_metadata_owner, &native_footer_size, io_ctx,
-                enable_mapping_varbinary, enable_mapping_timestamp_tz, preserve_binary_uuid);
+                enable_mapping_varbinary, enable_mapping_timestamp_tz, preserve_binary_uuid,
+                encryption_info);
         if (!footer_status.ok()) {
             // Schema validators have no file identity. Attach it before leaving the file
             // layer, preserving the original code used by callers to classify the failure.
@@ -327,7 +371,8 @@ Status ParquetFileContext::open(io::FileReaderSPtr input_file_reader, io::IOCont
     DORIS_CHECK(native_metadata != nullptr);
 
     auto page_cache_file_key = build_page_cache_file_key(*native_file, file_description);
-    native_page_cache_enabled = enable_page_cache && !page_cache_file_key.empty();
+    native_page_cache_enabled =
+            encryption_info == nullptr && enable_page_cache && !page_cache_file_key.empty();
     // Native page readers use the FileDescription-derived immutable identity directly.
     native_page_cache_file_key = page_cache_file_key;
     return Status::OK();
@@ -338,6 +383,9 @@ Status ParquetFileContext::load_native_offset_indexes(
         std::unordered_map<int, tparquet::OffsetIndex>* offset_indexes) const {
     DORIS_CHECK(offset_indexes != nullptr);
     offset_indexes->clear();
+    if (native_metadata->encryption() != nullptr) {
+        return Status::OK();
+    }
     if (leaf_column_ids.empty()) {
         return Status::OK();
     }
@@ -412,6 +460,9 @@ Status ParquetFileContext::load_native_page_indexes(
         int64_t* parse_time) const {
     DORIS_CHECK(page_indexes != nullptr);
     page_indexes->clear();
+    if (native_metadata->encryption() != nullptr) {
+        return Status::OK();
+    }
     if (leaf_column_ids.empty()) {
         return Status::OK();
     }

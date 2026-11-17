@@ -790,19 +790,118 @@ TEST(ParquetV2NativeDecoderTest, BooleanDictionaryAcrossPagesAndPlainFallback) {
     }
 }
 
-std::vector<uint8_t> serialize_plain_int32_page(const std::vector<int32_t>& values) {
+std::vector<uint8_t> serialize_plain_int32_page(const std::vector<int32_t>& values,
+                                                bool repeated = false) {
+    std::vector<uint8_t> payload;
+    if (repeated) {
+        for (level_t level : {0, 1}) {
+            faststring encoded;
+            RleEncoder<level_t> encoder(&encoded, 1);
+            for (size_t value = 0; value < values.size(); ++value) {
+                encoder.Put(level);
+            }
+            encoder.Flush();
+            const size_t offset = payload.size();
+            payload.resize(offset + sizeof(uint32_t));
+            encode_fixed32_le(payload.data() + offset, encoded.size());
+            payload.insert(payload.end(), encoded.data(), encoded.data() + encoded.size());
+        }
+    }
+    const auto* value_bytes = reinterpret_cast<const uint8_t*>(values.data());
+    payload.insert(payload.end(), value_bytes, value_bytes + values.size() * sizeof(int32_t));
     tparquet::PageHeader header;
     header.type = tparquet::PageType::DATA_PAGE;
-    header.__set_compressed_page_size(values.size() * sizeof(int32_t));
-    header.__set_uncompressed_page_size(values.size() * sizeof(int32_t));
+    header.__set_compressed_page_size(payload.size());
+    header.__set_uncompressed_page_size(payload.size());
     header.__isset.data_page_header = true;
     header.data_page_header.__set_num_values(values.size());
     header.data_page_header.__set_encoding(tparquet::Encoding::PLAIN);
     header.data_page_header.__set_definition_level_encoding(tparquet::Encoding::RLE);
     header.data_page_header.__set_repetition_level_encoding(tparquet::Encoding::RLE);
-    const auto* value_bytes = reinterpret_cast<const uint8_t*>(values.data());
-    return serialize_page(
-            header, std::vector<uint8_t>(value_bytes, value_bytes + header.compressed_page_size));
+    return serialize_page(header, payload);
+}
+
+void verify_context_factory_modes(bool in_collection) {
+    std::vector<uint8_t> bytes;
+    tparquet::OffsetIndex index;
+    for (int32_t first : {10, 20, 30}) {
+        const auto page = serialize_plain_int32_page({first, first + 1}, in_collection);
+        tparquet::PageLocation location;
+        location.__set_offset(bytes.size());
+        location.__set_compressed_page_size(page.size());
+        location.__set_first_row_index(index.page_locations.size() * 2);
+        index.page_locations.push_back(location);
+        bytes.insert(bytes.end(), page.begin(), page.end());
+    }
+    tparquet::ColumnMetaData metadata;
+    metadata.__set_type(tparquet::Type::INT32);
+    metadata.__set_codec(tparquet::CompressionCodec::UNCOMPRESSED);
+    metadata.__set_num_values(6);
+    metadata.__set_total_compressed_size(bytes.size());
+    metadata.__set_data_page_offset(0);
+    tparquet::ColumnChunk chunk;
+    chunk.__set_meta_data(metadata);
+    tparquet::RowGroup group;
+    group.__set_columns({chunk});
+    group.__set_num_rows(6);
+    NativeFieldSchema field;
+    field.physical_column_index = 0;
+    field.physical_type = tparquet::Type::INT32;
+    field.data_type = std::make_shared<DataTypeInt32>();
+    field.parquet_schema.__set_type(tparquet::Type::INT32);
+    field.repetition_level = in_collection ? 1 : 0;
+    field.definition_level = in_collection ? 1 : 0;
+    field.repeated_parent_def_level = in_collection ? 1 : 0;
+    field.parquet_schema.__set_repetition_type(in_collection
+                                                       ? tparquet::FieldRepetitionType::REPEATED
+                                                       : tparquet::FieldRepetitionType::REQUIRED);
+    const auto ranges = RowRanges::create_single(2, 4);
+    const std::set<uint64_t> column_ids;
+    for (bool indexed : {false, true}) {
+        SCOPED_TRACE(testing::Message() << in_collection << "/" << indexed);
+        std::unordered_map<int, tparquet::OffsetIndex> indexes;
+        if (indexed) {
+            indexes.emplace(0, index);
+        }
+        std::unique_ptr<ColumnReader> reader;
+        {
+            // Readers borrow row-group data, never this temporary context.
+            const ColumnReaderCreateContext context {
+                    .file = std::make_shared<NativeDecoderMemoryFileReader>(bytes),
+                    .row_group = group,
+                    .row_ranges = ranges,
+                    .col_offsets = indexes,
+                    .column_ids = column_ids,
+                    .filter_column_ids = column_ids,
+                    .row_group_ordinal = 0,
+                    .options = {.max_buf_size = bytes.size(),
+                                .page_cache_file_key = "native-context-range"}};
+            ASSERT_TRUE(ColumnReader::create(context, &field, in_collection, reader).ok());
+        }
+        if (in_collection) {
+            reader->set_column_in_nested();
+        }
+        FilterMap filter;
+        ASSERT_TRUE(filter.init(nullptr, 2, false).ok());
+        ColumnPtr values = field.data_type->create_column();
+        size_t rows = 0;
+        bool eof = false;
+        while (rows < 2 && !eof) {
+            size_t read = 0;
+            ASSERT_TRUE(reader->read_column_data(values, field.data_type, nullptr, filter, 2 - rows,
+                                                 &read, &eof, false)
+                                .ok());
+            rows += read;
+        }
+        ASSERT_EQ(rows, 2);
+        EXPECT_EQ((*values)[0].get<TYPE_INT>(), 20);
+        EXPECT_EQ((*values)[1].get<TYPE_INT>(), 21);
+    }
+}
+
+TEST(ParquetV2NativeDecoderTest, ColumnReaderContextPreservesRangesAcrossFactoryModes) {
+    verify_context_factory_modes(false);
+    verify_context_factory_modes(true);
 }
 
 TEST(ParquetV2NativeDecoderTest, ColumnChunkInitDoesNotReadFirstDataPage) {
@@ -1734,7 +1833,10 @@ TEST(ParquetV2NativeDecoderTest, DictionaryProbeMaterializesTypedValuesOnlyOnce)
     auto file = std::make_shared<NativeDecoderMemoryFileReader>(bytes);
     const auto row_ranges = segment_v2::RowRanges::create_single(2);
     ScalarColumnReader<false, false> reader(row_ranges, 2, chunk, nullptr, nullptr, nullptr);
-    ASSERT_TRUE(reader.init(file, &field, bytes.size(), nullptr, "", ParquetReaderCompat {}, true)
+    ASSERT_TRUE(reader.init(file, &field,
+                            ColumnReaderOptions {.max_buf_size = bytes.size(),
+                                                 .page_cache_file_key = {},
+                                                 .enable_strict_mode = true})
                         .ok());
     EXPECT_EQ(file->read_count(), 0);
     auto dictionary_result = reader.dictionary_values(field.data_type);
@@ -3601,7 +3703,10 @@ TEST(ParquetV2NativeDecoderTest, LazyFlatIndexedSkipValidatesFirstPageCardinalit
     auto file = std::make_shared<NativeDecoderMemoryFileReader>(bytes);
     const auto row_ranges = segment_v2::RowRanges::create_single(2, 4);
     ScalarColumnReader<false, true> reader(row_ranges, 6, chunk, &offset_index, nullptr, nullptr);
-    ASSERT_TRUE(reader.init(file, &field, bytes.size(), nullptr, "", ParquetReaderCompat {}, true)
+    ASSERT_TRUE(reader.init(file, &field,
+                            ColumnReaderOptions {.max_buf_size = bytes.size(),
+                                                 .page_cache_file_key = {},
+                                                 .enable_strict_mode = true})
                         .ok());
 
     FilterMap filter;
@@ -3647,7 +3752,10 @@ TEST(ParquetV2NativeDecoderTest, LazyFixedWidthFilterUsesReconciledFirstPageRang
     auto file = std::make_shared<NativeDecoderMemoryFileReader>(bytes);
     const auto row_ranges = segment_v2::RowRanges::create_single(0, 2);
     ScalarColumnReader<false, true> reader(row_ranges, 3, chunk, &offset_index, nullptr, nullptr);
-    ASSERT_TRUE(reader.init(file, &field, bytes.size(), nullptr, "", ParquetReaderCompat {}, true)
+    ASSERT_TRUE(reader.init(file, &field,
+                            ColumnReaderOptions {.max_buf_size = bytes.size(),
+                                                 .page_cache_file_key = {},
+                                                 .enable_strict_mode = true})
                         .ok());
 
     FilterMap filter;
@@ -3698,7 +3806,10 @@ TEST(ParquetV2NativeDecoderTest, LazyFlatIndexedFallbackUsesReconciledFirstPageR
     auto file = std::make_shared<NativeDecoderMemoryFileReader>(bytes);
     const auto row_ranges = segment_v2::RowRanges::create_single(0, 2);
     ScalarColumnReader<false, true> reader(row_ranges, 3, chunk, &offset_index, nullptr, nullptr);
-    ASSERT_TRUE(reader.init(file, &field, bytes.size(), nullptr, "", ParquetReaderCompat {}, true)
+    ASSERT_TRUE(reader.init(file, &field,
+                            ColumnReaderOptions {.max_buf_size = bytes.size(),
+                                                 .page_cache_file_key = {},
+                                                 .enable_strict_mode = true})
                         .ok());
 
     FilterMap filter;
@@ -3976,10 +4087,12 @@ TEST(ParquetV2NativeDecoderTest, LevelOnlyReaderSkipsLeadingZeroValuePages) {
         auto row_ranges = segment_v2::RowRanges::create_single(1);
         ScalarColumnReader<false, false> scalar_reader(row_ranges, 1, chunk, nullptr, &utc,
                                                        nullptr);
-        ASSERT_TRUE(
-                scalar_reader
-                        .init(file, &field, bytes.size(), nullptr, "", ParquetReaderCompat {}, true)
-                        .ok());
+        ASSERT_TRUE(scalar_reader
+                            .init(file, &field,
+                                  ColumnReaderOptions {.max_buf_size = bytes.size(),
+                                                       .page_cache_file_key = {},
+                                                       .enable_strict_mode = true})
+                            .ok());
         FilterMap filter;
         ASSERT_TRUE(filter.init(nullptr, 1, false).ok());
         ColumnPtr scalar_column = field.data_type->create_column();

@@ -279,6 +279,10 @@ Status InvertedIndexFileCollection::add(int seg_id, IndexFileWriterPtr&& index_w
 Status InvertedIndexFileCollection::begin_close() {
     std::lock_guard lock(_lock);
     for (auto&& [id, writer] : _inverted_index_file_writers) {
+        // A writer sealed when its segment was flushed is counted in the segment statistics.
+        if (writer->is_closed()) {
+            continue;
+        }
         RETURN_IF_ERROR(writer->begin_close());
         _total_size += writer->get_index_file_total_size();
     }
@@ -973,10 +977,7 @@ Status BaseBetaRowsetWriter::_close_file_writers() {
     // Flush and close segment files
     RETURN_NOT_OK_STATUS_WITH_WARN(_segment_creator.close(),
                                    "failed to close segment creator when build new rowset");
-    // Deferred compaction indexes are absent from the per-segment flush statistics.
-    // Other writes close each index file at flush time and leave this collection total at zero.
-    _total_index_size += _idx_files.get_total_index_size();
-    return Status::OK();
+    return _close_inverted_index_file_writers();
 }
 
 Status BetaRowsetWriter::_close_file_writers() {

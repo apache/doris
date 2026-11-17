@@ -50,6 +50,7 @@ import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.TableProperties;
+import org.apache.iceberg.aws.s3.S3FileIO;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.data.GenericRecord;
@@ -165,20 +166,27 @@ public final class IcebergEncryptionFixture {
     }
 
     private synchronized void reset() throws Exception {
-        try (HiveCatalog catalog = catalog(properties())) {
+        try (HiveCatalog catalog = catalog(properties()); S3FileIO cleanup = new S3FileIO()) {
+            cleanup.initialize(properties());
             Namespace namespace = Namespace.of(DB);
             if (!catalog.namespaceExists(namespace)) {
                 catalog.createNamespace(namespace, Map.of("location", "file:/tmp/" + DB));
             }
             for (String name : List.of("encrypted_v3", "plain_v3")) {
                 TableIdentifier id = TableIdentifier.of(DB, name);
-                catalog.dropTable(id, true);
+                // HMS survives stop/up while Moto loses its keys. Purging via old encrypted
+                // manifests would fail after dropping the HMS entry, leaking the old objects.
+                // Only these dedicated fixture locations may be cleaned without reading manifests.
+                catalog.dropTable(id, false);
+                String location = WAREHOUSE + "/" + name;
+                cleanup.deletePrefix(location + "/");
+                check(!cleanup.listPrefix(location + "/").iterator().hasNext(), "Fixture cleanup is incomplete");
                 Map<String, String> tableProperties = new HashMap<>();
                 tableProperties.put(TableProperties.FORMAT_VERSION, "3");
                 if (name.equals("encrypted_v3")) {
                     tableProperties.put(TableProperties.ENCRYPTION_TABLE_KEY, keyId);
                 }
-                Table table = catalog.buildTable(id, SCHEMA).withLocation(WAREHOUSE + "/" + name)
+                Table table = catalog.buildTable(id, SCHEMA).withLocation(location)
                         .withProperties(tableProperties).create();
                 append(table, 1, 2);
                 append(table, 3, 4);

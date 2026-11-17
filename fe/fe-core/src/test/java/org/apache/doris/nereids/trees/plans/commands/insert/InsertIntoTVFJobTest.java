@@ -75,6 +75,7 @@ import org.mockito.Mockito;
 
 import java.util.Collections;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
@@ -117,6 +118,7 @@ public class InsertIntoTVFJobTest extends TestWithFeService {
         beforeCoordinatorReturn = () -> { };
         coordinator = Mockito.mock(Coordinator.class);
         Mockito.when(coordinator.getQueryOptions()).thenReturn(new TQueryOptions());
+        Mockito.when(coordinator.getDispatchedBackendIds()).thenReturn(Set.of(10001L));
         Mockito.when(coordinator.getExecStatus()).thenReturn(Status.OK);
         Mockito.when(coordinator.join(Mockito.anyInt())).thenReturn(true);
         Mockito.when(coordinator.isDone()).thenReturn(true);
@@ -160,7 +162,8 @@ public class InsertIntoTVFJobTest extends TestWithFeService {
     private void assertCleanedUp() {
         Mockito.verify(coordinator).close();
         Assertions.assertNull(QeProcessorImpl.INSTANCE.getCoordinator(connectContext.queryId()));
-        Assertions.assertNull(Deencapsulation.getField(executor, "coord"));
+        Assertions.assertSame(coordinator, executor.getCoord());
+        Assertions.assertEquals(Set.of(10001L), executor.getAuditStatisticsBackendIds());
     }
 
     @Test
@@ -262,7 +265,6 @@ public class InsertIntoTVFJobTest extends TestWithFeService {
         Assertions.assertEquals(QueryState.MysqlStateType.OK, connectContext.getState().getStateType());
         Mockito.verify(coordinator).exec();
         Mockito.verify(coordinator).join(3);
-        Assertions.assertSame(coordinator, Deencapsulation.getField(executor, "externalDmlAuditCoordinator"));
         assertCleanedUp();
     }
 
@@ -356,7 +358,7 @@ public class InsertIntoTVFJobTest extends TestWithFeService {
                                     planningThread.set(Thread.currentThread());
                                     StmtExecutor owner = ctx.getExecutor();
                                     Assertions.assertNotNull(owner, "planning must see the task's parsed executor");
-                                    Assertions.assertNull(Deencapsulation.getField(owner, "coord"));
+                                    Assertions.assertNull(owner.getCoord());
                                     owner.registerSplitAssignment(assignment, unregisters::incrementAndGet);
                                     owner.registerQueryCancellationCallback(assignment::stop);
                                     session.set(ConnectorSessionBuilder.from(ctx).withCatalogId(1).build());

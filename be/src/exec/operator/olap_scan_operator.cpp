@@ -1417,6 +1417,12 @@ Status OlapScanLocalState::_build_key_ranges_and_filters() {
                 // In either case, predicates with negation semantics (effective NE / NOT_IN_LIST)
                 // are never subsumed by scan key ranges and must always be preserved.
                 auto can_erase_predicate = [is_fixed_value_range](const ColumnPredicate& pred) {
+                    // Static scan keys do not capture runtime bounds. For example, a full-range
+                    // key cannot replace a TopN predicate that later tightens to k1 <= 100.
+                    // Keep the shared predicate installed so readers can observe later updates.
+                    if (pred.is_runtime_filter()) {
+                        return false;
+                    }
                     PredicateType pt = pred.type();
                     bool opposite = pred.opposite();
 

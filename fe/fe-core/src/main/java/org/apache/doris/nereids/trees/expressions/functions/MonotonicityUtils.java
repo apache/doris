@@ -23,6 +23,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
@@ -228,8 +229,9 @@ public final class MonotonicityUtils {
             return isTimeStampTzToLocalMonotonic(
                     (TimeStampTzType) sourceType, destinationScale, lower, upper);
         }
-        if (sourceType instanceof TimeStampNsType && targetType instanceof TimeStampTzType) {
-            return isTimeStampNsToTimeStampTzMonotonic((TimeStampTzType) targetType, lower, upper);
+        if ((sourceType instanceof DateTimeV2Type || sourceType instanceof TimeStampNsType)
+                && targetType instanceof TimeStampTzType) {
+            return isLocalToTimeStampTzMonotonic((TimeStampTzType) targetType, lower, upper);
         }
         return true;
     }
@@ -268,8 +270,8 @@ public final class MonotonicityUtils {
         return isInstantToLocalMonotonic(zoneId, lowerInstant, upperInstant);
     }
 
-    /** Check a local TIMESTAMP_NS cast after rounding to the TIMESTAMPTZ output scale. */
-    public static boolean isTimeStampNsToTimeStampTzMonotonic(
+    /** Check a local datetime cast after rounding to the TIMESTAMPTZ output scale. */
+    public static boolean isLocalToTimeStampTzMonotonic(
             TimeStampTzType destinationType, Literal lower, Literal upper) {
         ZoneId zoneId;
         try {
@@ -280,15 +282,18 @@ public final class MonotonicityUtils {
         if (zoneId.getRules().isFixedOffset()) {
             return true;
         }
-        if (!(lower instanceof TimeStampNsLiteral) || !(upper instanceof TimeStampNsLiteral)) {
+        if (!(lower instanceof DateTimeV2Literal || lower instanceof TimeStampNsLiteral)
+                || !(upper instanceof DateTimeV2Literal || upper instanceof TimeStampNsLiteral)) {
             return false;
         }
-        LocalDateTime lowerDateTime = roundTimeStampNs((TimeStampNsLiteral) lower, destinationType.getScale());
-        LocalDateTime upperDateTime = roundTimeStampNs((TimeStampNsLiteral) upper, destinationType.getScale());
+        // A gap can break the order. In New York on 2024-03-10, 02:30 maps to
+        // 07:30 UTC, but 03:00 maps to 07:00 UTC. Keep such partition ranges.
+        LocalDateTime lowerDateTime = roundLocalDateTime((DateLiteral) lower, destinationType.getScale());
+        LocalDateTime upperDateTime = roundLocalDateTime((DateLiteral) upper, destinationType.getScale());
         return isLocalToInstantMonotonic(zoneId, lowerDateTime, upperDateTime);
     }
 
-    private static LocalDateTime roundTimeStampNs(TimeStampNsLiteral literal, int scale) {
+    private static LocalDateTime roundLocalDateTime(DateLiteral literal, int scale) {
         long factor = (long) Math.pow(10, DateUtils.NANOSECOND_SCALE - scale);
         LocalDateTime dateTime = literal.toJavaDateType().plusNanos(factor / 2);
         return dateTime.withNano((int) (dateTime.getNano() / factor * factor));

@@ -1,6 +1,6 @@
 # MongoDB regression fixture
 
-This optional standalone MongoDB 8.0.20 service supplies deterministic BSON data for the embedded Trino 435 MongoDB connector. It does not require a Trino server. Start it with:
+This optional standalone MongoDB 8.0.20 service supplies deterministic BSON data for the native MongoDB Catalog and the embedded Trino 435 MongoDB connector. Start it with:
 
 ```bash
 CONTAINER_UID=doris-mongodb-test- bash docker/thirdparties/run-thirdparties-docker.sh -c mongodb
@@ -53,3 +53,72 @@ WHERE json_extract_int(payload, '$.n') = 7;
 ```
 
 Automatic schema inference still maps BSON documents to Trino `row` / Doris `STRUCT`. Use an explicit `json` declaration when a field should be read as a whole JSON value. BSON documents use the connector's Extended JSON representation, so embedded ObjectIds appear as `{"$oid":"..."}` objects. For BSON string values declared as `json`, their contents must be valid JSON text; malformed text fails the query. The JSON suite covers both real BSON documents and valid JSON text, plus a malformed-text negative case.
+
+## Native MongoDB Catalog
+
+`02-native-fixtures.js` initializes the separate `doris_mongodb_native` database.
+Its fixture contains validator-based collections, a computed view without `_id`,
+a time-series collection with duplicate timestamps, BSON special values, malformed
+historical values, and a reader granted `find` only on the view. These tests use
+the native FE plugin and C++ reader and need no Trino plugin installation.
+
+Use the same regression configuration above, then run:
+
+```bash
+bash run-regression-test.sh --run -d external_table_p0/mongodb
+```
+
+The suite covers auto/explicit/document schemas, exact ObjectId and int64 values,
+Decimal128 scales, UTC dates, binary subtypes, nested arrays/structs, canonical
+Extended JSON, missing/null/mismatch handling, SQL filters and LIKE/REGEXP,
+aggregations, joins, windows, multi-batch reads, repeated early termination,
+views, time-series measurements and view-only authorization. Legal tuple/pattern/
+dependency validators verify complete document fallback. A 900,000-container BSON
+fixture exercises scalar projection through whole-document validation; the separate
+`doris_mongodb_pagination` database has 140 empty collections to cross the metadata
+cursor's 128-name batch boundary. Binary displays and
+analysis use `FROM_BINARY`; direct VARBINARY operations keep Doris's existing
+analysis restrictions.
+
+`test_mongodb_native_acceptance` also checks authentication failure and recovery
+after credential correction, rejection of unsupported snapshot/range policies,
+local SQL case/NULL semantics over a non-simple-collation view, and materialization
+into an internal table with a two-way result difference. Batch-boundary queries
+explicitly set `batch_size=1024`: the default batch size can hold the entire
+2,081-row fixture without issuing a `getMore`.
+
+### Native cursor fault checks
+
+`verify_native_lifecycle.py` exercises real FE-to-BE scans with MongoDB command
+failpoints. Run it separately against an otherwise idle, disposable copy of this
+fixture started with `mongod --setParameter enableTestCommands=1`. It reserves the
+`mongodb_native_lifecycle` catalog, uses the initialized `doris_mongodb_native`
+data, and requires a MongoDB account allowed to configure failpoints and read
+server status. The supplied URI and Doris credentials come from the environment.
+
+Install `pymongo` and `pymysql` in a test virtual environment, then run:
+
+```bash
+export MONGODB_URI='mongodb://<fixture-user>:<fixture-password>@<fixture-host>:<port>/?authSource=admin'
+export DORIS_FE_HOST='<fe-host>'
+export DORIS_FE_PORT='<mysql-port>'
+export DORIS_FE_USER='<test-user>'
+export DORIS_FE_PASSWORD='<test-password>'
+python3 docker/thirdparties/docker-compose/mongodb/verify_native_lifecycle.py --allow-failpoints
+```
+
+The checks cover EOF, repeated LIMIT, decoding errors, an injected `getMore`
+command error, socket/query timeouts, cancellation after a blocked `getMore` has
+actually started, and concurrent reads. Every scenario checks source-side cursor
+closure and a subsequent successful read. Failpoints target this test's application
+name and are disabled in `finally` blocks. The catalog remains available for
+inspection. This is a focused lifecycle check; the release soak and topology/TLS
+matrices remain separate qualification work.
+
+`03-m1-fixtures.js` creates the independent `doris_mongodb_m1` database for
+`test_mongodb_m1`. The suite compares full sorted results with predicate/LIKE/projection
+switches disabled and enabled, and covers dirty scalar/array values, exact int64 and
+Decimal128 literals, UTC date ranges, nested rollback, subtype mismatches, source
+collation, strict errors, residuals, views, time-series scans and statement overrides.
+Its completed Profile check also verifies the selective candidate reduces `MongoRowsRead`
+from ten source documents to one.

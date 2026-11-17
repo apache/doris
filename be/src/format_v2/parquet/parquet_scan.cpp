@@ -763,6 +763,12 @@ Status finalize_native_row_group_read_plan(
         return Status::OK();
     }
     row_group_plan->expensive_pruning_pending = false;
+    // Encrypted indexes and dictionary pruning are a separate integration stage. Keep this
+    // path sequential, including callers that finalize row groups lazily in the scheduler.
+    if (metadata.encryption() != nullptr) {
+        pruning_stats->selected_row_ranges += row_group_plan->selected_ranges.size();
+        return Status::OK();
+    }
     const auto& thrift = metadata.to_thrift();
     const auto row_group_leaf_ids =
             row_group_leaf_column_ids(file_schema, request, *row_group_plan, request_leaf_ids);
@@ -874,6 +880,12 @@ Status plan_parquet_row_groups(const NativeParquetMetadata& metadata,
     RETURN_IF_ERROR(build_native_row_group_read_plans(metadata, file_schema, request,
                                                       scan_range_selected, row_group_first_rows,
                                                       plan, timezone, runtime_state, file_context));
+    if (metadata.encryption() != nullptr) {
+        plan->enable_bloom_filter = false;
+        plan->pruning_stats.total_row_groups = cast_set<int64_t>(scan_range_selected.size());
+        plan->pruning_stats.selected_row_groups = plan->row_groups.size();
+        return Status::OK();
+    }
     std::vector<RowGroupReadPlan> metadata_selected_plans;
     metadata_selected_plans.reserve(plan->row_groups.size());
     for (auto& row_group_plan : plan->row_groups) {

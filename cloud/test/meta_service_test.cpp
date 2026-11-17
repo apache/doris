@@ -5766,7 +5766,7 @@ TEST(MetaServiceTest, AlterRamTest) {
     auto meta_service = get_meta_service();
     brpc::Controller cntl;
     auto cloud_unique_id = "test_cloud_unique_id";
-    std::string instance_id = "alter_iam_test_instance_id";
+    std::string instance_id = "alter_ram_user_test_instance_id";
     [[maybe_unused]] auto sp = SyncPoint::get_instance();
     DORIS_CLOUD_DEFER {
         SyncPoint::get_instance()->clear_all_call_backs();
@@ -12389,72 +12389,6 @@ TEST(MetaServiceTest, UpdateAkSkTest) {
 
     sp->disable_processing();
     sp->clear_all_call_backs();
-}
-
-TEST(MetaServiceTest, AlterIamTest) {
-    auto meta_service = get_meta_service();
-
-    auto sp = SyncPoint::get_instance();
-    sp->enable_processing();
-    sp->set_call_back("encrypt_ak_sk:get_encryption_key", [](auto&& args) {
-        auto* ret = try_any_cast<int*>(args[0]);
-        *ret = 0;
-        auto* key = try_any_cast<std::string*>(args[1]);
-        *key = "selectdbselectdbselectdbselectdb";
-        auto* key_id = try_any_cast<int64_t*>(args[2]);
-        *key_id = 1;
-    });
-
-    std::string cipher_sk = "JUkuTDctR+ckJtnPkLScWaQZRcOtWBhsLLpnCRxQLxr734qB8cs6gNLH6grE1FxO";
-    std::string plain_sk = "Hx60p12123af234541nsVsffdfsdfghsdfhsdf34t";
-
-    auto get_arn_info_key = [&](RamUserPB& i) {
-        std::string val;
-        std::unique_ptr<Transaction> txn;
-        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
-        ASSERT_EQ(txn->get(system_meta_service_arn_info_key(), &val), TxnErrorCode::TXN_OK);
-        i.ParseFromString(val);
-    };
-
-    // add new system_meta_service_arn_info_key
-    {
-        AlterIamRequest req;
-        req.set_account_id("123");
-        req.set_ak("ak1");
-        req.set_sk(plain_sk);
-
-        brpc::Controller cntl;
-        AlterIamResponse res;
-        meta_service->alter_iam(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
-                                &res, nullptr);
-        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
-        RamUserPB ram_user;
-        get_arn_info_key(ram_user);
-        ASSERT_EQ(ram_user.user_id(), "123");
-        ASSERT_EQ(ram_user.ak(), "ak1");
-        ASSERT_EQ(ram_user.sk(), cipher_sk);
-    }
-    // with old system_meta_service_arn_info_key
-    {
-        AlterIamRequest req;
-        req.set_account_id("321");
-        req.set_ak("ak2");
-        req.set_sk(plain_sk);
-
-        brpc::Controller cntl;
-        AlterIamResponse res;
-        meta_service->alter_iam(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
-                                &res, nullptr);
-        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
-        RamUserPB ram_user;
-        get_arn_info_key(ram_user);
-        ASSERT_EQ(ram_user.user_id(), "321");
-        ASSERT_EQ(ram_user.ak(), "ak2");
-        ASSERT_EQ(ram_user.sk(), cipher_sk);
-    }
-
-    SyncPoint::get_instance()->disable_processing();
-    SyncPoint::get_instance()->clear_all_call_backs();
 }
 
 TEST(MetaServiceTest, UpdateTmpRowsetTest) {
