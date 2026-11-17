@@ -211,7 +211,6 @@ public class StmtExecutor {
     // Keep this state scoped to the coordinator publication handoff: other execution targets
     // retain their existing cancellation contracts.
     private final AtomicReference<Status> pendingCoordinatorCancelReason = new AtomicReference<>();
-    private volatile Coordinator externalDmlAuditCoordinator = null;
     // The coordinator may be cleared after a post-dispatch exception or closed before audit.
     // Pair the snapshot with its query id atomically so a retried attempt cannot inherit
     // stale BEs even when audit and query retry run on different threads.
@@ -577,35 +576,24 @@ public class StmtExecutor {
         return masterOpExecutor != null;
     }
 
-    public void setExternalDmlAuditCoordinator(Coordinator coordinator) {
-        externalDmlAuditCoordinator = coordinator;
-    }
-
-    public Set<Long> getExternalDmlAuditBackendIds() {
-        if (masterOpExecutor != null) {
-            return masterOpExecutor.getAuditStatisticsBackendIds();
-        }
-        return externalDmlAuditCoordinator == null
-                ? Collections.emptySet() : externalDmlAuditCoordinator.getDispatchedBackendIdsForAudit();
-    }
-
     public Set<Long> getAuditStatisticsBackendIds() {
         if (masterOpExecutor != null) {
             return masterOpExecutor.getAuditStatisticsBackendIds();
         }
-        Set<Long> backendIds = Sets.newHashSet(getExternalDmlAuditBackendIds());
+        Set<Long> backendIds = Sets.newHashSet();
         AuditBackendSnapshot snapshot = dispatchedAuditBackends;
         if (snapshot != null && Objects.equals(snapshot.queryId, context.queryId())) {
             backendIds.addAll(snapshot.backendIds);
         }
-        if (coord != null) {
-            backendIds.addAll(coord.getDispatchedBackendIdsForAudit());
+        Coordinator currentCoordinator = coord;
+        if (currentCoordinator != null) {
+            backendIds.addAll(currentCoordinator.getDispatchedBackendIds());
         }
         return backendIds;
     }
 
     private void rememberDispatchedAuditBackends(Coordinator executedCoordinator) {
-        Set<Long> backendIds = executedCoordinator.getDispatchedBackendIdsForAudit();
+        Set<Long> backendIds = executedCoordinator.getDispatchedBackendIds();
         if (!backendIds.isEmpty()) {
             dispatchedAuditBackends = new AuditBackendSnapshot(context.queryId().deepCopy(),
                     Set.copyOf(backendIds));
@@ -785,6 +773,9 @@ public class StmtExecutor {
                 // Replanning reuses StatementContext, but the failed attempt's cleanup closes its connector
                 // scope. Old producers retain that scope until termination; new sessions need a fresh one.
                 statementContext.resetConnectorStatementScope();
+                // The failed attempt's partition-policy proofs stay revoked, but this is a real replan: start
+                // the new attempt from fresh planning state instead of failing every later planning step.
+                statementContext.beginPartitionPolicyReplan();
                 profile.clearPlan();
             } catch (Exception e) {
                 profile.getSummaryProfile().recordFailedAttempt(context.queryId());
@@ -826,7 +817,6 @@ public class StmtExecutor {
         profile.getSummaryProfile().startQueryAttempt(queryId, TimeUtils.getStartTimeMs());
         SessionVariable sessionVariable = context.getSessionVariable();
         context.setEffectiveCloudCluster(null);
-        externalDmlAuditCoordinator = null;
         // Every attempt starts as the statement did. queryRetry() runs this again after a replan
         // error without going back through the processor's beforeStatement, and the failed attempt
         // may have moved the result to the backends (beforeQuery) and registered where.
@@ -1254,13 +1244,7 @@ public class StmtExecutor {
             }
             parsedStmt = statements.get(originStmt.idx);
         }
-        // In the proxy flow (multi-FE forwarding), the StatementContext is created fresh
-        // without a parsedStatement. Propagate it so that downstream code like
-        // canUseNereidsDistributePlanner can correctly identify the Nereids execution
-        // context, ensuring EnvFactory creates a NereidsCoordinator instead of a legacy
-        // Coordinator (which would fail with "fragment has no children").
-        // Only do this when isProxy is true, because other code paths like
-        // executeInternalQuery() rely on legacy Coordinator behavior with mock backends.
+        // Forwarded statements use a fresh StatementContext; retain the parsed statement for later consumers.
         if (isProxy) {
             this.context.getStatementContext().setParsedStatement(parsedStmt);
         }
@@ -1788,6 +1772,7 @@ public class StmtExecutor {
 
     // Process a select statement.
     private void handleQueryStmt() throws Exception {
+        statementContext.validateOrRevalidatePartitionPoliciesForExecution(planner);
         if (LOG.isDebugEnabled()) {
             LOG.debug("Handling query {} with query id {}",
                     originStmt.originStmt, DebugUtil.printId(context.queryId));
@@ -1896,13 +1881,6 @@ public class StmtExecutor {
             coordBase = new PointQueryExecutor(shortCircuitQueryContext,
                     context.getSessionVariable().getMaxMsgSizeOfResultReceiver());
             context.getState().setIsQuery(true);
-        } else if (planner instanceof NereidsPlanner && ((NereidsPlanner) planner).getDistributedPlans() != null) {
-            setCoord(new NereidsCoordinator(context,
-                    (NereidsPlanner) planner, context.getStatsErrorEstimator()));
-            profile.addExecutionProfile(coord.getExecutionProfile());
-            QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),
-                    new QueryInfo(context, originStmt.originStmt, coord));
-            coordBase = coord;
         } else {
             setCoord(EnvFactory.getInstance().createCoordinator(
                     context, planner, context.getStatsErrorEstimator()));

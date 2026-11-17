@@ -22,6 +22,7 @@
 #include "exec/runtime_filter/runtime_filter_consumer.h"
 #include "exec/runtime_filter/runtime_filter_merger.h"
 #include "exec/runtime_filter/runtime_filter_wrapper.h"
+#include "exec/runtime_filter/sync_size_callback.h"
 #include "util/brpc_client_cache.h"
 #include "util/brpc_closure.h"
 

@@ -22,6 +22,7 @@ import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.StructType;
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.qe.ConnectContext;
@@ -64,18 +65,27 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 public class FlightSqlSchemaHelper {
     private static final Logger LOG = LogManager.getLogger(FlightSqlSchemaHelper.class);
+    private static final List<String> TABLE_TYPES = Arrays.stream(TableType.values())
+            .map(TableType::toMysqlType)
+            .filter(Objects::nonNull)
+            .distinct()
+            .sorted()
+            .collect(Collectors.toList());
     private final ConnectContext ctx;
     private final FrontendServiceImpl impl;
     private boolean includeSchema;
     private String catalogFilterPattern = null;
     private String dbSchemaFilterPattern = null;
     private String tableNameFilterPattern = null;
-    private List<String> tableTypesList = null;
+    private Set<String> tableTypeFilter = null;
 
     public FlightSqlSchemaHelper(ConnectContext context) {
         ctx = context;
@@ -161,7 +171,28 @@ public class FlightSqlSchemaHelper {
         catalogFilterPattern = command.hasCatalog() ? command.getCatalog() : "internal";
         dbSchemaFilterPattern = command.hasDbSchemaFilterPattern() ? command.getDbSchemaFilterPattern() : null;
         tableNameFilterPattern = command.hasTableNameFilterPattern() ? command.getTableNameFilterPattern() : null;
-        tableTypesList = command.getTableTypesList().isEmpty() ? null : command.getTableTypesList();
+        tableTypeFilter = command.getTableTypesList().isEmpty() ? null
+                : command.getTableTypesList().stream().map(FlightSqlSchemaHelper::toDorisTableType)
+                        .collect(Collectors.toSet());
+    }
+
+    /**
+     * Maps a type a GetTables request filters on to the name GetTableTypes advertises. Flight SQL leaves the
+     * names to the server but calls TABLE, VIEW and SYSTEM TABLE the commonly supported ones, and clients send
+     * those in either case: the ADBC Flight SQL driver asks for "table", JDBC tools for "TABLE". So a type
+     * matches case-insensitively, and TABLE and SYSTEM TABLE select BASE TABLE and SYSTEM VIEW. Any other name
+     * matches only a type of that name.
+     */
+    private static String toDorisTableType(String requestedType) {
+        String type = requestedType.toUpperCase(Locale.ROOT);
+        switch (type) {
+            case "TABLE":
+                return "BASE TABLE";
+            case "SYSTEM TABLE":
+                return "SYSTEM VIEW";
+            default:
+                return type;
+        }
     }
 
     /**
@@ -199,9 +230,8 @@ public class FlightSqlSchemaHelper {
         if (tableNameFilterPattern != null) {
             getTablesParams.setPattern(tableNameFilterPattern);
         }
-        if (tableTypesList != null) {
-            getTablesParams.setType(tableTypesList.get(0)); // currently only one type is supported.
-        }
+        // Flight SQL only consumes names and types, not the potentially expensive table statistics.
+        getTablesParams.setRequiredColumns(Set.of("TABLE_NAME", "TABLE_TYPE"));
         getTablesParams.setCurrentUserIdent(ctx.getCurrentUserIdentity().toThrift());
         return impl.listTableStatus(getTablesParams);
     }
@@ -319,6 +349,17 @@ public class FlightSqlSchemaHelper {
     }
 
     /**
+     * for FlightSqlProducer Schemas.GET_TABLE_TYPES_SCHEMA
+     */
+    public static void getTableTypes(VectorSchemaRoot vectorSchemaRoot) {
+        VarCharVector tableTypeVector = (VarCharVector) vectorSchemaRoot.getVector("table_type");
+        for (int i = 0; i < TABLE_TYPES.size(); i++) {
+            tableTypeVector.setSafe(i, new Text(TABLE_TYPES.get(i)));
+        }
+        vectorSchemaRoot.setRowCount(TABLE_TYPES.size());
+    }
+
+    /**
      * for FlightSqlProducer Schemas.GET_TABLES_SCHEMA_NO_SCHEMA and Schemas.GET_TABLES_SCHEMA
      */
     public void getTables(VectorSchemaRoot vectorSchemaRoot) throws TException {
@@ -333,12 +374,21 @@ public class FlightSqlSchemaHelper {
         for (int dbIndex = 0; dbIndex < getDbsResult.getDbs().size(); dbIndex++) {
             String dbName = getDbsResult.getDbs().get(dbIndex);
             String catalogName = getDbsResult.isSetCatalogs() ? getDbsResult.getCatalogs().get(dbIndex) : "";
-            TListTableStatusResult listTableStatusResult = listTableStatus(dbName, catalogName);
+            List<TTableStatus> tables = listTableStatus(dbName, catalogName).getTables();
+            if (tableTypeFilter != null) {
+                // The service's single-type filter only handles VIEW. Match all requested types here
+                // against the authorized results, before collecting their optional schemas.
+                tables = tables.stream().filter(table -> tableTypeFilter.contains(table.getType()))
+                        .collect(Collectors.toList());
+            }
+            if (tables.isEmpty()) {
+                continue;
+            }
 
             Map<String, List<Field>> tableToFields;
             if (includeSchema) {
                 List<String> tablesName = new ArrayList<>();
-                for (TTableStatus tableStatus : listTableStatusResult.getTables()) {
+                for (TTableStatus tableStatus : tables) {
                     tablesName.add(tableStatus.getName());
                 }
                 TDescribeTablesResult describeTablesResult = describeTables(dbName, catalogName, tablesName);
@@ -347,7 +397,7 @@ public class FlightSqlSchemaHelper {
                 tableToFields = null;
             }
 
-            for (TTableStatus tableStatus : listTableStatusResult.getTables()) {
+            for (TTableStatus tableStatus : tables) {
                 catalogNameVector.setSafe(tablesCount, new Text(catalogName));
                 schemaNameVector.setSafe(tablesCount, new Text(dbName));
                 tableNameVector.setSafe(tablesCount, new Text(tableStatus.getName()));

@@ -23,6 +23,8 @@ under the License.
     "https://checkstyle.org/dtds/suppressions_1_2.dtd">
 
 <suppressions>
+    <!-- The SDK metadata codec is package-private; only this small access bridge shares its package. -->
+    <suppress files="org[\\/]apache[\\/]iceberg[\\/]encryption[\\/]DorisKeyMetadata\.java" checks="ImportControl"/>
     <!-- Excludes test files from having Javadocs for classes and methods -->
     <suppress files="[\\/]jmockit[\\/]" checks=".*" />
     <suppress files="[\\/]test[\\/]" checks="MissingJavadocMethod" />

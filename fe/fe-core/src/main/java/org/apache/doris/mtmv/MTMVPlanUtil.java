@@ -36,6 +36,8 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.info.TableNameInfo;
+import org.apache.doris.cloud.qe.ComputeGroupException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
@@ -96,6 +98,7 @@ import org.apache.doris.qe.StmtExecutor;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -151,6 +154,27 @@ public class MTMVPlanUtil {
         // After 1, this logic is no longer needed. This is to be compatible with older versions
         setCatalogAndDb(ctx, mtmv);
         return ctx;
+    }
+
+    /**
+     * The compute group of the current session, which a manual refresh of an MV that declares none
+     * borrows. Null outside cloud mode, without a session, or when the session resolves none.
+     */
+    @Nullable
+    public static String getSessionComputeGroup() {
+        if (!Config.isCloudMode()) {
+            return null;
+        }
+        ConnectContext ctx = ConnectContext.get();
+        if (ctx == null) {
+            return null;
+        }
+        try {
+            return ctx.getCloudCluster(false);
+        } catch (ComputeGroupException e) {
+            LOG.warn("failed to resolve compute group for refresh mtmv", e);
+            return null;
+        }
     }
 
     /**
@@ -1059,7 +1083,22 @@ public class MTMVPlanUtil {
         }
         checkColumnIfChange(mtmv, mtmvAnalyzedQueryInfo.getColumnDefinitions());
         checkMTMVPartitionInfo(mtmv, mtmvAnalyzedQueryInfo.getMvPartitionInfo());
+        checkVariantEscapeDotsInKeys(mtmv, mtmvAnalyzedQueryInfo.getRelation());
         return mtmvAnalyzedQueryInfo;
+    }
+
+    private static void checkVariantEscapeDotsInKeys(MTMV mtmv, MTMVRelation relation) throws JobException {
+        try {
+            List<TableIf> baseTables = Lists.newArrayList();
+            for (BaseTableInfo baseTable : relation.getBaseTables()) {
+                baseTables.add(MTMVUtil.getTable(baseTable));
+            }
+            PropertyAnalyzer.inheritVariantEscapeDotsInKeys(ImmutableMap.of(
+                    PropertyAnalyzer.PROPERTIES_VARIANT_ESCAPE_DOTS_IN_KEYS,
+                    Boolean.toString(mtmv.getVariantEscapeDotsInKeys())), baseTables, true);
+        } catch (org.apache.doris.common.AnalysisException e) {
+            throw new JobException(e.getMessage(), e);
+        }
     }
 
     private static void checkMTMVPartitionInfo(MTMV mtmv, MTMVPartitionInfo analyzedMvPartitionInfo)

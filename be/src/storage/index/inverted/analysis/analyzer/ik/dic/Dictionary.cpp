@@ -30,7 +30,8 @@ void Dictionary::loadDictFile(DictSegment* dict, const std::string& file_path, b
                               const std::string& dict_name) {
     std::ifstream in(file_path);
     if (!in.good()) {
-        _CLTHROWA(CL_ERR_IO, (dict_name + " dictionary file not found: " + file_path).c_str());
+        throw Exception(ErrorCode::INVERTED_INDEX_ANALYZER_ERROR,
+                        "{} dictionary file not found: {}", dict_name, file_path);
     }
 
     std::string line;
@@ -54,14 +55,14 @@ void Dictionary::loadMainDict() {
                 try {
                     loadDictFile(main_dict_.get(), config_->getDictPath() + "/" + extDict, false,
                                  "Extra Dict");
-                } catch (const CLuceneError& e) {
+                } catch (const Exception& e) {
                     // Extension dictionary loading failure is logged but doesn't affect main functionality
                     LOG(WARNING) << "Failed to load extension dictionary " << extDict << ": "
                                  << e.what();
                 }
             }
         }
-    } catch (const CLuceneError& e) {
+    } catch (const Exception& e) {
         LOG(ERROR) << "Failed to load main dictionary: " << e.what();
         throw;
     }
@@ -79,7 +80,7 @@ void Dictionary::loadStopWordDict() {
                 try {
                     loadDictFile(stop_words_.get(), config_->getDictPath() + "/" + extDict, false,
                                  "Extra Stopword");
-                } catch (const CLuceneError& e) {
+                } catch (const Exception& e) {
                     // Extension stopword loading failure is just logged
                     LOG(WARNING) << "Failed to load extension stop word dictionary " << extDict
                                  << ": " << e.what();
@@ -98,31 +99,31 @@ void Dictionary::loadQuantifierDict() {
         loadDictFile(quantifier_dict_.get(),
                      config_->getDictPath() + "/" + config_->getQuantifierDictFile(), true,
                      "Quantifier");
-    } catch (const CLuceneError& e) {
+    } catch (const Exception& e) {
         LOG(ERROR) << "Failed to load quantifier dictionary: " << e.what();
         throw;
     }
 }
 
-void Dictionary::reload() {
-    if (!singleton_) {
-        // Singleton doesn't exist, can't reload
-        _CLTHROWA(CL_ERR_IllegalState, "Dictionary not initialized, cannot reload");
+void Dictionary::initial(const Configuration& cfg, bool useExtDict) {
+    if (singleton_.load(std::memory_order_acquire) != nullptr) {
+        return;
     }
-
+    std::lock_guard<std::mutex> lock(init_mutex_);
+    if (singleton_.load(std::memory_order_relaxed) != nullptr) {
+        return;
+    }
+    std::unique_ptr<Dictionary> dictionary(new Dictionary(cfg, useExtDict));
     try {
-        // Try to reload all dictionaries
-        singleton_->loadMainDict();
-        singleton_->loadStopWordDict();
-        singleton_->loadQuantifierDict();
-
-        init_success_ = true;
-        LOG(INFO) << "Dictionary reloaded successfully";
-    } catch (const CLuceneError& e) {
-        LOG(ERROR) << "Failed to reload dictionary: " << e.what();
-
-        throw;
+        dictionary->loadMainDict();
+        dictionary->loadQuantifierDict();
+        dictionary->loadStopWordDict();
+    } catch (const Exception& e) {
+        LOG(ERROR) << "Dictionary loading failed: " << e.what();
+        throw Exception(ErrorCode::INVERTED_INDEX_ANALYZER_ERROR,
+                        "Dictionary initialization failed");
     }
+    singleton_.store(dictionary.release(), std::memory_order_release);
 }
 
 Hit Dictionary::matchInMainDict(const CharacterUtil::TypedRuneArray& typed_runes,

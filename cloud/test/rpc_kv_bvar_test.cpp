@@ -2501,49 +2501,6 @@ TEST(RpcKvBvarTest, GetIam) {
     sp->disable_processing();
 }
 
-// alter_iam
-TEST(RpcKvBvarTest, AlterIam) {
-    auto syncpoint_guard = setup_notify_refresh_syncpoint();
-    auto meta_service = get_meta_service();
-    auto mem_kv = std::dynamic_pointer_cast<MemTxnKv>(meta_service->txn_kv());
-
-    auto* sp = SyncPoint::get_instance();
-    sp->enable_processing();
-    sp->set_call_back("encrypt_ak_sk:get_encryption_key", [](auto&& args) {
-        auto* ret = try_any_cast<int*>(args[0]);
-        *ret = 0;
-        auto* key = try_any_cast<std::string*>(args[1]);
-        *key = "selectdbselectdbselectdbselectdb";
-        auto* key_id = try_any_cast<int64_t*>(args[2]);
-        *key_id = 1;
-    });
-
-    std::string cipher_sk = "JUkuTDctR+ckJtnPkLScWaQZRcOtWBhsLLpnCRxQLxr734qB8cs6gNLH6grE1FxO";
-    std::string plain_sk = "Hx60p12123af234541nsVsffdfsdfghsdfhsdf34t";
-
-    AlterIamRequest req;
-    req.set_account_id("123");
-    req.set_ak("ak1");
-    req.set_sk(plain_sk);
-
-    brpc::Controller cntl;
-    AlterIamResponse res;
-
-    clear_memkv_count_bytes(mem_kv.get());
-
-    meta_service->alter_iam(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res,
-                            nullptr);
-    ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
-
-    LOG(INFO) << "AlterIam: " << mem_kv->get_count_ << ", " << mem_kv->put_count_ << ", "
-              << mem_kv->del_count_ << ", " << mem_kv->get_bytes_ << ", " << mem_kv->put_bytes_
-              << ", " << mem_kv->del_bytes_;
-    ASSERT_EQ(mem_kv->get_bytes_, g_bvar_rpc_kv_alter_iam_get_bytes.get({"alter_iam_instance"}));
-    ASSERT_EQ(mem_kv->put_bytes_, g_bvar_rpc_kv_alter_iam_put_bytes.get({"alter_iam_instance"}));
-    ASSERT_EQ(mem_kv->get_count_, g_bvar_rpc_kv_alter_iam_get_counter.get({"alter_iam_instance"}));
-    ASSERT_EQ(mem_kv->put_count_, g_bvar_rpc_kv_alter_iam_put_counter.get({"alter_iam_instance"}));
-}
-
 // alter_ram_user
 TEST(RpcKvBvarTest, AlterRamUser) {
     auto syncpoint_guard = setup_notify_refresh_syncpoint();

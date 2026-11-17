@@ -92,10 +92,26 @@ struct ReadStatistics {
     int64_t lock_wait_timer = 0;
     int64_t get_timer = 0;
     int64_t set_timer = 0;
+    int64_t io_adaptor_lookup_count = 0;
+    int64_t io_adaptor_lookup_time_ns = 0;
+    int64_t io_adaptor_local_reads = 0;
+    int64_t io_adaptor_local_time_ns = 0;
+    int64_t io_adaptor_bypass_count = 0;
+    int64_t io_adaptor_bypass_bytes = 0;
+    int64_t io_adaptor_remote_bytes = 0;
+    int64_t io_adaptor_remote_time_ns = 0;
+    int64_t io_adaptor_local_probes = 0;
+    int64_t io_adaptor_remote_probes = 0;
+    int64_t io_adaptor_remote_failures = 0;
+    int64_t io_adaptor_fallback_local = 0;
     int64_t async_cache_write_submitted = 0;
     int64_t async_cache_write_rejected = 0;
     int64_t async_cache_write_buffer_alloc_fail = 0;
     int64_t async_cache_write_drop_stale_epoch = 0;
+    // Async-write read path, query thread only: copying remote/peer data into the user buffer, and
+    // building plus enqueueing write tasks. Remote IO itself is in remote/peer_read_timer.
+    int64_t async_copy_to_user_timer = 0;
+    int64_t async_submit_write_timer = 0;
     int64_t inflight_write_buffer_index_hit = 0;
     int64_t inflight_write_buffer_index_miss = 0;
     int64_t probe_downloaded_hit = 0;

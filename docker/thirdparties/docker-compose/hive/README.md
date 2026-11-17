@@ -116,11 +116,11 @@ Relevant env vars:
 After bootstrapping a clean Hive stack, stop the containers and run:
 
 ```bash
-sudo docker compose -p "${CONTAINER_UID}hive3" \
+docker compose -p "${CONTAINER_UID}hive3" \
   -f docker/thirdparties/docker-compose/hive/hive-3x.yaml down
 
 bash docker/thirdparties/docker-compose/hive/scripts/snapshot-hive-baseline.sh \
-  "${CONTAINER_UID}hive3" /tmp/hive3-baseline.tar.gz
+  "doris-shared-hive3" /tmp/hive3-baseline.tar.gz
 ```
 
 Then upload the resulting tarball to OSS at `oss://<s3BucketName>/regression/datalake/pipeline_data/hive_baseline/hive3-baseline-<version>.tar.gz` (same convention for `hive2`).

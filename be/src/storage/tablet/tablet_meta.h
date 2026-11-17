@@ -18,7 +18,6 @@
 #pragma once
 
 #include <gen_cpp/AgentService_types.h>
-#include <gen_cpp/FrontendService_types.h>
 #include <gen_cpp/olap_file.pb.h>
 #include <stdint.h>
 

@@ -88,14 +88,15 @@ public class ConnectorPluginSurfaceTest {
             Assertions.assertNotNull(in, "missing connector plugin API version resource");
             version.load(in);
         }
-        // Major 26 adds scan cancellation notifications and task removal to the scheduler surface.
-        Assertions.assertEquals("26.0", version.getProperty("api.version"));
+        // Major 31 adds ConnectorFunctionCall#isBuiltin, which tells a UDF from a builtin of the same name.
+        Assertions.assertEquals("31.0", version.getProperty("api.version"));
     }
 
     /** Root entry points plus provider/handle types returned to connector plugins. */
     private static final List<Class<?>> FROZEN_TYPES = Arrays.asList(
             ConnectorTaskScheduler.class,
             DiagnosticException.class,
+            ConnectorTableNotFoundException.class,
             ConnectorProvider.class,
             ConnectorSecuritySurface.class,
             ConnectorContext.class,

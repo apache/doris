@@ -1034,6 +1034,40 @@ build_cyrus_sasl() {
     fi
 }
 
+# MongoDB C Driver: keep libbson and libmongoc at the same release and ABI.
+build_mongo_c_driver() {
+    check_if_source_exist "${MONGO_C_DRIVER_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${MONGO_C_DRIVER_SOURCE}"
+    rm -rf "${BUILD_DIR}"
+    mkdir -p "${BUILD_DIR}"
+    cd "${BUILD_DIR}"
+
+    # Re-root relocatable pkg-config files from prebuilt archives, and exclude host packages.
+    PKG_CONFIG_PATH="${TP_LIB_DIR}/pkgconfig" \
+        PKG_CONFIG_LIBDIR="${TP_LIB_DIR}/pkgconfig" \
+        "${CMAKE_CMD}" -G "${GENERATOR}" \
+        -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
+        -C "${TP_DIR}/cmake/mongo-c-driver-cache.cmake" \
+        -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+        -DCMAKE_INSTALL_LIBDIR=lib64 \
+        -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+        -DPKG_CONFIG_ARGN="--define-variable=prefix=${TP_INSTALL_DIR}" \
+        -DENABLE_STATIC=ON -DENABLE_SHARED=OFF -DENABLE_PIC=ON \
+        -DENABLE_TESTS=OFF -DENABLE_EXAMPLES=OFF \
+        -DENABLE_MAN_PAGES=OFF -DENABLE_HTML_DOCS=OFF -DENABLE_UNINSTALL=OFF \
+        -DENABLE_SSL=OPENSSL -DENABLE_SASL=CYRUS -DENABLE_SRV=ON \
+        -DENABLE_SNAPPY=ON -DENABLE_ZSTD=ON -DENABLE_ZLIB=SYSTEM \
+        -DUSE_BUNDLED_UTF8PROC=ON \
+        -DENABLE_CLIENT_SIDE_ENCRYPTION=OFF -DENABLE_MONGODB_AWS_AUTH=OFF \
+        -DENABLE_SHM_COUNTERS=OFF -DENABLE_MAINTAINER_FLAGS=OFF \
+        -DBSON_INSTALL_INCLUDEDIR=include/bson-2.0 \
+        -DMONGOC_INSTALL_INCLUDEDIR=include/mongoc-2.0 ..
+    "${CMAKE_CMD}" --build . --parallel "${PARALLEL}"
+    "${CMAKE_CMD}" --install .
+    strip_lib libbson2.a
+    strip_lib libmongoc2.a
+}
+
 # librdkafka
 build_librdkafka() {
     check_if_source_exist "${LIBRDKAFKA_SOURCE}"
@@ -1165,6 +1199,16 @@ build_arrow() {
     check_if_source_exist "${ARROW_SOURCE}"
     cd "${TP_SOURCE_DIR}/${ARROW_SOURCE}/cpp"
 
+    # CMake otherwise accepts a host OpenSSL when this dependency is missing.
+    # Keep both headers and static libraries in the same Doris third-party prefix.
+    local openssl_file
+    for openssl_file in include/openssl/ssl.h lib/libssl.a lib/libcrypto.a; do
+        if [[ ! -f "${TP_INSTALL_DIR}/${openssl_file}" ]]; then
+            echo "Missing Arrow OpenSSL dependency: ${TP_INSTALL_DIR}/${openssl_file}"
+            exit 1
+        fi
+    done
+
     mkdir -p release
     cd release
 
@@ -1187,10 +1231,17 @@ build_arrow() {
         ldflags="-L${TP_LIB_DIR}"
     fi
 
+    # Without this option Parquet links encryption stubs that throw at runtime,
+    # even when the BE itself already links OpenSSL.
     LDFLAGS="${ldflags}" \
         "${CMAKE_CMD}" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
         -DCMAKE_CXX_STANDARD="${TP_CXX_STANDARD}" \
         -G "${GENERATOR}" -DARROW_PARQUET=ON -DARROW_IPC=ON -DARROW_BUILD_SHARED=OFF \
+        -DPARQUET_REQUIRE_ENCRYPTION=ON -DARROW_OPENSSL_USE_SHARED=OFF \
+        -DOPENSSL_ROOT_DIR="${TP_INSTALL_DIR}" \
+        -DOPENSSL_INCLUDE_DIR="${TP_INSTALL_DIR}/include" \
+        -DOPENSSL_SSL_LIBRARY="${TP_INSTALL_DIR}/lib/libssl.a" \
+        -DOPENSSL_CRYPTO_LIBRARY="${TP_INSTALL_DIR}/lib/libcrypto.a" \
         -DARROW_BUILD_STATIC=ON -DARROW_WITH_BROTLI=ON -DARROW_WITH_LZ4=ON -DARROW_USE_GLOG=ON \
         -DARROW_WITH_SNAPPY=ON -DARROW_WITH_ZLIB=ON -DARROW_WITH_ZSTD=ON -DARROW_JSON=ON \
         -DARROW_WITH_UTF8PROC=OFF -DARROW_WITH_RE2=ON -DARROW_ORC=ON \
@@ -1239,6 +1290,12 @@ build_arrow() {
 
     "${BUILD_SYSTEM}" -j "${PARALLEL}"
     "${BUILD_SYSTEM}" install
+
+    # Arrow excludes internal headers from installation, but the native Parquet
+    # reader needs these module decryptors instead of replacing its scan path.
+    install -m 644 ../src/parquet/encryption/encryption_internal.h \
+        ../src/parquet/encryption/internal_file_decryptor.h \
+        "${TP_INSTALL_DIR}/include/parquet/encryption/"
 
     #copy dep libs
     cp -rf ./brotli_ep/src/brotli_ep-install/lib/libbrotlienc-static.a "${TP_INSTALL_DIR}/lib64/libbrotlienc.a"
@@ -2672,6 +2729,7 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         rocksdb
         krb5 # before cyrus_sasl
         cyrus_sasl
+        mongo_c_driver # after OpenSSL, zlib, zstd, Snappy and Cyrus SASL
         librdkafka
         flatbuffers
         orc
@@ -2770,6 +2828,7 @@ cleanup_package_source() {
         brpc)            src_var="BRPC_SOURCE" ;;
         rocksdb)         src_var="ROCKSDB_SOURCE" ;;
         cyrus_sasl)      src_var="CYRUS_SASL_SOURCE" ;;
+        mongo_c_driver)  src_var="MONGO_C_DRIVER_SOURCE" ;;
         librdkafka)      src_var="LIBRDKAFKA_SOURCE" ;;
         flatbuffers)     src_var="FLATBUFFERS_SOURCE" ;;
         arrow)           src_var="ARROW_SOURCE" ;;

@@ -17,47 +17,42 @@
 
 #pragma once
 
+#include <memory>
 #include <optional>
+#include <string>
 #include <string_view>
 
-#include "storage/index/inverted/analysis/token_filter/token_filter.h"
+#include "storage/index/inverted/analysis/per_token_stream.h"
 
 namespace doris::segment_v2::inverted_index {
 
-class ASCIIFoldingFilter : public DorisTokenFilter {
+// Folds the letters, digits and symbols of every token to their ASCII equivalents; with
+// preserve_original, a token that changed is followed by the original at the same position.
+class ASCIIFoldingFilter final : public PerTokenFilter {
 public:
-    ASCIIFoldingFilter(const TokenStreamPtr& in, bool preserve_original);
-    ~ASCIIFoldingFilter() override = default;
+    ASCIIFoldingFilter(std::unique_ptr<TextTokenStream> in, bool preserve_original);
 
-    Token* next(Token* t) override;
-    void reset() override;
-
-    std::span<const int32_t> get_source_byte_offsets() const override;
-    std::span<const int32_t> get_source_byte_end_offsets() const override;
-    bool get_conservative_source_byte_span(int32_t& start, int32_t& end) const override;
-    void set_source_byte_offsets_enabled(bool enabled) override;
+    // The scratch of one folded token, and the input.
+    size_t reserved_bytes() const override {
+        return PerTokenFilter::reserved_bytes() + _output.capacity();
+    }
 
     static int32_t fold_to_ascii(const char* in, int32_t input_pos, char* out, int32_t output_pos,
                                  int32_t length);
 
-#ifdef BE_TEST
-    bool rune_count_changed_for_test() const { return _rune_count_changed; }
-#endif
+protected:
+    void on_reset() override;
+    bool next_token(TokenRef& token) override;
 
 private:
     void fold_to_ascii(const char* in, int32_t length);
     bool need_to_preserve(const char* in, int32_t input_length);
 
+    // The original of the token last folded, still to come out.
     std::optional<std::string_view> _state;
-
     bool _preserve_original = false;
-    int32_t _output_pos;
+    int32_t _output_pos = 0;
     std::string _output;
-    int32_t _source_start = 0;
-    int32_t _source_end = 0;
-    bool _rune_count_changed = false;
-    bool _has_source_span = false;
-    bool _source_byte_offsets_enabled = false;
 };
 
 } // namespace doris::segment_v2::inverted_index

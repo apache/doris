@@ -163,11 +163,19 @@ public class IvmRewriteContext {
                 Collections.emptyMap());
     }
 
-    /** EXPLAIN REFRESH COMPLETE: only a plan is produced. */
+    /**
+     * EXPLAIN REFRESH COMPLETE: only a plan is produced, and it is the plan a whole-MV COMPLETE
+     * refresh runs. That refresh reads its base tables through IVM table streams in RESET mode for
+     * the first batch of a whole-MV refresh and for every table it does not partition by, and the
+     * full-refresh rewrite reads every stream in this mode under EXPLAIN: one plan stands for the
+     * whole refresh, and RESET is the read it starts with. A context that left the mode empty would
+     * plan the normalized query over ordinary base scans -- a different plan from the one the
+     * refresh executes.
+     */
     public static IvmRewriteContext fullExplain(MTMV mtmv) {
         return new IvmRewriteContext(Mode.FULL, Objects.requireNonNull(mtmv, "mtmv can not be null"),
-                null, false, ExecutionKind.EXPLAIN, Optional.empty(), Collections.emptyMap(), Optional.empty(),
-                Collections.emptyMap());
+                null, false, ExecutionKind.EXPLAIN, Optional.empty(), Collections.emptyMap(),
+                Optional.of(StreamReadMode.RESET), Collections.emptyMap());
     }
 
     public static IvmRewriteContext full(MTMV mtmv) {

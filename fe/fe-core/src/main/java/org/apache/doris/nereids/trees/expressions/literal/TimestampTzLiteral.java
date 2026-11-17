@@ -18,17 +18,18 @@
 package org.apache.doris.nereids.trees.expressions.literal;
 
 import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.common.util.TimeZoneParser;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeExtractAndTransform;
 import org.apache.doris.nereids.trees.expressions.literal.format.DateTimeChecker;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TimeStampTzType;
+import org.apache.doris.nereids.util.DateUtils;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
@@ -36,6 +37,8 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.util.Objects;
 
 /**
@@ -78,11 +81,7 @@ public class TimestampTzLiteral extends DateTimeLiteral {
      * strings without one are interpreted in the current session timezone and converted to UTC.
      */
     public static TimestampTzLiteral fromSessionTimeZone(TimeStampTzType dateType, String s) {
-        if (DateTimeChecker.hasTimeZone(s)) {
-            return new TimestampTzLiteral(dateType, s);
-        }
-
-        return fromSessionTimeZone(dateType, new DateTimeV2Literal(s));
+        return fromTimeZone(dateType, s, getSessionTimeZone());
     }
 
     /**
@@ -102,7 +101,10 @@ public class TimestampTzLiteral extends DateTimeLiteral {
         if (DateTimeChecker.hasTimeZone(s)) {
             return new TimestampTzLiteral(dateType, s);
         }
-        return fromTimeZone(dateType, new DateTimeV2Literal(s), timeZone);
+        // Parse at the target scale before applying the zone. An intermediate
+        // DATETIMEV2(6) can round .4999996 to .500000 and cause a second carry.
+        TimestampTzLiteral local = new TimestampTzLiteral(dateType, s);
+        return fromLocalDateTime(dateType, local.toJavaDateType(), timeZone);
     }
 
     /**
@@ -110,18 +112,29 @@ public class TimestampTzLiteral extends DateTimeLiteral {
      */
     public static TimestampTzLiteral fromTimeZone(TimeStampTzType dateType, DateTimeV2Literal literal,
             String timeZone) {
-        DateTimeV2Literal utcLiteral = (DateTimeV2Literal) DateTimeExtractAndTransform.convertTz(
-                literal,
-                new StringLiteral(timeZone),
-                new StringLiteral("UTC"));
+        // Round before the zone lookup, as BE does. Rounding 02:59:59.9 to seconds
+        // reaches 03:00 in New York, which is outside the gap on 2024-03-10.
+        DateTimeV2Literal rounded = new DateTimeV2Literal(DateTimeV2Type.of(dateType.getScale()),
+                literal.year, literal.month, literal.day, literal.hour, literal.minute,
+                literal.second, literal.microSecond);
+        return fromLocalDateTime(dateType, rounded.toJavaDateType(), timeZone);
+    }
+
+    private static TimestampTzLiteral fromLocalDateTime(TimeStampTzType dateType,
+            LocalDateTime local, String timeZone) {
+        LocalDateTime utc = toUtc(local,
+                TimeZoneParser.parse(timeZone, TimeZoneParser.Usage.SESSION));
         return new TimestampTzLiteral(dateType,
-                utcLiteral.year,
-                utcLiteral.month,
-                utcLiteral.day,
-                utcLiteral.hour,
-                utcLiteral.minute,
-                utcLiteral.second,
-                utcLiteral.microSecond);
+                utc.getYear(), utc.getMonthValue(), utc.getDayOfMonth(),
+                utc.getHour(), utc.getMinute(), utc.getSecond(), utc.getNano() / 1000);
+    }
+
+    /**
+     * Convert TIMESTAMPTZ input to UTC. Preserve its position within a time zone gap.
+     * Use the shared gap and overlap policy in {@link DateUtils#convertLocalToInstant}.
+     */
+    static LocalDateTime toUtc(LocalDateTime localDateTime, ZoneId zone) {
+        return LocalDateTime.ofInstant(DateUtils.convertLocalToInstant(localDateTime, zone), ZoneOffset.UTC);
     }
 
     private static String getSessionTimeZone() {
@@ -174,19 +187,14 @@ public class TimestampTzLiteral extends DateTimeLiteral {
         } else if (targetType instanceof TimeStampNsType) {
             DateTimeV2Literal dtV2Lit = new DateTimeV2Literal(DateTimeV2Type.MAX,
                     year, month, day, hour, minute, second, microSecond);
-            dtV2Lit = (DateTimeV2Literal) DateTimeExtractAndTransform.convertTz(
-                    dtV2Lit, new StringLiteral("UTC"),
-                    new StringLiteral(getSessionTimeZone()));
+            dtV2Lit = dtV2Lit.inTimeZone("UTC", getSessionTimeZone());
             return new TimeStampNsLiteral(dtV2Lit.getYear(), dtV2Lit.getMonth(), dtV2Lit.getDay(),
                     dtV2Lit.getHour(), dtV2Lit.getMinute(), dtV2Lit.getSecond(),
                     dtV2Lit.getMicroSecond() * 1000L);
         } else if (targetType.isDateTimeV2Type()) {
             DateTimeV2Literal dtV2Lit = new DateTimeV2Literal((DateTimeV2Type) targetType,
                     year, month, day, hour, minute, second, microSecond);
-            dtV2Lit = (DateTimeV2Literal) (DateTimeExtractAndTransform.convertTz(
-                    dtV2Lit,
-                    new StringLiteral("UTC"),
-                    new StringLiteral(getSessionTimeZone())));
+            dtV2Lit = dtV2Lit.inTimeZone("UTC", getSessionTimeZone());
             return dtV2Lit;
         }
         throw new AnalysisException(String.format("Cast from %s to %s not supported", this, targetType));

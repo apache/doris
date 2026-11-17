@@ -134,6 +134,8 @@ public class PluginDrivenScanNodeCastPredicateTest extends TestWithFeService {
         StmtExecutor executor = new StmtExecutor(connectContext,
                 "select * from db1.cast_predicates where " + predicate);
         executor.execute();
+        Assertions.assertNotEquals(org.apache.doris.qe.QueryState.MysqlStateType.ERR,
+                connectContext.getState().getStateType(), connectContext.getState().getErrorMessage());
         return executor.planner().getScanNodes().get(0).getConjuncts();
     }
 

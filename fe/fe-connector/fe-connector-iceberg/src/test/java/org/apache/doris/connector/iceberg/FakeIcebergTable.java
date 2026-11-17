@@ -42,6 +42,7 @@ import org.apache.iceberg.UpdatePartitionSpec;
 import org.apache.iceberg.UpdateProperties;
 import org.apache.iceberg.UpdateSchema;
 import org.apache.iceberg.encryption.EncryptionManager;
+import org.apache.iceberg.encryption.PlaintextEncryptionManager;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.io.LocationProvider;
 
@@ -298,7 +299,7 @@ final class FakeIcebergTable implements Table {
 
     @Override
     public EncryptionManager encryption() {
-        throw new UnsupportedOperationException();
+        return PlaintextEncryptionManager.instance();
     }
 
     @Override

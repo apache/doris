@@ -822,6 +822,56 @@ TEST_F(CloudCompactionTest, changelog_ttl_snapshot_selects_expired_rowset) {
     EXPECT_EQ(compaction._input_rowsets.front(), expired);
 }
 
+TEST_F(CloudCompactionTest, changelog_ttl_cleanup_counted_as_compaction_finishes) {
+    auto tablet_meta = create_cloud_compaction_test_tablet_meta(10020);
+    tablet_meta->set_tablet_role(TabletRolePB::TABLET_ROLE_CHANGELOG);
+    BinlogConfig binlog_config(true, 10, 1024, 10, BinlogFormatPB::CHANGELOG, false);
+    tablet_meta->set_binlog_config(binlog_config);
+    const int64_t reference_tso = 100000L << kTsoLogicalBits;
+    _cluster_info->advance_changelog_ttl_reference_tso(reference_tso);
+    const int64_t cutoff = changelog_ttl_cutoff_tso(reference_tso, 10);
+    auto tablet = std::make_shared<CloudTablet>(_engine, tablet_meta);
+    TestableCloudCumulativeCompaction compaction(_engine, tablet);
+    compaction.snapshot_changelog_ttl();
+
+    auto expired = create_rowset(Version(2, 2), 1, false, 1024);
+    expired->rowset_meta()->set_num_rows(1);
+    expired->rowset_meta()->set_commit_tso(cutoff);
+    auto retained = create_rowset(Version(3, 3), 1, false, 2048);
+    retained->rowset_meta()->set_num_rows(1);
+    retained->rowset_meta()->set_commit_tso(cutoff + 1);
+    compaction.set_input_rowsets({expired, retained});
+    compaction.set_output_rowset(create_rowset(Version(2, 3), 1, false, 2048));
+
+    auto* metrics = DorisMetrics::instance();
+    // Recording the success also counts the compaction in the cumulative compaction totals, which DorisMetricsTest
+    // reads as absolute values in this same process.
+    const int64_t cumulative_deltas = metrics->cumulative_compaction_deltas_total->value();
+    const int64_t cumulative_bytes = metrics->cumulative_compaction_bytes_total->value();
+    Defer restore_cumulative_totals {[&]() {
+        metrics->cumulative_compaction_deltas_total->set_value(cumulative_deltas);
+        metrics->cumulative_compaction_bytes_total->set_value(cumulative_bytes);
+    }};
+    const int64_t successes = metrics->changelog_ttl_cleanup_success_total->value();
+    const int64_t failures = metrics->changelog_ttl_cleanup_failed_total->value();
+    const int64_t reclaimed_bytes = metrics->changelog_ttl_reclaimed_bytes_total->value();
+    const int64_t started_s = UnixSeconds();
+    compaction.record_compaction_success(std::chrono::steady_clock::now());
+    EXPECT_EQ(metrics->changelog_ttl_cleanup_success_total->value(), successes + 1);
+    EXPECT_EQ(metrics->changelog_ttl_cleanup_failed_total->value(), failures);
+    // the expired rowset is dropped, the retained one is merged
+    EXPECT_EQ(metrics->changelog_ttl_reclaimed_bytes_total->value(), reclaimed_bytes + 1024);
+    const int64_t last_success_s = metrics->changelog_ttl_last_success_timestamp_seconds->value();
+    EXPECT_GE(last_success_s, started_s);
+    EXPECT_LE(last_success_s, UnixSeconds());
+
+    EXPECT_FALSE(compaction.record_compaction_failure(Status::InternalError("injected")).ok());
+    EXPECT_EQ(metrics->changelog_ttl_cleanup_success_total->value(), successes + 1);
+    EXPECT_EQ(metrics->changelog_ttl_cleanup_failed_total->value(), failures + 1);
+    EXPECT_EQ(metrics->changelog_ttl_reclaimed_bytes_total->value(), reclaimed_bytes + 1024);
+    EXPECT_EQ(metrics->changelog_ttl_last_success_timestamp_seconds->value(), last_success_s);
+}
+
 TEST_F(CloudCompactionTest, changelog_ttl_prevents_cumulative_point_from_skipping_expired) {
     auto old_parallel_cumu_compaction = config::enable_parallel_cumu_compaction;
     Defer restore_config(

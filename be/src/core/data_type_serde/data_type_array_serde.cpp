@@ -31,12 +31,15 @@
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/get_least_supertype.h"
+#include "core/data_type_serde/arrow_parent_nulls.h"
 #include "core/data_type_serde/arrow_validation.h"
+#include "core/data_type_serde/bson_value_view.h"
 #include "core/data_type_serde/complex_type_deserialize_util.h"
 #include "core/data_type_serde/orc_serde_utils.h"
 #include "core/string_ref.h"
 #include "exprs/function/function_helpers.h"
 #include "storage/field_type.h"
+#include "util/defer_op.h"
 #include "util/jsonb_document.h"
 #include "util/jsonb_writer.h"
 
@@ -407,9 +410,19 @@ Status DataTypeArraySerDe::read_column_from_arrow(IColumn& column, const arrow::
             // Convert Arrow offsets to Doris offsets, starting at offsets.back().
             offsets_data.emplace_back(prev_size + read_offset(i) - arrow_nested_start_offset);
         }
-        return nested_serde->read_column_from_arrow(
-                column_array.get_data(), concrete_array->values().get(), arrow_nested_start_offset,
-                arrow_nested_end_offset, ctz);
+        // A NULL row still owns its child segment: always list_size values for a fixed-size
+        // list, possibly a non-empty one for a list. The values there are unspecified and are
+        // not decoded.
+        std::shared_ptr<arrow::Array> values;
+        RETURN_IF_ERROR(mask_arrow_children_hidden_by_null_parents(
+                *concrete_array, start, end, concrete_array->values(),
+                [&read_offset](int64_t row) {
+                    return std::pair<int64_t, int64_t>(read_offset(row), read_offset(row + 1));
+                },
+                &values));
+        return nested_serde->read_column_from_arrow(column_array.get_data(), values.get(),
+                                                    arrow_nested_start_offset,
+                                                    arrow_nested_end_offset, ctz);
     };
 
     switch (arrow_array->type_id()) {
@@ -789,6 +802,49 @@ Status DataTypeArraySerDe::read_column_from_orc(IColumn& column,
         return Status::OK();
     }
     return decode_list_orc_values(nested_serde, column, view);
+}
+
+Status DataTypeArraySerDe::decode_bson_value(IColumn& column, const BsonValueView& value,
+                                             const BsonDecodeContext& context) const {
+    RETURN_IF_ERROR(context.validate(value));
+    if (value.missing || value.value.value_type != BSON_TYPE_ARRAY || !context.binding ||
+        context.binding->children.size() != 1) {
+        return Status::InvalidArgument("BSON ARRAY requires one pinned element binding");
+    }
+    bson_t document;
+    bson_iter_t it;
+    if (!bson_init_static(&document, value.value.value.v_doc.data,
+                          value.value.value.v_doc.data_len) ||
+        !bson_iter_init(&it, &document)) {
+        return Status::InvalidArgument("Invalid BSON array");
+    }
+    auto& target = assert_cast<ColumnArray&>(column);
+    auto& data = target.get_data();
+    const size_t before = data.size();
+    const size_t offsets_before = target.get_offsets().size();
+    bool committed = false;
+    Defer rollback([&] {
+        if (!committed) {
+            if (data.size() > before) {
+                data.pop_back(data.size() - before);
+            }
+            target.get_offsets().resize(offsets_before);
+        }
+    });
+    size_t count = 0;
+    while (bson_iter_next(&it)) {
+        Status status = ++count > BsonDecodeContext::MAX_ELEMENTS
+                                ? Status::InvalidArgument("BSON array exceeds the element limit")
+                                : nested_serde->read_one_cell_from_bson(
+                                          data, BsonValueView::of(*bson_iter_value(&it)),
+                                          context.child(context.binding->children.data()));
+        if (!status.ok()) {
+            return status;
+        }
+    }
+    target.get_offsets().push_back(data.size());
+    committed = true;
+    return Status::OK();
 }
 
 } // namespace doris

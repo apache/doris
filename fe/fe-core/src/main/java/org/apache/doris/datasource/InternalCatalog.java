@@ -118,7 +118,6 @@ import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.mtmv.ivm.IvmUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.nereids.stats.SimpleAggCacheMgr;
 import org.apache.doris.nereids.trees.plans.commands.CreateStreamCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropCatalogRecycleBinCommand.IdType;
 import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionLikeOp;
@@ -1068,6 +1067,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 TableNameInfoUtils.fromDb(db, table.getName()),
                 !isForceDrop && !isReplay);
         db.unregisterTable(table.getId());
+        Env.getCurrentEnv().onTableChanged(table);
         StopWatch watch = StopWatch.createStarted();
         Env.getCurrentRecycleBin().recycleTable(db.getId(), table, isReplay, isForceDrop, recycleTime);
         watch.stop();
@@ -2162,7 +2162,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
         }
         if (partition != null && !isTempPartition) {
-            SimpleAggCacheMgr.internalInstance().invalidateTable(olapTable.getId());
+            Env.getCurrentEnv().onTableChanged(olapTable);
         }
 
         // Here, we only wait for the EventProcessor to finish processing the event,
@@ -2205,7 +2205,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 }
             }
             if (partition != null && !info.isTempPartition()) {
-                SimpleAggCacheMgr.internalInstance().invalidateTable(olapTable.getId());
+                Env.getCurrentEnv().onTableChanged(olapTable);
             }
             olapTable.updateVisibleVersionAndTime(info.getVersion(), info.getVersionTime());
             // Replay set new partition loaded flag to true for auto analyze.
@@ -2354,7 +2354,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                             tbl.storeRowColumn(), binlogConfig,
                             tbl.getRowStoreColumnsUniqueIds(rowStoreColumns),
                             objectPool, tbl.rowStorePageSize(),
-                            tbl.variantEnableFlattenNested(),
+                            tbl.variantEnableFlattenNested(), tbl.getVariantEscapeDotsInKeys(),
                             tbl.storagePageSize(), tbl.getTDEAlgorithm(),
                             tbl.storageDictPageSize(),
                             tbl.getColumnSeqMapping(),
@@ -2777,6 +2777,21 @@ public class InternalCatalog implements CatalogIf<Database> {
             throw new DdlException(e.getMessage());
         }
         olapTable.setVerticalCompactionNumColumnsPerGroup(verticalCompactionNumColumnsPerGroup);
+
+        try {
+            if (olapTable instanceof MTMV) {
+                List<TableIf> baseTables = Lists.newArrayList();
+                for (BaseTableInfo baseTable : ((MTMV) olapTable).getRelation().getBaseTables()) {
+                    baseTables.add(MTMVUtil.getTable(baseTable));
+                }
+                properties.putAll(PropertyAnalyzer.inheritVariantEscapeDotsInKeys(properties, baseTables, true));
+            }
+            olapTable.setVariantEscapeDotsInKeys(PropertyAnalyzer.analyzeVariantEscapeDotsInKeys(properties));
+            PropertyAnalyzer.validateVariantTable(olapTable.getVariantEscapeDotsInKeys(),
+                    baseSchema, createTableInfo.getIndexes());
+        } catch (AnalysisException e) {
+            throw new DdlException(e.getMessage());
+        }
 
         boolean variantEnableFlattenNested  = false;
         try {
@@ -4069,6 +4084,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             olapTable.resetVisibleVersion();
         }
 
+        Env.getCurrentEnv().onTableChanged(olapTable);
         return oldPartitions;
     }
 

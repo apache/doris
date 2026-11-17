@@ -28,6 +28,9 @@ final class HiveFileListingSizeEstimator {
     private static final long KEY_SHALLOW_BYTES = JvmSizeUtils.instanceSize(FileListingKey.class);
     private static final long VALUE_SHALLOW_BYTES = JvmSizeUtils.instanceSize(FileListingValue.class);
     private static final long FILE_STATUS_SHALLOW_BYTES = JvmSizeUtils.instanceSize(HiveFileStatus.class);
+    private static final long EMPTY_VALUE_BYTES = VALUE_SHALLOW_BYTES + JvmSizeUtils.arrayListSize(0)
+            + JvmSizeUtils.instanceSize(java.util.Collections.unmodifiableList(new java.util.ArrayList<>()).getClass())
+            + JvmSizeUtils.instanceSize(MetaCacheSizeEstimate.class);
 
     private HiveFileListingSizeEstimator() {
     }
@@ -48,14 +51,12 @@ final class HiveFileListingSizeEstimator {
         return Math.max(bytes, ReflectiveObjectSizeEstimator.estimate(key));
     }
 
-    static long estimateValue(FileListingValue value) {
-        long bytes = VALUE_SHALLOW_BYTES;
-        bytes = add(bytes, estimateArrayBackedList(value.files));
-        for (HiveFileStatus file : value.files) {
-            bytes = add(bytes, FILE_STATUS_SHALLOW_BYTES);
-            bytes = add(bytes, JvmSizeUtils.stringSize(file.getPath()));
-        }
-        return Math.max(bytes, ReflectiveObjectSizeEstimator.estimate(value));
+    static long emptyValueBytes() {
+        return EMPTY_VALUE_BYTES;
+    }
+
+    static long fileBytes(HiveFileStatus file) {
+        return add(FILE_STATUS_SHALLOW_BYTES, JvmSizeUtils.stringSize(file.getPath()));
     }
 
     private static long estimateOwnedStringList(java.util.List<String> values) {

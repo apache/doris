@@ -58,6 +58,7 @@ import org.apache.doris.nereids.trees.plans.commands.AlterRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateRoutineLoadInfo;
 import org.apache.doris.nereids.trees.plans.commands.load.CreateRoutineLoadCommand;
+import org.apache.doris.nereids.util.SqlLiteralUtils;
 import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
 import org.apache.doris.persist.RoutineLoadOperation;
 import org.apache.doris.persist.gson.GsonPostProcessable;
@@ -131,6 +132,7 @@ public abstract class RoutineLoadJob
     protected static final String STAR_STRING = "*";
 
     public static final String WORKLOAD_GROUP = "workload_group";
+    public static final String COMPUTE_GROUP = "compute_group";
 
     @Getter
     @Setter
@@ -333,6 +335,8 @@ public abstract class RoutineLoadJob
         } else {
             sessionVariables.put(SessionVariable.SQL_MODE, String.valueOf(SqlModeHelper.MODE_DEFAULT));
         }
+        // a snapshot of the creating session, which gsonPostProcess has no other way to restore
+        sessionVariables.put(SessionVariable.ENABLE_MEMTABLE_ON_SINK_NODE, String.valueOf(memtableOnSinkNode));
     }
 
     /**
@@ -360,6 +364,8 @@ public abstract class RoutineLoadJob
         } else {
             sessionVariables.put(SessionVariable.SQL_MODE, String.valueOf(SqlModeHelper.MODE_DEFAULT));
         }
+        // a snapshot of the creating session, which gsonPostProcess has no other way to restore
+        sessionVariables.put(SessionVariable.ENABLE_MEMTABLE_ON_SINK_NODE, String.valueOf(memtableOnSinkNode));
     }
 
     protected void setOptional(CreateRoutineLoadInfo info) throws UserException {
@@ -437,6 +443,13 @@ public abstract class RoutineLoadJob
 
         if (!StringUtils.isEmpty(info.getWorkloadGroupName())) {
             jobProperties.put(WORKLOAD_GROUP, info.getWorkloadGroupName());
+        }
+
+        // Only write the key when the user declared it. An absent key means "not declared" and
+        // keeps the existing implicit resolution, which is also what later versions rely on to
+        // tell a pinned group apart from an inherited one.
+        if (!StringUtils.isEmpty(info.getComputeGroupName())) {
+            jobProperties.put(COMPUTE_GROUP, info.getComputeGroupName());
         }
     }
 
@@ -548,6 +561,11 @@ public abstract class RoutineLoadJob
 
     public String getWorkloadGroup() {
         return jobProperties.get(WORKLOAD_GROUP);
+    }
+
+    // The compute group explicitly declared on the job, or null when the user did not declare one.
+    public String getDeclaredComputeGroup() {
+        return jobProperties.get(COMPUTE_GROUP);
     }
 
     public JobState getState() {
@@ -797,7 +815,12 @@ public abstract class RoutineLoadJob
     }
 
     public String getCloudCluster() {
-        return cloudCluster;
+        // An explicitly declared compute group wins over the cluster snapshotted from the session
+        // at create time. Keeping this in the getter (instead of writing both places) means every
+        // caller follows the declaration, and ALTER only has to update jobProperties, which is
+        // already covered by the existing edit log.
+        String declared = getDeclaredComputeGroup();
+        return StringUtils.isEmpty(declared) ? cloudCluster : declared;
     }
 
     public int getSizeOfRoutineLoadTaskInfoList() {
@@ -1059,13 +1082,16 @@ public abstract class RoutineLoadJob
         table.readLock();
         try {
             if (Config.isCloudMode()) {
+                // Use the effective cluster, not the raw snapshot field: this context is what
+                // OlapTableSink uses to pick the backends the load writes to.
+                String effectiveCluster = getCloudCluster();
                 if (ConnectContext.get() == null) {
                     ConnectContext ctx = new ConnectContext();
                     ctx.setThreadLocalInfo();
-                    ctx.setCloudCluster(cloudCluster);
+                    ctx.setCloudCluster(effectiveCluster);
                     needCleanCtx = true;
                 } else {
-                    ConnectContext.get().setCloudCluster(cloudCluster);
+                    ConnectContext.get().setCloudCluster(effectiveCluster);
                 }
                 ConnectContext.get().setCurrentUserIdentity(this.getUserIdentity());
             } else {
@@ -1488,6 +1514,22 @@ public abstract class RoutineLoadJob
                 .build());
     }
 
+    // For failures found by refreshKafkaPartitions(), which update() runs before it takes the job lock.
+    // The state is checked again under the lock: a STOP that completed in between must not be turned
+    // back into PAUSED, as replay rejects STOPPED -> PAUSED. Only a NEED_SCHEDULE job is paused. A job that
+    // is still PAUSED, as during an auto resume attempt, keeps its reason (PAUSED -> PAUSED is rejected too),
+    // so a failure whose error code has to be recorded must not be reported from such an attempt.
+    protected void pauseIfNeedSchedule(ErrorReason reason) throws UserException {
+        writeLock();
+        try {
+            if (state == JobState.NEED_SCHEDULE) {
+                unprotectUpdateState(JobState.PAUSED, reason, false /* not replay */);
+            }
+        } finally {
+            writeUnlock();
+        }
+    }
+
     protected void unprotectUpdateState(JobState jobState, ErrorReason reason, boolean isReplay) throws UserException {
         checkStateTransform(jobState);
         switch (jobState) {
@@ -1667,7 +1709,9 @@ public abstract class RoutineLoadJob
     }
 
     public String getClusterInfo() {
-        return Strings.nullToEmpty(cloudCluster);
+        // SHOW ROUTINE LOAD must display the cluster the job actually runs in, i.e. the declared
+        // compute group when there is one.
+        return Strings.nullToEmpty(getCloudCluster());
     }
 
     // check the correctness of commit info
@@ -1785,7 +1829,8 @@ public abstract class RoutineLoadJob
         }
         // 4.4.partitions
         if (partitionNamesInfo != null) {
-            sb.append("PARTITION(").append(Joiner.on(",").join(partitionNamesInfo.getPartitionNames())).append("),\n");
+            sb.append(partitionNamesInfo.isTemp() ? "TEMPORARY PARTITION(" : "PARTITION(")
+                    .append(Joiner.on(",").join(partitionNamesInfo.getPartitionNames())).append("),\n");
         }
         // 4.5.delete_on_predicates
         if (deleteCondition != null) {
@@ -1805,7 +1850,7 @@ public abstract class RoutineLoadJob
         if (sb.charAt(sb.length() - 2) == ',') {
             sb.replace(sb.length() - 2, sb.length() - 1, "");
         }
-        // 5.job_properties. See PROPERTIES_SET of CreateRoutineLoadStmt
+        // 5.job_properties. See PROPERTIES_SET of CreateRoutineLoadInfo
         sb.append("PROPERTIES\n(\n");
         appendProperties(sb, CreateRoutineLoadInfo.DESIRED_CONCURRENT_NUMBER_PROPERTY, desireTaskConcurrentNum, false);
         appendProperties(sb, CreateRoutineLoadInfo.MAX_ERROR_NUMBER_PROPERTY, maxErrorNum, false);
@@ -1817,13 +1862,40 @@ public abstract class RoutineLoadJob
         if (isPartialUpdate) {
             appendProperties(sb, CreateRoutineLoadInfo.PARTIAL_COLUMNS, isPartialUpdate, false);
         }
+        // UPDATE_FLEXIBLE_COLUMNS leaves isPartialUpdate false, so without the mode the job would be recreated
+        // as an UPSERT one. CREATE only accepts the new key policy together with a partial update mode.
+        if (uniqueKeyUpdateMode != TUniqueKeyUpdateMode.UPSERT) {
+            appendProperties(sb, CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE, uniqueKeyUpdateMode.name(), false);
+            if (partialUpdateNewKeyPolicy == TPartialUpdateNewRowPolicy.ERROR) {
+                appendProperties(sb, CreateRoutineLoadInfo.PARTIAL_UPDATE_NEW_KEY_POLICY, "ERROR", false);
+            }
+        }
         appendProperties(sb, JsonFileFormatProperties.PROP_JSON_PATHS, getJsonPaths(), false);
         appendProperties(sb, JsonFileFormatProperties.PROP_STRIP_OUTER_ARRAY, isStripOuterArray(), false);
         appendProperties(sb, JsonFileFormatProperties.PROP_NUM_AS_STRING, isNumAsString(), false);
         appendProperties(sb, JsonFileFormatProperties.PROP_FUZZY_PARSE, isFuzzyParse(), false);
         appendProperties(sb, JsonFileFormatProperties.PROP_JSON_ROOT, getJsonRoot(), false);
+        if (getEnclose() != 0) {
+            appendProperties(sb, CsvFileFormatProperties.PROP_ENCLOSE, new String(new byte[]{getEnclose()}), false);
+        }
+        if (getEscape() != 0) {
+            appendProperties(sb, CsvFileFormatProperties.PROP_ESCAPE, new String(new byte[]{getEscape()}), false);
+        }
+        if (getEmptyFieldAsNull()) {
+            appendProperties(sb, CsvFileFormatProperties.PROP_EMPTY_FIELD_AS_NULL, true, false);
+        }
         appendProperties(sb, LoadCommand.STRICT_MODE, isStrictMode(), false);
         appendProperties(sb, LoadCommand.TIMEZONE, getTimezone(), false);
+        // Always written, as the timezone is: left out, CREATE takes it from the session variable of whoever
+        // recreates the job.
+        appendProperties(sb, CreateRoutineLoadInfo.SEND_BATCH_PARALLELISM, getSendBatchParallelism(), false);
+        if (isLoadToSingleTablet()) {
+            appendProperties(sb, CreateRoutineLoadInfo.LOAD_TO_SINGLE_TABLET, true, false);
+        }
+        appendProperties(sb, CreateRoutineLoadInfo.WORKLOAD_GROUP, getWorkloadGroup(), false);
+        // Only a declared group, which follows ALTER. Writing the effective group instead would turn
+        // a group inherited from the creating session into a pinned one when the statement is replayed.
+        appendProperties(sb, CreateRoutineLoadInfo.COMPUTE_GROUP, getDeclaredComputeGroup(), false);
         appendProperties(sb, LoadCommand.EXEC_MEM_LIMIT, getMemLimit(), true);
         sb.append(")\n");
         // 6. data_source
@@ -1843,7 +1915,12 @@ public abstract class RoutineLoadJob
         }
         // remove the last ","
         sb.replace(sb.length() - 2, sb.length() - 1, "");
-        sb.append(");");
+        sb.append(")");
+        // 8. comment
+        if (!Strings.isNullOrEmpty(comment)) {
+            sb.append("\nCOMMENT ").append(SqlLiteralUtils.quoteStringLiteral(comment));
+        }
+        sb.append(";");
         return sb.toString();
     }
 
@@ -1851,7 +1928,10 @@ public abstract class RoutineLoadJob
         if (value == null || Strings.isNullOrEmpty(value.toString())) {
             return;
         }
-        sb.append("\"").append(key).append("\"").append(" = ").append("\"").append(value).append("\"");
+        // Quoted the way the parser reads string literals back: a jsonpaths value such as ["$.k1"] or an
+        // enclose of " would otherwise end the literal early, and an escape of \ would escape the closing quote.
+        sb.append(SqlLiteralUtils.quoteStringLiteral(key)).append(" = ")
+                .append(SqlLiteralUtils.quoteStringLiteral(value.toString()));
         if (!end) {
             sb.append(",\n");
         } else {
@@ -1988,7 +2068,10 @@ public abstract class RoutineLoadJob
                 uniqueKeyUpdateMode = TUniqueKeyUpdateMode.UPSERT;
             }
         }
-        // Process remaining properties
+        // Process remaining properties. max_filter_ratio, send_batch_parallelism, load_to_single_tablet, enclose and
+        // escape are fields that are not persisted: CREATE records the value each one was given and ALTER the new
+        // ones, so without this a follower, a restarted FE or a new master would run the job with defaults. A job
+        // created before one of them existed has no key and keeps the default.
         jobProperties.forEach((k, v) -> {
             if (k.equals(CreateRoutineLoadInfo.PARTIAL_COLUMNS)) {
                 // Backward compatibility: only use partial_columns if unique_key_update_mode is not set
@@ -2005,8 +2088,24 @@ public abstract class RoutineLoadJob
                 } else {
                     partialUpdateNewKeyPolicy = TPartialUpdateNewRowPolicy.APPEND;
                 }
+            } else if (k.equals(CreateRoutineLoadInfo.MAX_FILTER_RATIO_PROPERTY)) {
+                maxFilterRatio = Double.parseDouble(v);
+            } else if (k.equals(CreateRoutineLoadInfo.SEND_BATCH_PARALLELISM)) {
+                sendBatchParallelism = Integer.parseInt(v);
+            } else if (k.equals(CreateRoutineLoadInfo.LOAD_TO_SINGLE_TABLET)) {
+                loadToSingleTablet = Boolean.parseBoolean(v);
+            } else if (k.equals(CsvFileFormatProperties.PROP_ENCLOSE)) {
+                enclose = csvControlByte(k, v, enclose);
+            } else if (k.equals(CsvFileFormatProperties.PROP_ESCAPE)) {
+                escape = csvControlByte(k, v, escape);
             }
         });
+        // Snapshotted from the creating session. A job created before the snapshot was persisted keeps false, which
+        // is what it has run with after every restart.
+        String memtableOnSinkNodeValue = sessionVariables.get(SessionVariable.ENABLE_MEMTABLE_ON_SINK_NODE);
+        if (memtableOnSinkNodeValue != null) {
+            memtableOnSinkNode = Boolean.parseBoolean(memtableOnSinkNodeValue);
+        }
         try {
             ConnectContext ctx = new ConnectContext();
             ctx.setDatabase(Env.getCurrentEnv().getInternalCatalog().getDb(dbId)
@@ -2023,6 +2122,11 @@ public abstract class RoutineLoadJob
                 CreateRoutineLoadCommand command = (CreateRoutineLoadCommand) nereidsParser.parseSingle(
                         origStmt.originStmt);
                 CreateRoutineLoadInfo createRoutineLoadInfo = command.getCreateRoutineLoadInfo();
+                // This re-parse only rebuilds the RoutineLoadDesc and exec_mem_limit, which no ALTER
+                // changes and jobProperties does not hold; it must not re-check resources
+                // that can legitimately have disappeared since the job was created, because the
+                // catch below turns any failure into the final CANCELLED state.
+                createRoutineLoadInfo.setReplay(true);
                 // If tableId is set, resolve the current table name by ID so that
                 // table rename / SWAP TABLE won't cause replay to fail with stale name in origStmt.
                 if (!isMultiTable && tableId != 0) {
@@ -2038,6 +2142,7 @@ public abstract class RoutineLoadJob
                 }
                 createRoutineLoadInfo.validate(ctx);
                 setRoutineLoadDesc(createRoutineLoadInfo.getRoutineLoadDesc());
+                execMemLimit = createRoutineLoadInfo.getExecMemLimit();
             } finally {
                 ctx.cleanup();
             }
@@ -2063,6 +2168,29 @@ public abstract class RoutineLoadJob
     }
 
     public abstract void modifyProperties(AlterRoutineLoadCommand command) throws UserException;
+
+    /**
+     * Checks the workload group an ALTER leaves the job with, in the compute group the ALTER leaves the job in, as
+     * CREATE does and as every task resolves it ({@code KafkaTaskInfo#rePlan}): as the owner, whom the tasks run
+     * as. One that group does not have, or the owner may not use, would otherwise fail every task with the
+     * retryable CREATE_TASKS_ERR, which auto resume repeats for good. Only an ALTER that sets a workload group or
+     * declares a compute group changes what the tasks look up; a workload group it does not set is the one the
+     * job keeps. Called on the statement thread under the job's write lock, so that of two ALTERs running at once
+     * the later one checks what the earlier one left; never when an ALTER is replayed.
+     */
+    protected void checkAlteredWorkloadGroup(Map<String, String> alteredJobProperties) throws UserException {
+        String declaredComputeGroup = alteredJobProperties.get(COMPUTE_GROUP);
+        String alteredWorkloadGroup = alteredJobProperties.get(WORKLOAD_GROUP);
+        if (StringUtils.isEmpty(declaredComputeGroup) && StringUtils.isEmpty(alteredWorkloadGroup)) {
+            return;
+        }
+        String workloadGroup = StringUtils.isEmpty(alteredWorkloadGroup) ? getWorkloadGroup() : alteredWorkloadGroup;
+        if (StringUtils.isEmpty(workloadGroup)) {
+            return;
+        }
+        CreateRoutineLoadInfo.checkWorkloadGroup(getUserIdentity(), workloadGroup,
+                StringUtils.isEmpty(declaredComputeGroup) ? getCloudCluster() : declaredComputeGroup);
+    }
 
     public abstract void replayModifyProperties(AlterRoutineLoadJobOperationLog log);
 
@@ -2124,6 +2252,34 @@ public abstract class RoutineLoadJob
             }
             this.jobProperties.put(CreateRoutineLoadInfo.PARTIAL_COLUMNS, String.valueOf(isPartialUpdate));
             this.jobProperties.put(CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE, uniqueKeyUpdateMode.name());
+        }
+
+        // Tasks take enclose and escape from these fields, not from jobProperties, where the caller puts the
+        // new values
+        if (jobProperties.containsKey(CsvFileFormatProperties.PROP_ENCLOSE)) {
+            this.enclose = csvControlByte(CsvFileFormatProperties.PROP_ENCLOSE,
+                    jobProperties.get(CsvFileFormatProperties.PROP_ENCLOSE), this.enclose);
+        }
+        if (jobProperties.containsKey(CsvFileFormatProperties.PROP_ESCAPE)) {
+            this.escape = csvControlByte(CsvFileFormatProperties.PROP_ESCAPE,
+                    jobProperties.get(CsvFileFormatProperties.PROP_ESCAPE), this.escape);
+        }
+    }
+
+    // The byte an enclose or escape value stands for, as CREATE takes it. The metadata can hold a value that CREATE
+    // and ALTER reject now: ALTER of an older version did not check it, and CREATE of an older version took any
+    // character and recorded its byte, which reads back as U+FFFD from 0x80 up. Such a value is ignored the same way
+    // when the job is rebuilt and when an ALTER is replayed: the job keeps the byte it has, where an exception would
+    // fail the replay of the metadata. A job rebuilt with such a value keeps none, as after every restart so far.
+    private byte csvControlByte(String key, String value, byte current) {
+        try {
+            CreateRoutineLoadInfo.checkCsvControlValue(key, value);
+            return key.equals(CsvFileFormatProperties.PROP_ENCLOSE)
+                    ? CsvFileFormatProperties.parseEnclose(value) : CsvFileFormatProperties.parseEscape(value);
+        } catch (AnalysisException | org.apache.doris.nereids.exceptions.AnalysisException e) {
+            LOG.warn("routine load job {} keeps its {} instead of the invalid value '{}': {}",
+                    id, key, value, e.getMessage());
+            return current;
         }
     }
 

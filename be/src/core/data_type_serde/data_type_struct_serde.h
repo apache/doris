@@ -39,6 +39,9 @@ public:
               elem_serdes_ptrs(_elem_serdes_ptrs),
               elem_names(names) {}
 
+    Status decode_bson_value(IColumn& column, const BsonValueView& value,
+                             const BsonDecodeContext& context) const override;
+
     std::string get_name() const override;
 
     Status from_string(StringRef& str, IColumn& column,

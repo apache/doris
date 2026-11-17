@@ -498,6 +498,23 @@ TEST(PbConvert, test_return_value_overloads) {
 
 // clang-format on
 
+TEST(PBConvertTest, VariantEscapeTablePolicyRoundTrip) {
+    for (bool escaped : {false, true}) {
+        TabletSchemaPB schema;
+        schema.set_variant_escape_dots_in_keys(escaped);
+        const auto cloud = doris_tablet_schema_to_cloud(schema);
+        EXPECT_EQ(cloud.variant_escape_dots_in_keys(), escaped);
+        EXPECT_EQ(cloud_tablet_schema_to_doris(cloud).variant_escape_dots_in_keys(), escaped);
+        auto moving_schema = schema;
+        auto moving_cloud = doris_tablet_schema_to_cloud(std::move(moving_schema));
+        EXPECT_EQ(moving_cloud.variant_escape_dots_in_keys(), escaped);
+        EXPECT_EQ(
+                cloud_tablet_schema_to_doris(std::move(moving_cloud)).variant_escape_dots_in_keys(),
+                escaped);
+    }
+    EXPECT_FALSE(cloud_tablet_schema_to_doris(TabletSchemaCloudPB()).variant_escape_dots_in_keys());
+}
+
 } // namespace doris
 
 // vim: et tw=80 ts=4 sw=4 cc=80:

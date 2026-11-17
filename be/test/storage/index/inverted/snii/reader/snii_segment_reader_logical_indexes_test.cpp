@@ -112,6 +112,15 @@ TEST_F(SniiSegmentReaderLogicalIndexesTest, ListsEveryLogicalIndex) {
     EXPECT_TRUE(saw_positions);
 }
 
+TEST_F(SniiSegmentReaderLogicalIndexesTest, FindsDirectoryEntryWithoutCopyingIt) {
+    const std::vector<LogicalIndexMetadataRef>& entries = segment_.logical_indexes();
+    for (const LogicalIndexMetadataRef& entry : entries) {
+        EXPECT_EQ(&entry, segment_.find_logical_index(entry.index_id, entry.index_suffix));
+    }
+    EXPECT_EQ(nullptr, segment_.find_logical_index(7, "body"));
+    EXPECT_EQ(nullptr, segment_.find_logical_index(8, ""));
+}
+
 TEST_F(SniiSegmentReaderLogicalIndexesTest, ReadsCoreMetadataOfEachIndex) {
     CoreMetadata docs_only;
     ASSERT_TRUE(segment_.core_metadata_for_index(7, "", &docs_only).ok());

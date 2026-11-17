@@ -18,7 +18,6 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.analysis.SetVar;
-import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.qe.ComputeGroupException;
@@ -30,9 +29,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.parser.Dialect;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
@@ -533,6 +530,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_SNAPSHOT_POINT_QUERY = "enable_snapshot_point_query";
 
     public static final String ENABLE_FILE_CACHE = "enable_file_cache";
+    public static final String ENABLE_FILE_CACHE_IO_ADAPTOR = "enable_file_cache_io_adaptor";
 
     public static final String DISABLE_FILE_CACHE = "disable_file_cache";
 
@@ -564,6 +562,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_PAGE_CACHE = "enable_page_cache";
     public static final String ENABLE_PARQUET_FILE_PAGE_CACHE = "enable_parquet_file_page_cache";
+    public static final String ENABLE_PARQUET_WRITE_PAGE_INDEX = "enable_parquet_write_page_index";
+    public static final String PARQUET_WRITE_DATA_PAGE_SIZE = "parquet_write_data_page_size";
 
     public static final String DUMP_NEREIDS_MEMO = "dump_nereids_memo";
 
@@ -1452,16 +1452,16 @@ public class SessionVariable implements Serializable, Writable {
     @VarAttrDef.VarAttr(name = ENABLE_DISTINCT_STREAMING_AGGREGATION, needForward = true, fuzzy = true)
     public boolean enableDistinctStreamingAggregation = true;
 
-    @VarAttrDef.VarAttr(name = ENABLE_STREAMING_AGG_HASH_JOIN_FORCE_PASSTHROUGH, fuzzy = true)
+    @VarAttrDef.VarAttr(name = ENABLE_STREAMING_AGG_HASH_JOIN_FORCE_PASSTHROUGH, needForward = true, fuzzy = true)
     public boolean enableStreamingAggHashJoinForcePassthrough = true;
 
     @VarAttrDef.VarAttr(name = ENABLE_LOCAL_EXCHANGE_BEFORE_AGG, needForward = true, fuzzy = true)
     public boolean enableLocalExchangeBeforeAgg = true;
 
-    @VarAttrDef.VarAttr(name = ENABLE_LOCAL_EXCHANGE_BEFORE_STREAMING_AGG, fuzzy = true)
+    @VarAttrDef.VarAttr(name = ENABLE_LOCAL_EXCHANGE_BEFORE_STREAMING_AGG, needForward = true, fuzzy = true)
     public boolean enableLocalExchangeBeforeStreamingAgg = false;
 
-    @VarAttrDef.VarAttr(name = ENABLE_DISTINCT_STREAMING_AGG_FORCE_PASSTHROUGH, fuzzy = true)
+    @VarAttrDef.VarAttr(name = ENABLE_DISTINCT_STREAMING_AGG_FORCE_PASSTHROUGH, needForward = true, fuzzy = true)
     public boolean enableDistinctStreamingAggForcePassthrough = true;
 
     @VarAttrDef.VarAttr(name = ENABLE_BROADCAST_JOIN_FORCE_PASSTHROUGH, needForward = true, fuzzy = true)
@@ -1778,7 +1778,7 @@ public class SessionVariable implements Serializable, Writable {
 
     @VarAttrDef.VarAttr(
                 name = FORCE_TO_LOCAL_SHUFFLE, fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL,
-                description = "Whether to force to local shuffle on pipelineX engine.")
+                description = "Whether to force to local shuffle on pipelineX engine.", needForward = true)
     private boolean forceToLocalShuffle = false;
 
     @VarAttrDef.VarAttr(
@@ -1884,8 +1884,7 @@ public class SessionVariable implements Serializable, Writable {
 
     @VarAttrDef.VarAttr(name = RUNTIME_FILTER_BROADCAST_JOIN_PRODUCER_NUM, needForward = true,
             description = "Controls the number of producer BEs for each broadcast join runtime filter in "
-                    + "the Nereids distributed planner. Values less than or equal to 0 disable the limit. "
-                    + "The legacy Coordinator path keeps the existing behavior.")
+                    + "the Nereids distributed planner. Values less than or equal to 0 disable the limit.")
     private int runtimeFilterBroadcastJoinProducerNum = 3;
 
     @VarAttrDef.VarAttr(name = RUNTIME_FILTER_TREE_PUBLISH_MAX_SEND_BYTES, needForward = true, fuzzy = true,
@@ -2202,12 +2201,7 @@ public class SessionVariable implements Serializable, Writable {
     public double filterCostFactor = 0.0001;
 
     @VarAttrDef.VarAttr(name = ENABLE_NEREIDS_DISTRIBUTE_PLANNER, needForward = true,
-            fuzzy = false,
-            varType = VariableAnnotation.EXPERIMENTAL,
-            description = "The switch to use new DistributedPlanner of nereids, this planner can planning some "
-                    + "more efficient query plans, e.g. in certain situations, shuffle left side to "
-                    + "right side to do bucket shuffle join"
-    )
+            varType = VariableAnnotation.REMOVED)
     private boolean enableNereidsDistributePlanner = true;
 
     @VarAttrDef.VarAttr(name = REWRITE_OR_TO_IN_PREDICATE_THRESHOLD, fuzzy = true)
@@ -2424,6 +2418,11 @@ public class SessionVariable implements Serializable, Writable {
             + "The cache is not used when BE config enable_file_cache=false.")
     public boolean enableFileCache = true;
 
+    @VarAttrDef.VarAttr(name = ENABLE_FILE_CACHE_IO_ADAPTOR, needForward = true,
+            description = "Allow external queries to adaptively read remote data "
+                    + "when local file-cache reads are slower.")
+    public boolean enableFileCacheIoAdaptor = true;
+
     // Specify base path for file cache, or chose a random path.
     @VarAttrDef.VarAttr(name = FILE_CACHE_BASE_PATH, needForward = true, description = "Specify the storage path of "
             + "the block file cache on BE, default 'random', "
@@ -2567,6 +2566,19 @@ public class SessionVariable implements Serializable, Writable {
             description = "Controls whether to use Parquet file page cache. The default is true.",
             needForward = true)
     public boolean enableParquetFilePageCache = true;
+
+    @VarAttrDef.VarAttr(name = ENABLE_PARQUET_WRITE_PAGE_INDEX, needForward = true,
+            description = "Write ColumnIndex and OffsetIndex metadata to new Parquet files. Default is true.")
+    public boolean enableParquetWritePageIndex = true;
+
+    @VarAttrDef.VarAttr(name = PARQUET_WRITE_DATA_PAGE_SIZE, needForward = true,
+            checker = "checkParquetWriteDataPageSize",
+            description = "Target uncompressed Parquet data-page size in bytes. Must be positive; default is 1048576.")
+    public int parquetWriteDataPageSize = 1048576;
+
+    public void checkParquetWriteDataPageSize(String value) throws Exception {
+        checkFieldValue(PARQUET_WRITE_DATA_PAGE_SIZE, 1, value);
+    }
 
     @VarAttrDef.VarAttr(name = ENABLE_FOLD_NONDETERMINISTIC_FN)
     public boolean enableFoldNondeterministicFn = false;
@@ -3079,6 +3091,22 @@ public class SessionVariable implements Serializable, Writable {
             fuzzy = true,
             description = "enable count(*) pushdown optimization for external table")
     private boolean enableCountPushDownForExternalTable = true;
+
+    public static final String MONGODB_READ_PREFERENCE = "mongodb_read_preference";
+    public static final String MONGODB_READ_CONCERN = "mongodb_read_concern";
+
+    @VarAttrDef.VarAttr(name = MONGODB_READ_PREFERENCE, needForward = true,
+            checker = "checkMongoDBReadPreference",
+            options = {"inherit", "primary", "primaryPreferred", "secondary", "secondaryPreferred", "nearest"},
+            description = "MongoDB data-read routing for this session or SET_VAR statement. "
+                    + "inherit follows the catalog policy, including URI routing criteria")
+    public String mongodbReadPreference = "inherit";
+
+    @VarAttrDef.VarAttr(name = MONGODB_READ_CONCERN, needForward = true,
+            checker = "checkMongoDBReadConcern", options = {"inherit", "local", "majority", "available"},
+            description = "MongoDB data-read visibility for this session or SET_VAR statement. "
+                    + "inherit follows the catalog policy; shared snapshots are not supported")
+    public String mongodbReadConcern = "inherit";
 
     public static final String FLUSS_UNION_READ_MODE = "fluss_union_read_mode";
 
@@ -3697,6 +3725,7 @@ public class SessionVariable implements Serializable, Writable {
 
     @VarAttrDef.VarAttr(
             name = DEFAULT_VARIANT_MAX_SUBCOLUMNS_COUNT,
+            flag = VarAttrDef.INVISIBLE,
             needForward = true,
             checker = "checkDefaultVariantMaxSubcolumnsCount",
             fuzzy = true
@@ -3705,13 +3734,16 @@ public class SessionVariable implements Serializable, Writable {
 
     @VarAttrDef.VarAttr(
             name = DEFAULT_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE,
+            flag = VarAttrDef.INVISIBLE,
             needForward = true,
+            checker = "checkDefaultVariantSettable",
             fuzzy = true
     )
     public boolean defaultEnableTypedPathsToSparse = false;
 
     @VarAttrDef.VarAttr(
             name = DEFAULT_VARIANT_MAX_SPARSE_COLUMN_STATISTICS_SIZE,
+            flag = VarAttrDef.INVISIBLE,
             needForward = true,
             checker = "checkDefaultVariantMaxSparseColumnStatisticsSize",
             fuzzy = true
@@ -3728,7 +3760,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VarAttrDef.VarAttr(
             name = DEFAULT_VARIANT_SPARSE_HASH_SHARD_COUNT,
+            flag = VarAttrDef.INVISIBLE,
             needForward = true,
+            checker = "checkDefaultVariantSettable",
             fuzzy = true
     )
     public int defaultVariantSparseHashShardCount = 0;
@@ -3740,28 +3774,36 @@ public class SessionVariable implements Serializable, Writable {
 
     @VarAttrDef.VarAttr(
             name = DEFAULT_VARIANT_ENABLE_DOC_MODE,
+            flag = VarAttrDef.INVISIBLE,
             needForward = true,
+            checker = "checkDefaultVariantSettable",
             fuzzy = true
     )
     public boolean defaultVariantEnableDocMode = false;
 
     @VarAttrDef.VarAttr(
             name = DEFAULT_VARIANT_DOC_MATERIALIZATION_MIN_ROWS,
+            flag = VarAttrDef.INVISIBLE,
             needForward = true,
+            checker = "checkDefaultVariantSettable",
             fuzzy = true
     )
     public long defaultVariantDocMaterializationMinRows = 0L;
 
     @VarAttrDef.VarAttr(
             name = DEFAULT_VARIANT_DOC_HASH_SHARD_COUNT,
+            flag = VarAttrDef.INVISIBLE,
             needForward = true,
+            checker = "checkDefaultVariantSettable",
             fuzzy = true
     )
     public int defaultVariantDocHashShardCount = 64;
 
     @VarAttrDef.VarAttr(
             name = DEFAULT_VARIANT_ENABLE_NESTED_GROUP,
+            flag = VarAttrDef.INVISIBLE,
             needForward = true,
+            checker = "checkDefaultVariantSettable",
             fuzzy = true
     )
     public boolean defaultVariantEnableNestedGroup = false;
@@ -4549,6 +4591,21 @@ public class SessionVariable implements Serializable, Writable {
         if ("require".equals(normalized) && !BackendSelectionManager.supportsRequiredSelection()) {
             throw new UnsupportedOperationException(
                     "Backend selection provider does not support required backend selection");
+        }
+    }
+
+    public void checkMongoDBReadPreference(String value) {
+        if (!Set.of("inherit", "primary", "primarypreferred", "secondary", "secondarypreferred", "nearest")
+                .contains(value.toLowerCase(Locale.ROOT))) {
+            throw new UnsupportedOperationException("Invalid mongodb_read_preference; expected inherit, primary, "
+                    + "primaryPreferred, secondary, secondaryPreferred or nearest");
+        }
+    }
+
+    public void checkMongoDBReadConcern(String value) {
+        if (!Set.of("inherit", "local", "majority", "available").contains(value.toLowerCase(Locale.ROOT))) {
+            throw new UnsupportedOperationException("Invalid mongodb_read_concern; expected inherit, local, "
+                    + "majority or available");
         }
     }
 
@@ -5385,37 +5442,6 @@ public class SessionVariable implements Serializable, Writable {
         return false;
     }
 
-    /** canUseNereidsDistributePlanner */
-    public static boolean canUseNereidsDistributePlanner() {
-        ConnectContext connectContext = ConnectContext.get();
-        if (connectContext != null) {
-            return canUseNereidsDistributePlanner(connectContext);
-        } else {
-            return true;
-        }
-    }
-
-    /** canUseNereidsDistributePlanner */
-    public static boolean canUseNereidsDistributePlanner(ConnectContext connectContext) {
-        SessionVariable sessionVariable = connectContext.getSessionVariable();
-        StatementContext statementContext = connectContext.getStatementContext();
-        if (statementContext != null) {
-            StatementBase parsedStatement = statementContext.getParsedStatement();
-            if (!(parsedStatement instanceof LogicalPlanAdapter)) {
-                return false;
-            }
-        }
-        return sessionVariable.enableNereidsDistributePlanner;
-    }
-
-    public boolean isEnableNereidsDistributePlanner() {
-        return enableNereidsDistributePlanner;
-    }
-
-    public void setEnableNereidsDistributePlanner(boolean enableNereidsDistributePlanner) {
-        this.enableNereidsDistributePlanner = enableNereidsDistributePlanner;
-    }
-
     public int getNthOptimizedPlan() {
         return nthOptimizedPlan;
     }
@@ -5829,6 +5855,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setSkipDeleteBitmap(skipDeleteBitmap);
 
         tResult.setEnableFileCache(enableFileCache);
+        tResult.setEnableFileCacheIoAdaptor(enableFileCacheIoAdaptor);
 
         tResult.setEnablePageCache(enablePageCache);
 
@@ -5845,6 +5872,9 @@ public class SessionVariable implements Serializable, Writable {
         }
 
         tResult.setEnableParquetLazyMat(enableParquetLazyMat);
+        // Query options carry the same write policy to OUTFILE and catalog sinks.
+        tResult.setEnableParquetWritePageIndex(enableParquetWritePageIndex);
+        tResult.setParquetWriteDataPageSize(parquetWriteDataPageSize);
         tResult.setEnableOrcLazyMat(enableOrcLazyMat);
         tResult.setEnableParquetFilterByMinMax(enableParquetFilterByMinMax);
         tResult.setEnableParquetFilterByBloomFilter(enableParquetFilterByBloomFilter);
@@ -6865,7 +6895,17 @@ public class SessionVariable implements Serializable, Writable {
         }
     }
 
+    // The default_variant_* variables only drive the tests, which run with debug points enabled. Users state VARIANT
+    // properties in the column definition, so a DDL text creates the same column in every session.
+    public void checkDefaultVariantSettable(String value) {
+        if (!Config.enable_debug_points) {
+            throw new UnsupportedOperationException("default_variant_* session variables are only for testing, "
+                    + "set the property in the VARIANT column definition");
+        }
+    }
+
     public void checkDefaultVariantMaxSubcolumnsCount(String variantMaxSubcolumnsCount) {
+        checkDefaultVariantSettable(variantMaxSubcolumnsCount);
         int value = Integer.valueOf(variantMaxSubcolumnsCount);
         if (value < 0 || value > 100000) {
             throw new UnsupportedOperationException(
@@ -6874,6 +6914,7 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public void checkDefaultVariantMaxSparseColumnStatisticsSize(String variantMaxSparseColumnStatisticsSize) {
+        checkDefaultVariantSettable(variantMaxSparseColumnStatisticsSize);
         int value = Integer.valueOf(variantMaxSparseColumnStatisticsSize);
         if (value < 1 || value > 50000) {
             throw new UnsupportedOperationException("variant max sparse column statistics size is: "

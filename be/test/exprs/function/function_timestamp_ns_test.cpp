@@ -668,7 +668,13 @@ TEST(TimestampNsFunctionTest, convert_tz_preserves_nanoseconds) {
                          "convert_tz", arguments,
                          {{{std::string("2024-02-29 12:34:56.123456789"),
                             std::string("Asia/Shanghai"), std::string("UTC")},
-                           std::string("2024-02-29 04:34:56.123456789")}})
+                           std::string("2024-02-29 04:34:56.123456789")},
+                          {{std::string("2024-03-10 02:30:00.123456789"),
+                            std::string("America/New_York"), std::string("UTC")},
+                           std::string("2024-03-10 07:30:00.123456789")},
+                          {{std::string("2024-10-06 02:15:00.123456789"),
+                            std::string("Australia/Lord_Howe"), std::string("UTC")},
+                           std::string("2024-10-05 15:45:00.123456789")}})
                          .ok()));
 }
 

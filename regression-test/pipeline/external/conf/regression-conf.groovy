@@ -153,6 +153,10 @@ enableRefactorParamsTest=true
 // iceberg test config
 iceberg_rest_uri_port=18181
 iceberg_scan_planning_rest_uri_port=18182
+// Avoid the hms_port suffix: shared CI rewrites it for the default Hive service.
+iceberg_encryption_metastore_port=18383
+iceberg_encryption_kms_port=18384
+iceberg_encryption_fixture_port=18385
 iceberg_rest_uri_port_s3=19181
 iceberg_rest_uri_port_oss=19182
 iceberg_rest_uri_port_cos=19183
@@ -223,3 +227,42 @@ hudiHmsPort=19083
 hudiMinioPort=19100
 hudiMinioAccessKey="minio"
 hudiMinioSecretKey="minio123"
+
+// Keep rootless CI exclusions opt-in; other external-test environments are unchanged.
+if (System.getenv("DORIS_CI_PRISTINE_FRAMEWORK") == "true") {
+    // Temporary environment exclusions using the existing suite-name filter.
+    // Re-enable after the rootless execution prerequisites are reviewed and validated.
+    excludeSuites += "," + [
+        // sudo/Docker fixture; requires case changes for rootless CI
+        "test_single_hive_kerberos",
+        // sudo/Docker fixture; requires case changes for rootless CI
+        "test_two_hive_kerberos",
+        // root SSH/SCP or remote filesystem prerequisite
+        "test_parquet_meta_tvf"
+    ].join(",")
+}
+
+// Reviewed defaults for CI using the unmodified framework and rootless runtime.
+// Preserve other environments; addresses, local paths, credentials and build IDs are injected at deployment.
+if (System.getenv("DORIS_CI_PRISTINE_FRAMEWORK") == "true") {
+    // Use the existing read-only regression fixtures in Hong Kong.
+    s3BucketName = "doris-regression-hk"
+    s3Endpoint = "oss-cn-hongkong.aliyuncs.com"
+    s3Region = "oss-cn-hongkong"
+    s3FixtureProtocol = "https"
+    ciFixtureBaseUrl = "https://doris-regression-hk.oss-cn-hongkong.aliyuncs.com"
+    ciFixtureStsEnabled = true
+    ciScopedDynamicFixturesEnabled = true
+    ciFixtureProfile = "external"
+    // Preserve the existing local filesystem contract for the rootless external lane.
+    backendFilesystemTransport = "local-rootless"
+    ciTrinoLocalDispatchEnabled = true
+    backendLocalPathAllowlist = "[\"/tmp/test_export_view\"]"
+    // Preserve the existing build-scoped backup repository; its build ID is injected separately.
+    ciBackupRepositoryEnabled = true
+    ciBackupRepositoryBucket = "doris-ci-artifacts-1949087886039699-hk"
+    ciBackupRepositoryEndpoint = "https://oss-cn-hongkong-internal.aliyuncs.com"
+    ciBackupRepositoryRegion = "oss-cn-hongkong"
+    ciBackupRepositoryProfile = "external"
+    ciBackupRepositoryPrefix = "external"
+}

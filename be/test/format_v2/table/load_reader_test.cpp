@@ -63,6 +63,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "testutil/scoped_temp_dir.h"
+#include "util/defer_op.h"
 
 namespace doris::format {
 namespace {
@@ -558,6 +559,104 @@ protected:
             const auto& elements = assert_cast<const ColumnNullable&>(array.get_data());
             EXPECT_EQ(elements.get_nested_column().get_int(array.get_offsets()[0]), 7);
         }
+        ASSERT_TRUE(reader.close().ok());
+    }
+    // Reads one IPC batch of 64 rows of LIST<INT> (container 0), FIXED_SIZE_LIST<INT, 2> (1),
+    // MAP<INT, INT> (2) or STRUCT<a: INT> (3) four rows per block. Rows 1, 5, 9, ... are NULL.
+    // The NULL list, fixed-size-list and struct rows hold valid child values, as a producer that
+    // does not compact NULL lists and Arrow's fixed-size-list and struct builders write them; the
+    // NULL map rows own no entries, as Arrow's map builder writes them. Each block used to
+    // allocate a validity bitmap as long as the child from the pool that the SerDes mask with.
+    // Now no block allocates there, and the blocks read what one SerDe call over the batch reads.
+    void check_null_container_batch_in_blocks(int container) {
+        constexpr int64_t rows = 64;
+        constexpr int64_t block_rows = 4;
+        const auto int_type = make_nullable(std::make_shared<DataTypeInt32>());
+        const auto type = make_nullable(
+                container == 2   ? DataTypePtr(std::make_shared<DataTypeMap>(int_type, int_type))
+                : container == 3 ? DataTypePtr(std::make_shared<DataTypeStruct>(
+                                           DataTypes {int_type}, Strings {"a"}))
+                                 : DataTypePtr(std::make_shared<DataTypeArray>(int_type)));
+        set_column_type(type);
+        auto options = state.query_options();
+        options.__set_batch_size(block_rows);
+        state.set_query_options(options);
+        std::vector<uint8_t> validity(static_cast<size_t>(rows / 8), 0);
+        std::vector<int32_t> offsets {0};
+        arrow::Int32Builder builder;
+        for (int64_t row = 0; row < rows; ++row) {
+            const bool is_null = row % block_rows == 1;
+            if (!is_null) {
+                validity[row / 8] = static_cast<uint8_t>(validity[row / 8] | (1 << (row % 8)));
+            }
+            // A struct row owns one child slot, a list row two, a map row one entry or none.
+            const int width = container == 3 ? 1 : container == 2 ? (is_null ? 0 : 1) : 2;
+            for (int i = 0; i < width; ++i) {
+                ASSERT_TRUE(builder.Append(static_cast<int32_t>(row * 2 + i)).ok());
+            }
+            offsets.push_back(offsets.back() + width);
+        }
+        std::shared_ptr<arrow::Array> values;
+        ASSERT_TRUE(builder.Finish(&values).ok());
+        const auto bitmap = arrow::Buffer::FromVector(validity);
+        const auto positions = arrow::Buffer::FromVector(offsets);
+        const int64_t null_count = rows / block_rows;
+        std::shared_ptr<arrow::ArrayData> data;
+        if (container == 0) {
+            data = arrow::ArrayData::Make(arrow::list(arrow::int32()), rows, {bitmap, positions},
+                                          {values->data()}, null_count);
+        } else if (container == 1) {
+            data = arrow::ArrayData::Make(arrow::fixed_size_list(arrow::int32(), 2), rows, {bitmap},
+                                          {values->data()}, null_count);
+        } else if (container == 2) {
+            auto entries = arrow::StructArray::Make({values, values},
+                                                    {arrow::field("key", arrow::int32(), false),
+                                                     arrow::field("value", arrow::int32())});
+            ASSERT_TRUE(entries.ok()) << entries.status().ToString();
+            data = arrow::ArrayData::Make(arrow::map(arrow::int32(), arrow::int32()), rows,
+                                          {bitmap, positions}, {(*entries)->data()}, null_count);
+        } else {
+            data = arrow::ArrayData::Make(arrow::struct_({arrow::field("a", arrow::int32())}), rows,
+                                          {bitmap}, {values->data()}, null_count);
+        }
+        const auto input = arrow::MakeArray(data);
+        const auto valid = input->ValidateFull();
+        ASSERT_TRUE(valid.ok()) << valid.ToString();
+        append_batch(arrow::RecordBatch::Make(
+                arrow::schema({arrow::field("raw_value", input->type())}), rows, {input}));
+        ASSERT_TRUE(_pipe->finish().ok());
+
+        arrow::ProxyMemoryPool mask_pool(arrow::default_memory_pool());
+        auto* env = ExecEnv::GetInstance();
+        auto* previous_pool = env->_arrow_memory_pool;
+        env->_arrow_memory_pool = &mask_pool;
+        Defer restore_pool {[&] { env->_arrow_memory_pool = previous_pool; }};
+        // One SerDe call over the whole batch, as the other Arrow readers make it.
+        auto expected = type->create_column();
+        const auto whole = type->get_serde()->read_column_from_arrow(*expected, input.get(), 0,
+                                                                     rows, cctz::utc_time_zone());
+        ASSERT_TRUE(whole.ok()) << whole;
+        const auto allocations = mask_pool.num_allocations();
+
+        LoadTableReader reader(source.get(), destination.get());
+        ASSERT_TRUE(prepare(reader, FileFormat::ARROW).ok());
+        Block output(destination->slots(), 0);
+        bool eos = false;
+        for (int64_t first = 0; first < rows; first += block_rows) {
+            SCOPED_TRACE(first);
+            const auto status = reader.get_block(&output, &eos);
+            ASSERT_TRUE(status.ok()) << status;
+            ASSERT_EQ(output.rows(), block_rows);
+            const auto& column = *output.get_by_position(0).column;
+            for (int64_t row = 0; row < block_rows; ++row) {
+                EXPECT_EQ(column.is_null_at(row), (first + row) % block_rows == 1);
+                EXPECT_EQ(type->to_string(column, row), type->to_string(*expected, first + row));
+            }
+            EXPECT_EQ(allocations, mask_pool.num_allocations());
+        }
+        ASSERT_TRUE(reader.get_block(&output, &eos).ok());
+        EXPECT_TRUE(eos);
+        EXPECT_EQ(output.rows(), 0);
         ASSERT_TRUE(reader.close().ok());
     }
     void append_batch(const std::shared_ptr<arrow::RecordBatch>& batch, bool compressed = false) {
@@ -1226,6 +1325,22 @@ TEST_F(LoadArrowPipeTest, NullFixedSizeListIgnoresAnOverflowingHiddenChild) {
 
 TEST_F(LoadArrowPipeTest, NullMapIgnoresOverflowingHiddenKeysAndValues) {
     check_hidden_container_values(2);
+}
+
+TEST_F(LoadArrowPipeTest, NullListBatchReadsInBlocksWithoutPerBlockMasks) {
+    check_null_container_batch_in_blocks(0);
+}
+
+TEST_F(LoadArrowPipeTest, NullFixedSizeListBatchReadsInBlocksWithoutPerBlockMasks) {
+    check_null_container_batch_in_blocks(1);
+}
+
+TEST_F(LoadArrowPipeTest, NullMapBatchReadsInBlocksWithoutPerBlockMasks) {
+    check_null_container_batch_in_blocks(2);
+}
+
+TEST_F(LoadArrowPipeTest, NullStructBatchReadsInBlocksWithoutPerBlockMasks) {
+    check_null_container_batch_in_blocks(3);
 }
 
 TEST_F(LoadArrowPipeTest, NumericIntStillRejectsAnOverflowingUInt32) {

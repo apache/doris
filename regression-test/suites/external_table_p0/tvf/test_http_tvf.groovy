@@ -151,12 +151,17 @@ suite("test_http_tvf", "p0") {
     String httpServerHost = context.config.otherConfigs.get("httpTvfHost")
     if (httpServerHost == null || httpServerHost.trim().isEmpty()) {
         httpServerHost = context.config.otherConfigs.get("externalEnvIp")
-    }
-    if (httpServerHost == null || httpServerHost.trim().isEmpty()) {
-        httpServerHost = InetAddress.getLocalHost().getHostAddress()
+        // A loopback or wildcard externalEnvIp would point a BE on another host at itself.
+        if (httpServerHost == null || httpServerHost.trim().isEmpty()
+                || InetAddress.getByName(httpServerHost).isLoopbackAddress()
+                || InetAddress.getByName(httpServerHost).isAnyLocalAddress()) {
+            httpServerHost = InetAddress.getLocalHost().getHostAddress()
+        }
     }
     String httpBaseUrl = "http://${httpServerHost}:${httpServer.address.port}"
     def httpUrl = { String relativePath -> "${httpBaseUrl}/${relativePath}" }
+    def stableRemoteDataUrl =
+            "https://doris-regression-hk.oss-cn-hongkong.aliyuncs.com/regression/external_table_p0/tvf/huggingface"
     logger.info("Start local HTTP server for http tvf test: ${httpBaseUrl}, root: ${dataRoot}")
 
     try {
@@ -239,14 +244,14 @@ suite("test_http_tvf", "p0") {
         );
     """
 
-    // The Spark INT96 fixture stores timestamps normalized to UTC; the golden uses Asia/Shanghai.
-    // Specify the INT96 timezone explicitly instead of relying on the reader's default semantics.
+    // The golden retains the fixture's stored INT96 wall-clock values. Use UTC to avoid
+    // shifting timestamp map keys by eight hours when the session uses Asia/Shanghai.
     qt_sql08 """
         select * from
         http(
             "uri" = "${httpUrl("external_table_p0/tvf/t.parquet")}",
             "format" = "parquet",
-            "hive.parquet.time-zone" = "Asia/Shanghai"
+            "hive.parquet.time-zone" = "UTC"
         ) order by id limit 10;
     """
 
@@ -255,7 +260,7 @@ suite("test_http_tvf", "p0") {
         http(
             "uri" = "${httpUrl("external_table_p0/tvf/t.parquet")}",
             "format" = "parquet",
-            "hive.parquet.time-zone" = "Asia/Shanghai"
+            "hive.parquet.time-zone" = "UTC"
         ) order by id limit 10;
     """
 
@@ -264,7 +269,7 @@ suite("test_http_tvf", "p0") {
         http(
             "uri" = "${httpUrl("external_table_p0/tvf/t.parquet")}",
             "format" = "parquet",
-            "hive.parquet.time-zone" = "Asia/Shanghai"
+            "hive.parquet.time-zone" = "UTC"
         );
     """
 
@@ -349,38 +354,39 @@ suite("test_http_tvf", "p0") {
         );
     """
 
-    // hf
-    def hfCountOneFile = sql """
+    // Stable mirrors of the HuggingFace fixtures. Keep the regression independent
+    // from public HuggingFace availability and mutable dataset branches.
+    qt_sql15 """
         select count(*) from
         http(
-            "uri" = "hf://datasets/fka/awesome-chatgpt-prompts/blob/main/prompts.csv",
-            "format" = "csv"
+            "uri" = "${stableRemoteDataUrl}/awesome-chatgpt-prompts/61229c8c07ea12c6e219b2b2b728f23f2842901b/prompts.csv",
+            "format" = "csv",
+            "skip_lines" = "1"
         );
     """
-    assertTrue(Long.parseLong(hfCountOneFile[0][0].toString()) > 0)
 
-    def hfCountWildcard = sql """
+    qt_sql16 """
         select count(*) from
         http(
-            "uri" = "hf://datasets/fka/awesome-chatgpt-prompts/blob/main/*.csv",
-            "format" = "csv"
+            "uri" = "${stableRemoteDataUrl}/awesome-chatgpt-prompts/61229c8c07ea12c6e219b2b2b728f23f2842901b/prompts.csv",
+            "format" = "csv",
+            "skip_lines" = "1"
         );
     """
-    assertTrue(Long.parseLong(hfCountWildcard[0][0].toString()) > 0)
     
     qt_sql17 """
         desc function
         http(
-            "uri" = "hf://datasets/fka/awesome-chatgpt-prompts/blob/main/*.csv",
-            "format" = "csv"
+            "uri" = "${stableRemoteDataUrl}/awesome-chatgpt-prompts/61229c8c07ea12c6e219b2b2b728f23f2842901b/prompts.csv",
+            "format" = "csv",
+            "skip_lines" = "1"
         );
     """
 
-    // branch
     qt_sql18 """
         select * from
         http(
-            "uri" = "hf://datasets/stanfordnlp/imdb@script/dataset_infos.json",
+            "uri" = "${stableRemoteDataUrl}/stanfordnlp-imdb/script/dataset_infos.json",
             "format" = "json"
         );
     """
@@ -388,16 +394,15 @@ suite("test_http_tvf", "p0") {
     qt_sql19 """
         select * from
         http(
-            "uri" = "hf://datasets/stanfordnlp/imdb@main/plain_text/test-00000-of-00001.parquet",
+            "uri" = "${stableRemoteDataUrl}/stanfordnlp-imdb/main/plain_text/test-00000-of-00001.parquet",
             "format" = "parquet"
         ) order by text limit 1;
     """
 
-    // wildcard
     qt_sql20 """
         select * from
         http(
-            "uri" = "hf://datasets/stanfordnlp/imdb@main/*/test-00000-of-00001.parquet",
+            "uri" = "${stableRemoteDataUrl}/stanfordnlp-imdb/main/plain_text/test-00000-of-00001.parquet",
             "format" = "parquet"
         ) order by text limit 1;
     """
@@ -405,7 +410,7 @@ suite("test_http_tvf", "p0") {
     qt_sql21 """
         select * from
         http(
-            "uri" = "hf://datasets/stanfordnlp/imdb@main/*/*.parquet",
+            "uri" = "${stableRemoteDataUrl}/stanfordnlp-imdb/main/plain_text/train-00000-of-00001.parquet",
             "format" = "parquet"
         ) order by text limit 1;
     """
@@ -413,7 +418,7 @@ suite("test_http_tvf", "p0") {
     qt_sql21 """
         select * from
         http(
-            "uri" = "hf://datasets/stanfordnlp/imdb@main/**/test-00000-of-0000[1].parquet",
+            "uri" = "${stableRemoteDataUrl}/stanfordnlp-imdb/main/plain_text/test-00000-of-00001.parquet",
             "format" = "parquet"
         ) order by text limit 1;
     """

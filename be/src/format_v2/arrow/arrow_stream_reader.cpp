@@ -35,6 +35,7 @@
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_struct.h"
+#include "core/data_type_serde/arrow_parent_nulls.h"
 #include "format/arrow/arrow_array_normalizer.h"
 #include "format/arrow/arrow_row_batch.h"
 #include "format/arrow/arrow_utils.h"
@@ -456,7 +457,22 @@ Status ArrowStreamReader::_prepare_arrays() {
             }
             array = converted->make_array();
         }
-        _arrays[id.value()] = std::move(array);
+        // get_block() hands this batch to the SerDes a block at a time, and in each block the
+        // nested SerDes mark NULL the child values that a NULL list, map or struct row hides,
+        // with a validity bitmap that covers the whole child. A NULL struct row, or a NULL list
+        // row that its producer did not compact, holds such values, so every block of a large
+        // batch allocated and filled a bitmap as long as the child. Masking every level once
+        // per batch leaves the blocks nothing to hide, so they allocate nothing. Map keys
+        // cannot be NULL inside a MapArray and stay unmasked: a NULL map row that still owns
+        // entries costs each block a key bitmap, while Arrow's map builder gives NULL rows none.
+        std::shared_ptr<arrow::Array> masked;
+        auto status = mask_arrow_descendants_not_visible(array, _arrow_pool.get(), &masked);
+        if (!status.ok()) {
+            return status.prepend(fmt::format(
+                    "Arrow column '{}' ({} -> {}): ", _file_slots[id.value()]->col_name(),
+                    array->type()->ToString(), _file_slots[id.value()]->type()->get_name()));
+        }
+        _arrays[id.value()] = std::move(masked);
     }
     return Status::OK();
 }

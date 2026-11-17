@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.util;
 
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.common.util.TimeZoneParser;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.qe.ConnectContext;
@@ -29,6 +30,7 @@ import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
+import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeFormatterBuilder;
 import java.time.format.ResolverStyle;
@@ -38,10 +40,7 @@ import java.time.temporal.ChronoField;
 import java.time.temporal.IsoFields;
 import java.time.temporal.TemporalAccessor;
 import java.time.temporal.WeekFields;
-import java.time.zone.ZoneOffsetTransition;
-import java.time.zone.ZoneRules;
 import java.util.Arrays;
-import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 
@@ -463,28 +462,35 @@ public class DateUtils {
         }
     }
 
-    /** Convert a civil datetime between time zones using the same DST policy as BE cctz. */
-    public static LocalDateTime convertTimeZone(long year, long month, long day, long hour, long minute,
-            long second, ZoneId fromZone, ZoneId toZone) {
-        LocalDateTime localDateTime = LocalDateTime.of((int) year, (int) month, (int) day,
-                (int) hour, (int) minute, (int) second);
-        return LocalDateTime.ofInstant(convertLocalToInstant(localDateTime, fromZone), toZone);
+    /** Resolve conversion zones with the session policy shared by CAST and CONVERT_TZ. */
+    public static LocalDateTime convertTimeZone(LocalDateTime datetime, String fromTz, String toTz) {
+        // These are conversion zones, not offsets embedded in DATETIME/TIMESTAMPTZ literals.
+        // Keep aliases, offset syntax and range checks in the common parser.
+        ZoneId fromZone = TimeZoneParser.parse(fromTz, TimeZoneParser.Usage.SESSION);
+        ZoneId toZone = TimeZoneParser.parse(toTz, TimeZoneParser.Usage.SESSION);
+        Instant instant = convertLocalToInstant(datetime, fromZone);
+        return LocalDateTime.ofInstant(instant, toZone);
     }
 
     /**
-     * Convert a local civil datetime to an instant with the same overlap/gap policy as BE cctz.
-     * Repeated local times use the pre-transition offset; skipped local times map to the transition
-     * instant.
+     * Convert a local time to an instant.
+     * In a gap or an overlap, use the offset before the transition.
+     * A gap moves the input forward by its length and keeps the fraction.
+     * For example, New York 2024-03-10 02:30 becomes 03:30-04:00, or 07:30 UTC.
+     * A repeated local time uses its first occurrence. This matches BE zone.lookup(civil).pre.
      */
     public static Instant convertLocalToInstant(LocalDateTime localDateTime, ZoneId fromZone) {
-        ZoneRules rules = fromZone.getRules();
-        List<ZoneOffset> validOffsets = rules.getValidOffsets(localDateTime);
-        int size = validOffsets.size();
-        if (size == 1 || size == 2) {
-            return localDateTime.atOffset(validOffsets.get(0)).toInstant();
-        }
-        ZoneOffsetTransition transition = rules.getTransition(localDateTime);
-        return transition.getInstant();
+        return convertLocalToInstant(localDateTime, fromZone, null);
+    }
+
+    /**
+     * Use the same gap rule, with an optional offset for repeated local times.
+     * A calendar operation can keep the input's occurrence in an overlap.
+     * The preferred offset does not change gap resolution.
+     */
+    public static Instant convertLocalToInstant(LocalDateTime localDateTime, ZoneId fromZone,
+            ZoneOffset preferredOffset) {
+        return ZonedDateTime.ofLocal(localDateTime, fromZone, preferredOffset).toInstant();
     }
 
     /**

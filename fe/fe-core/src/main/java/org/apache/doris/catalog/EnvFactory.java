@@ -43,9 +43,7 @@ import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.Coordinator;
-import org.apache.doris.qe.NereidsCoordinator;
 import org.apache.doris.qe.OriginStatement;
-import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.GlobalTransactionMgr;
@@ -144,67 +142,44 @@ public class EnvFactory {
     }
 
     public Coordinator createCoordinator(ConnectContext context, Planner planner,
-                                         StatsErrorEstimator statsErrorEstimator) {
-        if (planner instanceof NereidsPlanner && hasNereidsDistributedPlans((NereidsPlanner) planner)) {
-            return new NereidsCoordinator(context, (NereidsPlanner) planner, statsErrorEstimator);
-        }
-        return new Coordinator(context, planner, statsErrorEstimator);
+            StatsErrorEstimator statsErrorEstimator) {
+        return new Coordinator(context, (NereidsPlanner) planner, statsErrorEstimator);
     }
 
     public Coordinator createCoordinator(ConnectContext context, Planner planner,
-                                         StatsErrorEstimator statsErrorEstimator, long jobId) {
-        if (planner instanceof NereidsPlanner && hasNereidsDistributedPlans((NereidsPlanner) planner)) {
-            return new NereidsCoordinator(context, (NereidsPlanner) planner, statsErrorEstimator, jobId);
-        }
-        return new Coordinator(context, planner, statsErrorEstimator, jobId);
-    }
-
-    // Dispatch decision must mirror what FE planning actually did. SessionVariable
-    // checks (parsedStatement state, session vars) can drift from plan-time reality —
-    // e.g. dict refresh runs distribute() unconditionally for PhysicalDictionarySink
-    // even though canUseNereidsDistributePlanner(context) returns false because
-    // parsedStatement is never set on that path, sending the query to legacy
-    // Coordinator and producing a hang. The distributedPlans field is the
-    // single source of truth: it is populated iff FE did distribute planning.
-    protected static boolean hasNereidsDistributedPlans(NereidsPlanner planner) {
-        FragmentIdMapping<DistributedPlan> distributedPlans = planner.getDistributedPlans();
-        return distributedPlans != null && !distributedPlans.isEmpty();
+            StatsErrorEstimator statsErrorEstimator, long jobId) {
+        return new Coordinator(context, (NereidsPlanner) planner, statsErrorEstimator, jobId);
     }
 
     // Used for broker load task/export task/update coordinator
     public Coordinator createCoordinator(Long jobId, TUniqueId queryId, DescriptorTable descTable,
-                                         List<PlanFragment> fragments, List<ScanNode> scanNodes,
-                                         String timezone, boolean loadZeroTolerance, boolean enableProfile) {
-        if (SessionVariable.canUseNereidsDistributePlanner()) {
-            if (queryId == null) {
-                UUID taskId = UUID.randomUUID();
-                queryId = new TUniqueId(taskId.getMostSignificantBits(), taskId.getLeastSignificantBits());
-            }
-            ConnectContext connectContext = ConnectContext.get();
-            if (connectContext == null) {
-                connectContext = new ConnectContext();
-            }
-            if (connectContext.getLoadId() == null) {
-                connectContext.setLoadId(queryId);
-            }
-            if (connectContext.getEnv() == null) {
-                connectContext.setEnv(Env.getCurrentEnv());
-            }
-            StatementContext statementContext = connectContext.getStatementContext();
-            if (statementContext == null) {
-                statementContext = new StatementContext(connectContext, new OriginStatement("", 0));
-            }
-            DistributePlanner distributePlanner = new DistributePlanner(
-                    statementContext, fragments, false, true, true);
-            FragmentIdMapping<DistributedPlan> distributedPlans = distributePlanner.plan();
-
-            return new NereidsCoordinator(
-                    jobId, queryId, descTable, fragments, distributedPlans.valueList(),
-                    scanNodes, timezone, loadZeroTolerance, enableProfile
-            );
+            List<PlanFragment> fragments, List<ScanNode> scanNodes,
+            String timezone, boolean loadZeroTolerance, boolean enableProfile) {
+        if (queryId == null) {
+            UUID taskId = UUID.randomUUID();
+            queryId = new TUniqueId(taskId.getMostSignificantBits(), taskId.getLeastSignificantBits());
         }
+        ConnectContext connectContext = ConnectContext.get();
+        if (connectContext == null) {
+            connectContext = new ConnectContext();
+        }
+        if (connectContext.getLoadId() == null) {
+            connectContext.setLoadId(queryId);
+        }
+        if (connectContext.getEnv() == null) {
+            connectContext.setEnv(Env.getCurrentEnv());
+        }
+        StatementContext statementContext = connectContext.getStatementContext();
+        if (statementContext == null) {
+            statementContext = new StatementContext(connectContext, new OriginStatement("", 0));
+        }
+        DistributePlanner distributePlanner = new DistributePlanner(
+                statementContext, fragments, false, true, true);
+        FragmentIdMapping<DistributedPlan> distributedPlans = distributePlanner.plan();
+
         return new Coordinator(
-                jobId, queryId, descTable, fragments, scanNodes, timezone, loadZeroTolerance, enableProfile
+                jobId, queryId, descTable, fragments, distributedPlans.valueList(),
+                scanNodes, timezone, loadZeroTolerance, enableProfile
         );
     }
 

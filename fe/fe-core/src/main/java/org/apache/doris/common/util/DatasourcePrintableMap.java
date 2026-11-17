@@ -43,6 +43,9 @@ public class DatasourcePrintableMap<K, V> extends BasicPrintableMap<K, V> {
         SENSITIVE_KEY.add("kerberos_keytab_content");
         SENSITIVE_KEY.add("bos_secret_accesskey");
         SENSITIVE_KEY.add("jdbc.password");
+        // MongoDB URIs can embed credentials even when no separate password is configured.
+        SENSITIVE_KEY.add("mongodb.uri");
+        SENSITIVE_KEY.add("mongodb.password");
         SENSITIVE_KEY.add("elasticsearch.password");
         SENSITIVE_KEY.add("ai.api_key");
         SENSITIVE_KEY.add("ai.embed.api_key");

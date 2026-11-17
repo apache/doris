@@ -65,7 +65,8 @@ public class ColumnToThrift {
         tColumn.setIsOnUpdateCurrentTimestamp(column.hasOnUpdateDefaultValue());
         String realDefaultValue = column.getRealDefaultValue();
         tColumn.setDefaultValue(realDefaultValue == null ? column.getDefaultValue() : realDefaultValue);
-        if (column.getType().isTimeStampNs() && realDefaultValue != null && column.getDefaultValue() != null
+        if ((column.getType().isTimeStampNs() || column.getType().isTimeStampTz())
+                && realDefaultValue != null && column.getDefaultValue() != null
                 && !realDefaultValue.equals(column.getDefaultValue())) {
             tColumn.setDefaultValueExpr(column.getDefaultValue());
         }

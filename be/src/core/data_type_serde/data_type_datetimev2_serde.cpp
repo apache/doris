@@ -30,6 +30,7 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/primitive_type.h"
 #include "core/data_type_serde/arrow_validation.h"
+#include "core/data_type_serde/bson_value_view.h"
 #include "core/data_type_serde/decoded_column_view.h"
 #include "core/data_type_serde/orc_serde_utils.h"
 #include "core/data_type_serde/orc_timestamp_decode_context.h"
@@ -723,7 +724,29 @@ Status DataTypeDateTimeV2SerDe::read_column_from_arrow(IColumn& column,
                 --seconds;
                 remainder += divisor;
             }
-            v.from_unixtime(seconds, real_ctz);
+            // from_unixtime() narrows the cctz year to uint16_t without a check, so an instant
+            // whose civil year in real_ctz is outside 0000..9999 would read as another value:
+            // timestamp(us) 2005980768000000000 (65537-01-01) as 0001-01-01, and the years
+            // 10000..65535 as dates DATETIMEV2 cannot hold. Check the civil year before packing,
+            // as orc_timestamp_to_datetime() does for ORC.
+            const auto civil = cctz::convert(
+                    cctz::time_point<cctz::seconds>(cctz::seconds(seconds)), real_ctz);
+            if (civil.year() < 0 || civil.year() > 9999) {
+                return Status::DataQualityError(
+                        "Arrow timestamp {} of type {} is outside the DATETIMEV2 range", date_value,
+                        type->ToString());
+            }
+            v.unchecked_set_time(
+                    static_cast<uint16_t>(civil.year()), static_cast<uint8_t>(civil.month()),
+                    static_cast<uint8_t>(civil.day()), static_cast<uint8_t>(civil.hour()),
+                    static_cast<uint8_t>(civil.minute()), static_cast<uint16_t>(civil.second()), 0);
+            // cctz counts year 0 as a leap year and Doris does not (is_leap(0) is false), so the
+            // civil date 0000-02-29 passes the year check but is not a DATETIMEV2 value.
+            if (!v.is_valid_date()) {
+                return Status::DataQualityError(
+                        "Arrow timestamp {} of type {} is not a valid DATETIMEV2 value", date_value,
+                        type->ToString());
+            }
             // Get the fractional part.
             // add 0 on the right to make it 6 digits. DateTimeV2Value microsecond is 6 digits,
             // the scale decides to keep the first few digits, so the valid digits should be kept at the front.
@@ -1052,6 +1075,45 @@ Status DataTypeDateTimeV2SerDe::read_column_from_orc(IColumn& column,
         return Status::OK();
     }
     return decode_timestamp_orc_values(column, view);
+}
+
+Status DataTypeDateTimeV2SerDe::decode_bson_value(IColumn& column, const BsonValueView& value,
+                                                  const BsonDecodeContext& context) const {
+    RETURN_IF_ERROR(context.validate(value));
+    if (value.missing || value.value.value_type != BSON_TYPE_DATE_TIME) {
+        return Status::InvalidArgument("BSON DATETIME requires a date source");
+    }
+    int64_t millis = value.value.value.v_datetime;
+    int64_t seconds = millis / 1000;
+    int64_t remainder = millis % 1000;
+    if (remainder < 0) {
+        --seconds;
+        remainder += 1000;
+    }
+    int64_t quantum = 1;
+    for (int i = _scale; i < 3; ++i) {
+        quantum *= 10;
+    }
+    if (remainder % quantum != 0) {
+        return Status::InvalidArgument("BSON date requires rounding at the target datetime scale");
+    }
+    const auto civil = cctz::convert(cctz::time_point<cctz::seconds>(cctz::seconds(seconds)),
+                                     cctz::utc_time_zone());
+    if (civil.year() < 0 || civil.year() > 9999) {
+        return Status::InvalidArgument("BSON date is outside the DATETIMEV2 range");
+    }
+    DateV2Value<DateTimeV2ValueType> result;
+    result.unchecked_set_time(
+            static_cast<uint16_t>(civil.year()), static_cast<uint8_t>(civil.month()),
+            static_cast<uint8_t>(civil.day()), static_cast<uint8_t>(civil.hour()),
+            static_cast<uint8_t>(civil.minute()), static_cast<uint16_t>(civil.second()),
+            static_cast<uint32_t>(remainder * 1000));
+    if (!result.is_valid_date()) {
+        return Status::InvalidArgument("BSON date is not representable as DATETIMEV2");
+    }
+    assert_cast<ColumnDateTimeV2&>(column).insert_value(
+            binary_cast<decltype(result), UInt64>(result));
+    return Status::OK();
 }
 
 } // namespace doris

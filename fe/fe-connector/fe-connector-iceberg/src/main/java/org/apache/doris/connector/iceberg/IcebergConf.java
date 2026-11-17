@@ -23,10 +23,11 @@ import org.apache.doris.connector.spi.ConnectorContext;
 /**
  * This connector's deployment-level settings — the "B class" of the connector property convention, as
  * opposed to the per-catalog properties in {@link IcebergCatalogProperties}. These are read from the
- * plugin's own {@code iceberg.conf} (named after {@code ConnectorProvider.name()}), each falling back to
- * the {@code ENV_} name below it, which is the fe.conf key it used to live under and still works.
+ * plugin's own {@code iceberg.conf} (named after {@code ConnectorProvider.name()}). Existing shared settings
+ * fall back to the {@code ENV_} name below them; new settings have no fe.conf fallback.
  *
- * <p>Both conf keys are shared with other connectors at the fe.conf end — one {@code jdbc_drivers_dir}
+ * <p>The driver and metastore conf keys are shared with other connectors at the fe.conf end — one
+ * {@code jdbc_drivers_dir}
  * and one {@code hive_metastore_client_timeout_second} serve jdbc, iceberg and paimon. A plugin conf
  * cannot express that, so a deployment that moves to these files sets the value in each plugin's own
  * conf. That is the accepted cost of a per-plugin file; the fe.conf keys stay as the shared fallback.
@@ -35,6 +36,7 @@ public final class IcebergConf {
 
     public static final String CONF_DRIVERS_DIR = "drivers_dir";
     public static final String CONF_METASTORE_CLIENT_TIMEOUT_SECOND = "metastore_client_timeout_second";
+    public static final String CONF_ENABLE_ENCRYPTION_READ = "enable_encryption_read";
 
     /** The fe.conf name of {@link #CONF_DRIVERS_DIR}, forwarded through the engine environment. */
     public static final String ENV_JDBC_DRIVERS_DIR = "jdbc_drivers_dir";
@@ -47,6 +49,12 @@ public final class IcebergConf {
     public static final String DEFAULT_METASTORE_CLIENT_TIMEOUT_SECOND = "10";
 
     private IcebergConf() {
+    }
+
+    /** Operator intent only: the read contract independently requires verified backend capabilities. */
+    public static boolean encryptionReadEnabled(ConnectorContext context) {
+        return context != null && Boolean.parseBoolean(
+                ConnectorConf.get(context, CONF_ENABLE_ENCRYPTION_READ, null, "false"));
     }
 
     /**

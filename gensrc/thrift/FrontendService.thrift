@@ -104,6 +104,8 @@ struct TGetDbsParams {
   // Reserved for downstream field `current_roles` to keep thrift field ids
   // wire-compatible across maintained branches. Do not reuse this id.
   7: optional set<string> reserved_field_7
+  // Name-only scanners can avoid materializing database objects and omit db_ids in the response.
+  8: optional bool include_db_ids = true
 }
 
 // getDbNames returns a list of database names , database ids and catalog names ,catalog ids
@@ -484,7 +486,7 @@ struct TMasterOpResult {
     9: optional TTxnLoadInfo txnLoadInfo;
     10: optional i64 groupCommitLoadBeId;
     11: optional i64 affectedRows;
-    // Lets the forwarding FE wait for the final statistics of external write fragments.
+    // Lets the forwarding FE wait for the final statistics of dispatched fragments.
     12: optional list<i64> auditStatisticsBackendIds;
     // Confirms that the executing FE serialized raw MySQL packets with CLIENT_DEPRECATE_EOF.
     13: optional bool clientDeprecatedEofApplied;
@@ -701,8 +703,8 @@ struct TRLTaskTxnCommitAttachment {
     9: optional i64 loadCostMs
     10: optional TKafkaRLTaskProgress kafkaRLTaskProgress
     11: optional string errorLogUrl
-    12: optional TKinesisRLTaskProgress kinesisRLTaskProgress
-    13: optional string firstErrorMsg
+    12: optional string firstErrorMsg
+    13: optional TKinesisRLTaskProgress kinesisRLTaskProgress
 }
 
 struct TTxnCommitAttachment {

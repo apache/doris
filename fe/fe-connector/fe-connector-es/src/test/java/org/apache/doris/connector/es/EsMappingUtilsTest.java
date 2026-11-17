@@ -17,9 +17,12 @@
 
 package org.apache.doris.connector.es;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
@@ -178,4 +181,43 @@ public class EsMappingUtilsTest {
         Assertions.assertFalse(typeMap.containsKey("_id"));
         Assertions.assertEquals("long", typeMap.get("k1"));
     }
+
+    @Test
+    public void legacyTypeNamesCanResembleRootParameters() {
+        for (String type : Arrays.asList("doc", "_doc", "enabled", "date_detection", "numeric_detection",
+                "dynamic_date_formats", "runtime", "custom_properties")) {
+            String mapping = "{\"test\":{\"mappings\":{\"" + type
+                    + "\":{\"properties\":{\"a\":{\"type\":\"long\"}}}}}}";
+            Assertions.assertEquals("BIGINT", EsTypeMapping.parseMapping("test", mapping, false)
+                    .get(0).getType().getTypeName(), type);
+            Assertions.assertEquals("long", EsMappingUtils.resolveFieldContext(
+                    Collections.singletonList("a"), "test", mapping, type).getColumn2typeMap().get("a"), type);
+        }
+    }
+
+    @Test
+    void runtimeFieldNamedPropertiesIsNotALegacyType() throws Exception {
+        ObjectNode mapping = (ObjectNode) new ObjectMapper().readTree(
+                "{\"runtime\":{\"properties\":{\"type\":\"long\"}}}");
+        ObjectNode root = EsMappingUtils.getRootSchema(mapping, null, new ArrayList<>());
+        Assertions.assertTrue(root.has("runtime"));
+        Assertions.assertEquals("long", root.path("runtime").path("properties").path("type").asText());
+    }
+
+    @Test
+    void indexMalformedDefaultsRespectFieldOverridesAndFieldTypes() {
+        String mapping = "{\"test\":{\"settings\":{\"index\":{\"mapping\":"
+                + "{\"ignore_malformed\":\"true\",\"coerce\":\"false\"}}},\"mappings\":{\"properties\":{"
+                + "\"inherited\":{\"type\":\"long\"},"
+                + "\"overridden\":{\"type\":\"long\",\"ignore_malformed\":false},"
+                + "\"keyword\":{\"type\":\"keyword\"}}}}}";
+        EsFieldContext context = EsMappingUtils.resolveFieldContext(Collections.emptyList(), "test", mapping, null);
+        Assertions.assertTrue(context.getSourceValueUnsafeFields().contains("inherited"));
+        Assertions.assertFalse(context.getDocValueFieldsContext().containsKey("inherited"));
+        Assertions.assertFalse(context.getSourceValueUnsafeFields().contains("overridden"));
+        Assertions.assertTrue(context.getDocValueFieldsContext().containsKey("overridden"));
+        Assertions.assertFalse(context.getSourceValueUnsafeFields().contains("keyword"));
+        Assertions.assertTrue(context.getDocValueFieldsContext().containsKey("keyword"));
+    }
+
 }

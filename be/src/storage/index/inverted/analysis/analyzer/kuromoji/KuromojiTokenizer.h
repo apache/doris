@@ -19,33 +19,33 @@
 
 #include <cstdint>
 #include <string>
+#include <string_view>
 #include <vector>
 
-#include "CLucene.h"
-#include "CLucene/analysis/AnalysisHeader.h"
 #include "storage/index/inverted/analysis/analyzer/kuromoji/KuromojiMode.h"
 #include "storage/index/inverted/analysis/analyzer/kuromoji/kuromoji_viterbi.h"
-
-using namespace lucene::analysis;
+#include "storage/index/inverted/analysis/per_token_stream.h"
 
 namespace doris::segment_v2 {
 
 // Japanese tokenizer. Performs Viterbi morphological segmentation using the dictionary.
-class KuromojiTokenizer : public Tokenizer {
+class KuromojiTokenizer final : public inverted_index::PerTokenTokenizer {
 public:
     explicit KuromojiTokenizer(KuromojiMode mode = KuromojiMode::Search, bool lowercase = true,
-                               bool own_reader = false,
                                const inverted_index::kuromoji::KuromojiDictionary* dict = nullptr);
-    ~KuromojiTokenizer() override = default;
 
-    Token* next(Token* token) override;
-    void reset(lucene::util::Reader* reader) override;
+    // The terms of the current value.
+    size_t reserved_bytes() const override;
+
+protected:
+    void on_reset(std::string_view text) override;
+    bool next_token(inverted_index::TokenRef& token) override;
 
 private:
     KuromojiMode mode_;
+    const bool lowercase_;
     const inverted_index::kuromoji::KuromojiDictionary* dict_ {nullptr};
-    int32_t buffer_index_ {0};
-    int32_t data_length_ {0};
+    size_t buffer_index_ {0};
     // Backing storage for emitted terms; must outlive tokens.
     std::vector<std::string> tokens_text_;
 };
