@@ -400,8 +400,8 @@ TEST_F(SchemaUtilTest, ValuesIndexPositionDoesNotChangePathInheritance) {
             std::vector<const TabletIndex*> parents {&english, &unicode};
             parents.insert(parents.begin() + position, &values);
             TabletIndexes inherited;
-            ASSERT_TRUE(variant_util::inherit_index(parents, inherited,
-                                                    FieldType::OLAP_FIELD_TYPE_STRING, "v.s"));
+            ASSERT_TRUE(variant_util::inherit_index(
+                    parents, inherited, FieldType::OLAP_FIELD_TYPE_STRING, "v.s", false, false));
             ASSERT_EQ(inherited.size(), 2);
             EXPECT_EQ(inherited[0]->index_id(), 101);
             EXPECT_EQ(inherited[1]->index_id(), 102);
@@ -417,8 +417,8 @@ TEST_F(SchemaUtilTest, ValuesIndexPositionDoesNotChangePathInheritance) {
                     if (!array && type == FieldType::OLAP_FIELD_TYPE_STRING) {
                         continue; // Scalar strings were checked above; arrays inherit only the first index.
                     }
-                    ASSERT_TRUE(
-                            variant_util::inherit_index(parents, inherited, type, "v.n", array));
+                    ASSERT_TRUE(variant_util::inherit_index(parents, inherited, type, "v.n", array,
+                                                            false));
                     ASSERT_EQ(inherited.size(), 1);
                     EXPECT_EQ(inherited.front()->index_id(), 101);
                     EXPECT_FALSE(inherited.front()->properties().contains("parser"));
@@ -426,12 +426,27 @@ TEST_F(SchemaUtilTest, ValuesIndexPositionDoesNotChangePathInheritance) {
                     EXPECT_EQ(inherited.front()->get_index_suffix(), "v%2En");
                 }
             }
-            ASSERT_FALSE(variant_util::inherit_index({&values}, inherited,
-                                                     FieldType::OLAP_FIELD_TYPE_STRING, "v.s"));
+            ASSERT_FALSE(variant_util::inherit_index(
+                    {&values}, inherited, FieldType::OLAP_FIELD_TYPE_STRING, "v.s", false, false));
             EXPECT_TRUE(inherited.empty());
-            ASSERT_FALSE(variant_util::inherit_index({&values}, inherited,
-                                                     FieldType::OLAP_FIELD_TYPE_INT, "v.n"));
+            ASSERT_FALSE(variant_util::inherit_index(
+                    {&values}, inherited, FieldType::OLAP_FIELD_TYPE_INT, "v.n", false, false));
             EXPECT_TRUE(inherited.empty());
+            for (const auto& [path, suffix] : std::vector<std::pair<std::string, std::string>> {
+                         {"v.a%2Eb", "v%2Ea%252Eb"},
+                         {"v.a.b", "v%2Ea%2Eb"},
+                         {"v.a%252Eb", "v%2Ea%25252Eb"}}) {
+                for (auto type :
+                     {FieldType::OLAP_FIELD_TYPE_INT, FieldType::OLAP_FIELD_TYPE_STRING}) {
+                    ASSERT_TRUE(variant_util::inherit_index(parents, inherited, type, path, false,
+                                                            true));
+                    ASSERT_EQ(inherited.size(), type == FieldType::OLAP_FIELD_TYPE_INT ? 1 : 2);
+                    for (const auto& index : inherited) {
+                        EXPECT_FALSE(index->is_variant_values_index());
+                        EXPECT_EQ(index->get_index_suffix(), suffix);
+                    }
+                }
+            }
         }
     }
 }

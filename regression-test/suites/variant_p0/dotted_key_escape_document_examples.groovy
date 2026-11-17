@@ -17,7 +17,7 @@
 
 suite("dotted_key_escape_document_examples", "p0,nonConcurrent") {
     sql "set default_variant_enable_doc_mode=false"
-    def oldNested = sql("show variables like 'default_variant_enable_nested_group'")[0][1]
+    def oldNested = sql("SELECT @@session.default_variant_enable_nested_group")[0][0]
     try {
         [false, true].each { nestedDefault ->
             sql "set default_variant_enable_nested_group=${nestedDefault}"

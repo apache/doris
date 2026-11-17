@@ -213,7 +213,11 @@ public class ExpressionTranslatorTest {
         }
         Column column = new Column("v", new org.apache.doris.catalog.VariantType(fields));
         OlapTable table = Mockito.spy(new OlapTable());
-        table.setIndexes(indexes);
+        Index values = new Index(100, "values_idx", List.of("v"), IndexType.INVERTED,
+                Map.of("variant_index_scope", "values", "parser", "unicode"), "");
+        List<Index> allIndexes = new ArrayList<>(indexes);
+        allIndexes.add(0, values);
+        table.setIndexes(allIndexes);
         table.setVariantEscapeDotsInKeys(true);
         for (int i = 0; i < paths.size(); ++i) {
             PlanTranslatorContext context = new PlanTranslatorContext();
