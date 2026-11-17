@@ -143,7 +143,7 @@ final class IcebergManifestLoader {
         List<DataFile> dataFiles = new ArrayList<>();
         // .copy() is mandatory: the ManifestReader iterator reuses the same object across iterations.
         try (ManifestReader<DataFile> reader = ManifestFiles.read(manifest, io,
-                manifestReadSpecs(manifest, table))) {
+                manifestReadSpecs(manifest, table, io))) {
             if (columns != null) {
                 reader.select(columns);
             }
@@ -159,7 +159,8 @@ final class IcebergManifestLoader {
     }
 
     /** Recover the manifest writer's partition source types, or read its header when that schema expired. */
-    private static Map<Integer, PartitionSpec> manifestReadSpecs(ManifestFile manifest, Table table) {
+    private static Map<Integer, PartitionSpec> manifestReadSpecs(ManifestFile manifest, Table table, FileIO io)
+            throws IOException {
         PartitionSpec spec = table.specs().get(manifest.partitionSpecId());
         // Fixed-result transforms (bucket/year/month/day/hour) remain readable without their source
         // schema. Iceberg resolves their result from UNKNOWN; do not require expired source schemas.
@@ -172,8 +173,9 @@ final class IcebergManifestLoader {
         Snapshot writerSnapshot = writerSnapshotId == null ? null : table.snapshot(writerSnapshotId);
         Schema writerSchema = writerSnapshot == null ? null : table.schemas().get(writerSnapshot.schemaId());
         if (writerSchema == null) {
-            // The manifest header retains its physical partition type after snapshot/schema expiration.
-            return null;
+            // Preserve physical header types after expiration, allowing dropped source columns in rewritten headers.
+            PartitionSpec readable = ManifestReaderAccess.readPartitionSpec(manifest, io);
+            return Collections.singletonMap(readable.specId(), readable);
         }
         Map<Integer, Types.NestedField> sources = new LinkedHashMap<>();
         Set<String> reservedNames = new HashSet<>();
@@ -181,7 +183,9 @@ final class IcebergManifestLoader {
         for (PartitionField field : spec.fields()) {
             Types.NestedField source = writerSchema.findField(field.sourceId());
             if (source == null) {
-                return null;
+                // Metadata deletes can rewrite an old spec after its source was dropped. Its writer/header
+                // schema has no physical source type to recover; use the same raw spec as native SDK planning.
+                return Collections.singletonMap(spec.specId(), spec);
             }
             String name = "source_" + field.sourceId();
             while (!reservedNames.add(name)) {
@@ -198,7 +202,7 @@ final class IcebergManifestLoader {
             ReadFilter filter, Runnable checkCancelled) throws IOException {
         List<DeleteFile> deleteFiles = new ArrayList<>();
         try (ManifestReader<DeleteFile> reader =
-                ManifestFiles.readDeleteManifest(manifest, io, manifestReadSpecs(manifest, table))) {
+                ManifestFiles.readDeleteManifest(manifest, io, manifestReadSpecs(manifest, table, io))) {
             for (DeleteFile borrowed : ManifestReaderAccess.liveFiles(reader)) {
                 checkCancelled.run();
                 DeleteFile file = filter == null ? borrowed : filter.adapt(borrowed);

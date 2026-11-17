@@ -6410,6 +6410,54 @@ public class IcebergScanPlanProviderTest {
         Assertions.assertEquals(cacheEnabled, cache.size() > 0);
     }
 
+    @ParameterizedTest
+    @CsvSource({"false, false", "true, false", "false, true", "true, true"})
+    public void streamingManifestPolicyReadsRewrittenDroppedPartitionSource(boolean cacheEnabled,
+            boolean expireWriterSnapshot) throws IOException {
+        PartitionSpec spec = PartitionSpec.builderFor(PART_SCHEMA).identity("p").build();
+        Table table = createPersistedTable("dropped_source_stream", PART_SCHEMA, spec,
+                Map.of(TableProperties.FORMAT_VERSION, "2"));
+        DataFile surviving = dataFile(spec, "/d/dropped_survivor.parquet", 100, null, "p=7");
+        DataFile removed = DataFiles.builder(spec).withPath("/d/dropped_null.parquet")
+                .withFormat(FileFormat.PARQUET).withFileSizeInBytes(100).withRecordCount(1)
+                .withPartition(new PartitionData(spec.partitionType())).build();
+        table.newFastAppend().appendFile(surviving).appendFile(removed).commit();
+        table.updateSpec().removeField("p").commit();
+        table.updateSchema().deleteColumn("p").commit();
+        table.newFastAppend().appendFile(dataFile(table.spec(), "/d/dropped_new.parquet", 100, null, null)).commit();
+        // A metadata delete rewrites the old manifest under a schema that no longer has its source column.
+        table.newDelete().deleteFile(removed).commit();
+        if (expireWriterSnapshot) {
+            table.newFastAppend().appendFile(dataFile(table.spec(),
+                    "/d/dropped_after_rewrite.parquet", 100, null, null)).commit();
+            table.expireSnapshots().expireOlderThan(System.currentTimeMillis() + 1000)
+                    .retainLast(1).cleanExpiredMetadata(true).commit();
+        }
+        table = reloadPersistedTable(table);
+        int fileCount = expireWriterSnapshot ? 3 : 2;
+        Assertions.assertEquals(fileCount, table.currentSnapshot().dataManifests(table.io()).size());
+        Assertions.assertEquals(Type.TypeID.UNKNOWN,
+                table.specs().get(0).rawPartitionType().fields().get(0).type().typeId());
+        IcebergManifestCache cache = new IcebergManifestCache();
+        RecordingConnectorContext context = new RecordingConnectorContext();
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(
+                IcebergCatalogProperties.of(cacheEnabled ? manifestCacheProps() : Collections.emptyMap()),
+                opsReturning(table), context, cache);
+        IcebergTableHandle handle = new IcebergTableHandle("db1", "dropped_source_stream")
+                .withSnapshot(table.currentSnapshot().snapshotId(), null, table.schema().schemaId());
+        ConnectorScanRequest request = scanOf(handle).build();
+        ConnectorSession session = new FakeScanSession("UTC", Map.of("num_files_in_batch_mode", "1"));
+        Assertions.assertEquals(fileCount, provider.streamingSplitEstimate(session, handle, Optional.empty(), false));
+        List<ConnectorScanRange> expected = providerOver(table).planScan(null, request);
+        Assertions.assertEquals(fileCount, expected.size());
+        try (ConnectorSplitSource source = provider.streamSplits(session, request)) {
+            source.onMoreSplitsRequested();
+            Assertions.assertEquals(sortedPaths(expected), sortedPaths(drain(source)));
+        }
+        Assertions.assertTrue(context.metadataSubmissions.get() > 0, "keep bounded manifest scheduling");
+        Assertions.assertEquals(cacheEnabled ? fileCount : 0, cache.size());
+    }
+
     @Test
     public void uncachedStreamingManifestFailurePropagatesWithoutRetryingSdk() throws IOException {
         Table table = createTable("uncached_failure", SCHEMA, PartitionSpec.unpartitioned());
