@@ -162,10 +162,8 @@ TEST_F(RuntimeFilterMergerTest, merge_from_never_writes_producer_wrapper) {
               hashes);
 }
 
-// A caller who guarantees `other`'s wrapper has no other reader (e.g. an RPC-only filter built
-// solely for this merge, see `RuntimeFilterMergeControllerEntity::merge`) may let the merger take
-// it over directly instead of paying for a deep copy.
-TEST_F(RuntimeFilterMergerTest, merge_from_exclusively_owned_takes_ownership) {
+// A deserialized RPC input is short lived; the merger must keep a private copy after it dies.
+TEST_F(RuntimeFilterMergerTest, merge_from_rpc_input_uses_private_copy) {
     std::shared_ptr<RuntimeFilterMerger> merger;
     auto desc = TRuntimeFilterDescBuilder().build();
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(RuntimeFilterMerger::create(_query_ctx.get(), &desc, &merger));
@@ -178,14 +176,26 @@ TEST_F(RuntimeFilterMergerTest, merge_from_exclusively_owned_takes_ownership) {
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
             producer->insert(ColumnHelper::create_column<DataTypeInt32>({5}), 0));
     producer->set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State::READY);
-    auto wrapper = producer->wrapper();
+    PMergeFilterRequest request;
+    void* data = nullptr;
+    int len = 0;
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(producer->serialize(&request, &data, &len));
+    butil::IOBuf buf;
+    buf.append(data, len);
+    butil::IOBufAsZeroCopyInputStream stream(buf);
+    std::shared_ptr<RuntimeFilterProducer> rpc_input;
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
+            RuntimeFilterProducer::create(_query_ctx.get(), &desc, &rpc_input));
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(rpc_input->assign(request, &stream));
+    auto wrapper = rpc_input->wrapper();
 
     bool ready = false;
-    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
-            merger->merge_from(producer.get(), &ready, /*other_wrapper_exclusively_owned=*/true));
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(merger->merge_from(rpc_input.get(), &ready));
     ASSERT_FALSE(ready);
-    // No clone: the merger took over the exclusively owned wrapper directly.
-    ASSERT_EQ(merger->_wrapper, wrapper);
+    ASSERT_NE(merger->_wrapper, wrapper);
+    ASSERT_NE(merger->_wrapper->hybrid_set(), wrapper->hybrid_set());
+    auto merged_wrapper = merger->_wrapper;
+    rpc_input.reset();
 
     std::shared_ptr<RuntimeFilterProducer> producer2;
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
@@ -194,10 +204,29 @@ TEST_F(RuntimeFilterMergerTest, merge_from_exclusively_owned_takes_ownership) {
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
             producer2->insert(ColumnHelper::create_column<DataTypeInt32>({6}), 0));
     producer2->set_wrapper_state_and_ready_to_publish(RuntimeFilterWrapper::State::READY);
+    request.Clear();
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(producer2->serialize(&request, &data, &len));
+    butil::IOBuf buf2;
+    buf2.append(data, len);
+    butil::IOBufAsZeroCopyInputStream stream2(buf2);
+    std::shared_ptr<RuntimeFilterProducer> rpc_input2;
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
-            merger->merge_from(producer2.get(), &ready, /*other_wrapper_exclusively_owned=*/true));
+            RuntimeFilterProducer::create(_query_ctx.get(), &desc, &rpc_input2));
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(rpc_input2->assign(request, &stream2));
+    auto wrapper2 = rpc_input2->wrapper();
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(merger->merge_from(rpc_input2.get(), &ready));
     ASSERT_TRUE(ready);
+    ASSERT_EQ(merger->_wrapper, merged_wrapper);
     ASSERT_EQ(merger->_wrapper->hybrid_set()->size(), 2);
+    int32_t five = 5;
+    int32_t six = 6;
+    ASSERT_TRUE(merged_wrapper->hybrid_set()->find(&five));
+    ASSERT_TRUE(merged_wrapper->hybrid_set()->find(&six));
+    ASSERT_EQ(wrapper->hybrid_set()->size(), 1);
+    ASSERT_TRUE(wrapper->hybrid_set()->find(&five));
+    ASSERT_FALSE(wrapper->hybrid_set()->find(&six));
+    ASSERT_EQ(wrapper2->hybrid_set()->size(), 1);
+    ASSERT_FALSE(wrapper2->hybrid_set()->find(&five));
 }
 
 TEST_F(RuntimeFilterMergerTest, basic) {
