@@ -69,9 +69,14 @@ class OrdinalIndexReader : public MetadataAdder<OrdinalIndexReader> {
 public:
     explicit OrdinalIndexReader(io::FileReaderSPtr file_reader, ordinal_t num_values,
                                 const OrdinalIndexPB& meta_pb)
-            : _file_reader(std::move(file_reader)), _num_values(num_values) {
-        _meta_pb.reset(new OrdinalIndexPB(meta_pb));
-    }
+            : OrdinalIndexReader(std::move(file_reader), num_values,
+                                 std::make_unique<OrdinalIndexPB>(meta_pb)) {}
+
+    OrdinalIndexReader(io::FileReaderSPtr file_reader, ordinal_t num_values,
+                       std::unique_ptr<OrdinalIndexPB> meta_pb)
+            : _file_reader(std::move(file_reader)),
+              _meta_pb(std::move(meta_pb)),
+              _num_values(num_values) {}
 
     virtual ~OrdinalIndexReader();
 

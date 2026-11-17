@@ -539,6 +539,19 @@ Status ColumnReader::create(const ColumnReaderOptions& opts, const ColumnMetaPB&
     }
 }
 
+Status ColumnReader::create_from_owned_meta(const ColumnReaderOptions& opts, ColumnMetaPB&& meta,
+                                            uint64_t num_rows,
+                                            const io::FileReaderSPtr& file_reader,
+                                            std::shared_ptr<ColumnReader>* reader) {
+    if (!is_scalar_type(static_cast<FieldType>(meta.type()))) {
+        return create(opts, meta, num_rows, file_reader, reader);
+    }
+    std::shared_ptr<ColumnReader> reader_local(new ColumnReader(opts, meta, num_rows, file_reader));
+    RETURN_IF_ERROR(reader_local->init(&meta, &meta));
+    *reader = std::move(reader_local);
+    return Status::OK();
+}
+
 ColumnReader::ColumnReader() = default;
 
 ColumnReader::ColumnReader(const ColumnReaderOptions& opts, const ColumnMetaPB& meta,
@@ -614,7 +627,7 @@ void ColumnReader::check_data_by_zone_map_for_test(const MutableColumnPtr& dst) 
 }
 #endif
 
-Status ColumnReader::init(const ColumnMetaPB* meta) {
+Status ColumnReader::init(const ColumnMetaPB* meta, ColumnMetaPB* owned_meta) {
     _type = (FieldType)meta->type();
 
     if (meta->has_be_exec_version()) {
@@ -632,18 +645,47 @@ Status ColumnReader::init(const ColumnMetaPB* meta) {
         case BITMAP_INDEX:
             break;
         case ORDINAL_INDEX:
-            _ordinal_index.reset(
-                    new OrdinalIndexReader(_file_reader, _num_rows, index_meta.ordinal_index()));
+            if (owned_meta != nullptr) {
+                auto* owned_index = owned_meta->mutable_indexes(i);
+                owned_index->mutable_ordinal_index();
+                _ordinal_index = std::make_unique<OrdinalIndexReader>(
+                        _file_reader, _num_rows,
+                        std::unique_ptr<OrdinalIndexPB>(owned_index->release_ordinal_index()));
+            } else {
+                _ordinal_index = std::make_unique<OrdinalIndexReader>(_file_reader, _num_rows,
+                                                                      index_meta.ordinal_index());
+            }
             break;
         case ZONE_MAP_INDEX:
-            _segment_zone_map =
-                    std::make_unique<ZoneMapPB>(index_meta.zone_map_index().segment_zone_map());
-            _zone_map_index.reset(new ZoneMapIndexReader(
-                    _file_reader, index_meta.zone_map_index().page_zone_maps()));
+            if (owned_meta != nullptr) {
+                // Cache misses and external VARIANT leaf lookups own temporary metadata.
+                // Transfer its descriptors; callers borrowing shared footers retain copies.
+                auto* zone_map_meta = owned_meta->mutable_indexes(i)->mutable_zone_map_index();
+                // Preserve the default protobuf value even if this optional field is absent.
+                zone_map_meta->mutable_segment_zone_map();
+                _segment_zone_map.reset(zone_map_meta->release_segment_zone_map());
+                zone_map_meta->mutable_page_zone_maps();
+                _zone_map_index = std::make_unique<ZoneMapIndexReader>(
+                        _file_reader, std::unique_ptr<IndexedColumnMetaPB>(
+                                              zone_map_meta->release_page_zone_maps()));
+            } else {
+                _segment_zone_map =
+                        std::make_unique<ZoneMapPB>(index_meta.zone_map_index().segment_zone_map());
+                _zone_map_index = std::make_unique<ZoneMapIndexReader>(
+                        _file_reader, index_meta.zone_map_index().page_zone_maps());
+            }
             break;
         case BLOOM_FILTER_INDEX:
-            _bloom_filter_index.reset(
-                    new BloomFilterIndexReader(_file_reader, index_meta.bloom_filter_index()));
+            if (owned_meta != nullptr) {
+                auto* owned_index = owned_meta->mutable_indexes(i);
+                owned_index->mutable_bloom_filter_index();
+                _bloom_filter_index = std::make_shared<BloomFilterIndexReader>(
+                        _file_reader, std::unique_ptr<BloomFilterIndexPB>(
+                                              owned_index->release_bloom_filter_index()));
+            } else {
+                _bloom_filter_index = std::make_shared<BloomFilterIndexReader>(
+                        _file_reader, index_meta.bloom_filter_index());
+            }
             break;
         case NESTED_OFFSETS_INDEX:
             break;

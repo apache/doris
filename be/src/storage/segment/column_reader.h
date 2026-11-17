@@ -128,6 +128,12 @@ public:
                          uint64_t num_rows, const io::FileReaderSPtr& file_reader,
                          std::shared_ptr<ColumnReader>* reader);
 
+    // Consume temporary metadata for scalar columns, transferring their segment zonemap and
+    // ordinal/page-zonemap/Bloom descriptors. Other types retain non-consuming creation.
+    static Status create_from_owned_meta(const ColumnReaderOptions& opts, ColumnMetaPB&& meta,
+                                         uint64_t num_rows, const io::FileReaderSPtr& file_reader,
+                                         std::shared_ptr<ColumnReader>* reader);
+
     static Status create_array(const ColumnReaderOptions& opts, const ColumnMetaPB& meta,
                                const io::FileReaderSPtr& file_reader,
                                std::shared_ptr<ColumnReader>* reader);
@@ -243,7 +249,7 @@ private:
 
     ColumnReader(const ColumnReaderOptions& opts, const ColumnMetaPB& meta, uint64_t num_rows,
                  io::FileReaderSPtr file_reader);
-    Status init(const ColumnMetaPB* meta);
+    Status init(const ColumnMetaPB* meta, ColumnMetaPB* owned_meta = nullptr);
 
     [[nodiscard]] Status _load_zone_map_index(bool use_page_cache, bool kept_in_memory,
                                               const ColumnIteratorOptions& iter_opts);

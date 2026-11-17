@@ -45,9 +45,13 @@ class BloomFilterIndexReader : public MetadataAdder<BloomFilterIndexReader> {
 public:
     explicit BloomFilterIndexReader(io::FileReaderSPtr file_reader,
                                     const BloomFilterIndexPB& bloom_filter_index_meta)
-            : _file_reader(std::move(file_reader)) {
-        _bloom_filter_index_meta.reset(new BloomFilterIndexPB(bloom_filter_index_meta));
-    }
+            : BloomFilterIndexReader(std::move(file_reader), std::make_unique<BloomFilterIndexPB>(
+                                                                     bloom_filter_index_meta)) {}
+
+    BloomFilterIndexReader(io::FileReaderSPtr file_reader,
+                           std::unique_ptr<BloomFilterIndexPB> bloom_filter_index_meta)
+            : _file_reader(std::move(file_reader)),
+              _bloom_filter_index_meta(std::move(bloom_filter_index_meta)) {}
 
     Status load(bool use_page_cache, bool kept_in_memory, OlapReaderStatistics* bf_index_load_stats,
                 const io::IOContext* io_ctx = nullptr);

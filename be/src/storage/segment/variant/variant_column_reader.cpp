@@ -1424,7 +1424,7 @@ Status VariantColumnReader::create_reader_from_external_meta(const std::string& 
     }
     ColumnMetaPB meta;
     RETURN_IF_ERROR(_ext_meta_reader->lookup_meta_by_path(path, &meta, stats, source_io_ctx));
-    return ColumnReader::create(opts, meta, num_rows, file_reader, out);
+    return ColumnReader::create_from_owned_meta(opts, std::move(meta), num_rows, file_reader, out);
 }
 
 Status VariantColumnReader::create_path_reader(
@@ -1441,7 +1441,8 @@ Status VariantColumnReader::create_path_reader(
         ColumnMetaPB meta;
         RETURN_IF_ERROR(accessor->get_column_meta_by_column_ordinal_id(
                 footer, column_ordinal, &meta, stats, source_io_ctx));
-        return ColumnReader::create(opts, meta, num_rows, file_reader, out);
+        return ColumnReader::create_from_owned_meta(opts, std::move(meta), num_rows, file_reader,
+                                                    out);
     }
 
     // 2) Try external meta layout (if available)

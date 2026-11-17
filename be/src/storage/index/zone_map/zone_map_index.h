@@ -178,9 +178,13 @@ class ZoneMapIndexReader : public MetadataAdder<ZoneMapIndexReader> {
 public:
     explicit ZoneMapIndexReader(io::FileReaderSPtr file_reader,
                                 const IndexedColumnMetaPB& page_zone_maps)
-            : _file_reader(std::move(file_reader)) {
-        _page_zone_maps_meta.reset(new IndexedColumnMetaPB(page_zone_maps));
-    }
+            : ZoneMapIndexReader(std::move(file_reader),
+                                 std::make_unique<IndexedColumnMetaPB>(page_zone_maps)) {}
+
+    ZoneMapIndexReader(io::FileReaderSPtr file_reader,
+                       std::unique_ptr<IndexedColumnMetaPB> page_zone_maps)
+            : _file_reader(std::move(file_reader)),
+              _page_zone_maps_meta(std::move(page_zone_maps)) {}
 
     virtual ~ZoneMapIndexReader();
 

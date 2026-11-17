@@ -135,7 +135,8 @@ Status ColumnReaderCache::get_column_reader(int32_t col_uid,
     } else {
         // For non-variant columns, we can create reader directly from ColumnMetaPB.
         VLOG_DEBUG << "insert cache: uid=" << col_uid << " col_id=" << meta.column_id();
-        RETURN_IF_ERROR(ColumnReader::create(opts, meta, _num_rows, _file_reader, &reader));
+        RETURN_IF_ERROR(ColumnReader::create_from_owned_meta(opts, std::move(meta), _num_rows,
+                                                             _file_reader, &reader));
     }
 
     _insert_direct({col_uid, {}}, reader);
