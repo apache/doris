@@ -450,4 +450,76 @@ TEST_F(BlockFileCacheTest, evict_scan_rotation_replays_into_lru_recorder) {
     EXPECT_EQ(shadow, real);
 }
 
+TEST_F(BlockFileCacheTest, evict_scan_query_limit_rotates_in_use_entries) {
+    EvictScanConfigGuard guard(/*max_scan=*/3);
+    const bool query_limit = config::enable_file_cache_query_limit;
+    config::enable_file_cache_query_limit = true;
+    Defer restore_query_limit {[&] { config::enable_file_cache_query_limit = query_limit; }};
+    auto base = (caches_dir / "evict_scan_query_limit" / "").string();
+    fs::remove_all(base);
+    fs::create_directories(base);
+    Defer cleanup {[&] { fs::remove_all(base); }};
+    BlockFileCache cache(base, normal_only_settings());
+    ASSERT_TRUE(cache.initialize());
+    wait_until_cache_ready(cache);
+
+    TUniqueId query_id;
+    query_id.hi = 1;
+    query_id.lo = 1;
+    // The query may use the whole cache, so a full cache is also a query at its limit.
+    auto query_context_holder = cache.get_query_context_holder(query_id, 100);
+    auto insert_for_query = [&](const UInt128Wrapper& hash, size_t offset) {
+        CacheContext context;
+        ReadStatistics rstats;
+        context.stats = &rstats;
+        context.cache_type = FileCacheType::NORMAL;
+        context.query_id = query_id;
+        auto holder = cache.get_or_set(hash, offset, kBlockSize, context);
+        for (auto& block : holder.file_blocks) {
+            if (block->state() == FileBlock::State::EMPTY &&
+                block->get_or_set_downloader() == FileBlock::get_caller_id()) {
+                std::string data(block->range().size(), '0');
+                EXPECT_TRUE(block->append(Slice(data.data(), data.size())).ok());
+                EXPECT_TRUE(block->finalize().ok());
+            }
+        }
+        return holder;
+    };
+
+    // Query blocks 0-2 stay held, 3-9 are released.
+    auto key = BlockFileCache::hash("evict_scan_query_limit_key");
+    std::vector<FileBlocksHolder> held;
+    for (size_t i = 0; i < kBlocks; ++i) {
+        auto holder = insert_for_query(key, i * kBlockSize);
+        if (i < 3) {
+            held.push_back(std::move(holder));
+        }
+    }
+    {
+        std::lock_guard cache_lock(cache._mutex);
+        ASSERT_EQ(query_context_holder->context->get_cache_size(cache_lock), kBlocks * kBlockSize);
+    }
+
+    // The query-queue scan spends the budget on held blocks 0-2: not cached.
+    auto before = counters(cache);
+    auto other1 = insert_for_query(BlockFileCache::hash("evict_scan_query_limit_other1"), 0);
+    ASSERT_EQ(other1.file_blocks.size(), 1);
+    EXPECT_EQ(other1.file_blocks.front()->state(), FileBlock::State::SKIP_CACHE);
+    EXPECT_EQ(counters(cache).scanned - before.scanned, 3);
+    EXPECT_EQ(counters(cache).truncated - before.truncated, 1);
+    EXPECT_EQ(counters(cache).rotated - before.rotated, 3);
+
+    // Held blocks 0-2 moved to the end of the query queue, so the next miss reaches block 3.
+    before = counters(cache);
+    auto other2 = insert_for_query(BlockFileCache::hash("evict_scan_query_limit_other2"), 0);
+    ASSERT_EQ(other2.file_blocks.size(), 1);
+    EXPECT_EQ(other2.file_blocks.front()->state(), FileBlock::State::DOWNLOADED);
+    EXPECT_EQ(counters(cache).truncated - before.truncated, 0);
+    auto offsets = cached_offsets(cache, key);
+    EXPECT_FALSE(offsets.contains(3 * kBlockSize));
+    for (size_t i = 0; i < 3; ++i) {
+        EXPECT_TRUE(offsets.contains(i * kBlockSize)) << i;
+    }
+}
+
 } // namespace doris::io

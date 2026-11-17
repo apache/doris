@@ -1563,6 +1563,11 @@ bool BlockFileCache::try_reserve(const UInt128Wrapper& hash, const CacheContext&
 
     std::vector<LRUQueue::Iterator> ghost;
     std::vector<FileBlockCell*> to_evict;
+    // Query-queue entries skipped because their block is in use. The query queue is the query's
+    // own list, which the global queues' rotation does not touch, so they are moved to its end
+    // here: with a budget of 3 and query blocks 0-2 held, every later miss would otherwise stop on
+    // 0-2 again and never reach the released blocks behind them.
+    std::vector<LRUQueue::Iterator> query_in_use;
     EvictScanBudget budget(config::file_cache_evict_max_scan_entries);
 
     size_t max_size = queue.get_max_size();
@@ -1600,9 +1605,17 @@ bool BlockFileCache::try_reserve(const UInt128Wrapper& hash, const CacheContext&
                 DCHECK(file_block->_download_state == FileBlock::State::DOWNLOADED);
                 to_evict.push_back(cell);
                 removed_size += cell_size;
+            } else {
+                query_in_use.push_back(iter);
             }
         }
     }
+    // Moved after the scan, as in rotate_in_use_to_end: moving an entry while iterating would
+    // bring it back to the scan. splice keeps the iterators the query's records hold valid.
+    for (auto& iter : query_in_use) {
+        query_context->queue().move_to_end(iter, cache_lock);
+    }
+    *_evict_rotated_in_use_metrics << query_in_use.size();
 
     auto remove_file_block_if = [&](FileBlockCell* cell) {
         FileBlockSPtr file_block = cell->file_block;
