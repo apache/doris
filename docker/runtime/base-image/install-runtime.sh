@@ -24,23 +24,13 @@ apt-get update
 # Patch the package manager before the remaining downloads (CVE-2026-109518).
 apt-get install -y --only-upgrade apt libapt-pkg6.0
 apt-get upgrade -y --with-new-pkgs
-apt-get install -y --no-install-recommends \
-    ca-certificates \
-    curl \
-    fontconfig \
-    hostname \
-    iproute2 \
-    iputils-ping \
-    jq \
-    libstdc++6 \
-    mysql-client-core-8.0 \
-    net-tools \
-    numactl \
-    openssl \
-    procps \
-    tzdata \
-    util-linux \
-    wget
+# Component bases use this default set. Test images pass their own runtime or
+# build-only packages so the same patch policy does not add unused tooling.
+if [[ $# -eq 0 ]]; then
+    set -- curl fontconfig hostname iproute2 iputils-ping jq libstdc++6 \
+        mysql-client-core-8.0 net-tools numactl openssl procps tzdata util-linux wget
+fi
+apt-get install -y --no-install-recommends ca-certificates libssl3 "$@"
 
 dpkg --compare-versions "$(dpkg-query -W -f='${Version}' apt)" ge 2.4.15ubuntu0.1
 dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libssl3)" ge 3.0.2-0ubuntu1.30

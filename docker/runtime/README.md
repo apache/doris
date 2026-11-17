@@ -22,8 +22,8 @@ under the License.
 The default base image contains the packages needed by the FE, BE and MS entry
 points, one maintained JDK, and rebuilt `doris-debug` / `dorisctl` binaries.
 Development packages, kernel headers, Python 2 and general profiling tools are
-not included. The `all-in-one/` and `doris-compose/` build paths are maintained
-separately.
+not included. The `all-in-one/` and `doris-compose/` build paths use the same package-update
+policy with their own runtime tools.
 
 ## Build from a release archive
 

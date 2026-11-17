@@ -58,7 +58,7 @@ Path(args[args.index("-o") + 1]).write_text(os.environ["CHECKSUM_DOCUMENT"])
 """
 
 
-class RuntimeBuildTest(unittest.TestCase):
+class BuildFixture:
     def setUp(self):
         (ROOT / "output").mkdir(exist_ok=True)
         self.tmp = tempfile.TemporaryDirectory(dir=ROOT / "output", prefix="runtime-build-test-")
@@ -78,6 +78,11 @@ class RuntimeBuildTest(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
+    def read_calls(self):
+        return [json.loads(line) for line in self.calls.read_text().splitlines()]
+
+
+class RuntimeBuildTest(BuildFixture, unittest.TestCase):
     def archive(self, version="4.1.5", arch="arm64", include_ms=True):
         path = self.work / "release.tar.gz"
         with tarfile.open(path, "w:gz") as archive:
@@ -105,9 +110,6 @@ class RuntimeBuildTest(unittest.TestCase):
             ["bash", str(RUNTIME / "docker-build.sh"), "-v", version],
             cwd=self.work, env=env, text=True, capture_output=True, check=False, timeout=30,
         )
-
-    def read_calls(self):
-        return [json.loads(line) for line in self.calls.read_text().splitlines()]
 
     def test_verified_archive_builds_every_role_from_the_new_base(self):
         archive, digest = self.archive()
@@ -164,6 +166,55 @@ class RuntimeBuildTest(unittest.TestCase):
         result = self.build(archive, digest, version="../4.1.5")
         self.assertNotEqual(result.returncode, 0)
         self.assertFalse(self.calls.exists())
+
+
+class AllInOneBuildTest(BuildFixture, unittest.TestCase):
+    def build(self, source, **overrides):
+        env = dict(os.environ)
+        env.update(PATH=f"{self.bin}:{env['PATH']}", DOCKER_CALLS=str(self.calls))
+        env.update(overrides)
+        command = ["bash", str(RUNTIME / "all-in-one/4.1/build.sh"),
+                   "-v", "4.1.5", "--platform", "linux/arm64", "--source", source]
+        if source != "image":
+            payload = self.work / "payload"
+            for role in ["fe", "be", "ms"]:
+                (payload / role).mkdir(parents=True, exist_ok=True)
+            if source == "local":
+                command += ["--local-output", str(payload.relative_to(ROOT))]
+            else:
+                command += ["--tarball-dir", str(payload)]
+        return subprocess.run(command, cwd=self.work, env=env, text=True,
+                              capture_output=True, check=False, timeout=30)
+
+    def test_image_mode_forwards_pinned_inputs_for_both_flavors(self):
+        inputs = {key: f"registry.example/{key.lower()}@sha256:" + "a" * 64
+                  for key in ["BASE_IMAGE", "FE_IMAGE", "BE_IMAGE", "MS_IMAGE"]}
+        result = self.build("image", **inputs)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        builds = [call["args"] for call in self.read_calls()
+                  if call["args"][:2] == ["buildx", "build"]]
+        self.assertEqual(len(builds), 2)
+        for args in builds:
+            self.assertIn("--pull", args)
+            self.assertIn("ARTIFACT_SOURCE=image", args)
+            for key, value in inputs.items():
+                self.assertIn(f"{key}={value}", args)
+        self.assertIn("FLAVOR=base", builds[0])
+        self.assertIn("FLAVOR=full", builds[1])
+
+    def test_directory_modes_keep_named_contexts(self):
+        for source in ["local", "tarball"]:
+            with self.subTest(source=source):
+                self.calls.unlink(missing_ok=True)
+                result = self.build(source)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                builds = [call["args"] for call in self.read_calls()
+                          if call["args"][:2] == ["buildx", "build"]]
+                self.assertEqual(len(builds), 2)
+                for args in builds:
+                    self.assertIn("ARTIFACT_SOURCE=dir", args)
+                    for role in ["fe", "be", "ms"]:
+                        self.assertIn(f"doris-{role}={self.work}/payload/{role}", args)
 
 
 if __name__ == "__main__":
