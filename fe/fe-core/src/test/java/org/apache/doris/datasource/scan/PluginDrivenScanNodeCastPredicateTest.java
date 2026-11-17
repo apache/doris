@@ -48,6 +48,11 @@ import java.util.Optional;
  * scan. branch-4.x fixed the same row loss inside its Paimon predicate converter (#67933); master enforces
  * it in {@code buildRemainingFilter}, which had no direct test.</p>
  *
+ * <p>A cast into or out of ARRAY, MAP or STRUCT stays in Doris even for a connector that accepts casts: the
+ * stripped operand has another shape than the cast's result, so {@code code = CAST([true] AS STRING)} would
+ * reach the connector as {@code code} against the element list {@code [true]}, while Doris compares with
+ * {@code [1]}.</p>
+ *
  * <p>A column cast to a string is kept in Doris for every connector, including one that accepts CASTs:
  * {@code CAST(id AS VARCHAR) >= '100'} would reach it as {@code id >= 100} and prune a file holding only
  * {@code 15}, although {@code '15' >= '100'}.</p>
@@ -62,7 +67,8 @@ public class PluginDrivenScanNodeCastPredicateTest extends TestWithFeService {
     protected void runBeforeAll() throws Exception {
         FeConstants.runningUnitTest = true;
         createDatabase("db1");
-        createTables("create table db1.cast_predicates (id int, code string, amount decimal(10, 2))"
+        createTables("create table db1.cast_predicates (id int, code string, amount decimal(10, 2),"
+                + " arr array<int>, m map<string, int>, s struct<f:int>)"
                 + " distributed by hash(id) properties('replication_num' = '1')");
     }
 
@@ -130,6 +136,38 @@ public class PluginDrivenScanNodeCastPredicateTest extends TestWithFeService {
         Optional<ConnectorExpression> filter = Deencapsulation.invoke(node, "buildRemainingFilter");
 
         // The same conjunct is pushed once the connector accepts CASTs, so the rule above is the switch.
+        Assertions.assertTrue(filter.isPresent());
+        Assertions.assertNull(Deencapsulation.getField(node, "filteredToOriginalIndex"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"code = cast([true] as string)", "code in (cast([true] as string), 'x')",
+            "code like cast(['a%'] as string)", "cast(arr as string) = '[1]'", "arr = cast('[1]' as array<int>)",
+            "cast(m as string) = '{\"k\":1}'", "cast(s as string) = '{\"f\":1}'"})
+    public void complexKindCastConjunctsStayInDorisWhenTheConnectorAcceptsCasts(String predicate) throws Exception {
+        List<Expr> conjuncts = planConjuncts(predicate);
+        // Precondition: the planner does not fold the CAST away (FE cannot fold a cast between kinds).
+        Assertions.assertTrue(conjuncts.stream().anyMatch(PluginDrivenScanNode::containsCastExpr), predicate);
+        List<Expr> before = Expr.cloneList(conjuncts);
+
+        PluginDrivenScanNode node = nodeWith(conjuncts, true);
+        Optional<ConnectorExpression> filter = Deencapsulation.invoke(node, "buildRemainingFilter");
+
+        Assertions.assertFalse(filter.isPresent(), predicate);
+        Assertions.assertEquals(Collections.emptyList(),
+                Deencapsulation.getField(node, "filteredToOriginalIndex"), predicate);
+        Assertions.assertEquals(before, conjuncts, predicate);
+    }
+
+    @Test
+    public void arrayToArrayCastIsPushedWhenTheConnectorAcceptsCasts() throws Exception {
+        List<Expr> conjuncts = planConjuncts("cast(arr as array<bigint>) = [1, 2]");
+        Assertions.assertTrue(conjuncts.stream().anyMatch(PluginDrivenScanNode::containsCastExpr));
+
+        PluginDrivenScanNode node = nodeWith(conjuncts, true);
+        Optional<ConnectorExpression> filter = Deencapsulation.invoke(node, "buildRemainingFilter");
+
+        // A cast between two ARRAY types keeps the value a list, so it is an ordinary cast.
         Assertions.assertTrue(filter.isPresent());
         Assertions.assertNull(Deencapsulation.getField(node, "filteredToOriginalIndex"));
     }

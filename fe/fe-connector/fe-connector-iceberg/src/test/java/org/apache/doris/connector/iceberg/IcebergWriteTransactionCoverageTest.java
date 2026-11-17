@@ -63,6 +63,24 @@ public class IcebergWriteTransactionCoverageTest {
     private static final String COMMIT_LOCATION = "s3://bucket/events";
 
     @Test
+    public void everyWriteOperationRejectsAnUnknownTargetBeforeOpeningTransaction() {
+        InMemoryCatalog catalog = catalog();
+        Schema schema = new Schema(
+                Types.NestedField.optional(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "payload", Types.StructType.of(
+                        Types.NestedField.optional(3, "u", Types.UnknownType.get()))));
+        Table table = catalog.createTable(IDENTIFIER, schema, PartitionSpec.unpartitioned(),
+                Collections.singletonMap("format-version", "3"));
+        for (WriteOperation operation : WriteOperation.values()) {
+            IcebergConnectorTransaction transaction = transaction(table);
+            DorisConnectorException error = Assertions.assertThrows(DorisConnectorException.class,
+                    () -> transaction.beginWrite(session(null), "db", "events", context(operation)));
+            Assertions.assertTrue(error.getMessage().contains("unknown type columns"), error.getMessage());
+            Assertions.assertNull(table.currentSnapshot());
+        }
+    }
+
+    @Test
     public void appendV1PreservesHistoricalSnapshot() throws IOException {
         assertAppendPreservesHistory(1);
     }

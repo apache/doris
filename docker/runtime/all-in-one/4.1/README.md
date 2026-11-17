@@ -50,24 +50,30 @@ is enabled, because it adds the compressed blobs to the unpacked snapshot.
 
 ## Build
 
-A plain run builds for the host architecture only. Multi-arch needs an explicit
-`--platform`; the header the script prints says which it is doing.
+A plain run builds both `linux/amd64` and `linux/arm64`. Pass `--platform` with
+one platform for a single-architecture build; the script prints the selected
+platforms before building. Keeping both platforms locally requires the
+containerd image store; otherwise pass `--push`.
 
 ```shell
-# both tags, from the official 4.1.3 component images, host architecture only
+# both tags, from the official 4.1.3 component images, amd64 + arm64
 ./build.sh -v 4.1.3
 
-# base tag only, then smoke test it
-./build.sh -v 4.1.3 -f base -t
+# base tag for arm64, then smoke test it (use linux/amd64 on x86)
+./build.sh -v 4.1.3 -f base --platform linux/arm64 -t
 
-# from a locally built ./output instead (build.sh --fe --be --cloud; without
+# from an arm64 ./output instead (build.sh --fe --be --cloud; without
 # --cloud there is no ms/ and the image cannot serve the cloud compose file)
-./build.sh -v dev -s local
+./build.sh -v dev -s local --platform linux/arm64
 
 # from an extracted release tarball, e.g. while the component images for a
 # new release are not on Docker Hub yet
-./build.sh -v 4.1.4 -s tarball --tarball-dir ~/apache-doris-4.1.4-bin-arm64
+./build.sh -v 4.1.4 -s tarball --platform linux/arm64 --tarball-dir ~/apache-doris-4.1.4-bin-arm64
 ```
+
+`--test` requires a single platform that runs on the test host. Local output
+and release tarballs contain binaries for one architecture, so `--source local`
+and `--source tarball` require a single `--platform` matching those binaries.
 
 `./build.sh --help` lists the rest. The build context is the repository root,
 narrowed to a few KB by `Dockerfile.dockerignore`; a local `./output` or a
@@ -94,7 +100,7 @@ its own, so no per-arch directories have to be staged by hand.
 is foreign to the machine:
 
 ```shell
-./build.sh -v 4.1.3 --platform linux/amd64,linux/arm64 --push
+./build.sh -v 4.1.3 --push
 ```
 
 Keeping the result locally instead of pushing works only with the containerd
@@ -185,7 +191,7 @@ named as a string literal under `be/src/format_v2/jni/` and
 
 | class | directory | tag |
 |---|---|---|
-| `PaimonJniScanner` | `paimon-scanner` | both |
+| `PaimonJniScanner` | `paimon-scanner` / `paimon-connector` (depends on the 4.1.x release) | both |
 | `IcebergSysTableJniScanner` | `iceberg-metadata-scanner` | both |
 | `JdbcJniScanner` | `jdbc-scanner` | both |
 | (`JniWriter`) | `java-writer` | both |

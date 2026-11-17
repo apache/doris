@@ -52,6 +52,10 @@ std::unique_ptr<MongoCursorStream> make_native_mongo_stream();
 using MongoStreamFactory = std::function<std::unique_ptr<MongoCursorStream>()>;
 // Validate the typed single-cursor contract and resource bounds before creating driver objects.
 Status validate_mongodb_range(const TFileRangeDesc& range);
+// Copy bounded typed BSON candidates/projection into caller-owned documents. Views retain their
+// source collation; collection candidates use simple collation. No network or client ownership.
+Status build_mongodb_find_options(const TMongoScanDesc& descriptor, _bson_t* filter,
+                                  _bson_t* options);
 // Apply the effective catalog mode while preserving URI tag sets and max staleness on the collection.
 Status configure_mongodb_read_preference(_mongoc_collection_t* collection,
                                          const std::string& preference);

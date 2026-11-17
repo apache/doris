@@ -125,6 +125,25 @@ public final class IcebergEncryptionFixture {
                 reply(request, 500, "{\"error\":\"Fixture verification failed\"}");
             }
         });
+        server.createContext("/native-deletes/reset", request -> {
+            try (HiveCatalog catalog = fixture.catalog(fixture.properties()); S3FileIO cleanup = new S3FileIO()) {
+                check("POST".equals(request.getRequestMethod()), "POST required");
+                cleanup.initialize(fixture.properties());
+                NativeDeleteFixture.reset(catalog, cleanup);
+                reply(request, 200, "{\"created\":true}");
+            } catch (Exception | LinkageError e) {
+                e.printStackTrace(System.err);
+                reply(request, 500, "{\"error\":\"Native delete fixture creation failed\"}");
+            }
+        });
+        server.createContext("/native-deletes/verify", request -> {
+            try (HiveCatalog catalog = fixture.catalog(fixture.properties())) {
+                reply(request, 200, NativeDeleteFixture.verify(catalog));
+            } catch (Exception | LinkageError e) {
+                e.printStackTrace(System.err);
+                reply(request, 500, "{\"error\":\"Native delete fixture verification failed\"}");
+            }
+        });
         // These AWS protocol errors isolate credentials/authorization from storage access and KMS availability.
         server.createContext("/kms/credentials", request -> reply(request, 400,
                 "{\"__type\":\"UnrecognizedClientException\",\"message\":\"Invalid fixture credentials\"}"));

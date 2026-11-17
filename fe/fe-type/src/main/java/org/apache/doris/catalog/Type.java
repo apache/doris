@@ -1033,6 +1033,11 @@ public abstract class Type {
                     Preconditions.checkState(scalarType.isSetPrecision()
                             && scalarType.isSetScale());
                     type = ScalarType.createDatetimeV2Type(scalarType.getScale());
+                } else if (scalarType.getType() == TPrimitiveType.TIMESTAMPTZ) {
+                    // Use the declared scale. For example, TIMESTAMPTZ(6) must not become TIMESTAMPTZ(0).
+                    Preconditions.checkState(scalarType.isSetPrecision()
+                            && scalarType.isSetScale());
+                    type = ScalarType.createTimeStampTzType(scalarType.getScale());
                 } else if (scalarType.getType() == TPrimitiveType.TIMESTAMP_NS) {
                     type = ScalarType.createTimeStampNsType();
                 } else if (scalarType.getType() == TPrimitiveType.TIMEV2) {

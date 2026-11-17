@@ -71,9 +71,6 @@ Result<InvertedIndexAnalyzerCtx> analyzer_context_from_properties(
     // Replayed components can collide across policy families, so building the provider throws.
     try {
         return build_analyzer_context(properties);
-    } catch (const CLuceneError& error) {
-        return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
-                "Build scoring analyzer failed: {}", error.what()));
     } catch (const Exception& error) {
         return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
                 "Build scoring analyzer failed: {}", error.what()));
@@ -86,14 +83,8 @@ Result<std::vector<TermInfo>> analyze_plain_query(const std::string& value,
                                                   const InvertedIndexAnalyzerCtx& analyzer_ctx) {
     DORIS_CHECK(analyzer_ctx.analyzer_provider != nullptr);
     try {
-        auto analyzer = analyzer_ctx.analyzer_provider->get_analyzer();
-        auto reader =
-                inverted_index::InvertedIndexAnalyzer::create_reader(analyzer_ctx.char_filter_map);
-        reader->init(value.data(), static_cast<int32_t>(value.size()), true);
-        return inverted_index::InvertedIndexAnalyzer::get_analyse_result(reader, analyzer.get());
-    } catch (const CLuceneError& error) {
-        return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
-                "Analyze scoring query failed: {}", error.what()));
+        return inverted_index::InvertedIndexAnalyzer::get_analyse_result(
+                value, *analyzer_ctx.analyzer_provider->get_analyzer());
     } catch (const Exception& error) {
         return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
                 "Analyze scoring query failed: {}", error.what()));
@@ -251,7 +242,8 @@ ScoringIndexCandidates resolve_text_scoring_index_candidates(const TabletSchemaS
             continue;
         }
         auto owned_index = std::make_shared<TabletIndex>(*index);
-        owned_index->set_escaped_escaped_index_suffix_path(column.path_info_ptr()->get_path());
+        owned_index->set_escaped_escaped_index_suffix_path(
+                column.path_info_ptr()->get_path(), tablet_schema->variant_escape_dots_in_keys());
         candidates.index_metas.push_back(owned_index.get());
         candidates.owned_index_metas.emplace_back(std::move(owned_index));
     }

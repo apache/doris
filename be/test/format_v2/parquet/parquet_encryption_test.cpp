@@ -29,13 +29,22 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include <memory>
+#include <set>
 #include <string>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
+#include "common/config.h"
 #include "core/block/block.h"
 #include "core/data_type/data_type_number.h"
+#include "exprs/expr_zonemap_filter.h"
+#include "exprs/vexpr.h"
+#include "exprs/vexpr_context.h"
+#include "exprs/vliteral.h"
+#include "exprs/vslot_ref.h"
 #include "format_v2/parquet/parquet_column_schema.h"
 #include "format_v2/parquet/parquet_crypto.h"
 #include "format_v2/parquet/parquet_file_context.h"
@@ -50,6 +59,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
+#include "storage/index/zone_map/zonemap_eval_context.h"
 #include "testutil/scoped_temp_dir.h"
 #include "util/coding.h"
 #include "util/defer_op.h"
@@ -65,7 +75,7 @@ const std::string AAD = "synthetic-file-aad";
 std::vector<uint8_t> encrypted_file(
         bool dictionary = true,
         ::parquet::ParquetDataPageVersion page_version = ::parquet::ParquetDataPageVersion::V1,
-        const std::string& key = KEY, bool plaintext_footer = false) {
+        const std::string& key = KEY, bool plaintext_footer = false, int32_t rows_per_group = 4) {
     auto sink = ::arrow::io::BufferOutputStream::Create().ValueOrDie();
     auto schema = ::parquet::schema::GroupNode::Make(
             "schema", ::parquet::Repetition::REQUIRED,
@@ -92,11 +102,14 @@ std::vector<uint8_t> encrypted_file(
     auto writer = ::parquet::ParquetFileWriter::Open(
             sink, std::static_pointer_cast<::parquet::schema::GroupNode>(schema),
             properties.build());
-    for (int32_t first : {1, 5}) {
+    for (int32_t first : {1, 1 + rows_per_group}) {
         auto* group = writer->AppendRowGroup();
         auto* column = static_cast<::parquet::Int32Writer*>(group->NextColumn());
-        const int32_t values[] = {first, first + 1, first + 2, first + 3};
-        column->WriteBatch(4, nullptr, nullptr, values);
+        std::vector<int32_t> values(rows_per_group);
+        for (int32_t row = 0; row < rows_per_group; ++row) {
+            values[row] = first + row;
+        }
+        column->WriteBatch(rows_per_group, nullptr, nullptr, values.data());
         group->Close();
     }
     writer->Close();
@@ -118,6 +131,7 @@ public:
     bool closed() const override { return _closed; }
     int64_t mtime() const override { return 1; }
     [[maybe_unused]] size_t read_count() const { return _read_count; }
+    [[maybe_unused]] size_t max_read_size() const { return _max_read_size; }
 
 protected:
     Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
@@ -126,6 +140,7 @@ protected:
             return Status::IOError("Synthetic encryption fixture read exceeds file");
         }
         ++_read_count;
+        _max_read_size = std::max(_max_read_size, result.size);
         memcpy(result.data, _bytes.data() + offset, result.size);
         *bytes_read = result.size;
         return Status::OK();
@@ -136,6 +151,7 @@ private:
     io::Path _path {"synthetic-encrypted.parquet"};
     bool _closed = false;
     size_t _read_count = 0;
+    size_t _max_read_size = 0;
 };
 
 std::vector<uint8_t> java_fixture(const std::string& name = "iceberg_java.parquet") {
@@ -333,6 +349,111 @@ TEST(ParquetEncryptionTest, NativeContainerBudgetDoesNotTrustWireElementTypes) {
         EXPECT_FALSE(status.ok());
         EXPECT_EQ(consumed, 0);
     }
+}
+
+TEST(ParquetEncryptionTest, IndexContainerBudgetDoesNotTrustWireElementTypes) {
+    using namespace apache::thrift::protocol;
+    constexpr uint32_t values_per_container = 4096;
+    const size_t container_count =
+            MAX_ENCRYPTED_PARQUET_MODULE_BYTES /
+                    (values_per_container * std::max(sizeof(std::string), sizeof(int64_t))) +
+            1;
+    auto transport = std::make_shared<apache::thrift::transport::TMemoryBuffer>();
+    TCompactProtocol writer(transport);
+    writer.writeStructBegin("ColumnIndex");
+    writer.writeFieldBegin("null_pages", T_LIST, 1);
+    writer.writeListBegin(T_BOOL, 0);
+    writer.writeListEnd();
+    writer.writeFieldEnd();
+    writer.writeFieldBegin("max_values", T_LIST, 3);
+    writer.writeListBegin(T_STRING, 0);
+    writer.writeListEnd();
+    writer.writeFieldEnd();
+    writer.writeFieldBegin("boundary_order", T_I32, 4);
+    writer.writeI32(tparquet::BoundaryOrder::UNORDERED);
+    writer.writeFieldEnd();
+    // Generated code still resizes vector<string> for a BYTE-advertised min_values field.
+    // Repeated fields exceed the cumulative native budget but fit a wire-type-based budget.
+    for (size_t field = 0; field < container_count; ++field) {
+        writer.writeFieldBegin("min_values", T_LIST, 2);
+        writer.writeListBegin(T_BYTE, values_per_container);
+        for (uint32_t value = 0; value < values_per_container; ++value) {
+            writer.writeByte(0);
+        }
+        writer.writeListEnd();
+        writer.writeFieldEnd();
+    }
+    writer.writeFieldStop();
+    writer.writeStructEnd();
+    uint8_t* bytes = nullptr;
+    uint32_t size = 0;
+    transport->getBuffer(&bytes, &size);
+    ASSERT_LT(size, 4 << 20);
+    tparquet::ColumnIndex parsed;
+    uint32_t consumed = 0;
+    const auto status = deserialize_crypto_metadata(std::span(bytes, size), &consumed, &parsed);
+    EXPECT_FALSE(status.ok());
+    EXPECT_EQ(consumed, 0);
+    // Generated code clears the vector before reading the next list header; rejection precedes resize.
+    EXPECT_TRUE(parsed.min_values.empty());
+}
+
+TEST(ParquetEncryptionTest, UnknownIndexFieldsDoNotPoisonHistogramAccounting) {
+    using namespace apache::thrift::protocol;
+    constexpr uint32_t pages = 30000;
+    constexpr uint32_t bins_per_page = 101;
+    auto transport = std::make_shared<apache::thrift::transport::TMemoryBuffer>();
+    TCompactProtocol writer(transport);
+    writer.writeStructBegin("ColumnIndex");
+    // Forward-compatible unknown metadata enters Thrift's nonvirtual template skip path.
+    writer.writeFieldBegin("future", T_STRUCT, 100);
+    writer.writeStructBegin("FutureMetadata");
+    writer.writeFieldBegin("nested", T_LIST, 7);
+    writer.writeListBegin(T_BYTE, 1);
+    writer.writeByte(0);
+    writer.writeListEnd();
+    writer.writeFieldEnd();
+    writer.writeFieldStop();
+    writer.writeStructEnd();
+    writer.writeFieldEnd();
+    writer.writeFieldBegin("null_pages", T_LIST, 1);
+    writer.writeListBegin(T_BOOL, pages);
+    for (uint32_t page = 0; page < pages; ++page) {
+        writer.writeBool(false);
+    }
+    writer.writeListEnd();
+    writer.writeFieldEnd();
+    for (int16_t field : {2, 3}) {
+        writer.writeFieldBegin("bounds", T_LIST, field);
+        writer.writeListBegin(T_STRING, pages);
+        for (uint32_t page = 0; page < pages; ++page) {
+            writer.writeBinary(std::string(4, '\0'));
+        }
+        writer.writeListEnd();
+        writer.writeFieldEnd();
+    }
+    writer.writeFieldBegin("boundary_order", T_I32, 4);
+    writer.writeI32(tparquet::BoundaryOrder::UNORDERED);
+    writer.writeFieldEnd();
+    writer.writeFieldBegin("definition_level_histograms", T_LIST, 7);
+    writer.writeListBegin(T_I64, pages * bins_per_page);
+    for (uint32_t bin = 0; bin < pages * bins_per_page; ++bin) {
+        writer.writeI64(bin % bins_per_page == bins_per_page - 1 ? 1 : 0);
+    }
+    writer.writeListEnd();
+    writer.writeFieldEnd();
+    writer.writeFieldStop();
+    writer.writeStructEnd();
+    uint8_t* bytes = nullptr;
+    uint32_t size = 0;
+    transport->getBuffer(&bytes, &size);
+    tparquet::ColumnIndex parsed;
+    uint32_t consumed = 0;
+    const auto status = deserialize_crypto_metadata(std::span(bytes, size), &consumed, &parsed);
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_EQ(consumed, size);
+    EXPECT_EQ(parsed.min_values.size(), pages);
+    EXPECT_EQ(parsed.definition_level_histograms.size(), pages * bins_per_page);
 }
 
 tparquet::FileCryptoMetaData crypto_metadata() {
@@ -877,24 +998,560 @@ TEST(ParquetEncryptionTest, SharedMetadataCacheCannotAuthorizeAnotherKey) {
     EXPECT_TRUE(native_rows(bytes, parameters(), &rows).ok());
 }
 
-TEST(ParquetEncryptionTest, EncryptedIndexBytesAreNotReadBySequentialStage) {
-    auto file = std::make_shared<EncryptionMemoryReader>(encrypted_file());
+class EncryptedIndexPredicate final : public VExpr {
+public:
+    EncryptedIndexPredicate(int32_t value, bool equality)
+            : VExpr(std::make_shared<DataTypeUInt8>(), false), _value(value), _equality(equality) {
+        _fn.name.function_name = equality ? "eq" : "gt";
+        set_node_type(TExprNodeType::BINARY_PRED);
+        auto type = std::make_shared<DataTypeInt32>();
+        add_child(VSlotRef::create_shared(0, 0, -1, type, "id"));
+        add_child(VLiteral::create_shared(type, Field::create_field<TYPE_INT>(value)));
+    }
+    const std::string& expr_name() const override { return _name; }
+    bool can_evaluate_zonemap_filter() const override { return true; }
+    bool can_evaluate_bloom_filter() const override { return _equality; }
+    void collect_slot_column_ids(std::set<int>& ids) const override { ids.insert(0); }
+    ZoneMapFilterResult evaluate_zonemap_filter(const ZoneMapEvalContext& ctx) const override {
+        const auto map = ctx.zone_map(0);
+        if (map == nullptr) {
+            return unsupported_zonemap_filter(ctx);
+        }
+        const auto value = Field::create_field<TYPE_INT>(_value);
+        const bool excluded = !map->has_not_null || map->max_value < value ||
+                              (!_equality && map->max_value == value) ||
+                              (_equality && map->min_value > value);
+        return excluded ? ZoneMapFilterResult::kNoMatch : ZoneMapFilterResult::kMayMatch;
+    }
+    ZoneMapFilterResult evaluate_bloom_filter(const BloomFilterEvalContext& ctx) const override {
+        return expr_zonemap::eval_eq_bloom_filter(ctx,
+                                                  {.slot_index = 0,
+                                                   .slot_type = get_child(0)->data_type(),
+                                                   .literal = Field::create_field<TYPE_INT>(_value),
+                                                   .literal_type = get_child(0)->data_type(),
+                                                   .literal_on_left = false});
+    }
+    Status execute_column_impl(VExprContext*, const Block* block, const Selector* selector,
+                               size_t count, ColumnPtr& result_column) const override {
+        const auto& input = *block->get_by_position(0).column;
+        auto result = ColumnUInt8::create(count);
+        for (size_t row = 0; row < count; ++row) {
+            const auto value = input[selector == nullptr ? row : (*selector)[row]].get<TYPE_INT>();
+            result->get_data()[row] = _equality ? value == _value : value > _value;
+        }
+        result_column = std::move(result);
+        return Status::OK();
+    }
+
+private:
+    int32_t _value;
+    bool _equality;
+    const std::string _name = "EncryptedIndexPredicate";
+};
+
+// GTest assertions expand into branches; keep the scan and pruning/reference counters together.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
+void verify_java_index_scan(const std::filesystem::path& path, bool encrypted, bool pruning,
+                            int32_t value, bool equality, const std::vector<int32_t>& expected) {
+    auto properties = std::make_shared<io::FileSystemProperties>();
+    properties->system_type = TFileType::FILE_LOCAL;
+    auto description = std::make_unique<io::FileDescription>();
+    description->path = path;
+    description->file_size = std::filesystem::file_size(path);
+    TQueryOptions options;
+    const bool previous_page_index = config::enable_parquet_page_index;
+    config::enable_parquet_page_index = pruning;
+    Defer restore_page_index {[&] { config::enable_parquet_page_index = previous_page_index; }};
+    options.__set_enable_parquet_filter_by_bloom_filter(pruning);
+    RuntimeState state {options, TQueryGlobals()};
+    RuntimeProfile profile("encrypted_index_scan");
+    ParquetReader reader(
+            properties, description, nullptr, &profile, std::nullopt, false, false, std::nullopt,
+            false, nullptr,
+            encrypted ? std::optional(parameters(KEY, "synthetic-index-aad")) : std::nullopt);
+    ASSERT_TRUE(reader.init(&state).ok());
+    auto request = std::make_shared<FileScanRequest>();
+    request->predicate_columns = {LocalColumnIndex::top_level(LocalColumnId(0))};
+    request->local_positions.emplace(LocalColumnId(0), LocalIndex(0));
+    auto context =
+            VExprContext::create_shared(std::make_shared<EncryptedIndexPredicate>(value, equality));
+    context->_prepared = true;
+    context->_opened = true;
+    request->conjuncts = {context};
+    // The native reader does not use the legacy min/max option. Fence metadata pruning while
+    // retaining the same residual predicate so the reference really decodes every input row.
+    request->metadata_pruning_safe_conjunct_count = pruning ? 1 : 0;
+    ASSERT_TRUE(reader.open(request).ok());
+    std::vector<int32_t> actual;
+    bool eof = false;
+    while (!eof) {
+        Block block;
+        block.insert({std::make_shared<DataTypeInt32>()->create_column(),
+                      std::make_shared<DataTypeInt32>(), "id"});
+        size_t read = 0;
+        auto status = reader.get_block(&block, &read, &eof);
+        ASSERT_TRUE(status.ok()) << status;
+        for (size_t row = 0; row < read; ++row) {
+            actual.push_back((*block.get_by_position(0).column)[row].get<TYPE_INT>());
+        }
+    }
+    EXPECT_EQ(actual, expected);
+    ASSERT_TRUE(reader.close().ok());
+    if (!pruning) {
+        EXPECT_EQ(reader._parquet_profile.filtered_row_groups->value(), 0);
+        EXPECT_EQ(reader._parquet_profile.filtered_page_rows->value(), 0);
+        EXPECT_EQ(reader._parquet_profile.raw_rows_read->value(), 512);
+    }
+    if (pruning && equality && expected.empty()) {
+        EXPECT_GT(reader._parquet_profile.filtered_row_groups_by_bloom_filter->value(), 0);
+        EXPECT_GT(reader._parquet_profile.bloom_filter_probe_successes->value(), 0);
+    }
+    if (pruning && !equality) {
+        EXPECT_GT(reader._parquet_profile.filtered_page_rows->value(), 0);
+    }
+}
+
+TEST(ParquetEncryptionTest, JavaIndexesAndBloomPruningMatchUnprunedAndPlaintextScans) {
+    test::ScopedTempDirectory directory("encrypted-index-reference");
+    std::vector<int32_t> tail;
+    for (int32_t value = 902; value < 1024; value += 2) {
+        tail.push_back(value);
+    }
+    for (bool encrypted : {false, true}) {
+        const auto bytes =
+                java_fixture(encrypted ? "indexes_java.parquet" : "indexes_java_plain.parquet");
+        const auto path = directory.path() / (encrypted ? "encrypted.parquet" : "plain.parquet");
+        {
+            std::ofstream out(path, std::ios::binary);
+            out.write(reinterpret_cast<const char*>(bytes.data()), bytes.size());
+        }
+        for (bool pruning : {false, true}) {
+            verify_java_index_scan(path, encrypted, pruning, 900, false, tail);
+            verify_java_index_scan(path, encrypted, pruning, 3, true, {});
+            verify_java_index_scan(path, encrypted, pruning, 900, true, {900});
+        }
+    }
+}
+
+TEST(ParquetEncryptionTest, MissingEncryptedBloomFilterRetainsCandidateRowGroups) {
     auto info = parameters();
     ParquetFileContext context;
     io::FileDescription description;
-    ASSERT_TRUE(context.open(file, nullptr, true, description, false, false, false, &info).ok());
-    const auto& chunk = context.native_metadata->to_thrift().row_groups[0].columns[0];
-    ASSERT_TRUE(chunk.__isset.column_index_offset);
-    ASSERT_TRUE(chunk.__isset.offset_index_offset);
-    auto read_count = file->read_count();
-    std::unordered_map<int, tparquet::OffsetIndex> offsets;
-    std::unordered_map<int, NativeParquetPageIndex> pages;
-    ASSERT_TRUE(context.load_native_offset_indexes(0, {0}, &offsets).ok());
-    ASSERT_TRUE(context.load_native_page_indexes(0, {0}, &pages).ok());
-    EXPECT_TRUE(offsets.empty());
-    EXPECT_TRUE(pages.empty());
-    EXPECT_EQ(file->read_count(), read_count);
+    ASSERT_TRUE(context.open(std::make_shared<EncryptionMemoryReader>(encrypted_file()), nullptr,
+                             false, description, false, false, false, &info)
+                        .ok());
+    std::vector<std::unique_ptr<ParquetColumnSchema>> schema;
+    ASSERT_TRUE(build_parquet_column_schema(context.native_metadata->schema(), &schema).ok());
+    FileScanRequest request;
+    request.local_positions.emplace(LocalColumnId(0), LocalIndex(0));
+    request.predicate_columns = {LocalColumnIndex::top_level(LocalColumnId(0))};
+    request.conjuncts = {
+            VExprContext::create_shared(std::make_shared<EncryptedIndexPredicate>(3, true))};
+    std::vector<int> selected;
+    ParquetPruningStats stats;
+    auto status = select_row_groups_by_metadata(
+            context.native_metadata->to_thrift(), schema, request, nullptr, &selected, true, &stats,
+            nullptr, nullptr, &context, {}, ParquetMetadataProbeMode::EXPENSIVE_ONLY);
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_EQ(selected, (std::vector<int> {0, 1}));
+    EXPECT_EQ(stats.bloom_filter_conservative_fallbacks, 2);
     ASSERT_TRUE(context.close().ok());
+}
+
+void verify_index_module_binding(
+        const std::vector<uint8_t>& bytes, const tparquet::ColumnChunk& chunk,
+        const std::shared_ptr<ParquetColumnCrypto>& correct,
+        const std::vector<std::shared_ptr<ParquetColumnCrypto>>& mismatched) {
+    for (auto module : {ParquetMetadataModule::COLUMN_INDEX, ParquetMetadataModule::OFFSET_INDEX}) {
+        const bool column = module == ParquetMetadataModule::COLUMN_INDEX;
+        const auto offset = column ? chunk.column_index_offset : chunk.offset_index_offset;
+        const auto length = column ? chunk.column_index_length : chunk.offset_index_length;
+        const auto ciphertext = std::span(bytes).subspan(offset, length);
+        DorisVector<uint8_t> plaintext;
+        ASSERT_TRUE(correct->decrypt_metadata(module, ciphertext, &plaintext).ok());
+        for (const auto& crypto : mismatched) {
+            EXPECT_FALSE(crypto->decrypt_metadata(module, ciphertext, &plaintext).ok());
+        }
+        const auto swapped =
+                column ? ParquetMetadataModule::OFFSET_INDEX : ParquetMetadataModule::COLUMN_INDEX;
+        EXPECT_FALSE(correct->decrypt_metadata(swapped, ciphertext, &plaintext).ok());
+    }
+}
+
+TEST(ParquetEncryptionTest, IndexAuthenticationBindsModuleRowGroupColumnAndFile) {
+    auto bytes = encrypted_file();
+    auto info = parameters();
+    ParquetFileContext context;
+    ParquetFileContext other_file;
+    io::FileDescription description;
+    ASSERT_TRUE(context.open(std::make_shared<EncryptionMemoryReader>(bytes), nullptr, false,
+                             description, false, false, false, &info)
+                        .ok());
+    ASSERT_TRUE(other_file
+                        .open(std::make_shared<EncryptionMemoryReader>(encrypted_file()), nullptr,
+                              false, description, false, false, false, &info)
+                        .ok());
+    const auto& chunk = context.native_metadata->to_thrift().row_groups[0].columns[0];
+    std::shared_ptr<ParquetColumnCrypto> correct;
+    std::shared_ptr<ParquetColumnCrypto> wrong_group;
+    std::shared_ptr<ParquetColumnCrypto> wrong_column;
+    std::shared_ptr<ParquetColumnCrypto> wrong_file;
+    ASSERT_TRUE(context.native_metadata->encryption()->column_crypto(chunk, 0, 0, &correct).ok());
+    ASSERT_TRUE(
+            context.native_metadata->encryption()->column_crypto(chunk, 1, 0, &wrong_group).ok());
+    ASSERT_TRUE(
+            context.native_metadata->encryption()->column_crypto(chunk, 0, 1, &wrong_column).ok());
+    ASSERT_TRUE(
+            other_file.native_metadata->encryption()->column_crypto(chunk, 0, 0, &wrong_file).ok());
+    verify_index_module_binding(bytes, chunk, correct, {wrong_group, wrong_column, wrong_file});
+    ASSERT_TRUE(context.close().ok());
+    ASSERT_TRUE(other_file.close().ok());
+}
+
+TEST(ParquetEncryptionTest, EncryptedIndexRangesRejectInvalidOffsetsBeforeIo) {
+    auto bytes = encrypted_file();
+    auto info = parameters();
+    for (bool offset_only : {false, true}) {
+        auto file = std::make_shared<EncryptionMemoryReader>(bytes);
+        ParquetFileContext context;
+        io::FileDescription description;
+        ASSERT_TRUE(
+                context.open(file, nullptr, false, description, false, false, false, &info).ok());
+        auto metadata = context.native_metadata->to_thrift();
+        metadata.row_groups[0].columns[0].__set_offset_index_offset(-1);
+        auto crypto = context.native_metadata->encryption();
+        context.native_metadata_owner =
+                std::make_unique<NativeParquetMetadata>(std::move(metadata), 0, crypto);
+        context.native_metadata = context.native_metadata_owner.get();
+        const auto reads = file->read_count();
+        std::unordered_map<int, NativeParquetPageIndex> pages;
+        std::unordered_map<int, tparquet::OffsetIndex> offsets;
+        const auto status = offset_only ? context.load_native_offset_indexes(0, {0}, &offsets)
+                                        : context.load_native_page_indexes(0, {0}, &pages);
+        EXPECT_FALSE(status.ok());
+        EXPECT_EQ(file->read_count(), reads);
+        ASSERT_TRUE(context.close().ok());
+    }
+}
+
+TEST(ParquetEncryptionTest, EncryptedBloomAuthenticationAndLengthFailuresPropagate) {
+    const auto original = java_fixture("indexes_java.parquet");
+    auto info = parameters(KEY, "synthetic-index-aad");
+    ParquetFileContext base;
+    io::FileDescription description;
+    ASSERT_TRUE(base.open(std::make_shared<EncryptionMemoryReader>(original), nullptr, false,
+                          description, false, false, false, &info)
+                        .ok());
+    const auto& metadata = base.native_metadata->to_thrift().row_groups[0].columns[0].meta_data;
+    ASSERT_TRUE(metadata.__isset.bloom_filter_offset);
+    const auto header_offset = static_cast<size_t>(metadata.bloom_filter_offset);
+    const auto header_length =
+            static_cast<size_t>(decode_fixed32_le(original.data() + header_offset)) + 4;
+    for (int failure : {0, 1, 2}) {
+        auto bytes = original;
+        if (failure == 0) {
+            bytes.at(header_offset + header_length - 1) ^= 1;
+        } else if (failure == 1) {
+            const auto offset = header_offset + header_length;
+            const auto length = static_cast<size_t>(decode_fixed32_le(bytes.data() + offset)) + 4;
+            bytes.at(offset + length - 1) ^= 1;
+        } else {
+            encode_fixed32_le(bytes.data() + header_offset, std::numeric_limits<uint32_t>::max());
+        }
+        ParquetFileContext context;
+        ASSERT_TRUE(context.open(std::make_shared<EncryptionMemoryReader>(bytes), nullptr, false,
+                                 description, false, false, false, &info)
+                            .ok());
+        std::vector<std::unique_ptr<ParquetColumnSchema>> schema;
+        ASSERT_TRUE(build_parquet_column_schema(context.native_metadata->schema(), &schema).ok());
+        FileScanRequest request;
+        request.local_positions.emplace(LocalColumnId(0), LocalIndex(0));
+        request.predicate_columns = {LocalColumnIndex::top_level(LocalColumnId(0))};
+        request.conjuncts = {
+                VExprContext::create_shared(std::make_shared<EncryptedIndexPredicate>(3, true))};
+        const std::vector<int> candidate {0};
+        std::vector<int> selected;
+        ParquetPruningStats stats;
+        const auto status = select_row_groups_by_metadata(context.native_metadata->to_thrift(),
+                                                          schema, request, &candidate, &selected,
+                                                          true, &stats, nullptr, nullptr, &context);
+        EXPECT_FALSE(status.ok());
+        EXPECT_NE(
+                status.to_string().find(failure == 2 ? "INVALID_MODULE_SIZE" : "DECRYPTION_FAILED"),
+                std::string::npos);
+        ASSERT_TRUE(context.close().ok());
+    }
+    ASSERT_TRUE(base.close().ok());
+}
+
+TEST(ParquetEncryptionTest, EncryptedIndexAuthenticationFailureIsNotOptional) {
+    auto original = encrypted_file();
+    auto info = parameters();
+    ParquetFileContext original_context;
+    io::FileDescription description;
+    ASSERT_TRUE(original_context
+                        .open(std::make_shared<EncryptionMemoryReader>(original), nullptr, false,
+                              description, false, false, false, &info)
+                        .ok());
+    const auto chunk = original_context.native_metadata->to_thrift().row_groups[0].columns[0];
+    for (bool column : {false, true}) {
+        auto bytes = original;
+        const auto offset = column ? chunk.column_index_offset : chunk.offset_index_offset;
+        const auto length = column ? chunk.column_index_length : chunk.offset_index_length;
+        bytes.at(offset + length - 1) ^= 1;
+        ParquetFileContext context;
+        ASSERT_TRUE(context.open(std::make_shared<EncryptionMemoryReader>(bytes), nullptr, false,
+                                 description, false, false, false, &info)
+                            .ok());
+        std::unordered_map<int, NativeParquetPageIndex> pages;
+        auto status = context.load_native_page_indexes(0, {0}, &pages);
+        EXPECT_FALSE(status.ok());
+        EXPECT_NE(status.to_string().find("DECRYPTION_FAILED"), std::string::npos);
+        ASSERT_TRUE(context.close().ok());
+    }
+    ASSERT_TRUE(original_context.close().ok());
+}
+
+std::vector<uint8_t> wide_index_file(bool encrypted) {
+    auto sink = ::arrow::io::BufferOutputStream::Create().ValueOrDie();
+    ::parquet::schema::NodeVector fields;
+    for (int column = 0; column < 65; ++column) {
+        fields.push_back(::parquet::schema::PrimitiveNode::Make("value_" + std::to_string(column),
+                                                                ::parquet::Repetition::REQUIRED,
+                                                                ::parquet::Type::BYTE_ARRAY));
+    }
+    auto schema =
+            ::parquet::schema::GroupNode::Make("schema", ::parquet::Repetition::REQUIRED, fields);
+    ::parquet::WriterProperties::Builder properties;
+    properties.compression(::parquet::Compression::SNAPPY)
+            ->disable_dictionary()
+            ->enable_write_page_index()
+            ->data_pagesize(256)
+            ->write_batch_size(1);
+    if (encrypted) {
+        ::parquet::FileEncryptionProperties::Builder encryption {
+                ::arrow::util::SecureString(std::string(KEY))};
+        encryption.aad_prefix(AAD)->disable_aad_prefix_storage();
+        properties.encryption(encryption.build());
+    }
+    auto writer = ::parquet::ParquetFileWriter::Open(
+            sink, std::static_pointer_cast<::parquet::schema::GroupNode>(schema),
+            properties.build());
+    auto* group = writer->AppendRowGroup();
+    for (int column = 0; column < 65; ++column) {
+        auto* values = static_cast<::parquet::ByteArrayWriter*>(group->NextColumn());
+        for (int row = 0; row < 1024; ++row) {
+            std::string value(512, 'x');
+            value.replace(0, 4, std::to_string(1000 + row));
+            const ::parquet::ByteArray bytes(value.size(),
+                                             reinterpret_cast<const uint8_t*>(value.data()));
+            values->WriteBatch(1, nullptr, nullptr, &bytes);
+        }
+    }
+    group->Close();
+    writer->Close();
+    auto bytes = sink->Finish().ValueOrDie();
+    return {bytes->data(), bytes->data() + bytes->size()};
+}
+
+// GTest assertions expand into branches; keep the complete bounded-I/O scenario together.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
+void verify_large_index_block(bool encrypted) {
+    auto file = std::make_shared<EncryptionMemoryReader>(wide_index_file(encrypted));
+    auto info = parameters();
+    ParquetFileContext context;
+    io::FileDescription description;
+    ASSERT_TRUE(context.open(file, nullptr, false, description, false, false, false,
+                             encrypted ? &info : nullptr)
+                        .ok());
+    const auto& chunks = context.native_metadata->to_thrift().row_groups[0].columns;
+    std::unordered_set<int> leaves;
+    int64_t span_end = chunks.front().column_index_offset;
+    for (int column = 0; column < 65; ++column) {
+        ASSERT_EQ(chunks[column].column_index_offset, span_end);
+        ASSERT_LT(chunks[column].column_index_length, detail::MAX_SERIALIZED_PARQUET_INDEX_BYTES);
+        span_end += chunks[column].column_index_length;
+        leaves.insert(column);
+    }
+    // Each module fits the budget; only the writer's contiguous block exceeds it.
+    ASSERT_GT(span_end - chunks.front().column_index_offset,
+              detail::MAX_SERIALIZED_PARQUET_INDEX_BYTES);
+    const auto reads = file->read_count();
+    std::unordered_map<int, NativeParquetPageIndex> pages;
+    const auto status = context.load_native_page_indexes(0, leaves, &pages);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_EQ(pages.size(), 65);
+    for (const auto& [column, indexes] : pages) {
+        EXPECT_EQ(indexes.column_index.null_pages.size(), 1024);
+        EXPECT_EQ(indexes.offset_index.page_locations.size(), 1024);
+    }
+    // Two bounded ColumnIndex reads and one coalesced OffsetIndex read retain all leaves.
+    EXPECT_EQ(file->read_count() - reads, 3);
+    EXPECT_LE(file->max_read_size(), detail::MAX_SERIALIZED_PARQUET_INDEX_BYTES);
+    if (encrypted) {
+        // A tag failure in the last module must still fail after the earlier I/O block succeeded.
+        file->_bytes.at(span_end - 1) ^= 1;
+        const auto corrupt = context.load_native_page_indexes(0, leaves, &pages);
+        EXPECT_FALSE(corrupt.ok());
+        EXPECT_NE(corrupt.to_string().find("DECRYPTION_FAILED"), std::string::npos);
+        EXPECT_TRUE(pages.empty());
+    }
+    ASSERT_TRUE(context.close().ok());
+}
+
+TEST(ParquetEncryptionTest, LargePlaintextIndexBlocksStayBounded) {
+    verify_large_index_block(false);
+}
+
+TEST(ParquetEncryptionTest, LargeEncryptedIndexBlocksStayBounded) {
+    verify_large_index_block(true);
+}
+
+TEST(ParquetEncryptionTest, ManyPageEncryptedIndexesFitNativeContainerBudget) {
+    constexpr int32_t pages = 30000;
+    auto file = std::make_shared<EncryptionMemoryReader>(
+            encrypted_file(false, ::parquet::ParquetDataPageVersion::V1, KEY, false, pages));
+    auto info = parameters();
+    ParquetFileContext context;
+    io::FileDescription description;
+    ASSERT_TRUE(context.open(file, nullptr, false, description, false, false, false, &info).ok());
+    for (int group = 0; group < 2; ++group) {
+        std::unordered_map<int, NativeParquetPageIndex> indexes;
+        const auto status = context.load_native_page_indexes(group, {0}, &indexes);
+        ASSERT_TRUE(status.ok()) << status;
+        ASSERT_EQ(indexes.size(), 1);
+        EXPECT_EQ(indexes.at(0).column_index.min_values.size(), pages);
+        EXPECT_EQ(indexes.at(0).column_index.max_values.size(), pages);
+        ASSERT_EQ(indexes.at(0).offset_index.page_locations.size(), pages);
+        EXPECT_EQ(indexes.at(0).offset_index.page_locations.back().first_row_index, pages - 1);
+    }
+    ASSERT_TRUE(context.close().ok());
+}
+
+std::vector<uint8_t> encrypted_histogram_file(int16_t max_definition_level, int32_t pages) {
+    auto sink = ::arrow::io::BufferOutputStream::Create().ValueOrDie();
+    auto field = ::parquet::schema::PrimitiveNode::Make("value", ::parquet::Repetition::OPTIONAL,
+                                                        ::parquet::Type::INT32);
+    for (int level = 1; level < max_definition_level; ++level) {
+        field = ::parquet::schema::GroupNode::Make("level_" + std::to_string(level),
+                                                   ::parquet::Repetition::OPTIONAL, {field});
+    }
+    auto schema =
+            ::parquet::schema::GroupNode::Make("schema", ::parquet::Repetition::REQUIRED, {field});
+    ::parquet::FileEncryptionProperties::Builder encryption {
+            ::arrow::util::SecureString(std::string(KEY))};
+    encryption.aad_prefix(AAD)->disable_aad_prefix_storage();
+    ::parquet::WriterProperties::Builder properties;
+    properties.encryption(encryption.build())
+            ->compression(::parquet::Compression::SNAPPY)
+            ->disable_dictionary()
+            ->enable_write_page_index()
+            ->set_size_statistics_level(::parquet::SizeStatisticsLevel::PageAndColumnChunk)
+            ->max_rows_per_page(1)
+            ->data_pagesize(1)
+            ->write_batch_size(1);
+    auto writer = ::parquet::ParquetFileWriter::Open(
+            sink, std::static_pointer_cast<::parquet::schema::GroupNode>(schema),
+            properties.build());
+    auto* group = writer->AppendRowGroup();
+    auto* column = static_cast<::parquet::Int32Writer*>(group->NextColumn());
+    for (int32_t row = 0; row < pages; ++row) {
+        column->WriteBatch(1, &max_definition_level, nullptr, &row);
+    }
+    group->Close();
+    writer->Close();
+    auto bytes = sink->Finish().ValueOrDie();
+    return {bytes->data(), bytes->data() + bytes->size()};
+}
+
+void verify_encrypted_histogram(int16_t max_definition_level, int32_t pages) {
+    auto file = std::make_shared<EncryptionMemoryReader>(
+            encrypted_histogram_file(max_definition_level, pages));
+    auto info = parameters();
+    ParquetFileContext context;
+    io::FileDescription description;
+    ASSERT_TRUE(context.open(file, nullptr, false, description, false, false, false, &info).ok());
+    std::unordered_map<int, NativeParquetPageIndex> indexes;
+    const auto status = context.load_native_page_indexes(0, {0}, &indexes);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_EQ(indexes.size(), 1);
+    const auto& index = indexes.at(0);
+    EXPECT_EQ(index.column_index.min_values.size(), pages);
+    ASSERT_EQ(index.column_index.definition_level_histograms.size(),
+              pages * (max_definition_level + 1));
+    EXPECT_EQ(index.column_index.definition_level_histograms[max_definition_level], 1);
+    EXPECT_EQ(index.column_index.definition_level_histograms.back(), 1);
+    EXPECT_EQ(index.offset_index.page_locations.size(), pages);
+    ASSERT_TRUE(context.close().ok());
+}
+
+TEST(ParquetEncryptionTest, NestedEncryptedHistogramsExceedFooterContainerLimit) {
+    verify_encrypted_histogram(2, 22000);
+}
+
+TEST(ParquetEncryptionTest, DeepEncryptedHistogramsUseNativeCounterBudget) {
+    verify_encrypted_histogram(100, 30000);
+}
+
+void verify_loaded_indexes(ParquetFileContext& context, int group,
+                           std::unordered_map<int, tparquet::OffsetIndex>* offsets) {
+    std::unordered_map<int, NativeParquetPageIndex> pages;
+    ASSERT_TRUE(context.load_native_offset_indexes(group, {0}, offsets).ok());
+    ASSERT_TRUE(context.load_native_page_indexes(group, {0}, &pages).ok());
+    ASSERT_EQ(offsets->size(), 1);
+    ASSERT_EQ(pages.size(), 1);
+    ASSERT_EQ(offsets->at(0).page_locations.size(), 4);
+    EXPECT_EQ(pages.at(0).column_index.null_pages.size(), 4);
+}
+
+void verify_indexed_row_group(ParquetFileContext& context,
+                              const std::vector<std::unique_ptr<ParquetColumnSchema>>& schema,
+                              const std::shared_ptr<EncryptionMemoryReader>& file, int group,
+                              bool dictionary) {
+    std::unordered_map<int, tparquet::OffsetIndex> offsets;
+    ASSERT_NO_FATAL_FAILURE(verify_loaded_indexes(context, group, &offsets));
+    // Skip the first two physical pages: the first page we decrypt still has AAD 2.
+    RuntimeProfile profile("indexed_headers");
+    ParquetColumnReaderProfile counters;
+    counters.parse_page_header_count = profile.add_counter("ParsedHeaders", TUnit::UNIT);
+    std::unique_ptr<ParquetColumnReader> reader;
+    ASSERT_TRUE(NativeColumnReader::create(*schema[0], nullptr, file, context.native_metadata,
+                                           group, {{2, 2}}, offsets, nullptr, std::nullopt, nullptr,
+                                           nullptr, false, "", false, counters, &reader)
+                        .ok());
+    auto output = reader->type()->create_column();
+    int64_t read = 0;
+    ASSERT_TRUE(reader->skip(2).ok());
+    const auto status = reader->read(2, output, &read);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_EQ(read, 2);
+    ASSERT_EQ(output->size(), 2);
+    EXPECT_EQ((*output)[0].get<TYPE_INT>(), group * 4 + 3);
+    EXPECT_EQ((*output)[1].get<TYPE_INT>(), group * 4 + 4);
+    reader->flush_profile();
+    EXPECT_LT(counters.parse_page_header_count->value(), 4 + static_cast<int>(dictionary));
+}
+
+TEST(ParquetEncryptionTest, EncryptedIndexesLoadAndIndexedReadsKeepPhysicalPageOrdinals) {
+    for (auto version :
+         {::parquet::ParquetDataPageVersion::V1, ::parquet::ParquetDataPageVersion::V2}) {
+        for (bool dictionary : {false, true}) {
+            auto file =
+                    std::make_shared<EncryptionMemoryReader>(encrypted_file(dictionary, version));
+            auto info = parameters();
+            ParquetFileContext context;
+            io::FileDescription description;
+            ASSERT_TRUE(context.open(file, nullptr, false, description, false, false, false, &info)
+                                .ok());
+            std::vector<std::unique_ptr<ParquetColumnSchema>> schema;
+            ASSERT_TRUE(
+                    build_parquet_column_schema(context.native_metadata->schema(), &schema).ok());
+            for (int group : {0, 1}) {
+                verify_indexed_row_group(context, schema, file, group, dictionary);
+            }
+            ASSERT_TRUE(context.close().ok());
+        }
+    }
 }
 
 TEST(ParquetEncryptionTest, LevelsOnlyReaderDecryptsNullableNestedShape) {

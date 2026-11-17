@@ -96,8 +96,15 @@ org.apache.doris.connector.spi.ConnectorProvider#validatePropertiesForUpdate(jav
 org.apache.doris.connector.spi.ConnectorSecuritySurface#jdbcDriverUrlFlavorKey():java.lang.String
 org.apache.doris.connector.spi.ConnectorSecuritySurface#jdbcDriverUrlKeys():java.util.List
 org.apache.doris.connector.spi.ConnectorSecuritySurface#ofJdbcDriverUrls(java.lang.String,java.lang.String[]):org.apache.doris.connector.spi.ConnectorSecuritySurface
+org.apache.doris.connector.spi.ConnectorSecuritySurface#ofSensitiveKeyPrefix(java.lang.String,java.lang.String[]):org.apache.doris.connector.spi.ConnectorSecuritySurface
+org.apache.doris.connector.spi.ConnectorSecuritySurface#ofSensitiveKeys(java.lang.String[]):org.apache.doris.connector.spi.ConnectorSecuritySurface
 org.apache.doris.connector.spi.ConnectorSecuritySurface#ofSsrfEndpoints(java.lang.String[]):org.apache.doris.connector.spi.ConnectorSecuritySurface
+org.apache.doris.connector.spi.ConnectorSecuritySurface#sensitiveKeyPrefixes():java.util.List
+org.apache.doris.connector.spi.ConnectorSecuritySurface#sensitiveKeys():java.util.List
 org.apache.doris.connector.spi.ConnectorSecuritySurface#ssrfEndpointKeys():java.util.List
+org.apache.doris.connector.spi.ConnectorSecuritySurface#withSensitiveKeyPrefix(java.lang.String,java.lang.String[]):org.apache.doris.connector.spi.ConnectorSecuritySurface
+org.apache.doris.connector.spi.ConnectorSecuritySurface#withSensitiveKeys(java.lang.String[]):org.apache.doris.connector.spi.ConnectorSecuritySurface
+org.apache.doris.connector.spi.ConnectorSecuritySurface#withSensitiveKeys(java.util.Collection):org.apache.doris.connector.spi.ConnectorSecuritySurface
 org.apache.doris.connector.spi.ConnectorSession#allocateTransactionId():long
 org.apache.doris.connector.spi.ConnectorSession#getBeExecVersion():int
 org.apache.doris.connector.spi.ConnectorSession#getCatalogId():long
