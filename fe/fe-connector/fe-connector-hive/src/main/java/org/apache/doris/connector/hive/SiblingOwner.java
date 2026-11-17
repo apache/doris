@@ -42,6 +42,8 @@ final class SiblingOwner {
     /** Owner label for the embedded hudi sibling — the funnel-key discriminator, shared by both routes. */
     static final String HUDI_LABEL = "hudi";
 
+    static final String DELTA_LABEL = "deltalake";
+
     private final Connector connector;
     private final String label;
 

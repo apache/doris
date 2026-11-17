@@ -1,0 +1,58 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+
+package org.apache.doris.connector.deltalake;
+
+import org.apache.doris.connector.spi.ConnectorSession;
+import org.apache.doris.connector.spi.ConnectorStatementScopes;
+
+import java.util.Optional;
+import java.util.function.Supplier;
+
+final class DeltaLakeStatementScope {
+    static final String SNAPSHOT_NAMESPACE = "deltalake.snapshot";
+    static final String VERSION_NAMESPACE = "deltalake.snapshot-version";
+
+    static final String FILE_COUNT_NAMESPACE = "deltalake.file-count";
+
+    /** Observed only at this statement's fixed table identity/version; never a cross-query cache. */
+    static final class FileCount {
+        volatile long value = -1;
+    }
+
+    static FileCount fileCount(ConnectorSession session, DeltaLakeTableHandle handle) {
+        return ConnectorStatementScopes.resolveInStatement(session, FILE_COUNT_NAMESPACE, handle.getDatabase(),
+                handle.getTable() + ":" + handle.getTableId() + ":" + handle.getVersion(), FileCount::new);
+    }
+
+    private DeltaLakeStatementScope() {
+    }
+
+    static Optional<DeltaLakeTableHandle> resolve(ConnectorSession session, String database, String table,
+            Supplier<Optional<DeltaLakeTableHandle>> loader) {
+        return ConnectorStatementScopes.resolveInStatement(session, SNAPSHOT_NAMESPACE, database, table, loader);
+    }
+
+    static DeltaLakeTableHandle atVersion(ConnectorSession session, DeltaLakeTableHandle handle, long version,
+            Supplier<DeltaLakeTableHandle> loader) {
+        String key = String.join("\0", handle.getTable(), handle.getPath(), handle.getTableId(),
+                Long.toString(version));
+        return ConnectorStatementScopes.resolveInStatement(session, VERSION_NAMESPACE, handle.getDatabase(),
+                key, loader);
+    }
+}

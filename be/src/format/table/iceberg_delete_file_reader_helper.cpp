@@ -52,6 +52,24 @@ namespace {
 constexpr const char* ICEBERG_FILE_PATH = "file_path";
 constexpr const char* ICEBERG_ROW_POS = "pos";
 constexpr size_t ICEBERG_DELETION_VECTOR_MIN_BYTES = 12;
+constexpr char PORTABLE_DELETION_VECTOR_MAGIC[] = {'\xD1', '\xD3', '\x39', '\x64'};
+
+Status validate_portable_deletion_vector_magic(const char* buf) {
+    if (memcmp(buf, PORTABLE_DELETION_VECTOR_MAGIC, sizeof(PORTABLE_DELETION_VECTOR_MAGIC)) != 0) {
+        return Status::DataQualityError("Deletion vector magic number mismatch");
+    }
+    return Status::OK();
+}
+
+Status decode_portable_deletion_vector_bitmap(const char* buf, size_t size,
+                                              DeletionVector* rows_to_delete) {
+    try {
+        *rows_to_delete |= roaring::Roaring64Map::readSafe(buf, size);
+    } catch (const std::runtime_error& e) {
+        return Status::DataQualityError("Decode roaring bitmap failed, {}", e.what());
+    }
+    return Status::OK();
+}
 
 Status validate_position_delete_file_format(const TIcebergDeleteFileDesc& delete_file,
                                             TFileFormatType::type* file_format) {
@@ -144,10 +162,7 @@ Status decode_deletion_vector_buffer(const char* buf, size_t buffer_size,
                                         static_cast<uint64_t>(total_length) + 8, buffer_size);
     }
 
-    constexpr static char MAGIC_NUMBER[] = {'\xD1', '\xD3', '\x39', '\x64'};
-    if (memcmp(buf + sizeof(total_length), MAGIC_NUMBER, 4) != 0) {
-        return Status::DataQualityError("Deletion vector magic number mismatch");
-    }
+    RETURN_IF_ERROR(validate_portable_deletion_vector_magic(buf + sizeof(total_length)));
 
     const uint32_t expected_crc = BigEndian::Load32(buf + sizeof(total_length) + total_length);
     const uint32_t actual_crc =
@@ -157,13 +172,8 @@ Status decode_deletion_vector_buffer(const char* buf, size_t buffer_size,
                                         expected_crc, actual_crc);
     }
 
-    try {
-        *rows_to_delete |= roaring::Roaring64Map::readSafe(
-                buf + 8, buffer_size - ICEBERG_DELETION_VECTOR_MIN_BYTES);
-    } catch (const std::runtime_error& e) {
-        return Status::DataQualityError("Decode roaring bitmap failed, {}", e.what());
-    }
-    return Status::OK();
+    return decode_portable_deletion_vector_bitmap(
+            buf + 8, buffer_size - ICEBERG_DELETION_VECTOR_MIN_BYTES, rows_to_delete);
 }
 
 } // namespace
@@ -322,6 +332,18 @@ Status read_iceberg_deletion_vector(const TIcebergDeleteFileDesc& delete_file,
 Status decode_iceberg_deletion_vector_buffer(const char* buf, size_t buffer_size,
                                              DeletionVector* rows_to_delete) {
     return decode_deletion_vector_buffer(buf, buffer_size, rows_to_delete);
+}
+
+Status decode_portable_deletion_vector_payload(const char* buf, size_t buffer_size,
+                                               DeletionVector* rows_to_delete) {
+    DORIS_CHECK(buf != nullptr);
+    DORIS_CHECK(rows_to_delete != nullptr);
+    // Even an empty portable Roaring64Map has an eight-byte map count after the magic.
+    if (buffer_size < 12) {
+        return Status::DataQualityError("Deletion vector payload size too small: {}", buffer_size);
+    }
+    RETURN_IF_ERROR(validate_portable_deletion_vector_magic(buf));
+    return decode_portable_deletion_vector_bitmap(buf + 4, buffer_size - 4, rows_to_delete);
 }
 
 } // namespace doris

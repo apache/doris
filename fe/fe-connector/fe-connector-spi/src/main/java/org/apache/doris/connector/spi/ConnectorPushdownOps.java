@@ -58,6 +58,11 @@ public interface ConnectorPushdownOps {
      * {@link #applyFilter} path never consults it: there the engine converts every conjunct and hands the
      * result to the connector regardless of what this method answers.</p>
      *
+     * <p>A per-table scan provider can implement this interface to further restrict the residuals it
+     * receives. Both the catalog metadata and that provider must accept CASTs. This lets a gateway
+     * honor the file reader of the selected table. Filter and projection application still use the
+     * catalog metadata.</p>
+     *
      * <p><b>And on either path a CAST does not arrive as a CAST.</b> The forward converter unwraps it and
      * pushes the child expression, so {@code CAST(dt AS INT) = 20240101} reaches the connector as
      * {@code dt = 20240101}, with nothing marking it as coerced — a connector cannot detect the situation by
@@ -75,9 +80,9 @@ public interface ConnectorPushdownOps {
      * <p><b>Every shipped connector answers this deliberately; none of them merely inherits.</b> jdbc, paimon,
      * maxcompute and the trino bridge return {@code false}; iceberg and elasticsearch state {@code true} at
      * their own metadata class, each recording what it does with the predicate and that {@code true} is an
-     * accepted risk rather than a safety claim. hive and hudi declare nothing because for them the switch is
-     * INERT — their scan planning ignores the residual filter entirely, and the predicate they do consume
-     * arrives on the {@link #applyFilter} path, which is never gated on this method. A new connector should
+     * accepted risk rather than a safety claim. Delta's scan provider returns {@code false} for both direct
+     * scans and Hive gateway scans. Native Hive and Hudi scan planning ignores the residual filter entirely;
+     * the predicates those readers consume arrive on the {@link #applyFilter} path. A new connector should
      * make the same deliberate choice, starting from {@code false}.</p>
      */
     default boolean supportsCastPredicatePushdown(ConnectorSession session) {
