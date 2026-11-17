@@ -88,6 +88,13 @@ suite("test_deltalake_reader_edges", "p0,external,deltalake,external_docker") {
                     """select 1 as id, cast('2024-02-29 00:00:00' as datetimev2(6))
                        union all select 2, cast('2024-03-01 12:34:56' as datetimev2(6)) order by id""")
             compare("widen_id_only", "select id from ${db}.date_widen order by id", bothIds)
+            String midnight = "cast('2024-02-29 00:00:00' as datetimev2(6))"
+            compare("widen_midnight", "select id from ${db}.date_widen where p = ${midnight} order by id",
+                    "select 1")
+            compare("widen_range", """select id from ${db}.date_widen where p > ${midnight}
+                    and p <= cast('2024-03-01 12:34:56' as datetimev2(6)) order by id""", "select 2")
+            compare("widen_microsecond", """select count(*) from ${db}.date_widen
+                    where p = cast('2024-02-29 00:00:00.000001' as datetimev2(6))""", "select 0")
 
             // In partitionValues, the empty string encodes a null partition for every type.
             compare("string_values", "select id, p from ${db}.empty_string order by id",

@@ -85,13 +85,22 @@ final class DeltaLakePartitionValues {
                 throw new DorisConnectorException("Delta file has no partition value for column " + name);
             }
             try {
-                result.put(name, normalizeValue(field.getDataType(), rawValues.get(key)));
+                result.put(name, normalizeValue(field, rawValues.get(key)));
             } catch (IllegalArgumentException | DateTimeException e) {
                 throw new DorisConnectorException("Invalid Delta partition value for column " + name
                         + " of type " + field.getDataType(), e);
             }
         }
         return Collections.unmodifiableMap(result);
+    }
+
+    private static String normalizeValue(StructField field, String value) {
+        if (field.getDataType() instanceof TimestampNTZType && value != null && value.indexOf(':') < 0
+                && field.getTypeChanges().contains(DeltaLakeFeatureCheck.DATE_TO_TIMESTAMP_NTZ)) {
+            // Old AddFiles keep their DATE partition string after widening. NTZ midnight has no time zone.
+            return LocalDate.parse(value).atStartOfDay().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+        }
+        return normalizeValue(field.getDataType(), value);
     }
 
     static String normalizeValue(DataType type, String value) {

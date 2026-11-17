@@ -42,6 +42,8 @@ import java.util.TreeSet;
 
 /** Fail before planning files when a table requires semantics the native reader has not validated. */
 final class DeltaLakeFeatureCheck {
+    static final TypeChange DATE_TO_TIMESTAMP_NTZ = new TypeChange(DateType.DATE, TimestampNTZType.TIMESTAMP_NTZ);
+
     // Features are enabled alongside their end-to-end read coverage.
     static final Set<String> SUPPORTED_READER_FEATURES = Set.of(
             "columnMapping", "timestampNtz", "typeWidening", "typeWidening-preview", "deletionVectors",

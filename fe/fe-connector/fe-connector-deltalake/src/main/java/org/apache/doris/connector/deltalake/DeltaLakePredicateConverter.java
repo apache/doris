@@ -163,8 +163,7 @@ final class DeltaLakePredicateConverter {
                 // Kernel 4.4.1 parses min/max using the current type. Old DATE statistics
                 // contain only yyyy-MM-dd and fail its timestamp_ntz parser after widening.
                 // Keep predicates on these columns as BE residuals until Kernel handles them.
-                if (field.getTypeChanges().stream().anyMatch(change -> change.getFrom() instanceof DateType
-                        && change.getTo() instanceof TimestampNTZType)) {
+                if (field.getTypeChanges().contains(DeltaLakeFeatureCheck.DATE_TO_TIMESTAMP_NTZ)) {
                     return null;
                 }
                 // The SPI currently carries root-column references, not nested field paths.

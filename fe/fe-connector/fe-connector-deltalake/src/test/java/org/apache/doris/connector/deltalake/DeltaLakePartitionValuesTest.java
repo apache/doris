@@ -35,12 +35,14 @@ import io.delta.kernel.types.StructField;
 import io.delta.kernel.types.StructType;
 import io.delta.kernel.types.TimestampNTZType;
 import io.delta.kernel.types.TimestampType;
+import io.delta.kernel.types.TypeChange;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.TimeZone;
 
@@ -85,6 +87,29 @@ class DeltaLakePartitionValuesTest {
         } finally {
             TimeZone.setDefault(previous);
         }
+    }
+
+    @Test
+    void readsDatePartitionsAtMidnightOnlyForTheWidenedField() {
+        StructField widened = new StructField("p", TimestampNTZType.TIMESTAMP_NTZ, true)
+                .withTypeChanges(List.of(new TypeChange(DateType.DATE, TimestampNTZType.TIMESTAMP_NTZ)));
+        StructType schema = new StructType().add(widened).add("native_ntz", TimestampNTZType.TIMESTAMP_NTZ);
+        List<String> columns = List.of("p", "native_ntz");
+        String date = "2024-02-29";
+        String midnight = "2024-02-29 00:00:00";
+        String timestamp = "2024-03-01 12:34:56.123456";
+        Map<String, String> partition = DeltaLakePartitionValues.normalize(schema, columns, false,
+                Map.of("p", date, "native_ntz", timestamp));
+        Assertions.assertEquals(Map.of("p", "2024-02-29T00:00:00", "native_ntz", "2024-03-01T12:34:56.123456"),
+                partition);
+        Assertions.assertEquals(partition, DeltaLakePartitionValues.normalize(schema, columns, false,
+                Map.of("p", midnight, "native_ntz", timestamp)));
+        Assertions.assertEquals("2024-03-01T12:34:56.123456", DeltaLakePartitionValues.normalize(schema,
+                List.of("p"), false, Map.of("p", timestamp)).get("p"));
+        Assertions.assertThrows(DorisConnectorException.class, () -> DeltaLakePartitionValues.normalize(
+                schema, columns, false, Map.of("p", date, "native_ntz", date)));
+        Assertions.assertThrows(DorisConnectorException.class, () -> DeltaLakePartitionValues.normalize(
+                schema, List.of("p"), false, Map.of("p", "2023-02-29")));
     }
 
     @Test
