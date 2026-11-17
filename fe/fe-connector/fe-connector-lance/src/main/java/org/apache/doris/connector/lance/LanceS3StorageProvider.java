@@ -54,6 +54,7 @@ final class LanceS3StorageProvider implements LanceStorageProvider {
     private static final String SESSION_TOKEN = "aws_session_token";
     private static final String REGION = "aws_region";
     private static final String ENDPOINT = "aws_endpoint";
+    private static final String S3_ENDPOINT = "aws_endpoint_url_s3";
     private static final String VIRTUAL_HOSTED_STYLE = "aws_virtual_hosted_style_request";
     /**
      * Not prefixed: object_store carries this as a shared client option, and reports it as
@@ -74,9 +75,9 @@ final class LanceS3StorageProvider implements LanceStorageProvider {
      * it is unambiguously the session token. It means a bearer token to object_store's Azure
      * parser, which is why it can only be resolved once the provider is known.
      *
-     * <p>{@code aws_endpoint_url_s3} is deliberately absent. object_store parses it into a config
-     * key of its own and prefers it over the generic endpoint, so a vended one already wins
-     * without being rewritten, and folding it in would replace a defined precedence with map order.
+     * <p>{@code aws_endpoint_url_s3} remains a separate coordinate: object_store prefers it over
+     * the generic endpoint. After the catalog/vended merge, inference fills a missing service
+     * endpoint from the generic one to block an unrelated environment value.
      */
     private static final Map<String, String> CANONICAL_BY_ALIAS = Map.ofEntries(
             Map.entry("access_key_id", ACCESS_KEY_ID),
@@ -91,6 +92,7 @@ final class LanceS3StorageProvider implements LanceStorageProvider {
             Map.entry("endpoint_url", ENDPOINT),
             Map.entry("aws_endpoint", ENDPOINT),
             Map.entry("aws_endpoint_url", ENDPOINT),
+            Map.entry("aws_endpoint_url_s3", S3_ENDPOINT),
             Map.entry("region", REGION),
             Map.entry("aws_region", REGION),
             Map.entry("virtual_hosted_style_request", VIRTUAL_HOSTED_STYLE),
@@ -111,6 +113,9 @@ final class LanceS3StorageProvider implements LanceStorageProvider {
         S3CompatibleFileSystemProperties properties = selectS3Compatible(storageProperties);
         if (properties == null) {
             return result;
+        }
+        if (properties.hasAssumeRole()) {
+            throw new IllegalArgumentException("Lance S3 AssumeRole access is not supported yet");
         }
         if (!properties.hasStaticCredentials()) {
             throw new IllegalArgumentException("Lance S3 access currently requires static s3.access_key and"
@@ -192,10 +197,13 @@ final class LanceS3StorageProvider implements LanceStorageProvider {
     @Override
     public Map<String, String> inferStorageOptions(Map<String, String> effectiveOptions) {
         Map<String, String> inferred = new HashMap<>();
+        String endpoint = effectiveOptions.getOrDefault(S3_ENDPOINT, effectiveOptions.get(ENDPOINT));
+        // with_env_s3 imports this separate key, which object_store prefers to aws_endpoint.
+        // Fill it only after vending has selected the endpoint, preserving an explicit service value.
+        LanceStorageOptions.putIfNotEmpty(inferred, S3_ENDPOINT, endpoint);
         if (effectiveOptions.containsKey(ALLOW_HTTP)) {
             return inferred;
         }
-        String endpoint = effectiveOptions.get(ENDPOINT);
         if (endpoint != null && endpoint.startsWith("http://")) {
             // object_store rejects a plain-HTTP endpoint unless this client option is enabled.
             inferred.put(ALLOW_HTTP, "true");

@@ -152,7 +152,13 @@ lance_jni_replace() (
 lance_arrow_cdata_jni_build() (
     set -eo pipefail
     local source_dir="$1" target_jar="$2" build_dir="$3" target_system="$4" destination="$5"
-    local jdk_home="${JAVA_HOME:?JAVA_HOME must point to a JDK}"
+    local jdk_home="${JAVA_HOME:-}"
+    if [[ -z "${jdk_home}" ]]; then
+        # env.sh also accepts a JDK on PATH without setting JAVA_HOME. Ask the selected JVM,
+        # rather than resolving its launcher path (which may be a symlink or a platform shim).
+        jdk_home=$("${JAVA:-java}" -XshowSettings:properties -version 2>&1 | \
+            sed -n 's/^[[:space:]]*java.home = //p')
+    fi
     local jni_platform="linux"
     local -a runtime_flags=(-static-libstdc++ -static-libgcc '-Wl,--exclude-libs,ALL')
     if [[ "${target_system}" == "Darwin" ]]; then

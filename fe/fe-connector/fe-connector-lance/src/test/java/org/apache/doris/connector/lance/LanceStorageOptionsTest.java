@@ -47,13 +47,14 @@ class LanceStorageOptionsTest {
         Assertions.assertEquals("sk", options.get("aws_secret_access_key"));
         Assertions.assertEquals("token", options.get("aws_session_token"));
         Assertions.assertEquals("http://minio:9000", options.get("aws_endpoint"));
+        Assertions.assertEquals("http://minio:9000", options.get("aws_endpoint_url_s3"));
         Assertions.assertEquals("us-east-1", options.get("aws_region"));
         Assertions.assertEquals("false", options.get("aws_virtual_hosted_style_request"));
         // Lance refuses a plain-HTTP endpoint without this.
         Assertions.assertEquals("true", options.get("allow_http"));
         Assertions.assertEquals(
                 new TreeSet<>(Arrays.asList("aws_access_key_id", "aws_secret_access_key",
-                        "aws_session_token", "aws_endpoint", "aws_region",
+                        "aws_session_token", "aws_endpoint", "aws_endpoint_url_s3", "aws_region",
                         "aws_virtual_hosted_style_request", "allow_http")),
                 new TreeSet<>(options.keySet()));
     }
@@ -72,6 +73,40 @@ class LanceStorageOptionsTest {
         Map<String, String> options = LanceStorageOptions.fromDorisStorageProperties(S3_URI,
                 Collections.singletonList(minio()));
         Assertions.assertEquals("", options.get("aws_session_token"));
+    }
+
+    @Test
+    void assumeRoleWithSourceKeysIsRejectedInsteadOfUsingTheSourceIdentity() {
+        IllegalArgumentException error = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> LanceStorageOptions.fromDorisStorageProperties(S3_URI,
+                        Collections.singletonList(minio().roleArn("arn:aws:iam::123456789012:role/lance")
+                                .externalId("lance-external-id"))));
+        Assertions.assertTrue(error.getMessage().contains("AssumeRole access is not supported"));
+    }
+
+    @Test
+    void finalEndpointBlocksAmbientServiceEndpointsEvenWithExplicitAllowHttp() {
+        Map<String, String> options = LanceStorageOptions.fromDorisAndVendedStorageOptions(S3_URI,
+                Collections.singletonList(minio()),
+                Map.of("endpoint", "https://vended.example", "allow_http", "false"));
+        Assertions.assertEquals("https://vended.example", options.get("aws_endpoint"));
+        Assertions.assertEquals("https://vended.example", options.get("aws_endpoint_url_s3"));
+        Assertions.assertEquals("false", options.get("allow_http"));
+    }
+
+    @Test
+    void vendedServiceEndpointWinsAndControlsHttpInference() {
+        Map<String, String> options = LanceStorageOptions.fromDorisAndVendedStorageOptions(S3_URI,
+                Collections.singletonList(minio().endpoint("https://catalog.example")),
+                Map.of("aws_endpoint_url_s3", "http://vended.example:9000"));
+        Assertions.assertEquals("http://vended.example:9000", options.get("aws_endpoint_url_s3"));
+        Assertions.assertEquals("true", options.get("allow_http"));
+
+        options = LanceStorageOptions.fromDorisAndVendedStorageOptions(S3_URI,
+                Collections.singletonList(minio()),
+                Map.of("AWS_ENDPOINT_URL_S3", "https://vended.example"));
+        Assertions.assertEquals("https://vended.example", options.get("aws_endpoint_url_s3"));
+        Assertions.assertFalse(options.containsKey("allow_http"));
     }
 
     @Test

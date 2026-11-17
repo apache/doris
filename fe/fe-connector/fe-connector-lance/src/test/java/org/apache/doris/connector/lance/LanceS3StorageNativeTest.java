@@ -31,11 +31,11 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
-/** Exercises the native HTTP/signing boundary in a process with an unrelated AWS identity. */
+/** Exercises native HTTP/signing with unrelated AWS credentials and endpoints in the environment. */
 class LanceS3StorageNativeTest {
 
     @Test
-    void explicitPermanentKeysOverrideTheWholeAmbientIdentity() throws Exception {
+    void explicitS3ConfigurationOverridesAmbientIdentityAndEndpoints() throws Exception {
         LanceNativeTestSupport.requireNativeLibraries();
         AtomicReference<String> authorization = new AtomicReference<>();
         AtomicReference<String> token = new AtomicReference<>();
@@ -69,6 +69,8 @@ class LanceS3StorageNativeTest {
             builder.environment().put("AWS_ACCESS_KEY_ID", "ambient-ak");
             builder.environment().put("AWS_SECRET_ACCESS_KEY", "ambient-sk");
             builder.environment().put("AWS_SESSION_TOKEN", "ambient-token");
+            builder.environment().put("AWS_ENDPOINT_URL", "http://127.0.0.1:1");
+            builder.environment().put("AWS_ENDPOINT_URL_S3", "http://127.0.0.1:1");
             process = builder.start();
             Assertions.assertTrue(process.waitFor(30, TimeUnit.SECONDS), "native listing timed out");
             String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);

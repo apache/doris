@@ -172,6 +172,26 @@ suite("test_lance_catalog_all_types", "p0,external") {
         exception "Lance FOR VERSION AS OF requires a positive version, but was 0"
     }
 
+    // Source keys for AssumeRole must never be used directly as the dataset identity.
+    sql """DROP CATALOG IF EXISTS `test_lance_assume_role_not_supported`"""
+    sql """
+        CREATE CATALOG `test_lance_assume_role_not_supported` PROPERTIES (
+            "type" = "lance",
+            "warehouse" = "s3://warehouse/lance",
+            "s3.endpoint" = "http://${externalEnvIp}:${minioPort}",
+            "s3.access_key" = "admin",
+            "s3.secret_key" = "password",
+            "s3.region" = "us-east-1",
+            "use_path_style" = "true",
+            "s3.role_arn" = "arn:aws:iam::123456789012:role/lance",
+            "s3.external_id" = "lance-external-id"
+        )
+    """
+    test {
+        sql """SHOW DATABASES FROM `test_lance_assume_role_not_supported`"""
+        exception "Lance S3 AssumeRole access is not supported yet"
+    }
+
     // REST catalogs are not served yet: CREATE says so instead of building a catalog nothing can read.
     sql """DROP CATALOG IF EXISTS `test_lance_rest_not_supported`"""
     test {
