@@ -1551,7 +1551,8 @@ Status TableReader::create_file_reader(std::unique_ptr<FileReader>* reader) {
         *reader = std::make_unique<format::orc::OrcReader>(
                 _system_properties, _current_task->data_file, _io_ctx, _scanner_profile,
                 _global_rowid_context, enable_mapping_timestamp_tz, enable_mapping_varbinary,
-                _current_task->file_context);
+                _current_task->file_context, _current_task->format_split_id,
+                _current_task->format_split_id_end);
         return Status::OK();
     }
     if (_format == FileFormat::CSV) {

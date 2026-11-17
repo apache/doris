@@ -4708,7 +4708,8 @@ protected:
     std::unique_ptr<format::orc::OrcReader> create_reader_with_range(
             const std::string& file_path, int64_t range_start_offset, int64_t range_size,
             RuntimeProfile* profile = nullptr, int64_t mtime = 0,
-            std::shared_ptr<const FileContext> file_context = nullptr) const {
+            std::shared_ptr<const FileContext> file_context = nullptr, int64_t format_split_id = -1,
+            int64_t format_split_id_end = -1) const {
         auto system_properties = std::make_shared<io::FileSystemProperties>();
         system_properties->system_type = TFileType::FILE_LOCAL;
         auto file_description = std::make_unique<io::FileDescription>();
@@ -4717,9 +4718,9 @@ protected:
         file_description->range_start_offset = range_start_offset;
         file_description->range_size = range_size;
         file_description->mtime = mtime;
-        return std::make_unique<format::orc::OrcReader>(system_properties, file_description,
-                                                        nullptr, profile, std::nullopt, false,
-                                                        false, std::move(file_context));
+        return std::make_unique<format::orc::OrcReader>(
+                system_properties, file_description, nullptr, profile, std::nullopt, false, false,
+                std::move(file_context), format_split_id, format_split_id_end);
     }
 
     Status scan_direct_in_filter(const std::string& file_path, int32_t in_list_size,
@@ -5102,6 +5103,118 @@ TEST_F(NewOrcReaderTest, PhysicalStripeChildrenReuseOnlyParentTailAndReadExactRo
         rows_read += rows;
     }
     EXPECT_EQ(rows_read, layout[0].rows);
+}
+
+TEST_F(NewOrcReaderTest, PhysicalStripeChildrenBoundSargDirectoryVisits) {
+    const auto path = (_test_dir / "bounded_stripe_directory.orc").string();
+    constexpr size_t STRIPES = 8;
+    constexpr int64_t ROWS_PER_STRIPE = 200;
+    std::vector<int64_t> first_values;
+    for (size_t i = 0; i < STRIPES; ++i) {
+        first_values.push_back(1 + i * ROWS_PER_STRIPE);
+    }
+    write_multi_stripe_orc_int_file(path, first_values);
+    const auto layout = get_orc_stripe_layout(path);
+    ASSERT_EQ(layout.size(), STRIPES);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    format::ColumnDefinition column;
+    column.identifier = Field::create_field<TYPE_STRING>("id");
+    column.name = "id";
+    column.type = make_nullable(std::make_shared<DataTypeInt32>());
+    const auto init_reader = [&](format::TableReader* reader) {
+        const auto int_type = std::make_shared<DataTypeInt32>();
+        const auto bool_type = make_nullable(std::make_shared<DataTypeUInt8>());
+        TFunctionName name;
+        name.__set_function_name("lt");
+        TFunction function;
+        function.__set_name(name);
+        function.__set_binary_type(TFunctionBinaryType::BUILTIN);
+        function.__set_arg_types({column.type->to_thrift(), int_type->to_thrift()});
+        function.__set_ret_type(bool_type->to_thrift());
+        function.__set_has_var_args(false);
+        TExprNode node;
+        node.__set_node_type(TExprNodeType::BINARY_PRED);
+        node.__set_opcode(TExprOpcode::LT);
+        node.__set_type(bool_type->to_thrift());
+        node.__set_fn(function);
+        node.__set_num_children(2);
+        node.__set_is_nullable(true);
+        auto predicate = VectorizedFnCall::create_shared(node);
+        predicate->add_child(VSlotRef::create_shared(0, 0, 0, column.type, "id"));
+        predicate->add_child(
+                VLiteral::create_shared(int_type, Field::create_field<TYPE_INT>(1000000)));
+        return reader->init({
+                .projected_columns = {column},
+                .conjuncts = {VExprContext::create_shared(std::move(predicate))},
+                .format = format::FileFormat::ORC,
+                .scan_params = nullptr,
+                .io_ctx = nullptr,
+                .runtime_state = &state,
+                .scanner_profile = nullptr,
+        });
+    };
+    // Exercise both one-stripe children and the inclusive id-end of coalesced children through
+    // TableReader's real factory, so dropping either id argument reintroduces full-file visits.
+    for (const int64_t target : {int64_t {1}, cast_set<int64_t>(layout[0].length * 4)}) {
+        format::TableReader source_reader;
+        ASSERT_TRUE(init_reader(&source_reader).ok());
+        format::SplitReadOptions options;
+        options.current_split_format = format::FileFormat::ORC;
+        options.current_range.__set_path(path);
+        options.current_range.__set_file_size(std::filesystem::file_size(path));
+        options.current_range.__set_start_offset(0);
+        options.current_range.__set_size(std::filesystem::file_size(path));
+        options.current_range.__set_modification_time(17);
+        options.current_range.__set_target_split_size(target);
+        ASSERT_TRUE(source_reader.prepare_split(options).ok());
+        FileScanSplit source;
+        source.range = options.current_range;
+        source.is_source_split = true;
+        std::vector<FileScanSplit> children;
+        bool was_split = false;
+        const auto split_status =
+                source_reader.build_physical_splits(source, &children, &was_split);
+        ASSERT_TRUE(split_status.ok()) << split_status;
+        ASSERT_TRUE(was_split);
+        ASSERT_GT(children.size(), 1);
+        if (target == 1) {
+            ASSERT_EQ(children.size(), STRIPES);
+        } else {
+            ASSERT_LT(children.size(), STRIPES);
+        }
+        size_t directory_visits = 0;
+        size_t total_rows = 0;
+        for (const auto& child : children) {
+            format::TableReader reader;
+            ASSERT_TRUE(init_reader(&reader).ok());
+            options.current_range = child.materialize_range();
+            options.file_context = child.file_context;
+            options.format_split_id = child.format_split_id;
+            options.format_split_id_end = child.format_split_id_end;
+            ASSERT_TRUE(reader.prepare_split(options).ok());
+            bool eof = false;
+            ASSERT_TRUE(reader.create_next_reader(&eof).ok());
+            ASSERT_FALSE(eof);
+            const auto* orc_reader =
+                    dynamic_cast<const format::orc::OrcReader*>(reader._data_reader.reader.get());
+            ASSERT_NE(orc_reader, nullptr);
+            directory_visits += orc_reader->_stripe_ownership_visits;
+            while (!eof) {
+                auto block = build_file_block({column});
+                ASSERT_TRUE(reader.get_block(&block, &eof).ok());
+                const auto& ids = assert_cast<const ColumnInt32&>(
+                        assert_cast<const ColumnNullable&>(*block.get_by_position(0).column)
+                                .get_nested_column());
+                for (size_t row = 0; row < block.rows(); ++row) {
+                    EXPECT_EQ(ids.get_element(row), ++total_rows);
+                }
+            }
+            ASSERT_TRUE(reader.close().ok());
+        }
+        EXPECT_EQ(total_rows, STRIPES * ROWS_PER_STRIPE);
+        EXPECT_EQ(directory_visits, STRIPES);
+        ASSERT_TRUE(source_reader.close().ok());
+    }
 }
 
 TEST_F(NewOrcReaderTest, OpenAcceptsDorisOffsetTimezone) {
@@ -11429,6 +11542,96 @@ TEST_F(NewOrcReaderTest, AdjacentNanosStripesReuseOneRowReader) {
     }
     EXPECT_EQ(total, STRIPES);
     EXPECT_EQ(profile.get_counter("OrcRowReadersCreated")->value(), 1);
+}
+
+TEST_F(NewOrcReaderTest, PhysicalTimestampChildrenUseSharedRowPrefixes) {
+    const auto path = (_test_dir / "timestamp_child_prefixes.orc").string();
+    auto type = ::orc::createStructType();
+    auto ns = ::orc::createPrimitiveType(::orc::TIMESTAMP);
+    ns->setAttribute("iceberg.timestamp-unit", "NANOS");
+    type->addStructField("ns", std::move(ns));
+    MemoryOutputStream stream(1024 * 1024);
+    ::orc::WriterOptions options;
+    options.setTimezoneName("UTC");
+    options.setStripeSize(0);
+    auto writer = ::orc::createWriter(*type, &stream, options);
+    constexpr size_t STRIPES = 32;
+    size_t file_rows = 0;
+    for (size_t i = 0; i < STRIPES; ++i) {
+        const size_t rows = i % 3 + 1;
+        auto batch = writer->createRowBatch(rows);
+        auto& root = dynamic_cast<::orc::StructVectorBatch&>(*batch);
+        root.numElements = rows;
+        auto& ts = dynamic_cast<::orc::TimestampVectorBatch&>(*root.fields[0]);
+        ts.numElements = rows;
+        for (size_t row = 0; row < rows; ++row) {
+            ts.data[row] = 0;
+            ts.nanoseconds[row] = cast_set<int64_t>(file_rows++);
+        }
+        writer->add(*batch);
+    }
+    writer->close();
+    {
+        std::ofstream out(path, std::ios::binary);
+        out.write(stream.getData(), static_cast<std::streamsize>(stream.getLength()));
+    }
+    const auto layout = get_orc_stripe_layout(path);
+    ASSERT_EQ(layout.size(), STRIPES);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto parent = create_reader_with_range(path, 0, -1, nullptr, 17);
+    ASSERT_TRUE(parent->init(&state).ok());
+    ASSERT_TRUE(parent->open(std::make_shared<format::FileScanRequest>()).ok());
+    std::vector<format::PhysicalFileSplit> splits;
+    bool was_split = false;
+    ASSERT_TRUE(parent->build_physical_splits(&splits, &was_split).ok());
+    ASSERT_TRUE(was_split);
+    ASSERT_EQ(splits.size(), STRIPES);
+    const auto context = splits[0].file_context;
+    ASSERT_TRUE(parent->close().ok());
+    for (const size_t group_size : {size_t {1}, size_t {4}}) {
+        size_t directory_visits = 0;
+        size_t timestamp_visits = 0;
+        size_t total_rows = 0;
+        for (size_t first = 0; first < STRIPES; first += group_size) {
+            const auto last = first + group_size - 1;
+            const auto offset = layout[first].offset;
+            const auto size = layout[last].offset + layout[last].length - offset;
+            auto reader = create_reader_with_range(
+                    path, cast_set<int64_t>(offset), cast_set<int64_t>(size), nullptr, 17, context,
+                    cast_set<int64_t>(first), cast_set<int64_t>(last));
+            ASSERT_TRUE(reader->init(&state).ok());
+            std::vector<format::ColumnDefinition> schema;
+            ASSERT_TRUE(reader->get_schema(&schema).ok());
+            schema.push_back(format::orc::OrcReader::row_position_column_definition());
+            auto request = std::make_shared<format::FileScanRequest>();
+            request->non_predicate_columns = {field_projection(0),
+                                              field_projection(format::ROW_POSITION_COLUMN_ID)};
+            request->local_positions = {
+                    {format::LocalColumnId(0), format::LocalIndex(0)},
+                    {format::LocalColumnId(format::ROW_POSITION_COLUMN_ID), format::LocalIndex(1)}};
+            ASSERT_TRUE(reader->open(request).ok());
+            directory_visits += reader->_stripe_ownership_visits;
+            timestamp_visits += reader->_timestamp_stripe_visits;
+            bool eof = false;
+            while (!eof) {
+                auto block = build_file_block(schema);
+                size_t rows = 0;
+                ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+                const auto& values = assert_cast<const ColumnTimeStampNs&>(
+                        assert_cast<const ColumnNullable&>(*block.get_by_position(0).column)
+                                .get_nested_column());
+                const auto& positions = int64_data_column(*block.get_by_position(1).column);
+                for (size_t row = 0; row < rows; ++row, ++total_rows) {
+                    EXPECT_EQ(values.get_element(row).epoch_nanos(), total_rows);
+                    EXPECT_EQ(positions.get_element(row), total_rows);
+                }
+            }
+            ASSERT_TRUE(reader->close().ok());
+        }
+        EXPECT_EQ(total_rows, file_rows);
+        EXPECT_EQ(directory_visits, STRIPES);
+        EXPECT_EQ(timestamp_visits, STRIPES);
+    }
 }
 
 TEST_F(NewOrcReaderTest, JavaNanosSiblingPreservesHistoricalCivilTime) {

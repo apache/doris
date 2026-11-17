@@ -1138,12 +1138,15 @@ OrcReader::OrcReader(std::shared_ptr<io::FileSystemProperties>& system_propertie
                      std::shared_ptr<io::IOContext> io_ctx, RuntimeProfile* profile,
                      std::optional<format::GlobalRowIdContext> global_rowid_context,
                      bool enable_mapping_timestamp_tz, bool enable_mapping_varbinary,
-                     std::shared_ptr<const FileContext> file_context)
+                     std::shared_ptr<const FileContext> file_context, int64_t format_split_id,
+                     int64_t format_split_id_end)
         : FileReader(system_properties, file_description, io_ctx, profile),
           _global_rowid_context(std::move(global_rowid_context)),
           _enable_mapping_timestamp_tz(enable_mapping_timestamp_tz),
           _enable_mapping_varbinary(enable_mapping_varbinary),
-          _file_context(std::move(file_context)) {}
+          _file_context(std::move(file_context)),
+          _format_split_id(format_split_id),
+          _format_split_id_end(format_split_id_end) {}
 
 OrcReader::~OrcReader() = default;
 
@@ -1397,12 +1400,15 @@ Status OrcReader::init(RuntimeState* state) {
             }
             const auto stripe_count = reader.getNumberOfStripes();
             context->stripes.reserve(stripe_count);
+            uint64_t first_row = 0;
             for (uint64_t stripe_id = 0; stripe_id < stripe_count; ++stripe_id) {
                 const auto stripe = reader.getStripe(stripe_id);
                 DORIS_CHECK(stripe != nullptr);
                 context->stripes.push_back({.offset = stripe->getOffset(),
                                             .length = stripe->getLength(),
-                                            .rows = stripe->getNumberOfRows()});
+                                            .rows = stripe->getNumberOfRows(),
+                                            .first_row = first_row});
+                first_row += context->stripes.back().rows;
             }
         } catch (const std::exception& e) {
             return Status::InternalError("Failed to cache ORC file context for {}: {}",
@@ -2021,13 +2027,29 @@ Status OrcReader::_collect_split_stripes(std::vector<uint64_t>* stripe_indices) 
     stripe_indices->clear();
     DORIS_CHECK(_state->file_context != nullptr);
     const auto stripe_count = _state->file_context->stripes.size();
-    stripe_indices->reserve(stripe_count);
-
+    uint64_t first_stripe = 0;
+    uint64_t stripe_end = stripe_count;
     uint64_t split_start = 0;
     uint64_t split_end = std::numeric_limits<uint64_t>::max();
-    _split_byte_window(&split_start, &split_end);
+    // A generated child already owns an exact inclusive stripe-id interval. For example, child
+    // [17, 17] of a 64-stripe file must visit/reserve one entry, not rediscover it among all 64.
+    if (_format_split_id >= 0) {
+        const auto last_stripe =
+                _format_split_id_end >= 0 ? _format_split_id_end : _format_split_id;
+        DORIS_CHECK(last_stripe >= _format_split_id);
+        DORIS_CHECK(static_cast<uint64_t>(last_stripe) < stripe_count);
+        first_stripe = static_cast<uint64_t>(_format_split_id);
+        stripe_end = static_cast<uint64_t>(last_stripe) + 1;
+    } else {
+        // Original FE ranges have no physical ids and still resolve ownership by byte offsets.
+        _split_byte_window(&split_start, &split_end);
+    }
+    stripe_indices->reserve(stripe_end - first_stripe);
 
-    for (uint64_t stripe_index = 0; stripe_index < stripe_count; ++stripe_index) {
+    for (uint64_t stripe_index = first_stripe; stripe_index < stripe_end; ++stripe_index) {
+#ifdef BE_TEST
+        ++_stripe_ownership_visits;
+#endif
         const auto stripe_offset = _state->file_context->stripes[stripe_index].offset;
         if (stripe_offset >= split_start && stripe_offset < split_end) {
             stripe_indices->push_back(stripe_index);
@@ -2247,38 +2269,39 @@ Status OrcReader::_prepare_timestamp_stripe_ranges() {
         return Status::OK();
     }
     try {
-        uint64_t first_row = 0;
-        size_t selected = 0;
         std::string previous_timezone;
-        for (uint64_t index = 0; index <= stripes.back(); ++index) {
+        // Row prefixes belong to the shared immutable directory. A child starting at stripe 17
+        // must not reopen stripes 0..16 merely to recover its file-global row position.
+        for (const auto index : stripes) {
+#ifdef BE_TEST
+            ++_timestamp_stripe_visits;
+#endif
             const auto stripe = _state->reader->getStripe(index);
-            const auto end_row = first_row + stripe->getNumberOfRows();
-            if (index == stripes[selected]) {
-                const auto& name = stripe->getWriterTimezone();
-                const std::string timezone = name.empty() ? "GMT" : name;
-                auto& ranges = _state->selected_stripe_ranges;
-                // Each SDK RowReader scans the entire stripe directory. Reuse it across
-                // adjacent stripes with the same timezone to avoid quadratic setup work.
-                if (!ranges.empty() && ranges.back().last_stripe == index &&
-                    previous_timezone == timezone) {
-                    auto& range = ranges.back();
-                    range.last_stripe = index + 1;
-                    range.length = stripe->getOffset() + stripe->getLength() - range.offset;
-                    range.end_row = end_row;
-                } else {
-                    ranges.push_back({
-                            .first_stripe = index,
-                            .last_stripe = index + 1,
-                            .offset = stripe->getOffset(),
-                            .length = stripe->getLength(),
-                            .first_row = first_row,
-                            .end_row = end_row,
-                    });
-                }
-                previous_timezone = timezone;
-                ++selected;
+            const auto& metadata = _state->file_context->stripes[index];
+            const auto first_row = metadata.first_row;
+            const auto end_row = first_row + metadata.rows;
+            const auto& name = stripe->getWriterTimezone();
+            const std::string timezone = name.empty() ? "GMT" : name;
+            auto& ranges = _state->selected_stripe_ranges;
+            // Each SDK RowReader scans the entire stripe directory. Reuse it across
+            // adjacent stripes with the same timezone to avoid quadratic setup work.
+            if (!ranges.empty() && ranges.back().last_stripe == index &&
+                previous_timezone == timezone) {
+                auto& range = ranges.back();
+                range.last_stripe = index + 1;
+                range.length = stripe->getOffset() + stripe->getLength() - range.offset;
+                range.end_row = end_row;
+            } else {
+                ranges.push_back({
+                        .first_stripe = index,
+                        .last_stripe = index + 1,
+                        .offset = stripe->getOffset(),
+                        .length = stripe->getLength(),
+                        .first_row = first_row,
+                        .end_row = end_row,
+                });
             }
-            first_row = end_row;
+            previous_timezone = timezone;
         }
     } catch (const std::exception& e) {
         return Status::InternalError("Failed to prepare ORC timestamp stripe ranges: {}", e.what());

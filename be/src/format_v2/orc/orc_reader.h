@@ -42,6 +42,7 @@ struct OrcStripeMetadata {
     uint64_t offset = 0;
     uint64_t length = 0;
     uint64_t rows = 0;
+    uint64_t first_row = 0;
 };
 
 // ORC readers keep independent row/stripe execution state. Only the immutable serialized tail and
@@ -66,7 +67,8 @@ public:
               std::shared_ptr<io::IOContext> io_ctx, RuntimeProfile* profile,
               std::optional<format::GlobalRowIdContext> global_rowid_context = std::nullopt,
               bool enable_mapping_timestamp_tz = false, bool enable_mapping_varbinary = false,
-              std::shared_ptr<const FileContext> file_context = nullptr);
+              std::shared_ptr<const FileContext> file_context = nullptr,
+              int64_t format_split_id = -1, int64_t format_split_id_end = -1);
     ~OrcReader() override;
 
     static format::ColumnDefinition row_position_column_definition();
@@ -225,6 +227,12 @@ private:
     bool _enable_mapping_varbinary = false;
     size_t _batch_size = 0;
     std::shared_ptr<const FileContext> _file_context;
+    int64_t _format_split_id = -1;
+    int64_t _format_split_id_end = -1;
+#ifdef BE_TEST
+    mutable size_t _stripe_ownership_visits = 0;
+    size_t _timestamp_stripe_visits = 0;
+#endif
 };
 
 } // namespace doris::format::orc
