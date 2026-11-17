@@ -111,7 +111,7 @@ for d in hadoop-hudi-scanner trino-connector-scanner max-compute-connector; do
     fi
 done
 # Dropped from both tags.
-for d in be/lib/meta_tool be/lib/cdc_client fe/arthas; do
+for d in be/lib/meta_tool be/lib/cdc_client fe/arthas fe/mysql_ssl_default_certificate; do
     ! in_image "${d}" || fail "${d} should have been pruned"
     echo "  ok ${d} absent"
 done
@@ -131,9 +131,7 @@ q "insert into smoke.t values (1,'a','2026-01-01'),(2,'b','2026-01-02')"
 echo "  2 rows"
 
 step "stream load"
-printf '3,c,2026-01-03\n' >/tmp/smoke_load.csv
-docker cp /tmp/smoke_load.csv "${CID}:/tmp/smoke_load.csv" >/dev/null
-rm -f /tmp/smoke_load.csv
+docker exec "${CID}" bash -c "printf '3,c,2026-01-03\\n' > /tmp/smoke_load.csv"
 docker exec "${CID}" curl -sS -u root: \
     -H "column_separator:," -H "Expect:100-continue" \
     -T /tmp/smoke_load.csv \

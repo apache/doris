@@ -80,6 +80,34 @@ narrowed to a few KB by `Dockerfile.dockerignore`; a local `./output` or a
 tarball directory is passed as BuildKit named contexts instead, so it can live
 anywhere. Run the script from anywhere.
 
+## Runtime security
+
+The default base is a digest-pinned Temurin 17 JRE on Ubuntu 22.04. It provides
+the maintained JVM and CA bundle; the shared `base-image/install-runtime.sh`
+updates APT first, upgrades retained packages over HTTPS, and records installed
+versions at `/usr/share/doris/runtime-packages.tsv`. Binutils is installed only
+in the artifact stage. The runtime does not inherit the component images' OS
+packages or Operator tools.
+
+For a security rebuild, refresh the pinned base and run `build.sh --no-cache`.
+The script always checks for the selected base with `--pull`. Set `BASE_IMAGE`
+to an approved Jammy-based JRE image with `JAVA_HOME` and a CA bundle, and
+`FE_IMAGE`, `BE_IMAGE`, and `MS_IMAGE` to published component references such
+as `apache/doris@sha256:<digest>` when reproducible artifact inputs are needed.
+These environment variables are forwarded as Docker build arguments.
+`JDK_PKG` is replaced by selection of the JRE through `BASE_IMAGE`.
+
+All three input modes and both flavors remove
+`fe/mysql_ssl_default_certificate/` before the final image copy. Arthas is
+also removed in every mode. MySQL SSL remains off by default; enabling it
+requires mounting private certificate stores and configuring the existing FE
+certificate paths and passwords described in [the runtime README](../../README.md#mysql-tls-certificates).
+For directory inputs, verify the release archive's published checksum before
+extracting it; the build takes those local directories as supplied.
+
+The size and emulation timings in this README were measured with the earlier
+Ubuntu/OpenJDK-package base, before the Temurin JRE change.
+
 ## Multi-architecture
 
 One tag can serve both architectures, the way `apache/doris:fe-4.1.3` does: the
@@ -92,7 +120,7 @@ apache/doris:all-in-one-4.1.3   ->  index
                                       \- linux/arm64
 ```
 
-Nothing in the Dockerfile is architecture-specific beyond one JDK symlink;
+The JRE image and component sources resolve to the requested architecture;
 `COPY --from=apache/doris:be-4.1.3` resolves to the target platform's variant on
 its own, so no per-arch directories have to be staged by hand.
 
